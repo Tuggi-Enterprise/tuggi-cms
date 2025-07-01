@@ -30,13 +30,49 @@ interface PlaceDetailsResult extends PlaceSearchResult {
   url?: string
   vicinity?: string
   business_status?: string
+  address_components?: Array<{
+    long_name: string
+    short_name: string
+    types: string[]
+  }>
+}
+
+// Country to language mapping for localized place names
+const COUNTRY_LANGUAGE_MAP: Record<string, string> = {
+  'BR': 'pt-BR', // Brazil -> Portuguese
+  'ES': 'es',    // Spain -> Spanish
+  'FR': 'fr',    // France -> French
+  'DE': 'de',    // Germany -> German
+  'IT': 'it',    // Italy -> Italian
+  'JP': 'ja',    // Japan -> Japanese
+  'KR': 'ko',    // Korea -> Korean
+  'CN': 'zh',    // China -> Chinese
+  'RU': 'ru',    // Russia -> Russian
+  'AR': 'es',    // Argentina -> Spanish
+  'MX': 'es',    // Mexico -> Spanish
+  'PT': 'pt',    // Portugal -> Portuguese
+  'US': 'en',    // United States -> English
+  'GB': 'en',    // United Kingdom -> English
+  'CA': 'en',    // Canada -> English (could be 'fr' for Quebec)
+  'AU': 'en',    // Australia -> English
+  // Add more as needed
 }
 
 class GooglePlacesService {
-  private apiKey: string
+  private language: string = 'en' // Default language
 
-  constructor(apiKey: string) {
-    this.apiKey = apiKey
+  constructor(countryCode?: string) {
+    // Set language based on country code
+    if (countryCode && COUNTRY_LANGUAGE_MAP[countryCode]) {
+      this.language = COUNTRY_LANGUAGE_MAP[countryCode]
+    }
+  }
+
+  /**
+   * Set the language for API calls
+   */
+  setLanguage(countryCode: string) {
+    this.language = COUNTRY_LANGUAGE_MAP[countryCode] || 'en'
   }
 
   /**
@@ -52,19 +88,54 @@ class GooglePlacesService {
     const center = this.calculatePolygonCenter(polygon)
     const radius = this.calculatePolygonRadius(polygon, center)
 
-    // Perform nearby search
-    const nearbyResults = await this.nearbySearch(center, radius, type, keyword)
+    let allResults: PlaceSearchResult[] = []
+
+    if (type === 'all') {
+      // Search for multiple types when 'all' is selected
+      const typesToSearch = [
+        'tourist_attraction', 'museum', 'park', 'church', 'stadium', 
+        'library', 'aquarium', 'zoo', 'amusement_park', 'art_gallery',
+        'shopping_mall', 'restaurant', 'lodging', 'hospital', 'university'
+      ]
+      
+      console.log(`Searching for all categories in polygon (${typesToSearch.length} types)`)
+      
+      // Search for each type and combine results
+      for (const searchType of typesToSearch) {
+        try {
+          const typeResults = await this.nearbySearch(center, radius, searchType, keyword)
+          allResults = [...allResults, ...typeResults]
+          
+          // Add small delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 100))
+        } catch (error) {
+          console.warn(`Error searching for type ${searchType}:`, error)
+        }
+      }
+      
+      // Remove duplicates based on place_id
+      const uniqueResults = allResults.filter((place, index, self) => 
+        index === self.findIndex(p => p.place_id === place.place_id)
+      )
+      
+      console.log(`Found ${uniqueResults.length} unique places across all categories`)
+      allResults = uniqueResults
+    } else {
+      // Perform nearby search for specific type
+      allResults = await this.nearbySearch(center, radius, type, keyword)
+    }
     
     // Filter results to only include places actually within the polygon
-    const filteredResults = nearbyResults.filter(place => 
+    const filteredResults = allResults.filter(place => 
       this.isPointInPolygon(place.geometry.location, polygon)
     )
 
+    console.log(`Search completed: ${allResults.length} found, ${filteredResults.length} within polygon`)
     return filteredResults
   }
 
   /**
-   * Perform a Google Places Nearby Search
+   * Perform a Google Places Nearby Search via our API route
    */
   private async nearbySearch(
     center: {lat: number, lng: number},
@@ -76,23 +147,23 @@ class GooglePlacesService {
       location: `${center.lat},${center.lng}`,
       radius: Math.min(radius, 50000).toString(), // Max 50km radius
       type: type,
-      key: this.apiKey,
+      language: this.language, // Add language parameter
     })
 
     if (keyword) {
       params.append('keyword', keyword)
     }
 
-    const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?${params}`
+    const url = `/api/places/nearby?${params}`
     
     try {
       const response = await fetch(url)
       const data = await response.json()
 
-      if (data.status === 'OK') {
+      if (data.status === 'OK' || data.status === 'ZERO_RESULTS') {
         return data.results || []
       } else {
-        console.error('Google Places API error:', data.status, data.error_message)
+        console.error('Places API error:', data.status, data.error)
         return []
       }
     } catch (error) {
@@ -102,16 +173,16 @@ class GooglePlacesService {
   }
 
   /**
-   * Get detailed information about a specific place
+   * Get detailed information about a specific place via our API route
    */
   async getPlaceDetails(placeId: string): Promise<PlaceDetailsResult | null> {
     const params = new URLSearchParams({
       place_id: placeId,
-      fields: 'place_id,name,formatted_address,geometry,types,rating,user_ratings_total,photos,website,opening_hours,formatted_phone_number,international_phone_number,url,vicinity,business_status,price_level',
-      key: this.apiKey,
+      fields: 'place_id,name,formatted_address,geometry,types,rating,user_ratings_total,photos,website,opening_hours,formatted_phone_number,international_phone_number,url,vicinity,business_status,price_level,address_components',
+      language: this.language, // Add language parameter
     })
 
-    const url = `https://maps.googleapis.com/maps/api/place/details/json?${params}`
+    const url = `/api/places/details?${params}`
 
     try {
       const response = await fetch(url)
@@ -119,8 +190,11 @@ class GooglePlacesService {
 
       if (data.status === 'OK' && data.result) {
         return data.result
+      } else if (data.status === 'ZERO_RESULTS' || data.status === 'NOT_FOUND') {
+        // Valid responses that just mean no data found
+        return null
       } else {
-        console.error('Google Places Details API error:', data.status, data.error_message)
+        console.error('Places Details API error:', data.status, data.error)
         return null
       }
     } catch (error) {
@@ -329,13 +403,13 @@ export class MockGooglePlacesService {
 }
 
 // Export factory function
-export function createGooglePlacesService(apiKey?: string): GooglePlacesService | MockGooglePlacesService {
+export function createGooglePlacesService(apiKey?: string, countryCode?: string): GooglePlacesService | MockGooglePlacesService {
   if (apiKey && apiKey.trim() !== '') {
-    return new GooglePlacesService(apiKey)
+    return new GooglePlacesService(countryCode)
   } else {
     console.warn('No Google Maps API key provided, using mock service')
     return new MockGooglePlacesService()
   }
 }
 
-export type { PlaceSearchResult, PlaceDetailsResult } 
+export type { PlaceSearchResult, PlaceDetailsResult }

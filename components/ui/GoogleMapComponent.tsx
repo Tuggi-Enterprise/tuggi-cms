@@ -28,6 +28,8 @@ interface GoogleMapComponentProps {
   cityName?: string
   enableDrawing?: boolean
   showDrawingButton?: boolean
+  isLoading?: boolean
+  loadingMessage?: string
 }
 
 interface MapProps extends GoogleMapComponentProps {
@@ -419,6 +421,8 @@ function Map({
 export function GoogleMapComponent({
   height = '400px',
   className = '',
+  isLoading = false,
+  loadingMessage = 'Loading...',
   ...mapProps
 }: GoogleMapComponentProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
@@ -464,7 +468,22 @@ export function GoogleMapComponent({
           </div>
         )
       case Status.SUCCESS:
-        return <Map {...mapProps} />
+        return (
+          <div className="relative w-full h-full">
+            <Map {...mapProps} />
+            {isLoading && (
+              <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg shadow-lg p-6 flex items-center space-x-4 border border-gray-200">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                  <div>
+                    <p className="text-gray-900 font-medium">{loadingMessage}</p>
+                    <p className="text-gray-500 text-sm">This may take a moment...</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )
       default:
         return <div>Unknown status</div>
     }
