@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Tuggi Light Theme */
+    --background: 247 249 250; /* #F7F9FA */
+    --foreground: 16 16 16; /* #1A1A1A */
+    --card: 255 255 255;
+    --card-foreground: 16 16 16;
+    --popover: 255 255 255;
+    --popover-foreground: 16 16 16;
+    --primary: 0 168 232; /* #00A8E8 */
+    --primary-foreground: 255 255 255;
+    --secondary: 255 111 0; /* #FF6F00 */
+    --secondary-foreground: 255 255 255;
+    --muted: 240 244 247;
+    --muted-foreground: 107 114 126;
+    --accent: 240 244 247;
+    --accent-foreground: 16 16 16;
+    --destructive: 239 68 68;
+    --destructive-foreground: 255 255 255;
+    --border: 217 217 217; /* #D9D9D9 */
+    --input: 217 217 217;
+    --ring: 0 168 232;
+  }
+
+  .dark {
+    /* Tuggi Dark Theme */
+    --background: 16 16 16;
+    --foreground: 247 249 250;
+    --card: 32 32 32;
+    --card-foreground: 247 249 250;
+    --popover: 32 32 32;
+    --popover-foreground: 247 249 250;
+    --primary: 0 168 232;
+    --primary-foreground: 255 255 255;
+    --secondary: 255 111 0;
+    --secondary-foreground: 255 255 255;
+    --muted: 45 45 45;
+    --muted-foreground: 156 163 175;
+    --accent: 45 45 45;
+    --accent-foreground: 247 249 250;
+    --destructive: 220 38 38;
+    --destructive-foreground: 255 255 255;
+    --border: 64 64 64;
+    --input: 64 64 64;
+    --ring: 0 168 232;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-tuggi-background text-tuggi-text font-medium;
+  }
+  
+  /* Tuggi brand styling */
+  .tuggi-primary {
+    @apply bg-tuggi-blue text-white;
+  }
+  
+  .tuggi-secondary {
+    @apply bg-tuggi-orange text-white;
+  }
+  
+  .tuggi-card {
+    @apply bg-white border border-tuggi-border rounded-lg shadow-sm;
+  }
+  
+  .tuggi-input {
+    @apply border-tuggi-border bg-white text-tuggi-text placeholder-gray-500 focus:border-tuggi-blue focus:ring-tuggi-blue;
+  }
+  
+  .tuggi-button-primary {
+    @apply bg-tuggi-blue hover:bg-blue-600 text-white border-transparent focus:ring-tuggi-blue;
+  }
+  
+  .tuggi-button-secondary {
+    @apply bg-tuggi-orange hover:bg-orange-600 text-white border-transparent focus:ring-tuggi-orange;
+  }
+}
+
+/* Leaflet map dark mode styles */
+.dark .leaflet-container {
+  @apply bg-gray-900;
+}
+
+.dark .leaflet-tile {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+} 
