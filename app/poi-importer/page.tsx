@@ -1111,26 +1111,28 @@ export default function POIImporterPage() {
   }
 
   return (
-    <div className="h-screen flex overflow-hidden bg-gray-50">
-      {/* Left Control Panel */}
-      <div className={cn(
-        "bg-white border-r border-gray-200 transition-all duration-300 flex flex-col",
-        sidebarCollapsed ? "w-16" : "w-80"
-      )}>
-        {/* Header */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            {!sidebarCollapsed && (
-              <h1 className="text-lg font-semibold text-gray-900">POI Importer</h1>
-            )}
-            <button
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              className="p-2 rounded-md hover:bg-gray-100"
-            >
-              {sidebarCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-            </button>
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Top Section - Controls and Map (60% height) */}
+      <div className="flex-1 flex overflow-hidden" style={{ height: '60%' }}>
+        {/* Left Control Panel */}
+        <div className={cn(
+          "bg-white border-r border-gray-200 transition-all duration-300 flex flex-col",
+          sidebarCollapsed ? "w-16" : "w-80"
+        )}>
+          {/* Header */}
+          <div className="p-4 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              {!sidebarCollapsed && (
+                <h1 className="text-lg font-semibold text-gray-900">POI Importer</h1>
+              )}
+              <button
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                className="p-2 rounded-md hover:bg-gray-100"
+              >
+                {sidebarCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
-        </div>
 
         {!sidebarCollapsed && (
           <div className="flex-1 overflow-y-auto">
@@ -1418,32 +1420,33 @@ export default function POIImporterPage() {
         )}
       </div>
 
-      {/* Main Map Area */}
-      <div className="flex-1 relative">
-        <GoogleMapComponent
-          center={mapCenter}
-          zoom={mapZoom}
-          height="100vh"
-          enableDrawing={isDrawingMode}
-          onPolygonComplete={handlePolygonComplete}
-          markers={searchResults.map(place => ({
-            id: place.place_id,
-            position: place.geometry.location,
-            title: place.name,
-            description: `${place.formatted_address}${place.rating ? ` • ⭐ ${place.rating}` : ''}`,
-            color: place.alreadyExists ? '#6B7280' : place.isSelected ? '#3B82F6' : '#F59E0B'
-          }))}
-          polygon={currentPolygonCoords}
-          savedPolygons={savedPolygons}
-          cityBoundary={cityBoundary}
-          cityName={currentCityName}
-          isLoading={isSearching}
-          loadingMessage={isSearching ? searchStatus || 'Searching for places...' : ''}
-        />
+        {/* Main Map Area */}
+        <div className="flex-1 relative">
+          <GoogleMapComponent
+            center={mapCenter}
+            zoom={mapZoom}
+            height="100%"
+            enableDrawing={isDrawingMode}
+            onPolygonComplete={handlePolygonComplete}
+            markers={searchResults.map(place => ({
+              id: place.place_id,
+              position: place.geometry.location,
+              title: place.name,
+              description: `${place.formatted_address}${place.rating ? ` • ⭐ ${place.rating}` : ''}`,
+              color: place.alreadyExists ? '#6B7280' : place.isSelected ? '#3B82F6' : '#F59E0B'
+            }))}
+            polygon={currentPolygonCoords}
+            savedPolygons={savedPolygons}
+            cityBoundary={cityBoundary}
+            cityName={currentCityName}
+            isLoading={isSearching}
+            loadingMessage={isSearching ? searchStatus || 'Searching for places...' : ''}
+          />
+        </div>
       </div>
 
-      {/* Right Analysis Panel */}
-      <div className="w-96 bg-white border-l border-gray-200 flex flex-col">
+            {/* Bottom Analysis Panel (40% height) */}
+      <div className="bg-white border-t border-gray-200 flex flex-col" style={{ height: '40%' }}>
         {/* Analysis Header */}
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
@@ -1510,9 +1513,9 @@ export default function POIImporterPage() {
               <p className="text-sm">Draw a polygon and search for places to start analyzing</p>
             </div>
           ) : (
-            <div className="p-4 space-y-4">
+            <div className="p-4">{/* Horizontal layout container */}
               {/* Bulk Actions */}
-              <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg mb-4">
                 <button
                   onClick={() => {
                     setSearchResults(prev => prev.map(place => 
@@ -1538,8 +1541,9 @@ export default function POIImporterPage() {
                 )}
               </div>
 
-              {/* Place Analysis Cards */}
-              {searchResults.map((place) => {
+              {/* Place Analysis Cards - Horizontal Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {searchResults.map((place) => {
                 const details = selectedPlaceDetails[place.place_id]
                 const isLoadingDetails = loadingDetails.has(place.place_id)
                 
@@ -1552,8 +1556,8 @@ export default function POIImporterPage() {
                       place.alreadyExists && "opacity-60"
                     )}
                   >
-                    {/* Place Image */}
-                    <div className="relative h-32 bg-gray-100">
+                    {/* Place Image - Smaller for bottom panel */}
+                    <div className="relative h-24 bg-gray-100">
                       {place.thumbnail ? (
                         <img
                           src={place.thumbnail}
@@ -1578,8 +1582,8 @@ export default function POIImporterPage() {
                       )}
                     </div>
 
-                    {/* Place Details */}
-                    <div className="p-4">
+                    {/* Place Details - More compact for grid layout */}
+                    <div className="p-3">
                       <div className="flex items-start justify-between mb-2">
                         <h3 className="font-medium text-gray-900 flex-1">{place.name}</h3>
                         <button
@@ -1615,9 +1619,9 @@ export default function POIImporterPage() {
                         </div>
                       </div>
 
-                      {/* Expanded Details */}
+                      {/* Expanded Details - Compact for grid */}
                                                  {details && (
-                             <div className="mb-3 p-3 bg-gray-50 rounded-lg text-xs space-y-2">
+                             <div className="mb-2 p-2 bg-gray-50 rounded-lg text-xs space-y-1">
                                {/* Business Hours */}
                                {details.opening_hours && (
                                  <div className="flex items-center gap-2">
@@ -1694,9 +1698,9 @@ export default function POIImporterPage() {
                              </div>
                            )}
 
-                                             {/* Analysis Indicators */}
-                       <div className="mb-3">
-                         <div className="text-xs text-gray-600 mb-2">Tuggi Suitability Indicators:</div>
+                                             {/* Analysis Indicators - Compact */}
+                       <div className="mb-2">
+                         <div className="text-xs text-gray-600 mb-1">Tuggi Suitability:</div>
                          <div className="flex flex-wrap gap-1">
                            {place.rating && place.rating >= 4.0 && (
                              <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">⭐ High Rating</span>
@@ -1731,14 +1735,14 @@ export default function POIImporterPage() {
                          </div>
                        </div>
 
-                      {/* Decision Buttons */}
+                      {/* Decision Buttons - Compact */}
                       {!place.alreadyExists && (
                         <div className="space-y-2">
                           <div className="flex gap-2">
                             <button
                               onClick={() => togglePlaceSelection(place.place_id)}
                               className={cn(
-                                "flex-1 py-2 px-3 rounded text-sm font-medium transition-colors",
+                                "flex-1 py-1.5 px-2 rounded text-xs font-medium transition-colors",
                                 place.isSelected
                                   ? "bg-green-500 text-white hover:bg-green-600"
                                   : "bg-green-100 text-green-700 hover:bg-green-200"
@@ -1749,7 +1753,7 @@ export default function POIImporterPage() {
                             {place.isSelected && (
                               <button
                                 onClick={() => togglePlaceSelection(place.place_id)}
-                                className="px-3 py-2 bg-gray-100 text-gray-600 rounded text-sm hover:bg-gray-200"
+                                className="px-2 py-1.5 bg-gray-100 text-gray-600 rounded text-xs hover:bg-gray-200"
                               >
                                 Undo
                               </button>
@@ -1758,14 +1762,14 @@ export default function POIImporterPage() {
                           
                           {!place.isSelected && (
                             <div className="flex gap-1">
-                              <button className="flex-1 text-xs py-1 px-2 bg-red-50 text-red-600 rounded hover:bg-red-100">
-                                Not Tourist-Friendly
+                              <button className="flex-1 text-xs py-0.5 px-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
+                                Not Tourist
                               </button>
-                              <button className="flex-1 text-xs py-1 px-2 bg-red-50 text-red-600 rounded hover:bg-red-100">
+                              <button className="flex-1 text-xs py-0.5 px-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
                                 Poor Reviews
                               </button>
-                              <button className="flex-1 text-xs py-1 px-2 bg-red-50 text-red-600 rounded hover:bg-red-100">
-                                Permanently Closed
+                              <button className="flex-1 text-xs py-0.5 px-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
+                                Closed
                               </button>
                             </div>
                           )}
@@ -1774,18 +1778,19 @@ export default function POIImporterPage() {
                     </div>
                   </div>
                 )
-              })}
+                })}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Import Actions */}
+        {/* Import Actions - Sticky footer */}
         {getSelectedPlaces().length > 0 && (
-          <div className="p-4 border-t border-gray-200 bg-gray-50">
+          <div className="p-3 border-t border-gray-200 bg-gray-50">
             <button
               onClick={importSelectedPlaces}
               disabled={isImporting}
-              className="w-full px-4 py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
             >
               {isImporting ? (
                 <>
