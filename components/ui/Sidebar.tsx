@@ -16,7 +16,8 @@ import {
   X,
   Moon,
   Sun,
-  Settings
+  Settings,
+  Upload
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -31,6 +32,11 @@ const navigation = [
     name: 'POI Management',
     href: '/pois',
     icon: MapPin,
+  },
+  {
+    name: 'POI Importer',
+    href: '/poi-importer',
+    icon: Upload,
   },
   {
     name: 'Region Editor',
