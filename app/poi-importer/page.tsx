@@ -1446,7 +1446,7 @@ export default function POIImporterPage() {
       </div>
 
             {/* Bottom Analysis Panel (40% height) */}
-      <div className="bg-white border-t border-gray-200 flex flex-col" style={{ height: '40%' }}>
+      <div className="bg-white border-t border-gray-200 flex flex-col" style={{ height: '50%' }}>
         {/* Analysis Header */}
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
