@@ -62,9 +62,10 @@ export interface AttractionImage {
 export interface SavedPolygon {
   id: string
   name: string
-  polygon_data: any // GeoJSON
+  paths: any // GeoJSON
+  user_id: string
   created_at: string
-  updated_at: string
+  country_name?: string
 }
 
 export interface AttractionAnalytics {

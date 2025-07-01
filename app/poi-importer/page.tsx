@@ -17,7 +17,9 @@ interface SavedPolygon {
   id: string
   name: string
   paths: Array<{lat: number, lng: number}>
+  user_id: string
   created_at: string
+  country_name?: string
 }
 
 const POI_CATEGORIES = [
@@ -107,6 +109,8 @@ export default function POIImporterPage() {
     fetchSavedPolygons()
   }, [])
 
+
+
   const fetchSavedPolygons = async () => {
     try {
       const { data, error } = await supabase
@@ -117,11 +121,25 @@ export default function POIImporterPage() {
 
       if (error) throw error
 
+
+
       const polygons = data
-        .filter(item => item.geom && item.geom !== 'undefined')
+        .filter(item => item.paths && item.paths !== 'undefined')
         .map(item => {
           try {
-            const geom = typeof item.geom === 'string' ? JSON.parse(item.geom) : item.geom
+            const geom = typeof item.paths === 'string' ? JSON.parse(item.paths) : item.paths
+            
+            // Validate geometry structure
+            if (!geom || !geom.coordinates || !Array.isArray(geom.coordinates)) {
+              console.error(`Invalid geometry for polygon ${item.id}: missing coordinates array`)
+              return null
+            }
+            
+            if (geom.coordinates.length === 0 || !Array.isArray(geom.coordinates[0])) {
+              console.error(`Invalid geometry for polygon ${item.id}: empty or invalid coordinates[0]`)
+              return null
+            }
+            
             return {
               id: item.id,
               name: item.name,
@@ -129,7 +147,9 @@ export default function POIImporterPage() {
                 lat: coord[1],
                 lng: coord[0]
               })),
-              created_at: item.created_at
+              user_id: item.user_id,
+              created_at: item.created_at,
+              country_name: item.country_name
             }
           } catch (parseError) {
             console.error(`Error parsing polygon ${item.id}:`, parseError)
@@ -139,6 +159,49 @@ export default function POIImporterPage() {
         .filter(polygon => polygon !== null)
 
       setSavedPolygons(polygons)
+
+      // Auto-fit map to show all saved polygons if any exist
+      if (polygons.length > 0) {
+        let bounds = {
+          north: -90,
+          south: 90,
+          east: -180,
+          west: 180
+        }
+
+        polygons.forEach(polygon => {
+          polygon.paths.forEach(point => {
+            bounds.north = Math.max(bounds.north, point.lat)
+            bounds.south = Math.min(bounds.south, point.lat)
+            bounds.east = Math.max(bounds.east, point.lng)
+            bounds.west = Math.min(bounds.west, point.lng)
+          })
+        })
+
+        // Calculate center and zoom level for all polygons
+        const centerLat = (bounds.north + bounds.south) / 2
+        const centerLng = (bounds.east + bounds.west) / 2
+        
+        setMapCenter({ lat: centerLat, lng: centerLng })
+        
+        // Set zoom level based on bounds size (rough calculation)
+        const latDiff = bounds.north - bounds.south
+        const lngDiff = bounds.east - bounds.west
+        const maxDiff = Math.max(latDiff, lngDiff)
+        
+        let zoomLevel = 10
+        if (maxDiff < 0.01) zoomLevel = 16
+        else if (maxDiff < 0.05) zoomLevel = 14
+        else if (maxDiff < 0.1) zoomLevel = 12
+        else if (maxDiff < 0.5) zoomLevel = 10
+        else if (maxDiff < 1) zoomLevel = 8
+        else if (maxDiff < 5) zoomLevel = 6
+        else zoomLevel = 4
+        
+        setMapZoom(zoomLevel)
+        
+        console.log(`Auto-fitted map to show ${polygons.length} saved polygons`)
+      }
     } catch (error) {
       console.error('Error fetching saved polygons:', error)
     }
@@ -159,10 +222,11 @@ export default function POIImporterPage() {
   }
 
   const handlePolygonComplete = (polygon: google.maps.Polygon) => {
+    console.log('Polygon completed! Auto-disabling drawing mode.')
     setCurrentPolygon(polygon)
     const coordinates = extractPolygonCoordinates(polygon)
     setCurrentPolygonCoords(coordinates)
-    setIsDrawingMode(false)
+    setIsDrawingMode(false) // Auto-disable drawing after completion
     
     const stats: PolygonStats = {
       vertices: coordinates.length,
@@ -180,29 +244,56 @@ export default function POIImporterPage() {
     setIsSavingPolygon(true)
 
     try {
-      const geom = {
-        type: 'Polygon',
-        coordinates: [currentPolygonCoords.map(coord => [coord.lng, coord.lat])]
+      // Create proper GeoJSON for PostGIS (ensure polygon is closed)
+      const coords = [...currentPolygonCoords]
+      // Ensure polygon is closed by adding first point at the end if needed
+      if (coords.length > 0 && (coords[0].lat !== coords[coords.length - 1].lat || coords[0].lng !== coords[coords.length - 1].lng)) {
+        coords.push(coords[0])
       }
 
+      const geomGeoJSON = {
+        type: 'Polygon',
+        coordinates: [coords.map(coord => [coord.lng, coord.lat])]
+      }
+
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+
+      console.log('Saving polygon with data:', {
+        name: polygonName.trim(),
+        paths: geomGeoJSON,
+        user_id: user.id,
+        country_name: selectedCountry || null
+      })
+
+      // Insert the polygon
       const { data, error } = await supabase
         .schema('core')
         .from('saved_polygons')
         .insert({
           name: polygonName.trim(),
-          geom: geom
+          paths: geomGeoJSON,
+          user_id: user.id,
+          country_name: selectedCountry || null
         })
         .select()
 
-      if (error) throw error
+      if (error) {
+        console.error('Database error:', error)
+        throw error
+      }
 
+      console.log('Polygon saved successfully:', data)
       await fetchSavedPolygons()
       setPolygonName('')
       setSearchStatus('Polygon saved successfully!')
       setTimeout(() => setSearchStatus(''), 3000)
     } catch (error) {
       console.error('Error saving polygon:', error)
-      setSearchStatus('Error saving polygon')
+      setSearchStatus(`Error saving polygon: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsSavingPolygon(false)
     }
@@ -757,6 +848,21 @@ export default function POIImporterPage() {
               </div>
             </div>
 
+            {/* Mapped Areas Summary */}
+            {savedPolygons.length > 0 && (
+              <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                  <span className="text-sm font-medium text-green-700">
+                    {savedPolygons.length} Mapped Area{savedPolygons.length > 1 ? 's' : ''} Visible
+                  </span>
+                </div>
+                <p className="text-xs text-green-600 mt-1">
+                  Showing coverage to avoid rework in same places
+                </p>
+              </div>
+            )}
+
             {/* Polygon Controls */}
             <div>
               <h3 className="text-sm font-medium text-gray-700 mb-3">Area Definition</h3>
@@ -814,12 +920,14 @@ export default function POIImporterPage() {
                     <option value="">Load saved polygon...</option>
                     {savedPolygons.map((polygon) => (
                       <option key={polygon.id} value={polygon.id}>
-                        {polygon.name}
+                        {polygon.name}{polygon.country_name ? ` (${polygon.country_name})` : ''}
                       </option>
                     ))}
                   </select>
                 </div>
               )}
+
+
             </div>
 
             {/* Status Messages */}
@@ -865,6 +973,7 @@ export default function POIImporterPage() {
             color: place.alreadyExists ? '#6B7280' : place.isSelected ? '#3B82F6' : '#F59E0B'
           }))}
           polygon={currentPolygonCoords}
+          savedPolygons={savedPolygons}
           cityBoundary={cityBoundary}
           cityName={currentCityName}
         />

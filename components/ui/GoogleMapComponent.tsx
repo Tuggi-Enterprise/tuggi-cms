@@ -18,6 +18,12 @@ interface GoogleMapComponentProps {
     color?: string
   }>
   polygon?: Array<{ lat: number; lng: number }>
+  savedPolygons?: Array<{
+    id: string
+    name: string
+    paths: Array<{ lat: number; lng: number }>
+    country_name?: string
+  }>
   cityBoundary?: Array<{ lat: number; lng: number }> | null
   cityName?: string
   enableDrawing?: boolean
@@ -36,6 +42,7 @@ function Map({
   onMarkerClick,
   markers = [],
   polygon,
+  savedPolygons = [],
   cityBoundary,
   cityName,
   enableDrawing = true
@@ -44,8 +51,10 @@ function Map({
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const drawingManagerRef = useRef<google.maps.drawing.DrawingManager | null>(null)
   const currentPolygonRef = useRef<google.maps.Polygon | null>(null)
+  const savedPolygonsRef = useRef<google.maps.Polygon[]>([])
   const cityBoundaryRef = useRef<google.maps.Polygon | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
+  const drawingButtonRef = useRef<HTMLButtonElement | null>(null)
 
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
@@ -61,87 +70,88 @@ function Map({
 
     mapInstanceRef.current = map
 
-    // Initialize drawing manager if enabled
-    if (enableDrawing) {
-      // Wait for the drawing library to be loaded
-      if (google.maps.drawing) {
-        const drawingManager = new google.maps.drawing.DrawingManager({
-          drawingMode: null,
-          drawingControl: true,
-          drawingControlOptions: {
-            position: google.maps.ControlPosition.TOP_LEFT,
-            drawingModes: [google.maps.drawing.OverlayType.POLYGON],
-          },
-          polygonOptions: {
-            fillColor: '#00A8E8',
-            fillOpacity: 0.3,
-            strokeColor: '#00A8E8',
-            strokeWeight: 3,
-            editable: true,
-            draggable: true,
-          },
-        })
+    // Initialize drawing manager (always, but control visibility)
+    if (google.maps.drawing) {
+      const drawingManager = new google.maps.drawing.DrawingManager({
+        drawingMode: null,
+        drawingControl: false, // We'll use our custom button
+        polygonOptions: {
+          fillColor: '#00A8E8',
+          fillOpacity: 0.3,
+          strokeColor: '#00A8E8',
+          strokeWeight: 3,
+          editable: true,
+          draggable: true,
+        },
+      })
 
-        console.log('Drawing Manager initialized:', drawingManager)
+      console.log('Drawing Manager initialized:', drawingManager)
 
-        drawingManager.setMap(map)
-        drawingManagerRef.current = drawingManager
+      drawingManager.setMap(map)
+      drawingManagerRef.current = drawingManager
 
-        // Add custom drawing control button
-        const controlDiv = document.createElement('div')
-        controlDiv.style.margin = '10px'
+      // Add custom drawing control button
+      const controlDiv = document.createElement('div')
+      controlDiv.style.margin = '10px'
+      
+      const controlButton = document.createElement('button')
+      controlButton.style.backgroundColor = '#00A8E8'
+      controlButton.style.color = 'white'
+      controlButton.style.border = 'none'
+      controlButton.style.borderRadius = '4px'
+      controlButton.style.padding = '8px 12px'
+      controlButton.style.fontSize = '14px'
+      controlButton.style.fontWeight = 'bold'
+      controlButton.style.cursor = 'pointer'
+      controlButton.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)'
+      controlButton.innerHTML = '🔸 Draw Polygon'
+      controlButton.title = 'Click to start drawing a polygon'
+      
+      // Store reference to button
+      drawingButtonRef.current = controlButton
+      
+      controlButton.addEventListener('click', () => {
+        // Toggle drawing mode
+        const isCurrentlyDrawing = drawingManager.getDrawingMode() === google.maps.drawing.OverlayType.POLYGON
         
-        const controlButton = document.createElement('button')
-        controlButton.style.backgroundColor = '#00A8E8'
-        controlButton.style.color = 'white'
-        controlButton.style.border = 'none'
-        controlButton.style.borderRadius = '4px'
-        controlButton.style.padding = '8px 12px'
-        controlButton.style.fontSize = '14px'
-        controlButton.style.fontWeight = 'bold'
-        controlButton.style.cursor = 'pointer'
-        controlButton.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)'
-        controlButton.innerHTML = '🔸 Draw Polygon'
-        controlButton.title = 'Click to start drawing a polygon'
-        
-        controlButton.addEventListener('click', () => {
-          if (drawingManager.getDrawingMode() === google.maps.drawing.OverlayType.POLYGON) {
-            drawingManager.setDrawingMode(null)
-            controlButton.innerHTML = '🔸 Draw Polygon'
-            controlButton.style.backgroundColor = '#00A8E8'
-          } else {
-            drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
-            controlButton.innerHTML = '⏹️ Stop Drawing'
-            controlButton.style.backgroundColor = '#FF6F00'
-          }
-        })
-        
-        controlDiv.appendChild(controlButton)
-        map.controls[google.maps.ControlPosition.TOP_RIGHT].push(controlDiv)
-
-        // Handle polygon completion
-        google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon: google.maps.Polygon) => {
-          // Clear any existing polygon
-          if (currentPolygonRef.current) {
-            currentPolygonRef.current.setMap(null)
-          }
-
-          currentPolygonRef.current = polygon
+        if (isCurrentlyDrawing) {
           drawingManager.setDrawingMode(null)
-          
-          // Reset button state
           controlButton.innerHTML = '🔸 Draw Polygon'
           controlButton.style.backgroundColor = '#00A8E8'
+        } else {
+          drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
+          controlButton.innerHTML = '⏹️ Stop Drawing'
+          controlButton.style.backgroundColor = '#FF6F00'
+        }
+        
+        console.log('Drawing mode toggled via button:', !isCurrentlyDrawing)
+      })
+      
+      controlDiv.appendChild(controlButton)
+      map.controls[google.maps.ControlPosition.TOP_RIGHT].push(controlDiv)
 
-          if (onPolygonComplete) {
-            onPolygonComplete(polygon)
-          }
-        })
-      } else {
-        console.error('Google Maps Drawing library not loaded')
-      }
+      // Handle polygon completion
+      google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon: google.maps.Polygon) => {
+        // Clear any existing polygon
+        if (currentPolygonRef.current) {
+          currentPolygonRef.current.setMap(null)
+        }
+
+        currentPolygonRef.current = polygon
+        drawingManager.setDrawingMode(null)
+        
+        // Reset button state
+        controlButton.innerHTML = '🔸 Draw Polygon'
+        controlButton.style.backgroundColor = '#00A8E8'
+
+        if (onPolygonComplete) {
+          onPolygonComplete(polygon)
+        }
+      })
+    } else {
+      console.error('Google Maps Drawing library not loaded')
     }
-  }, [center, zoom, enableDrawing, onPolygonComplete])
+  }, [center, zoom, onPolygonComplete])
 
   const updateMarkers = useCallback(() => {
     if (!mapInstanceRef.current) return
@@ -229,6 +239,64 @@ function Map({
     mapInstanceRef.current.fitBounds(bounds)
   }, [polygon])
 
+  const updateSavedPolygons = useCallback(() => {
+    if (!mapInstanceRef.current) return
+
+    // Clear existing saved polygons
+    savedPolygonsRef.current.forEach(polygon => polygon.setMap(null))
+    savedPolygonsRef.current = []
+
+    // Add new saved polygons
+    savedPolygons.forEach((savedPolygon, index) => {
+      if (!savedPolygon.paths || savedPolygon.paths.length === 0) return
+
+      // Use different colors for different polygons
+      const colors = ['#8B5CF6', '#F59E0B', '#EF4444', '#10B981', '#3B82F6', '#F97316']
+      const color = colors[index % colors.length]
+
+      const polygonShape = new google.maps.Polygon({
+        paths: savedPolygon.paths,
+        fillColor: color,
+        fillOpacity: 0.15,
+        strokeColor: color,
+        strokeWeight: 2,
+        editable: false,
+        draggable: false,
+      })
+
+      polygonShape.setMap(mapInstanceRef.current!)
+      savedPolygonsRef.current.push(polygonShape)
+
+      // Add info window for polygon name
+      const bounds = new google.maps.LatLngBounds()
+      savedPolygon.paths.forEach(point => bounds.extend(point))
+      const center = bounds.getCenter()
+
+      const infoWindow = new google.maps.InfoWindow({
+        content: `
+          <div style="padding: 8px;">
+            <h3 style="margin: 0; font-size: 14px; font-weight: 600; color: ${color};">
+              📍 ${savedPolygon.name}
+            </h3>
+            ${savedPolygon.country_name ? `
+              <p style="margin: 4px 0 0 0; font-size: 12px; color: #666;">
+                ${savedPolygon.country_name}
+              </p>
+            ` : ''}
+          </div>
+        `,
+        position: center
+      })
+
+      // Add click listener to show info window
+      polygonShape.addListener('click', () => {
+        infoWindow.open(mapInstanceRef.current!)
+      })
+    })
+
+    console.log(`Displayed ${savedPolygons.length} saved polygons`)
+  }, [savedPolygons])
+
   const updateCityBoundary = useCallback(() => {
     if (!mapInstanceRef.current) return
 
@@ -283,6 +351,24 @@ function Map({
     }
   }, [cityBoundary, cityName])
 
+  const updateDrawingMode = useCallback(() => {
+    if (!drawingManagerRef.current || !drawingButtonRef.current) return
+
+    console.log('Drawing mode updated:', enableDrawing ? 'ENABLED' : 'DISABLED')
+
+    if (enableDrawing) {
+      // Enable drawing mode
+      drawingManagerRef.current.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
+      drawingButtonRef.current.innerHTML = '⏹️ Stop Drawing'
+      drawingButtonRef.current.style.backgroundColor = '#FF6F00'
+    } else {
+      // Disable drawing mode
+      drawingManagerRef.current.setDrawingMode(null)
+      drawingButtonRef.current.innerHTML = '🔸 Draw Polygon'
+      drawingButtonRef.current.style.backgroundColor = '#00A8E8'
+    }
+  }, [enableDrawing])
+
   useEffect(() => {
     if (window.google && window.google.maps && window.google.maps.drawing) {
       initializeMap()
@@ -309,12 +395,20 @@ function Map({
   }, [updatePolygon])
 
   useEffect(() => {
+    updateSavedPolygons()
+  }, [updateSavedPolygons])
+
+  useEffect(() => {
     updateMapView()
   }, [updateMapView])
 
   useEffect(() => {
     updateCityBoundary()
   }, [updateCityBoundary])
+
+  useEffect(() => {
+    updateDrawingMode()
+  }, [updateDrawingMode])
 
   return <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
 }
