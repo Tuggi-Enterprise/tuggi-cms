@@ -32,23 +32,27 @@ export default function DashboardPage() {
     try {
       // Fetch total POIs
       const { count: totalPOIs } = await supabase
-        .from('core.attractions')
+        .schema('core')
+        .from('attractions')
         .select('*', { count: 'exact', head: true })
 
       // Fetch approved POIs
       const { count: approvedPOIs } = await supabase
-        .from('core.attractions')
+        .schema('core')
+        .from('attractions')
         .select('*', { count: 'exact', head: true })
         .eq('approved', true)
 
       // Fetch total descriptions
       const { count: totalDescriptions } = await supabase
-        .from('core.attraction_description')
+        .schema('core')
+        .from('attraction_description')
         .select('*', { count: 'exact', head: true })
 
       // Fetch city distribution
       const { data: cityData } = await supabase
-        .from('core.attractions')
+        .schema('core')
+        .from('attractions')
         .select('city')
         .not('city', 'is', null)
 

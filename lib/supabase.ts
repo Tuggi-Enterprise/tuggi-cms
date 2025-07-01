@@ -11,6 +11,16 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 export const createClientComponent = () => createClientComponentClient()
 
 // Database types
+export interface CmsUser {
+  id: string
+  email: string
+  full_name?: string
+  role: 'admin' | 'editor' | 'viewer'
+  is_active: boolean
+  created_at: string
+  last_login_at?: string
+}
+
 export interface Attraction {
   id: string
   name: string

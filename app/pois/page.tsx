@@ -50,7 +50,8 @@ export default function POIListPage() {
   const fetchPois = async () => {
     try {
       const { data, error } = await supabase
-        .from('core.attractions')
+        .schema('core')
+        .from('attractions')
         .select('*')
         .order('created_at', { ascending: false })
 
@@ -62,7 +63,7 @@ export default function POIListPage() {
       setPois(data || [])
       
       // Extract unique cities
-      const uniqueCities = [...new Set(data?.map(poi => poi.city).filter(Boolean))]
+      const uniqueCities = Array.from(new Set(data?.map(poi => poi.city).filter(Boolean)))
       setCities(uniqueCities)
     } catch (error) {
       console.error('Error fetching POIs:', error)
@@ -117,7 +118,8 @@ export default function POIListPage() {
   const bulkApprove = async () => {
     try {
       const { error } = await supabase
-        .from('core.attractions')
+        .schema('core')
+        .from('attractions')
         .update({ approved: true })
         .in('id', selectedPois)
 
@@ -133,7 +135,8 @@ export default function POIListPage() {
   const bulkReject = async () => {
     try {
       const { error } = await supabase
-        .from('core.attractions')
+        .schema('core')
+        .from('attractions')
         .update({ approved: false })
         .in('id', selectedPois)
 
@@ -149,7 +152,8 @@ export default function POIListPage() {
   const toggleApproval = async (poiId: string, currentStatus: boolean) => {
     try {
       const { error } = await supabase
-        .from('core.attractions')
+        .schema('core')
+        .from('attractions')
         .update({ approved: !currentStatus })
         .eq('id', poiId)
 

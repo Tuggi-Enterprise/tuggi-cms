@@ -10,7 +10,7 @@ export async function middleware(req: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession()
 
-  // Allow access to debug page when logged in
+  // Allow access to debug page, login, and unauthorized pages
   const allowedPaths = ['/login', '/debug', '/unauthorized']
   
   // Protect all routes except allowed paths
@@ -23,12 +23,28 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', req.url))
   }
 
-  // Check admin role for protected routes (except debug and unauthorized)
+  // Check CMS user authorization for protected routes
   if (session && !allowedPaths.includes(req.nextUrl.pathname)) {
-    // Get user role from session metadata
-    const userRole = session.user.user_metadata?.role || session.user.app_metadata?.role
+    try {
+      // Check if user exists in cms_users table and is authorized
+      const { data: cmsUser, error } = await supabase
+        .schema('core')
+        .from('cms_users')
+        .select('role, is_active')
+        .eq('email', session.user.email)
+        .eq('is_active', true)
+        .single()
 
-    if (userRole !== 'admin') {
+      if (error || !cmsUser) {
+        return NextResponse.redirect(new URL('/unauthorized', req.url))
+      }
+
+      // Check if user has admin or editor role
+      if (!['admin', 'editor'].includes(cmsUser.role)) {
+        return NextResponse.redirect(new URL('/unauthorized', req.url))
+      }
+    } catch (error) {
+      console.error('Middleware authorization error:', error)
       return NextResponse.redirect(new URL('/unauthorized', req.url))
     }
   }
