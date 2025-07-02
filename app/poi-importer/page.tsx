@@ -583,7 +583,7 @@ export default function POIImporterPage() {
           // Fallback: Try broader spatial search with different admin levels
           const spatialFallbackResult = await supabase
             .schema('core')
-            .from('city_boundaries')
+            .from('es')
             .select('name, name_en, geom, admin_level')
             .overlaps('geom', `POINT(${lng} ${lat})`)
             .lte('admin_level', 10) // Include all city/town/village levels
@@ -606,7 +606,7 @@ export default function POIImporterPage() {
             if (cityName) {
               const nameResult = await supabase
                 .schema('core')
-                .from('city_boundaries')
+                .from('es')
                 .select('name, name_en, geom, admin_level')
                 .ilike('name', `%${cityName}%`)
                 .in('admin_level', [8, 9, 10])
@@ -940,7 +940,7 @@ export default function POIImporterPage() {
           country: country,
           approved: false,
           rating: placeData.rating || null,
-          rating_count: placeData.user_ratings_total || null,
+          user_ratings_total: placeData.user_ratings_total || null,
           image_url: imageUrl,
           formatted_address: placeData.formatted_address,
           google_types: placeData.types || [],
