@@ -1113,8 +1113,8 @@ export default function POIImporterPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Top Section - Controls and Map (60% height) */}
-      <div className="flex-1 flex overflow-hidden" style={{ height: '60%' }}>
+      {/* Top Section - Controls and Map */}
+      <div className="flex overflow-hidden transition-all duration-300" style={{ minHeight: '45vh', maxHeight: searchResults.length > 0 ? '55vh' : '70vh' }}>
         {/* Left Control Panel */}
         <div className={cn(
           "bg-white border-r border-gray-200 transition-all duration-300 flex flex-col",
@@ -1446,10 +1446,10 @@ export default function POIImporterPage() {
         </div>
       </div>
 
-            {/* Bottom Analysis Panel (40% height) */}
-      <div className="bg-white border-t border-gray-200 flex flex-col" style={{ height: '50%' }}>
+            {/* Bottom Analysis Panel - Flexible Height */}
+      <div className="bg-white border-t border-gray-200 flex flex-col flex-1 min-h-0">
         {/* Analysis Header */}
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Place Analysis</h2>
             {searchResults.length > 0 && (
@@ -1506,7 +1506,7 @@ export default function POIImporterPage() {
         </div>
 
         {/* Analysis Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto min-h-0">
           {searchResults.length === 0 ? (
             <div className="p-6 text-center text-gray-500">
               <Target className="h-12 w-12 mx-auto mb-3 text-gray-300" />
@@ -1514,36 +1514,36 @@ export default function POIImporterPage() {
               <p className="text-sm">Draw a polygon and search for places to start analyzing</p>
             </div>
           ) : (
-            <div className="p-4">{/* Horizontal layout container */}
+            <div className="p-4 h-full">{/* Horizontal layout container */}
               {/* Bulk Actions */}
-              <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg mb-4">
+              <div className="flex items-center gap-2 p-2 bg-gray-50 rounded mb-3">
                 <button
                   onClick={() => {
                     setSearchResults(prev => prev.map(place => 
                       place.alreadyExists ? place : { ...place, isSelected: true }
                     ))
                   }}
-                  className="text-xs px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  className="text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
                 >
-                  Select All
+                  All
                 </button>
                 <button
                   onClick={() => {
                     setSearchResults(prev => prev.map(place => ({ ...place, isSelected: false })))
                   }}
-                  className="text-xs px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"
+                  className="text-xs px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600"
                 >
-                  Clear All
+                  None
                 </button>
                 {getSelectedPlaces().length > 0 && (
                   <div className="text-xs text-gray-600 ml-auto">
-                    {getSelectedPlaces().length} ready for import
+                    {getSelectedPlaces().length} ready
                   </div>
                 )}
               </div>
 
-              {/* Place Analysis Cards - Horizontal Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+              {/* Place Analysis Cards - Responsive Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 auto-rows-max">
                 {searchResults.map((place) => {
                 const details = selectedPlaceDetails[place.place_id]
                 const isLoadingDetails = loadingDetails.has(place.place_id)
@@ -1552,13 +1552,13 @@ export default function POIImporterPage() {
                   <div
                     key={place.place_id}
                     className={cn(
-                      "border rounded-lg overflow-hidden transition-all",
+                      "border rounded-lg overflow-hidden transition-all h-fit",
                       place.isSelected ? "border-blue-200 bg-blue-50" : "border-gray-200 bg-white",
                       place.alreadyExists && "opacity-60"
                     )}
                   >
-                    {/* Place Image - Smaller for bottom panel */}
-                    <div className="relative h-24 bg-gray-100">
+                    {/* Place Image - Compact */}
+                    <div className="relative h-20 bg-gray-100">
                       {place.thumbnail ? (
                         <img
                           src={place.thumbnail}
@@ -1583,191 +1583,154 @@ export default function POIImporterPage() {
                       )}
                     </div>
 
-                    {/* Place Details - More compact for grid layout */}
-                    <div className="p-3">
-                      <div className="flex items-start justify-between mb-2">
-                        <h3 className="font-medium text-gray-900 flex-1">{place.name}</h3>
+                    {/* Place Details - Compact for grid layout */}
+                    <div className="p-2">
+                      <div className="flex items-start justify-between mb-1">
+                        <h3 className="font-medium text-gray-900 flex-1 text-sm leading-tight">{place.name}</h3>
                         <button
                           onClick={() => fetchPlaceDetails(place.place_id)}
                           disabled={isLoadingDetails || !!details}
-                          className="ml-2 text-xs text-blue-600 hover:text-blue-800 disabled:text-gray-400"
+                          className="ml-1 text-xs text-blue-600 hover:text-blue-800 disabled:text-gray-400 flex-shrink-0"
                         >
                           {isLoadingDetails ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : details ? (
                             <Info className="h-3 w-3" />
                           ) : (
-                            'More Info'
+                            'Info'
                           )}
                         </button>
                       </div>
                       
-                      <p className="text-sm text-gray-600 mb-3">{place.formatted_address}</p>
+                      <p className="text-xs text-gray-600 mb-2 line-clamp-1">{place.formatted_address}</p>
                       
                       {/* Quick Info Grid */}
-                      <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div className="grid grid-cols-2 gap-1 mb-2">
                         {place.rating && (
                           <div className="flex items-center gap-1">
-                            <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                            <span className="text-sm font-medium">{place.rating}</span>
+                            <Star className="h-3 w-3 text-yellow-400 fill-current" />
+                            <span className="text-xs font-medium">{place.rating}</span>
                             {place.user_ratings_total && (
                               <span className="text-xs text-gray-500">({place.user_ratings_total})</span>
                             )}
                           </div>
                         )}
-                        <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                        <div className="text-xs text-gray-500 bg-gray-100 px-1 py-0.5 rounded text-center">
                           {place.types[0]?.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                         </div>
                       </div>
 
-                      {/* Expanded Details - Compact for grid */}
+                      {/* Expanded Details - Ultra Compact */}
                                                  {details && (
-                             <div className="mb-2 p-2 bg-gray-50 rounded-lg text-xs space-y-1">
+                             <div className="mb-2 p-1.5 bg-gray-50 rounded text-xs space-y-0.5">
                                {/* Business Hours */}
                                {details.opening_hours && (
-                                 <div className="flex items-center gap-2">
-                                   <Clock className="h-3 w-3 text-gray-500" />
+                                 <div className="flex items-center gap-1">
+                                   <Clock className="h-2.5 w-2.5 text-gray-500" />
                                    <span className={details.opening_hours.open_now ? "text-green-600" : "text-red-600"}>
-                                     {details.opening_hours.open_now ? "Open Now" : "Closed"}
+                                     {details.opening_hours.open_now ? "Open" : "Closed"}
                                    </span>
                                  </div>
                                )}
                                
                                {/* Phone Numbers */}
                                {(details as any).formatted_phone_number && (
-                                 <div className="flex items-center gap-2">
-                                   <Phone className="h-3 w-3 text-gray-500" />
+                                 <div className="flex items-center gap-1">
+                                   <Phone className="h-2.5 w-2.5 text-gray-500" />
                                    <a 
                                      href={`tel:${(details as any).formatted_phone_number}`}
-                                     className="text-blue-600 hover:text-blue-800"
+                                     className="text-blue-600 hover:text-blue-800 truncate"
                                    >
-                                     {(details as any).formatted_phone_number}
+                                     Phone
                                    </a>
                                  </div>
                                )}
                                
                                {/* Website */}
                                {details.website && (
-                                 <div className="flex items-center gap-2">
-                                   <Globe2 className="h-3 w-3 text-gray-500" />
+                                 <div className="flex items-center gap-1">
+                                   <Globe2 className="h-2.5 w-2.5 text-gray-500" />
                                    <a 
                                      href={details.website} 
                                      target="_blank" 
                                      rel="noopener noreferrer"
                                      className="text-blue-600 hover:text-blue-800 truncate"
                                    >
-                                     Visit Website
+                                     Website
                                    </a>
                                  </div>
                                )}
                                
                                {/* Price Level */}
                                {details.price_level && (
-                                 <div className="flex items-center gap-2">
-                                   <span className="text-gray-500">Price:</span>
+                                 <div className="flex items-center gap-1">
                                    <span className="text-gray-700">
                                      {'$'.repeat(details.price_level)} 
-                                     <span className="ml-1 text-xs">
-                                       {details.price_level <= 2 ? '(Budget-friendly)' : '(Premium)'}
-                                     </span>
+                                     {details.price_level <= 2 ? ' Budget' : ' Premium'}
                                    </span>
-                                 </div>
-                               )}
-                               
-                               {/* Business Status */}
-                               {(details as any).business_status && (details as any).business_status !== 'OPERATIONAL' && (
-                                 <div className="flex items-center gap-2">
-                                   <span className="text-gray-500">Status:</span>
-                                   <span className={cn(
-                                     "text-xs px-2 py-1 rounded",
-                                     (details as any).business_status === 'CLOSED_PERMANENTLY' ? "bg-red-100 text-red-700" :
-                                     (details as any).business_status === 'CLOSED_TEMPORARILY' ? "bg-yellow-100 text-yellow-700" :
-                                     "bg-gray-100 text-gray-700"
-                                   )}>
-                                     {(details as any).business_status.replace(/_/g, ' ')}
-                                   </span>
-                                 </div>
-                               )}
-                               
-                               {/* Location Context */}
-                               {(details as any).vicinity && (
-                                 <div className="flex items-center gap-2">
-                                   <MapPin className="h-3 w-3 text-gray-500" />
-                                   <span className="text-gray-600 text-xs">{(details as any).vicinity}</span>
                                  </div>
                                )}
                              </div>
                            )}
 
-                                             {/* Analysis Indicators - Compact */}
+                                             {/* Analysis Indicators - Ultra Compact */}
                        <div className="mb-2">
-                         <div className="text-xs text-gray-600 mb-1">Tuggi Suitability:</div>
-                         <div className="flex flex-wrap gap-1">
+                         <div className="flex flex-wrap gap-0.5">
                            {place.rating && place.rating >= 4.0 && (
-                             <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">⭐ High Rating</span>
+                             <span className="text-xs bg-green-100 text-green-700 px-1 py-0.5 rounded">⭐</span>
                            )}
                            {place.user_ratings_total && place.user_ratings_total >= 100 && (
-                             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">🔥 Popular</span>
+                             <span className="text-xs bg-blue-100 text-blue-700 px-1 py-0.5 rounded">🔥</span>
                            )}
                            {place.types.includes('tourist_attraction') && (
-                             <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">🎯 Tourist Spot</span>
+                             <span className="text-xs bg-purple-100 text-purple-700 px-1 py-0.5 rounded">🎯</span>
                            )}
                            {details?.opening_hours?.open_now && (
-                             <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">✅ Open Now</span>
+                             <span className="text-xs bg-green-100 text-green-700 px-1 py-0.5 rounded">✅</span>
                            )}
                            {details?.website && (
-                             <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">🌐 Has Website</span>
+                             <span className="text-xs bg-orange-100 text-orange-700 px-1 py-0.5 rounded">🌐</span>
                            )}
                            {(details as any)?.formatted_phone_number && (
-                             <span className="text-xs bg-cyan-100 text-cyan-700 px-2 py-1 rounded">📞 Contact Info</span>
+                             <span className="text-xs bg-cyan-100 text-cyan-700 px-1 py-0.5 rounded">📞</span>
                            )}
                            {details?.price_level && details.price_level <= 2 && (
-                             <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">💰 Budget-Friendly</span>
+                             <span className="text-xs bg-green-100 text-green-700 px-1 py-0.5 rounded">💰</span>
                            )}
                            {place.photos && place.photos.length > 0 && (
-                             <span className="text-xs bg-pink-100 text-pink-700 px-2 py-1 rounded">📸 Has Photos</span>
+                             <span className="text-xs bg-pink-100 text-pink-700 px-1 py-0.5 rounded">📸</span>
                            )}
                            {(details as any)?.business_status === 'CLOSED_PERMANENTLY' && (
-                             <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">❌ Permanently Closed</span>
+                             <span className="text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">❌</span>
                            )}
                            {(details as any)?.business_status === 'CLOSED_TEMPORARILY' && (
-                             <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded">⏸️ Temporarily Closed</span>
+                             <span className="text-xs bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded">⏸️</span>
                            )}
                          </div>
                        </div>
 
-                      {/* Decision Buttons - Compact */}
+                      {/* Decision Buttons - Ultra Compact */}
                       {!place.alreadyExists && (
-                        <div className="space-y-2">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => togglePlaceSelection(place.place_id)}
-                              className={cn(
-                                "flex-1 py-1.5 px-2 rounded text-xs font-medium transition-colors",
-                                place.isSelected
-                                  ? "bg-green-500 text-white hover:bg-green-600"
-                                  : "bg-green-100 text-green-700 hover:bg-green-200"
-                              )}
-                            >
-                              {place.isSelected ? "✓ Perfect for Tuggi" : "Good for Tuggi?"}
-                            </button>
-                            {place.isSelected && (
-                              <button
-                                onClick={() => togglePlaceSelection(place.place_id)}
-                                className="px-2 py-1.5 bg-gray-100 text-gray-600 rounded text-xs hover:bg-gray-200"
-                              >
-                                Undo
-                              </button>
+                        <div className="space-y-1">
+                          <button
+                            onClick={() => togglePlaceSelection(place.place_id)}
+                            className={cn(
+                              "w-full py-1 px-2 rounded text-xs font-medium transition-colors",
+                              place.isSelected
+                                ? "bg-green-500 text-white hover:bg-green-600"
+                                : "bg-green-100 text-green-700 hover:bg-green-200"
                             )}
-                          </div>
+                          >
+                            {place.isSelected ? "✓ Perfect" : "Good for Tuggi?"}
+                          </button>
                           
                           {!place.isSelected && (
-                            <div className="flex gap-1">
+                            <div className="flex gap-0.5">
                               <button className="flex-1 text-xs py-0.5 px-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
-                                Not Tourist
+                                No
                               </button>
                               <button className="flex-1 text-xs py-0.5 px-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
-                                Poor Reviews
+                                Poor
                               </button>
                               <button className="flex-1 text-xs py-0.5 px-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
                                 Closed
