@@ -1645,7 +1645,7 @@ export default function POIImporterPage() {
               </div>
 
               {/* Place Analysis Cards - Responsive Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 auto-rows-max" style={{ minHeight: '100vh' }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-6 gap-4 auto-rows-max" style={{ minHeight: '100vh' }}>
                 {searchResults.map((place) => {
                 const details = selectedPlaceDetails[place.place_id]
                 const isLoadingDetails = loadingDetails.has(place.place_id)
