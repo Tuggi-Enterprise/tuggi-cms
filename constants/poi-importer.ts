@@ -10,6 +10,7 @@ export const POI_CATEGORIES: POICategory[] = [
   { value: 'tourist_attraction', label: 'Tourist Attractions', icon: Target, color: 'bg-blue-500' },
   { value: 'museum', label: 'Museums', icon: Building2, color: 'bg-purple-500' },
   { value: 'park', label: 'Parks & Gardens', icon: TreePine, color: 'bg-green-500' },
+  { value: 'beach', label: 'Beaches', icon: Waves, color: 'bg-blue-400' },
   { value: 'church', label: 'Religious Sites', icon: Church, color: 'bg-amber-600' },
   { value: 'stadium', label: 'Sports Venues', icon: Dumbbell, color: 'bg-red-500' },
   { value: 'library', label: 'Libraries', icon: BookOpen, color: 'bg-indigo-500' },
@@ -19,7 +20,7 @@ export const POI_CATEGORIES: POICategory[] = [
   { value: 'art_gallery', label: 'Art Galleries', icon: Palette, color: 'bg-violet-500' },
   { value: 'shopping_mall', label: 'Shopping Malls', icon: ShoppingBag, color: 'bg-orange-500' },
   { value: 'restaurant', label: 'Restaurants', icon: UtensilsCrossed, color: 'bg-yellow-600' },
-  { value: 'lodging', label: 'Hotels & Lodging', icon: Bed, color: 'bg-teal-500' },
+  // { value: 'lodging', label: 'Hotels & Lodging', icon: Bed, color: 'bg-teal-500' },
   { value: 'hospital', label: 'Healthcare', icon: Cross, color: 'bg-red-600' },
   { value: 'university', label: 'Universities', icon: GraduationCap, color: 'bg-blue-600' },
 ]

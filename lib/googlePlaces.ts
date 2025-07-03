@@ -93,7 +93,7 @@ class GooglePlacesService {
     if (type === 'all') {
       // Search for multiple types when 'all' is selected
       const typesToSearch = [
-        'tourist_attraction', 'museum', 'park', 'church', 'stadium', 
+        'tourist_attraction', 'museum', 'park', 'beach', 'church', 'stadium', 
         'library', 'aquarium', 'zoo', 'amusement_park', 'art_gallery',
         'shopping_mall', 'restaurant', 'lodging', 'hospital', 'university'
       ]
@@ -120,6 +120,50 @@ class GooglePlacesService {
       
       console.log(`Found ${uniqueResults.length} unique places across all categories`)
       allResults = uniqueResults
+    } else if (type === 'beach') {
+      // For beaches, search multiple related types since famous beaches 
+      // are often classified as tourist attractions or natural features
+      const beachTypes = ['beach', 'tourist_attraction', 'natural_feature', 'park']
+      console.log(`Searching for beaches using multiple types: ${beachTypes.join(', ')}`)
+      
+      for (const searchType of beachTypes) {
+        try {
+          const typeResults = await this.nearbySearch(center, radius, searchType, keyword)
+          allResults = [...allResults, ...typeResults]
+          
+          // Add small delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 100))
+        } catch (error) {
+          console.warn(`Error searching for beach type ${searchType}:`, error)
+        }
+      }
+      
+      // Remove duplicates and filter to beach-related results
+      const uniqueResults = allResults.filter((place, index, self) => 
+        index === self.findIndex(p => p.place_id === place.place_id)
+      )
+      
+      // Filter to only include places that are likely beaches
+      const beachResults = uniqueResults.filter(place => {
+        const name = place.name.toLowerCase()
+        const types = place.types || []
+        
+        // Include if it's explicitly a beach type
+        if (types.includes('beach')) return true
+        
+        // Include if the name contains beach-related keywords
+        const beachKeywords = ['beach', 'praia', 'playa', 'strand', 'plage', 'spiaggia', 'пляж']
+        if (beachKeywords.some(keyword => name.includes(keyword))) return true
+        
+        // Include famous beach locations (like Ipanema, Copacabana, etc.)
+        const famousBeaches = ['ipanema', 'copacabana', 'leblon', 'barra', 'flamengo', 'botafogo']
+        if (famousBeaches.some(beach => name.includes(beach))) return true
+        
+        return false
+      })
+      
+      console.log(`Found ${uniqueResults.length} total results, ${beachResults.length} beach-related`)
+      allResults = beachResults
     } else {
       // Perform nearby search for specific type
       allResults = await this.nearbySearch(center, radius, type, keyword)
@@ -131,6 +175,8 @@ class GooglePlacesService {
     )
 
     console.log(`Search completed: ${allResults.length} found, ${filteredResults.length} within polygon`)
+    console.log('All results before filtering:', allResults.map(p => `${p.name} (${p.types?.join(', ')})`))
+    console.log('Filtered results:', filteredResults.map(p => `${p.name} (${p.types?.join(', ')})`))
     return filteredResults
   }
 

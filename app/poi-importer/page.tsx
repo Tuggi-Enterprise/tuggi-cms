@@ -28,6 +28,7 @@ const POI_CATEGORIES = [
   { value: 'tourist_attraction', label: 'Tourist Attractions', icon: Target, color: 'bg-blue-500' },
   { value: 'museum', label: 'Museums', icon: Building2, color: 'bg-purple-500' },
   { value: 'park', label: 'Parks & Gardens', icon: TreePine, color: 'bg-green-500' },
+  { value: 'beach', label: 'Beaches', icon: Waves, color: 'bg-blue-400' },
   { value: 'church', label: 'Religious Sites', icon: Church, color: 'bg-amber-600' },
   { value: 'stadium', label: 'Sports Venues', icon: Dumbbell, color: 'bg-red-500' },
   { value: 'library', label: 'Libraries', icon: BookOpen, color: 'bg-indigo-500' },
