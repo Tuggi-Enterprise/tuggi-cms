@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock } from 'lucide-react'
+import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
+import { TriggerPointsManager } from './TriggerPointsManager'
 
 interface POI {
   id: string
@@ -44,6 +45,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [isSaving, setIsSaving] = useState(false)
   const [descriptions, setDescriptions] = useState<any[]>([])
   const [images, setImages] = useState<any[]>([])
+  const [activeTab, setActiveTab] = useState<'details' | 'trigger-points'>('details')
   const supabase = useSupabaseClient()
 
   useEffect(() => {
@@ -59,7 +61,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       // Fetch descriptions
       const { data: descriptionsData } = await supabase
         .schema('core')
-        .from('attraction_description')
+        .from('attraction_descriptions')
         .select('*')
         .eq('attraction_id', poi.id)
         .order('created_at', { ascending: false })
@@ -178,12 +180,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={onClose} />
         
-        <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+        <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full sm:h-[90vh] flex flex-col">
           {/* Header */}
           <div className="bg-white dark:bg-gray-800 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                POI Details
+                POI Management
               </h3>
               <button
                 onClick={onClose}
@@ -192,10 +194,42 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                 <X className="h-6 w-6" />
               </button>
             </div>
+            
+            {/* Tabs */}
+            <div className="mt-4 border-b border-gray-200 dark:border-gray-700">
+              <nav className="-mb-px flex space-x-8">
+                <button
+                  onClick={() => setActiveTab('details')}
+                  className={cn(
+                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
+                    activeTab === 'details'
+                      ? 'border-tuggi-blue text-tuggi-blue'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  )}
+                >
+                  <Info className="h-4 w-4 inline mr-2" />
+                  POI Details
+                </button>
+                <button
+                  onClick={() => setActiveTab('trigger-points')}
+                  className={cn(
+                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
+                    activeTab === 'trigger-points'
+                      ? 'border-tuggi-blue text-tuggi-blue'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  )}
+                >
+                  <Target className="h-4 w-4 inline mr-2" />
+                  Trigger Points
+                </button>
+              </nav>
+            </div>
           </div>
 
           {/* Content */}
-          <div className="bg-white dark:bg-gray-800 px-6 py-4 max-h-[80vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 flex-1 overflow-hidden">
+            {activeTab === 'details' ? (
+              <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
             {isLoading ? (
               <div className="animate-pulse space-y-4">
                 <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
@@ -468,48 +502,60 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
               </div>
             )}
           </div>
+        ) : (
+          <div className="h-[80vh]">
+            <TriggerPointsManager 
+              attractionId={poi.id}
+              attractionName={poi.name}
+              attractionCoordinates={poi.coordinates ? { lat: poi.coordinates.latitude, lng: poi.coordinates.longitude } : { lat: 0, lng: 0 }}
+            />
+          </div>
+        )}
+          </div>
 
-          {/* Footer */}
-          <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={handleDelete}
-                  disabled={isSaving}
-                  className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete POI
-                </button>
-              </div>
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  {isSaving ? 'Saving...' : 'Save Changes'}
-                </button>
-                {!poi.approved && (
+          {/* Footer - Only show for POI Details tab */}
+          {activeTab === 'details' && (
+            <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
                   <button
-                    onClick={handleApprove}
+                    onClick={handleDelete}
                     disabled={isSaving}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
+                    className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
                   >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    {isSaving ? 'Approving...' : 'Approve POI'}
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete POI
                   </button>
-                )}
+                </div>
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    {isSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  {!poi.approved && (
+                    <button
+                      onClick={handleApprove}
+                      disabled={isSaving}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      {isSaving ? 'Approving...' : 'Approve POI'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

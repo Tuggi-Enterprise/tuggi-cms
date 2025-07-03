@@ -69,7 +69,7 @@ export default function DashboardPage() {
         // Fetch total descriptions
         supabase
           .schema('core')
-          .from('attraction_description')
+          .from('attraction_descriptions')
           .select('*', { count: 'exact', head: true }),
 
         // Fetch city distribution
