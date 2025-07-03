@@ -26,6 +26,8 @@ interface POI {
   user_ratings_total: number | null
   formatted_address: string | null
   website: string | null
+  formatted_phone_number: string | null
+  business_status: string | null
   coordinates?: {
     latitude: number
     longitude: number
@@ -98,10 +100,12 @@ function POIListWithSearchParams() {
         return
       }
 
-      // Transform data to include coordinates
+      // Transform data to include coordinates and ensure required fields
       const poisWithCoords = data?.map(poi => ({
         ...poi,
-        coordinates: poi.coordinates?.[0] || null
+        coordinates: poi.coordinates?.[0] || null,
+        formatted_phone_number: poi.formatted_phone_number || null,
+        business_status: poi.business_status || null
       })) || []
 
       setPois(poisWithCoords)
