@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye } from 'lucide-react'
@@ -19,7 +19,8 @@ interface POI {
   updated_at: string
 }
 
-export default function POIListPage() {
+// Component that handles search params
+function POIListWithSearchParams() {
   const [pois, setPois] = useState<POI[]>([])
   const [filteredPois, setFilteredPois] = useState<POI[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -378,5 +379,31 @@ export default function POIListPage() {
         )}
       </div>
     </div>
+  )
+}
+
+// Loading fallback component
+function POIListLoading() {
+  return (
+    <div className="p-6">
+      <div className="animate-pulse space-y-4">
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
+        <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        <div className="space-y-3">
+          {[...Array(10)].map((_, i) => (
+            <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Main component with Suspense boundary
+export default function POIListPage() {
+  return (
+    <Suspense fallback={<POIListLoading />}>
+      <POIListWithSearchParams />
+    </Suspense>
   )
 } 
