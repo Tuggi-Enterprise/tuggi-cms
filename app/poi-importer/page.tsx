@@ -35,12 +35,12 @@ const POI_CATEGORIES = [
   { value: 'aquarium', label: 'Aquariums', icon: Waves, color: 'bg-cyan-500' },
   { value: 'zoo', label: 'Zoos & Wildlife', icon: Mountain, color: 'bg-emerald-500' },
   { value: 'amusement_park', label: 'Amusement Parks', icon: Gamepad2, color: 'bg-pink-500' },
-  { value: 'art_gallery', label: 'Art Galleries', icon: Palette, color: 'bg-violet-500' },
+  // { value: 'art_gallery', label: 'Art Galleries', icon: Palette, color: 'bg-violet-500' },
   { value: 'shopping_mall', label: 'Shopping Malls', icon: ShoppingBag, color: 'bg-orange-500' },
-  { value: 'restaurant', label: 'Restaurants', icon: UtensilsCrossed, color: 'bg-yellow-600' },
-  { value: 'lodging', label: 'Hotels & Lodging', icon: Bed, color: 'bg-teal-500' },
-  { value: 'hospital', label: 'Healthcare', icon: Cross, color: 'bg-red-600' },
-  { value: 'university', label: 'Universities', icon: GraduationCap, color: 'bg-blue-600' },
+  // { value: 'restaurant', label: 'Restaurants', icon: UtensilsCrossed, color: 'bg-yellow-600' },
+  // { value: 'lodging', label: 'Hotels & Lodging', icon: Bed, color: 'bg-teal-500' },
+  // { value: 'hospital', label: 'Healthcare', icon: Cross, color: 'bg-red-600' },
+  // { value: 'university', label: 'Universities', icon: GraduationCap, color: 'bg-blue-600' },
 ]
 
 const COUNTRIES = [
