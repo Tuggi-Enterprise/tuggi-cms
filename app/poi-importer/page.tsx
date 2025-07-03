@@ -79,6 +79,9 @@ export default function POIImporterPage() {
   // UI State
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isDrawingMode, setIsDrawingMode] = useState(false)
+  const [scrollY, setScrollY] = useState(0)
+  const [scrollDirection, setScrollDirection] = useState<'up' | 'down'>('up')
+  const [lastScrollY, setLastScrollY] = useState(0)
   
   // Polygon Management
   const [polygonName, setPolygonName] = useState('')
@@ -123,6 +126,63 @@ export default function POIImporterPage() {
     setIsClient(true)
     fetchSavedPolygons(true) // Auto-fit on initial load
   }, [])
+
+  // Scroll tracking for parallax effect
+  useEffect(() => {
+    let ticking = false
+    let lastY = 0
+    
+    const handleScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY
+          
+          // Determine scroll direction
+          if (currentScrollY > lastY) {
+            setScrollDirection('down')
+          } else if (currentScrollY < lastY) {
+            setScrollDirection('up')
+          }
+          
+          setScrollY(currentScrollY)
+          setLastScrollY(currentScrollY)
+          lastY = currentScrollY
+          ticking = false
+        })
+        ticking = true
+      }
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // Calculate dynamic heights based on scroll
+  const calculateMapHeight = () => {
+    if (searchResults.length === 0) {
+      return '70vh' // No results, give map more space
+    }
+    
+    // Base height when results exist
+    const baseHeight = 55
+    const minHeight = 10 // Minimum map height when fully scrolled
+    
+    // Scroll threshold - how much scrolling triggers the effect
+    const scrollThreshold = 150
+    
+    // Always respond to scroll position, regardless of direction
+    if (scrollY > 30) {
+      // Calculate how much to shrink based on scroll position
+      const scrollProgress = Math.min((scrollY - 30) / scrollThreshold, 1)
+      const dynamicHeight = baseHeight - (scrollProgress * (baseHeight - minHeight))
+      return `${Math.max(dynamicHeight, minHeight)}vh`
+    }
+    
+    return `${baseHeight}vh`
+  }
+
+  // Check if we're in full screen mode
+  const isFullScreenMode = scrollY > 100 && calculateMapHeight() === '10vh'
 
 
 
@@ -1112,9 +1172,15 @@ export default function POIImporterPage() {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* Top Section - Controls and Map */}
-      <div className="flex overflow-hidden transition-all duration-300" style={{ minHeight: '45vh', maxHeight: searchResults.length > 0 ? '55vh' : '70vh' }}>
+    <div className="flex flex-col min-h-screen">
+      {/* Top Section - Controls and Map - Dynamic Height */}
+      <div 
+        className={cn(
+          "flex overflow-hidden transition-all duration-500 ease-out flex-shrink-0",
+          isFullScreenMode && "shadow-lg border-b-2 border-blue-200"
+        )}
+        style={{ height: calculateMapHeight() }}
+      >
         {/* Left Control Panel */}
         <div className={cn(
           "bg-white border-r border-gray-200 transition-all duration-300 flex flex-col",
@@ -1446,12 +1512,20 @@ export default function POIImporterPage() {
         </div>
       </div>
 
-            {/* Bottom Analysis Panel - Flexible Height */}
-      <div className="bg-white border-t border-gray-200 flex flex-col flex-1 min-h-0">
+            {/* Bottom Analysis Panel - Dynamic Height */}
+      <div className="bg-white border-t border-gray-200 flex flex-col transition-all duration-500 ease-out flex-1" style={{ minHeight: '45vh' }}>
         {/* Analysis Header */}
         <div className="p-4 border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">Place Analysis</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-semibold text-gray-900">Place Analysis</h2>
+              {isFullScreenMode && (
+                <div className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full flex items-center gap-1">
+                  <ChevronUp className="h-3 w-3" />
+                  Full Screen Mode
+                </div>
+              )}
+            </div>
             {searchResults.length > 0 && (
               <div className="text-sm text-gray-500">
                 {searchResults.filter(p => p.isSelected).length} / {searchResults.length} selected
@@ -1498,23 +1572,37 @@ export default function POIImporterPage() {
                 </div>
               </div>
               
-              <div className="text-sm text-gray-600">
-                💡 Review each place to determine if it's suitable for the Tuggi tourism platform
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600">
+                  💡 Review each place to determine if it's suitable for the Tuggi tourism platform
+                </div>
+                {scrollY < 50 && searchResults.length > 6 && (
+                  <div className="text-xs text-blue-600 flex items-center gap-1">
+                    <ChevronDown className="h-3 w-3 animate-bounce" />
+                    Scroll down for full screen
+                  </div>
+                )}
+                {isFullScreenMode && (
+                  <div className="text-xs text-blue-600 flex items-center gap-1 cursor-pointer hover:text-blue-800" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+                    <ChevronUp className="h-3 w-3 animate-bounce" />
+                    Scroll up to see map
+                  </div>
+                )}
               </div>
             </div>
           )}
         </div>
 
         {/* Analysis Content */}
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="flex-1">
           {searchResults.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">
+            <div className="p-6 text-center text-gray-500 flex flex-col items-center justify-center" style={{ minHeight: '80vh' }}>
               <Target className="h-12 w-12 mx-auto mb-3 text-gray-300" />
               <h3 className="text-sm font-medium text-gray-900 mb-1">No places to analyze</h3>
               <p className="text-sm">Draw a polygon and search for places to start analyzing</p>
             </div>
           ) : (
-            <div className="p-4 h-full">{/* Horizontal layout container */}
+            <div className="p-4 pb-32" style={{ minHeight: '120vh' }}>{/* Horizontal layout container with bottom padding for scrolling */}
               {/* Bulk Actions */}
               <div className="flex items-center gap-2 p-2 bg-gray-50 rounded mb-3">
                 <button
@@ -1543,7 +1631,7 @@ export default function POIImporterPage() {
               </div>
 
               {/* Place Analysis Cards - Responsive Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 auto-rows-max">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 auto-rows-max" style={{ minHeight: '100vh' }}>
                 {searchResults.map((place) => {
                 const details = selectedPlaceDetails[place.place_id]
                 const isLoadingDetails = loadingDetails.has(place.place_id)
