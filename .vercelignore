@@ -1,0 +1,16 @@
+# Supabase functions (deployed separately)
+supabase/functions/
+
+# Documentation files
+docs/
+*.md
+!README.md
+
+# SQL files
+*.sql
+
+# Other development files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local 

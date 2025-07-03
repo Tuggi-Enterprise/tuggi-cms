@@ -1542,7 +1542,7 @@ export default function POIImporterPage() {
               </div>
 
               {/* Place Analysis Cards - Horizontal Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                 {searchResults.map((place) => {
                 const details = selectedPlaceDetails[place.place_id]
                 const isLoadingDetails = loadingDetails.has(place.place_id)
