@@ -1603,7 +1603,7 @@ export default function POIImporterPage() {
             </div>
           ) : (
             <div className="p-4 pb-32" style={{ minHeight: '120vh' }}>{/* Horizontal layout container with bottom padding for scrolling */}
-              {/* Bulk Actions */}
+              {/* Import Actions */}
               <div className="flex items-center gap-2 p-2 bg-gray-50 rounded mb-3">
                 <button
                   onClick={() => {
@@ -1624,9 +1624,23 @@ export default function POIImporterPage() {
                   None
                 </button>
                 {getSelectedPlaces().length > 0 && (
-                  <div className="text-xs text-gray-600 ml-auto">
-                    {getSelectedPlaces().length} ready
-                  </div>
+                  <button
+                    onClick={importSelectedPlaces}
+                    disabled={isImporting}
+                    className="ml-auto px-3 py-1 bg-orange-500 text-white rounded text-xs font-medium hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    {isImporting ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Importing... ({importedCount}/{getSelectedPlaces().length})
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-3 w-3" />
+                        Import {getSelectedPlaces().length} Places
+                      </>
+                    )}
+                  </button>
                 )}
               </div>
 
@@ -1836,28 +1850,7 @@ export default function POIImporterPage() {
           )}
         </div>
 
-        {/* Import Actions - Sticky footer */}
-        {getSelectedPlaces().length > 0 && (
-          <div className="p-3 border-t border-gray-200 bg-gray-50">
-            <button
-              onClick={importSelectedPlaces}
-              disabled={isImporting}
-              className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-            >
-              {isImporting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Importing... ({importedCount}/{getSelectedPlaces().length})
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4" />
-                  Import {getSelectedPlaces().length} Places to Tuggi
-                </>
-              )}
-            </button>
-          </div>
-        )}
+
       </div>
     </div>
   )
