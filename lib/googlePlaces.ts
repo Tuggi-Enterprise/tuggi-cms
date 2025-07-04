@@ -39,7 +39,7 @@ interface PlaceDetailsResult extends PlaceSearchResult {
 
 // Country to language mapping for localized place names
 const COUNTRY_LANGUAGE_MAP: Record<string, string> = {
-  'BR': 'pt-BR', // Brazil -> Portuguese
+  'BR': 'pt-br', // Brazil -> Portuguese
   'ES': 'es',    // Spain -> Spanish
   'FR': 'fr',    // France -> French
   'DE': 'de',    // Germany -> German

@@ -14,6 +14,7 @@ A comprehensive Content Management System for managing Points of Interest (POIs)
 - 🎯 **Region Editor**: Draw and manage geographic polygons
 - ✅ **Content Approval**: Workflow for approving/rejecting POIs
 - 🤖 **AI-Powered Descriptions**: Generate rich cultural and historical descriptions using Google Gemini 1.5 Pro
+- 🎧 **Audio Narration**: Generate optimized TTS audio narration with voice selection, speed control, and Portuguese text preprocessing
 
 ## Tech Stack
 
@@ -56,6 +57,7 @@ Before you begin, ensure you have:
    SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
    NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET=tuggi-cms-images
    GEMINI_API_KEY=your_google_gemini_api_key
+   OPENAI_API_KEY=your_openai_api_key
    ```
 
 4. **Set up Supabase**:
