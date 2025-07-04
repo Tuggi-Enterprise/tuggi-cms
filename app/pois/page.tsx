@@ -38,6 +38,11 @@ interface POI {
     latitude: number
     longitude: number
   }
+  // Content status indicators
+  has_description: boolean
+  has_audio: boolean
+  description_count: number
+  audio_count: number
 }
 
 interface POIStats {
@@ -45,6 +50,9 @@ interface POIStats {
   approved: number
   pending: number
   recentlyAdded: number
+  withDescription: number
+  withAudio: number
+  contentComplete: number
 }
 
 // Component that handles search params
@@ -56,9 +64,10 @@ function POIListWithSearchParams() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending'>('all')
   const [cityFilter, setCityFilter] = useState('')
   const [googleTypesFilter, setGoogleTypesFilter] = useState('')
+  const [contentStatusFilter, setContentStatusFilter] = useState<'all' | 'missing_description' | 'missing_audio' | 'complete'>('all')
   const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [cities, setCities] = useState<string[]>([])
-  const [stats, setStats] = useState<POIStats>({ total: 0, approved: 0, pending: 0, recentlyAdded: 0 })
+  const [stats, setStats] = useState<POIStats>({ total: 0, approved: 0, pending: 0, recentlyAdded: 0, withDescription: 0, withAudio: 0, contentComplete: 0 })
   const [selectedPoi, setSelectedPoi] = useState<POI | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   
@@ -71,33 +80,116 @@ function POIListWithSearchParams() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
+  // Track if we're initializing from URL to prevent unnecessary updates
+  const [isInitializing, setIsInitializing] = useState(true)
+
+  // Function to update URL with current filter states
+  const updateURL = (filters: {
+    search?: string
+    status?: string
+    city?: string
+    googleTypes?: string
+    contentStatus?: string
+    page?: number
+  }) => {
+    const params = new URLSearchParams()
+    
+    // Add non-empty/non-default filters to URL
+    if (filters.search && filters.search.trim()) {
+      params.set('search', filters.search)
+    }
+    if (filters.status && filters.status !== 'all') {
+      params.set('status', filters.status)
+    }
+    if (filters.city && filters.city.trim()) {
+      params.set('city', filters.city)
+    }
+    if (filters.googleTypes && filters.googleTypes.trim()) {
+      params.set('googleTypes', filters.googleTypes)
+    }
+    if (filters.contentStatus && filters.contentStatus !== 'all') {
+      params.set('contentStatus', filters.contentStatus)
+    }
+    if (filters.page && filters.page > 1) {
+      params.set('page', filters.page.toString())
+    }
+
+    // Update URL without triggering a page reload
+    const newUrl = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname
+    router.replace(newUrl, { scroll: false })
+  }
+
+  // Function to clear all filters
+  const clearAllFilters = () => {
+    setSearchTerm('')
+    setStatusFilter('all')
+    setCityFilter('')
+    setGoogleTypesFilter('')
+    setContentStatusFilter('all')
+    setCurrentPage(1)
+    setIsInitializing(false) // Ensure URL updates work after clearing
+  }
+
+  // Function to read filters from URL parameters
+  const readFiltersFromURL = () => {
+    const search = searchParams.get('search') || ''
+    const status = searchParams.get('status') || searchParams.get('filter') || 'all' // Handle legacy 'filter' param
+    const city = searchParams.get('city') || ''
+    const googleTypes = searchParams.get('googleTypes') || ''
+    const contentStatus = searchParams.get('contentStatus') || 'all'
+    const page = parseInt(searchParams.get('page') || '1')
+
+    // Set states from URL parameters without triggering URL updates
+    setSearchTerm(search)
+    setStatusFilter(status as any)
+    setCityFilter(city)
+    setGoogleTypesFilter(googleTypes)
+    setContentStatusFilter(contentStatus as any)
+    setCurrentPage(page)
+    
+    // Mark initialization as complete
+    setIsInitializing(false)
+  }
+
   useEffect(() => {
     fetchPois()
     
-    // Check for filter from URL
-    const filterParam = searchParams.get('filter')
-    if (filterParam === 'pending') {
-      setStatusFilter('pending')
-    }
+    // Read filters from URL on component mount
+    readFiltersFromURL()
   }, [searchParams])
 
   useEffect(() => {
     filterPois()
-  }, [pois, searchTerm, statusFilter, cityFilter, googleTypesFilter])
+  }, [pois, searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter])
 
   useEffect(() => {
     calculateStats()
   }, [pois])
 
+  // Update URL when filters change (but not during initialization)
+  useEffect(() => {
+    if (!isInitializing) {
+      updateURL({
+        search: searchTerm,
+        status: statusFilter,
+        city: cityFilter,
+        googleTypes: googleTypesFilter,
+        contentStatus: contentStatusFilter,
+        page: currentPage
+      })
+    }
+  }, [searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, currentPage, isInitializing])
+
   const fetchPois = async () => {
     try {
-      // Fetch POIs with coordinates
+      // Fetch POIs with coordinates and content status
       const { data, error } = await supabase
         .schema('core')
         .from('attractions')
         .select(`
           *,
-          coordinates:attraction_coordinate(latitude, longitude)
+          coordinates:attraction_coordinate(latitude, longitude),
+          descriptions:attraction_descriptions(id, description, audio_url, language)
         `)
         .order('created_at', { ascending: false })
 
@@ -106,13 +198,24 @@ function POIListWithSearchParams() {
         return
       }
 
-      // Transform data to include coordinates and ensure required fields
-      const poisWithCoords = data?.map(poi => ({
-        ...poi,
-        coordinates: poi.coordinates?.[0] || null,
-        formatted_phone_number: poi.formatted_phone_number || null,
-        business_status: poi.business_status || null
-      })) || []
+      // Transform data to include coordinates, content status, and ensure required fields
+      const poisWithCoords = data?.map(poi => {
+        const descriptions = poi.descriptions || []
+        const hasDescription = descriptions.some((desc: any) => desc.description && desc.description.trim())
+        const hasAudio = descriptions.some((desc: any) => desc.audio_url && desc.audio_url.trim())
+        
+        return {
+          ...poi,
+          coordinates: poi.coordinates?.[0] || null,
+          formatted_phone_number: poi.formatted_phone_number || null,
+          business_status: poi.business_status || null,
+          has_description: hasDescription,
+          has_audio: hasAudio,
+          description_count: descriptions.filter((desc: any) => desc.description && desc.description.trim()).length,
+          audio_count: descriptions.filter((desc: any) => desc.audio_url && desc.audio_url.trim()).length,
+          descriptions: undefined // Remove from final object to keep it clean
+        }
+      }) || []
 
       setPois(poisWithCoords)
       
@@ -136,8 +239,11 @@ function POIListWithSearchParams() {
       weekAgo.setDate(weekAgo.getDate() - 7)
       return created > weekAgo
     }).length
+    const withDescription = pois.filter(poi => poi.has_description).length
+    const withAudio = pois.filter(poi => poi.has_audio).length
+    const contentComplete = pois.filter(poi => poi.has_description && poi.has_audio).length
 
-    setStats({ total, approved, pending, recentlyAdded })
+    setStats({ total, approved, pending, recentlyAdded, withDescription, withAudio, contentComplete })
   }
 
   const filterPois = () => {
@@ -171,15 +277,39 @@ function POIListWithSearchParams() {
       )
     }
 
+    // Content Status filter
+    if (contentStatusFilter !== 'all') {
+      filtered = filtered.filter(poi => {
+        switch (contentStatusFilter) {
+          case 'missing_description':
+            return !poi.has_description
+          case 'missing_audio':
+            return !poi.has_audio
+          case 'complete':
+            return poi.has_description && poi.has_audio
+          default:
+            return true
+        }
+      })
+    }
+
     setFilteredPois(filtered)
     setTotalPages(Math.ceil(filtered.length / itemsPerPage))
-    setCurrentPage(1) // Reset to first page when filtering
+    
+    // Only reset to page 1 if we're beyond the available pages
+    if (currentPage > Math.ceil(filtered.length / itemsPerPage)) {
+      setCurrentPage(1)
+    }
   }
 
   const getPaginatedPois = () => {
     const startIndex = (currentPage - 1) * itemsPerPage
     const endIndex = startIndex + itemsPerPage
     return filteredPois.slice(startIndex, endIndex)
+  }
+
+  const goToPage = (page: number) => {
+    setCurrentPage(page)
   }
 
   const togglePOISelection = (poiId: string) => {
@@ -325,10 +455,16 @@ function POIListWithSearchParams() {
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             Manage and approve imported Points of Interest
+            {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all') && (
+              <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue">
+                <Filter className="h-3 w-3 mr-1" />
+                Filtered
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center space-x-4">
-          <div className="flex items-center space-x-6 text-sm">
+          <div className="grid grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
             <div className="text-center">
               <div className="text-2xl font-bold text-tuggi-blue">{stats.total}</div>
               <div className="text-gray-500">Total POIs</div>
@@ -340,6 +476,18 @@ function POIListWithSearchParams() {
             <div className="text-center">
               <div className="text-2xl font-bold text-tuggi-orange">{stats.pending}</div>
               <div className="text-gray-500">Pending</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">{stats.withDescription}</div>
+              <div className="text-gray-500">With Description</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">{stats.withAudio}</div>
+              <div className="text-gray-500">With Audio</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-emerald-600">{stats.contentComplete}</div>
+              <div className="text-gray-500">Content Complete</div>
             </div>
           </div>
           {/* <Link
@@ -354,16 +502,16 @@ function POIListWithSearchParams() {
 
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-8 gap-3">
           {/* Search */}
-          <div className="relative">
+          <div className="relative md:col-span-2">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
               placeholder="Search POIs..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
             />
           </div>
 
@@ -371,7 +519,7 @@ function POIListWithSearchParams() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as any)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
           >
             <option value="all">All Status</option>
             <option value="approved">Approved</option>
@@ -382,7 +530,7 @@ function POIListWithSearchParams() {
           <select
             value={cityFilter}
             onChange={(e) => setCityFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
           >
             <option value="">All Cities</option>
             {cities.map(city => (
@@ -394,7 +542,7 @@ function POIListWithSearchParams() {
           <select
             value={googleTypesFilter}
             onChange={(e) => setGoogleTypesFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
           >
             <option value="">All Google Types</option>
             {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
@@ -402,34 +550,34 @@ function POIListWithSearchParams() {
             ))}
           </select>
 
+          {/* Content Status Filter */}
+          <select
+            value={contentStatusFilter}
+            onChange={(e) => setContentStatusFilter(e.target.value as any)}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+          >
+            <option value="all">All Content</option>
+            <option value="missing_description">Missing Desc</option>
+            <option value="missing_audio">Missing Audio</option>
+            <option value="complete">Complete</option>
+          </select>
+
+          {/* Clear Filters Button */}
+          {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all') && (
+            <button
+              onClick={clearAllFilters}
+              className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+            >
+              <XCircle className="h-4 w-4 mr-1" />
+              Clear
+            </button>
+          )}
+
           {/* Results count */}
-          <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+          <div className="flex items-center text-sm text-gray-600 dark:text-gray-400 lg:col-span-2">
             Showing {filteredPois.length} of {pois.length} POIs
           </div>
         </div>
-
-        {/* Bulk Actions */}
-        {selectedPois.length > 0 && (
-          <div className="flex items-center space-x-3 p-4 bg-tuggi-blue/10 border border-tuggi-blue/20 rounded-md">
-            <span className="text-sm font-medium text-tuggi-blue">
-              {selectedPois.length} POI(s) selected
-            </span>
-            <button
-              onClick={bulkApprove}
-              className="inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-            >
-              <CheckCircle className="h-3 w-3 mr-1" />
-              Approve
-            </button>
-            <button
-              onClick={bulkReject}
-              className="inline-flex items-center px-3 py-1 bg-tuggi-orange text-white text-sm rounded hover:bg-tuggi-orange/90 transition-colors"
-            >
-              <XCircle className="h-3 w-3 mr-1" />
-              Reject
-            </button>
-          </div>
-        )}
       </div>
 
       {/* POI Table */}
@@ -463,6 +611,9 @@ function POIListWithSearchParams() {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Content Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Created At
@@ -567,11 +718,45 @@ function POIListWithSearchParams() {
                       )}
                     </button>
                   </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="flex items-center" title={poi.has_description ? `Has ${poi.description_count} description(s)` : 'No description available'}>
+                        {poi.has_description ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-red-500" />
+                        )}
+                        <span className="ml-1 text-xs text-gray-600 dark:text-gray-400">
+                          Desc
+                        </span>
+                      </div>
+                      <div className="flex items-center" title={poi.has_audio ? `Has ${poi.audio_count} audio file(s)` : 'No audio available'}>
+                        {poi.has_audio ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-red-500" />
+                        )}
+                        <span className="ml-1 text-xs text-gray-600 dark:text-gray-400">
+                          Audio
+                        </span>
+                      </div>
+                    </div>
+                  </td>
                   <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                     {formatDate(poi.created_at)}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end space-x-2">
+                      {poi.has_description && !poi.has_audio && (
+                        <button
+                          onClick={() => openPOIDetails(poi)}
+                          className="inline-flex items-center px-2 py-1 text-xs bg-purple-100 text-purple-800 border border-purple-200 rounded hover:bg-purple-200 transition-colors"
+                          title="Generate audio from description"
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Gen Audio
+                        </button>
+                      )}
                       <button
                         onClick={() => openPOIDetails(poi)}
                         className="inline-flex items-center px-2 py-1 text-xs bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20 rounded hover:bg-tuggi-blue/20 transition-colors"
@@ -599,14 +784,14 @@ function POIListWithSearchParams() {
           <div className="bg-white dark:bg-gray-800 px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
             <div className="flex-1 flex justify-between sm:hidden">
               <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                onClick={() => goToPage(Math.max(currentPage - 1, 1))}
                 disabled={currentPage === 1}
                 className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
               >
                 Previous
               </button>
               <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                onClick={() => goToPage(Math.min(currentPage + 1, totalPages))}
                 disabled={currentPage === totalPages}
                 className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
               >
@@ -630,7 +815,7 @@ function POIListWithSearchParams() {
               <div>
                 <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
                   <button
-                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    onClick={() => goToPage(Math.max(currentPage - 1, 1))}
                     disabled={currentPage === 1}
                     className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                   >
@@ -641,7 +826,7 @@ function POIListWithSearchParams() {
                   {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
                     <button
                       key={page}
-                      onClick={() => setCurrentPage(page)}
+                      onClick={() => goToPage(page)}
                       className={cn(
                         'relative inline-flex items-center px-4 py-2 border text-sm font-medium',
                         page === currentPage
@@ -654,7 +839,7 @@ function POIListWithSearchParams() {
                   ))}
                   
                   <button
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    onClick={() => goToPage(Math.min(currentPage + 1, totalPages))}
                     disabled={currentPage === totalPages}
                     className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                   >
@@ -666,6 +851,29 @@ function POIListWithSearchParams() {
           </div>
         )}
       </div>
+
+      {/* Bulk Actions */}
+      {selectedPois.length > 0 && (
+        <div className="flex items-center space-x-3 p-4 bg-tuggi-blue/10 border border-tuggi-blue/20 rounded-md">
+          <span className="text-sm font-medium text-tuggi-blue">
+            {selectedPois.length} POI(s) selected
+          </span>
+          <button
+            onClick={bulkApprove}
+            className="inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+          >
+            <CheckCircle className="h-3 w-3 mr-1" />
+            Approve
+          </button>
+          <button
+            onClick={bulkReject}
+            className="inline-flex items-center px-3 py-1 bg-tuggi-orange text-white text-sm rounded hover:bg-tuggi-orange/90 transition-colors"
+          >
+            <XCircle className="h-3 w-3 mr-1" />
+            Reject
+          </button>
+        </div>
+      )}
 
       {/* POI Details Modal */}
       {selectedPoi && (
