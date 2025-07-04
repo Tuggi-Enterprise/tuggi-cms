@@ -15,6 +15,7 @@ interface POI {
   name: string
   city: string
   country: string
+  state: string | null
   category: string
   approved: boolean
   approved_by: string | null
@@ -25,9 +26,14 @@ interface POI {
   updated_at: string
   user_ratings_total: number | null
   formatted_address: string | null
+  vicinity: string | null
   website: string | null
   formatted_phone_number: string | null
   business_status: string | null
+  price_level: number | null
+  opening_hours: any | null
+  google_types: string[] | null
+  photos_references: string[] | null
   coordinates?: {
     latitude: number
     longitude: number
