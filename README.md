@@ -13,6 +13,7 @@ A comprehensive Content Management System for managing Points of Interest (POIs)
 - 📱 **Responsive Design**: Mobile-friendly interface
 - 🎯 **Region Editor**: Draw and manage geographic polygons
 - ✅ **Content Approval**: Workflow for approving/rejecting POIs
+- 🤖 **AI-Powered Descriptions**: Generate rich cultural and historical descriptions using Google Gemini 1.5 Pro
 
 ## Tech Stack
 
@@ -54,6 +55,7 @@ Before you begin, ensure you have:
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
    SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
    NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET=tuggi-cms-images
+   GEMINI_API_KEY=your_google_gemini_api_key
    ```
 
 4. **Set up Supabase**:
@@ -106,9 +108,9 @@ The application expects the following Supabase tables:
    CREATE TABLE core.attraction_description (
      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
      attraction_id UUID REFERENCES core.attractions(id) ON DELETE CASCADE,
-     language TEXT NOT NULL,
-     title TEXT,
      description TEXT,
+     play_count INTEGER DEFAULT 0,
+     last_played_at TIMESTAMP WITH TIME ZONE,
      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
    );
