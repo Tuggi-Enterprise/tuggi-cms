@@ -334,13 +334,13 @@ function POIListWithSearchParams() {
               <div className="text-gray-500">Pending</div>
             </div>
           </div>
-          <Link
+          {/* <Link
             href="/poi-importer"
             className="bg-tuggi-blue text-white inline-flex items-center px-4 py-2 rounded-md hover:bg-tuggi-blue/90 transition-colors"
           >
             <Plus className="h-4 w-4 mr-2" />
             Import POIs
-          </Link>
+          </Link> */}
         </div>
       </div>
 

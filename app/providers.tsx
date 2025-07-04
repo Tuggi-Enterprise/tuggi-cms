@@ -16,7 +16,7 @@ export const useTheme = () => useContext(ThemeContext)
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [supabaseClient] = useState(() => createClientComponentClient())
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark')
+  const [theme, setTheme] = useState<'light' | 'dark'>('light')
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark'

@@ -34,7 +34,7 @@ const navigation = [
     icon: MapPin,
   },
   {
-    name: 'POI Importer',
+    name: 'POI Fetchind',
     href: '/poi-importer',
     icon: Upload,
   },
