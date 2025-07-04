@@ -55,7 +55,7 @@ function POIListWithSearchParams() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending'>('all')
   const [cityFilter, setCityFilter] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
+  const [googleTypesFilter, setGoogleTypesFilter] = useState('')
   const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [cities, setCities] = useState<string[]>([])
   const [stats, setStats] = useState<POIStats>({ total: 0, approved: 0, pending: 0, recentlyAdded: 0 })
@@ -83,7 +83,7 @@ function POIListWithSearchParams() {
 
   useEffect(() => {
     filterPois()
-  }, [pois, searchTerm, statusFilter, cityFilter, categoryFilter])
+  }, [pois, searchTerm, statusFilter, cityFilter, googleTypesFilter])
 
   useEffect(() => {
     calculateStats()
@@ -164,9 +164,11 @@ function POIListWithSearchParams() {
       filtered = filtered.filter(poi => poi.city === cityFilter)
     }
 
-    // Category filter
-    if (categoryFilter) {
-      filtered = filtered.filter(poi => poi.category === categoryFilter)
+    // Google Types filter
+    if (googleTypesFilter) {
+      filtered = filtered.filter(poi => 
+        poi.google_types?.includes(googleTypesFilter)
+      )
     }
 
     setFilteredPois(filtered)
@@ -388,13 +390,13 @@ function POIListWithSearchParams() {
             ))}
           </select>
 
-          {/* Category Filter */}
+          {/* Google Types Filter */}
           <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            value={googleTypesFilter}
+            onChange={(e) => setGoogleTypesFilter(e.target.value)}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
           >
-            <option value="">All Categories</option>
+            <option value="">All Google Types</option>
             {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
               <option key={category.value} value={category.value}>{category.label}</option>
             ))}
@@ -454,7 +456,7 @@ function POIListWithSearchParams() {
                   Country
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Category
+                  Google Types
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Rating
@@ -509,10 +511,22 @@ function POIListWithSearchParams() {
                     {poi.country}
                   </td>
                   <td className="px-6 py-4">
-                    {poi.category && (
-                      <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300">
-                        {POI_CATEGORIES.find(cat => cat.value === poi.category)?.label || poi.category}
-                      </span>
+                    {poi.google_types && poi.google_types.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {poi.google_types.slice(0, 3).map((type, index) => (
+                          <span 
+                            key={index}
+                            className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300"
+                          >
+                            {POI_CATEGORIES.find(cat => cat.value === type)?.label || type}
+                          </span>
+                        ))}
+                        {poi.google_types.length > 3 && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            +{poi.google_types.length - 3} more
+                          </span>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className="px-6 py-4">
