@@ -71,6 +71,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   
   const supabase = useSupabaseClient()
 
+  // Voice mapping for Google TTS
+  const googleVoiceMap: Record<string, string> = {
+    shimmer: 'pt-BR-Wavenet-B',
+    nova: 'pt-BR-Wavenet-A',
+    alloy: 'pt-BR-Wavenet-D',
+    echo: 'pt-BR-Wavenet-E',
+  }
+
   useEffect(() => {
     if (isOpen) {
       setEditedPoi(poi)
@@ -406,6 +414,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     setIsGeneratingAudio(true)
     try {
       // Step 1: Generate audio using selected provider
+      const voiceToSend = audioProvider === 'google' ? googleVoiceMap[selectedVoice] || 'pt-BR-Wavenet-A' : selectedVoice;
       const ttsResponse = await fetch('/api/audio/generate', {
         method: 'POST',
         headers: {
@@ -414,7 +423,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         body: JSON.stringify({
           text: textForAudio,
           attractionId: poi.id,
-          voice: selectedVoice,
+          voice: voiceToSend,
           speed: audioSpeed,
           provider: audioProvider
         })
@@ -1173,59 +1182,117 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                         Voice Selection
                       </label>
                       <div className="space-y-2">
-                      <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="voice"
-                            value="shimmer"
-                            checked={selectedVoice === 'shimmer'}
-                            onChange={(e) => setSelectedVoice(e.target.value)}
-                            className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                          />
-                          <span className="text-sm">
-                            <strong>Shimmer</strong> - Energetic, engaging voice
-                          </span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="voice"
-                            value="nova"
-                            checked={selectedVoice === 'nova'}
-                            onChange={(e) => setSelectedVoice(e.target.value)}
-                            className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                          />
-                          <span className="text-sm">
-                            <strong>Nova</strong> - Professional, clear female voice
-                          </span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="voice"
-                            value="alloy"
-                            checked={selectedVoice === 'alloy'}
-                            onChange={(e) => setSelectedVoice(e.target.value)}
-                            className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                          />
-                          <span className="text-sm">
-                            <strong>Alloy</strong> - Warm, friendly voice for nature content
-                          </span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="voice"
-                            value="echo"
-                            checked={selectedVoice === 'echo'}
-                            onChange={(e) => setSelectedVoice(e.target.value)}
-                            className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                          />
-                          <span className="text-sm">
-                            <strong>Echo</strong> - Calm, soothing voice
-                          </span>
-                        </label>
-                        
+                        {audioProvider === 'google' ? (
+                          <>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="voice"
+                                value="shimmer"
+                                checked={selectedVoice === 'shimmer'}
+                                onChange={(e) => setSelectedVoice(e.target.value)}
+                                className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                              />
+                              <span className="text-sm">
+                                <strong>Shimmer</strong> - Google: Wavenet-B (Energetic, engaging)
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="voice"
+                                value="nova"
+                                checked={selectedVoice === 'nova'}
+                                onChange={(e) => setSelectedVoice(e.target.value)}
+                                className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                              />
+                              <span className="text-sm">
+                                <strong>Nova</strong> - Google: Wavenet-A (Professional, clear female)
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="voice"
+                                value="alloy"
+                                checked={selectedVoice === 'alloy'}
+                                onChange={(e) => setSelectedVoice(e.target.value)}
+                                className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                              />
+                              <span className="text-sm">
+                                <strong>Alloy</strong> - Google: Wavenet-D (Warm, friendly)
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="voice"
+                                value="echo"
+                                checked={selectedVoice === 'echo'}
+                                onChange={(e) => setSelectedVoice(e.target.value)}
+                                className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                              />
+                              <span className="text-sm">
+                                <strong>Echo</strong> - Google: Wavenet-E (Calm, soothing)
+                              </span>
+                            </label>
+                          </>
+                        ) : (
+                          <>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="voice"
+                                value="shimmer"
+                                checked={selectedVoice === 'shimmer'}
+                                onChange={(e) => setSelectedVoice(e.target.value)}
+                                className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                              />
+                              <span className="text-sm">
+                                <strong>Shimmer</strong> - Energetic, engaging voice
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="voice"
+                                value="nova"
+                                checked={selectedVoice === 'nova'}
+                                onChange={(e) => setSelectedVoice(e.target.value)}
+                                className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                              />
+                              <span className="text-sm">
+                                <strong>Nova</strong> - Professional, clear female voice
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="voice"
+                                value="alloy"
+                                checked={selectedVoice === 'alloy'}
+                                onChange={(e) => setSelectedVoice(e.target.value)}
+                                className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                              />
+                              <span className="text-sm">
+                                <strong>Alloy</strong> - Warm, friendly voice for nature content
+                              </span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                name="voice"
+                                value="echo"
+                                checked={selectedVoice === 'echo'}
+                                onChange={(e) => setSelectedVoice(e.target.value)}
+                                className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                              />
+                              <span className="text-sm">
+                                <strong>Echo</strong> - Calm, soothing voice
+                              </span>
+                            </label>
+                          </>
+                        )}
                       </div>
                     </div>
                     
