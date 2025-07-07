@@ -67,6 +67,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null)
   const [selectedVoice, setSelectedVoice] = useState<string>('shimmer')
   const [audioSpeed, setAudioSpeed] = useState<number>(1.1)
+  const [audioProvider, setAudioProvider] = useState<'openai' | 'google'>('openai')
   
   const supabase = useSupabaseClient()
 
@@ -372,24 +373,24 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
 
   // Audio narration management functions
   const generateAudioNarration = async () => {
-          // Determine text to use for audio generation
-      let textForAudio = currentDescription.trim()
-      
-      if (!textForAudio) {
-        if (currentAudioUrl) {
-          // If audio exists but no description, create fallback text
-          textForAudio = `${poi.name} é uma atração localizada em ${poi.city}, ${poi.country}.`
-          const proceed = window.confirm(
-            `No description found. Using fallback text: "${textForAudio}"\n\n` +
-            'For better audio quality, please add a proper description in the Description tab first.\n\n' +
-            'Do you want to continue with this basic text?'
-          )
-          if (!proceed) return
-        } else {
-          alert('Please save a description first before generating audio narration.')
-          return
-        }
+    // Determine text to use for audio generation
+    let textForAudio = currentDescription.trim()
+    
+    if (!textForAudio) {
+      if (currentAudioUrl) {
+        // If audio exists but no description, create fallback text
+        textForAudio = `${poi.name} é uma atração localizada em ${poi.city}, ${poi.country}.`
+        const proceed = window.confirm(
+          `No description found. Using fallback text: "${textForAudio}"\n\n` +
+          'For better audio quality, please add a proper description in the Description tab first.\n\n' +
+          'Do you want to continue with this basic text?'
+        )
+        if (!proceed) return
+      } else {
+        alert('Please save a description first before generating audio narration.')
+        return
       }
+    }
 
     // Show confirmation dialog if audio already exists
     if (currentAudioUrl) {
@@ -404,7 +405,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
 
     setIsGeneratingAudio(true)
     try {
-      // Step 1: Generate audio using OpenAI TTS
+      // Step 1: Generate audio using selected provider
       const ttsResponse = await fetch('/api/audio/generate', {
         method: 'POST',
         headers: {
@@ -414,7 +415,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
           text: textForAudio,
           attractionId: poi.id,
           voice: selectedVoice,
-          speed: audioSpeed
+          speed: audioSpeed,
+          provider: audioProvider
         })
       })
 
@@ -430,19 +432,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         throw new Error('No active session')
       }
 
-             const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/store-poi-audio`, {
-         method: 'POST',
-         headers: {
-           'Content-Type': 'application/json',
-           'Authorization': `Bearer ${session.access_token}`
-         },
-         body: JSON.stringify({
-           attractionId: poi.id,
-           audioData: ttsData.audioData,
-           mimeType: ttsData.mimeType,
-           language: 'pt-br'
-         })
-       })
+      const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/store-poi-audio`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          attractionId: poi.id,
+          audioData: ttsData.audioData,
+          mimeType: ttsData.mimeType,
+          language: 'pt-br'
+        })
+      })
 
       if (!uploadResponse.ok) {
         throw new Error('Failed to upload audio')
@@ -1151,6 +1153,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Provider Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                        Audio Provider
+                      </label>
+                      <select
+                        value={audioProvider}
+                        onChange={e => setAudioProvider(e.target.value as 'openai' | 'google')}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                      >
+                        <option value="openai">OpenAI</option>
+                        <option value="google">Google</option>
+                      </select>
+                    </div>
                     {/* Voice Selection */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">

@@ -41,7 +41,14 @@ export default function LoginPage() {
       })
 
       if (authError) {
-        setError(authError.message)
+        if (
+          authError.status === 429 ||
+          authError.code === 'over_request_rate_limit'
+        ) {
+          setError('Too many login attempts. Please wait a few minutes and try again.');
+        } else {
+          setError(authError.message)
+        }
         return
       }
 
