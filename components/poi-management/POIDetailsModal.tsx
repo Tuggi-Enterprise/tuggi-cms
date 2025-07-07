@@ -67,7 +67,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null)
   const [selectedVoice, setSelectedVoice] = useState<string>('shimmer')
   const [audioSpeed, setAudioSpeed] = useState<number>(1.1)
-  const [audioProvider, setAudioProvider] = useState<'openai' | 'google'>('openai')
+  const [audioProvider, setAudioProvider] = useState<'openai' | 'google'>('google')
   
   const supabase = useSupabaseClient()
 

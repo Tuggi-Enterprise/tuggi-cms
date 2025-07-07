@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateAudioWithGoogleTTS } from '../../../lib/providers/googleTTS'
+import { generateAudioWithGoogleTTS } from '@/lib/providers/googleTTS'
 
 // Text preprocessing function to optimize for TTS narration
 function preprocessTextForTTS(text: string): string {
