@@ -153,6 +153,19 @@ export async function POST(request: NextRequest) {
       ? `\n### REFERENCE LINKS\n${reference_links.map((link: string) => `- ${link}`).join('\n')}\nUse these links as primary sources for facts and details.\n`
       : '';
 
+    // Build sources section including website and reference links
+    const sources = [];
+    if (website) {
+      sources.push(`- ${website} (Official Website)`);
+    }
+    if (reference_links && reference_links.length > 0) {
+      sources.push(...reference_links.map((link: string) => `- ${link}`));
+    }
+    
+    const sourcesSection = sources.length > 0
+      ? `\n### AUTHORITATIVE SOURCES\n${sources.join('\n')}\nUse these sources as primary references for facts, dates, and details.\n`
+      : '';
+
     const prompt = `
     You are a knowledgeable and friendly travel-guide assistant with deep expertise in World history and culture.
     
@@ -172,18 +185,17 @@ export async function POST(request: NextRequest) {
     - Place ID: ${google_place_id || 'Not available'}
     - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
     - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attraction'}
-    ${referenceLinksSection}
+    ${sourcesSection}
     
     ### INSTRUCTIONS
     1. If the attraction name is generic or could refer to multiple places, use the unique details (location, Place ID, coordinates) to ensure you are describing the correct site.
     2. Quickly consult reliable sources (e.g., Wikipedia, IPHAN, official tourism  heritage sites) to confirm dates and facts.  
     3. Start the narration by mentioning the **POI name** in the very first sentence.  
     4. Do **NOT** mention directions (left, right, front, etc.).  
-    5. Do **NOT** mention neighborhood, city, or region—focus solely on the site itself. 
-    6. Do **NOT** mention latitude and longitude in the description.   
-    7. Avoid second-person language and exaggerated enthusiasm; keep a neutral, professional tone.  
-    8. If historical details are scarce, provide a concise factual overview instead.  
-    9. **Output only the description text in Brazilian Portuguese**. Do not include any headers, tags, or notes about AI.
+    5. Do **NOT** mention neighborhood, city, or region—focus solely on the site itself.  
+    6. Avoid second-person language and exaggerated enthusiasm; keep a neutral, professional tone.  
+    7. If historical details are scarce, provide a concise factual overview instead.  
+    8. **Output only the description text in Brazilian Portuguese**. Do not include any headers, tags, or notes about AI.
     
     Return only the final description.`
 
