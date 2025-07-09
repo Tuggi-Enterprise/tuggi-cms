@@ -3,12 +3,13 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye, Trash2, MapPin, Calendar, Star, Users, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye, Trash2, MapPin, Calendar, Star, Users, Clock, ChevronLeft, ChevronRight, List, Map } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { POIDetailsModal } from '@/components/poi-management/POIDetailsModal'
+import { POIMapVisualization } from '@/components/poi-management/POIMapVisualization'
 
 interface POI {
   id: string
@@ -73,6 +74,9 @@ function POIListWithSearchParams() {
   const [selectedPoi, setSelectedPoi] = useState<POI | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   
+  // View state
+  const [viewMode, setViewMode] = useState<'table' | 'map'>('table')
+  
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage] = useState(20)
@@ -85,7 +89,8 @@ function POIListWithSearchParams() {
   // Track if we're initializing from URL to prevent unnecessary updates
   const [isInitializing, setIsInitializing] = useState(true)
 
-  // Function to update URL with current filter states
+  // Function to update URL with current filter states and view mode
+  // URL params: ?search=term&status=approved&city=Paris&googleTypes=restaurant&contentStatus=complete&page=2&view=map
   const updateURL = (filters: {
     search?: string
     status?: string
@@ -93,6 +98,7 @@ function POIListWithSearchParams() {
     googleTypes?: string
     contentStatus?: string
     page?: number
+    view?: string
   }) => {
     const params = new URLSearchParams()
     
@@ -114,6 +120,9 @@ function POIListWithSearchParams() {
     }
     if (filters.page && filters.page > 1) {
       params.set('page', filters.page.toString())
+    }
+    if (filters.view && filters.view !== 'table') {
+      params.set('view', filters.view)
     }
 
     // Update URL without triggering a page reload
@@ -140,6 +149,7 @@ function POIListWithSearchParams() {
     const googleTypes = searchParams.get('googleTypes') || ''
     const contentStatus = searchParams.get('contentStatus') || 'all'
     const page = parseInt(searchParams.get('page') || '1')
+    const view = searchParams.get('view') || 'table'
 
     // Set states from URL parameters without triggering URL updates
     setSearchTerm(search)
@@ -148,6 +158,7 @@ function POIListWithSearchParams() {
     setGoogleTypesFilter(googleTypes)
     setContentStatusFilter(contentStatus as any)
     setCurrentPage(page)
+    setViewMode(view as 'table' | 'map')
     
     // Mark initialization as complete
     setIsInitializing(false)
@@ -177,10 +188,11 @@ function POIListWithSearchParams() {
         city: cityFilter,
         googleTypes: googleTypesFilter,
         contentStatus: contentStatusFilter,
-        page: currentPage
+        page: currentPage,
+        view: viewMode
       })
     }
-  }, [searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, currentPage, isInitializing])
+  }, [searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, currentPage, viewMode, isInitializing])
 
   const fetchPois = async () => {
     try {
@@ -466,6 +478,34 @@ function POIListWithSearchParams() {
           </p>
         </div>
         <div className="flex items-center space-x-4">
+          {/* View Toggle */}
+          <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('table')}
+              className={cn(
+                'flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                viewMode === 'table'
+                  ? 'bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+              )}
+            >
+              <List className="h-4 w-4 mr-1.5" />
+              Table
+            </button>
+            <button
+              onClick={() => setViewMode('map')}
+              className={cn(
+                'flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                viewMode === 'map'
+                  ? 'bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+              )}
+            >
+              <Map className="h-4 w-4 mr-1.5" />
+              Map
+            </button>
+          </div>
+          
           <div className="grid grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
             <div className="text-center">
               <div className="text-2xl font-bold text-tuggi-blue">{stats.total}</div>
@@ -582,8 +622,26 @@ function POIListWithSearchParams() {
         </div>
       </div>
 
-      {/* POI Table */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      {/* Content Area - Table or Map */}
+      {viewMode === 'map' ? (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <POIMapVisualization
+            searchTerm={searchTerm}
+            statusFilter={statusFilter}
+            cityFilter={cityFilter}
+            googleTypesFilter={googleTypesFilter}
+            contentStatusFilter={contentStatusFilter}
+            onPOIClick={openPOIDetails}
+            height="600px"
+            className="w-full"
+            showPolygons={true}
+            initialCenter={{ lat: 39.8283, lng: -98.5795 }}
+            initialZoom={4}
+          />
+        </div>
+      ) : (
+        /* POI Table */
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-900">
@@ -852,7 +910,8 @@ function POIListWithSearchParams() {
             </div>
           </div>
         )}
-      </div>
+        </div>
+      )}
 
       {/* Bulk Actions */}
       {selectedPois.length > 0 && (

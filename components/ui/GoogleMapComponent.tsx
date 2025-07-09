@@ -494,7 +494,7 @@ export function GoogleMapComponent({
       <Wrapper
         apiKey={apiKey}
         render={renderFunction}
-        libraries={['drawing', 'places']}
+        libraries={['drawing', 'places', 'geometry']}
         version="weekly"
       />
     </div>

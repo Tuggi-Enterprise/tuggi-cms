@@ -438,7 +438,7 @@ export function TriggerPointsMap({
       <Wrapper
         apiKey={apiKey}
         render={renderFunction}
-        libraries={['geometry']}
+        libraries={['drawing', 'places', 'geometry']}
         version="weekly"
       />
     </div>

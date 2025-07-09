@@ -11,6 +11,7 @@
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.1.0",
     "@googlemaps/js-api-loader": "^1.16.10",
+    "@googlemaps/markerclusterer": "^2.6.2",
     "@googlemaps/react-wrapper": "^1.2.0",
     "@headlessui/react": "^1.7.17",
     "@supabase/auth-helpers-nextjs": "^0.8.7",
