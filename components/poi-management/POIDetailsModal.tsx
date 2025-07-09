@@ -68,7 +68,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false)
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null)
   const [selectedVoice, setSelectedVoice] = useState<string>('shimmer')
-  const [audioSpeed, setAudioSpeed] = useState<number>(1.1)
+  const [audioSpeed, setAudioSpeed] = useState<number>(1.2)
   const [audioProvider, setAudioProvider] = useState<'openai' | 'google'>('google')
   
   // Add to the state
@@ -307,7 +307,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
           formatted_phone_number: poi.formatted_phone_number,
           photos_references: poi.photos_references?.length || 0,
           existing_description: currentDescription, // Current description for improvement
-          image_url: poi.image_url
+          image_url: poi.image_url,
+          reference_links: referenceLinks.filter(link => !!link.trim()) // Add reference links
         })
       })
 
@@ -900,40 +901,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                 )}
 
                 {/* Reference Links */}
-                <div className="mt-6">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference Links (URLs)</label>
-                  <div className="space-y-2 mt-2">
-                    {referenceLinks.map((link, idx) => (
-                      <div key={idx} className="flex items-center space-x-2">
-                        <input
-                          type="url"
-                          className="flex-1 border rounded px-2 py-1"
-                          value={link}
-                          onChange={e => {
-                            const newLinks = [...referenceLinks];
-                            newLinks[idx] = e.target.value;
-                            setReferenceLinks(newLinks);
-                          }}
-                          placeholder="https://example.com"
-                        />
-                        <button
-                          type="button"
-                          className="text-red-500 hover:text-red-700"
-                          onClick={() => setReferenceLinks(referenceLinks.filter((_, i) => i !== idx))}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      className="text-blue-600 hover:text-blue-800 text-sm mt-2"
-                      onClick={() => setReferenceLinks([...referenceLinks, ''])}
-                    >
-                      + Add Link
-                    </button>
-                  </div>
-                </div>
+
               </div>
             )}
           </div>
@@ -947,6 +915,47 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
               </div>
             ) : (
               <div className="space-y-6">
+                {/* Reference Links Section */}
+                <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    Reference Links (URLs)
+                  </label>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    Add authoritative sources (Wikipedia, official sites, etc.) to help AI generate more accurate descriptions
+                  </p>
+                  <div className="space-y-2">
+                    {referenceLinks.map((link, idx) => (
+                      <div key={idx} className="flex items-center space-x-2">
+                        <input
+                          type="url"
+                          className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-800 dark:text-white"
+                          value={link}
+                          onChange={e => {
+                            const newLinks = [...referenceLinks];
+                            newLinks[idx] = e.target.value;
+                            setReferenceLinks(newLinks);
+                          }}
+                          placeholder="https://en.wikipedia.org/wiki/example or https://officialsite.com"
+                        />
+                        <button
+                          type="button"
+                          className="px-3 py-2 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded-md hover:bg-red-50"
+                          onClick={() => setReferenceLinks(referenceLinks.filter((_, i) => i !== idx))}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="inline-flex items-center px-3 py-2 text-sm text-tuggi-blue hover:text-tuggi-blue/80 border border-tuggi-blue/30 rounded-md hover:bg-tuggi-blue/10"
+                      onClick={() => setReferenceLinks([...referenceLinks, ''])}
+                    >
+                      + Add Reference Link
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-lg font-medium text-gray-900 dark:text-white">
