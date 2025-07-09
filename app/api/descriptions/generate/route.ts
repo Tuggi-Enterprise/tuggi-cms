@@ -191,11 +191,12 @@ export async function POST(request: NextRequest) {
     1. If the attraction name is generic or could refer to multiple places, use the unique details (location, Place ID, coordinates) to ensure you are describing the correct site.
     2. Quickly consult reliable sources (e.g., Wikipedia, IPHAN, official tourism  heritage sites) to confirm dates and facts.  
     3. Start the narration by mentioning the **POI name** in the very first sentence.  
-    4. Do **NOT** mention directions (left, right, front, etc.).  
-    5. Do **NOT** mention neighborhood, city, or region—focus solely on the site itself.  
+    4. Do **NOT** mention neighborhood, city, or region—focus solely on the site itself. 
+    5. Do **NOT** mention lat and long, street names and numbers, or directions (left, right, front, etc.).   
     6. Avoid second-person language and exaggerated enthusiasm; keep a neutral, professional tone.  
     7. If historical details are scarce, provide a concise factual overview instead.  
-    8. **Output only the description text in Brazilian Portuguese**. Do not include any headers, tags, or notes about AI.
+    8. **Output only the description text in Brazilian Portuguese**. Do not include any headers, tags, or notes about AI. 
+    9. Do not include any information about the attraction's opening hours, prices, or directions.
     
     Return only the final description.`
 
