@@ -34,6 +34,7 @@ interface POI {
   opening_hours: any | null
   google_types: string[] | null
   photos_references: string[] | null
+  google_place_id: string | null
   coordinates?: {
     latitude: number
     longitude: number
@@ -43,6 +44,7 @@ interface POI {
   has_audio: boolean
   description_count: number
   audio_count: number
+  reference_links?: string[] // Add reference links field
 }
 
 interface POIStats {

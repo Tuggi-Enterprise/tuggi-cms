@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { supabase } from 'lib/supabase'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+    
     const { 
       name, 
       city, 
@@ -20,8 +22,21 @@ export async function POST(request: NextRequest) {
       formatted_phone_number,
       photos_references,
       existing_description,
-      image_url 
+      image_url,
+      id: attractionId, // allow id to be passed in body
+      google_place_id, // allow google_place_id to be passed in body
+      lat: providedLat, // coordinates can be provided directly
+      lng: providedLng, // coordinates can be provided directly
+      reference_links // accept reference_links from body
     } = body
+
+    console.log('🔍 COORDINATE FETCH DEBUG:', {
+      attractionId: attractionId || 'not provided',
+      google_place_id: google_place_id || 'not provided',
+      providedLat: providedLat || 'not provided',
+      providedLng: providedLng || 'not provided',
+      name: name
+    })
 
     if (!name || !city || !country) {
       return NextResponse.json(
@@ -79,15 +94,74 @@ export async function POST(request: NextRequest) {
     // Photo information
     const photoInfo = photos_references > 0 ? `${photos_references} photos available` : 'No photos available'
 
-    const prompt = `
-    You are a knowledgeable and friendly travel-guide assistant with deep expertise in Brazilian history and culture.
+    // Use provided coordinates first, then fetch from DB if not provided
+    let lat = providedLat
+    let lng = providedLng
     
-    Your task: create a short (max 120 words) audio-friendly description of a tourist attraction for an international audience.  
+    // Only fetch from database if coordinates weren't provided directly
+    if ((!lat || !lng) && (attractionId || google_place_id)) {
+      let attraction_id = attractionId
+      
+      // If only google_place_id is provided, fetch the attraction id first
+      if (!attraction_id && google_place_id) {
+        console.log(`Looking up attraction with google_place_id: ${google_place_id}`)
+        const { data: attraction, error: attractionError } = await supabase
+          .schema('core')
+          .from('attractions')
+          .select('id')
+          .eq('google_place_id', google_place_id)
+          .maybeSingle()
+        
+        if (attractionError) {
+          console.warn('Error fetching attraction by google_place_id:', attractionError)
+        } else if (attraction) {
+          console.log(`Found attraction with id: ${attraction.id}`)
+        } else {
+          console.log('No attraction found with that google_place_id')
+        }
+        attraction_id = attraction?.id
+      }
+      
+      if (attraction_id) {
+        console.log(`Looking up coordinates for attraction_id: ${attraction_id}`)
+        const { data: coordinate, error: coordError } = await supabase
+          .schema('core')
+          .from('attraction_coordinate')
+          .select('latitude, longitude')
+          .eq('attraction_id', attraction_id)
+          .maybeSingle()
+        
+        if (coordError) {
+          console.warn('Error fetching coordinates:', coordError)
+        } else if (coordinate) {
+          console.log(`Found coordinates: ${coordinate.latitude}, ${coordinate.longitude}`)
+        } else {
+          console.log('No coordinates found for this attraction')
+        }
+        lat = coordinate?.latitude
+        lng = coordinate?.longitude
+      } else {
+        console.log('No attraction_id available for coordinate lookup')
+      }
+    } else {
+      console.log('No identifiers (id or google_place_id) provided')
+    }
+
+    console.log(`Generating description for: ${name} (${lat && lng ? `${lat}, ${lng}` : 'no coordinates'})`);
+
+    const referenceLinksSection = reference_links && reference_links.length > 0
+      ? `\n### REFERENCE LINKS\n${reference_links.map((link: string) => `- ${link}`).join('\n')}\nUse these links as primary sources for facts and details.\n`
+      : '';
+
+    const prompt = `
+    You are a knowledgeable and friendly travel-guide assistant with deep expertise in World history and culture.
+    
+    Your task: create a short (max 100 words) audio-friendly description of a tourist attraction for an international audience.  
     Make it **engaging, factual, and pleasant to hear**, highlighting:
     
-    • Year of creation or foundation  
-    • Key historical events or transformations (dates, restorations, famous episodes)  
-    • Cultural or architectural curiosities that capture attention  
+    • Year of creation or foundation, do not invent any dates.
+    • Key historical events or transformations (dates, restorations, famous episodes), do not invent any facts.
+    • Cultural or architectural curiosities that capture attention, do not invent any information.
     • Why this place is relevant or iconic today  
     
     ### ATTRACTION DATA
@@ -95,22 +169,23 @@ export async function POST(request: NextRequest) {
     - Location: ${locationDetails}
     - Google Types (detailed categories): ${categories}
     - Rating: ${ratingInfo}
-    - ${priceInfo || 'Price information not available'}
-  
+    - Place ID: ${google_place_id || 'Not available'}
+    - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
     - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attraction'}
-    ${existing_description ? `\n### EXISTING DESCRIPTION\n"${existing_description}"\nIf it is poor or inaccurate, replace it with a better version.` : ''}
+    ${referenceLinksSection}
     
     ### INSTRUCTIONS
-    1. Quickly consult reliable sources (e.g., Wikipedia, IPHAN, official tourism or heritage sites) to confirm dates and facts.  
-    2. Start the narration by mentioning the **POI name** in the very first sentence.  
-    3. Do **NOT** mention directions (left, right, front, etc.).  
-    4. Do **NOT** mention neighborhood, city, or region—focus solely on the site itself.  
-    5. Avoid second-person language and exaggerated enthusiasm; keep a neutral, professional tone.  
-    6. If historical details are scarce, provide a concise factual overview instead.  
-    7. **Output only the description text in Brazilian Portuguese**. Do not include any headers, tags, or notes about AI.
+    1. If the attraction name is generic or could refer to multiple places, use the unique details (location, Place ID, coordinates) to ensure you are describing the correct site.
+    2. Quickly consult reliable sources (e.g., Wikipedia, IPHAN, official tourism  heritage sites) to confirm dates and facts.  
+    3. Start the narration by mentioning the **POI name** in the very first sentence.  
+    4. Do **NOT** mention directions (left, right, front, etc.).  
+    5. Do **NOT** mention neighborhood, city, or region—focus solely on the site itself. 
+    6. Do **NOT** mention latitude and longitude in the description.   
+    7. Avoid second-person language and exaggerated enthusiasm; keep a neutral, professional tone.  
+    8. If historical details are scarce, provide a concise factual overview instead.  
+    9. **Output only the description text in Brazilian Portuguese**. Do not include any headers, tags, or notes about AI.
     
-    Return only the final description.`;
-
+    Return only the final description.`
 
 
 // Construct the prompt for cultural/historical description
@@ -142,6 +217,7 @@ export async function POST(request: NextRequest) {
 
     let geminiResponse = null
     let lastError = null
+    console.log("Prompt sent to Gemini API:", prompt);
 
     for (const endpoint of endpoints) {
       try {
@@ -165,7 +241,7 @@ export async function POST(request: NextRequest) {
               topK: 40,
               topP: 0.95,
               maxOutputTokens: 300,
-            }
+            },
           })
         })
 

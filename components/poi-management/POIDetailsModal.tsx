@@ -32,10 +32,12 @@ interface POI {
   opening_hours: any | null
   google_types: string[] | null
   photos_references: string[] | null
+  google_place_id: string | null
   coordinates?: {
     latitude: number
     longitude: number
   }
+  reference_links?: string[] // Add reference links field
 }
 
 interface POIDetailsModalProps {
@@ -69,6 +71,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [audioSpeed, setAudioSpeed] = useState<number>(1.1)
   const [audioProvider, setAudioProvider] = useState<'openai' | 'google'>('google')
   
+  // Add to the state
+  const [referenceLinks, setReferenceLinks] = useState<string[]>(poi.reference_links || []);
+
   const supabase = useSupabaseClient()
 
   // Voice mapping for Google TTS
@@ -193,7 +198,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
           category: editedPoi.category,
           city: editedPoi.city,
           country: editedPoi.country,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          reference_links: referenceLinks.filter(link => !!link.trim()) // Save only non-empty links
         })
         .eq('id', poi.id)
 
@@ -281,6 +287,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          id: poi.id, // Add attraction id for coordinate lookup
+          google_place_id: poi.google_place_id, // Add google_place_id for coordinate lookup
+          lat: poi.coordinates?.latitude, // Add coordinates directly from UI
+          lng: poi.coordinates?.longitude, // Add coordinates directly from UI
           name: poi.name,
           city: poi.city,
           country: poi.country,
@@ -888,6 +898,42 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                     </div>
                   </div>
                 )}
+
+                {/* Reference Links */}
+                <div className="mt-6">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference Links (URLs)</label>
+                  <div className="space-y-2 mt-2">
+                    {referenceLinks.map((link, idx) => (
+                      <div key={idx} className="flex items-center space-x-2">
+                        <input
+                          type="url"
+                          className="flex-1 border rounded px-2 py-1"
+                          value={link}
+                          onChange={e => {
+                            const newLinks = [...referenceLinks];
+                            newLinks[idx] = e.target.value;
+                            setReferenceLinks(newLinks);
+                          }}
+                          placeholder="https://example.com"
+                        />
+                        <button
+                          type="button"
+                          className="text-red-500 hover:text-red-700"
+                          onClick={() => setReferenceLinks(referenceLinks.filter((_, i) => i !== idx))}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="text-blue-600 hover:text-blue-800 text-sm mt-2"
+                      onClick={() => setReferenceLinks([...referenceLinks, ''])}
+                    >
+                      + Add Link
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
