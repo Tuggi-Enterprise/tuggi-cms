@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2 } from 'lucide-react'
+import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { TriggerPointsManager } from './TriggerPointsManager'
+import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
 
 interface POI {
   id: string
@@ -53,7 +54,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [isSaving, setIsSaving] = useState(false)
   const [descriptions, setDescriptions] = useState<any[]>([])
   const [images, setImages] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'details' | 'description' | 'trigger-points' | 'narration-audio'>('details')
+  const [activeTab, setActiveTab] = useState<'details' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois'>('details')
   
   // Description editing state
   const [currentDescription, setCurrentDescription] = useState('')
@@ -74,6 +75,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   // Add to the state
   const [referenceLinks, setReferenceLinks] = useState<string[]>(poi.reference_links || []);
 
+  // Grouping state
+  const [nearbyPOIs, setNearbyPOIs] = useState<any[]>([])
+  const [selectedPOIs, setSelectedPOIs] = useState<string[]>([])
+  const [groupInfo, setGroupInfo] = useState<any>(null)
+  const [groupLoading, setGroupLoading] = useState(false)
+  const [groupName, setGroupName] = useState(poi.name) // Default to main POI name
+  const [drawnPolygon, setDrawnPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
+
   const supabase = useSupabaseClient()
 
   // Voice mapping for Google TTS
@@ -91,6 +100,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     }
   }, [poi, isOpen])
 
+  // Fetch nearby POIs and group info on open
+  useEffect(() => {
+    if (isOpen && poi.coordinates) {
+      fetchNearbyPOIs()
+      fetchGroupInfo()
+    }
+  }, [isOpen, poi.id, poi.coordinates])
+
   const fetchAdditionalData = async () => {
     setIsLoading(true)
     try {
@@ -99,7 +116,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         .schema('core')
         .from('attraction_descriptions')
         .select('*')
-        .eq('attraction_id', poi.id)
+        .or(`attraction_id.eq.${poi.id},group_id.in.(${groupInfo?.id || ''})`)
         .order('created_at', { ascending: false })
 
       setDescriptions(descriptionsData || [])
@@ -107,11 +124,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       // Debug: Log the fetched descriptions
       console.log('🔍 Fetched descriptions for POI:', poi.id, descriptionsData)
       
-      // Load Portuguese description for editing (prioritize PT, fallback to first available)
-      const ptDesc = descriptionsData?.find(desc => 
-        desc.language === 'pt-br' || desc.language === 'pt' || desc.language === 'pt-br' || desc.language?.toLowerCase().includes('pt')
-      )
-      const currentDesc = ptDesc || descriptionsData?.[0]
+      // Prefer group description/audio if available
+      let currentDesc = null
+      if (groupInfo && groupInfo.id) {
+        currentDesc = descriptionsData?.find(desc => desc.group_id === groupInfo.id)
+      }
+      if (!currentDesc) {
+        // Fallback to individual POI description
+        currentDesc = descriptionsData?.find(desc =>
+          desc.language === 'pt-br' || desc.language === 'pt' || desc.language?.toLowerCase().includes('pt')
+        ) || descriptionsData?.[0]
+      }
       
       console.log('🔍 Selected description:', currentDesc)
       
@@ -184,6 +207,56 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       console.error('Error fetching additional data:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const fetchNearbyPOIs = async () => {
+    // Only fetch nearby POIs when a polygon is drawn
+    // The initial load will be empty until user draws a polygon
+    setNearbyPOIs([])
+  }
+
+  const fetchGroupInfo = async () => {
+    setGroupLoading(true)
+    try {
+      const res = await fetch(`/api/attraction-groups/of-poi?poiId=${poi.id}`)
+      const data = await res.json()
+      setGroupInfo(data.group)
+      setGroupName(data.group?.name || poi.name) // Use main POI name as default
+      setSelectedPOIs(data.members || [poi.id])
+    } finally {
+      setGroupLoading(false)
+    }
+  }
+
+  const handleTogglePOI = (id: string) => {
+    setSelectedPOIs(prev => prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id])
+  }
+
+  const handleSaveGroup = async () => {
+    setGroupLoading(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      // Always include the main POI in the group
+      const poiIds = [poi.id, ...selectedPOIs.filter(id => id !== poi.id)]
+      const res = await fetch('/api/attraction-groups/group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groupId: groupInfo?.id,
+          name: groupName || poi.name,
+          poiIds: poiIds,
+          userId: user?.id
+        })
+      })
+      if (!res.ok) throw new Error('Failed to save group')
+      await fetchGroupInfo()
+      await onUpdate()
+      alert('Group saved!')
+    } catch (e) {
+      alert('Failed to save group')
+    } finally {
+      setGroupLoading(false)
     }
   }
 
@@ -508,6 +581,27 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     return kb < 1024 ? `${kb.toFixed(1)} KB` : `${(kb / 1024).toFixed(1)} MB`
   }
 
+  const handlePolygonComplete = (polygon: any) => {
+    const coords = extractPolygonCoordinates(polygon)
+    setDrawnPolygon(coords)
+    fetchNearbyPOIsWithPolygon(coords)
+  }
+
+  const fetchNearbyPOIsWithPolygon = async (polygonCoords: Array<{ lat: number; lng: number }>) => {
+    setGroupLoading(true)
+    try {
+      const res = await fetch('/api/attraction-groups/nearby', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ polygon: polygonCoords })
+      })
+      const data = await res.json()
+      setNearbyPOIs(data.nearby || [])
+    } finally {
+      setGroupLoading(false)
+    }
+  }
+
   if (!isOpen) return null
 
   return (
@@ -546,6 +640,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   POI Details
                 </button>
                 <button
+                  onClick={() => setActiveTab('group-pois')}
+                  className={cn(
+                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
+                    activeTab === 'group-pois'
+                      ? 'border-tuggi-blue text-tuggi-blue'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  )}
+                >
+                  <Users className="h-4 w-4 inline mr-2" />
+                  Group POIs
+                </button>
+                <button
                   onClick={() => setActiveTab('description')}
                   className={cn(
                     'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
@@ -582,6 +688,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   <Target className="h-4 w-4 inline mr-2" />
                   Trigger Points
                 </button>
+               
               </nav>
             </div>
           </div>
@@ -863,6 +970,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                     )}
                   </div>
                 </div>
+
 
                 {/* Descriptions */}
                 {descriptions.length > 0 && (
@@ -1407,6 +1515,263 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                     <p>• <strong>Tourism Optimized:</strong> Ideal speed and tone for cultural content</p>
                   </div>
                 </div>
+              </div>
+            )}
+          </div>
+        ) : activeTab === 'group-pois' ? (
+          <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
+            {poi.coordinates ? (
+              <div className="space-y-6">
+                {/* Header Section */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      <Users className="h-5 w-5 text-tuggi-blue" />
+                      Group Management
+                    </h4>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      Create or manage groups of nearby POIs for combined audio experiences
+                    </p>
+                  </div>
+                  {groupInfo && (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800">
+                        <CheckCircle className="h-4 w-4 mr-1" />
+                        Grouped
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Current Group Status */}
+                {groupInfo && (
+                  <div className="bg-tuggi-blue/5 dark:bg-tuggi-blue/10 border border-tuggi-blue/20 rounded-lg p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-shrink-0">
+                        <div className="w-10 h-10 bg-tuggi-blue/10 rounded-full flex items-center justify-center">
+                          <Users className="h-5 w-5 text-tuggi-blue" />
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <h5 className="font-medium text-gray-900 dark:text-white">
+                          {groupInfo.name}
+                        </h5>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          This POI is part of a group. Group descriptions will be shared across all members.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Map Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h5 className="font-medium text-gray-900 dark:text-white">
+                      Select Area & POIs
+                    </h5>
+                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                      <MapPin className="h-4 w-4" />
+                      Draw polygon to find nearby POIs
+                    </div>
+                  </div>
+                  
+                  <div className="relative">
+                    <div className="w-full h-80 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm">
+                      <GoogleMapComponent
+                        center={{ lat: poi.coordinates.latitude, lng: poi.coordinates.longitude }}
+                        zoom={18}
+                        height="100%"
+                        markers={[
+                          { id: poi.id, position: { lat: poi.coordinates.latitude, lng: poi.coordinates.longitude }, title: `${poi.name} (Main POI)`, color: '#10B981' },
+                          ...nearbyPOIs.filter((p: any) => p.coordinates && p.coordinates.latitude && p.coordinates.longitude).map((p: any) => ({
+                            id: p.id,
+                            position: { lat: p.coordinates.latitude, lng: p.coordinates.longitude },
+                            title: p.name,
+                            color: selectedPOIs.includes(p.id) ? '#FF6F00' : '#888'
+                          }))
+                        ]}
+                        onMarkerClick={handleTogglePOI}
+                        onPolygonComplete={handlePolygonComplete}
+                      />
+                    </div>
+                    
+                    {/* Legend */}
+                    <div className="absolute top-3 right-3 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3">
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                          <span className="text-gray-700 dark:text-gray-300">Main POI</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-tuggi-orange rounded-full"></div>
+                          <span className="text-gray-700 dark:text-gray-300">Selected</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                          <span className="text-gray-700 dark:text-gray-300">Available</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* POI Selection Section */}
+                <div className="space-y-3">
+                  <h5 className="font-medium text-gray-900 dark:text-white">
+                    Nearby POIs ({nearbyPOIs.length} found)
+                  </h5>
+                  
+                  {nearbyPOIs.length > 0 ? (
+                    <div className="space-y-2">
+                      {nearbyPOIs.map((p: any) => (
+                        <div
+                          key={p.id}
+                          className={cn(
+                            "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all",
+                            selectedPOIs.includes(p.id)
+                              ? "bg-tuggi-orange/10 border-tuggi-orange/30 shadow-sm"
+                              : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          )}
+                          onClick={() => handleTogglePOI(p.id)}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedPOIs.includes(p.id)}
+                            onChange={() => handleTogglePOI(p.id)}
+                            className="rounded border-gray-300 text-tuggi-orange focus:ring-tuggi-orange"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 dark:text-white truncate">
+                              {p.name}
+                            </p>
+                            {p.formatted_address && (
+                              <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                                {p.formatted_address}
+                              </p>
+                            )}
+                          </div>
+                          {p.rating && (
+                            <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+                              <Star className="h-4 w-4 text-yellow-400" />
+                              {p.rating.toFixed(1)}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                      <MapPin className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+                      <p className="text-sm font-medium">No nearby POIs found</p>
+                      <p className="text-xs mt-1">Draw a polygon on the map to search for POIs in a specific area</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Group Configuration */}
+                <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <h5 className="font-medium text-gray-900 dark:text-white">
+                    Group Configuration
+                  </h5>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Group Name
+                      </label>
+                      <input
+                        type="text"
+                        value={groupName}
+                        onChange={e => setGroupName(e.target.value)}
+                        placeholder="Enter group name"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    
+                    <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          Main POI: {poi.name}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          This POI will hold the group description
+                        </p>
+                      </div>
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300">
+                        Main
+                      </span>
+                    </div>
+                    
+                    {selectedPOIs.length > 0 && (
+                      <div className="p-3 bg-tuggi-blue/5 dark:bg-tuggi-blue/10 rounded-lg">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+                          Selected POIs ({selectedPOIs.length})
+                        </p>
+                        <div className="space-y-1">
+                          {selectedPOIs.map(id => {
+                            const p = nearbyPOIs.find((poi: any) => poi.id === id)
+                            return p ? (
+                              <div key={id} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                                <Users className="h-3 w-3" />
+                                {p.name}
+                              </div>
+                            ) : null
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <div className="text-sm text-gray-500 dark:text-gray-400">
+                    {selectedPOIs.length === 0 ? (
+                      <span>Select at least 1 POI to create a group</span>
+                    ) : (
+                      <span>Ready to {groupInfo ? 'update' : 'create'} group with {selectedPOIs.length + 1} POIs</span>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    {groupInfo && (
+                      <button
+                        onClick={() => {
+                          // Handle group deletion
+                          if (window.confirm('Are you sure you want to disband this group?')) {
+                            // Add delete group logic here
+                          }
+                        }}
+                        className="inline-flex items-center px-3 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Disband Group
+                      </button>
+                    )}
+                    
+                    <button
+                      onClick={handleSaveGroup}
+                      disabled={groupLoading || selectedPOIs.length < 1}
+                      className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-tuggi-blue border border-transparent rounded-md hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {groupLoading ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : groupInfo ? (
+                        <Save className="h-4 w-4 mr-2" />
+                      ) : (
+                        <Plus className="h-4 w-4 mr-2" />
+                      )}
+                      {groupLoading ? 'Saving...' : groupInfo ? 'Update Group' : 'Create Group'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                <MapPin className="h-16 w-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
+                <p className="text-lg font-medium">No coordinates available</p>
+                <p className="text-sm mt-1">This POI needs coordinates to create groups with nearby POIs</p>
               </div>
             )}
           </div>

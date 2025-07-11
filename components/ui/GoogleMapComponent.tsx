@@ -30,6 +30,10 @@ interface GoogleMapComponentProps {
   showDrawingButton?: boolean
   isLoading?: boolean
   loadingMessage?: string
+  circle?: {
+    center: { lat: number; lng: number }
+    radius: number // in meters
+  }
 }
 
 interface MapProps extends GoogleMapComponentProps {
@@ -47,7 +51,8 @@ function Map({
   savedPolygons = [],
   cityBoundary,
   cityName,
-  enableDrawing = true
+  enableDrawing = true,
+  circle
 }: Omit<GoogleMapComponentProps, 'height' | 'className'>) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
@@ -57,6 +62,7 @@ function Map({
   const cityBoundaryRef = useRef<google.maps.Polygon | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
   const drawingButtonRef = useRef<HTMLButtonElement | null>(null)
+  const circleRef = useRef<google.maps.Circle | null>(null)
 
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
@@ -371,6 +377,29 @@ function Map({
     }
   }, [enableDrawing])
 
+  const updateCircle = useCallback(() => {
+    if (!mapInstanceRef.current) return
+    // Remove existing circle
+    if (circleRef.current) {
+      circleRef.current.setMap(null)
+      circleRef.current = null
+    }
+    if (circle && circle.center && circle.radius > 0) {
+      const circleOverlay = new google.maps.Circle({
+        center: circle.center,
+        radius: circle.radius,
+        fillColor: '#00A8E8',
+        fillOpacity: 0.2,
+        strokeColor: '#00A8E8',
+        strokeOpacity: 0.7,
+        strokeWeight: 2,
+        clickable: false,
+      })
+      circleOverlay.setMap(mapInstanceRef.current)
+      circleRef.current = circleOverlay
+    }
+  }, [circle])
+
   useEffect(() => {
     if (window.google && window.google.maps && window.google.maps.drawing) {
       initializeMap()
@@ -411,6 +440,10 @@ function Map({
   useEffect(() => {
     updateDrawingMode()
   }, [updateDrawingMode])
+
+  useEffect(() => {
+    updateCircle()
+  }, [updateCircle])
 
   return <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
 }

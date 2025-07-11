@@ -46,6 +46,14 @@ interface POI {
   description_count: number
   audio_count: number
   reference_links?: string[] // Add reference links field
+  // Group status indicators
+  group_status?: {
+    is_in_group: boolean
+    group_id?: string
+    group_name?: string
+    group_role?: 'main' | 'member'
+    group_member_count?: number
+  }
 }
 
 interface POIStats {
@@ -68,6 +76,7 @@ function POIListWithSearchParams() {
   const [cityFilter, setCityFilter] = useState('')
   const [googleTypesFilter, setGoogleTypesFilter] = useState('')
   const [contentStatusFilter, setContentStatusFilter] = useState<'all' | 'missing_description' | 'missing_audio' | 'complete'>('all')
+  const [groupStatusFilter, setGroupStatusFilter] = useState<'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'>('all')
   const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [cities, setCities] = useState<string[]>([])
   const [stats, setStats] = useState<POIStats>({ total: 0, approved: 0, pending: 0, recentlyAdded: 0, withDescription: 0, withAudio: 0, contentComplete: 0 })
@@ -97,6 +106,7 @@ function POIListWithSearchParams() {
     city?: string
     googleTypes?: string
     contentStatus?: string
+    groupStatus?: string
     page?: number
     view?: string
   }) => {
@@ -118,6 +128,9 @@ function POIListWithSearchParams() {
     if (filters.contentStatus && filters.contentStatus !== 'all') {
       params.set('contentStatus', filters.contentStatus)
     }
+    if (filters.groupStatus && filters.groupStatus !== 'all') {
+      params.set('groupStatus', filters.groupStatus)
+    }
     if (filters.page && filters.page > 1) {
       params.set('page', filters.page.toString())
     }
@@ -137,6 +150,7 @@ function POIListWithSearchParams() {
     setCityFilter('')
     setGoogleTypesFilter('')
     setContentStatusFilter('all')
+    setGroupStatusFilter('all')
     setCurrentPage(1)
     setIsInitializing(false) // Ensure URL updates work after clearing
   }
@@ -148,6 +162,7 @@ function POIListWithSearchParams() {
     const city = searchParams.get('city') || ''
     const googleTypes = searchParams.get('googleTypes') || ''
     const contentStatus = searchParams.get('contentStatus') || 'all'
+    const groupStatus = searchParams.get('groupStatus') || 'all'
     const page = parseInt(searchParams.get('page') || '1')
     const view = searchParams.get('view') || 'table'
 
@@ -157,6 +172,7 @@ function POIListWithSearchParams() {
     setCityFilter(city)
     setGoogleTypesFilter(googleTypes)
     setContentStatusFilter(contentStatus as any)
+    setGroupStatusFilter(groupStatus as any)
     setCurrentPage(page)
     setViewMode(view as 'table' | 'map')
     
@@ -173,7 +189,7 @@ function POIListWithSearchParams() {
 
   useEffect(() => {
     filterPois()
-  }, [pois, searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter])
+  }, [pois, searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter])
 
   useEffect(() => {
     calculateStats()
@@ -188,22 +204,28 @@ function POIListWithSearchParams() {
         city: cityFilter,
         googleTypes: googleTypesFilter,
         contentStatus: contentStatusFilter,
+        groupStatus: groupStatusFilter,
         page: currentPage,
         view: viewMode
       })
     }
-  }, [searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, currentPage, viewMode, isInitializing])
+  }, [searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, currentPage, viewMode, isInitializing])
 
   const fetchPois = async () => {
     try {
-      // Fetch POIs with coordinates and content status
+      // Fetch POIs with coordinates, content status, and group information
       const { data, error } = await supabase
         .schema('core')
         .from('attractions')
         .select(`
           *,
           coordinates:attraction_coordinate(latitude, longitude),
-          descriptions:attraction_descriptions(id, description, audio_url, language)
+          descriptions:attraction_descriptions(id, description, audio_url, language),
+          group_membership:attraction_group_members(
+            group_id,
+            group_role,
+            group:attraction_groups(id, name)
+          )
         `)
         .order('created_at', { ascending: false })
 
@@ -212,11 +234,29 @@ function POIListWithSearchParams() {
         return
       }
 
-      // Transform data to include coordinates, content status, and ensure required fields
+      // Transform data to include coordinates, content status, group info, and ensure required fields
       const poisWithCoords = data?.map(poi => {
         const descriptions = poi.descriptions || []
         const hasDescription = descriptions.some((desc: any) => desc.description && desc.description.trim())
         const hasAudio = descriptions.some((desc: any) => desc.audio_url && desc.audio_url.trim())
+        
+        // Process group membership
+        const groupMembership = poi.group_membership?.[0] // POI can only be in one group
+        let groupStatus = null
+        
+        if (groupMembership) {
+          groupStatus = {
+            is_in_group: true,
+            group_id: groupMembership.group_id,
+            group_name: groupMembership.group?.name,
+            group_role: groupMembership.group_role,
+            group_member_count: 0 // Will be populated later if needed
+          }
+        } else {
+          groupStatus = {
+            is_in_group: false
+          }
+        }
         
         return {
           ...poi,
@@ -227,7 +267,9 @@ function POIListWithSearchParams() {
           has_audio: hasAudio,
           description_count: descriptions.filter((desc: any) => desc.description && desc.description.trim()).length,
           audio_count: descriptions.filter((desc: any) => desc.audio_url && desc.audio_url.trim()).length,
-          descriptions: undefined // Remove from final object to keep it clean
+          group_status: groupStatus,
+          descriptions: undefined, // Remove from final object to keep it clean
+          group_membership: undefined // Remove from final object to keep it clean
         }
       }) || []
 
@@ -301,6 +343,24 @@ function POIListWithSearchParams() {
             return !poi.has_audio
           case 'complete':
             return poi.has_description && poi.has_audio
+          default:
+            return true
+        }
+      })
+    }
+
+    // Group Status filter
+    if (groupStatusFilter !== 'all') {
+      filtered = filtered.filter(poi => {
+        switch (groupStatusFilter) {
+          case 'grouped':
+            return poi.group_status?.is_in_group === true
+          case 'ungrouped':
+            return poi.group_status?.is_in_group === false
+          case 'group_main':
+            return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'main'
+          case 'group_member':
+            return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'member'
           default:
             return true
         }
@@ -604,8 +664,21 @@ function POIListWithSearchParams() {
             <option value="complete">Complete</option>
           </select>
 
+          {/* Group Status Filter */}
+          <select
+            value={groupStatusFilter}
+            onChange={(e) => setGroupStatusFilter(e.target.value as any)}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+          >
+            <option value="all">All Groups</option>
+            <option value="grouped">Grouped</option>
+            <option value="ungrouped">Ungrouped</option>
+            <option value="group_main">Group Main</option>
+            <option value="group_member">Group Member</option>
+          </select>
+
           {/* Clear Filters Button */}
-          {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all') && (
+          {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
             <button
               onClick={clearAllFilters}
               className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
@@ -631,6 +704,7 @@ function POIListWithSearchParams() {
             cityFilter={cityFilter}
             googleTypesFilter={googleTypesFilter}
             contentStatusFilter={contentStatusFilter}
+            groupStatusFilter={groupStatusFilter}
             onPOIClick={openPOIDetails}
             height="600px"
             className="w-full"
@@ -674,6 +748,9 @@ function POIListWithSearchParams() {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Content Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Group Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Created At
@@ -801,6 +878,30 @@ function POIListWithSearchParams() {
                         </span>
                       </div>
                     </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    {poi.group_status?.is_in_group ? (
+                      <div className="flex items-center">
+                        <div className={cn(
+                          'inline-flex items-center px-2 py-1 text-xs font-medium rounded-full',
+                          poi.group_status.group_role === 'main' 
+                            ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300'
+                            : 'bg-purple-100 dark:bg-purple-900/20 text-purple-800 dark:text-purple-300'
+                        )}>
+                          <Users className="h-3 w-3 mr-1" />
+                          {poi.group_status.group_role === 'main' ? 'Group Main' : 'Group Member'}
+                        </div>
+                        {poi.group_status.group_name && (
+                          <div className="ml-2 text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs" title={poi.group_status.group_name}>
+                            {poi.group_status.group_name}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300">
+                        Individual
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
                     {formatDate(poi.created_at)}

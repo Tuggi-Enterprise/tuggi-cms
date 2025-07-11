@@ -45,6 +45,14 @@ interface POI {
   description_count: number
   audio_count: number
   reference_links?: string[]
+  // Group status indicators
+  group_status?: {
+    is_in_group: boolean
+    group_id?: string
+    group_name?: string
+    group_role?: 'main' | 'member'
+    group_member_count?: number
+  }
 }
 
 // Saved Polygon interface
@@ -66,6 +74,7 @@ interface POIMapVisualizationProps {
   cityFilter: string
   googleTypesFilter: string
   contentStatusFilter: 'all' | 'missing_description' | 'missing_audio' | 'complete'
+  groupStatusFilter?: 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'
   
   // Callbacks
   onPOIClick: (poi: POI) => void
@@ -134,6 +143,7 @@ function POIMapContent({
   cityFilter,
   googleTypesFilter,
   contentStatusFilter,
+  groupStatusFilter = 'all',
   onPOIClick,
   onFiltersChange,
   showPolygons = true,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateAudioWithGoogleTTS } from '@/lib/providers/googleTTS'
+import { supabase } from '@/lib/supabase'
 
 // Text preprocessing function to optimize for TTS narration
 function preprocessTextForTTS(text: string): string {
@@ -52,13 +53,45 @@ function selectOptimalVoice(text: string): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { text, attractionId, voice, speed, provider } = body
+    let { text, attractionId, voice, speed, provider } = body
 
     if (!text || !attractionId) {
       return NextResponse.json(
         { error: 'Missing required parameters: text and attractionId' },
         { status: 400 }
       )
+    }
+
+    // 1. Check if POI is in a group
+    let groupMembers = null
+    const { data: groupMember } = await supabase
+      .schema('core')
+      .from('attraction_group_members')
+      .select('group_id')
+      .eq('attraction_id', attractionId)
+      .maybeSingle()
+    if (groupMember && groupMember.group_id) {
+      // Fetch all group members
+      const { data: members } = await supabase
+        .schema('core')
+        .from('attraction_group_members')
+        .select('attraction_id')
+        .eq('group_id', groupMember.group_id)
+      if (members && members.length > 0) {
+        // Fetch metadata for all group members
+        const ids = members.map(m => m.attraction_id)
+        const { data: pois } = await supabase
+          .schema('core')
+          .from('attractions')
+          .select('name')
+          .in('id', ids)
+        groupMembers = pois
+      }
+    }
+
+    // 2. If in a group, concatenate names for TTS
+    if (groupMembers && groupMembers.length > 1) {
+      text = groupMembers.map(p => p.name).join(', ')
     }
 
     const selectedProvider = provider || 'openai'

@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabase } from 'lib/supabase'
+import { createClient } from '@supabase/supabase-js'
+
+// Use service role key for database access (bypasses RLS)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET! // This is actually the service role key
+)
 
 export async function POST(request: NextRequest) {
   try {
@@ -147,6 +153,44 @@ export async function POST(request: NextRequest) {
       console.log('No identifiers (id or google_place_id) provided')
     }
 
+    // 1. Check if POI is in a group (do this regardless of coordinate source)
+    let groupId = null
+    let groupMembers = null
+    if (attractionId) {
+      console.log(`🔍 Checking if POI ${attractionId} is in a group...`)
+      const { data: groupMember } = await supabase
+        .schema('core')
+        .from('attraction_group_members')
+        .select('group_id')
+        .eq('attraction_id', attractionId)
+        .maybeSingle()
+      if (groupMember && groupMember.group_id) {
+        groupId = groupMember.group_id
+        console.log(`✅ POI is in group: ${groupId}`)
+        // Fetch all group members
+        const { data: members } = await supabase
+          .schema('core')
+          .from('attraction_group_members')
+          .select('attraction_id')
+          .eq('group_id', groupId)
+        if (members && members.length > 0) {
+          // Fetch metadata for all group members
+          const ids = members.map(m => m.attraction_id)
+          const { data: pois } = await supabase
+            .schema('core')
+            .from('attractions')
+            .select('*')
+            .in('id', ids)
+          groupMembers = pois
+          console.log(`📋 Fetched ${pois?.length || 0} group members:`, pois?.map(p => p.name))
+        }
+      } else {
+        console.log(`❌ POI is not in any group`)
+      }
+    } else {
+      console.log(`⚠️ No attractionId provided, skipping group detection`)
+    }
+
     console.log(`Generating description for: ${name} (${lat && lng ? `${lat}, ${lng}` : 'no coordinates'})`);
 
     const referenceLinksSection = reference_links && reference_links.length > 0
@@ -166,7 +210,69 @@ export async function POST(request: NextRequest) {
       ? `\n### AUTHORITATIVE SOURCES\n${sources.join('\n')}\nUse these sources as primary references for facts, dates, and details.\n`
       : '';
 
-    const prompt = `
+    // 2. If in a group, concatenate metadata for prompt
+    let combinedName = name
+    let combinedTypes = google_types
+    let combinedRating = rating
+    let combinedPhotos = photos_references
+    let combinedReferenceLinks = reference_links
+    if (groupMembers && groupMembers.length > 1) {
+      console.log(`🔗 Combining data for ${groupMembers.length} group members`)
+      combinedName = groupMembers.map(p => p.name).join(', ')
+      combinedTypes = groupMembers.flatMap(p => p.google_types || []).filter(Boolean)
+      combinedRating = groupMembers.map(p => p.rating).filter(Boolean).join(', ')
+      combinedPhotos = groupMembers.reduce((sum, p) => sum + (p.photos_references?.length || 0), 0)
+      combinedReferenceLinks = groupMembers.flatMap(p => p.reference_links || [])
+      console.log(`📝 Combined name: ${combinedName}`)
+      console.log(`📝 Combined types: ${combinedTypes.join(', ')}`)
+      console.log(`📝 Combined rating: ${combinedRating}`)
+    } else {
+      console.log(`📝 Using individual POI data (not in group or single member)`)
+    }
+
+    // 3. Generate different prompts for single vs group POIs
+    let prompt = ''
+    
+    if (groupMembers && groupMembers.length > 1) {
+      // GROUP POI PROMPT
+      console.log(`🎯 Using GROUP POI prompt for ${groupMembers.length} attractions`)
+      prompt = `
+    You are a knowledgeable and friendly travel-guide assistant with deep expertise in World history and culture.
+    
+    Your task: create a short (max 150 words) audio-friendly description for a **GROUP of nearby tourist attractions** for an international audience.  
+    Make it **engaging, factual, and pleasant to hear**, highlighting:
+    
+    - Year of creation or foundation, do not invent any dates.
+    - Key historical events or transformations that connect them
+    - Cultural or architectural curiosities that make them worth visiting together
+    - Why this area/complex is relevant or iconic today
+    
+    ### GROUP OF ATTRACTIONS DATA
+    - Names: ${combinedName}
+    - Location: ${locationDetails}
+    - Google Types (detailed categories): ${combinedTypes.join(', ')}
+    - Ratings: ${combinedRating}
+    - Place ID: ${google_place_id || 'Not available'}
+    - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
+    - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attractions'}
+    ${sourcesSection}
+    
+    ### INSTRUCTIONS FOR GROUP DESCRIPTIONS
+    1. Start by mentioning that these are **nearby attractions** that can be visited together.
+    2. Focus on the **connections** between the attractions - shared history, architectural style, cultural theme, etc.
+    3. Mention each attraction by name but emphasize their relationship.
+    4. Do **NOT** mention neighborhood, city, or region—focus solely on the sites themselves.
+    5. Do **NOT** mention lat and long, street names and numbers, or directions.
+    6. Avoid second-person language and exaggerated enthusiasm; keep a neutral, professional tone.
+    7. If historical details are scarce, provide a concise factual overview of what makes them worth visiting together.
+    8. **Output only the description text in Brazilian Portuguese**. Do not include any headers, tags, or notes about AI.
+    9. Do not include any information about opening hours, prices, or directions.
+    
+    Return only the final group description.`
+    } else {
+      // SINGLE POI PROMPT
+      console.log(`🎯 Using SINGLE POI prompt for individual attraction`)
+      prompt = `
     You are a knowledgeable and friendly travel-guide assistant with deep expertise in World history and culture.
     
     Your task: create a short (max 100 words) audio-friendly description of a tourist attraction for an international audience.  
@@ -178,18 +284,18 @@ export async function POST(request: NextRequest) {
     • Why this place is relevant or iconic today  
     
     ### ATTRACTION DATA
-    - Name: ${name}
+    - Name: ${combinedName}
     - Location: ${locationDetails}
-    - Google Types (detailed categories): ${categories}
-    - Rating: ${ratingInfo}
+    - Google Types (detailed categories): ${combinedTypes.join(', ')}
+    - Rating: ${combinedRating}
     - Place ID: ${google_place_id || 'Not available'}
     - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
     - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attraction'}
     ${sourcesSection}
     
-    ### INSTRUCTIONS
+    ### INSTRUCTIONS FOR SINGLE ATTRACTION
     1. If the attraction name is generic or could refer to multiple places, use the unique details (location, Place ID, coordinates) to ensure you are describing the correct site.
-    2. Quickly consult reliable sources (e.g., Wikipedia, IPHAN, official tourism  heritage sites) to confirm dates and facts.  
+    2. Quickly consult reliable sources (e.g., Wikipedia, IPHAN, official tourism heritage sites) to confirm dates and facts.  
     3. Start the narration by mentioning the **POI name** in the very first sentence.  
     4. Do **NOT** mention neighborhood, city, or region—focus solely on the site itself. 
     5. Do **NOT** mention lat and long, street names and numbers, or directions (left, right, front, etc.).   
@@ -199,6 +305,7 @@ export async function POST(request: NextRequest) {
     9. Do not include any information about the attraction's opening hours, prices, or directions.
     
     Return only the final description.`
+    }
 
 
 // Construct the prompt for cultural/historical description
