@@ -522,14 +522,14 @@ function POIListWithSearchParams() {
   return (
     <div className="p-6 space-y-6">
       {/* Header with Statistics */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
         <div>
           <h1 className="text-3xl font-bold text-tuggi-text dark:text-white">
             POI Management
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             Manage and approve imported Points of Interest
-            {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all') && (
+            {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
               <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue">
                 <Filter className="h-3 w-3 mr-1" />
                 Filtered
@@ -537,165 +537,183 @@ function POIListWithSearchParams() {
             )}
           </p>
         </div>
-        <div className="flex items-center space-x-4">
-          {/* View Toggle */}
-          <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
-            <button
-              onClick={() => setViewMode('table')}
-              className={cn(
-                'flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                viewMode === 'table'
-                  ? 'bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
-              )}
+        
+        {/* Stats Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+            <div className="text-2xl font-bold text-tuggi-blue">{stats.total}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Total POIs</div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+            <div className="text-2xl font-bold text-green-600">{stats.approved}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Approved</div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+            <div className="text-2xl font-bold text-tuggi-orange">{stats.pending}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Pending</div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+            <div className="text-2xl font-bold text-blue-600">{stats.withDescription}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">With Desc</div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+            <div className="text-2xl font-bold text-purple-600">{stats.withAudio}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">With Audio</div>
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+            <div className="text-2xl font-bold text-emerald-600">{stats.contentComplete}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Complete</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Controls Bar */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          {/* Search and View Toggle */}
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search POIs..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-64 pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+              />
+            </div>
+            
+            {/* View Toggle */}
+            <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('table')}
+                className={cn(
+                  'flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                  viewMode === 'table'
+                    ? 'bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+                )}
+              >
+                <List className="h-4 w-4 mr-1.5" />
+                Cards
+              </button>
+              <button
+                onClick={() => setViewMode('map')}
+                className={cn(
+                  'flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                  viewMode === 'map'
+                    ? 'bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+                )}
+              >
+                <Map className="h-4 w-4 mr-1.5" />
+                Map
+              </button>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
             >
-              <List className="h-4 w-4 mr-1.5" />
-              Table
-            </button>
-            <button
-              onClick={() => setViewMode('map')}
-              className={cn(
-                'flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                viewMode === 'map'
-                  ? 'bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
-              )}
+              <option value="all">All Status</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+            </select>
+
+            <select
+              value={cityFilter}
+              onChange={(e) => setCityFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
             >
-              <Map className="h-4 w-4 mr-1.5" />
-              Map
-            </button>
+              <option value="">All Cities</option>
+              {cities.map(city => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+
+            <select
+              value={googleTypesFilter}
+              onChange={(e) => setGoogleTypesFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="">All Types</option>
+              {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
+                <option key={category.value} value={category.value}>{category.label}</option>
+              ))}
+            </select>
+
+            <select
+              value={contentStatusFilter}
+              onChange={(e) => setContentStatusFilter(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="all">All Content</option>
+              <option value="missing_description">Missing Desc</option>
+              <option value="missing_audio">Missing Audio</option>
+              <option value="complete">Complete</option>
+            </select>
+
+            <select
+              value={groupStatusFilter}
+              onChange={(e) => setGroupStatusFilter(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="all">All Groups</option>
+              <option value="grouped">Grouped</option>
+              <option value="ungrouped">Ungrouped</option>
+              <option value="group_main">Group Main</option>
+              <option value="group_member">Group Member</option>
+            </select>
+
+            {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
+              <button
+                onClick={clearAllFilters}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="h-4 w-4 mr-1" />
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Results Info and Bulk Actions */}
+        <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            Showing {filteredPois.length} of {pois.length} POIs
+            {selectedPois.length > 0 && (
+              <span className="ml-2 font-medium text-tuggi-blue">
+                • {selectedPois.length} selected
+              </span>
+            )}
           </div>
           
-          <div className="grid grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-tuggi-blue">{stats.total}</div>
-              <div className="text-gray-500">Total POIs</div>
+          {selectedPois.length > 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={bulkApprove}
+                className="inline-flex items-center px-3 py-1.5 text-sm bg-green-100 text-green-800 border border-green-200 rounded-md hover:bg-green-200 transition-colors"
+              >
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Approve Selected
+              </button>
+              <button
+                onClick={bulkReject}
+                className="inline-flex items-center px-3 py-1.5 text-sm bg-red-100 text-red-800 border border-red-200 rounded-md hover:bg-red-200 transition-colors"
+              >
+                <XCircle className="h-4 w-4 mr-1" />
+                Reject Selected
+              </button>
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{stats.approved}</div>
-              <div className="text-gray-500">Approved</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-tuggi-orange">{stats.pending}</div>
-              <div className="text-gray-500">Pending</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{stats.withDescription}</div>
-              <div className="text-gray-500">With Description</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{stats.withAudio}</div>
-              <div className="text-gray-500">With Audio</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-emerald-600">{stats.contentComplete}</div>
-              <div className="text-gray-500">Content Complete</div>
-            </div>
-          </div>
-          {/* <Link
-            href="/poi-importer"
-            className="bg-tuggi-blue text-white inline-flex items-center px-4 py-2 rounded-md hover:bg-tuggi-blue/90 transition-colors"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Import POIs
-          </Link> */}
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-6 lg:grid-cols-8 gap-3">
-          {/* Search */}
-          <div className="relative md:col-span-2">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search POIs..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-            />
-          </div>
-
-          {/* Status Filter */}
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as any)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-          >
-            <option value="all">All Status</option>
-            <option value="approved">Approved</option>
-            <option value="pending">Pending</option>
-          </select>
-
-          {/* City Filter */}
-          <select
-            value={cityFilter}
-            onChange={(e) => setCityFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-          >
-            <option value="">All Cities</option>
-            {cities.map(city => (
-              <option key={city} value={city}>{city}</option>
-            ))}
-          </select>
-
-          {/* Google Types Filter */}
-          <select
-            value={googleTypesFilter}
-            onChange={(e) => setGoogleTypesFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-          >
-            <option value="">All Google Types</option>
-            {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
-              <option key={category.value} value={category.value}>{category.label}</option>
-            ))}
-          </select>
-
-          {/* Content Status Filter */}
-          <select
-            value={contentStatusFilter}
-            onChange={(e) => setContentStatusFilter(e.target.value as any)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-          >
-            <option value="all">All Content</option>
-            <option value="missing_description">Missing Desc</option>
-            <option value="missing_audio">Missing Audio</option>
-            <option value="complete">Complete</option>
-          </select>
-
-          {/* Group Status Filter */}
-          <select
-            value={groupStatusFilter}
-            onChange={(e) => setGroupStatusFilter(e.target.value as any)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-          >
-            <option value="all">All Groups</option>
-            <option value="grouped">Grouped</option>
-            <option value="ungrouped">Ungrouped</option>
-            <option value="group_main">Group Main</option>
-            <option value="group_member">Group Member</option>
-          </select>
-
-          {/* Clear Filters Button */}
-          {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
-            <button
-              onClick={clearAllFilters}
-              className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-            >
-              <XCircle className="h-4 w-4 mr-1" />
-              Clear
-            </button>
           )}
-
-          {/* Results count */}
-          <div className="flex items-center text-sm text-gray-600 dark:text-gray-400 lg:col-span-2">
-            Showing {filteredPois.length} of {pois.length} POIs
-          </div>
         </div>
       </div>
 
-      {/* Content Area - Table or Map */}
+      {/* Content Area */}
       {viewMode === 'map' ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <POIMapVisualization
@@ -714,91 +732,102 @@ function POIListWithSearchParams() {
           />
         </div>
       ) : (
-        /* POI Table */
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-900">
-              <tr>
-                <th className="px-6 py-3 text-left">
-                  <input
-                    type="checkbox"
-                    checked={getPaginatedPois().length > 0 && getPaginatedPois().every(poi => selectedPois.includes(poi.id))}
-                    onChange={selectAllPois}
-                    className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue"
-                  />
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  City
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Country
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Google Types
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Rating
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Content Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Group Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Created At
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+        /* POI Cards Grid */
+        <div className="space-y-4">
+          {getPaginatedPois().length === 0 ? (
+            <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <MapPin className="h-12 w-12 mx-auto text-gray-400 dark:text-gray-600 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No POIs found</h3>
+              <p className="text-gray-500 dark:text-gray-400">
+                Try adjusting your filters or search terms
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
               {getPaginatedPois().map((poi) => (
-                <tr key={poi.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                  <td className="px-6 py-4">
-                    <input
-                      type="checkbox"
-                      checked={selectedPois.includes(poi.id)}
-                      onChange={() => togglePOISelection(poi.id)}
-                      className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue"
-                    />
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center">
+                <div
+                  key={poi.id}
+                  className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
+                >
+                  {/* Card Header */}
+                  <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedPois.includes(poi.id)}
+                        onChange={() => togglePOISelection(poi.id)}
+                        className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue mt-1 flex-shrink-0"
+                      />
                       {poi.image_url && (
                         <img
                           src={poi.image_url}
                           alt={poi.name}
-                          className="h-10 w-10 rounded-md object-cover mr-3"
+                          className="h-12 w-12 rounded-lg object-cover flex-shrink-0"
                         />
                       )}
-                      <div>
-                        <div className="font-medium text-gray-900 dark:text-white">
-                          {poi.name}
-                        </div>
-                        {poi.formatted_address && (
-                          <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">
-                            {poi.formatted_address}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-medium text-gray-900 dark:text-white truncate">
+                              {poi.name}
+                            </h3>
+                            <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                              {poi.city}, {poi.country}
+                            </p>
                           </div>
-                        )}
+                          
+                          {/* Status Badge */}
+                          <button
+                            onClick={() => toggleApproval(poi.id, poi.approved)}
+                            className={cn(
+                              'inline-flex items-center px-2 py-1 text-xs font-medium rounded-full transition-colors flex-shrink-0',
+                              poi.approved
+                                ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/40'
+                                : 'bg-tuggi-orange/10 text-tuggi-orange border border-tuggi-orange/20 hover:bg-tuggi-orange/20'
+                            )}
+                          >
+                            {poi.approved ? (
+                              <>
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Approved
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="h-3 w-3 mr-1" />
+                                Pending
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
-                    {poi.city}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
-                    {poi.country}
-                  </td>
-                  <td className="px-6 py-4">
+                  </div>
+
+                  {/* Card Body */}
+                  <div className="p-4 space-y-3">
+                    {/* Rating */}
+                    {poi.rating && (
+                      <div className="flex items-center">
+                        <Star className="h-4 w-4 text-yellow-400 mr-1" />
+                        <span className="text-sm font-medium text-gray-900 dark:text-white">
+                          {poi.rating.toFixed(1)}
+                        </span>
+                        {poi.user_ratings_total && (
+                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
+                            ({poi.user_ratings_total} reviews)
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Address */}
+                    {poi.formatted_address && (
+                      <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                        {poi.formatted_address}
+                      </p>
+                    )}
+
+                    {/* Google Types */}
                     {poi.google_types && poi.google_types.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {poi.google_types.slice(0, 3).map((type, index) => (
@@ -816,72 +845,34 @@ function POIListWithSearchParams() {
                         )}
                       </div>
                     )}
-                  </td>
-                  <td className="px-6 py-4">
-                    {poi.rating && (
-                      <div className="flex items-center">
-                        <Star className="h-4 w-4 text-yellow-400 mr-1" />
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">
-                          {poi.rating.toFixed(1)}
-                        </span>
-                        {poi.user_ratings_total && (
-                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
-                            ({poi.user_ratings_total})
+
+                    {/* Content & Group Status */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex items-center" title={poi.has_description ? `Has ${poi.description_count} description(s)` : 'No description available'}>
+                          {poi.has_description ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span className="ml-1 text-xs text-gray-600 dark:text-gray-400">
+                            Desc
                           </span>
-                        )}
+                        </div>
+                        <div className="flex items-center" title={poi.has_audio ? `Has ${poi.audio_count} audio file(s)` : 'No audio available'}>
+                          {poi.has_audio ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span className="ml-1 text-xs text-gray-600 dark:text-gray-400">
+                            Audio
+                          </span>
+                        </div>
                       </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <button
-                      onClick={() => toggleApproval(poi.id, poi.approved)}
-                      className={cn(
-                        'inline-flex items-center px-2 py-1 text-xs font-medium rounded-full transition-colors',
-                        poi.approved
-                          ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/40'
-                          : 'bg-tuggi-orange/10 text-tuggi-orange border border-tuggi-orange/20 hover:bg-tuggi-orange/20'
-                      )}
-                    >
-                      {poi.approved ? (
-                        <>
-                          <CheckCircle className="h-3 w-3 mr-1" />
-                          Approved
-                        </>
-                      ) : (
-                        <>
-                          <Clock className="h-3 w-3 mr-1" />
-                          Pending
-                        </>
-                      )}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex items-center" title={poi.has_description ? `Has ${poi.description_count} description(s)` : 'No description available'}>
-                        {poi.has_description ? (
-                          <CheckCircle className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
-                        <span className="ml-1 text-xs text-gray-600 dark:text-gray-400">
-                          Desc
-                        </span>
-                      </div>
-                      <div className="flex items-center" title={poi.has_audio ? `Has ${poi.audio_count} audio file(s)` : 'No audio available'}>
-                        {poi.has_audio ? (
-                          <CheckCircle className="h-4 w-4 text-green-500" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
-                        <span className="ml-1 text-xs text-gray-600 dark:text-gray-400">
-                          Audio
-                        </span>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    {poi.group_status?.is_in_group ? (
-                      <div className="flex items-center">
+                      
+                      {/* Group Status */}
+                      {poi.group_status?.is_in_group ? (
                         <div className={cn(
                           'inline-flex items-center px-2 py-1 text-xs font-medium rounded-full',
                           poi.group_status.group_role === 'main' 
@@ -889,151 +880,114 @@ function POIListWithSearchParams() {
                             : 'bg-purple-100 dark:bg-purple-900/20 text-purple-800 dark:text-purple-300'
                         )}>
                           <Users className="h-3 w-3 mr-1" />
-                          {poi.group_status.group_role === 'main' ? 'Group Main' : 'Group Member'}
+                          {poi.group_status.group_role === 'main' ? 'Main' : 'Member'}
                         </div>
-                        {poi.group_status.group_name && (
-                          <div className="ml-2 text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs" title={poi.group_status.group_name}>
-                            {poi.group_status.group_name}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300">
-                        Individual
-                      </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300">
+                          Individual
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Group Name */}
+                    {poi.group_status?.group_name && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        Group: {poi.group_status.group_name}
+                      </p>
                     )}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                    {formatDate(poi.created_at)}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end space-x-2">
-                      {poi.has_description && !poi.has_audio && (
+                  </div>
+
+                  {/* Card Footer */}
+                  <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-200 dark:border-gray-700 rounded-b-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatDate(poi.created_at)}
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {poi.has_description && !poi.has_audio && (
+                          <button
+                            onClick={() => openPOIDetails(poi)}
+                            className="inline-flex items-center px-2 py-1 text-xs bg-purple-100 text-purple-800 border border-purple-200 rounded hover:bg-purple-200 transition-colors"
+                            title="Generate audio from description"
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            Audio
+                          </button>
+                        )}
                         <button
                           onClick={() => openPOIDetails(poi)}
-                          className="inline-flex items-center px-2 py-1 text-xs bg-purple-100 text-purple-800 border border-purple-200 rounded hover:bg-purple-200 transition-colors"
-                          title="Generate audio from description"
+                          className="inline-flex items-center px-2 py-1 text-xs bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20 rounded hover:bg-tuggi-blue/20 transition-colors"
                         >
-                          <Plus className="h-3 w-3 mr-1" />
-                          Gen Audio
+                          <Edit className="h-3 w-3 mr-1" />
+                          Edit
                         </button>
-                      )}
-                      <button
-                        onClick={() => openPOIDetails(poi)}
-                        className="inline-flex items-center px-2 py-1 text-xs bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20 rounded hover:bg-tuggi-blue/20 transition-colors"
-                      >
-                        <Edit className="h-3 w-3 mr-1" />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deletePoi(poi.id)}
-                        className="inline-flex items-center px-2 py-1 text-xs bg-red-100 text-red-800 border border-red-200 rounded hover:bg-red-200 transition-colors"
-                      >
-                        <Trash2 className="h-3 w-3 mr-1" />
-                        Delete
-                      </button>
+                        <button
+                          onClick={() => deletePoi(poi.id)}
+                          className="inline-flex items-center px-2 py-1 text-xs bg-red-100 text-red-800 border border-red-200 rounded hover:bg-red-200 transition-colors"
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                  </td>
-                </tr>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="bg-white dark:bg-gray-800 px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
-            <div className="flex-1 flex justify-between sm:hidden">
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center space-x-2 mt-6">
               <button
                 onClick={() => goToPage(Math.max(currentPage - 1, 1))}
                 disabled={currentPage === 1}
-                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
+                <ChevronLeft className="h-4 w-4 mr-1" />
                 Previous
               </button>
-              <button
-                onClick={() => goToPage(Math.min(currentPage + 1, totalPages))}
-                disabled={currentPage === totalPages}
-                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-gray-700 dark:text-gray-300">
-                  Showing{' '}
-                  <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span>
-                  {' '}to{' '}
-                  <span className="font-medium">
-                    {Math.min(currentPage * itemsPerPage, filteredPois.length)}
-                  </span>
-                  {' '}of{' '}
-                  <span className="font-medium">{filteredPois.length}</span>
-                  {' '}results
-                </p>
-              </div>
-              <div>
-                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                  <button
-                    onClick={() => goToPage(Math.max(currentPage - 1, 1))}
-                    disabled={currentPage === 1}
-                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </button>
+              
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                  let page;
+                  if (totalPages <= 7) {
+                    page = i + 1;
+                  } else if (currentPage <= 4) {
+                    page = i + 1;
+                  } else if (currentPage >= totalPages - 3) {
+                    page = totalPages - 6 + i;
+                  } else {
+                    page = currentPage - 3 + i;
+                  }
                   
-                  {/* Page Numbers */}
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  return (
                     <button
                       key={page}
                       onClick={() => goToPage(page)}
                       className={cn(
-                        'relative inline-flex items-center px-4 py-2 border text-sm font-medium',
+                        'inline-flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
                         page === currentPage
-                          ? 'z-10 bg-tuggi-blue border-tuggi-blue text-white'
-                          : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                          ? 'bg-tuggi-blue text-white'
+                          : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600'
                       )}
                     >
                       {page}
                     </button>
-                  ))}
-                  
-                  <button
-                    onClick={() => goToPage(Math.min(currentPage + 1, totalPages))}
-                    disabled={currentPage === totalPages}
-                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </button>
-                </nav>
+                  );
+                })}
               </div>
+              
+              <button
+                onClick={() => goToPage(Math.min(currentPage + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </button>
             </div>
-          </div>
-        )}
-        </div>
-      )}
-
-      {/* Bulk Actions */}
-      {selectedPois.length > 0 && (
-        <div className="flex items-center space-x-3 p-4 bg-tuggi-blue/10 border border-tuggi-blue/20 rounded-md">
-          <span className="text-sm font-medium text-tuggi-blue">
-            {selectedPois.length} POI(s) selected
-          </span>
-          <button
-            onClick={bulkApprove}
-            className="inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
-          >
-            <CheckCircle className="h-3 w-3 mr-1" />
-            Approve
-          </button>
-          <button
-            onClick={bulkReject}
-            className="inline-flex items-center px-3 py-1 bg-tuggi-orange text-white text-sm rounded hover:bg-tuggi-orange/90 transition-colors"
-          >
-            <XCircle className="h-3 w-3 mr-1" />
-            Reject
-          </button>
+          )}
         </div>
       )}
 
