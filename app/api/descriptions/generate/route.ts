@@ -275,7 +275,7 @@ export async function POST(request: NextRequest) {
       prompt = `
     You are a knowledgeable and friendly travel-guide assistant with deep expertise in World history and culture.
     
-    Your task: create a short (max 100 words) audio-friendly description of a tourist attraction for an international audience.  
+    Your task: create a short (max 80 words) audio-friendly description of a tourist attraction for an international audience.  
     Make it **engaging, factual, and pleasant to hear**, highlighting:
     
     • Year of creation or foundation, do not invent any dates.
@@ -360,7 +360,7 @@ export async function POST(request: NextRequest) {
               temperature: 0.7,
               topK: 40,
               topP: 0.95,
-              maxOutputTokens: 300,
+              maxOutputTokens: 400,
             },
           })
         })
