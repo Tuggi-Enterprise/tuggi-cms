@@ -1,6 +1,8 @@
 // Trigger Points Types
 // These types define the structure for POI trigger points used in the Tuggi Drive app
 
+export type Direction = 'front' | 'right' | 'left' | 'back'
+
 export interface TriggerPoint {
   id?: string
   attraction_id: string
@@ -13,6 +15,7 @@ export interface TriggerPoint {
   priority: number
   custom_description_id?: string | null
   is_active: boolean
+  direction?: Direction | null
   created_at?: string
   updated_at?: string
   created_by?: string | null
@@ -56,6 +59,7 @@ export interface TriggerPointFormData {
   priority: number
   custom_description_id?: string | null
   is_active: boolean
+  direction?: Direction | null
 }
 
 export interface TriggerPointValidation {
@@ -98,6 +102,7 @@ export interface TriggerPointRow {
   priority: number
   custom_description_id?: string | null
   is_active: boolean
+  direction?: Direction | null
   created_at: string
   updated_at: string
   created_by?: string | null
@@ -154,7 +159,8 @@ export const DEFAULT_TRIGGER_POINT: TriggerPointFormData = {
   type: 'primary',
   priority: 1,
   custom_description_id: null,
-  is_active: true
+  is_active: true,
+  direction: null
 }
 
 export const TRIGGER_POINT_CONSTRAINTS = {
@@ -162,4 +168,12 @@ export const TRIGGER_POINT_CONSTRAINTS = {
   bearing: { min: 0, max: 360 },
   bearingThreshold: { min: 0, max: 180, default: 30 },
   priority: { min: 1, max: 100, default: 1 }
-} as const 
+} as const
+
+// Direction options for the UI
+export const DIRECTION_OPTIONS = [
+  { value: 'front', label: 'Front', emoji: '⬆️', description: 'In front of you' },
+  { value: 'right', label: 'Right', emoji: '➡️', description: 'To your right' },
+  { value: 'left', label: 'Left', emoji: '⬅️', description: 'To your left' },
+  { value: 'back', label: 'Back', emoji: '⬇️', description: 'Behind you' }
+] as const 

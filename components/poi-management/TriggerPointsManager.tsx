@@ -8,6 +8,7 @@ import {
   Check, RotateCcw, ZoomIn, Filter, ChevronDown, ChevronUp 
 } from 'lucide-react'
 import { TriggerPointsMap } from './TriggerPointsMap'
+import { DirectionSelector } from './DirectionSelector'
 import { cn } from '@/lib/utils'
 import { 
   TriggerPoint, 
@@ -15,7 +16,8 @@ import {
   AttractionDescription, 
   TriggerPointFormData,
   TRIGGER_POINT_TYPES,
-  DEFAULT_TRIGGER_POINT 
+  DEFAULT_TRIGGER_POINT,
+  DIRECTION_OPTIONS 
 } from '@/types/trigger-points'
 
 export function TriggerPointsManager({ 
@@ -168,7 +170,8 @@ export function TriggerPointsManager({
             type: formData.type,
             priority: formData.priority,
             custom_description_id: formData.custom_description_id,
-            is_active: formData.is_active
+            is_active: formData.is_active,
+            direction: formData.direction
           })
           .eq('id', selectedTriggerPoint.id)
 
@@ -189,7 +192,8 @@ export function TriggerPointsManager({
             type: formData.type,
             priority: formData.priority,
             custom_description_id: formData.custom_description_id,
-            is_active: formData.is_active
+            is_active: formData.is_active,
+            direction: formData.direction
           })
 
         if (insertError) {
@@ -419,11 +423,14 @@ export function TriggerPointsManager({
                           <span className="text-xs text-gray-500 dark:text-gray-400">
                             Priority {triggerPoint.priority}
                           </span>
-                          {!triggerPoint.is_active && (
-                            <span className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded">
-                              Inactive
-                            </span>
-                          )}
+                          <span className={cn(
+                            "text-xs px-2 py-0.5 rounded",
+                            triggerPoint.is_active 
+                              ? "bg-green-100 dark:bg-green-900/20 text-green-600 dark:text-green-400"
+                              : "bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400"
+                          )}>
+                            {triggerPoint.is_active ? 'Active' : 'Inactive'}
+                          </span>
                         </div>
                       </div>
                       
@@ -432,6 +439,16 @@ export function TriggerPointsManager({
                           <Circle className="h-3 w-3 mr-1" />
                           <span>Radius: {triggerPoint.radius_meters}m</span>
                         </div>
+                        {triggerPoint.direction && (
+                          <div className="flex items-center">
+                            <span className="text-xs mr-1">
+                              {DIRECTION_OPTIONS.find(dir => dir.value === triggerPoint.direction)?.emoji}
+                            </span>
+                            <span>
+                              Direction: {DIRECTION_OPTIONS.find(dir => dir.value === triggerPoint.direction)?.label}
+                            </span>
+                          </div>
+                        )}
                         {triggerPoint.expected_bearing !== null && (
                           <div className="flex items-center">
                             <Navigation className="h-3 w-3 mr-1" />
@@ -630,6 +647,13 @@ export function TriggerPointsManager({
                   </select>
                 </div>
               )}
+
+              {/* Direction Selector */}
+              <DirectionSelector 
+                value={formData.direction || null}
+                onChange={(direction) => setFormData(prev => ({ ...prev, direction }))}
+                disabled={isLoading}
+              />
 
               {/* Active Status */}
               <div className="flex items-center">

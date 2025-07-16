@@ -260,7 +260,19 @@ function TriggerPointsMapContent({
         bearingLinesRef.current.set(pointId, bearingLine)
       }
 
-      // Add info window
+            // Add info window
+      const directionInfo = triggerPoint.direction ? 
+        (() => {
+          const directionOptions = [
+            { value: 'front', label: 'Front', emoji: '⬆️' },
+            { value: 'right', label: 'Right', emoji: '➡️' },
+            { value: 'left', label: 'Left', emoji: '⬅️' },
+            { value: 'back', label: 'Back', emoji: '⬇️' }
+          ];
+          const dirOption = directionOptions.find(dir => dir.value === triggerPoint.direction);
+          return dirOption ? `${dirOption.emoji} ${dirOption.label}` : 'Not set';
+        })() : 'Not set';
+
       const infoWindow = new google.maps.InfoWindow({
         content: `
           <div style="padding: 8px; min-width: 200px;">
@@ -270,11 +282,15 @@ function TriggerPointsMapContent({
             <div style="font-size: 12px; color: #666; line-height: 1.4;">
               <div><strong>Priority:</strong> ${triggerPoint.priority}</div>
               <div><strong>Radius:</strong> ${triggerPoint.radius_meters}m</div>
-                             ${(triggerPoint.expected_bearing !== undefined && triggerPoint.expected_bearing !== null) ? 
-                 `<div><strong>Bearing:</strong> ${triggerPoint.expected_bearing}° (±${triggerPoint.bearing_threshold}°)</div>` : 
-                 '<div><strong>Direction:</strong> Omnidirectional</div>'
+              ${triggerPoint.direction ? 
+                 `<div><strong>Direction:</strong> ${directionInfo}</div>` : 
+                 ''
                }
-              <div><strong>Status:</strong> ${triggerPoint.is_active ? 'Active' : 'Inactive'}</div>
+              ${(triggerPoint.expected_bearing !== undefined && triggerPoint.expected_bearing !== null) ? 
+                 `<div><strong>Bearing:</strong> ${triggerPoint.expected_bearing}° (±${triggerPoint.bearing_threshold}°)</div>` : 
+                 ''
+               }
+              <div><strong>Status:</strong> <span style="color: ${triggerPoint.is_active ? '#059669' : '#DC2626'}; font-weight: 500;">${triggerPoint.is_active ? 'Active' : 'Inactive'}</span></div>
             </div>
           </div>
         `
