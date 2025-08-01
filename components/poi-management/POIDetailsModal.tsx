@@ -9,7 +9,7 @@ import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { TriggerPointsManager } from './TriggerPointsManager'
 import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
 
-interface POI {
+export interface POI {
   id: string
   name: string
   city: string

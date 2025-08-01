@@ -8,56 +8,8 @@ import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
-import { POIDetailsModal } from '@/components/poi-management/POIDetailsModal'
+import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
 import { POIMapVisualization } from '@/components/poi-management/POIMapVisualization'
-
-interface POI {
-  id: string
-  name: string
-  city: string
-  country: string
-  state: string | null
-  category: string
-  approved: boolean
-  approved_by: string | null
-  approved_at: string | null
-  rating: number | null
-  image_url: string | null
-  created_at: string
-  updated_at: string
-  user_ratings_total: number | null
-  formatted_address: string | null
-  vicinity: string | null
-  website: string | null
-  formatted_phone_number: string | null
-  business_status: string | null
-  price_level: number | null
-  opening_hours: any | null
-  google_types: string[] | null
-  photos_references: string[] | null
-  google_place_id: string | null
-  coordinates?: {
-    latitude: number
-    longitude: number
-  }
-  // Content status indicators
-  has_description: boolean
-  has_audio: boolean
-  description_count: number
-  audio_count: number
-  available_languages: string[]
-  trigger_points_count: number
-  active_trigger_points_count: number
-  reference_links?: string[] // Add reference links field
-  // Group status indicators
-  group_status?: {
-    is_in_group: boolean
-    group_id?: string
-    group_name?: string
-    group_role?: 'main' | 'member'
-    group_member_count?: number
-  }
-}
 
 interface POIStats {
   total: number
