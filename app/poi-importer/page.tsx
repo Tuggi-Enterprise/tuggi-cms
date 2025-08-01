@@ -1358,7 +1358,7 @@ export default function POIImporterPage() {
               {selectedCategory === 'all' && currentPolygonCoords.length > 0 && (
                 <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded-md">
                   <p className="text-xs text-orange-700">
-                    ⚡ "All Categories" searches 15+ types and may take longer
+                    ⚡ &quot;All Categories&quot; searches 15+ types and may take longer
                   </p>
                 </div>
               )}
@@ -1574,7 +1574,7 @@ export default function POIImporterPage() {
               
               <div className="flex items-center justify-between">
                 <div className="text-sm text-gray-600">
-                  💡 Review each place to determine if it's suitable for the Tuggi tourism platform
+                  💡 Review each place to determine if it&apos;s suitable for the Tuggi tourism platform
                 </div>
                 {scrollY < 50 && searchResults.length > 6 && (
                   <div className="text-xs text-blue-600 flex items-center gap-1">
@@ -1854,4 +1854,4 @@ export default function POIImporterPage() {
       </div>
     </div>
   )
-} 
+}

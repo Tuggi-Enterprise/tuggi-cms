@@ -28,7 +28,7 @@ export default function UnauthorizedPage() {
                 Access Denied
               </h1>
               <p className="mt-2 text-sm text-gray-600">
-                You don't have permission to access this CMS.
+                You don&apos;t have permission to access this CMS.
               </p>
               <p className="mt-1 text-sm text-gray-500">
                 Only authorized admin and editor users can access this system.
@@ -55,4 +55,4 @@ export default function UnauthorizedPage() {
       </div>
     </div>
   )
-} 
+}

@@ -95,10 +95,10 @@ export function CategorySelectionPanel({
       {selectedCategory === 'all' && (
         <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded-md">
           <p className="text-xs text-orange-700">
-            ⚡ "All Categories" searches 15+ types and may take longer
+            ⚡ &quot;All Categories&quot; searches 15+ types and may take longer
           </p>
         </div>
       )}
     </div>
   )
-} 
+}

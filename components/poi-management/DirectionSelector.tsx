@@ -140,7 +140,7 @@ export function DirectionSelector({
       {/* Help text */}
       <div className="text-xs text-center text-gray-500 dark:text-gray-400 mt-3">
         <p>This direction will be used in the audio narration,</p>
-        <p>e.g. "To your right..." or "In front of you..."</p>
+        <p>e.g. &quot;To your right...&quot; or &quot;In front of you...&quot;</p>
       </div>
       
       {/* Selected direction indicator */}
@@ -151,4 +151,4 @@ export function DirectionSelector({
       )}
     </div>
   )
-} 
+}
