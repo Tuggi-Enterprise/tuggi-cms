@@ -53,6 +53,10 @@ interface POI {
     group_role?: 'main' | 'member'
     group_member_count?: number
   }
+  // Additional properties for compatibility
+  available_languages: string[]
+  trigger_points_count: number
+  active_trigger_points_count: number
 }
 
 // Saved Polygon interface
