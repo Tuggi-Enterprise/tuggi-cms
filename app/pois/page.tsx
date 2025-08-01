@@ -45,6 +45,9 @@ interface POI {
   has_audio: boolean
   description_count: number
   audio_count: number
+  available_languages: string[]
+  trigger_points_count: number
+  active_trigger_points_count: number
   reference_links?: string[] // Add reference links field
   // Group status indicators
   group_status?: {
@@ -77,8 +80,11 @@ function POIListWithSearchParams() {
   const [googleTypesFilter, setGoogleTypesFilter] = useState('')
   const [contentStatusFilter, setContentStatusFilter] = useState<'all' | 'missing_description' | 'missing_audio' | 'complete'>('all')
   const [groupStatusFilter, setGroupStatusFilter] = useState<'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'>('all')
-  const [selectedPois, setSelectedPois] = useState<string[]>([])
-  const [cities, setCities] = useState<string[]>([])
+  const [selectedPois, setSelectedPois] = useState<string[]>([])  
+  const [cities, setCities] = useState<string[]>([])  
+  const [filteredCities, setFilteredCities] = useState<string[]>([])  
+  const [countries, setCountries] = useState<string[]>([])  
+  const [countryFilter, setCountryFilter] = useState('')
   const [stats, setStats] = useState<POIStats>({ total: 0, approved: 0, pending: 0, recentlyAdded: 0, withDescription: 0, withAudio: 0, contentComplete: 0 })
   const [selectedPoi, setSelectedPoi] = useState<POI | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -104,6 +110,7 @@ function POIListWithSearchParams() {
     search?: string
     status?: string
     city?: string
+    country?: string
     googleTypes?: string
     contentStatus?: string
     groupStatus?: string
@@ -119,9 +126,13 @@ function POIListWithSearchParams() {
     if (filters.status && filters.status !== 'all') {
       params.set('status', filters.status)
     }
+    if (filters.country && filters.country.trim()) {
+      params.set('country', filters.country)
+    }
     if (filters.city && filters.city.trim()) {
       params.set('city', filters.city)
     }
+    
     if (filters.googleTypes && filters.googleTypes.trim()) {
       params.set('googleTypes', filters.googleTypes)
     }
@@ -148,6 +159,7 @@ function POIListWithSearchParams() {
     setSearchTerm('')
     setStatusFilter('all')
     setCityFilter('')
+    setCountryFilter('')
     setGoogleTypesFilter('')
     setContentStatusFilter('all')
     setGroupStatusFilter('all')
@@ -159,6 +171,7 @@ function POIListWithSearchParams() {
   const readFiltersFromURL = () => {
     const search = searchParams.get('search') || ''
     const status = searchParams.get('status') || searchParams.get('filter') || 'all' // Handle legacy 'filter' param
+    const country = searchParams.get('country') || ''
     const city = searchParams.get('city') || ''
     const googleTypes = searchParams.get('googleTypes') || ''
     const contentStatus = searchParams.get('contentStatus') || 'all'
@@ -170,6 +183,7 @@ function POIListWithSearchParams() {
     setSearchTerm(search)
     setStatusFilter(status as any)
     setCityFilter(city)
+    setCountryFilter(country)
     setGoogleTypesFilter(googleTypes)
     setContentStatusFilter(contentStatus as any)
     setGroupStatusFilter(groupStatus as any)
@@ -189,11 +203,30 @@ function POIListWithSearchParams() {
 
   useEffect(() => {
     filterPois()
-  }, [pois, searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter])
+  }, [pois, searchTerm, statusFilter,  countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter])
 
   useEffect(() => {
     calculateStats()
   }, [pois])
+
+  // Update filtered cities when country filter changes
+  useEffect(() => {
+    if (countryFilter) {
+      const citiesInCountry = Array.from(new Set(
+        pois
+          .filter(poi => poi.country === countryFilter)
+          .map(poi => poi.city)
+          .filter(Boolean)
+      ))
+      setFilteredCities(citiesInCountry)
+      // Reset city filter if current city is not in the selected country
+      if (cityFilter && !citiesInCountry.includes(cityFilter)) {
+        setCityFilter('')
+      }
+    } else {
+      setFilteredCities(cities)
+    }
+  }, [countryFilter, pois, cities, cityFilter])
 
   // Update URL when filters change (but not during initialization)
   useEffect(() => {
@@ -202,6 +235,7 @@ function POIListWithSearchParams() {
         search: searchTerm,
         status: statusFilter,
         city: cityFilter,
+        country: countryFilter,
         googleTypes: googleTypesFilter,
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
@@ -209,11 +243,11 @@ function POIListWithSearchParams() {
         view: viewMode
       })
     }
-  }, [searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, currentPage, viewMode, isInitializing])
+  }, [searchTerm, statusFilter, countryFilter, cityFilter,  googleTypesFilter, contentStatusFilter, groupStatusFilter, currentPage, viewMode, isInitializing])
 
   const fetchPois = async () => {
     try {
-      // Fetch POIs with coordinates, content status, and group information
+      // Fetch POIs with coordinates, content status, group information, trigger points, and available languages
       const { data, error } = await supabase
         .schema('core')
         .from('attractions')
@@ -221,6 +255,7 @@ function POIListWithSearchParams() {
           *,
           coordinates:attraction_coordinate(latitude, longitude),
           descriptions:attraction_descriptions(id, description, audio_url, language),
+          trigger_points:attraction_trigger_points(id, is_active),
           group_membership:attraction_group_members(
             group_id,
             group_role,
@@ -234,11 +269,24 @@ function POIListWithSearchParams() {
         return
       }
 
-      // Transform data to include coordinates, content status, group info, and ensure required fields
+      // Transform data to include coordinates, content status, group info, trigger points, and available languages
       const poisWithCoords = data?.map(poi => {
         const descriptions = poi.descriptions || []
+        const triggerPoints = poi.trigger_points || []
         const hasDescription = descriptions.some((desc: any) => desc.description && desc.description.trim())
         const hasAudio = descriptions.some((desc: any) => desc.audio_url && desc.audio_url.trim())
+        
+        // Extract available languages from descriptions
+        const availableLanguages = [...new Set(
+          descriptions
+            .filter((desc: any) => (desc.description && desc.description.trim()) || (desc.audio_url && desc.audio_url.trim()))
+            .map((desc: any) => desc.language)
+            .filter(Boolean)
+        )]
+        
+        // Count trigger points
+        const triggerPointsCount = triggerPoints.length
+        const activeTriggerPointsCount = triggerPoints.filter((tp: any) => tp.is_active).length
         
         // Process group membership
         const groupMembership = poi.group_membership?.[0] // POI can only be in one group
@@ -267,17 +315,24 @@ function POIListWithSearchParams() {
           has_audio: hasAudio,
           description_count: descriptions.filter((desc: any) => desc.description && desc.description.trim()).length,
           audio_count: descriptions.filter((desc: any) => desc.audio_url && desc.audio_url.trim()).length,
+          available_languages: availableLanguages,
+          trigger_points_count: triggerPointsCount,
+          active_trigger_points_count: activeTriggerPointsCount,
           group_status: groupStatus,
           descriptions: undefined, // Remove from final object to keep it clean
+          trigger_points: undefined, // Remove from final object to keep it clean
           group_membership: undefined // Remove from final object to keep it clean
         }
       }) || []
 
       setPois(poisWithCoords)
       
-      // Extract unique cities
+      // Extract unique cities and countries
       const uniqueCities = Array.from(new Set(poisWithCoords.map(poi => poi.city).filter(Boolean)))
+      const uniqueCountries = Array.from(new Set(poisWithCoords.map(poi => poi.country).filter(Boolean)))
       setCities(uniqueCities)
+      setCountries(uniqueCountries)
+      setFilteredCities(uniqueCities) // Initialize filtered cities with all cities
     } catch (error) {
       console.error('Error fetching POIs:', error)
     } finally {
@@ -321,10 +376,17 @@ function POIListWithSearchParams() {
       )
     }
 
+    // Country filter
+    if (countryFilter) {
+      filtered = filtered.filter(poi => poi.country === countryFilter)
+    }
+
     // City filter
     if (cityFilter) {
       filtered = filtered.filter(poi => poi.city === cityFilter)
     }
+
+    
 
     // Google Types filter
     if (googleTypesFilter) {
@@ -529,7 +591,7 @@ function POIListWithSearchParams() {
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             Manage and approve imported Points of Interest
-            {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
+            {(searchTerm || statusFilter !== 'all' || countryFilter || cityFilter ||  googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
               <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue">
                 <Filter className="h-3 w-3 mr-1" />
                 Filtered
@@ -624,13 +686,26 @@ function POIListWithSearchParams() {
               <option value="pending">Pending</option>
             </select>
 
+            
+
+            <select
+              value={countryFilter}
+              onChange={(e) => setCountryFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="">All Countries</option>
+              {countries.map(country => (
+                <option key={country} value={country}>{country}</option>
+              ))}
+            </select>
+
             <select
               value={cityFilter}
               onChange={(e) => setCityFilter(e.target.value)}
               className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
             >
-              <option value="">All Cities</option>
-              {cities.map(city => (
+              <option value="">{countryFilter ? `All Cities in ${countryFilter}` : 'All Cities'}</option>
+              {filteredCities.map(city => (
                 <option key={city} value={city}>{city}</option>
               ))}
             </select>
@@ -669,7 +744,7 @@ function POIListWithSearchParams() {
               <option value="group_member">Group Member</option>
             </select>
 
-            {(searchTerm || statusFilter !== 'all' || cityFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
+            {(searchTerm || statusFilter !== 'all' || cityFilter || countryFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
               <button
                 onClick={clearAllFilters}
                 className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
@@ -845,6 +920,31 @@ function POIListWithSearchParams() {
                         )}
                       </div>
                     )}
+
+                    {/* Available Languages */}
+                    {poi.available_languages.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300">Idiomas Disponíveis:</h4>
+                        <div className="flex flex-wrap gap-1">
+                          {poi.available_languages.map((language, index) => (
+                            <span 
+                              key={index}
+                              className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300"
+                            >
+                              {language.toUpperCase()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Trigger Points Info */}
+                    <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                      <div className="flex items-center space-x-1">
+                        <span className="w-2 h-2 bg-tuggi-blue rounded-full"></span>
+                        <span>{poi.active_trigger_points_count}/{poi.trigger_points_count} trigger points ativos</span>
+                      </div>
+                    </div>
 
                     {/* Content & Group Status */}
                     <div className="flex items-center justify-between">
@@ -1026,4 +1126,4 @@ export default function POIListPage() {
       <POIListWithSearchParams />
     </Suspense>
   )
-} 
+}

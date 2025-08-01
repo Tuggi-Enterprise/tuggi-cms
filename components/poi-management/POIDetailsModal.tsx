@@ -38,7 +38,23 @@ interface POI {
     latitude: number
     longitude: number
   }
+  // Content status indicators
+  has_description: boolean
+  has_audio: boolean
+  description_count: number
+  audio_count: number
+  available_languages: string[]
+  trigger_points_count: number
+  active_trigger_points_count: number
   reference_links?: string[] // Add reference links field
+  // Group status indicators
+  group_status?: {
+    is_in_group: boolean
+    group_id?: string
+    group_name?: string
+    group_role?: 'main' | 'member'
+    group_member_count?: number
+  }
 }
 
 interface POIDetailsModalProps {
@@ -2167,4 +2183,4 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       </div>
     </div>
   )
-} 
+}
