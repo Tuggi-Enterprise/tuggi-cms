@@ -70,7 +70,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [isSaving, setIsSaving] = useState(false)
   const [descriptions, setDescriptions] = useState<any[]>([])
   const [images, setImages] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'details' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois'>('details')
+  const [activeTab, setActiveTab] = useState<'details' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois' | 'review'>('details')
   
   // Description editing state
   const [currentDescription, setCurrentDescription] = useState('')
@@ -93,6 +93,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [selectedGender, setSelectedGender] = useState<'male' | 'female'>('male')
   const [isTranslating, setIsTranslating] = useState(false)
   const [translatedDescriptions, setTranslatedDescriptions] = useState<any[]>([])
+  
+  // Audio progress state
+  const [audioProgress, setAudioProgress] = useState({ current: 0, total: 0, currentTask: '' })
+  const [audioResults, setAudioResults] = useState<string[]>([])
+  const [showResults, setShowResults] = useState(false)
   
   // Add to the state
   const [referenceLinks, setReferenceLinks] = useState<string[]>(poi.reference_links || []);
@@ -152,7 +157,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         desc.language !== 'pt-br' && desc.language !== 'pt' && !desc.language?.toLowerCase().includes('pt')
       ) || []
       
-      setTranslatedDescriptions(translations)
+      // Include ALL descriptions with audio_url in the available audios list
+      const allAudiosAvailable = descriptionsData?.filter(desc => desc.audio_url) || []
+      setTranslatedDescriptions(allAudiosAvailable)
       
       // Debug: Log the fetched descriptions
       console.log('🔍 Fetched descriptions for POI:', poi.id, descriptionsData)
@@ -449,6 +456,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         .eq('language', 'pt-br')
         .maybeSingle()
 
+      // Check if description has changed
+      const descriptionChanged = existingDescs && existingDescs.description !== currentDescription
+      
       if (existingDescs) {
         // Update existing Portuguese description
         const { error } = await supabase
@@ -482,6 +492,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       
       // Refresh data
       await fetchAdditionalData()
+      
+      // If description changed and there are existing audios, offer to regenerate
+      if (descriptionChanged && (currentAudioUrl || translatedDescriptions.length > 0)) {
+        const shouldRegenerate = window.confirm(
+          'A descrição foi alterada. Deseja regenerar todos os áudios (PT, EN, ES) para refletir as mudanças?\n\n' +
+          'Isso irá substituir os áudios existentes com base na nova descrição.'
+        )
+        
+        if (shouldRegenerate) {
+          await regenerateAllAudios()
+        }
+      }
       
       alert('Description saved successfully!')
     } catch (error) {
@@ -687,6 +709,118 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     }
   }
 
+  // Regenerate all audios (PT, EN, ES) with both genders
+  const regenerateAllAudios = async () => {
+    if (!currentDescription.trim()) {
+      alert('Please save a Portuguese description first.')
+      return
+    }
+
+    setIsGeneratingAudio(true)
+    setIsTranslating(true)
+    setShowResults(false)
+    setAudioResults([])
+    
+    const languages = [
+      { code: 'pt-br', name: 'Portuguese' },
+      { code: 'en-us', name: 'English' },
+      { code: 'es-es', name: 'Spanish' }
+    ]
+    
+    setAudioProgress({ current: 0, total: languages.length, currentTask: 'Starting...' })
+    
+    try {
+      const results = []
+      
+      // First, regenerate Portuguese audio (base language)
+      setAudioProgress({ current: 1, total: languages.length, currentTask: 'Generating Portuguese audio...' })
+      try {
+        await generateAudioNarration()
+        results.push('✅ Portuguese: audio regenerated successfully')
+      } catch (error) {
+        results.push(`❌ Portuguese: failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+      
+      // Then regenerate translations for EN and ES (male only)
+      for (let i = 0; i < languages.slice(1).length; i++) {
+        const lang = languages.slice(1)[i]
+        setAudioProgress({ 
+          current: i + 2, 
+          total: languages.length, 
+          currentTask: `Generating ${lang.name} (male) audio...` 
+        })
+        
+        try {
+          await generateSingleLanguageAudio(lang.code, 'male')
+          results.push(`✅ ${lang.name} (male): regenerated successfully`)
+        } catch (error) {
+          results.push(`❌ ${lang.name} (male): failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+      }
+      
+      setAudioProgress({ current: languages.length, total: languages.length, currentTask: 'Completed!' })
+      setAudioResults(results)
+      setShowResults(true)
+      
+    } catch (error) {
+      console.error('Error regenerating all audios:', error)
+      setAudioResults([`❌ General error: ${error instanceof Error ? error.message : 'Unknown error'}`])
+      setShowResults(true)
+    } finally {
+      setIsGeneratingAudio(false)
+      setIsTranslating(false)
+      // Reset progress after a delay
+      setTimeout(() => {
+        setAudioProgress({ current: 0, total: 0, currentTask: '' })
+      }, 3000)
+    }
+  }
+
+  // Generate audio for a single language
+  const generateSingleLanguageAudio = async (language: string, gender: 'male' | 'female') => {
+    if (!currentDescription.trim()) {
+      throw new Error('No Portuguese description available')
+    }
+
+    // Get the session to verify user is authenticated
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      throw new Error('No active session')
+    }
+
+    const requestBody = {
+      attractionId: poi.id,
+      targetLanguage: language,
+      voiceGender: gender
+    }
+
+    // Call the Edge Function
+    const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-translated-audio`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      let errorData
+      try {
+        errorData = JSON.parse(errorText)
+      } catch (e) {
+        errorData = { error: errorText }
+      }
+      throw new Error(`HTTP ${response.status}: ${errorData.error || errorText}`)
+    }
+
+    await response.json()
+    
+    // Refresh data to show the new audio
+    await fetchAdditionalData()
+  }
+
   // Delete a translation
   const deleteTranslation = async (translationId: string, language: string, gender: string) => {
     const confirmDelete = window.confirm(
@@ -713,21 +847,28 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     }
   }
 
-  // Regenerate a translation
+  // Regenerate a single translation
   const regenerateTranslation = async (language: string, gender: 'male' | 'female') => {
-    // Temporarily set the selected language and gender
-    const originalLanguage = selectedLanguage
-    const originalGender = selectedGender
-    
-    setSelectedLanguage(language)
-    setSelectedGender(gender as 'male' | 'female')
-    
-    // Call the translation function
-    await translateAndGenerateAudio()
-    
-    // Restore original selections
-    setSelectedLanguage(originalLanguage)
-    setSelectedGender(originalGender)
+    if (!currentDescription.trim()) {
+      alert('Please save a Portuguese description first.')
+      return
+    }
+
+    const confirmRegenerate = window.confirm(
+      `Regenerar áudio para ${language} (${gender})?\n\nIsso irá substituir o áudio existente.`
+    )
+    if (!confirmRegenerate) return
+
+    setIsTranslating(true)
+    try {
+      await generateSingleLanguageAudio(language, gender)
+      alert(`Audio regenerated successfully for ${language} (${gender})!`)
+    } catch (error) {
+      console.error('Error regenerating translation:', error)
+      alert(`Failed to regenerate audio: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsTranslating(false)
+    }
   }
 
   const handlePolygonComplete = (polygon: any) => {
@@ -758,7 +899,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       <div className="flex items-center justify-center min-h-screen p-4">
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={onClose} />
         
-        <div className="relative bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all w-full max-w-6xl h-[90vh] flex flex-col">
+        <div className="relative bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all w-[80vw] h-[95vh] flex flex-col">
           {/* Header */}
           <div className="bg-white dark:bg-gray-800 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
@@ -837,6 +978,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   <Target className="h-4 w-4 inline mr-2" />
                   Trigger Points
                 </button>
+                <button
+                  onClick={() => setActiveTab('review')}
+                  className={cn(
+                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
+                    activeTab === 'review'
+                      ? 'border-tuggi-blue text-tuggi-blue'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  )}
+                >
+                  <CheckCircle className="h-4 w-4 inline mr-2" />
+                  Review
+                </button>
                
               </nav>
             </div>
@@ -869,7 +1022,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                       />
                     </div>
 
-                    <div>
+                    {/* <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Category
                       </label>
@@ -885,7 +1038,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                           </option>
                         ))}
                       </select>
-                    </div>
+                    </div> */}
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -911,253 +1064,242 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                         />
                       </div>
                     </div>
-                  </div>
+                      <div className="space-y-4">
+                        <h4 className="text-lg font-medium text-gray-900 dark:text-white">
+                          Contact & Details
+                        </h4>
 
-                  <div className="space-y-4">
-                    {/* Image Preview */}
-                    {(poi.image_url || images.length > 0) && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Images
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                          {poi.image_url && (
-                            <img
-                              src={poi.image_url}
-                              alt={poi.name}
-                              className="w-full h-48 object-cover rounded-md border border-gray-200 dark:border-gray-700"
-                            />
+                        {poi.formatted_address && (
+                          <div className="flex items-start space-x-">
+                            <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Address</div>
+                              <div className="text-sm text-gray-900 dark:text-white">{poi.formatted_address}</div>
+                            </div>
+                          </div>
+                        )}
+                        {poi.formatted_phone_number && (
+                            <div className="flex items-start space-x-2">
+                              <Phone className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                              <div>
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Phone</div>
+                                <div className="text-sm text-gray-900 dark:text-white">{poi.formatted_phone_number}</div>
+                              </div>
+                            </div>
                           )}
-                          {images.slice(0, 0).map((image, index) => (
-                            <img
-                              key={image.id}
-                              src={image.image_url}
-                              alt={`${poi.name} ${index + 1}`}
-                              className="w-full h-48 object-cover rounded-md border border-gray-200 dark:border-gray-700"
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
 
-                    {/* Rating and Status */}
-                    <div className="flex justify-between items-start space-x-4">
-                      {poi.rating && (
-                        <div className="flex-1">
+                          {poi.website && (
+                            <div className="flex items-start space-x-2">
+                              <Globe className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                              <div>
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Website</div>
+                                <button
+                                  onClick={openWebsite}
+                                  className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline"
+                                >
+                                  {poi.website}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {poi.coordinates && (
+                            <div className="flex items-start space-x-2">
+                              <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                              <div>
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Coordinates</div>
+                                <div className="text-sm text-gray-900 dark:text-white">
+                                  {poi.coordinates.latitude.toFixed(6)}, {poi.coordinates.longitude.toFixed(6)}
+                                </div>
+                                <button
+                                  onClick={openInGoogleMaps}
+                                  className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline inline-flex items-center mt-1"
+                                >
+                                  <ExternalLink className="h-3 w-3 mr-1" />
+                                  View on Google Maps
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                  </div>
+                  
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-4">
+                      {/* Image Preview */}
+                      {(poi.image_url || images.length > 0) && (
+                        <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Rating
+                            Images
                           </label>
-                          <div className="flex items-center">
-                            <Star className="h-5 w-5 text-yellow-400 mr-1" />
-                            <span className="text-lg font-medium text-gray-900 dark:text-white">
-                              {poi.rating.toFixed(1)}
-                            </span>
-                            {poi.user_ratings_total && (
-                              <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
-                                ({poi.user_ratings_total} reviews)
-                              </span>
+                          <div className="space-y-4 mr-2">
+                            {poi.image_url && (
+                              <img
+                                src={poi.image_url}
+                                alt={poi.name}
+                                className="w-full h-full object-cover rounded-md border border-gray-200 dark:border-gray-700"
+                              />
                             )}
+                            {images.slice(0, 0).map((image, index) => (
+                              <img
+                                key={image.id}
+                                src={image.image_url}
+                                alt={`${poi.name} ${index + 1}`}
+                                className="w-full h-48 object-cover rounded-md border border-gray-200 dark:border-gray-700"
+                              />
+                            ))}
                           </div>
                         </div>
                       )}
 
-                      {/* Status */}
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Status
-                        </label>
-                        <span className={cn(
-                          'inline-flex items-center px-3 py-1 text-sm font-medium rounded-full',
-                          poi.approved
-                            ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
-                            : 'bg-tuggi-orange/10 text-tuggi-orange border border-tuggi-orange/20'
-                        )}>
-                          {poi.approved ? (
-                            <>
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Approved
-                            </>
-                          ) : (
-                            <>
-                              <Clock className="h-4 w-4 mr-1" />
-                              Pending
-                            </>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Additional Information */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-medium text-gray-900 dark:text-white">
-                      Contact & Details
-                    </h4>
-
-                    {poi.formatted_address && (
-                      <div className="flex items-start space-x-2">
-                        <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Address</div>
-                          <div className="text-sm text-gray-900 dark:text-white">{poi.formatted_address}</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {poi.formatted_phone_number && (
-                      <div className="flex items-start space-x-2">
-                        <Phone className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Phone</div>
-                          <div className="text-sm text-gray-900 dark:text-white">{poi.formatted_phone_number}</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {poi.website && (
-                      <div className="flex items-start space-x-2">
-                        <Globe className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Website</div>
-                          <button
-                            onClick={openWebsite}
-                            className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline"
-                          >
-                            {poi.website}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {poi.coordinates && (
-                      <div className="flex items-start space-x-2">
-                        <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Coordinates</div>
-                          <div className="text-sm text-gray-900 dark:text-white">
-                            {poi.coordinates.latitude.toFixed(6)}, {poi.coordinates.longitude.toFixed(6)}
-                          </div>
-                          <button
-                            onClick={openInGoogleMaps}
-                            className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline inline-flex items-center mt-1"
-                          >
-                            <ExternalLink className="h-3 w-3 mr-1" />
-                            View on Google Maps
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-4">
-                    <h4 className="text-lg font-medium text-gray-900 dark:text-white">
-                      Metadata
-                    </h4>
-
-                    <div className="flex items-start space-x-2">
-                      <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Created</div>
-                        <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.created_at)}</div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start space-x-2">
-                      <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Updated</div>
-                        <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.updated_at)}</div>
-                      </div>
-                    </div>
-
-                    {poi.approved && poi.approved_at && (
-                      <div className="flex items-start space-x-2">
-                        <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Approved</div>
-                          <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.approved_at)}</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {poi.google_types && poi.google_types.length > 0 && (
-                      <div className="flex items-start space-x-2">
-                        <Target className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Google Types</div>
-                          <div className="text-sm text-gray-900 dark:text-white">
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {poi.google_types.slice(0, 6).map((type, index) => (
-                                <span 
-                                  key={index}
-                                  className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20"
-                                >
-                                  {type.replace(/_/g, ' ')}
-                                </span>
-                              ))}
-                              {poi.google_types.length > 6 && (
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  +{poi.google_types.length - 6} more
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {poi.business_status && (
-                      <div className="flex items-start space-x-2">
-                        <Clock className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Business Status</div>
-                          <div className="text-sm text-gray-900 dark:text-white">{poi.business_status}</div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-
-                {/* Descriptions */}
-                {descriptions.length > 0 && (
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                      Descriptions
-                    </h4>
-                    <div className="space-y-3">
-                      {descriptions.map((desc, index) => (
-                        <div key={desc.id} className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                {desc.language === 'pt-br' ? '🇧🇷 Portuguese (BR)' : 
-                                 desc.language === 'pt' ? '🇧🇷 Portuguese' : 
-                                 desc.language === 'en' ? '🇺🇸 English' : 
-                                 desc.language === 'es' ? '🇪🇸 Spanish' : 
-                                 `${desc.language.toUpperCase()}`}
+                      {/* Rating and Status */}
+                      <div className="flex justify-between items-start space-x-4">
+                        {poi.rating && (
+                          <div className="flex-1">
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              Rating
+                            </label>
+                            <div className="flex items-center">
+                              <Star className="h-5 w-5 text-yellow-400 mr-1" />
+                              <span className="text-lg font-medium text-gray-900 dark:text-white">
+                                {poi.rating.toFixed(1)}
                               </span>
-                              {desc.play_count > 0 && (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-tuggi-orange/10 text-tuggi-orange">
-                                  <Play className="h-3 w-3 mr-1" />
-                                  {desc.play_count} plays
+                              {poi.user_ratings_total && (
+                                <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
+                                  ({poi.user_ratings_total} reviews)
                                 </span>
                               )}
                             </div>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">
-                              {formatDate(desc.created_at)}
-                            </span>
                           </div>
-                          <p className="text-sm text-gray-900 dark:text-white">{desc.description}</p>
+                        )}
+
+                        {/* Status */}
+                        <div className="flex-1">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Status
+                          </label>
+                          <span className={cn(
+                            'inline-flex items-center px-3 py-1 text-sm font-medium rounded-full',
+                            poi.approved
+                              ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+                              : 'bg-tuggi-orange/10 text-tuggi-orange border border-tuggi-orange/20'
+                          )}>
+                            {poi.approved ? (
+                              <>
+                                <CheckCircle className="h-4 w-4 mr-1" />
+                                Approved
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="h-4 w-4 mr-1" />
+                                Pending
+                              </>
+                            )}
+                          </span>
                         </div>
-                      ))}
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <h4 className="text-lg font-medium text-gray-900 dark:text-white">
+                        Metadata
+                      </h4>
+                      <div className="flex items-start space-x-2">
+                        <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Created</div>
+                          <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.created_at)}</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start space-x-2">
+                        <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Updated</div>
+                          <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.updated_at)}</div>
+                        </div>
+                      </div>
+
+                      {poi.approved && poi.approved_at && (
+                        <div className="flex items-start space-x-2">
+                          <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Approved</div>
+                            <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.approved_at)}</div>
+                          </div>
+                        </div>
+                      )}
+
+                      {poi.google_types && poi.google_types.length > 0 && (
+                        <div className="flex items-start space-x-2">
+                          <Target className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Google Types</div>
+                            <div className="text-sm text-gray-900 dark:text-white">
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {poi.google_types.slice(0, 6).map((type, index) => (
+                                  <span 
+                                    key={index}
+                                    className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20"
+                                  >
+                                    {type.replace(/_/g, ' ')}
+                                  </span>
+                                ))}
+                                {poi.google_types.length > 6 && (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    +{poi.google_types.length - 6} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {poi.business_status && (
+                        <div className="flex items-start space-x-2">
+                          <Clock className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Business Status</div>
+                            <div className="text-sm text-gray-900 dark:text-white">{poi.business_status}</div>
+                          </div>
+                        </div>
+                      )}
+
+                      
+                    </div>
+                      
+                  </div>
+                  
+                </div>
+                    <div className="space-y-4">
+                  
+                    {/* Action Buttons */}
+                    <div className="flex items-center space-x-3 pt-4 border-t border-gray-200 dark:border-gray-600">
+                      <button
+                        onClick={handleDelete}
+                        disabled={isSaving}
+                        className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete POI
+                      </button>
+                      <button
+                        onClick={onClose}
+                        className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
+                      >
+                        <Save className="h-4 w-4 mr-2" />
+                        {isSaving ? 'Saving...' : 'Save Changes'}
+                      </button>
                     </div>
                   </div>
-                )}
-
-                {/* Reference Links */}
 
               </div>
             )}
@@ -1172,7 +1314,42 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
               </div>
             ) : (
               <div className="space-y-6">
-                {/* Reference Links Section */}
+                
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-lg font-medium text-gray-900 dark:text-white">
+                      Description Editor
+                    </h4>
+                    {/* <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      Editing Brazilian Portuguese (pt-br) • {descriptions.length} language{descriptions.length !== 1 ? 's' : ''} available
+                    </p>
+                    <p className="text-xs text-tuggi-blue mt-1">
+                      ✨ Enhanced AI with rich POI data: Google Types, location, ratings, business info
+                    </p> */}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={generateDescription}
+                      disabled={isGenerating}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
+                    >
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      {isGenerating ? 'Generating...' : 'Generate Description with AI'}
+                    </button>
+                    {currentDescription !== originalDescription && (
+                      <button
+                        onClick={resetDescription}
+                        className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
+                      >
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                    {/* Reference Links Section */}
                 <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                     Reference Links (URLs)
@@ -1213,38 +1390,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 dark:text-white">
-                      Description Editor
-                    </h4>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                      Editing Brazilian Portuguese (pt-br) • {descriptions.length} language{descriptions.length !== 1 ? 's' : ''} available
-                    </p>
-                    <p className="text-xs text-tuggi-blue mt-1">
-                      ✨ Enhanced AI with rich POI data: Google Types, location, ratings, business info
-                    </p>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={generateDescription}
-                      disabled={isGenerating}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                    >
-                      <Sparkles className="h-4 w-4 mr-2" />
-                      {isGenerating ? 'Generating...' : 'Generate Description with AI'}
-                    </button>
-                    {currentDescription !== originalDescription && (
-                      <button
-                        onClick={resetDescription}
-                        className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
-                      >
-                        <RotateCcw className="h-4 w-4 mr-2" />
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                </div>
+
 
                 {/* Description Editor */}
                 <div className="space-y-4">
@@ -1255,7 +1401,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                     <textarea
                       value={currentDescription}
                       onChange={(e) => setCurrentDescription(e.target.value)}
-                      rows={12}
+                      rows={6}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white resize-none"
                       placeholder="Enter a rich cultural and historical description for this attraction..."
                     />
@@ -1265,7 +1411,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   </div>
 
                   {/* Statistics */}
-                  <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
+                  {/* <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
                     <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                       Description Statistics
                     </h5>
@@ -1288,7 +1434,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                         </span>
                       </div>
                     </div>
-                  </div>
+                  </div> */}
 
                   {/* Save Actions */}
                   <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
@@ -1307,6 +1453,42 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                     </button>
                   </div>
                 </div>
+
+                {/* Descriptions */}
+                {descriptions.length > 0 && (
+                  <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+                    <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
+                      Descriptions
+                    </h4>
+                    <div className="space-y-3">
+                      {descriptions.map((desc, index) => (
+                        <div key={desc.id} className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center space-x-2">
+                              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                {desc.language === 'pt-br' ? '🇧🇷 Portuguese (BR)' : 
+                                 desc.language === 'pt' ? '🇧🇷 Portuguese' : 
+                                 desc.language === 'en' ? '🇺🇸 English' : 
+                                 desc.language === 'es' ? '🇪🇸 Spanish' : 
+                                 `${desc.language.toUpperCase()}`}
+                              </span>
+                              {desc.play_count > 0 && (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-tuggi-orange/10 text-tuggi-orange">
+                                  <Play className="h-3 w-3 mr-1" />
+                                  {desc.play_count} plays
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              {formatDate(desc.created_at)}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-900 dark:text-white">{desc.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1349,19 +1531,22 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                       Refresh
                     </button>
                     <button
-                      onClick={generateAudioNarration}
-                      disabled={isGeneratingAudio || (!currentDescription.trim() && !currentAudioUrl)}
+                      onClick={() => {
+                        // Always regenerate all audios (PT, EN, ES)
+                        regenerateAllAudios()
+                      }}
+                      disabled={isGeneratingAudio || isTranslating || (!currentDescription.trim() && !currentAudioUrl)}
                       className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                     >
-                      {isGeneratingAudio ? (
+                      {(isGeneratingAudio || isTranslating) ? (
                         <>
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Generating Audio...
+                          Generating All Audios...
                         </>
                       ) : (
                         <>
                           <Volume2 className="h-4 w-4 mr-2" />
-                          {currentAudioUrl ? 'Regenerate Audio' : 'Generate Audio'}
+                          {currentAudioUrl ? 'Regenerate All Audios' : 'Generate All Audios'}
                         </>
                       )}
                     </button>
@@ -1373,72 +1558,218 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   </div>
                 </div>
 
-                {/* Current Audio Section */}
-                {currentAudioUrl ? (
-                  <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg">
-                    <div className="flex items-center justify-between mb-4">
-                      <h5 className="text-lg font-medium text-gray-900 dark:text-white">
-                        Current Audio
-                      </h5>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={generateAudioNarration}
-                          disabled={isGeneratingAudio || (!currentDescription.trim() && !currentAudioUrl)}
-                          className="inline-flex items-center px-3 py-1.5 border border-tuggi-blue text-sm font-medium rounded-md text-tuggi-blue bg-tuggi-blue/10 hover:bg-tuggi-blue/20 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                        >
-                          {isGeneratingAudio ? (
-                            <>
-                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                              Replacing...
-                            </>
-                          ) : (
-                            <>
-                              <Volume2 className="h-3 w-3 mr-1" />
-                              Replace
-                            </>
-                          )}
-                        </button>
-                        <button
-                          onClick={downloadAudio}
-                          className="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
-                        >
-                          <Download className="h-4 w-4 mr-1" />
-                          Download
-                        </button>
-                      </div>
+                {/* Audio Progress Bar */}
+                {(isGeneratingAudio || isTranslating) && audioProgress.total > 0 && (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <h6 className="text-sm font-medium text-blue-900 dark:text-blue-300">
+                        Audio Generation Progress
+                      </h6>
+                      <span className="text-sm text-blue-700 dark:text-blue-400">
+                        {audioProgress.current}/{audioProgress.total}
+                      </span>
                     </div>
-                    
-                    {/* Audio Player */}
-                    <div className="mb-4">
-                      <audio controls className="w-full" preload="metadata">
-                        <source src={currentAudioUrl} type="audio/mpeg" />
-                        Your browser does not support the audio element.
-                      </audio>
+                    <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2 mb-2">
+                      <div 
+                        className="bg-blue-600 dark:bg-blue-400 h-2 rounded-full transition-all duration-300 ease-out"
+                        style={{ width: `${(audioProgress.current / audioProgress.total) * 100}%` }}
+                      ></div>
                     </div>
-                    
-                    {/* Audio Metadata */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <span className="font-medium text-gray-700 dark:text-gray-300">File Name:</span>
-                        <div className="text-gray-900 dark:text-white font-mono text-xs">
-                          {audioMetadata?.fileName || 'Unknown'}
+                    <p className="text-sm text-blue-700 dark:text-blue-400">
+                      {audioProgress.currentTask}
+                    </p>
+                  </div>
+                )}
+
+                {/* Audio Results */}
+                {showResults && audioResults.length > 0 && (
+                  <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-3">
+                      <h6 className="text-sm font-medium text-gray-900 dark:text-white">
+                        🎯 Generation Results
+                      </h6>
+                      <button
+                        onClick={() => setShowResults(false)}
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {audioResults.map((result, index) => (
+                        <div 
+                          key={index}
+                          className={`p-2 rounded text-sm ${
+                            result.includes('✅') 
+                              ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+                              : 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300'
+                          }`}
+                        >
+                          {result}
                         </div>
-                      </div>
-                      <div>
-                        <span className="font-medium text-gray-700 dark:text-gray-300">Size:</span>
-                        <div className="text-gray-900 dark:text-white">
-                          {formatFileSize(audioMetadata?.size)}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="font-medium text-gray-700 dark:text-gray-300">Last Updated:</span>
-                        <div className="text-gray-900 dark:text-white">
-                          {audioMetadata?.lastUpdated ? formatDate(audioMetadata.lastUpdated) : 'Unknown'}
-                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">
+                          Success: {audioResults.filter(r => r.includes('✅')).length}/{audioResults.length}
+                        </span>
+                        <button
+                          onClick={() => fetchAdditionalData()}
+                          className="inline-flex items-center px-2 py-1 text-xs bg-tuggi-blue text-white rounded hover:bg-tuggi-blue/90"
+                        >
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          Refresh List
+                        </button>
                       </div>
                     </div>
                   </div>
-                ) : (
+                )}
+
+                {/* Available Audios Section */}
+                {translatedDescriptions.length > 0 && (
+                  <div className="bg-gray-50 dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-4">
+                      <h5 className="text-lg font-medium text-gray-900 dark:text-white">
+                        🎵 Available Audios
+                      </h5>
+                      <button
+                        onClick={regenerateAllAudios}
+                        disabled={isGeneratingAudio || isTranslating || !currentDescription.trim()}
+                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-orange hover:bg-tuggi-orange/90 focus:outline-none focus:ring-2 focus:ring-tuggi-orange disabled:opacity-50"
+                      >
+                        {(isGeneratingAudio || isTranslating) ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Regenerating All...
+                          </>
+                        ) : (
+                          <>
+                            <RotateCcw className="h-4 w-4 mr-2" />
+                            Regenerate All Audios
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full table-auto">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-600">
+                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Language</th>
+                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Gender</th>
+                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Description</th>
+                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Audio</th>
+                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Stats</th>
+                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {translatedDescriptions.map((desc, index) => (
+                            <tr key={desc.id} className={index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'}>
+                              <td className="py-3 px-3 text-sm">
+                                <div className="flex items-center space-x-2">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300">
+                                    {desc.language === 'pt-br' ? '🇧🇷 PT-BR' : 
+                                     desc.language === 'pt' ? '🇧🇷 PT' : 
+                                     desc.language === 'en-us' ? '🇺🇸 EN-US' : 
+                                     desc.language === 'es-es' ? '🇪🇸 ES-ES' : 
+                                     desc.language?.toUpperCase()}
+                                  </span>
+                                  {(() => {
+                                    // Check if audio might be outdated
+                                    const ptDesc = descriptions.find(d => d.language === 'pt-br' || d.language === 'pt')
+                                    const isOutdated = ptDesc && desc.updated_at && ptDesc.updated_at && 
+                                      new Date(ptDesc.updated_at) > new Date(desc.updated_at)
+                                    
+                                    if (isOutdated) {
+                                      return (
+                                        <span className="inline-flex items-center px-1 py-0.5 rounded text-xs bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300" title="Audio may be outdated - Portuguese description was updated after this audio">
+                                          ⚠️
+                                        </span>
+                                      )
+                                    }
+                                    return null
+                                  })()} 
+                                </div>
+                               </td>
+                              <td className="py-3 px-3 text-sm">
+                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${
+                                  desc.gender === 'male' 
+                                    ? 'bg-indigo-100 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300' 
+                                    : 'bg-pink-100 dark:bg-pink-900/20 text-pink-800 dark:text-pink-300'
+                                }`}>
+                                  {desc.gender === 'male' ? '♂️ Male' : '♀️ Female'}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-sm">
+                                <div className="max-w-xs overflow-hidden">
+                                  <p className="text-gray-900 dark:text-white truncate" title={desc.description}>
+                                    {desc.description?.substring(0, 50) || 'No description'}...
+                                  </p>
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 text-sm">
+                                {desc.audio_url ? (
+                                  <button
+                                    onClick={() => {
+                                      const audio = new Audio(desc.audio_url)
+                                      audio.play()
+                                    }}
+                                    className="inline-flex items-center px-2 py-1 text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800/30"
+                                  >
+                                    <Volume2 className="h-3 w-3 mr-1" />
+                                    Play
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">No audio</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3 text-sm">
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                  <p>Plays: {desc.play_count || 0}</p>
+                                  {desc.last_played_at && (
+                                    <p>Last: {formatDate(desc.last_played_at)}</p>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 text-sm">
+                                <div className="flex items-center space-x-2">
+                                  {desc.audio_url && (
+                                    <button
+                                      onClick={() => window.open(desc.audio_url, '_blank')}
+                                      className="inline-flex items-center px-2 py-1 text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800/30"
+                                    >
+                                      <Download className="h-3 w-3 mr-1" />
+                                      Download
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => regenerateTranslation(desc.language, desc.gender)}
+                                    disabled={isTranslating}
+                                    className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800/30 disabled:opacity-50"
+                                  >
+                                    <RotateCcw className="h-3 w-3 mr-1" />
+                                    Regenerate
+                                  </button>
+                                  <button
+                                    onClick={() => deleteTranslation(desc.id, desc.language, desc.gender)}
+                                    className="inline-flex items-center px-2 py-1 text-xs bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800/30"
+                                  >
+                                    <Trash2 className="h-3 w-3 mr-1" />
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Current Audio Section - Fallback for when no translations exist */}
+                {translatedDescriptions.length === 0 && (
                   <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg text-center">
                     <Volume2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h5 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
@@ -1447,18 +1778,37 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                       Generate audio narration from the attraction description to provide visitors with rich, spoken content.
                     </p>
-                    {!currentDescription.trim() && !currentAudioUrl && (
+                    {!currentDescription.trim() && (
                       <p className="text-sm text-tuggi-orange">
                         ⚠️ Please save a description first before generating audio narration.
                       </p>
                     )}
-                    {!currentDescription.trim() && currentAudioUrl && (
-                      <p className="text-sm text-tuggi-blue">
-                        💡 No description found. Audio generation will use basic fallback text. Add a description in the Description tab for better quality.
-                      </p>
-                    )}
                   </div>
                 )}
+
+                {/* Audio Management Info */}
+                {/* {(currentAudioUrl || translatedDescriptions.length > 0) && (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-start space-x-3">
+                      <div className="flex-shrink-0">
+                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-300">
+                          <Volume2 className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <div className="flex-1">
+                        <h6 className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
+                          🤖 Intelligent Audio Regeneration System
+                        </h6>
+                        <div className="text-sm text-blue-800 dark:text-blue-300 space-y-1">
+                          <p>• <strong>Automatic Detection:</strong> When you save a modified description, the system will offer to regenerate all audios automatically</p>
+                          <p>• <strong>Individual Regeneration:</strong> Use the "Regenerate" button next to each audio to update only a specific language/gender</p>
+                          <p>• <strong>Complete Regeneration:</strong> Use "Regenerate All Audios" to recreate all audios (PT, EN, ES) based on the current description</p>
+                          <p>• <strong>Visual Indicators:</strong> The ⚠️ symbol indicates audios that may be outdated relative to the Portuguese description</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )} */}
 
                 {/* Divider above the two-column section */}
                 <div className="my-6 border-t border-gray-200 dark:border-gray-700" />
@@ -1492,11 +1842,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                           disabled={isTranslating}
                           className="w-full px-3 py-2 border border-purple-300 dark:border-purple-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white disabled:opacity-50"
                         >
-                          <option value="en-us">🇺🇸 English (US)</option>
-                          <option value="es-es">🇪🇸 Spanish (Spain)</option>
-                          {/* <option value="fr-fr">🇫🇷 French (France)</option>
+                          {/* <option value="en-us">🇺🇸 English (US)</option>
+                          <option value="es-es">🇪🇸 Spanish (Spain)</option> */}
+                          <option value="fr-fr">🇫🇷 French (France)</option>
                           <option value="it-it">🇮🇹 Italian (Italy)</option>
-                          <option value="de-de">🇩🇪 German (Germany)</option> */}
+                          <option value="de-de">🇩🇪 German (Germany)</option>
                         </select>
                       </div>
                       {/* Gender Selector */}
@@ -1765,101 +2115,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   </div>
                 </div>
 
-                {/* Existing Translations Table */}
-                {translatedDescriptions.length > 0 && (
-                  <div className="bg-gray-50 dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <h5 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                      📚 Existing Translations
-                    </h5>
-                    <div className="overflow-x-auto">
-                      <table className="w-full table-auto">
-                        <thead>
-                          <tr className="border-b border-gray-200 dark:border-gray-600">
-                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Language</th>
-                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Gender</th>
-                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Description</th>
-                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Audio</th>
-                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Stats</th>
-                            <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {translatedDescriptions.map((desc, index) => (
-                            <tr key={desc.id} className={index % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50 dark:bg-gray-800'}>
-                              <td className="py-3 px-3 text-sm">
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300">
-                                  {desc.language?.toUpperCase()}
-                                </span>
-                              </td>
-                              <td className="py-3 px-3 text-sm">
-                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs ${
-                                  desc.gender === 'male' 
-                                    ? 'bg-indigo-100 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300' 
-                                    : 'bg-pink-100 dark:bg-pink-900/20 text-pink-800 dark:text-pink-300'
-                                }`}>
-                                  {desc.gender === 'male' ? '♂️ Male' : '♀️ Female'}
-                                </span>
-                              </td>
-                              <td className="py-3 px-3 text-sm">
-                                <div className="max-w-xs overflow-hidden">
-                                  <p className="text-gray-900 dark:text-white truncate" title={desc.description}>
-                                    {desc.description?.substring(0, 50) || 'No description'}...
-                                  </p>
-                                </div>
-                              </td>
-                              <td className="py-3 px-3 text-sm">
-                                {desc.audio_url ? (
-                                  <button
-                                    onClick={() => {
-                                      const audio = new Audio(desc.audio_url)
-                                      audio.play()
-                                    }}
-                                    className="inline-flex items-center px-2 py-1 text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800/30"
-                                  >
-                                    <Volume2 className="h-3 w-3 mr-1" />
-                                    Play
-                                  </button>
-                                ) : (
-                                  <span className="text-xs text-gray-500 dark:text-gray-400">No audio</span>
-                                )}
-                              </td>
-                              <td className="py-3 px-3 text-sm">
-                                <div className="text-xs text-gray-500 dark:text-gray-400">
-                                  <p>Plays: {desc.play_count || 0}</p>
-                                  {desc.last_played_at && (
-                                    <p>Last: {formatDate(desc.last_played_at)}</p>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="py-3 px-3 text-sm">
-                                <div className="flex items-center space-x-2">
-                                  <button
-                                    onClick={() => regenerateTranslation(desc.language, desc.gender)}
-                                    disabled={isTranslating}
-                                    className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800/30 disabled:opacity-50"
-                                  >
-                                    <RotateCcw className="h-3 w-3 mr-1" />
-                                    Regenerate
-                                  </button>
-                                  <button
-                                    onClick={() => deleteTranslation(desc.id, desc.language, desc.gender)}
-                                    className="inline-flex items-center px-2 py-1 text-xs bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800/30"
-                                  >
-                                    <Trash2 className="h-3 w-3 mr-1" />
-                                    Delete
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+
 
                 {/* Debug Info */}
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                {/* <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg border border-yellow-200 dark:border-yellow-800">
                   <h5 className="text-sm font-medium text-yellow-800 dark:text-yellow-200 mb-2">
                     🔍 Debug Information
                   </h5>
@@ -1872,7 +2131,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                       <p><strong>First Description Preview:</strong> {descriptions[0]?.description?.substring(0, 50) || 'Empty'}...</p>
                     )}
                   </div>
-                </div>
+                </div> */}
               </div>
             )}
           </div>
@@ -2133,23 +2392,188 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
               </div>
             )}
           </div>
+        ) : activeTab === 'review' ? (
+          <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
+            <div className="space-y-4">
+              {/* Header */}
+              <div className="text-center">
+                <h4 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center justify-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-tuggi-blue" />
+                  Review for Approval
+                </h4>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Verify all information is correct before approving the POI
+                </p>
+              </div>
+
+                            {/* POI Summary */}
+              <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h5 className="text-base font-medium text-gray-900 dark:text-white mb-3">
+                  POI Summary
+                </h5>
+                
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Name</p>
+                    <p className="text-gray-900 dark:text-white truncate">{poi.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Types</p>
+                    <div className="flex flex-wrap gap-1">
+                      {poi.google_types && poi.google_types.length > 0 ? (
+                        poi.google_types.slice(0, 3).map((type: string, index: number) => (
+                          <span
+                            key={index}
+                            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
+                          >
+                            {type.replace(/_/g, ' ')}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-gray-500 dark:text-gray-400 text-xs">No types</span>
+                      )}
+                      {poi.google_types && poi.google_types.length > 3 && (
+                        <span className="text-xs text-gray-500 dark:text-gray-400">+{poi.google_types.length - 3} more</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Location</p>
+                    <p className="text-gray-900 dark:text-white truncate">{poi.city}, {poi.country}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Rating</p>
+                    <div className="flex items-center gap-1">
+                      <Star className="h-3 w-3 text-yellow-400" />
+                      <span className="text-gray-900 dark:text-white">{poi.rating || 'N/A'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {currentDescription.trim() && (
+                  <div className="mt-3">
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description</p>
+                    <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 max-h-20 overflow-y-auto">
+                      <p className="text-xs text-gray-900 dark:text-white">{currentDescription}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Validation Summary */}
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <h5 className="text-base font-medium text-gray-900 dark:text-white mb-3">
+                  Validation Status
+                </h5>
+                
+                <div className="space-y-2">
+                  {/* Description Check */}
+                  <div className="flex items-center justify-between p-2 rounded border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">Description</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {currentDescription.trim() ? (
+                        <>
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          <span className="text-xs text-green-600 dark:text-green-400">Complete</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle className="h-4 w-4 text-red-500" />
+                          <span className="text-xs text-red-600 dark:text-red-400">Required</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Audio Check */}
+                  <div className="flex items-center justify-between p-2 rounded border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-2">
+                      <Volume2 className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">Audio</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {translatedDescriptions.length > 0 ? (
+                        <>
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          <span className="text-xs text-green-600 dark:text-green-400">
+                            {translatedDescriptions.length} audio(s) available
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertTriangle className="h-4 w-4 text-red-500" />
+                          <span className="text-xs text-red-600 dark:text-red-400">Minimum 1 audio required</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Trigger Points Check */}
+                  <div className="flex items-center justify-between p-2 rounded border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-2">
+                      <Target className="h-4 w-4 text-gray-500" />
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">Trigger Points</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Info className="h-4 w-4 text-blue-500" />
+                      <span className="text-xs text-blue-600 dark:text-blue-400">
+                        Optional ({poi.trigger_points_count || 0} configured)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+
+
+              {/* Approval Status */}
+              <div className={cn(
+                "rounded-lg p-4 border",
+                currentDescription.trim() && translatedDescriptions.length > 0
+                  ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+                  : "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+              )}>
+                <div className="flex items-center gap-2">
+                  {currentDescription.trim() && translatedDescriptions.length > 0 ? (
+                    <>
+                      <CheckCircle className="h-5 w-5 text-green-500" />
+                      <div>
+                        <h6 className="text-sm font-medium text-green-900 dark:text-green-200">
+                          Ready for Approval
+                        </h6>
+                        <p className="text-xs text-green-700 dark:text-green-300">
+                          All required criteria have been met
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="h-5 w-5 text-red-500" />
+                      <div>
+                        <h6 className="text-sm font-medium text-red-900 dark:text-red-200">
+                          Pending Requirements
+                        </h6>
+                        <p className="text-xs text-red-700 dark:text-red-300">
+                          Complete required criteria before approval
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         ) : null}
           </div>
 
-          {/* Footer - Only show for POI Details tab */}
-          {activeTab === 'details' && (
+          {/* Footer - Show buttons only for review tab */}
+          {activeTab === 'review' && (
             <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <button
-                    onClick={handleDelete}
-                    disabled={isSaving}
-                    className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete POI
-                  </button>
-                </div>
+                <div></div>
                 <div className="flex items-center space-x-3">
                   <button
                     onClick={onClose}
@@ -2157,23 +2581,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   >
                     Cancel
                   </button>
-                  <button
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                  >
-                    <Save className="h-4 w-4 mr-2" />
-                    {isSaving ? 'Saving...' : 'Save Changes'}
-                  </button>
                   {!poi.approved && (
                     <button
                       onClick={handleApprove}
-                      disabled={isSaving}
+                      disabled={isSaving || !currentDescription.trim() || translatedDescriptions.length === 0}
                       className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
                     >
                       <CheckCircle className="h-4 w-4 mr-2" />
                       {isSaving ? 'Approving...' : 'Approve POI'}
                     </button>
+                  )}
+                  {poi.approved && (
+                    <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-md">
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      POI Approved
+                    </div>
                   )}
                 </div>
               </div>

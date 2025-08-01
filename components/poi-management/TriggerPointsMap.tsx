@@ -31,7 +31,7 @@ function TriggerPointsMapContent({
       center,
       zoom,
       mapTypeControl: true,
-      streetViewControl: false,
+      streetViewControl: true,
       fullscreenControl: false,
       mapTypeId: google.maps.MapTypeId.ROADMAP,
     })
@@ -459,4 +459,4 @@ export function TriggerPointsMap({
       />
     </div>
   )
-} 
+}

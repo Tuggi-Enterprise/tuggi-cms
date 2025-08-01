@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { TriggerPointsMap } from './TriggerPointsMap'
 import { DirectionSelector } from './DirectionSelector'
+import { BearingSelector } from './BearingSelector'
 import { cn } from '@/lib/utils'
 import { 
   TriggerPoint, 
@@ -582,27 +583,15 @@ export function TriggerPointsManager({
                 </div>
               </div>
 
-              {/* Bearing */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Expected Bearing (degrees, optional)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="360"
-                  value={formData.expected_bearing || ''}
-                  onChange={(e) => setFormData(prev => ({ 
-                    ...prev, 
-                    expected_bearing: e.target.value ? parseFloat(e.target.value) : null 
-                  }))}
-                  placeholder="Leave empty for omnidirectional"
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                />
-              </div>
+              {/* Bearing Selector */}
+              <BearingSelector
+                value={formData.expected_bearing}
+                onChange={(bearing) => setFormData(prev => ({ ...prev, expected_bearing: bearing }))}
+                disabled={isLoading}
+              />
 
               {/* Bearing Threshold */}
-              {formData.expected_bearing !== null && (
+              {/* {formData.expected_bearing !== null && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Bearing Threshold (degrees)
@@ -612,7 +601,7 @@ export function TriggerPointsManager({
                     min="5"
                     max="90"
                     step="5"
-                    value={formData.bearing_threshold || 30}
+                    value={formData.bearing_threshold || 15}
                     onChange={(e) => setFormData(prev => ({ ...prev, bearing_threshold: parseInt(e.target.value) }))}
                     className="w-full"
                   />
@@ -622,10 +611,10 @@ export function TriggerPointsManager({
                     <span>90°</span>
                   </div>
                 </div>
-              )}
+              )} */}
 
               {/* Description */}
-              {availableDescriptions.length > 0 && (
+              {/* {availableDescriptions.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Custom Description (optional)
@@ -646,14 +635,14 @@ export function TriggerPointsManager({
                     ))}
                   </select>
                 </div>
-              )}
+              )} */}
 
-              {/* Direction Selector */}
-              <DirectionSelector 
+              {/* Direction Selector - Hidden */}
+              {/* <DirectionSelector 
                 value={formData.direction || null}
                 onChange={(direction) => setFormData(prev => ({ ...prev, direction }))}
                 disabled={isLoading}
-              />
+              /> */}
 
               {/* Active Status */}
               <div className="flex items-center">
@@ -700,4 +689,4 @@ export function TriggerPointsManager({
       )}
     </div>
   )
-} 
+}

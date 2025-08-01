@@ -72,9 +72,9 @@ function Map({
       center,
       zoom,
       mapTypeControl: true,
-      streetViewControl: false,
-      fullscreenControl: false,
-    })
+      streetViewControl: true,
+      fullscreenControl: true,
+      zoomControl: true,})
 
     mapInstanceRef.current = map
 
@@ -561,4 +561,4 @@ export function calculatePolygonCenter(coordinates: Array<{ lat: number; lng: nu
     lat: totalLat / coordinates.length,
     lng: totalLng / coordinates.length
   }
-} 
+}

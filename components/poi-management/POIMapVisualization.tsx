@@ -176,7 +176,7 @@ function POIMapContent({
       center: initialCenter,
       zoom: initialZoom,
       mapTypeControl: true,
-      streetViewControl: false,
+      streetViewControl: true,
       fullscreenControl: true,
       zoomControl: true,
       mapTypeId: google.maps.MapTypeId.ROADMAP,
@@ -721,4 +721,4 @@ export function POIMapVisualization(props: POIMapVisualizationProps) {
       />
     </div>
   )
-} 
+}
