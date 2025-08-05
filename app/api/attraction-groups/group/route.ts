@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import { withAuth, withRateLimit } from '@/lib/auth-middleware';
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(withRateLimit(30, 60000)(async function(req: NextRequest) {
   try {
     const supabase = createRouteHandlerClient({ cookies });
     const body = await req.json();
@@ -75,4 +76,4 @@ export async function POST(req: NextRequest) {
     console.error('Unexpected error in group API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-} 
+}))

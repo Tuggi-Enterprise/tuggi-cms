@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateAudioWithGoogleTTS } from '@/lib/providers/googleTTS'
 import { supabase } from '@/lib/supabase'
+import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 
 // Text preprocessing function to optimize for TTS narration
 function preprocessTextForTTS(text: string): string {
@@ -50,7 +51,7 @@ function selectOptimalVoice(text: string): string {
   }
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(withRateLimit(20, 60000)(async function(request: NextRequest) {
   try {
     const body = await request.json()
     let { text, attractionId, voice, speed, provider } = body
@@ -175,4 +176,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-} 
+}))

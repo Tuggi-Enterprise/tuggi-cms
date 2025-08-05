@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth(withRateLimit(100, 60000)(async function(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const place_id = searchParams.get('place_id')
   const fields = searchParams.get('fields')
@@ -63,4 +64,4 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-} 
+}))

@@ -25,7 +25,24 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
+.env.local
 .env*.local
+.env.development
+.env.production
+
+# Google Service Account credentials (security)
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!next.config.js
+!tailwind.config.js
+!postcss.config.js
+!.eslintrc.json
+
+# logs
+*.log
 
 # vercel
 .vercel
@@ -41,4 +58,4 @@ next-env.d.ts
 *.swo
 
 # OS
-Thumbs.db 
+Thumbs.db

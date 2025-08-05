@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 
 // Use service role key for database access (bypasses RLS)
 const supabase = createClient(
@@ -7,7 +8,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET! // This is actually the service role key
 )
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth(withRateLimit(10, 60000)(async function(request: NextRequest) {
   try {
     const body = await request.json()
     
@@ -409,4 +410,4 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
-} 
+}))

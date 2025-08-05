@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import { withAuth, withRateLimit } from '@/lib/auth-middleware';
 
 // Helper to calculate distance in meters between two lat/lng points
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -18,7 +19,7 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c;
 }
 
-export async function GET(req: NextRequest) {
+export const GET = withAuth(withRateLimit(100, 60000)(async function(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
   const { searchParams } = new URL(req.url);
   const poiId = searchParams.get('poiId');
@@ -69,9 +70,9 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({ nearby: details });
-}
+}))
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(withRateLimit(50, 60000)(async function(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
   const body = await req.json();
   const { polygon, poiId, radius = 50 } = body;
@@ -168,4 +169,4 @@ export async function POST(req: NextRequest) {
     }
     return NextResponse.json({ nearby: details });
   }
-} 
+}))
