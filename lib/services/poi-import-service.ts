@@ -259,10 +259,10 @@ export class POIImportService {
         return { success: false, error: attractionError.message }
       }
 
-      // Store photo references if available
+      // Store photo reference if available (primary image only)
       if (placeDetails.photos && placeDetails.photos.length > 0) {
         const photoRefs = placeDetails.photos
-          .slice(0, 10) // Limit to 10 photos
+          .slice(0, 1) // Limit to 1 photo (primary image only)
           .map(photo => photo.photo_reference)
         
         await this.storePhotoReferencesOnly(attraction.id, photoRefs)
@@ -315,4 +315,4 @@ export class POIImportService {
       console.error('Error updating import batch progress:', error)
     }
   }
-} 
+}

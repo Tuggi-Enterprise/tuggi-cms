@@ -988,9 +988,9 @@ export default function POIImporterPage() {
         let photoReferences: string[] = []
         
         if (placeData.photos && placeData.photos.length > 0) {
-          // Collect all photo references for storage
-          photoReferences = placeData.photos.map((photo: any) => photo.photo_reference)
-          console.log(`Found ${photoReferences.length} photos for ${placeData.name}`)
+          // Collect only the first photo reference for storage (primary image only)
+          photoReferences = [placeData.photos[0].photo_reference]
+          console.log(`Found ${placeData.photos.length} photos for ${placeData.name}, using only the primary image`)
         }
 
         // Enhanced attraction data with new database fields
@@ -1042,7 +1042,7 @@ export default function POIImporterPage() {
                 // Store images using your existing system (download and store in bucket)
         if (photoReferences.length > 0) {
           try {
-            setImportStatus(`Downloading and storing ${photoReferences.length} images for ${placeData.name}...`)
+            setImportStatus(`Downloading and storing primary image for ${placeData.name}...`)
             
             const { data: { session } } = await supabase.auth.getSession()
             const authToken = session?.access_token
@@ -1119,7 +1119,7 @@ export default function POIImporterPage() {
 
         // Helper function to store photo references only
         async function storePhotoReferencesOnly(attractionId: string, photoRefs: string[]) {
-          const imageReferences = photoRefs.slice(0, 5).map((photoRef, index) => ({
+          const imageReferences = photoRefs.slice(0, 1).map((photoRef, index) => ({
             attraction_id: attractionId,
             storage_path: `pending/${placeData.place_id}/${photoRef}`, // Mark as pending
             photo_reference: photoRef

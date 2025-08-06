@@ -47,7 +47,7 @@ const generateFilename = (googlePlaceId: string, index: number): string => {
 };
 
 // Download image from Google Places API
-const downloadGooglePhoto = async (photoReference: string, maxWidth: string = '800'): Promise<ArrayBuffer> => {
+const downloadGooglePhoto = async (photoReference: string, maxWidth: string = '1600'): Promise<ArrayBuffer> => {
   const cleanRef = cleanPhotoReference(photoReference);
   const googleUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photoreference=${cleanRef}&key=${GOOGLE_API_KEY}`;
   
@@ -196,14 +196,14 @@ serve(async (req) => {
     const storedImages: StoredImage[] = [];
     const errors: string[] = [];
 
-    // Process each photo reference  
-    for (let i = 0; i < photoReferences.length && i < 5; i++) { // Limit to 5 images
+    // Process only the first photo reference (primary image only)
+    for (let i = 0; i < photoReferences.length && i < 1; i++) { // Limit to 1 image
       try {
         const photoRef = photoReferences[i];
         console.log(`[${requestId}] Processing photo ${i + 1}/${photoReferences.length}`);
 
-        // Download image from Google
-        const imageData = await downloadGooglePhoto(photoRef, '800');
+        // Download image from Google in high resolution
+        const imageData = await downloadGooglePhoto(photoRef, '1600');
         
         // Generate filename using your pattern: placeId_timestamp_index.jpg
         const fileName = generateFilename(googlePlaceId, i + 1);
@@ -283,4 +283,4 @@ serve(async (req) => {
       }
     );
   }
-}); 
+});
