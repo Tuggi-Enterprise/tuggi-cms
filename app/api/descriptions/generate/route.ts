@@ -303,17 +303,13 @@ export const POST = async function(request: NextRequest) {
     You are a professional travel‑guide assistant with deep expertise in global history, culture, and tourism.
 
           STRICT RULES
-          - Use only verifiable facts from the sources provided below or other official heritage/tourism sites (e.g., Wikipedia, IPHAN/UNESCO, government portals).
-          - If unsure about a date or detail, OMIT it. Do NOT guess, infer, or invent.
-          - If reliable information is limited, produce a SHORTER description.
-          - Prioritize historical connections, cultural relevance, and notable architectural/artistic elements that LINK these sites.
-          - Write short, clear sentences optimized for text‑to‑speech (pleasant rhythm, no lists).
-          - Avoid subjective superlatives and marketing language.
+          - Use only verifiable facts from the sources provided or other official heritage/tourism sites (e.g., Wikipedia, IPHAN/UNESCO, government portals).
+          - If unsure about a date or detail, omit it. Do NOT guess, infer, or invent.
+          - Always prioritize historical context, original purpose, and major transformations over time, then mention cultural or environmental relevance.
+          - Include 1–3 notable, confirmed facts such as year of construction/foundation, original function, important events, restorations, or environmental/cultural impact.
+          - Keep sentences short and fluid for text-to-speech. Avoid lists or bullet points.
           - Do NOT include neighborhood, city, region, coordinates, street names, directions, opening hours, or prices.
           - OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
-
-          AUTHORITATIVE SOURCES
-          ${sourcesSection}
 
           TASK
           Write a concise (max 300 words), factual, engaging description for a GROUP of nearby attractions in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
@@ -321,54 +317,57 @@ export const POST = async function(request: NextRequest) {
           GROUP OF ATTRACTIONS DATA
           - Names: ${combinedName}
           - Location: ${locationDetails}
-          - Google Types: ${combinedTypes.join(', ')}
-          - Ratings: ${combinedRating}
-          - Place ID: ${google_place_id || 'Not available'}
           - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
-          - Business Info: ${safeBusinessInfo.length > 0 ? safeBusinessInfo.join(', ') : 'Standard tourist attractions'}
+          - AUTHORITATIVE SOURCES: ${sourcesSection}
 
           INSTRUCTIONS
           1) State that these are nearby attractions that can be visited together.
           2) Emphasize what connects them (shared history, style, theme, timeline).
           3) Mention each by name at least once, but keep the narrative unified and fluid.
           4) If data is scarce, keep it brief and strictly factual.
+          5) The text will come immediately after an audio cue such as “À sua frente…”, “À direita…” or “À esquerda…”, so do not include this directional cue in the text.
+          6) Always start with the structure: “[continuação do áudio direcional] [nome do POI], [ano de construção/fundação se confirmado] [fato principal]”.
+          7) Example: “fica a Represa Guarapiranga, formada em 1908 com o represamento do rio Guarapiranga.”
+          8) After the first sentence, add 2–3 short sentences about historical changes, current function, and confirmed cultural or environmental importance.
+          9) If multiple relevant facts exist, weave them naturally into the narrative.
+          10) If reliable information is scarce, keep it brief but factual.
+          - OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
           `
     } else {
       // SINGLE POI PROMPT
       console.log(`🎯 Using SINGLE POI prompt for individual attraction`)
       prompt = `
-    You are a professional travel‑guide assistant with deep expertise in global history, culture, and tourism.
+        You are a professional travel-guide assistant with deep expertise in global history, culture, and tourism.
 
-        STRICT RULES
-        - Use only verifiable facts from the sources provided below or other official heritage/tourism sites (e.g., Wikipedia, IPHAN/UNESCO, government portals).
-        - If unsure about a date or detail, OMIT it. Do NOT guess, infer, or invent.
-        - If reliable information is limited, produce a SHORTER description.
-        - Prioritize historical significance, important dates (fundation, events, etc. ), cultural relevance, and notable architectural/artistic elements.
-        - Write short, clear sentences optimized for text‑to‑speech (pleasant rhythm, no lists).
-        - Avoid subjective superlatives and marketing language.
-        - Do NOT include neighborhood, city, region, coordinates, street names, directions, opening hours, or prices.
-        - OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
+          STRICT RULES
 
-        AUTHORITATIVE SOURCES
-        ${sourcesSection}
+          Use only verifiable facts from the sources provided or other official heritage/tourism sites (e.g., Wikipedia, IPHAN/UNESCO, government portals).
+          If unsure about a date or detail, omit it. Do NOT guess, infer, or invent.
+          Always prioritize historical context, original purpose, and major transformations over time, then mention cultural or environmental relevance.
+          Include 1–3 notable, confirmed facts such as year of construction/foundation, original function, important events, restorations, or environmental/cultural impact.
+          Keep sentences short and fluid for text-to-speech. Avoid lists or bullet points.
+          Do NOT include neighborhood, city, region, coordinates, street names, directions, opening hours, or prices.
+          OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
 
-        TASK
-        Write a concise (max 200 words), factual, engaging description of the attraction in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
+          TASK
+          Write a concise (max 200 words), factual, engaging description of the attraction in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
 
-        ATTRACTION DATA
-        - Name: ${combinedName}
-        - Location: ${locationDetails}
-        - Google Types: ${combinedTypes.join(', ')}
-        - Rating: ${combinedRating}
-        - Place ID: ${google_place_id || 'Not available'}
-        - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
-        - Business Info: ${safeBusinessInfo.length > 0 ? safeBusinessInfo.join(', ') : 'Standard tourist attraction'}
+          ATTRACTION DATA
 
-        INSTRUCTIONS
-        1) Mention the POI name in the first sentence.
-        2) Include year of construction/foundation ONLY if confirmed; otherwise omit.
-        3) Highlight 1–2 key facts (restorations, episodes, curiosities) ONLY if verified.
-        4) If data is scarce, keep it brief and strictly factual.
+          - Name: ${combinedName}
+          - Location: ${locationDetails}
+          - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
+          - Authoritative Sources: ${sourcesSection}
+
+          INSTRUCTIONS
+
+          1 - The text will come immediately after an audio cue such as “À sua frente…”, “À direita…” or “À esquerda…”, so do not include this directional cue in the text.
+          2 - Always start with the structure: “[continuação do áudio direcional] [nome do POI], [ano de construção/fundação se confirmado] [fato principal]”.
+          3 - Example: “fica a Represa Guarapiranga, formada em 1908 com o represamento do rio Guarapiranga.”
+          4 - After the first sentence, add 2–3 short sentences about historical changes, current function, and confirmed cultural or environmental importance.
+          5 - If multiple relevant facts exist, weave them naturally into the narrative.
+          6 - If reliable information is scarce, keep it brief but factual.
+          - OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
         `
     }
 
@@ -422,9 +421,9 @@ export const POST = async function(request: NextRequest) {
               }
             ],
             generationConfig: {
-              temperature: 0.2,
+              temperature: 0.5,
               topK: 40,
-              topP: 0.9,
+              topP: 0.95,
               maxOutputTokens: 320,
             },
           })

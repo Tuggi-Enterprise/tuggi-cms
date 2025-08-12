@@ -124,12 +124,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const fetchAdditionalData = useCallback(async () => {
     setIsLoading(true)
     try {
-      // Fetch descriptions
+      // Fetch descriptions with cache busting
       const { data: descriptionsData } = await supabase
         .schema('core')
         .from('attraction_descriptions')
         .select('*')
         .or(`attraction_id.eq.${poi.id},group_id.in.(${groupInfo?.id || ''})`)
+        .order('updated_at', { ascending: false })
         .order('created_at', { ascending: false })
 
       setDescriptions(descriptionsData || [])
@@ -148,24 +149,47 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       setTranslatedDescriptions(allAudiosAvailable)
       
       // Debug: Log the fetched descriptions
-      console.log('🔍 Fetched descriptions for POI:', poi.id, descriptionsData)
-      console.log('🔍 Portuguese descriptions:', portugueseDescriptions)
-      console.log('🔍 Translations:', translations)
+      console.log('🔍 Fetched descriptions for POI:', poi.id, descriptionsData?.length || 0)
+      descriptionsData?.forEach((desc, index) => {
+        console.log(`  ${index + 1}. ID: ${desc.id}, Language: ${desc.language}, Attraction: ${desc.attraction_id}, Updated: ${desc.updated_at}`)
+      })
+      console.log('🔍 Portuguese descriptions:', portugueseDescriptions?.length || 0)
+      console.log('🔍 Translations:', translations?.length || 0)
       
-      // Prefer group description/audio if available
+      // Prefer group description/audio if available, then most recently updated
       let currentDesc = null
       if (groupInfo && groupInfo.id) {
         currentDesc = portugueseDescriptions?.find(desc => desc.group_id === groupInfo.id)
+        console.log('🔍 Using group description:', currentDesc?.id)
       }
       if (!currentDesc) {
-        // Fallback to individual POI description
-        currentDesc = portugueseDescriptions?.[0] || descriptionsData?.[0]
+        // Fallback to individual POI description - get the most recently updated one
+        const individualDescriptions = portugueseDescriptions?.filter(desc => desc.attraction_id === poi.id) || []
+        console.log('🔍 Found individual descriptions:', individualDescriptions.length)
+        individualDescriptions.forEach((desc, index) => {
+          console.log(`  ${index + 1}. ID: ${desc.id}, Updated: ${desc.updated_at}, Created: ${desc.created_at}`)
+        })
+        
+        if (individualDescriptions.length > 0) {
+          // Sort by updated_at to get the most recent
+          individualDescriptions.sort((a, b) => {
+            const dateA = new Date(a.updated_at || a.created_at)
+            const dateB = new Date(b.updated_at || b.created_at)
+            return dateB.getTime() - dateA.getTime()
+          })
+          currentDesc = individualDescriptions[0]
+          console.log('🔍 Selected most recent individual description:', currentDesc.id)
+        } else {
+          currentDesc = portugueseDescriptions?.[0] || descriptionsData?.[0]
+          console.log('🔍 Using fallback description:', currentDesc?.id)
+        }
       }
       
       console.log('🔍 Selected description:', currentDesc)
       
       if (currentDesc && currentDesc.description) {
-        console.log('✅ Loading description:', currentDesc.description.substring(0, 100) + '...')
+        console.log('✅ Loading description from DB:', currentDesc.description.substring(0, 100) + '...')
+        console.log('🔍 Description ID:', currentDesc.id, 'Updated at:', currentDesc.updated_at)
         setCurrentDescription(currentDesc.description || '')
         setOriginalDescription(currentDesc.description || '')
         setDescriptionStats({
@@ -548,23 +572,55 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         .eq('language', 'pt-br')
         .maybeSingle()
 
+      console.log('🔍 Existing description found:', !!existingDescs)
+      if (existingDescs) {
+        console.log('📝 Existing description:', existingDescs.description?.substring(0, 100) + '...')
+        console.log('📝 Current description:', currentDescription.substring(0, 100) + '...')
+      }
+
       // Check if description has changed
       const descriptionChanged = existingDescs && existingDescs.description !== currentDescription
+      console.log('🔄 Description changed:', descriptionChanged)
       
       if (existingDescs) {
+        console.log('🔄 Updating existing description for POI:', poi.id)
+        console.log('📝 New description:', currentDescription.substring(0, 100) + '...')
+        console.log('🔍 Updating description ID:', existingDescs.id)
+        
         // Update existing Portuguese description
-        const { error } = await supabase
+        const { data: updateResult, error } = await supabase
           .schema('core')
           .from('attraction_descriptions')
           .update({
             description: currentDescription,
             updated_at: new Date().toISOString()
           })
-          .eq('attraction_id', poi.id)
-          .eq('language', 'pt-br')
+          .eq('id', existingDescs.id) // Use the specific ID instead of attraction_id + language
+          .select()
 
-        if (error) throw error
+        if (error) {
+          console.error('❌ Error updating description:', error)
+          throw error
+        }
+        
+        console.log('✅ Description updated successfully:', updateResult)
+        
+        // Verify the update by fetching the record again
+        const { data: verifyData, error: verifyError } = await supabase
+          .schema('core')
+          .from('attraction_descriptions')
+          .select('*')
+          .eq('id', existingDescs.id)
+          .single()
+        
+        if (verifyError) {
+          console.error('❌ Error verifying update:', verifyError)
+        } else {
+          console.log('🔍 Verification - Updated description:', verifyData?.description?.substring(0, 100) + '...')
+        }
       } else {
+        console.log('🆕 Creating new description for POI:', poi.id)
+        console.log('📝 New description:', currentDescription.substring(0, 100) + '...')
         // Create new Portuguese description
         const { error } = await supabase
           .schema('core')
@@ -577,13 +633,29 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
           })
 
         if (error) throw error
+        console.log('✅ New description created successfully')
       }
 
       // Update original description to match current
       setOriginalDescription(currentDescription)
       
-      // Refresh data
-      await fetchAdditionalData()
+      // Update the descriptions array locally to reflect the change
+      setDescriptions(prevDescriptions => {
+        const updatedDescriptions = prevDescriptions.map(desc => {
+          if (desc.attraction_id === poi.id && desc.language === 'pt-br') {
+            return {
+              ...desc,
+              description: currentDescription,
+              updated_at: new Date().toISOString()
+            }
+          }
+          return desc
+        })
+        return updatedDescriptions
+      })
+      
+      // Don't refresh data immediately to avoid cache issues
+      // The description is already saved and the local state is updated
       
       // If description changed and there are existing audios, offer to regenerate
       if (descriptionChanged && (currentAudioUrl || translatedDescriptions.length > 0)) {
