@@ -91,7 +91,7 @@ export default function AnalyticsPage() {
         supabase
           .schema('drive')
           .from('profiles')
-          .select('*', { count: 'exact', head: true }),
+          .select('*'),
 
         // Total trips and avg duration
         supabase
@@ -108,78 +108,294 @@ export default function AnalyticsPage() {
           .select('*', { count: 'exact', head: true })
           .gte('played_at', dateFilter),
 
-        // Trigger points activated (using analytics table)
+        // Trigger points activated (using trigger points table)
         supabase
           .schema('core')
-          .from('attraction_analytics')
+          .from('attraction_trigger_points')
           .select('*', { count: 'exact', head: true })
-          .eq('event_type', 'trigger_activated')
+          .eq('is_active', true)
           .gte('created_at', dateFilter),
 
-        // Most played POIs
-        supabase
-          .schema('drive')
-          .from('trip_session_attractions')
-          .select('attraction_id')
-          .gte('played_at', dateFilter),
+        // Most played POIs - using pagination to avoid 1000 record limit
+        (async () => {
+          interface PlayedData {
+            attraction_id: string;
+          }
+          
+          let allPlayedData: PlayedData[] = [];
+          let hasMore = true;
+          let range = 0;
+          const pageSize = 1000;
 
-        // Most triggered points (using analytics)
-        supabase
-          .schema('core')
-          .from('attraction_analytics')
-          .select('attraction_id')
-          .eq('event_type', 'trigger_activated')
-          .gte('created_at', dateFilter),
+          while (hasMore) {
+            const { data, error } = await supabase
+              .schema('drive')
+              .from('trip_session_attractions')
+              .select('attraction_id')
+              .gte('played_at', dateFilter)
+              .range(range, range + pageSize - 1);
+              
+            if (error) throw error;
+            
+            if (data.length > 0) {
+              allPlayedData = [...allPlayedData, ...data];
+              range += pageSize;
+            }
+            
+            if (data.length < pageSize) {
+              hasMore = false;
+            }
+          }
+          
+          return { data: allPlayedData };
+        })(),
 
-        // User growth over time
-        supabase
-          .schema('drive')
-          .from('profiles')
-          .select('created_at')
-          .gte('created_at', dateFilter)
-          .order('created_at'),
+        // Most triggered points (using analytics) - using pagination to avoid 1000 record limit
+        (async () => {
+          interface TriggeredData {
+            attraction_id: string;
+          }
+          
+          let allTriggeredData: TriggeredData[] = [];
+          let hasMore = true;
+          let range = 0;
+          const pageSize = 1000;
 
-        // Trips by platform
-        supabase
-          .schema('drive')
-          .from('trip_sessions')
-          .select('platform')
-          .gte('start_time', dateFilter)
-          .not('platform', 'is', null),
+          while (hasMore) {
+            const { data, error } = await supabase
+              .schema('core')
+              .from('attraction_trigger_points')
+              .select('attraction_id')
+              .eq('is_active', true)
+              .gte('created_at', dateFilter)
+              .range(range, range + pageSize - 1);
+              
+            if (error) throw error;
+            
+            if (data.length > 0) {
+              allTriggeredData = [...allTriggeredData, ...data];
+              range += pageSize;
+            }
+            
+            if (data.length < pageSize) {
+              hasMore = false;
+            }
+          }
+          
+          return { data: allTriggeredData };
+        })(),
 
-        // Feedback statistics
-        supabase
-          .schema('drive')
-          .from('attraction_feedback')
-          .select('feedback_type')
-          .gte('created_at', dateFilter),
+        // User growth over time - using pagination to avoid 1000 record limit
+        (async () => {
+          interface UserGrowthData {
+            created_at: string;
+          }
+          
+          let allUserGrowthData: UserGrowthData[] = [];
+          let hasMore = true;
+          let range = 0;
+          const pageSize = 1000;
 
-        // Top cities
-        supabase
-          .schema('core')
-          .from('attractions')
-          .select('city')
-          .not('city', 'is', null),
+          while (hasMore) {
+            const { data, error } = await supabase
+              .schema('drive')
+              .from('profiles')
+              .select('created_at')
+              .gte('created_at', dateFilter)
+              .order('created_at')
+              .range(range, range + pageSize - 1);
+              
+            if (error) throw error;
+            
+            if (data.length > 0) {
+              allUserGrowthData = [...allUserGrowthData, ...data];
+              range += pageSize;
+            }
+            
+            if (data.length < pageSize) {
+              hasMore = false;
+            }
+          }
+          
+          return { data: allUserGrowthData };
+        })(),
 
-        // Audio quality ratings
-        supabase
-          .schema('drive')
-          .from('attraction_feedback')
-          .select('audio_quality_rating')
-          .gte('created_at', dateFilter)
-          .not('audio_quality_rating', 'is', null),
+        // Trips by platform - using pagination to avoid 1000 record limit
+        (async () => {
+          interface PlatformData {
+            platform: string;
+          }
+          
+          let allPlatformData: PlatformData[] = [];
+          let hasMore = true;
+          let range = 0;
+          const pageSize = 1000;
 
-        // Trip distances (using analytics)
-        supabase
-          .schema('core')
-          .from('attraction_analytics')
-          .select('distance_km')
-          .gte('created_at', dateFilter)
-          .not('distance_km', 'is', null)
+          while (hasMore) {
+            const { data, error } = await supabase
+              .schema('drive')
+              .from('trip_sessions')
+              .select('platform')
+              .gte('start_time', dateFilter)
+              .not('platform', 'is', null)
+              .range(range, range + pageSize - 1);
+              
+            if (error) throw error;
+            
+            if (data.length > 0) {
+              allPlatformData = [...allPlatformData, ...data];
+              range += pageSize;
+            }
+            
+            if (data.length < pageSize) {
+              hasMore = false;
+            }
+          }
+          
+          return { data: allPlatformData };
+        })(),
+
+        // Feedback statistics - using pagination to avoid 1000 record limit
+        (async () => {
+          interface FeedbackData {
+            feedback_type: string;
+          }
+          
+          let allFeedbackData: FeedbackData[] = [];
+          let hasMore = true;
+          let range = 0;
+          const pageSize = 1000;
+
+          while (hasMore) {
+            const { data, error } = await supabase
+              .schema('drive')
+              .from('attraction_feedback')
+              .select('feedback_type')
+              .gte('created_at', dateFilter)
+              .range(range, range + pageSize - 1);
+              
+            if (error) throw error;
+            
+            if (data.length > 0) {
+              allFeedbackData = [...allFeedbackData, ...data];
+              range += pageSize;
+            }
+            
+            if (data.length < pageSize) {
+              hasMore = false;
+            }
+          }
+          
+          return { data: allFeedbackData };
+        })(),
+
+        // Top cities - using pagination to avoid 1000 record limit
+        (async () => {
+          interface CityData {
+            city: string;
+          }
+          
+          let allCitiesData: CityData[] = [];
+          let hasMore = true;
+          let range = 0;
+          const pageSize = 1000;
+
+          while (hasMore) {
+            const { data, error } = await supabase
+              .schema('core')
+              .from('attractions')
+              .select('city')
+              .not('city', 'is', null)
+              .range(range, range + pageSize - 1);
+              
+            if (error) throw error;
+            
+            if (data.length > 0) {
+              allCitiesData = [...allCitiesData, ...data];
+              range += pageSize;
+            }
+            
+            if (data.length < pageSize) {
+              hasMore = false;
+            }
+          }
+          
+          return { data: allCitiesData };
+        })(),
+
+        // Audio quality ratings - using pagination to avoid 1000 record limit
+        (async () => {
+          interface AudioData {
+            audio_quality_rating: number;
+          }
+          
+          let allAudioData: AudioData[] = [];
+          let hasMore = true;
+          let range = 0;
+          const pageSize = 1000;
+
+          while (hasMore) {
+            const { data, error } = await supabase
+              .schema('drive')
+              .from('attraction_feedback')
+              .select('audio_quality_rating')
+              .gte('created_at', dateFilter)
+              .not('audio_quality_rating', 'is', null)
+              .range(range, range + pageSize - 1);
+              
+            if (error) throw error;
+            
+            if (data.length > 0) {
+              allAudioData = [...allAudioData, ...data];
+              range += pageSize;
+            }
+            
+            if (data.length < pageSize) {
+              hasMore = false;
+            }
+          }
+          
+          return { data: allAudioData };
+        })(),
+
+        // Trip distances (using trip_sessions) - using pagination to avoid 1000 record limit
+        (async () => {
+          interface DistanceData {
+            distance_km: number;
+          }
+          
+          let allDistanceData: DistanceData[] = [];
+          let hasMore = true;
+          let range = 0;
+          const pageSize = 1000;
+
+          while (hasMore) {
+            const { data, error } = await supabase
+              .schema('drive')
+              .from('trip_sessions')
+              .select('distance_km')
+              .gte('start_time', dateFilter)
+              .not('distance_km', 'is', null)
+              .range(range, range + pageSize - 1);
+              
+            if (error) throw error;
+            
+            if (data.length > 0) {
+              allDistanceData = [...allDistanceData, ...data];
+              range += pageSize;
+            }
+            
+            if (data.length < pageSize) {
+              hasMore = false;
+            }
+          }
+          
+          return { data: allDistanceData };
+        })()
       ])
 
       // Process results
-      const totalUsers = usersResult.count ?? 0
+      const totalUsers = usersResult.data?.length ?? 0
       const trips = tripsResult.data ?? []
       const totalTrips = trips.length
       const totalPOIsPlayed = poisPlayedResult.count ?? 0
@@ -328,7 +544,7 @@ export default function AnalyticsPage() {
         .map(([feedback_type, count]) => ({ feedback_type, count: count as number }))
         .sort((a, b) => b.count - a.count)
 
-      // Process cities data
+      // Process cities data - now using all cities data from pagination
       const citiesData = citiesResult.data ?? []
       const cityCounts = citiesData.reduce((acc: Record<string, number>, attraction) => {
         if (attraction.city) {

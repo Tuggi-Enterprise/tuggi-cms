@@ -50,8 +50,7 @@ export default function DashboardPage() {
       const [
         totalPOIsResult,
         approvedPOIsResult,
-        totalDescriptionsResult,
-        cityDataResult
+        totalDescriptionsResult
       ] = await Promise.all([
         // Fetch total POIs
         supabase
@@ -70,23 +69,48 @@ export default function DashboardPage() {
         supabase
           .schema('core')
           .from('attraction_descriptions')
-          .select('*', { count: 'exact', head: true }),
-
-        // Fetch city distribution
-        supabase
+          .select('*', { count: 'exact', head: true })
+      ])
+      
+      // Fetch city distribution in chunks to overcome the 1000 item limit
+      let allCityData: any[] = []
+      let hasMore = true
+      let page = 0
+      const pageSize = 1000
+      
+      while (hasMore) {
+        const { data: cityDataChunk, error } = await supabase
           .schema('core')
           .from('attractions')
           .select('city')
           .not('city', 'is', null)
-      ])
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+        
+        if (error) {
+          console.error('Error fetching city data:', error)
+          break
+        }
+        
+        if (cityDataChunk && cityDataChunk.length > 0) {
+          allCityData = [...allCityData, ...cityDataChunk]
+          page++
+        } else {
+          hasMore = false
+        }
+        
+        // Safety check to prevent infinite loops
+        if (page > 10) {
+          hasMore = false
+        }
+      }
 
       // Extract counts with better error handling
       const totalPOIs = totalPOIsResult.count ?? 0
       const approvedPOIs = approvedPOIsResult.count ?? 0
       const totalDescriptions = totalDescriptionsResult.count ?? 0
-      const cityData = cityDataResult.data ?? []
 
-      const cityDistribution = cityData.reduce((acc: Record<string, number>, item) => {
+      // Process all city data collected from pagination
+      const cityDistribution = allCityData.reduce((acc: Record<string, number>, item) => {
         if (item.city) {
           acc[item.city] = (acc[item.city] || 0) + 1
         }
@@ -377,4 +401,4 @@ export default function DashboardPage() {
       </div>
     </div>
   )
-} 
+}
