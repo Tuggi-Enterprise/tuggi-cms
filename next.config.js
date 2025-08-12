@@ -14,6 +14,10 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'tysnkzmljlmmqpbotkxv.supabase.co',
       },
+      {
+        protocol: 'https',
+        hostname: 'maps.googleapis.com',
+      },
     ],
   },
   async headers() {
