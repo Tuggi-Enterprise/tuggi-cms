@@ -20,9 +20,21 @@ export default function LoginPage() {
   // Check if user is already logged in
   useEffect(() => {
     const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
+      console.log('🔍 LOGIN: Checking if user is already logged in...')
+      const { data: { session }, error } = await supabase.auth.getSession()
+      
+      console.log('🔍 LOGIN: Session check result:', {
+        hasSession: !!session,
+        hasError: !!error,
+        error: error?.message,
+        userEmail: session?.user?.email
+      })
+      
       if (session) {
+        console.log('✅ LOGIN: User already logged in, redirecting to dashboard')
         router.push('/dashboard')
+      } else {
+        console.log('❌ LOGIN: No active session found')
       }
     }
     checkUser()
@@ -33,11 +45,21 @@ export default function LoginPage() {
     setIsLoading(true)
     setError('')
 
+    console.log('🚀 LOGIN: Starting login process for:', email.trim())
+
     try {
       // Step 1: Authenticate with Supabase Auth
+      console.log('🔐 LOGIN: Step 1 - Authenticating with Supabase Auth...')
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
+      })
+
+      console.log('🔐 LOGIN: Auth result:', {
+        hasUser: !!authData.user,
+        hasError: !!authError,
+        error: authError?.message,
+        userEmail: authData.user?.email
       })
 
       if (authError) {
@@ -58,6 +80,7 @@ export default function LoginPage() {
       }
 
       // Step 2: Check authorization in cms_users table
+      console.log('👤 LOGIN: Step 2 - Checking CMS user authorization...')
       const { data: cmsUser, error: cmsError } = await supabase
         .schema('core')
         .from('cms_users')
@@ -66,26 +89,41 @@ export default function LoginPage() {
         .eq('is_active', true)
         .single()
 
+      console.log('👤 LOGIN: CMS user check result:', {
+        hasCmsUser: !!cmsUser,
+        hasError: !!cmsError,
+        error: cmsError?.message,
+        role: cmsUser?.role,
+        isActive: cmsUser?.is_active
+      })
+
       if (cmsError) {
+        console.error('❌ LOGIN: CMS user error:', cmsError)
         await supabase.auth.signOut()
         setError(`Database error: ${cmsError.message}`)
         return
       }
 
       if (!cmsUser) {
+        console.error('❌ LOGIN: CMS user not found or inactive')
         await supabase.auth.signOut()
         setError('Access denied. You are not authorized to use this CMS.')
         return
       }
 
       // Step 3: Check role authorization (admin or editor only)
+      console.log('🔑 LOGIN: Step 3 - Checking role authorization...')
       if (!['admin', 'editor'].includes(cmsUser.role)) {
+        console.error('❌ LOGIN: Insufficient privileges:', cmsUser.role)
         await supabase.auth.signOut()
         setError('Access denied. Insufficient privileges.')
         return
       }
 
+      console.log('✅ LOGIN: Role authorization successful:', cmsUser.role)
+
       // Step 4: Update last login timestamp
+      console.log('📝 LOGIN: Step 4 - Updating last login timestamp...')
       const { error: updateError } = await supabase
         .schema('core')
         .from('cms_users')
@@ -93,10 +131,13 @@ export default function LoginPage() {
         .eq('email', authData.user.email)
 
       if (updateError) {
-        console.warn('Failed to update last_login_at:', updateError)
+        console.warn('⚠️ LOGIN: Failed to update last_login_at:', updateError)
+      } else {
+        console.log('✅ LOGIN: Last login timestamp updated successfully')
       }
 
       // Step 5: Redirect to dashboard
+      console.log('🚀 LOGIN: Step 5 - Redirecting to dashboard...')
       router.push('/dashboard')
 
     } catch (err) {

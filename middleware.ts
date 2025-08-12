@@ -6,9 +6,17 @@ export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
   const supabase = createMiddlewareClient({ req, res })
 
+  console.log('🔍 MIDDLEWARE: Processing request for:', req.nextUrl.pathname)
+
   const {
     data: { session },
   } = await supabase.auth.getSession()
+
+  console.log('🔍 MIDDLEWARE: Session check:', {
+    hasSession: !!session,
+    userEmail: session?.user?.email,
+    path: req.nextUrl.pathname
+  })
 
   // Allow access to debug page, login, and unauthorized pages
   const allowedPaths = ['/login', '/debug', '/unauthorized']

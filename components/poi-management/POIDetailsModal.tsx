@@ -392,8 +392,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
 
   // Description management functions
   const generateDescription = async () => {
+    console.log('🚀 POI MODAL: Starting description generation...')
     setIsGenerating(true)
     try {
+      console.log('📡 POI MODAL: Making request to /api/descriptions/generate')
       const response = await fetch('/api/descriptions/generate', {
         method: 'POST',
         headers: {
@@ -425,11 +427,26 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         })
       })
 
+      console.log('📡 POI MODAL: Response status:', response.status)
+      console.log('📡 POI MODAL: Response ok:', response.ok)
+      console.log('📡 POI MODAL: Response headers:', Object.fromEntries(response.headers.entries()))
+      
       if (!response.ok) {
-        throw new Error('Failed to generate description')
+        let errorData
+        try {
+          const responseText = await response.text()
+          console.log('📡 POI MODAL: Response text:', responseText)
+          errorData = responseText ? JSON.parse(responseText) : { error: 'Empty response' }
+        } catch (parseError) {
+          console.error('❌ POI MODAL: Failed to parse error response:', parseError)
+          errorData = { error: 'Invalid response format' }
+        }
+        console.error('❌ POI MODAL: Response error:', errorData)
+        throw new Error(`Failed to generate description: ${errorData.error || 'Unknown error'}`)
       }
 
       const data = await response.json()
+      console.log('✅ POI MODAL: Description generated successfully:', data)
       setCurrentDescription(data.description)
     } catch (error) {
       console.error('Error generating description:', error)

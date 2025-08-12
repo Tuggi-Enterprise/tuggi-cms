@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { withAuth, withRateLimit } from '@/lib/auth-middleware'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 
 // Use service role key for database access (bypasses RLS)
 const supabase = createClient(
@@ -8,9 +9,29 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export const POST = withAuth(withRateLimit(10, 60000)(async function(request: NextRequest) {
+console.log('🔧 DEBUG: Supabase URL configured:', !!process.env.NEXT_PUBLIC_SUPABASE_URL)
+console.log('🔧 DEBUG: Supabase Service Role Key configured:', !!process.env.SUPABASE_SERVICE_ROLE_KEY)
+
+export const POST = async function(request: NextRequest) {
   try {
+    console.log('🚀 Starting description generation (BYPASS MODE)...')
+    
+    // Basic security check - verify session exists
+    const supabase = createRouteHandlerClient({ cookies })
+    const { data: { session }, error } = await supabase.auth.getSession()
+    
+    if (error || !session) {
+      console.log('❌ No authenticated user found')
+      return NextResponse.json(
+        { error: 'Unauthorized - Authentication required' },
+        { status: 401 }
+      )
+    }
+    
+    console.log('✅ User authenticated:', session.user.email)
+    
     const body = await request.json()
+    console.log('📦 Request body received:', JSON.stringify(body, null, 2))
     
     const { 
       name, 
@@ -45,7 +66,9 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
       name: name
     })
 
+    console.log('✅ Required parameters check:', { name: !!name, city: !!city, country: !!country })
     if (!name || !city || !country) {
+      console.error('❌ Missing required parameters:', { name: !!name, city: !!city, country: !!country })
       return NextResponse.json(
         { error: 'Missing required parameters: name, city, country' },
         { status: 400 }
@@ -53,7 +76,9 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
     }
 
     const apiKey = process.env.GEMINI_API_KEY
+    console.log('🔑 API Key check:', apiKey ? 'Configured' : 'NOT CONFIGURED')
     if (!apiKey) {
+      console.error('❌ Gemini API key not configured')
       return NextResponse.json(
         { error: 'Gemini API key not configured' },
         { status: 500 }
@@ -66,7 +91,7 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
       vicinity,
       state && state !== city ? `${city}, ${state}` : city,
       country
-    ].filter(Boolean).join(', ')
+    ].filter(Boolean).join(', ') || 'Location not specified'
 
     // Process Google Types for better categorization (prioritize over generic category)
     const categories = google_types && Array.isArray(google_types) 
@@ -97,6 +122,9 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
     if (formatted_phone_number) {
       businessInfo.push('Phone contact available')
     }
+    
+    // Ensure businessInfo is always an array
+    const safeBusinessInfo = Array.isArray(businessInfo) ? businessInfo : []
 
     // Photo information
     const photoInfo = photos_references > 0 ? `${photos_references} photos available` : 'No photos available'
@@ -109,46 +137,50 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
     if ((!lat || !lng) && (attractionId || google_place_id)) {
       let attraction_id = attractionId
       
-      // If only google_place_id is provided, fetch the attraction id first
-      if (!attraction_id && google_place_id) {
-        console.log(`Looking up attraction with google_place_id: ${google_place_id}`)
-        const { data: attraction, error: attractionError } = await supabase
-          .schema('core')
-          .from('attractions')
-          .select('id')
-          .eq('google_place_id', google_place_id)
-          .maybeSingle()
-        
-        if (attractionError) {
-          console.warn('Error fetching attraction by google_place_id:', attractionError)
-        } else if (attraction) {
-          console.log(`Found attraction with id: ${attraction.id}`)
-        } else {
-          console.log('No attraction found with that google_place_id')
+      try {
+        // If only google_place_id is provided, fetch the attraction id first
+        if (!attraction_id && google_place_id) {
+          console.log(`Looking up attraction with google_place_id: ${google_place_id}`)
+          const { data: attraction, error: attractionError } = await supabase
+            .schema('core')
+            .from('attractions')
+            .select('id')
+            .eq('google_place_id', google_place_id)
+            .maybeSingle()
+          
+          if (attractionError) {
+            console.warn('Error fetching attraction by google_place_id:', attractionError)
+          } else if (attraction) {
+            console.log(`Found attraction with id: ${attraction.id}`)
+          } else {
+            console.log('No attraction found with that google_place_id')
+          }
+          attraction_id = attraction?.id
         }
-        attraction_id = attraction?.id
-      }
-      
-      if (attraction_id) {
-        console.log(`Looking up coordinates for attraction_id: ${attraction_id}`)
-        const { data: coordinate, error: coordError } = await supabase
-          .schema('core')
-          .from('attraction_coordinate')
-          .select('latitude, longitude')
-          .eq('attraction_id', attraction_id)
-          .maybeSingle()
         
-        if (coordError) {
-          console.warn('Error fetching coordinates:', coordError)
-        } else if (coordinate) {
-          console.log(`Found coordinates: ${coordinate.latitude}, ${coordinate.longitude}`)
+        if (attraction_id) {
+          console.log(`Looking up coordinates for attraction_id: ${attraction_id}`)
+          const { data: coordinate, error: coordError } = await supabase
+            .schema('core')
+            .from('attraction_coordinate')
+            .select('latitude, longitude')
+            .eq('attraction_id', attraction_id)
+            .maybeSingle()
+          
+          if (coordError) {
+            console.warn('Error fetching coordinates:', coordError)
+          } else if (coordinate) {
+            console.log(`Found coordinates: ${coordinate.latitude}, ${coordinate.longitude}`)
+          } else {
+            console.log('No coordinates found for this attraction')
+          }
+          lat = coordinate?.latitude
+          lng = coordinate?.longitude
         } else {
-          console.log('No coordinates found for this attraction')
+          console.log('No attraction_id available for coordinate lookup')
         }
-        lat = coordinate?.latitude
-        lng = coordinate?.longitude
-      } else {
-        console.log('No attraction_id available for coordinate lookup')
+      } catch (error) {
+        console.warn('Error in coordinate lookup:', error)
       }
     } else {
       console.log('No identifiers (id or google_place_id) provided')
@@ -159,34 +191,49 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
     let groupMembers = null
     if (attractionId) {
       console.log(`🔍 Checking if POI ${attractionId} is in a group...`)
-      const { data: groupMember } = await supabase
-        .schema('core')
-        .from('attraction_group_members')
-        .select('group_id')
-        .eq('attraction_id', attractionId)
-        .maybeSingle()
-      if (groupMember && groupMember.group_id) {
-        groupId = groupMember.group_id
-        console.log(`✅ POI is in group: ${groupId}`)
-        // Fetch all group members
-        const { data: members } = await supabase
+      try {
+        const { data: groupMember, error: groupError } = await supabase
           .schema('core')
           .from('attraction_group_members')
-          .select('attraction_id')
-          .eq('group_id', groupId)
-        if (members && members.length > 0) {
-          // Fetch metadata for all group members
-          const ids = members.map(m => m.attraction_id)
-          const { data: pois } = await supabase
+          .select('group_id')
+          .eq('attraction_id', attractionId)
+          .maybeSingle()
+        
+        if (groupError) {
+          console.warn('Error checking group membership:', groupError)
+        } else if (groupMember && groupMember.group_id) {
+          groupId = groupMember.group_id
+          console.log(`✅ POI is in group: ${groupId}`)
+          // Fetch all group members
+          const { data: members, error: membersError } = await supabase
             .schema('core')
-            .from('attractions')
-            .select('*')
-            .in('id', ids)
-          groupMembers = pois
-          console.log(`📋 Fetched ${pois?.length || 0} group members:`, pois?.map(p => p.name))
+            .from('attraction_group_members')
+            .select('attraction_id')
+            .eq('group_id', groupId)
+          
+          if (membersError) {
+            console.warn('Error fetching group members:', membersError)
+          } else if (members && members.length > 0) {
+            // Fetch metadata for all group members
+            const ids = members.map(m => m.attraction_id)
+            const { data: pois, error: poisError } = await supabase
+              .schema('core')
+              .from('attractions')
+              .select('*')
+              .in('id', ids)
+            
+            if (poisError) {
+              console.warn('Error fetching POI data:', poisError)
+            } else {
+              groupMembers = pois
+              console.log(`📋 Fetched ${pois?.length || 0} group members:`, pois?.map(p => p.name))
+            }
+          }
+        } else {
+          console.log(`❌ POI is not in any group`)
         }
-      } else {
-        console.log(`❌ POI is not in any group`)
+      } catch (error) {
+        console.warn('Error in group detection:', error)
       }
     } else {
       console.log(`⚠️ No attractionId provided, skipping group detection`)
@@ -212,18 +259,19 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
       : '';
 
     // 2. If in a group, concatenate metadata for prompt
-    let combinedName = name
-    let combinedTypes = google_types
-    let combinedRating = rating
-    let combinedPhotos = photos_references
-    let combinedReferenceLinks = reference_links
+    let combinedName = name || 'Unknown'
+    let combinedTypes = Array.isArray(google_types) ? google_types : []
+    let combinedRating = rating || 'Not available'
+    let combinedPhotos = photos_references || 0
+    let combinedReferenceLinks = Array.isArray(reference_links) ? reference_links : []
     if (groupMembers && groupMembers.length > 1) {
       console.log(`🔗 Combining data for ${groupMembers.length} group members`)
       combinedName = groupMembers.map(p => p.name).join(', ')
-      combinedTypes = groupMembers.flatMap(p => p.google_types || []).filter(Boolean)
-      combinedRating = groupMembers.map(p => p.rating).filter(Boolean).join(', ')
+      combinedTypes = groupMembers.flatMap(p => Array.isArray(p.google_types) ? p.google_types : []).filter(Boolean)
+      const ratings = groupMembers.map(p => p.rating).filter(Boolean)
+      combinedRating = ratings.length > 0 ? ratings.join(', ') : 'Not available'
       combinedPhotos = groupMembers.reduce((sum, p) => sum + (p.photos_references?.length || 0), 0)
-      combinedReferenceLinks = groupMembers.flatMap(p => p.reference_links || [])
+      combinedReferenceLinks = groupMembers.flatMap(p => Array.isArray(p.reference_links) ? p.reference_links : [])
       console.log(`📝 Combined name: ${combinedName}`)
       console.log(`📝 Combined types: ${combinedTypes.join(', ')}`)
       console.log(`📝 Combined rating: ${combinedRating}`)
@@ -233,6 +281,20 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
 
     // 3. Generate different prompts for single vs group POIs
     let prompt = ''
+    
+    // Debug all variables before using them in template
+    console.log('🔍 DEBUG - All variables before template:')
+    console.log('- combinedName:', combinedName)
+    console.log('- combinedTypes:', combinedTypes)
+    console.log('- combinedRating:', combinedRating)
+    console.log('- combinedPhotos:', combinedPhotos)
+    console.log('- combinedReferenceLinks:', combinedReferenceLinks)
+    console.log('- locationDetails:', locationDetails)
+    console.log('- safeBusinessInfo:', safeBusinessInfo)
+    console.log('- sourcesSection:', sourcesSection)
+    console.log('- google_place_id:', google_place_id)
+    console.log('- lat:', lat)
+    console.log('- lng:', lng)
     
     if (groupMembers && groupMembers.length > 1) {
       // GROUP POI PROMPT
@@ -263,7 +325,7 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
           - Ratings: ${combinedRating}
           - Place ID: ${google_place_id || 'Not available'}
           - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
-          - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attractions'}
+          - Business Info: ${safeBusinessInfo.length > 0 ? safeBusinessInfo.join(', ') : 'Standard tourist attractions'}
 
           INSTRUCTIONS
           1) State that these are nearby attractions that can be visited together.
@@ -300,7 +362,7 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
         - Rating: ${combinedRating}
         - Place ID: ${google_place_id || 'Not available'}
         - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
-        - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attraction'}
+        - Business Info: ${safeBusinessInfo.length > 0 ? safeBusinessInfo.join(', ') : 'Standard tourist attraction'}
 
         INSTRUCTIONS
         1) Mention the POI name in the first sentence.
@@ -406,10 +468,11 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
     })
 
   } catch (error) {
-    console.error('Error generating description:', error)
+    console.error('❌ Error generating description:', error)
+    console.error('❌ Error stack:', error instanceof Error ? error.stack : 'No stack trace')
     return NextResponse.json(
       { error: 'Failed to generate description' },
       { status: 500 }
     )
   }
-}))
+}

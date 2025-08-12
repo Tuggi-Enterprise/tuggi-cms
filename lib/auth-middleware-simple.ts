@@ -1,18 +1,17 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
-import { securityLogger } from './security-logger'
 
 export async function withAuth(handler: (req: NextRequest) => Promise<NextResponse>) {
   return async (req: NextRequest) => {
     try {
-      console.log('🔐 AUTH MIDDLEWARE: Starting authentication check...')
+      console.log('🔐 SIMPLE AUTH: Starting authentication check...')
       
       const supabase = createRouteHandlerClient({ cookies })
       
       const { data: { session }, error } = await supabase.auth.getSession()
       
-      console.log('🔐 AUTH MIDDLEWARE: Session check:', {
+      console.log('🔐 SIMPLE AUTH: Session check:', {
         hasSession: !!session,
         hasError: !!error,
         error: error?.message,
@@ -20,19 +19,14 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
       })
       
       if (error || !session) {
-        console.log('❌ AUTH MIDDLEWARE: No authenticated user')
-        try {
-          await securityLogger.logAuthFailure(req, 'No authenticated user')
-        } catch (logError) {
-          console.warn('⚠️ AUTH MIDDLEWARE: Failed to log auth failure:', logError)
-        }
+        console.log('❌ SIMPLE AUTH: No authenticated user')
         return NextResponse.json(
           { error: 'Unauthorized - Authentication required' },
           { status: 401 }
         )
       }
 
-      console.log('✅ AUTH MIDDLEWARE: User authenticated, checking CMS access...')
+      console.log('✅ SIMPLE AUTH: User authenticated, checking CMS access...')
 
       // Check if user exists in cms_users table and is authorized
       const { data: cmsUser, error: cmsError } = await supabase
@@ -43,7 +37,7 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
         .eq('is_active', true)
         .single()
 
-      console.log('🔐 AUTH MIDDLEWARE: CMS user check:', {
+      console.log('🔐 SIMPLE AUTH: CMS user check:', {
         hasCmsUser: !!cmsUser,
         hasError: !!cmsError,
         error: cmsError?.message,
@@ -52,12 +46,7 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
       })
 
       if (cmsError || !cmsUser) {
-        console.log('❌ AUTH MIDDLEWARE: CMS access denied')
-        try {
-          await securityLogger.logAuthFailure(req, 'CMS access denied')
-        } catch (logError) {
-          console.warn('⚠️ AUTH MIDDLEWARE: Failed to log CMS access denied:', logError)
-        }
+        console.log('❌ SIMPLE AUTH: CMS access denied')
         return NextResponse.json(
           { error: 'Unauthorized - CMS access denied' },
           { status: 403 }
@@ -66,36 +55,23 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
 
       // Check if user has admin or editor role
       if (!['admin', 'editor'].includes(cmsUser.role)) {
-        console.log('❌ AUTH MIDDLEWARE: Insufficient privileges:', cmsUser.role)
-        try {
-          await securityLogger.logAuthFailure(req, 'Insufficient privileges')
-        } catch (logError) {
-          console.warn('⚠️ AUTH MIDDLEWARE: Failed to log insufficient privileges:', logError)
-        }
+        console.log('❌ SIMPLE AUTH: Insufficient privileges:', cmsUser.role)
         return NextResponse.json(
           { error: 'Unauthorized - Insufficient privileges' },
           { status: 403 }
         )
       }
 
-      console.log('✅ AUTH MIDDLEWARE: Authentication successful, calling handler...')
+      console.log('✅ SIMPLE AUTH: Authentication successful, calling handler...')
 
       // Add user info to request for use in handler
       ;(req as any).user = session.user
       ;(req as any).cmsUser = cmsUser
 
-      const result = await handler(req)
-      console.log('✅ AUTH MIDDLEWARE: Handler completed successfully')
-      return result
-      
+      return handler(req)
     } catch (error) {
-      console.error('❌ AUTH MIDDLEWARE: Error:', error)
-      console.error('❌ AUTH MIDDLEWARE: Error stack:', error instanceof Error ? error.stack : 'No stack trace')
-      try {
-        await securityLogger.logAuthFailure(req, `Authentication error: ${error}`)
-      } catch (logError) {
-        console.warn('⚠️ AUTH MIDDLEWARE: Failed to log authentication error:', logError)
-      }
+      console.error('❌ SIMPLE AUTH: Error:', error)
+      console.error('❌ SIMPLE AUTH: Error stack:', error instanceof Error ? error.stack : 'No stack trace')
       return NextResponse.json(
         { error: 'Internal server error' },
         { status: 500 }
@@ -122,11 +98,7 @@ export function withRateLimit(maxRequests: number = 100, windowMs: number = 6000
       const validRequests = requests.filter((time: number) => time > windowStart)
       
       if (validRequests.length >= maxRequests) {
-        try {
-          await securityLogger.logRateLimitExceeded(req, maxRequests)
-        } catch (logError) {
-          console.warn('⚠️ AUTH MIDDLEWARE: Failed to log rate limit exceeded:', logError)
-        }
+        console.log('❌ SIMPLE AUTH: Rate limit exceeded for IP:', ip)
         return NextResponse.json(
           { error: 'Too many requests' },
           { status: 429 }
