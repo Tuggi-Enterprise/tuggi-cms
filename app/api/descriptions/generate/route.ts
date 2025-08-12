@@ -316,7 +316,7 @@ export const POST = async function(request: NextRequest) {
           ${sourcesSection}
 
           TASK
-          Write a concise (max 150 words), factual, engaging description for a GROUP of nearby attractions in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
+          Write a concise (max 300 words), factual, engaging description for a GROUP of nearby attractions in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
 
           GROUP OF ATTRACTIONS DATA
           - Names: ${combinedName}
@@ -353,7 +353,7 @@ export const POST = async function(request: NextRequest) {
         ${sourcesSection}
 
         TASK
-        Write a concise (max 80 words), factual, engaging description of the attraction in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
+        Write a concise (max 200 words), factual, engaging description of the attraction in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
 
         ATTRACTION DATA
         - Name: ${combinedName}
