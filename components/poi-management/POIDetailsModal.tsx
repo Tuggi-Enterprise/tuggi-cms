@@ -237,19 +237,35 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   }, [poi.id, groupInfo?.id, supabase])
 
   const fetchNearbyPOIs = useCallback(async () => {
+    console.log('🔍 MODAL: fetchNearbyPOIs called');
     // Only fetch nearby POIs when a polygon is drawn
     // The initial load will be empty until user draws a polygon
     setNearbyPOIs([])
+    console.log('🔍 MODAL: Set nearbyPOIs to empty array');
   }, [])
 
   const fetchGroupInfo = useCallback(async () => {
+    console.log('🔍 MODAL: fetchGroupInfo called for POI:', poi.id);
     setGroupLoading(true)
     try {
       const res = await fetch(`/api/attraction-groups/of-poi?poiId=${poi.id}`)
       const data = await res.json()
+      
+      console.log('🔍 MODAL: API response:', data);
+      
       setGroupInfo(data.group)
       setGroupName(data.group?.name || poi.name) // Use main POI name as default
-      setSelectedPOIs(data.members || [poi.id])
+      
+      // Always include the main POI in selectedPOIs, plus any existing group members
+      const members = data.members || []
+      const selectedPOIsList = members.includes(poi.id) ? members : [poi.id, ...members]
+      
+      console.log('🔍 MODAL: Setting selectedPOIs to:', selectedPOIsList);
+      setSelectedPOIs(selectedPOIsList)
+    } catch (error) {
+      console.error('❌ MODAL: Error in fetchGroupInfo:', error);
+      // Fallback: at least include the main POI
+      setSelectedPOIs([poi.id])
     } finally {
       setGroupLoading(false)
     }
@@ -271,32 +287,75 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     }
   }, [isOpen, poi.id, poi.coordinates, fetchNearbyPOIs, fetchGroupInfo])
 
+  // Debug effect for Group POIs tab
+  useEffect(() => {
+    if (activeTab === 'group-pois') {
+      console.log('🔍 MODAL: Group POIs tab active');
+      console.log('🔍 MODAL: POI coordinates:', poi.coordinates);
+      console.log('🔍 MODAL: Current state:', { 
+        nearbyPOIs: nearbyPOIs.length, 
+        selectedPOIs, 
+        groupInfo,
+        groupName 
+      });
+    }
+  }, [activeTab, poi.coordinates, nearbyPOIs, selectedPOIs, groupInfo, groupName])
+
   const handleTogglePOI = (id: string) => {
-    setSelectedPOIs(prev => prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id])
+    console.log('🔍 MODAL: handleTogglePOI called with id:', id);
+    console.log('🔍 MODAL: Current selectedPOIs:', selectedPOIs);
+    
+    setSelectedPOIs(prev => {
+      const newSelection = prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]
+      console.log('🔍 MODAL: New selectedPOIs:', newSelection);
+      return newSelection
+    })
   }
 
   const handleSaveGroup = async () => {
+    console.log('🔍 MODAL: handleSaveGroup called');
+    console.log('🔍 MODAL: Current state:', { groupInfo, groupName, selectedPOIs, poiId: poi.id });
+    
     setGroupLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
+      console.log('🔍 MODAL: Current user:', user?.id);
+      
       // Always include the main POI in the group
       const poiIds = [poi.id, ...selectedPOIs.filter(id => id !== poi.id)]
+      console.log('🔍 MODAL: POI IDs to save:', poiIds);
+      
+      const requestBody = {
+        groupId: groupInfo?.id,
+        name: groupName || poi.name,
+        poiIds: poiIds,
+        userId: user?.id
+      }
+      console.log('🔍 MODAL: Request body:', requestBody);
+      
       const res = await fetch('/api/attraction-groups/group', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          groupId: groupInfo?.id,
-          name: groupName || poi.name,
-          poiIds: poiIds,
-          userId: user?.id
-        })
+        body: JSON.stringify(requestBody)
       })
-      if (!res.ok) throw new Error('Failed to save group')
+      
+      console.log('🔍 MODAL: API response status:', res.status);
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('❌ MODAL: API error response:', errorText);
+        throw new Error(`Failed to save group: ${errorText}`)
+      }
+      
+      const responseData = await res.json();
+      console.log('🔍 MODAL: API response data:', responseData);
+      
       await fetchGroupInfo()
       await onUpdate()
       alert('Group saved!')
     } catch (e) {
-      alert('Failed to save group')
+      console.error('❌ MODAL: Error in handleSaveGroup:', e);
+      alert(`Failed to save group: ${e instanceof Error ? e.message : 'Unknown error'}`)
     } finally {
       setGroupLoading(false)
     }
@@ -905,21 +964,42 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   }
 
   const handlePolygonComplete = (polygon: any) => {
+    console.log('🔍 MODAL: handlePolygonComplete called with polygon:', polygon);
     const coords = extractPolygonCoordinates(polygon)
+    console.log('🔍 MODAL: Extracted coordinates:', coords);
     setDrawnPolygon(coords)
     fetchNearbyPOIsWithPolygon(coords)
   }
 
   const fetchNearbyPOIsWithPolygon = async (polygonCoords: Array<{ lat: number; lng: number }>) => {
+    console.log('🔍 MODAL: fetchNearbyPOIsWithPolygon called with coords:', polygonCoords);
     setGroupLoading(true)
     try {
+      // Use the correct port (3001) instead of 3000
       const res = await fetch('/api/attraction-groups/nearby', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ polygon: polygonCoords })
       })
+      
+      console.log('🔍 MODAL: Nearby API response status:', res.status);
+      console.log('🔍 MODAL: Nearby API response headers:', Object.fromEntries(res.headers.entries()));
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('❌ MODAL: API error response:', errorText);
+        throw new Error(`API error ${res.status}: ${errorText}`);
+      }
+      
       const data = await res.json()
+      console.log('🔍 MODAL: Nearby API response data:', data);
+      
       setNearbyPOIs(data.nearby || [])
+      console.log('🔍 MODAL: Set nearbyPOIs to:', data.nearby?.length || 0, 'POIs');
+    } catch (error) {
+      console.error('❌ MODAL: Error in fetchNearbyPOIsWithPolygon:', error);
+      // Show user-friendly error message
+      alert(`Erro ao buscar POIs próximos: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     } finally {
       setGroupLoading(false)
     }
@@ -2361,13 +2441,28 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                         </p>
                         <div className="space-y-1">
                           {selectedPOIs.map(id => {
-                            const p = nearbyPOIs.find((poi: any) => poi.id === id)
+                            // First check if it's the main POI
+                            if (id === poi.id) {
+                              return (
+                                <div key={id} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                                  <Users className="h-3 w-3" />
+                                  {poi.name} (Main)
+                                </div>
+                              )
+                            }
+                            // Then check if it's in nearbyPOIs
+                            const p = nearbyPOIs.find((nearbyPoi: any) => nearbyPoi.id === id)
                             return p ? (
                               <div key={id} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                                 <Users className="h-3 w-3" />
                                 {p.name}
                               </div>
-                            ) : null
+                            ) : (
+                              <div key={id} className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-500">
+                                <Users className="h-3 w-3" />
+                                POI {id.substring(0, 8)}... (Loading...)
+                              </div>
+                            )
                           })}
                         </div>
                       </div>

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
-import { withAuth, withRateLimit } from '@/lib/auth-middleware';
+// import { withAuth, withRateLimit } from '@/lib/auth-middleware';
 
-export const POST = withAuth(withRateLimit(30, 60000)(async function(req: NextRequest) {
+export const POST = async function(req: NextRequest) {
+  console.log('🔍 API: /api/attraction-groups/group POST called (no auth)');
+  
   try {
     const supabase = createRouteHandlerClient({ cookies });
     const body = await req.json();
@@ -76,4 +78,4 @@ export const POST = withAuth(withRateLimit(30, 60000)(async function(req: NextRe
     console.error('Unexpected error in group API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-}))
+}
