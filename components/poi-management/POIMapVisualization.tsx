@@ -36,6 +36,7 @@ interface POI {
   google_types: string[] | null
   photos_references: string[] | null
   google_place_id: string | null
+  user_id: string | null
   coordinates?: {
     latitude: number
     longitude: number

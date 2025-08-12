@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, Plus, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -34,6 +34,7 @@ export interface POI {
   google_types: string[] | null
   photos_references: string[] | null
   google_place_id: string | null
+  user_id: string | null
   coordinates?: {
     latitude: number
     longitude: number
@@ -120,22 +121,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     echo: 'pt-BR-Wavenet-E',
   }
 
-  useEffect(() => {
-    if (isOpen) {
-      setEditedPoi(poi)
-      fetchAdditionalData()
-    }
-  }, [poi, isOpen])
-
-  // Fetch nearby POIs and group info on open
-  useEffect(() => {
-    if (isOpen && poi.coordinates) {
-      fetchNearbyPOIs()
-      fetchGroupInfo()
-    }
-  }, [isOpen, poi.id, poi.coordinates])
-
-  const fetchAdditionalData = async () => {
+  const fetchAdditionalData = useCallback(async () => {
     setIsLoading(true)
     try {
       // Fetch descriptions
@@ -248,15 +234,15 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [poi.id, groupInfo?.id, supabase])
 
-  const fetchNearbyPOIs = async () => {
+  const fetchNearbyPOIs = useCallback(async () => {
     // Only fetch nearby POIs when a polygon is drawn
     // The initial load will be empty until user draws a polygon
     setNearbyPOIs([])
-  }
+  }, [])
 
-  const fetchGroupInfo = async () => {
+  const fetchGroupInfo = useCallback(async () => {
     setGroupLoading(true)
     try {
       const res = await fetch(`/api/attraction-groups/of-poi?poiId=${poi.id}`)
@@ -267,7 +253,23 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     } finally {
       setGroupLoading(false)
     }
-  }
+  }, [poi.id, poi.name])
+
+  // useEffect hooks after function declarations
+  useEffect(() => {
+    if (isOpen) {
+      setEditedPoi(poi)
+      fetchAdditionalData()
+    }
+  }, [poi, isOpen, fetchAdditionalData])
+
+  // Fetch nearby POIs and group info on open
+  useEffect(() => {
+    if (isOpen && poi.coordinates) {
+      fetchNearbyPOIs()
+      fetchGroupInfo()
+    }
+  }, [isOpen, poi.id, poi.coordinates, fetchNearbyPOIs, fetchGroupInfo])
 
   const handleTogglePOI = (id: string) => {
     setSelectedPOIs(prev => prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id])
@@ -332,6 +334,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     try {
       const { data: { user } } = await supabase.auth.getUser()
       
+      console.log('🔍 Approving POI:', {
+        poiId: poi.id,
+        poiName: poi.name,
+        currentUserId: user?.id,
+        poiUserId: poi.user_id,
+        isApproved: poi.approved
+      })
+      
       const { error } = await supabase
         .schema('core')
         .from('attractions')
@@ -342,12 +352,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         })
         .eq('id', poi.id)
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Supabase error:', error)
+        throw error
+      }
 
+      console.log('✅ POI approved successfully')
       await onUpdate()
       onClose()
     } catch (error) {
       console.error('Error approving POI:', error)
+      // Show user-friendly error message
+      alert(`Erro ao aprovar POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
     } finally {
       setIsSaving(false)
     }

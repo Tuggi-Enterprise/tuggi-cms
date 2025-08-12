@@ -1,11 +1,11 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { SavedPolygon, PolygonStats } from '@/types/poi-importer'
 import { PolygonService } from '@/lib/services/polygon-service'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 
 export function usePolygonManagement() {
   const supabase = useSupabaseClient()
-  const polygonService = new PolygonService(supabase)
+  const polygonService = useMemo(() => new PolygonService(supabase), [supabase])
 
   // State
   const [polygonName, setPolygonName] = useState('')
