@@ -29,14 +29,14 @@ const navigation = [
     icon: LayoutDashboard,
   },
   {
-    name: 'POI Management',
-    href: '/pois',
-    icon: MapPin,
-  },
-  {
     name: 'POI Fetchind',
     href: '/poi-importer',
     icon: Upload,
+  },
+  {
+    name: 'POI Management',
+    href: '/pois',
+    icon: MapPin,
   },
   {
     name: 'Region Editor',

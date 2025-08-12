@@ -1138,7 +1138,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                               <img
                                 src={poi.image_url}
                                 alt={poi.name}
-                                className="w-full h-full object-cover rounded-md border border-gray-200 dark:border-gray-700"
+                                className="w-full h-full object-cover rounded-md border border-gray-200 dark:border-gray-700 max-h-[300px]"
+                                loading="eager"
                               />
                             )}
                             {images.slice(0, 0).map((image, index) => (

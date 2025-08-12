@@ -788,13 +788,15 @@ function POIListWithSearchParams() {
                         className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue mt-1 flex-shrink-0"
                       />
                       {poi.image_url && (
-                        <div className="relative h-12 w-12 rounded-lg overflow-hidden flex-shrink-0">
+                        <div className="relative h-16 w-16 rounded-lg overflow-hidden flex-shrink-0">
                           <Image
                             src={poi.image_url}
                             alt={poi.name}
                             fill
                             className="object-cover"
-                            sizes="48px"
+                            sizes="64px"
+                            quality={85}
+                            priority={true}
                           />
                         </div>
                       )}

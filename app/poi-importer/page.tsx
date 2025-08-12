@@ -504,7 +504,7 @@ export default function POIImporterPage() {
             isSelected: false,
             alreadyExists: !!fallbackAttraction,
             thumbnail: place.photos?.[0]?.photo_reference 
-              ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=100&photo_reference=${place.photos[0].photo_reference}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
+              ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=300&photo_reference=${place.photos[0].photo_reference}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
               : undefined
           })
         } else {
@@ -517,7 +517,7 @@ export default function POIImporterPage() {
             isSelected: false,
             alreadyExists: !!isExisting,
             thumbnail: place.photos?.[0]?.photo_reference 
-              ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=100&photo_reference=${place.photos[0].photo_reference}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
+              ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=300&photo_reference=${place.photos[0].photo_reference}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
               : undefined
           })
         }
@@ -529,7 +529,7 @@ export default function POIImporterPage() {
           isSelected: false,
           alreadyExists: false,
           thumbnail: place.photos?.[0]?.photo_reference 
-            ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=100&photo_reference=${place.photos[0].photo_reference}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
+            ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=300&photo_reference=${place.photos[0].photo_reference}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
             : undefined
         })
       }
@@ -1669,6 +1669,8 @@ export default function POIImporterPage() {
                           fill
                           className="object-cover"
                           sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                          quality={85}
+                          priority={true}
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
@@ -1781,7 +1783,7 @@ export default function POIImporterPage() {
                                              {/* Analysis Indicators - Ultra Compact */}
                        <div className="mb-2">
                          <div className="flex flex-wrap gap-0.5">
-                           {place.rating && place.rating >= 4.0 && (
+                           {/* {place.rating && place.rating >= 4.0 && (
                              <span className="text-xs bg-green-100 text-green-700 px-1 py-0.5 rounded">⭐</span>
                            )}
                            {place.user_ratings_total && place.user_ratings_total >= 100 && (
@@ -1804,7 +1806,7 @@ export default function POIImporterPage() {
                            )}
                            {place.photos && place.photos.length > 0 && (
                              <span className="text-xs bg-pink-100 text-pink-700 px-1 py-0.5 rounded">📸</span>
-                           )}
+                           )} */}
                            {(details as any)?.business_status === 'CLOSED_PERMANENTLY' && (
                              <span className="text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">❌</span>
                            )}
@@ -1829,7 +1831,7 @@ export default function POIImporterPage() {
                             {place.isSelected ? "✓ Perfect" : "Good for Tuggi?"}
                           </button>
                           
-                          {!place.isSelected && (
+                          {/* {!place.isSelected && (
                             <div className="flex gap-0.5">
                               <button className="flex-1 text-xs py-0.5 px-1 bg-red-50 text-red-600 rounded hover:bg-red-100">
                                 No
@@ -1841,7 +1843,7 @@ export default function POIImporterPage() {
                                 Closed
                               </button>
                             </div>
-                          )}
+                          )} */}
                         </div>
                       )}
                     </div>

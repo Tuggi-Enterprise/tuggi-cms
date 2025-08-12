@@ -375,7 +375,7 @@ function POIMapContent({
         <div class="p-3 max-w-xs">
           <div class="flex items-start space-x-3">
             ${poi.image_url ? `
-              <img src="${poi.image_url}" alt="${poi.name}" class="w-16 h-16 rounded-md object-cover flex-shrink-0">
+              <img src="${poi.image_url}" alt="${poi.name}" class="w-20 h-20 rounded-md object-cover flex-shrink-0" loading="lazy" onerror="this.onerror=null; this.src='https://via.placeholder.com/80?text=No+Image'">
             ` : ''}
             <div class="flex-1 min-w-0">
               <h3 class="text-lg font-semibold text-gray-900 mb-1">${poi.name}</h3>
