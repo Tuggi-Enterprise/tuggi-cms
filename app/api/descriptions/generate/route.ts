@@ -238,74 +238,76 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
       // GROUP POI PROMPT
       console.log(`🎯 Using GROUP POI prompt for ${groupMembers.length} attractions`)
       prompt = `
-    You are a knowledgeable and friendly travel-guide assistant with deep expertise in World history and culture.
-    
-    Your task: create a short (max 150 words) audio-friendly description for a **GROUP of nearby tourist attractions** for an international audience.  
-    Make it **engaging, factual, and pleasant to hear**, highlighting:
-    
-    - Year of creation or foundation, do not invent any dates.
-    - Key historical events or transformations that connect them
-    - Cultural or architectural curiosities that make them worth visiting together
-    - Why this area/complex is relevant or iconic today
-    
-    ### GROUP OF ATTRACTIONS DATA
-    - Names: ${combinedName}
-    - Location: ${locationDetails}
-    - Google Types (detailed categories): ${combinedTypes.join(', ')}
-    - Ratings: ${combinedRating}
-    - Place ID: ${google_place_id || 'Not available'}
-    - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
-    - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attractions'}
-    ${sourcesSection}
-    
-    ### INSTRUCTIONS FOR GROUP DESCRIPTIONS
-    1. Start by mentioning that these are **nearby attractions** that can be visited together.
-    2. Focus on the **connections** between the attractions - shared history, architectural style, cultural theme, etc.
-    3. Mention each attraction by name but emphasize their relationship.
-    4. Do **NOT** mention neighborhood, city, or region—focus solely on the sites themselves.
-    5. Do **NOT** mention lat and long, street names and numbers, or directions.
-    6. Avoid second-person language and exaggerated enthusiasm; keep a neutral, professional tone.
-    7. If historical details are scarce, provide a concise factual overview of what makes them worth visiting together.
-    8. **Output only the description text in Brazilian Portuguese**. Do not include any headers, tags, or notes about AI.
-    9. Do not include any information about opening hours, prices, or directions.
-    
-    Return only the final group description.`
+    You are a professional travel‑guide assistant with deep expertise in global history, culture, and tourism.
+
+          STRICT RULES
+          - Use only verifiable facts from the sources provided below or other official heritage/tourism sites (e.g., Wikipedia, IPHAN/UNESCO, government portals).
+          - If unsure about a date or detail, OMIT it. Do NOT guess, infer, or invent.
+          - If reliable information is limited, produce a SHORTER description.
+          - Prioritize historical connections, cultural relevance, and notable architectural/artistic elements that LINK these sites.
+          - Write short, clear sentences optimized for text‑to‑speech (pleasant rhythm, no lists).
+          - Avoid subjective superlatives and marketing language.
+          - Do NOT include neighborhood, city, region, coordinates, street names, directions, opening hours, or prices.
+          - OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
+
+          AUTHORITATIVE SOURCES
+          ${sourcesSection}
+
+          TASK
+          Write a concise (max 150 words), factual, engaging description for a GROUP of nearby attractions in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
+
+          GROUP OF ATTRACTIONS DATA
+          - Names: ${combinedName}
+          - Location: ${locationDetails}
+          - Google Types: ${combinedTypes.join(', ')}
+          - Ratings: ${combinedRating}
+          - Place ID: ${google_place_id || 'Not available'}
+          - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
+          - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attractions'}
+
+          INSTRUCTIONS
+          1) State that these are nearby attractions that can be visited together.
+          2) Emphasize what connects them (shared history, style, theme, timeline).
+          3) Mention each by name at least once, but keep the narrative unified and fluid.
+          4) If data is scarce, keep it brief and strictly factual.
+          `
     } else {
       // SINGLE POI PROMPT
       console.log(`🎯 Using SINGLE POI prompt for individual attraction`)
       prompt = `
-    You are a knowledgeable and friendly travel-guide assistant with deep expertise in World history and culture.
-    
-    Your task: create a short (max 80 words) audio-friendly description of a tourist attraction for an international audience.  
-    Make it **engaging, factual, and pleasant to hear**, highlighting:
-    
-    • Year of creation or foundation, do not invent any dates.
-    • Key historical events or transformations (dates, restorations, famous episodes), do not invent any facts.
-    • Cultural or architectural curiosities that capture attention, do not invent any information.
-    • Why this place is relevant or iconic today  
-    
-    ### ATTRACTION DATA
-    - Name: ${combinedName}
-    - Location: ${locationDetails}
-    - Google Types (detailed categories): ${combinedTypes.join(', ')}
-    - Rating: ${combinedRating}
-    - Place ID: ${google_place_id || 'Not available'}
-    - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
-    - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attraction'}
-    ${sourcesSection}
-    
-    ### INSTRUCTIONS FOR SINGLE ATTRACTION
-    1. If the attraction name is generic or could refer to multiple places, use the unique details (location, Place ID, coordinates) to ensure you are describing the correct site.
-    2. Quickly consult reliable sources (e.g., Wikipedia, IPHAN, official tourism heritage sites) to confirm dates and facts.  
-    3. Start the narration by mentioning the **POI name** in the very first sentence.  
-    4. Do **NOT** mention neighborhood, city, or region—focus solely on the site itself. 
-    5. Do **NOT** mention lat and long, street names and numbers, or directions (left, right, front, etc.).   
-    6. Avoid second-person language and exaggerated enthusiasm; keep a neutral, professional tone.  
-    7. If historical details are scarce, provide a concise factual overview instead.  
-    8. **Output only the description text in Brazilian Portuguese**. Do not include any headers, tags, or notes about AI. 
-    9. Do not include any information about the attraction's opening hours, prices, or directions.
-    
-    Return only the final description.`
+    You are a professional travel‑guide assistant with deep expertise in global history, culture, and tourism.
+
+        STRICT RULES
+        - Use only verifiable facts from the sources provided below or other official heritage/tourism sites (e.g., Wikipedia, IPHAN/UNESCO, government portals).
+        - If unsure about a date or detail, OMIT it. Do NOT guess, infer, or invent.
+        - If reliable information is limited, produce a SHORTER description.
+        - Prioritize historical significance, cultural relevance, and notable architectural/artistic elements.
+        - Write short, clear sentences optimized for text‑to‑speech (pleasant rhythm, no lists).
+        - Avoid subjective superlatives and marketing language.
+        - Do NOT include neighborhood, city, region, coordinates, street names, directions, opening hours, or prices.
+        - OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
+
+        AUTHORITATIVE SOURCES
+        ${sourcesSection}
+
+        TASK
+        Write a concise (max 80 words), factual, engaging description of the attraction in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
+
+        ATTRACTION DATA
+        - Name: ${combinedName}
+        - Location: ${locationDetails}
+        - Google Types: ${combinedTypes.join(', ')}
+        - Rating: ${combinedRating}
+        - Place ID: ${google_place_id || 'Not available'}
+        - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
+        - Business Info: ${businessInfo.length > 0 ? businessInfo.join(', ') : 'Standard tourist attraction'}
+
+        INSTRUCTIONS
+        1) Mention the POI name in the first sentence.
+        2) Include year of construction/foundation ONLY if confirmed; otherwise omit.
+        3) Highlight 1–2 key facts (restorations, episodes, curiosities) ONLY if verified.
+        4) If data is scarce, keep it brief and strictly factual.
+        `
     }
 
 
@@ -358,10 +360,10 @@ export const POST = withAuth(withRateLimit(10, 60000)(async function(request: Ne
               }
             ],
             generationConfig: {
-              temperature: 0.7,
+              temperature: 0.2,
               topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 400,
+              topP: 0.9,
+              maxOutputTokens: 320,
             },
           })
         })
