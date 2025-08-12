@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
+import Image from 'next/image'
 import { 
   Search, Save, Upload, MapPin, Star, Clock, Globe, ExternalLink, 
   CheckCircle2, Loader2, ChevronDown, ChevronUp, Info, Users,
@@ -1662,10 +1663,12 @@ export default function POIImporterPage() {
                     {/* Place Image - Compact */}
                     <div className="relative h-20 bg-gray-100">
                       {place.thumbnail ? (
-                        <img
+                        <Image
                           src={place.thumbnail}
                           alt={place.name}
-                          className="w-full h-full object-cover"
+                          fill
+                          className="object-cover"
+                          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">

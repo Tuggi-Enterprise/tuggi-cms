@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
-import { withAuth, withRateLimit } from '@/lib/auth-middleware';
 
-export const GET = withAuth(withRateLimit(100, 60000)(async function(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies });
   const { searchParams } = new URL(req.url);
   const poiId = searchParams.get('poiId');
@@ -43,4 +42,4 @@ export const GET = withAuth(withRateLimit(100, 60000)(async function(req: NextRe
     .eq('group_id', group.id);
 
   return NextResponse.json({ group, members: members?.map(m => m.attraction_id) || [] });
-}))
+}

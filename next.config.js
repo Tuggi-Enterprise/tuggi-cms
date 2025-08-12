@@ -1,9 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    domains: [
-      'supabase.co',
-      'xvlpjyxobtddrqyihdzy.supabase.co', // Add your actual Supabase project URL
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'supabase.co',
+      },
+      {
+        protocol: 'https',
+        hostname: 'xvlpjyxobtddrqyihdzy.supabase.co',
+      },
+      {
+        protocol: 'https',
+        hostname: 'tysnkzmljlmmqpbotkxv.supabase.co',
+      },
     ],
   },
   async headers() {

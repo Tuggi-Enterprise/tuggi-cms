@@ -1,7 +1,7 @@
 'use client'
 
 import { useUser, useSupabaseClient } from '@supabase/auth-helpers-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 
 export default function DebugPage() {
@@ -9,13 +9,7 @@ export default function DebugPage() {
   const supabase = useSupabaseClient()
   const [dbUserData, setDbUserData] = useState<any>(null)
 
-  useEffect(() => {
-    if (user) {
-      fetchDbUserData()
-    }
-  }, [user])
-
-  const fetchDbUserData = async () => {
+  const fetchDbUserData = useCallback(async () => {
     if (!user) return
     
     try {
@@ -29,7 +23,13 @@ export default function DebugPage() {
     } catch (error) {
       console.error('Error fetching user data:', error)
     }
-  }
+  }, [user, supabase])
+
+  useEffect(() => {
+    if (user) {
+      fetchDbUserData()
+    }
+  }, [user, fetchDbUserData])
 
   if (!user) {
     return (
@@ -147,4 +147,4 @@ WHERE email = '${user.email}';`}
       </div>
     </div>
   )
-} 
+}

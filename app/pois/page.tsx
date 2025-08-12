@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye, Trash2, MapPin, Calendar, Star, Users, Clock, ChevronLeft, ChevronRight, List, Map } from 'lucide-react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
@@ -155,7 +156,7 @@ function POIListWithSearchParams() {
 
   useEffect(() => {
     filterPois()
-  }, [pois, searchTerm, statusFilter,  countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter])
+  }, [pois, searchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter])
 
   useEffect(() => {
     calculateStats()
@@ -195,7 +196,7 @@ function POIListWithSearchParams() {
         view: viewMode
       })
     }
-  }, [searchTerm, statusFilter, countryFilter, cityFilter,  googleTypesFilter, contentStatusFilter, groupStatusFilter, currentPage, viewMode, isInitializing])
+  }, [searchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, currentPage, viewMode, isInitializing])
 
   const fetchPois = async () => {
     try {
@@ -382,11 +383,12 @@ function POIListWithSearchParams() {
     }
 
     setFilteredPois(filtered)
-    setTotalPages(Math.ceil(filtered.length / itemsPerPage))
+    const newTotalPages = Math.ceil(filtered.length / itemsPerPage)
+    setTotalPages(newTotalPages)
     
     // Only reset to page 1 if we're beyond the available pages
-    if (currentPage > Math.ceil(filtered.length / itemsPerPage)) {
-      setCurrentPage(1)
+    if (currentPage > newTotalPages && newTotalPages > 0) {
+      setTimeout(() => setCurrentPage(1), 0)
     }
   }
 
@@ -786,11 +788,15 @@ function POIListWithSearchParams() {
                         className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue mt-1 flex-shrink-0"
                       />
                       {poi.image_url && (
-                        <img
-                          src={poi.image_url}
-                          alt={poi.name}
-                          className="h-12 w-12 rounded-lg object-cover flex-shrink-0"
-                        />
+                        <div className="relative h-12 w-12 rounded-lg overflow-hidden flex-shrink-0">
+                          <Image
+                            src={poi.image_url}
+                            alt={poi.name}
+                            fill
+                            className="object-cover"
+                            sizes="48px"
+                          />
+                        </div>
                       )}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">

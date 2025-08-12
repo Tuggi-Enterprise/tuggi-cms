@@ -32,7 +32,7 @@ export default function POIImporterPageRefactored() {
         mapState.updateMapView(bounds.center, bounds.zoom)
       }
     })
-  }, [])
+  }, [mapState, polygonState])
 
   // Handle search when category and polygon are ready
   const handleCategorySearch = () => {
@@ -451,4 +451,4 @@ export default function POIImporterPageRefactored() {
       </div>
     </div>
   )
-} 
+}
