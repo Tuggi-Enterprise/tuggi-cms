@@ -5,7 +5,7 @@ import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 // Use service role key for database access (bypasses RLS)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET! // This is actually the service role key
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 export const POST = withAuth(withRateLimit(10, 60000)(async function(request: NextRequest) {
