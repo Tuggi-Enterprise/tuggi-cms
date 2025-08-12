@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
-import { MapPin, CheckCircle, FileText, TrendingUp, AlertCircle, RefreshCw, Globe, ChevronDown, ChevronRight } from 'lucide-react'
+import { MapPin, CheckCircle, FileText, TrendingUp, AlertCircle, RefreshCw, Globe, ChevronDown, ChevronRight, Users } from 'lucide-react'
 
 interface DashboardStats {
   totalPOIs: number
@@ -91,26 +91,15 @@ export default function DashboardPage() {
       setError(null)
       setIsLoading(true)
 
+      const daysAgo = new Date()
+      daysAgo.setDate(daysAgo.getDate() - 30) // Last 30 days
+      const dateFilter = daysAgo.toISOString()
+
       // Parallel queries for better performance
       const [
         totalPOIsResult,
         approvedPOIsResult,
-        totalDescriptionsResult,
-        // User Analytics
-        totalUsersResult,
-        totalTripsResult,
-        totalKmDrivenResult,
-        totalPOIsPlayedResult,
-        totalTriggerPointsActivatedResult,
-        avgTripDurationResult,
-        totalTripTimeResult,
-        audioQualityStatsResult,
-        // POI Analytics
-        mostPlayedPOIsResult,
-        mostTriggeredPointsResult,
-        monthlyUserGrowthResult,
-        tripsByPlatformResult,
-        feedbackStatsResult
+        totalDescriptionsResult
       ] = await Promise.all([
         // Fetch total POIs
         supabase
@@ -129,74 +118,7 @@ export default function DashboardPage() {
         supabase
           .schema('core')
           .from('attraction_descriptions')
-          .select('*', { count: 'exact', head: true }),
-        // User Analytics
-        supabase
-          .schema('core')
-          .from('users')
-          .select('*', { count: 'exact', head: true }),
-        supabase
-          .schema('core')
-          .from('trips')
-          .select('*', { count: 'exact', head: true }),
-        supabase
-          .schema('core')
-          .from('trips')
-          .select('km_driven', { count: 'exact', head: true }),
-        supabase
-          .schema('core')
-          .from('poi_plays')
-          .select('*', { count: 'exact', head: true }),
-        supabase
-          .schema('core')
-          .from('trigger_points_activated')
-          .select('*', { count: 'exact', head: true }),
-        supabase
-          .schema('core')
-          .from('trips')
-          .select('avg_duration, total_duration', { count: 'exact', head: true }),
-        supabase
-          .schema('core')
-          .from('trips')
-          .select('total_duration', { count: 'exact', head: true }),
-        supabase
-          .schema('core')
-          .from('audio_quality_ratings')
-          .select('avg_rating, total_ratings', { count: 'exact', head: true }),
-        // POI Analytics
-        supabase
-          .schema('core')
-          .from('poi_plays')
-          .select('name, city, plays, attraction_id')
-          .order('plays', { ascending: false })
-          .limit(5),
-        supabase
-          .schema('core')
-          .from('trigger_points_activated')
-          .select('poi_name, city, triggers, type')
-          .order('triggers', { ascending: false })
-          .limit(5),
-        supabase
-          .schema('core')
-          .from('users')
-          .select('created_at')
-          .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-          .select('count')
-          .eq('created_at', 'created_at')
-          .then(res => res.count),
-        supabase
-          .schema('core')
-          .from('trips')
-          .select('platform')
-          .not('platform', 'is', null)
-          .select('count')
-          .eq('platform', 'platform')
-          .then(res => res.count),
-        supabase
-          .schema('core')
-          .from('feedback')
-          .select('feedback_type, count')
-          .not('feedback_type', 'is', null)
+          .select('*', { count: 'exact', head: true })
       ])
 
       // Fetch country stats with pagination
@@ -294,6 +216,96 @@ export default function DashboardPage() {
         }
       }
 
+      // Fetch User Analytics with pagination
+      let allUsersData: any[] = []
+      let hasMoreUsers = true
+      let userPage = 0
+      
+      while (hasMoreUsers) {
+        const { data: userDataChunk, error: userError } = await supabase
+          .schema('drive')
+          .from('profiles')
+          .select('*')
+          .range(userPage * pageSize, (userPage + 1) * pageSize - 1)
+        
+        if (userError) {
+          console.error('Error fetching user data:', userError)
+          break
+        }
+        
+        if (userDataChunk && userDataChunk.length > 0) {
+          allUsersData = [...allUsersData, ...userDataChunk]
+          userPage++
+        } else {
+          hasMoreUsers = false
+        }
+        
+        if (userPage > 10) {
+          hasMoreUsers = false
+        }
+      }
+
+      // Fetch Trip Analytics with pagination
+      let allTripsData: any[] = []
+      let hasMoreTrips = true
+      let tripPage = 0
+      
+      while (hasMoreTrips) {
+        const { data: tripDataChunk, error: tripError } = await supabase
+          .schema('drive')
+          .from('trip_sessions')
+          .select('duration, distance_km, platform')
+          .gte('start_time', dateFilter)
+          .not('end_time', 'is', null)
+          .range(tripPage * pageSize, (tripPage + 1) * pageSize - 1)
+        
+        if (tripError) {
+          console.error('Error fetching trip data:', tripError)
+          break
+        }
+        
+        if (tripDataChunk && tripDataChunk.length > 0) {
+          allTripsData = [...allTripsData, ...tripDataChunk]
+          tripPage++
+        } else {
+          hasMoreTrips = false
+        }
+        
+        if (tripPage > 10) {
+          hasMoreTrips = false
+        }
+      }
+
+      // Fetch POI Plays with pagination
+      let allPOIPlaysData: any[] = []
+      let hasMorePOIPlays = true
+      let poiPlaysPage = 0
+      
+      while (hasMorePOIPlays) {
+        const { data: poiPlaysChunk, error: poiPlaysError } = await supabase
+          .schema('drive')
+          .from('trip_session_attractions')
+          .select('attraction_id')
+          .gte('played_at', dateFilter)
+          .range(poiPlaysPage * pageSize, (poiPlaysPage + 1) * pageSize - 1)
+        
+        if (poiPlaysError) {
+          console.error('Error fetching POI plays data:', poiPlaysError)
+          break
+        }
+        
+        if (poiPlaysChunk && poiPlaysChunk.length > 0) {
+          allPOIPlaysData = [...allPOIPlaysData, ...poiPlaysChunk]
+          poiPlaysPage++
+        } else {
+          hasMorePOIPlays = false
+        }
+        
+        if (poiPlaysPage > 10) {
+          hasMorePOIPlays = false
+        }
+      }
+
       // Extract counts with better error handling
       const totalPOIs = totalPOIsResult.count ?? 0
       const approvedPOIs = approvedPOIsResult.count ?? 0
@@ -364,44 +376,77 @@ export default function DashboardPage() {
         .sort((a, b) => b.total - a.total)
 
       // Process User Analytics
-      const totalUsers = totalUsersResult.count ?? 0
-      const totalTrips = totalTripsResult.count ?? 0
-      const totalKmDriven = totalKmDrivenResult.count ?? 0
-      const totalPOIsPlayed = totalPOIsPlayedResult.count ?? 0
-      const totalTriggerPointsActivated = totalTriggerPointsActivatedResult.count ?? 0
-      const avgTripDuration = avgTripDurationResult.avg_duration ?? 0
-      const totalTripTime = avgTripDurationResult.total_duration ?? 0
-      const audioQualityStats = audioQualityStatsResult.avg_rating ?? 0
+      const totalUsers = allUsersData.length
+      const totalTrips = allTripsData.length
+      const totalKmDriven = allTripsData.reduce((acc, trip) => acc + (trip.distance_km || 0), 0)
+      const totalPOIsPlayed = allPOIPlaysData.length
+      const totalTriggerPointsActivated = 0 // Will be implemented when trigger points are available
 
-      // Process POI Analytics
-      const mostPlayedPOIs = mostPlayedPOIsResult.map(poi => ({
-        name: poi.name,
-        city: poi.city,
-        plays: poi.plays,
-        attraction_id: poi.attraction_id
+      // Calculate average trip duration
+      let totalTripTimeMinutes = 0
+      const avgTripDuration = allTripsData.length > 0 
+        ? allTripsData.reduce((acc, trip) => {
+            if (trip.duration) {
+              const match = trip.duration.match(/(\d+):(\d+):(\d+)/)
+              if (match) {
+                const hours = parseInt(match[1])
+                const minutes = parseInt(match[2])
+                const tripMinutes = hours * 60 + minutes
+                totalTripTimeMinutes += tripMinutes
+                return acc + tripMinutes
+              }
+            }
+            return acc
+          }, 0) / allTripsData.length
+        : 0
+
+      // Process platform data
+      const platformCounts = allTripsData.reduce((acc: Record<string, number>, trip) => {
+        acc[trip.platform] = (acc[trip.platform] || 0) + 1
+        return acc
+      }, {})
+      const tripsByPlatform = Object.entries(platformCounts)
+        .map(([platform, trips]) => ({ platform: platform || 'Unknown', trips: trips as number }))
+
+      // Process most played POIs
+      const poiCounts = allPOIPlaysData.reduce((acc: Record<string, number>, item) => {
+        acc[item.attraction_id] = (acc[item.attraction_id] || 0) + 1
+        return acc
+      }, {})
+      
+      const topPoiIds = Object.keys(poiCounts).sort((a, b) => poiCounts[b] - poiCounts[a]).slice(0, 5)
+      const poiDetailsResult = topPoiIds.length > 0 ? await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, name, city')
+        .in('id', topPoiIds) : { data: [] }
+      
+      const poiDetails = (poiDetailsResult.data ?? []).reduce((acc: Record<string, any>, poi) => {
+        acc[poi.id] = poi
+        return acc
+      }, {})
+      
+      const mostPlayedPOIs = topPoiIds.map(id => ({
+        attraction_id: id,
+        name: poiDetails[id]?.name || 'Unknown',
+        city: poiDetails[id]?.city || 'Unknown',
+        plays: poiCounts[id]
       }))
 
-      const mostTriggeredPoints = mostTriggeredPointsResult.map(tp => ({
-        poi_name: tp.poi_name,
-        city: tp.city,
-        triggers: tp.triggers,
-        type: tp.type
-      }))
-
-      const monthlyUserGrowth = monthlyUserGrowthResult.map(mu => ({
-        month: mu.month,
-        newUsers: mu.count
-      }))
-
-      const tripsByPlatform = tripsByPlatformResult.map(tp => ({
-        platform: tp.platform,
-        trips: tp.count
-      }))
-
-      const feedbackStats = feedbackStatsResult.map(fs => ({
-        feedback_type: fs.feedback_type,
-        count: fs.count
-      }))
+      // Process monthly user growth
+      const monthlyGrowth = allUsersData.reduce((acc: Record<string, number>, user) => {
+        const date = new Date(user.created_at)
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        acc[monthKey] = (acc[monthKey] || 0) + 1
+        return acc
+      }, {})
+      
+      const monthlyUserGrowth = Object.entries(monthlyGrowth)
+        .map(([month, newUsers]) => ({ 
+          month: new Date(month + '-01').toLocaleDateString('en-US', { year: 'numeric', month: 'short' }), 
+          newUsers: newUsers as number 
+        }))
+        .sort((a, b) => new Date(a.month + ' 1, 2000').getTime() - new Date(b.month + ' 1, 2000').getTime())
 
       const newStats = {
         totalPOIs,
@@ -413,18 +458,18 @@ export default function DashboardPage() {
         // User Analytics
         totalUsers,
         totalTrips,
-        totalKmDriven,
+        totalKmDriven: Math.round(totalKmDriven),
         totalPOIsPlayed,
         totalTriggerPointsActivated,
-        avgTripDuration,
-        totalTripTime,
-        audioQualityStats,
+        avgTripDuration: Math.round(avgTripDuration),
+        totalTripTime: Math.round(totalTripTimeMinutes),
+        audioQualityStats: { avg_rating: 0, total_ratings: 0 }, // Will be implemented when available
         // POI Analytics
         mostPlayedPOIs,
-        mostTriggeredPoints,
+        mostTriggeredPoints: [], // Will be implemented when trigger points are available
         monthlyUserGrowth,
         tripsByPlatform,
-        feedbackStats
+        feedbackStats: [] // Will be implemented when feedback is available
       }
 
       setStats(newStats)
@@ -588,6 +633,169 @@ export default function DashboardPage() {
     )
   }
 
+  const UserAnalyticsCard = () => {
+    if (isLoading) {
+      return (
+        <div className="tuggi-card p-6">
+          <div className="flex items-center mb-4">
+            <Users className="h-5 w-5 text-tuggi-blue mr-2" />
+            <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
+              Estatísticas de Usuários
+            </h3>
+          </div>
+          <div className="space-y-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="animate-pulse">
+                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-2"></div>
+                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-24"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="tuggi-card p-6">
+        <div className="flex items-center mb-4">
+          <Users className="h-5 w-5 text-tuggi-blue mr-2" />
+          <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
+            Estatísticas de Usuários
+          </h3>
+        </div>
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600 dark:text-gray-400">Total de Usuários</span>
+            <span className="text-sm font-semibold text-tuggi-text dark:text-white">
+              {stats.totalUsers.toLocaleString()}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600 dark:text-gray-400">Total de Viagens</span>
+            <span className="text-sm font-semibold text-tuggi-text dark:text-white">
+              {stats.totalTrips.toLocaleString()}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600 dark:text-gray-400">Distância Total</span>
+            <span className="text-sm font-semibold text-tuggi-text dark:text-white">
+              {stats.totalKmDriven.toLocaleString()} km
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600 dark:text-gray-400">POIs Reproduzidos</span>
+            <span className="text-sm font-semibold text-tuggi-text dark:text-white">
+              {stats.totalPOIsPlayed.toLocaleString()}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600 dark:text-gray-400">Duração Média</span>
+            <span className="text-sm font-semibold text-tuggi-text dark:text-white">
+              {stats.avgTripDuration} min
+            </span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const POIAnalyticsCard = () => {
+    if (isLoading) {
+      return (
+        <div className="tuggi-card p-6">
+          <div className="flex items-center mb-4">
+            <MapPin className="h-5 w-5 text-tuggi-orange mr-2" />
+            <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
+              POIs Mais Reproduzidos
+            </h3>
+          </div>
+          <div className="space-y-3">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="animate-pulse">
+                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-2"></div>
+                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-24"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="tuggi-card p-6">
+        <div className="flex items-center mb-4">
+          <MapPin className="h-5 w-5 text-tuggi-orange mr-2" />
+          <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
+            POIs Mais Reproduzidos
+          </h3>
+        </div>
+        <div className="space-y-3">
+          {stats.mostPlayedPOIs.slice(0, 5).map((poi, index) => (
+            <div key={poi.attraction_id} className="flex justify-between items-center">
+              <div className="flex-1">
+                <p className="text-sm font-medium text-tuggi-text dark:text-white truncate">
+                  {poi.name}
+                </p>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  {poi.city}
+                </p>
+              </div>
+              <span className="text-sm font-semibold text-tuggi-orange">
+                {poi.plays} plays
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const PlatformAnalyticsCard = () => {
+    if (isLoading) {
+      return (
+        <div className="tuggi-card p-6">
+          <div className="flex items-center mb-4">
+            <TrendingUp className="h-5 w-5 text-green-500 mr-2" />
+            <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
+              Viagens por Plataforma
+            </h3>
+          </div>
+          <div className="space-y-3">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="animate-pulse">
+                <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-2"></div>
+                <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-24"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="tuggi-card p-6">
+        <div className="flex items-center mb-4">
+          <TrendingUp className="h-5 w-5 text-green-500 mr-2" />
+          <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
+            Viagens por Plataforma
+          </h3>
+        </div>
+        <div className="space-y-3">
+          {stats.tripsByPlatform.slice(0, 5).map((platform, index) => (
+            <div key={platform.platform} className="flex justify-between items-center">
+              <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
+                {platform.platform}
+              </span>
+              <span className="text-sm font-semibold text-green-500">
+                {platform.trips} viagens
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   const approvalRate = stats.totalPOIs > 0 ? Math.round((stats.approvedPOIs / stats.totalPOIs) * 100) : 0
 
   const pieData = [
@@ -676,19 +884,11 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ApprovalCascadeView />
         
-        {/* Placeholder for future content or additional stats */}
-        <div className="tuggi-card p-6">
-          <div className="flex items-center mb-4">
-            <TrendingUp className="h-5 w-5 text-tuggi-blue mr-2" />
-            <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-              Estatísticas Adicionais
-            </h3>
-          </div>
-          <div className="text-center py-8">
-            <p className="text-gray-500 dark:text-gray-400">
-              Espaço reservado para métricas futuras
-            </p>
-          </div>
+        {/* Analytics Cards */}
+        <div className="space-y-6">
+          <UserAnalyticsCard />
+          <POIAnalyticsCard />
+          <PlatformAnalyticsCard />
         </div>
       </div>
 
