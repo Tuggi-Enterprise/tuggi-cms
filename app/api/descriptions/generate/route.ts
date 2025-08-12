@@ -343,7 +343,7 @@ export const POST = async function(request: NextRequest) {
         - Use only verifiable facts from the sources provided below or other official heritage/tourism sites (e.g., Wikipedia, IPHAN/UNESCO, government portals).
         - If unsure about a date or detail, OMIT it. Do NOT guess, infer, or invent.
         - If reliable information is limited, produce a SHORTER description.
-        - Prioritize historical significance, cultural relevance, and notable architectural/artistic elements.
+        - Prioritize historical significance, important dates (fundation, events, etc. ), cultural relevance, and notable architectural/artistic elements.
         - Write short, clear sentences optimized for text‑to‑speech (pleasant rhythm, no lists).
         - Avoid subjective superlatives and marketing language.
         - Do NOT include neighborhood, city, region, coordinates, street names, directions, opening hours, or prices.
