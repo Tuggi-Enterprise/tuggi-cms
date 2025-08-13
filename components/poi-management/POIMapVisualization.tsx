@@ -225,9 +225,10 @@ function POIMapContent({
         if (bounds) {
           setViewportBounds(bounds)
           // Save map state
+          const center = map.getCenter()!
           setMapState(prev => ({
             ...prev,
-            center: map.getCenter()!,
+            center: { lat: center.lat(), lng: center.lng() },
             zoom: map.getZoom()!,
             bounds: bounds
           }))
@@ -240,9 +241,10 @@ function POIMapContent({
 
     // Set up center and zoom change listeners to save state
     map.addListener('center_changed', () => {
+      const center = map.getCenter()!
       setMapState(prev => ({
         ...prev,
-        center: map.getCenter()!
+        center: { lat: center.lat(), lng: center.lng() }
       }))
     })
 
@@ -579,9 +581,10 @@ function POIMapContent({
     // Save the new state after fitting bounds
     setTimeout(() => {
       if (mapInstanceRef.current) {
+        const center = mapInstanceRef.current!.getCenter()!
         setMapState(prev => ({
           ...prev,
-          center: mapInstanceRef.current!.getCenter()!,
+          center: { lat: center.lat(), lng: center.lng() },
           zoom: mapInstanceRef.current!.getZoom()!,
           bounds: mapInstanceRef.current!.getBounds()!
         }))
