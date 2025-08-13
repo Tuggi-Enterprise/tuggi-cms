@@ -12,6 +12,7 @@ import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
 import { POIMapVisualization } from '@/components/poi-management/POIMapVisualization'
 
+
 interface POIStats {
   total: number
   approved: number
@@ -199,10 +200,11 @@ function POIListWithSearchParams() {
   }, [searchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, currentPage, viewMode, isInitializing])
 
   const fetchPois = async () => {
+    setIsLoading(true)
     try {
-      console.log('🔍 POIS: Starting fetchPois...');
-      
-      // Fetch all group memberships separately
+      console.log('🔍 POIS: Starting fetchPois...')
+
+      // Fetch all group memberships
       const { data: allGroupMemberships, error: groupMembershipsError } = await supabase
         .schema('core')
         .from('attraction_group_members')
@@ -212,16 +214,11 @@ function POIListWithSearchParams() {
           group_role
         `)
 
-      console.log('🔍 POIS: All group memberships query result:', { dataCount: allGroupMemberships?.length, error: groupMembershipsError });
-      console.log('🔍 POIS: Sample group membership:', allGroupMemberships?.[0]);
-
       // Fetch groups separately
       const { data: allGroups, error: groupsError } = await supabase
         .schema('core')
         .from('attraction_groups')
         .select('id, name')
-
-      console.log('🔍 POIS: All groups query result:', { dataCount: allGroups?.length, error: groupsError });
 
       // Create a map of group_id to group name
       const groupNameMap: Record<string, string> = {}
@@ -238,66 +235,54 @@ function POIListWithSearchParams() {
         }
       })
 
-      console.log('🔍 POIS: Group membership map size:', Object.keys(groupMembershipMap).length);
-      console.log('🔍 POIS: Group membership map keys:', Object.keys(groupMembershipMap));
-      console.log('🔍 POIS: Group name map:', groupNameMap);
+      // Fetch all POIs with pagination
+      let allPoisData: any[] = []
+      let hasMore = true
+      let page = 0
+      const pageSize = 1000
 
-      // Search for POIs with "Butantan" or "Instituto" in the name
-      const { data: butantanPois, error: butantanError } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select('id, name, city, country')
-        .or('name.ilike.%Butantan%,name.ilike.%Instituto%')
+      while (hasMore) {
+        const { data: poisData, error: poisError } = await supabase
+          .schema('core')
+          .from('attractions')
+          .select(`
+            *,
+            coordinates:attraction_coordinate!left(latitude, longitude),
+            descriptions:attraction_descriptions!left(id, description, audio_url, language),
+            trigger_points:attraction_trigger_points!left(id, is_active)
+          `)
+          .order('created_at', { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1)
 
-      console.log('🔍 POIS: Butantan/Instituto POIs:', butantanPois);
-      console.log('🔍 POIS: Butantan/Instituto POIs error:', butantanError);
+        if (poisError) {
+          console.error('Error fetching POIs page', page, ':', poisError)
+          break
+        }
 
-      // Search for the specific group
-      const { data: specificGroup, error: specificGroupError } = await supabase
-        .schema('core')
-        .from('attraction_groups')
-        .select('id, name, created_by, created_at')
-        .eq('id', '64581613-7711-45f3-ae59-8897f5f5a5f1')
+        if (poisData && poisData.length > 0) {
+          allPoisData = [...allPoisData, ...poisData]
 
-      console.log('🔍 POIS: Specific group:', specificGroup);
-      console.log('🔍 POIS: Specific group error:', specificGroupError);
+          
+          // If we got less than pageSize, we've reached the end
+          if (poisData.length < pageSize) {
+            hasMore = false
+          } else {
+            page++
+          }
+        } else {
+          hasMore = false
+        }
 
-      // Search for members of the specific group
-      const { data: specificGroupMembers, error: specificGroupMembersError } = await supabase
-        .schema('core')
-        .from('attraction_group_members')
-        .select(`
-          attraction_id,
-          group_id,
-          group_role,
-          attraction:attractions(id, name, city, country)
-        `)
-        .eq('group_id', '64581613-7711-45f3-ae59-8897f5f5a5f1')
-
-      console.log('🔍 POIS: Specific group members:', specificGroupMembers);
-      console.log('🔍 POIS: Specific group members error:', specificGroupMembersError);
-
-      // Alternative approach: fetch POIs first, then fetch group data separately
-      const { data: poisData, error: poisError } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select(`
-          *,
-          coordinates:attraction_coordinate(latitude, longitude),
-          descriptions:attraction_descriptions(id, description, audio_url, language),
-          trigger_points:attraction_trigger_points(id, is_active)
-        `)
-        .order('created_at', { ascending: false })
-
-      console.log('🔍 POIS: POIs query result:', { dataCount: poisData?.length, error: poisError });
-
-      if (poisError) {
-        console.error('Error fetching POIs:', poisError)
-        return
+        // Safety check to prevent infinite loop
+        if (page > 10) {
+          break
+        }
       }
 
+
+
       // Transform data to include coordinates, content status, group info, trigger points, and available languages
-      const poisWithCoords = poisData?.map(poi => {
+      const poisWithCoords = allPoisData.map(poi => {
         const descriptions = poi.descriptions || []
         const triggerPoints = poi.trigger_points || []
         const hasDescription = descriptions.some((desc: any) => desc.description && desc.description.trim())
@@ -320,7 +305,6 @@ function POIListWithSearchParams() {
         let groupStatus = null
         
         if (groupMembership) {
-          console.log('🔍 POIS: Found group membership for POI:', poi.id, poi.name, groupMembership);
           groupStatus = {
             is_in_group: true,
             group_id: groupMembership.group_id,
@@ -353,9 +337,7 @@ function POIListWithSearchParams() {
         }
       }) || []
 
-      console.log('🔍 POIS: Processed POIs:', poisWithCoords.length);
-      console.log('🔍 POIS: Sample POI with group status:', poisWithCoords.find(p => p.group_status?.is_in_group));
-      console.log('🔍 POIS: POIs with group status:', poisWithCoords.filter(p => p.group_status?.is_in_group).map(p => ({ id: p.id, name: p.name, group: p.group_status })));
+
 
       setPois(poisWithCoords)
       
