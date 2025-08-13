@@ -172,14 +172,24 @@ function POIMapContent({
   const [showClusters, setShowClusters] = useState(true)
   const [viewportBounds, setViewportBounds] = useState<google.maps.LatLngBounds | null>(null)
   const [poiCount, setPOICount] = useState({ total: 0, visible: 0 })
+  
+  // Map state preservation
+  const [mapState, setMapState] = useState<{
+    center: { lat: number; lng: number }
+    zoom: number
+    bounds?: google.maps.LatLngBounds
+  }>({
+    center: initialCenter,
+    zoom: initialZoom
+  })
 
   // Initialize map
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
 
     const map = new google.maps.Map(mapRef.current, {
-      center: initialCenter,
-      zoom: initialZoom,
+      center: mapState.center,
+      zoom: mapState.zoom,
       mapTypeControl: true,
       streetViewControl: true,
       fullscreenControl: true,
@@ -214,11 +224,33 @@ function POIMapContent({
         const bounds = map.getBounds()
         if (bounds) {
           setViewportBounds(bounds)
+          // Save map state
+          setMapState(prev => ({
+            ...prev,
+            center: map.getCenter()!,
+            zoom: map.getZoom()!,
+            bounds: bounds
+          }))
           if (onFiltersChange) {
             onFiltersChange(bounds)
           }
         }
       }, 500) // 500ms debounce
+    })
+
+    // Set up center and zoom change listeners to save state
+    map.addListener('center_changed', () => {
+      setMapState(prev => ({
+        ...prev,
+        center: map.getCenter()!
+      }))
+    })
+
+    map.addListener('zoom_changed', () => {
+      setMapState(prev => ({
+        ...prev,
+        zoom: map.getZoom()!
+      }))
     })
 
     setIsLoading(false)
@@ -227,7 +259,10 @@ function POIMapContent({
   // Fetch POIs from database with optional viewport filtering
   const fetchPOIs = useCallback(async (bounds?: google.maps.LatLngBounds) => {
     try {
-      setIsLoading(true)
+      // Only show loading if this is the initial load (no existing POIs)
+      if (pois.length === 0) {
+        setIsLoading(true)
+      }
       
       let query = supabase
         .schema('core')
@@ -540,21 +575,36 @@ function POIMapContent({
     })
 
     mapInstanceRef.current.fitBounds(bounds, 50)
+    
+    // Save the new state after fitting bounds
+    setTimeout(() => {
+      if (mapInstanceRef.current) {
+        setMapState(prev => ({
+          ...prev,
+          center: mapInstanceRef.current!.getCenter()!,
+          zoom: mapInstanceRef.current!.getZoom()!,
+          bounds: mapInstanceRef.current!.getBounds()!
+        }))
+      }
+    }, 100)
   }, [filteredPOIs])
 
   // Initialize map and fetch data
   useEffect(() => {
-    if (window.google && window.google.maps) {
+    if (window.google && window.google.maps && !mapInstanceRef.current) {
       initializeMap()
     }
   }, [initializeMap])
 
   useEffect(() => {
     if (mapInstanceRef.current) {
-      fetchPOIs()
+      // Only fetch POIs if we don't have any yet
+      if (pois.length === 0) {
+        fetchPOIs()
+      }
       fetchSavedPolygons()
     }
-  }, [fetchPOIs, fetchSavedPolygons])
+  }, [fetchPOIs, fetchSavedPolygons, pois.length])
 
   useEffect(() => {
     if (mapInstanceRef.current) {

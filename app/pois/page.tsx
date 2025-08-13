@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, Suspense } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye, Trash2, MapPin, Calendar, Star, Users, Clock, ChevronLeft, ChevronRight, List, Map } from 'lucide-react'
@@ -58,6 +58,9 @@ function POIListWithSearchParams() {
   // Track if we're initializing from URL to prevent unnecessary updates
   const [isInitializing, setIsInitializing] = useState(true)
 
+  // Debounce search term to avoid excessive filtering
+  const debouncedSearchTerm = useDebounce(searchTerm, 300)
+
   // Function to update URL with current filter states and view mode
   // URL params: ?search=term&status=approved&city=Paris&googleTypes=restaurant&contentStatus=complete&page=2&view=map
   const updateURL = (filters: {
@@ -105,7 +108,7 @@ function POIListWithSearchParams() {
 
     // Update URL without triggering a page reload
     const newUrl = params.toString() ? `${window.location.pathname}?${params.toString()}` : window.location.pathname
-    router.replace(newUrl, { scroll: false })
+    window.history.replaceState({}, '', newUrl)
   }
 
   // Function to clear all filters
@@ -148,16 +151,102 @@ function POIListWithSearchParams() {
     setIsInitializing(false)
   }
 
+  // Load POIs only on initial mount
   useEffect(() => {
+    console.log('🔍 POIS: Initial load - fetching POIs...')
     fetchPois()
-    
-    // Read filters from URL on component mount
-    readFiltersFromURL()
-  }, [searchParams])
+  }, []) // Empty dependency array - only run once
 
+  // Read filters from URL only on initial mount
   useEffect(() => {
-    filterPois()
-  }, [pois, searchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter])
+    readFiltersFromURL()
+  }, []) // Empty dependency array - only run once
+
+  // Memoize filtered POIs to prevent unnecessary re-filtering
+  const filteredPoisMemo = useMemo(() => {
+    let filtered = pois
+
+    // Search filter
+    if (debouncedSearchTerm) {
+      filtered = filtered.filter(poi =>
+        poi.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        poi.city.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        poi.country.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+      )
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(poi =>
+        statusFilter === 'approved' ? poi.approved : !poi.approved
+      )
+    }
+
+    // Country filter
+    if (countryFilter) {
+      filtered = filtered.filter(poi => poi.country === countryFilter)
+    }
+
+    // City filter
+    if (cityFilter) {
+      filtered = filtered.filter(poi => poi.city === cityFilter)
+    }
+
+    // Google Types filter
+    if (googleTypesFilter) {
+      filtered = filtered.filter(poi => 
+        poi.google_types?.includes(googleTypesFilter)
+      )
+    }
+
+    // Content Status filter
+    if (contentStatusFilter !== 'all') {
+      filtered = filtered.filter(poi => {
+        switch (contentStatusFilter) {
+          case 'missing_description':
+            return !poi.has_description
+          case 'missing_audio':
+            return !poi.has_audio
+          case 'complete':
+            return poi.has_description && poi.has_audio
+          default:
+            return true
+        }
+      })
+    }
+
+    // Group Status filter
+    if (groupStatusFilter !== 'all') {
+      filtered = filtered.filter(poi => {
+        switch (groupStatusFilter) {
+          case 'grouped':
+            return poi.group_status?.is_in_group === true
+          case 'ungrouped':
+            return poi.group_status?.is_in_group === false
+          case 'group_main':
+            return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'main'
+          case 'group_member':
+            return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'member'
+          default:
+            return true
+        }
+      })
+    }
+
+    return filtered
+  }, [pois, debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter])
+
+  // Update filteredPois state and pagination when memoized result changes
+  useEffect(() => {
+    setFilteredPois(filteredPoisMemo)
+    const newTotalPages = Math.ceil(filteredPoisMemo.length / itemsPerPage)
+    setTotalPages(newTotalPages)
+    
+    // Only reset to page 1 if we're beyond the available pages
+    if (currentPage > newTotalPages && newTotalPages > 0) {
+      setTimeout(() => setCurrentPage(1), 0)
+    }
+  }, [filteredPoisMemo, currentPage, itemsPerPage])
 
   useEffect(() => {
     calculateStats()
@@ -186,7 +275,7 @@ function POIListWithSearchParams() {
   useEffect(() => {
     if (!isInitializing) {
       updateURL({
-        search: searchTerm,
+        search: debouncedSearchTerm,
         status: statusFilter,
         city: cityFilter,
         country: countryFilter,
@@ -197,7 +286,7 @@ function POIListWithSearchParams() {
         view: viewMode
       })
     }
-  }, [searchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, currentPage, viewMode, isInitializing])
+  }, [debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, currentPage, viewMode, isInitializing])
 
   const fetchPois = async () => {
     setIsLoading(true)
@@ -371,93 +460,16 @@ function POIListWithSearchParams() {
     setStats({ total, approved, pending, recentlyAdded, withDescription, withAudio, contentComplete })
   }
 
-  const filterPois = () => {
-    let filtered = pois
 
-    // Search filter
-    if (searchTerm) {
-      filtered = filtered.filter(poi =>
-        poi.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        poi.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        poi.country.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    }
 
-    // Status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(poi =>
-        statusFilter === 'approved' ? poi.approved : !poi.approved
-      )
-    }
-
-    // Country filter
-    if (countryFilter) {
-      filtered = filtered.filter(poi => poi.country === countryFilter)
-    }
-
-    // City filter
-    if (cityFilter) {
-      filtered = filtered.filter(poi => poi.city === cityFilter)
-    }
-
-    
-
-    // Google Types filter
-    if (googleTypesFilter) {
-      filtered = filtered.filter(poi => 
-        poi.google_types?.includes(googleTypesFilter)
-      )
-    }
-
-    // Content Status filter
-    if (contentStatusFilter !== 'all') {
-      filtered = filtered.filter(poi => {
-        switch (contentStatusFilter) {
-          case 'missing_description':
-            return !poi.has_description
-          case 'missing_audio':
-            return !poi.has_audio
-          case 'complete':
-            return poi.has_description && poi.has_audio
-          default:
-            return true
-        }
-      })
-    }
-
-    // Group Status filter
-    if (groupStatusFilter !== 'all') {
-      filtered = filtered.filter(poi => {
-        switch (groupStatusFilter) {
-          case 'grouped':
-            return poi.group_status?.is_in_group === true
-          case 'ungrouped':
-            return poi.group_status?.is_in_group === false
-          case 'group_main':
-            return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'main'
-          case 'group_member':
-            return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'member'
-          default:
-            return true
-        }
-      })
-    }
-
-    setFilteredPois(filtered)
-    const newTotalPages = Math.ceil(filtered.length / itemsPerPage)
-    setTotalPages(newTotalPages)
-    
-    // Only reset to page 1 if we're beyond the available pages
-    if (currentPage > newTotalPages && newTotalPages > 0) {
-      setTimeout(() => setCurrentPage(1), 0)
-    }
-  }
-
-  const getPaginatedPois = () => {
+  // Memoize filtered and paginated POIs to prevent unnecessary re-renders
+  const paginatedPois = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage
     const endIndex = startIndex + itemsPerPage
     return filteredPois.slice(startIndex, endIndex)
-  }
+  }, [filteredPois, currentPage, itemsPerPage])
+
+  const getPaginatedPois = () => paginatedPois
 
   const goToPage = (page: number) => {
     setCurrentPage(page)
@@ -500,6 +512,7 @@ function POIListWithSearchParams() {
 
       if (error) throw error
 
+      console.log('🔍 POIS: Bulk approve - fetching POIs...')
       await fetchPois()
       setSelectedPois([])
     } catch (error) {
@@ -521,6 +534,7 @@ function POIListWithSearchParams() {
 
       if (error) throw error
 
+      console.log('🔍 POIS: Bulk reject - fetching POIs...')
       await fetchPois()
       setSelectedPois([])
     } catch (error) {
@@ -544,7 +558,20 @@ function POIListWithSearchParams() {
 
       if (error) throw error
 
-      await fetchPois()
+      console.log('🔍 POIS: Toggle approval - updating specific POI...')
+      // Update the specific POI in local state
+      setPois(prevPois => 
+        prevPois.map(poi => 
+          poi.id === poiId 
+            ? { ...poi, approved: !currentStatus, approved_by: !currentStatus ? user?.id || null : null, approved_at: !currentStatus ? new Date().toISOString() : null }
+            : poi
+        )
+      )
+      
+      // Update selected POI if it's the one being edited
+      if (selectedPoi && selectedPoi.id === poiId) {
+        setSelectedPoi(prev => prev ? { ...prev, approved: !currentStatus, approved_by: !currentStatus ? user?.id || null : null, approved_at: !currentStatus ? new Date().toISOString() : null } : null)
+      }
     } catch (error) {
       console.error('Error updating POI approval:', error)
     }
@@ -564,6 +591,7 @@ function POIListWithSearchParams() {
 
       if (error) throw error
 
+      console.log('🔍 POIS: Delete POI - fetching POIs...')
       await fetchPois()
     } catch (error) {
       console.error('Error deleting POI:', error)
@@ -578,6 +606,77 @@ function POIListWithSearchParams() {
   const closePOIDetails = () => {
     setSelectedPoi(null)
     setIsModalOpen(false)
+  }
+
+  // Function to update a specific POI without reloading all data
+  const updateSpecificPOI = async (poiId: string) => {
+    try {
+      console.log('🔍 POIS: Updating specific POI:', poiId)
+      
+      // Fetch only the specific POI that was updated
+      const { data: updatedPOI, error } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select(`
+          *,
+          coordinates:attraction_coordinate!left(latitude, longitude),
+          descriptions:attraction_descriptions!left(id, description, audio_url, language),
+          trigger_points:attraction_trigger_points!left(id, is_active)
+        `)
+        .eq('id', poiId)
+        .single()
+
+      if (error) {
+        console.error('Error fetching updated POI:', error)
+        // Fallback to full reload if specific update fails
+        await fetchPois()
+        return
+      }
+
+      // Transform the updated POI data
+      const descriptions = updatedPOI.descriptions || []
+      const triggerPoints = updatedPOI.trigger_points || []
+      const hasDescription = descriptions.some((desc: any) => desc.description && desc.description.trim())
+      const hasAudio = descriptions.some((desc: any) => desc.audio_url && desc.audio_url.trim())
+      
+      const availableLanguages = [...new Set(
+        descriptions
+          .filter((desc: any) => (desc.description && desc.description.trim()) || (desc.audio_url && desc.audio_url.trim()))
+          .map((desc: any) => desc.language)
+      )]
+
+      const transformedPOI = {
+        ...updatedPOI,
+        coordinates: updatedPOI.coordinates?.[0] || null,
+        has_description: hasDescription,
+        has_audio: hasAudio,
+        description_count: descriptions.filter((desc: any) => desc.description && desc.description.trim()).length,
+        audio_count: descriptions.filter((desc: any) => desc.audio_url && desc.audio_url.trim()).length,
+        trigger_points_count: triggerPoints.length,
+        active_trigger_points_count: triggerPoints.filter((tp: any) => tp.is_active).length,
+        available_languages: availableLanguages,
+        descriptions: undefined,
+        trigger_points: undefined
+      }
+
+      // Update the POI in the local state
+      setPois(prevPois => 
+        prevPois.map(poi => 
+          poi.id === poiId ? transformedPOI : poi
+        )
+      )
+
+      // Update selected POI if it's the one being edited
+      if (selectedPoi && selectedPoi.id === poiId) {
+        setSelectedPoi(transformedPOI)
+      }
+
+      console.log('🔍 POIS: Successfully updated POI:', poiId)
+    } catch (error) {
+      console.error('Error updating specific POI:', error)
+      // Fallback to full reload if specific update fails
+      await fetchPois()
+    }
   }
 
   if (isLoading) {
@@ -658,6 +757,11 @@ function POIListWithSearchParams() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-64 pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
               />
+              {searchTerm !== debouncedSearchTerm && searchTerm && (
+                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-tuggi-blue"></div>
+                </div>
+              )}
             </div>
             
             {/* View Toggle */}
@@ -1118,7 +1222,11 @@ function POIListWithSearchParams() {
           poi={selectedPoi}
           isOpen={isModalOpen}
           onClose={closePOIDetails}
-          onUpdate={fetchPois}
+          onUpdate={() => {
+            if (selectedPoi) {
+              updateSpecificPOI(selectedPoi.id)
+            }
+          }}
         />
       )}
     </div>
@@ -1147,4 +1255,21 @@ export default function POIListPage() {
       <POIListWithSearchParams />
     </Suspense>
   )
+}
+
+// Custom hook for debouncing
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
 }

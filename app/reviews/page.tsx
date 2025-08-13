@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
 import { 
@@ -53,6 +53,23 @@ interface ReviewStats {
 
 const COLORS = ['#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#84CC16']
 
+// Custom hook for debouncing
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
+}
+
 export default function ReviewsPage() {
   const [stats, setStats] = useState<ReviewStats>({
     totalFeedbacks: 0,
@@ -69,6 +86,9 @@ export default function ReviewsPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [activeFilter, setActiveFilter] = useState<'all' | 'critical' | 'recent' | 'high-rated' | 'low-rated'>('all')
   const [searchTerm, setSearchTerm] = useState('')
+  
+  // Debounce search term to avoid excessive filtering
+  const debouncedSearchTerm = useDebounce(searchTerm, 300)
   
   const supabase = useSupabaseClient()
 
@@ -291,15 +311,16 @@ export default function ReviewsPage() {
     fetchReviewData()
   }, [fetchReviewData])
 
-  const getFilteredFeedbacks = () => {
+  // Memoize filtered feedbacks to prevent unnecessary re-filtering
+  const filteredFeedbacks = useMemo(() => {
     let filtered = stats.recentFeedbacks
 
     // Apply search filter
-    if (searchTerm) {
+    if (debouncedSearchTerm) {
       filtered = filtered.filter(feedback => 
-        feedback.attraction_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        feedback.feedback_type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        feedback.user_name.toLowerCase().includes(searchTerm.toLowerCase())
+        feedback.attraction_name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        feedback.feedback_type.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        feedback.user_name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
       )
     }
 
@@ -322,15 +343,16 @@ export default function ReviewsPage() {
     }
 
     return filtered
-  }
+  }, [stats.recentFeedbacks, debouncedSearchTerm, activeFilter])
 
-  const getFilteredPOIs = () => {
+  // Memoize filtered POIs to prevent unnecessary re-filtering
+  const filteredPOIs = useMemo(() => {
     let filtered = stats.feedbacksByPOI
 
-    if (searchTerm) {
+    if (debouncedSearchTerm) {
       filtered = filtered.filter(poi => 
-        poi.attraction_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        poi.city.toLowerCase().includes(searchTerm.toLowerCase())
+        poi.attraction_name.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+        poi.city.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
       )
     }
 
@@ -349,7 +371,10 @@ export default function ReviewsPage() {
     }
 
     return filtered
-  }
+  }, [stats.feedbacksByPOI, debouncedSearchTerm, activeFilter])
+
+  const getFilteredFeedbacks = () => filteredFeedbacks
+  const getFilteredPOIs = () => filteredPOIs
 
   if (error) {
     return (
@@ -488,6 +513,11 @@ export default function ReviewsPage() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
             />
+            {searchTerm !== debouncedSearchTerm && searchTerm && (
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-tuggi-blue"></div>
+              </div>
+            )}
           </div>
         </div>
       </div>
