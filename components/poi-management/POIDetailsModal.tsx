@@ -100,6 +100,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [audioResults, setAudioResults] = useState<string[]>([])
   const [showResults, setShowResults] = useState(false)
   
+  // Feedback states for better UX
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false)
+  const [showErrorMessage, setShowErrorMessage] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
+  const [errorMessage, setErrorMessage] = useState('')
+  
   // Add to the state
   const [referenceLinks, setReferenceLinks] = useState<string[]>(poi.reference_links || []);
 
@@ -112,6 +118,23 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [drawnPolygon, setDrawnPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
 
   const supabase = useSupabaseClient()
+
+  // Helper function to show feedback messages
+  const showFeedback = (message: string, type: 'success' | 'error') => {
+    if (type === 'success') {
+      setSuccessMessage(message)
+      setShowSuccessMessage(true)
+      setShowErrorMessage(false)
+      // Auto-hide after 5 seconds
+      setTimeout(() => setShowSuccessMessage(false), 5000)
+    } else {
+      setErrorMessage(message)
+      setShowErrorMessage(true)
+      setShowSuccessMessage(false)
+      // Auto-hide after 8 seconds for errors
+      setTimeout(() => setShowErrorMessage(false), 8000)
+    }
+  }
 
   // Voice mapping for Google TTS
   const googleVoiceMap: Record<string, string> = {
@@ -557,7 +580,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
 
   const saveDescription = async () => {
     if (!currentDescription.trim()) {
-      alert('Description cannot be empty.')
+      showFeedback('Description cannot be empty.', 'error')
       return
     }
 
@@ -669,10 +692,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         }
       }
       
-      alert('Description saved successfully!')
+      showFeedback('Description saved successfully!', 'success')
     } catch (error) {
       console.error('Error saving description:', error)
-      alert('Failed to save description. Please try again.')
+      showFeedback('Failed to save description. Please try again.', 'error')
     } finally {
       setIsSavingDescription(false)
     }
@@ -680,6 +703,131 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
 
   const resetDescription = () => {
     setCurrentDescription(originalDescription)
+  }
+
+  // New function to save description and generate audios
+  const saveDescriptionAndGenerateAudios = async () => {
+    if (!currentDescription.trim()) {
+      showFeedback('Description cannot be empty.', 'error')
+      return
+    }
+
+    setIsSavingDescription(true)
+    setIsGeneratingAudio(true)
+    setIsTranslating(true)
+    
+    try {
+      // First, save the description (reuse the logic from saveDescription)
+      const { data: existingDescs } = await supabase
+        .schema('core')
+        .from('attraction_descriptions')
+        .select('*')
+        .eq('attraction_id', poi.id)
+        .eq('language', 'pt-br')
+        .maybeSingle()
+
+      if (existingDescs) {
+        // Update existing Portuguese description
+        const { error } = await supabase
+          .schema('core')
+          .from('attraction_descriptions')
+          .update({
+            description: currentDescription,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingDescs.id)
+          .select()
+
+        if (error) throw error
+      } else {
+        // Create new Portuguese description
+        const { error } = await supabase
+          .schema('core')
+          .from('attraction_descriptions')
+          .insert({
+            attraction_id: poi.id,
+            language: 'pt-br',
+            description: currentDescription,
+            play_count: 0
+          })
+
+        if (error) throw error
+      }
+
+      // Update original description to match current
+      setOriginalDescription(currentDescription)
+      
+      // Update the descriptions array locally
+      setDescriptions(prevDescriptions => {
+        const updatedDescriptions = prevDescriptions.map(desc => {
+          if (desc.attraction_id === poi.id && desc.language === 'pt-br') {
+            return {
+              ...desc,
+              description: currentDescription,
+              updated_at: new Date().toISOString()
+            }
+          }
+          return desc
+        })
+        return updatedDescriptions
+      })
+
+      // Now generate all audios
+      setAudioProgress({ current: 0, total: 3, currentTask: 'Starting audio generation...' })
+      setAudioResults([])
+      
+      const languages = [
+        { code: 'pt-br', name: 'Portuguese' },
+        { code: 'en-us', name: 'English' },
+        { code: 'es-es', name: 'Spanish' }
+      ]
+      
+      const results = []
+      
+      // Generate Portuguese audio (base language)
+      setAudioProgress({ current: 1, total: 3, currentTask: 'Generating Portuguese audio...' })
+      try {
+        await generateAudioNarration()
+        results.push('✅ Portuguese: audio generated successfully')
+      } catch (error) {
+        results.push(`❌ Portuguese: failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+      
+      // Generate translations for EN and ES (male only)
+      for (let i = 0; i < languages.slice(1).length; i++) {
+        const lang = languages.slice(1)[i]
+        setAudioProgress({ 
+          current: i + 2, 
+          total: 3, 
+          currentTask: `Generating ${lang.name} (male) audio...` 
+        })
+        
+        try {
+          await generateSingleLanguageAudio(lang.code, 'male')
+          results.push(`✅ ${lang.name} (male): generated successfully`)
+        } catch (error) {
+          results.push(`❌ ${lang.name} (male): failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+      }
+      
+      setAudioProgress({ current: 3, total: 3, currentTask: 'Completed!' })
+      setAudioResults(results)
+      setShowResults(true)
+      
+      showFeedback('Description saved and audios generated successfully!', 'success')
+      
+    } catch (error) {
+      console.error('Error saving description and generating audios:', error)
+      showFeedback('Failed to save description and generate audios. Please try again.', 'error')
+    } finally {
+      setIsSavingDescription(false)
+      setIsGeneratingAudio(false)
+      setIsTranslating(false)
+      // Reset progress after a delay
+      setTimeout(() => {
+        setAudioProgress({ current: 0, total: 0, currentTask: '' })
+      }, 3000)
+    }
   }
 
   // Audio narration management functions
@@ -698,7 +846,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         )
         if (!proceed) return
       } else {
-        alert('Please save a description first before generating audio narration.')
+        showFeedback('Please save a description first before generating audio narration.', 'error')
         return
       }
     }
@@ -804,7 +952,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const translateAndGenerateAudio = async () => {
     // Validation: Check if Portuguese base description exists
     if (!currentDescription.trim()) {
-      alert('Please save a Portuguese description first before generating translations.')
+      showFeedback('Please save a Portuguese description first before generating translations.', 'error')
       return
     }
 
@@ -860,14 +1008,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       const result = await response.json()
       
       // Show success message
-      alert(`Translation and audio generation completed successfully for ${selectedLanguage} (${selectedGender})!`)
+      showFeedback(`Translation and audio generation completed successfully for ${selectedLanguage} (${selectedGender})!`, 'success')
       
       // Refresh the data to show the new translation
       await fetchAdditionalData()
       
     } catch (error) {
       console.error('Error translating and generating audio:', error)
-      alert(`Failed to translate and generate audio: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      showFeedback(`Failed to translate and generate audio: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
     } finally {
       setIsTranslating(false)
     }
@@ -876,7 +1024,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   // Regenerate all audios (PT, EN, ES) with both genders
   const regenerateAllAudios = async () => {
     if (!currentDescription.trim()) {
-      alert('Please save a Portuguese description first.')
+      showFeedback('Please save a Portuguese description first.', 'error')
       return
     }
 
@@ -1003,18 +1151,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         throw new Error(error.message)
       }
 
-      alert('Translation deleted successfully!')
+      showFeedback('Translation deleted successfully!', 'success')
       await fetchAdditionalData()
     } catch (error) {
       console.error('Error deleting translation:', error)
-      alert(`Failed to delete translation: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      showFeedback(`Failed to delete translation: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
     }
   }
 
   // Regenerate a single translation
   const regenerateTranslation = async (language: string, gender: 'male' | 'female') => {
     if (!currentDescription.trim()) {
-      alert('Please save a Portuguese description first.')
+      showFeedback('Please save a Portuguese description first.', 'error')
       return
     }
 
@@ -1026,10 +1174,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     setIsTranslating(true)
     try {
       await generateSingleLanguageAudio(language, gender)
-      alert(`Audio regenerated successfully for ${language} (${gender})!`)
+      showFeedback(`Audio regenerated successfully for ${language} (${gender})!`, 'success')
     } catch (error) {
       console.error('Error regenerating translation:', error)
-      alert(`Failed to regenerate audio: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      showFeedback(`Failed to regenerate audio: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
     } finally {
       setIsTranslating(false)
     }
@@ -1085,6 +1233,57 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={onClose} />
         
         <div className="relative bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all w-[80vw] h-[95vh] flex flex-col">
+          {/* Feedback Messages */}
+          {showSuccessMessage && (
+            <div className="bg-green-50 dark:bg-green-900/20 border-l-4 border-green-400 p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <CheckCircle className="h-5 w-5 text-green-400" />
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    {successMessage}
+                  </p>
+                </div>
+                <div className="ml-auto pl-3">
+                  <div className="-mx-1.5 -my-1.5">
+                    <button
+                      onClick={() => setShowSuccessMessage(false)}
+                      className="inline-flex rounded-md bg-green-50 dark:bg-green-900/20 p-1.5 text-green-500 hover:bg-green-100 dark:hover:bg-green-900/40 focus:outline-none focus:ring-2 focus:ring-green-600 focus:ring-offset-2 focus:ring-offset-green-50 dark:focus:ring-offset-green-900/20"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {showErrorMessage && (
+            <div className="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-400 p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-red-700 dark:text-red-300">
+                    {errorMessage}
+                  </p>
+                </div>
+                <div className="ml-auto pl-3">
+                  <div className="-mx-1.5 -my-1.5">
+                    <button
+                      onClick={() => setShowErrorMessage(false)}
+                      className="inline-flex rounded-md bg-red-50 dark:bg-red-900/20 p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/40 focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2 focus:ring-offset-red-50 dark:focus:ring-offset-red-900/20"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Header */}
           <div className="bg-white dark:bg-gray-800 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
@@ -1517,7 +1716,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   <div className="flex items-center space-x-2">
                     <button
                       onClick={generateDescription}
-                      disabled={isGenerating}
+                      disabled={isGenerating || isSavingDescription || isGeneratingAudio}
                       className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                     >
                       <Sparkles className="h-4 w-4 mr-2" />
@@ -1526,7 +1725,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                     {currentDescription !== originalDescription && (
                       <button
                         onClick={resetDescription}
-                        className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
+                        disabled={isGenerating || isSavingDescription || isGeneratingAudio}
+                        className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                       >
                         <RotateCcw className="h-4 w-4 mr-2" />
                         Reset
@@ -1629,14 +1829,25 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                         <span className="text-tuggi-orange">• Unsaved changes</span>
                       )}
                     </div>
-                    <button
-                      onClick={saveDescription}
-                      disabled={isSavingDescription || currentDescription === originalDescription}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                    >
-                      <Save className="h-4 w-4 mr-2" />
-                      {isSavingDescription ? 'Saving...' : 'Save Description'}
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={saveDescription}
+                        disabled={isSavingDescription || isGeneratingAudio || isGenerating || currentDescription === originalDescription}
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
+                      >
+                        <Save className="h-4 w-4 mr-2" />
+                        {isSavingDescription ? 'Saving...' : 'Save Description'}
+                      </button>
+                      <button
+                        onClick={saveDescriptionAndGenerateAudios}
+                        disabled={isSavingDescription || isGeneratingAudio || isGenerating || currentDescription === originalDescription}
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-orange hover:bg-tuggi-orange/90 focus:outline-none focus:ring-2 focus:ring-tuggi-orange disabled:opacity-50"
+                        title="Save description and generate audios in Portuguese, English, and Spanish"
+                      >
+                        <Volume2 className="h-4 w-4 mr-2" />
+                        {isSavingDescription || isGeneratingAudio ? 'Processing...' : 'Save & Generate Audios'}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1821,7 +2032,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                       </h5>
                       <button
                         onClick={regenerateAllAudios}
-                        disabled={isGeneratingAudio || isTranslating || !currentDescription.trim()}
+                        disabled={isGeneratingAudio || isTranslating || isSavingDescription || isGenerating || !currentDescription.trim()}
                         className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-orange hover:bg-tuggi-orange/90 focus:outline-none focus:ring-2 focus:ring-tuggi-orange disabled:opacity-50"
                       >
                         {(isGeneratingAudio || isTranslating) ? (
@@ -1931,7 +2142,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                                   )}
                                   <button
                                     onClick={() => regenerateTranslation(desc.language, desc.gender)}
-                                    disabled={isTranslating}
+                                    disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
                                     className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800/30 disabled:opacity-50"
                                   >
                                     <RotateCcw className="h-3 w-3 mr-1" />
@@ -1939,7 +2150,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                                   </button>
                                   <button
                                     onClick={() => deleteTranslation(desc.id, desc.language, desc.gender)}
-                                    className="inline-flex items-center px-2 py-1 text-xs bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800/30"
+                                    disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
+                                    className="inline-flex items-center px-2 py-1 text-xs bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800/30 disabled:opacity-50"
                                   >
                                     <Trash2 className="h-3 w-3 mr-1" />
                                     Delete
@@ -2025,7 +2237,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                           id="target-language"
                           value={selectedLanguage}
                           onChange={(e) => setSelectedLanguage(e.target.value)}
-                          disabled={isTranslating}
+                          disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
                           className="w-full px-3 py-2 border border-purple-300 dark:border-purple-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white disabled:opacity-50"
                         >
                           {/* <option value="en-us">🇺🇸 English (US)</option>
@@ -2048,7 +2260,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                               value="male"
                               checked={selectedGender === 'male'}
                               onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
-                              disabled={isTranslating}
+                              disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
                               className="mr-2 text-purple-600 focus:ring-purple-500"
                             />
                             <span className="text-sm text-purple-700 dark:text-purple-300">
@@ -2062,7 +2274,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                               value="female"
                               checked={selectedGender === 'female'}
                               onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
-                              disabled={isTranslating}
+                              disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
                               className="mr-2 text-purple-600 focus:ring-purple-500"
                             />
                             <span className="text-sm text-purple-700 dark:text-purple-300">
@@ -2083,7 +2295,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                             // Show toast on success (pseudo-code, replace with your toast system)
                             // showToast('Translation and audio generated successfully!', 'success');
                           }}
-                          disabled={isTranslating || !currentDescription.trim()}
+                          disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating || !currentDescription.trim()}
                           className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {isTranslating ? (
