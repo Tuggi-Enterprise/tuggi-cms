@@ -49,7 +49,7 @@ export const POST = async function(request: NextRequest) {
       website,
       formatted_phone_number,
       photos_references,
-      existing_description,
+
       image_url,
       id: attractionId, // allow id to be passed in body
       google_place_id, // allow google_place_id to be passed in body
@@ -189,13 +189,14 @@ export const POST = async function(request: NextRequest) {
     // 1. Check if POI is in a group (do this regardless of coordinate source)
     let groupId = null
     let groupMembers = null
+    let currentPoiGroupRole = null // Add this variable to track the current POI's role
     if (attractionId) {
       console.log(`🔍 Checking if POI ${attractionId} is in a group...`)
       try {
         const { data: groupMember, error: groupError } = await supabase
           .schema('core')
           .from('attraction_group_members')
-          .select('group_id')
+          .select('group_id, group_role')
           .eq('attraction_id', attractionId)
           .maybeSingle()
         
@@ -203,12 +204,13 @@ export const POST = async function(request: NextRequest) {
           console.warn('Error checking group membership:', groupError)
         } else if (groupMember && groupMember.group_id) {
           groupId = groupMember.group_id
-          console.log(`✅ POI is in group: ${groupId}`)
+          currentPoiGroupRole = groupMember.group_role // Store the current POI's role
+          console.log(`✅ POI is in group: ${groupId} with role: ${currentPoiGroupRole}`)
           // Fetch all group members
           const { data: members, error: membersError } = await supabase
             .schema('core')
             .from('attraction_group_members')
-            .select('attraction_id')
+            .select('attraction_id, group_role')
             .eq('group_id', groupId)
           
           if (membersError) {
@@ -225,8 +227,15 @@ export const POST = async function(request: NextRequest) {
             if (poisError) {
               console.warn('Error fetching POI data:', poisError)
             } else {
-              groupMembers = pois
-              console.log(`📋 Fetched ${pois?.length || 0} group members:`, pois?.map(p => p.name))
+              // Combine POI data with their group roles
+              groupMembers = pois.map(poi => {
+                const memberInfo = members.find(m => m.attraction_id === poi.id)
+                return {
+                  ...poi,
+                  group_role: memberInfo?.group_role || 'member'
+                }
+              })
+              console.log(`📋 Fetched ${pois?.length || 0} group members:`, groupMembers?.map(p => `${p.name} (${p.group_role})`))
             }
           }
         } else {
@@ -295,10 +304,13 @@ export const POST = async function(request: NextRequest) {
     console.log('- google_place_id:', google_place_id)
     console.log('- lat:', lat)
     console.log('- lng:', lng)
+
+    console.log('🔍 DEBUG - Group members:', groupMembers)
+    console.log('🔍 DEBUG - Current POI group role:', currentPoiGroupRole)
     
-    if (groupMembers && groupMembers.length > 1) {
-      // GROUP POI PROMPT
-      console.log(`🎯 Using GROUP POI prompt for ${groupMembers.length} attractions`)
+    if (groupMembers && groupMembers.length > 1 && currentPoiGroupRole === 'main') {
+      // GROUP POI PROMPT - only for 'main' members
+      console.log(`🎯 Using GROUP POI prompt for ${groupMembers.length} attractions (current POI is main)`)
       prompt = `
     You are a professional travel‑guide assistant with deep expertise in global history, culture, and tourism.
 
@@ -354,7 +366,7 @@ export const POST = async function(request: NextRequest) {
 
           ATTRACTION DATA
 
-          - Name: ${combinedName}
+          - Name: ${name}
           - Location: ${locationDetails}
           - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
           - Authoritative Sources: ${sourcesSection}
