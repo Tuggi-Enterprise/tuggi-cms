@@ -29,9 +29,10 @@ export function getOptimizedGooglePlacesImageUrl(
 
 /**
  * Gets the best available image URL for a POI
- * Prioritizes Google Places optimized URLs over stored image_url
+ * Prioritizes stored image_url for reliability and performance
+ * Falls back to Google Places optimized URLs only when image_url is not available
  * @param poi - POI object with image_url and photos_references
- * @param maxWidth - Maximum width for Google Places images
+ * @param maxWidth - Maximum width for Google Places images (used only as fallback)
  * @returns Best available image URL or null
  */
 export function getBestImageUrl(
@@ -41,16 +42,22 @@ export function getBestImageUrl(
   },
   maxWidth: number = 400
 ): string | null {
-  // First try to use Google Places optimized URL if photo reference is available
-  if (poi.photos_references && poi.photos_references.length > 0) {
+  // First priority: use stored image_url if available (most reliable)
+  if (poi.image_url) {
+    return poi.image_url
+  }
+  
+  // Fallback: try Google Places optimized URL if API key is available
+  const hasApiKey = !!(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY)
+  if (hasApiKey && poi.photos_references && poi.photos_references.length > 0) {
     const optimizedUrl = getOptimizedGooglePlacesImageUrl(poi.photos_references[0], maxWidth)
     if (optimizedUrl) {
       return optimizedUrl
     }
   }
 
-  // Fallback to stored image_url
-  return poi.image_url || null
+  // No image available
+  return null
 }
 
 /**
