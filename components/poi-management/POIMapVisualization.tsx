@@ -9,6 +9,7 @@ import {
   Eye, EyeOff, Filter, Maximize2, Minimize2 
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getThumbnailUrl } from '@/lib/imageUtils'
 
 // POI interface to match existing structure
 interface POI {
@@ -412,9 +413,12 @@ function POIMapContent({
       const infoContent = `
         <div class="p-3 max-w-xs">
           <div class="flex items-start space-x-3">
-            ${poi.image_url ? `
-              <img src="${poi.image_url}" alt="${poi.name}" class="w-20 h-20 rounded-md object-cover flex-shrink-0" loading="lazy" onerror="this.onerror=null; this.src='https://via.placeholder.com/80?text=No+Image'">
-            ` : ''}
+            ${(() => {
+              const thumbnailUrl = getThumbnailUrl(poi)
+              return thumbnailUrl ? `
+                <img src="${thumbnailUrl}" alt="${poi.name}" class="w-20 h-20 rounded-md object-cover flex-shrink-0" loading="lazy" onerror="this.onerror=null; this.src='https://via.placeholder.com/80?text=No+Image'">
+              ` : ''
+            })()}
             <div class="flex-1 min-w-0">
               <h3 class="text-lg font-semibold text-gray-900 mb-1">${poi.name}</h3>
               <p class="text-sm text-gray-600 mb-2">${poi.formatted_address || `${poi.city}, ${poi.country}`}</p>

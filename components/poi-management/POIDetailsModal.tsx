@@ -8,6 +8,7 @@ import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { TriggerPointsManager } from './TriggerPointsManager'
 import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
+import { getFullSizeImageUrl } from '@/lib/imageUtils'
 
 export interface POI {
   id: string
@@ -1512,31 +1513,34 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-4">
                       {/* Image Preview */}
-                      {(poi.image_url || images.length > 0) && (
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Images
-                          </label>
-                          <div className="space-y-4 mr-2">
-                            {poi.image_url && (
-                              <img
-                                src={poi.image_url}
-                                alt={poi.name}
-                                className="w-full h-full object-cover rounded-md border border-gray-200 dark:border-gray-700 max-h-[300px]"
-                                loading="eager"
-                              />
-                            )}
-                            {images.slice(0, 0).map((image, index) => (
-                              <img
-                                key={image.id}
-                                src={image.image_url}
-                                alt={`${poi.name} ${index + 1}`}
-                                className="w-full h-48 object-cover rounded-md border border-gray-200 dark:border-gray-700"
-                              />
-                            ))}
+                      {(() => {
+                        const fullSizeImageUrl = getFullSizeImageUrl(poi)
+                        return (fullSizeImageUrl || images.length > 0) && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              Images
+                            </label>
+                            <div className="space-y-4 mr-2">
+                              {fullSizeImageUrl && (
+                                <img
+                                  src={fullSizeImageUrl}
+                                  alt={poi.name}
+                                  className="w-full h-full object-cover rounded-md border border-gray-200 dark:border-gray-700 max-h-[300px]"
+                                  loading="eager"
+                                />
+                              )}
+                              {images.slice(0, 0).map((image, index) => (
+                                <img
+                                  key={image.id}
+                                  src={image.image_url}
+                                  alt={`${poi.name} ${index + 1}`}
+                                  className="w-full h-48 object-cover rounded-md border border-gray-200 dark:border-gray-700"
+                                />
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )
+                      })()}
 
                       {/* Rating and Status */}
                       <div className="flex justify-between items-start space-x-4">

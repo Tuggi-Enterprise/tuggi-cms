@@ -11,6 +11,7 @@ import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
 import { POIMapVisualization } from '@/components/poi-management/POIMapVisualization'
+import { getThumbnailUrl } from '@/lib/imageUtils'
 
 
 interface POIStats {
@@ -952,19 +953,23 @@ function POIListWithSearchParams() {
                         onChange={() => togglePOISelection(poi.id)}
                         className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue mt-1 flex-shrink-0"
                       />
-                      {poi.image_url && (
-                        <div className="relative h-16 w-16 rounded-lg overflow-hidden flex-shrink-0">
-                          <Image
-                            src={poi.image_url}
-                            alt={poi.name}
-                            fill
-                            className="object-cover"
-                            sizes="64px"
-                            quality={85}
-                            priority={true}
-                          />
-                        </div>
-                      )}
+                      {(() => {
+                        const thumbnailUrl = getThumbnailUrl(poi)
+                        return thumbnailUrl && (
+                          <div className="relative h-16 w-16 rounded-lg overflow-hidden flex-shrink-0">
+                            <Image
+                              src={thumbnailUrl}
+                              alt={poi.name}
+                              fill
+                              className="object-cover"
+                              sizes="64px"
+                              quality={85}
+                              priority={false}
+                              loading="lazy"
+                            />
+                          </div>
+                        )
+                      })()}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
