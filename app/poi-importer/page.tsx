@@ -1040,33 +1040,54 @@ export default function POIImporterPage() {
 
         if (coordinateError) throw coordinateError
 
-                // Store images using your existing system (download and store in bucket)
+                // Use direct Google Places API URLs instead of processing in Vercel
         if (photoReferences.length > 0) {
           try {
-            setImportStatus(`Downloading and storing primary image for ${placeData.name}...`)
+            setImportStatus(`Setting up direct Google image URL for ${placeData.name}...`)
             
-            const { data: { session } } = await supabase.auth.getSession()
-            const authToken = session?.access_token
-            
-            const imageResponse = await fetch(
-              `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/store-poi-images`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${authToken}`,
-                  'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-                },
-                body: JSON.stringify({
-                  attractionId: newAttraction.id,
-                  googlePlaceId: placeData.place_id,
-                  photoReferences: photoReferences,
-                  attractionName: placeData.name
-                })
-              }
-            )
+            // Generate direct Google Places API URL for the primary image
+            const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+            if (googleApiKey) {
+              // Use 800px width for main images (good quality without being too large)
+              const directImageUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photoReferences[0]}&key=${googleApiKey}`
+              
+              // Update attraction with direct Google image URL
+              await supabase
+                .schema('core')
+                .from('attractions')
+                .update({ image_url: directImageUrl })
+                .eq('id', newAttraction.id)
+              
+              imageUrl = directImageUrl
+              console.log(`✅ Set direct Google image URL for ${placeData.name}: ${directImageUrl}`)
+              
+              // Store photo reference for future use
+              await storePhotoReferencesOnly(newAttraction.id, photoReferences)
+            } else {
+              console.warn('Google API key not available for direct image URLs')
+              // Fallback to old system if no API key
+              const { data: { session } } = await supabase.auth.getSession()
+              const authToken = session?.access_token
+              
+              const imageResponse = await fetch(
+                 `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/store-poi-images`,
+                 {
+                   method: 'POST',
+                   headers: {
+                     'Content-Type': 'application/json',
+                     'Authorization': `Bearer ${authToken}`,
+                     'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+                   },
+                   body: JSON.stringify({
+                     attractionId: newAttraction.id,
+                     googlePlaceId: placeData.place_id,
+                     photoReferences: photoReferences,
+                     attractionName: placeData.name
+                   })
+                 }
+               )
 
-            if (imageResponse.ok) {
+              if (imageResponse.ok) {
               const imageResult = await imageResponse.json()
               console.log(`Image processing result for ${placeData.name}:`, imageResult)
               
@@ -1104,6 +1125,7 @@ export default function POIImporterPage() {
               
               // Fallback: Store photo references in database for later processing
               await storePhotoReferencesOnly(newAttraction.id, photoReferences)
+              }
             }
           } catch (imageError) {
             console.error('Error storing images:', imageError)

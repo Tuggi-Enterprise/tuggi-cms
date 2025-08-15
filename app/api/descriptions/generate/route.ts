@@ -49,6 +49,7 @@ export const POST = async function(request: NextRequest) {
       website,
       formatted_phone_number,
       photos_references,
+      photo_references, // Array of Google photo references
 
       image_url,
       id: attractionId, // allow id to be passed in body
@@ -126,8 +127,20 @@ export const POST = async function(request: NextRequest) {
     // Ensure businessInfo is always an array
     const safeBusinessInfo = Array.isArray(businessInfo) ? businessInfo : []
 
-    // Photo information
-    const photoInfo = photos_references > 0 ? `${photos_references} photos available` : 'No photos available'
+    // Photo information - prioritize direct Google photo references
+    let photoInfo = 'No photos available'
+    let thumbnailUrl = null
+    
+    if (photo_references && Array.isArray(photo_references) && photo_references.length > 0) {
+      photoInfo = `${photo_references.length} photos available`
+      // Generate direct Google thumbnail URL (300px width for thumbnails)
+      const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+      if (googleApiKey) {
+        thumbnailUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=300&photo_reference=${photo_references[0]}&key=${googleApiKey}`
+      }
+    } else if (photos_references > 0) {
+      photoInfo = `${photos_references} photos available`
+    }
 
     // Use provided coordinates first, then fetch from DB if not provided
     let lat = providedLat
@@ -272,6 +285,7 @@ export const POST = async function(request: NextRequest) {
     let combinedTypes = Array.isArray(google_types) ? google_types : []
     let combinedRating = rating || 'Not available'
     let combinedPhotos = photos_references || 0
+    let combinedPhotoReferences = Array.isArray(photo_references) ? photo_references : []
     let combinedReferenceLinks = Array.isArray(reference_links) ? reference_links : []
     if (groupMembers && groupMembers.length > 1) {
       console.log(`🔗 Combining data for ${groupMembers.length} group members`)
@@ -280,6 +294,7 @@ export const POST = async function(request: NextRequest) {
       const ratings = groupMembers.map(p => p.rating).filter(Boolean)
       combinedRating = ratings.length > 0 ? ratings.join(', ') : 'Not available'
       combinedPhotos = groupMembers.reduce((sum, p) => sum + (p.photos_references?.length || 0), 0)
+      combinedPhotoReferences = groupMembers.flatMap(p => Array.isArray(p.photo_references) ? p.photo_references : [])
       combinedReferenceLinks = groupMembers.flatMap(p => Array.isArray(p.reference_links) ? p.reference_links : [])
       console.log(`📝 Combined name: ${combinedName}`)
       console.log(`📝 Combined types: ${combinedTypes.join(', ')}`)
@@ -297,7 +312,9 @@ export const POST = async function(request: NextRequest) {
     console.log('- combinedTypes:', combinedTypes)
     console.log('- combinedRating:', combinedRating)
     console.log('- combinedPhotos:', combinedPhotos)
+    console.log('- combinedPhotoReferences:', combinedPhotoReferences)
     console.log('- combinedReferenceLinks:', combinedReferenceLinks)
+    console.log('- thumbnailUrl:', thumbnailUrl)
     console.log('- locationDetails:', locationDetails)
     console.log('- safeBusinessInfo:', safeBusinessInfo)
     console.log('- sourcesSection:', sourcesSection)
@@ -475,7 +492,8 @@ export const POST = async function(request: NextRequest) {
     }
 
     return NextResponse.json({
-      description: generatedText.trim()
+      description: generatedText.trim(),
+      thumbnailUrl: thumbnailUrl // Direct Google Places thumbnail URL
     })
 
   } catch (error) {
