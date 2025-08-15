@@ -5,7 +5,7 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye, Trash2, MapPin, Calendar, Star, Users, Clock, ChevronLeft, ChevronRight, List, Map } from 'lucide-react'
 import Link from 'next/link'
-import Image from 'next/image'
+
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
@@ -957,15 +957,15 @@ function POIListWithSearchParams() {
                         const thumbnailUrl = getThumbnailUrl(poi)
                         return thumbnailUrl && (
                           <div className="relative h-16 w-16 rounded-lg overflow-hidden flex-shrink-0">
-                            <Image
+                            <img
                               src={thumbnailUrl}
                               alt={poi.name}
-                              fill
-                              className="object-cover"
-                              sizes="64px"
-                              quality={85}
-                              priority={false}
+                              className="w-full h-full object-cover"
                               loading="lazy"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement
+                                target.style.display = 'none'
+                              }}
                             />
                           </div>
                         )
