@@ -1,144 +1,140 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import crypto from 'crypto';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+const VERIFY_BATCH_SIZE = parseInt(process.env.VERIFY_BATCH_SIZE || '20');
 
 export async function POST(request: NextRequest) {
   try {
-    const { batch = 20, cursor } = await request.json();
-    
-    // Get verification settings
-    const { data: settings } = await supabase
-      .schema('core')
-      .from('verify_settings')
-      .select('value')
-      .eq('key', 'batch_size')
-      .single();
-    
-    const batchSize = settings?.value || batch;
-    
-    // Build query to find descriptions that need verification
+    const { batch = VERIFY_BATCH_SIZE, cursor } = await request.json();
+
+    console.log(`🔍 Buscando descrições originais para verificação (batch: ${batch}, cursor: ${cursor})`);
+
+    // Buscar descrições originais que precisam de verificação
     let query = supabase
       .schema('core')
       .from('attraction_descriptions')
-      .select(`
-        id,
-        description,
-        is_original,
-        description_hash,
-        attraction_id,
-        language
-      `)
+      .select('id, description, attraction_id, description_hash')
       .eq('is_original', true)
-      .eq('language', 'pt-br')
-      .limit(batchSize);
-    
-    // If cursor is provided, use it for pagination
+      .limit(batch);
+
+    // Se há cursor, continuar de onde parou
     if (cursor) {
       query = query.gt('id', cursor);
     }
-    
-    // Get descriptions that need verification
-    const { data: descriptions, error } = await query;
-    
-    if (error) {
-      console.error('Error fetching descriptions:', error);
+
+    const { data: descriptions, error: fetchError } = await query;
+
+    if (fetchError) {
+      console.error('❌ Erro ao buscar descrições:', fetchError);
       return NextResponse.json(
         { error: 'Failed to fetch descriptions' },
         { status: 500 }
       );
     }
-    
+
     if (!descriptions || descriptions.length === 0) {
+      console.log('✅ Nenhuma descrição encontrada para verificação');
       return NextResponse.json({
         scheduled: 0,
         nextCursor: null,
         message: 'No descriptions found for verification'
       });
     }
-    
-    // Calculate hash for each description and filter those that need verification
-    const descriptionsToVerify = descriptions.filter(desc => {
-      if (!desc.description) return false;
-      
-      const currentHash = crypto
-        .createHash('sha256')
-        .update(desc.description)
-        .digest('hex');
-      
-      // Check if we need to verify this description
-      return !desc.description_hash || desc.description_hash !== currentHash;
-    });
-    
-    if (descriptionsToVerify.length === 0) {
-      return NextResponse.json({
-        scheduled: 0,
-        nextCursor: descriptions[descriptions.length - 1]?.id || cursor,
-        message: 'All descriptions are up to date'
-      });
-    }
-    
-    // Update description hashes for the ones we're going to verify
-    const updatePromises = descriptionsToVerify.map(desc => {
-      const hash = crypto
-        .createHash('sha256')
-        .update(desc.description || '')
-        .digest('hex');
-      
-      return supabase
+
+    console.log(`📋 Encontradas ${descriptions.length} descrições para verificação`);
+
+    // Verificar quais descrições já têm scores recentes
+    const descriptionsToProcess = [];
+    const processedDescriptions = [];
+
+    for (const description of descriptions) {
+      // Buscar o score mais recente para esta descrição
+      const { data: latestScore } = await supabase
         .schema('core')
-        .from('attraction_descriptions')
-        .update({ description_hash: hash })
-        .eq('id', desc.id);
-    });
-    
-    await Promise.all(updatePromises);
-    
-    // Schedule verification for each description
-    const verificationPromises = descriptionsToVerify.map(async (desc) => {
+        .from('description_scores')
+        .select('description_hash, created_at')
+        .eq('description_id', description.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      // Se não há score ou o hash mudou, precisa processar
+      if (!latestScore || latestScore.description_hash !== description.description_hash) {
+        descriptionsToProcess.push(description);
+      } else {
+        processedDescriptions.push(description.id);
+      }
+    }
+
+    console.log(`📊 ${descriptionsToProcess.length} descrições precisam de processamento`);
+    console.log(`📊 ${processedDescriptions.length} descrições já estão atualizadas`);
+
+    // Agendar processamento das descrições que precisam (sequencialmente para evitar timeout)
+    const scheduledTasks = [];
+    for (const description of descriptionsToProcess) {
       try {
-        // Call the Supabase Edge Function for verification
+        console.log(`🔄 Processando descrição ${description.id}...`);
+        
         const { data, error } = await supabase.functions.invoke('verify-batch', {
           body: {
-            description_id: desc.id,
-            description: desc.description,
-            attraction_id: desc.attraction_id
+            description_id: description.id,
+            description: description.description,
+            attraction_id: description.attraction_id,
+            force_reprocess: false
           }
         });
-        
+
         if (error) {
-          console.error(`Error scheduling verification for ${desc.id}:`, error);
-          return { success: false, description_id: desc.id, error: error.message };
+          console.error(`❌ Erro ao processar ${description.id}:`, error);
+          scheduledTasks.push({
+            description_id: description.id,
+            success: false,
+            error: error.message
+          });
+        } else {
+          console.log(`✅ Descrição ${description.id} processada com sucesso`);
+          scheduledTasks.push({
+            description_id: description.id,
+            success: true,
+            response: data
+          });
         }
-        
-        return { success: true, description_id: desc.id };
+
+        // Aguardar 2 segundos entre processamentos para evitar rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
       } catch (error) {
-        console.error(`Error scheduling verification for ${desc.id}:`, error);
-        return { success: false, description_id: desc.id, error: 'Unknown error' };
+        console.error(`❌ Erro inesperado ao processar ${description.id}:`, error);
+        scheduledTasks.push({
+          description_id: description.id,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
       }
-    });
-    
-    const results = await Promise.all(verificationPromises);
-    const successful = results.filter(r => r.success).length;
-    const failed = results.filter(r => !r.success).length;
-    
-    // Get next cursor for pagination
-    const nextCursor = descriptions[descriptions.length - 1]?.id || cursor;
-    
+    }
+
+    // Determinar próximo cursor
+    const nextCursor = descriptions.length > 0 ? descriptions[descriptions.length - 1].id : null;
+
+    console.log(`✅ Processadas ${scheduledTasks.filter(t => t.success).length} descrições com sucesso`);
+
     return NextResponse.json({
-      scheduled: successful,
-      failed,
+      scheduled: scheduledTasks.filter(t => t.success).length,
+      failed: scheduledTasks.filter(t => !t.success).length,
       nextCursor,
-      total_processed: descriptions.length,
-      message: `Scheduled ${successful} descriptions for verification${failed > 0 ? `, ${failed} failed` : ''}`
+      total_found: descriptions.length,
+      needs_processing: descriptionsToProcess.length,
+      already_updated: processedDescriptions.length,
+      tasks: scheduledTasks
     });
-    
+
   } catch (error) {
-    console.error('Error in schedule verification:', error);
+    console.error('❌ Erro inesperado:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

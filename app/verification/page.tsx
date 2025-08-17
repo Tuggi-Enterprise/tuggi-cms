@@ -99,32 +99,7 @@ export default function VerificationPage() {
     }
   };
 
-  const handleScheduleVerification = async () => {
-    setProcessing(true);
-    try {
-      const response = await fetch('/api/verify/schedule', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ batch: 20 }),
-      });
 
-      const result = await response.json();
-
-      if (response.ok) {
-        alert(`Scheduled ${result.scheduled} descriptions for verification`);
-        loadDescriptions();
-      } else {
-        alert(`Error: ${result.error}`);
-      }
-    } catch (error) {
-      console.error('Error scheduling verification:', error);
-      alert('Error scheduling verification');
-    } finally {
-      setProcessing(false);
-    }
-  };
 
   const handleReprocess = async (descriptionIds: string[]) => {
     setProcessing(true);
@@ -140,14 +115,41 @@ export default function VerificationPage() {
       const result = await response.json();
 
       if (response.ok) {
-        alert(`Reprocessed ${result.processed} descriptions`);
+        alert(`Reprocessadas ${result.successful} descrições com sucesso${result.failed > 0 ? `, ${result.failed} falharam` : ''}`);
         loadDescriptions();
       } else {
-        alert(`Error: ${result.error}`);
+        alert(`Erro: ${result.error}`);
       }
     } catch (error) {
       console.error('Error reprocessing:', error);
-      alert('Error reprocessing descriptions');
+      alert('Erro ao reprocessar descrições');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleScheduleBatch = async (batchSize: number = 20) => {
+    setProcessing(true);
+    try {
+      const response = await fetch('/api/verify/schedule', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ batch: batchSize }),
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        alert(`Agendadas ${result.scheduled} verificações${result.failed > 0 ? `, ${result.failed} falharam` : ''}\nEncontradas: ${result.total_found}\nPrecisam processamento: ${result.needs_processing}\nJá atualizadas: ${result.already_updated}`);
+        loadDescriptions();
+      } else {
+        alert(`Erro: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error scheduling verification:', error);
+      alert('Erro ao agendar verificação');
     } finally {
       setProcessing(false);
     }
@@ -238,11 +240,25 @@ export default function VerificationPage() {
 
             <div className="flex gap-2">
               <button
-                onClick={handleScheduleVerification}
+                onClick={() => handleScheduleBatch(10)}
                 disabled={processing}
-                className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                className="bg-green-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50"
               >
-                {processing ? 'Processando...' : 'Agendar Verificação'}
+                {processing ? 'Processando...' : 'Agendar 10'}
+              </button>
+              <button
+                onClick={() => handleScheduleBatch(50)}
+                disabled={processing}
+                className="bg-blue-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                {processing ? 'Processando...' : 'Agendar 50'}
+              </button>
+              <button
+                onClick={() => handleScheduleBatch(100)}
+                disabled={processing}
+                className="bg-purple-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
+              >
+                {processing ? 'Processando...' : 'Agendar 100'}
               </button>
             </div>
           </div>

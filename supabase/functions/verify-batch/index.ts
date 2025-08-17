@@ -6,8 +6,9 @@ import crypto from 'https://deno.land/std@0.168.0/node/crypto.ts';
 import { extractClaims } from '../../lib/claims/extract.ts';
 import { checkClaimWithEscalation } from '../../lib/claims/check.ts';
 import { getContextForClaims } from '../../lib/rag/wiki.ts';
+import { getContextFromAttractionSources } from '../../lib/rag/attraction-sources.ts';
 import { evaluateText } from '../../lib/text/evaluate.ts';
-import { computeVerificationScores, determineVerificationStatus } from '../../lib/score/compute.ts';
+import { computeVerificationScores, determineVerificationStatus, getVerificationSettings } from '../../lib/score/compute.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -102,24 +103,76 @@ serve(async (req) => {
 
     // Step 2: Get context for claims
     console.log(`Getting context for ${claimsResult.claims.length} claims`);
-    const context = await getContextForClaims(actualAttractionId, claimsResult.claims.map(c => c.text));
+    
+    // Buscar informações completas da atração (incluindo fontes)
+    const { data: attractionData } = await supabase
+      .schema('core')
+      .from('attractions')
+      .select('name, website, reference_links, city, country')
+      .eq('id', actualAttractionId)
+      .single();
+    
+    const attractionName = attractionData?.name;
+    
+    // Buscar fontes primárias da atração
+    let attractionSources: any[] = [];
+    if (attractionData && (attractionData.website || attractionData.reference_links)) {
+      console.log(`🔍 Buscando fontes primárias: website=${!!attractionData.website}, ref_links=${attractionData.reference_links?.length || 0}`);
+      
+      try {
+        attractionSources = await getContextFromAttractionSources(attractionData, claimsResult.claims.map(c => c.text));
+        console.log(`✅ Encontradas ${attractionSources.length} fontes primárias`);
+      } catch (error) {
+        console.error('❌ Erro ao buscar fontes primárias:', error);
+        // Continuar com fontes externas apenas
+      }
+    }
+    
+    // Limitar claims para evitar timeout (máximo 3 claims por descrição)
+    const claimsToProcess = claimsResult.claims.slice(0, 3);
+    const context = await getContextForClaims(
+      claimsToProcess.map(c => c.text), 
+      attractionName, 
+      attractionSources,
+      { city: attractionData?.city, country: attractionData?.country }
+    );
 
     // Step 3: Check each claim
-    console.log(`Checking ${claimsResult.claims.length} claims`);
+    console.log(`Checking ${claimsToProcess.length} claims with ${context.length} context sources`);
+    console.log(`Context sources: ${context.map(c => c.source).join(', ')}`);
     const checkedClaims = [];
     
-    for (const claim of claimsResult.claims) {
+    for (const claim of claimsToProcess) {
       try {
         // Add delay to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        const checkResult = await checkClaimWithEscalation(claim.text, context);
+        // Convert context array to string for LLM
+        const contextString = context.map(ctx => 
+          `Source: ${ctx.source}\nTitle: ${ctx.title}\nContent: ${ctx.content}\nURL: ${ctx.url || 'N/A'}\n`
+        ).join('\n---\n');
+        
+        const checkResult = await checkClaimWithEscalation(claim.text, contextString);
+        
+        // Extract evidence from context based on claim verification
+        const evidence = context
+          .filter(ctx => ctx.relevance > 0.3) // Only relevant sources
+          .map(ctx => ({
+            source: ctx.source,
+            page_title: ctx.title,
+            url: ctx.url || '',
+            quote: ctx.content?.substring(0, 200) || 'N/A',
+            relevance_score: ctx.relevance || 0.5
+          }))
+          .slice(0, 3); // Limit to 3 evidence items
+        
+        console.log(`✅ Claim verificado: "${claim.text}" - Status: ${checkResult.status}, Evidence: ${evidence.length}`);
         
         checkedClaims.push({
           ...claim,
           status: checkResult.status,
           confidence: checkResult.confidence,
-          evidence: checkResult.evidence,
+          evidence: evidence,
           reasoning: checkResult.reasoning
         });
       } catch (error) {
@@ -141,28 +194,90 @@ serve(async (req) => {
     // Step 5: Compute verification scores
     console.log(`Computing verification scores for description ${description_id}`);
     
-    // Simplified score computation for testing
+    // Calculate real scores based on claims verification
+    const supportedClaims = checkedClaims.filter(c => c.status === 'supported').length;
+    const contradictedClaims = checkedClaims.filter(c => c.status === 'contradicted').length;
+    const notFoundClaims = checkedClaims.filter(c => c.status === 'not_found').length;
+    const totalClaims = checkedClaims.length;
+    
+    // Calculate factuality score (0-100)
+    let factualityScore = 0;
+    if (totalClaims > 0) {
+      const supportedWeight = supportedClaims * 100;
+      const contradictedWeight = contradictedClaims * -50; // Penalize contradicted claims heavily
+      const notFoundWeight = notFoundClaims * 0; // Neutral for not found
+      factualityScore = Math.max(0, Math.min(100, (supportedWeight + contradictedWeight + notFoundWeight) / totalClaims));
+    }
+    
+    // Calculate TTS clarity score based on text evaluation
+    const ttsScore = await textEvaluation.tts_clarity || 75;
+    
+    // Calculate rules score based on text evaluation
+    const rulesScore = await textEvaluation.rules_score || 75;
+    
+    // Coherence score (simplified - based on description length and structure)
+    let coherenceScore = 70; // Base score
+    if (description.length >= 100 && description.length <= 300) {
+      coherenceScore += 20; // Good length
+    } else if (description.length > 300) {
+      coherenceScore += 10; // Acceptable length
+    }
+    
+    // Check for contradictions and issues
+    const flags = [];
+    if (contradictedClaims > 0) {
+      flags.push('contradiction');
+    }
+    if (totalClaims === 0) {
+      flags.push('no_claims_extracted');
+    }
+    if (supportedClaims === 0 && totalClaims > 0) {
+      flags.push('no_supported_claims');
+    }
+    
+    // Calculate overall score using configured weights
+    const settings = await getVerificationSettings();
+    const weights = settings.scorer_weights;
+    
+    const overallScore = Math.round(
+      (factualityScore * weights.factuality) +
+      (coherenceScore * weights.coherence) +
+      (ttsScore * weights.tts_clarity) +
+      (rulesScore * weights.rules)
+    );
+    
     const verificationScores = {
-      score_overall: 75,
+      score_overall: overallScore,
       subscores: {
-        factuality: 80,
-        coherence: 70,
-        tts_clarity: 75,
-        rules: 75
+        factuality: Math.round(factualityScore),
+        coherence: Math.round(coherenceScore),
+        tts_clarity: Math.round(ttsScore),
+        rules: Math.round(rulesScore)
       },
-      flags: [],
-      confidence: 0.8
+      flags,
+      confidence: totalClaims > 0 ? (supportedClaims / totalClaims) : 0,
+      reasoning: {
+        total_claims: totalClaims,
+        supported_claims: supportedClaims,
+        contradicted_claims: contradictedClaims,
+        not_found_claims: notFoundClaims,
+        description_length: description.length,
+        weights_used: weights
+      }
     };
+    
+    console.log(`📊 Calculated scores:`, {
+      overall: overallScore,
+      factuality: factualityScore,
+      supported: supportedClaims,
+      total: totalClaims,
+      flags
+    });
 
     // Step 6: Determine verification status
-    const settings = await getVerificationSettings();
-    
-    // Ensure flags is always an array
-    const flags = verificationScores.flags || [];
-    
     const verificationStatus = determineVerificationStatus(
       verificationScores.subscores.factuality / 100, // Convert from percentage to 0-1
-      flags
+      verificationScores.flags
     );
 
     // Step 7: Save verification score
@@ -222,14 +337,26 @@ serve(async (req) => {
 
                   // Insert evidence for this claim
           if (claim.evidence && claim.evidence.length > 0) {
-            const evidenceData = claim.evidence.map(evidence => ({
-              claim_id: claimData.id,
-              source: evidence.source,
-              page: evidence.page_title,
-              url: evidence.url,
-              quote: evidence.quote,
-              verdict: evidence.relevance_score > 0.7 ? 'supported' : 'not_found'
-            }));
+            console.log(`💾 Salvando ${claim.evidence.length} evidências para claim: ${claim.text}`);
+            
+            const evidenceData = claim.evidence.map(evidence => {
+              // Determine verdict based on claim status and relevance
+              let verdict = 'not_found';
+              if (claim.status === 'supported' && evidence.relevance_score > 0.5) {
+                verdict = 'supported';
+              } else if (claim.status === 'contradicted') {
+                verdict = 'contradicted';
+              }
+              
+              return {
+                claim_id: claimData.id,
+                source: evidence.source || 'unknown',
+                page: evidence.page_title || evidence.title || 'N/A',
+                url: evidence.url || '',
+                quote: evidence.quote ? evidence.quote.substring(0, 200) : 'N/A',
+                verdict: verdict
+              };
+            });
 
             const { error: evidenceError } = await supabase
               .schema('core')
@@ -259,7 +386,9 @@ serve(async (req) => {
         score_id: scoreData.id,
         score_overall: verificationScores.score_overall,
         subscores: verificationScores.subscores,
-        claims_processed: checkedClaims.length
+        claims_processed: checkedClaims.length,
+        reasoning: verificationScores.reasoning,
+        flags: verificationScores.flags
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
