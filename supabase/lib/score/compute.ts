@@ -118,12 +118,12 @@ export async function computeVerificationScores(
   }
 }
 
-export function determineVerificationStatus(
+export async function determineVerificationStatus(
   factualityScore: number,
   flags: string[]
-): 'pending' | 'approved' | 'needs_review' | 'rejected' {
+): Promise<'pending' | 'approved' | 'needs_review' | 'rejected'> {
   try {
-    const settings = getDefaultSettings();
+    const settings = await getDefaultSettings();
     
     // Convert factuality score to percentage
     const factualityPercent = factualityScore * 100;

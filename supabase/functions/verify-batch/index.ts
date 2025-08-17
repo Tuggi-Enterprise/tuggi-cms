@@ -134,7 +134,8 @@ serve(async (req) => {
       claimsToProcess.map(c => c.text), 
       attractionName, 
       attractionSources,
-      { city: attractionData?.city, country: attractionData?.country }
+      { city: attractionData?.city, country: attractionData?.country },
+      supabase
     );
 
     // Step 3: Check each claim
@@ -275,7 +276,7 @@ serve(async (req) => {
     });
 
     // Step 6: Determine verification status
-    const verificationStatus = determineVerificationStatus(
+    const verificationStatus = await determineVerificationStatus(
       verificationScores.subscores.factuality / 100, // Convert from percentage to 0-1
       verificationScores.flags
     );

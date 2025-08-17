@@ -2,7 +2,7 @@
 import { searchCountrySources, getCountryFromLocation, type SourceResult } from './country-sources.ts';
 
 // Função para buscar fontes dinâmicas do país
-async function searchDynamicCountrySources(countryCode: string, queries: string[]): Promise<any[]> {
+async function searchDynamicCountrySources(countryCode: string, queries: string[], supabase: any): Promise<any[]> {
   try {
     console.log(`🔍 Buscando fontes dinâmicas para país: ${countryCode}`);
     
@@ -47,30 +47,35 @@ async function searchDynamicCountrySources(countryCode: string, queries: string[
       for (const source of sources.slice(0, 5)) { // Limitar a 5 fontes por query
         try {
           const config = source.source_search_configs;
-          if (!config) continue;
+          if (!config || !config.query_template) {
+            console.log(`⚠️ Pulando ${source.source_name}: configuração inválida`);
+            continue;
+          }
           
           // Construir URL de busca
           const searchUrl = `${source.base_url}${source.search_endpoint}${config.query_template.replace('{query}', encodeURIComponent(query))}`;
           
-          console.log(`🔗 Buscando em: ${source.source_name} - ${searchUrl}`);
+          console.log(`🔗 Buscando em: ${source.source_name}`);
           
           // Simular resultado (em produção, faria HTTP request)
           const mockResult = {
             source: source.source_name,
             title: `${source.source_name} - ${query}`,
-            content: `Resultado da busca por "${query}" em ${source.source_name}`,
+            content: `Resultado da busca por "${query}" em ${source.source_name}. Esta é uma simulação de conteúdo relevante encontrado na fonte oficial.`,
             url: searchUrl,
             relevance: 0.7 + (Math.random() * 0.2), // Relevância entre 0.7-0.9
             priority: source.priority
           };
           
           results.push(mockResult);
+          console.log(`✅ ${source.source_name}: resultado adicionado`);
           
           // Rate limiting básico
-          await new Promise(resolve => setTimeout(resolve, 1000 / config.rate_limit_rps));
+          await new Promise(resolve => setTimeout(resolve, Math.max(100, 1000 / config.rate_limit_rps)));
           
         } catch (error) {
-          console.error(`Error searching source ${source.source_name}:`, error);
+          console.warn(`⚠️ Falha em ${source.source_name}: ${error.message}`);
+          // Continuar com a próxima fonte sem interromper
         }
       }
     }
@@ -191,15 +196,15 @@ async function getWikipediaPage(pageId: number): Promise<WikiPageContent | null>
     const url = `https://pt.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=true&explaintext=true&pageids=${pageId}&format=json`;
     
     const response = await fetch(url, {
-      headers: {
+        headers: {
         'User-Agent': 'TuggiApp/1.0 (contact@tuggi.app)'
       }
     });
-
+    
     if (!response.ok) {
       throw new Error(`Wikipedia API error: ${response.status}`);
     }
-
+    
     const data = await response.json();
     const page = data.query?.pages?.[pageId];
 
@@ -244,20 +249,25 @@ async function searchWikidata(query: string): Promise<WikidataResult[]> {
       }
       LIMIT 5
     `;
-
+    
     const url = `https://query.wikidata.org/sparql?query=${encodeURIComponent(sparqlQuery)}&format=json`;
     
     const response = await fetch(url, {
-      headers: {
+        headers: {
         'User-Agent': 'TuggiApp/1.0 (contact@tuggi.app)',
         'Accept': 'application/sparql-results+json'
-      }
+      },
+      signal: AbortSignal.timeout(10000) // 10 segundos de timeout
     });
-
+    
     if (!response.ok) {
+      if (response.status === 504 || response.status === 503 || response.status === 502) {
+        console.warn(`Wikidata SPARQL temporarily unavailable (${response.status}), skipping...`);
+        return [];
+      }
       throw new Error(`Wikidata API error: ${response.status}`);
     }
-
+    
     const data = await response.json();
     const results: WikidataResult[] = [];
 
@@ -298,12 +308,17 @@ async function getWikidataClaims(entityId: string): Promise<any[]> {
     const url = `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${entityId}&format=json&props=claims`;
     
     const response = await fetch(url, {
-      headers: {
+        headers: {
         'User-Agent': 'TuggiApp/1.0 (contact@tuggi.app)'
-      }
+      },
+      signal: AbortSignal.timeout(8000) // 8 segundos de timeout
     });
-
+    
     if (!response.ok) {
+      if (response.status === 504 || response.status === 503 || response.status === 502) {
+        console.warn(`Wikidata entity API temporarily unavailable (${response.status}), skipping...`);
+        return [];
+      }
       throw new Error(`Wikidata API error: ${response.status}`);
     }
 
@@ -328,7 +343,8 @@ export async function getContextForClaims(
   claims: string[], 
   attractionName?: string,
   attractionSources?: any[],
-  attractionInfo?: { city?: string; country?: string }
+  attractionInfo?: { city?: string; country?: string },
+  supabase?: any
 ): Promise<any[]> {
   const context: any[] = [];
   
@@ -361,36 +377,50 @@ export async function getContextForClaims(
     try {
       const countryCode = getCountryFromLocation(attractionInfo.city || '', attractionInfo.country);
       
-      // Primeiro tentar fontes dinâmicas
-      const dynamicResults = await searchDynamicCountrySources(countryCode, claims.slice(0, 2));
-      
-      if (dynamicResults.length > 0) {
-        console.log(`✅ Encontrados ${dynamicResults.length} resultados de fontes dinâmicas`);
+      // Primeiro tentar fontes dinâmicas (não interromper se falhar)
+      let dynamicResults = [];
+      try {
+        dynamicResults = await searchDynamicCountrySources(countryCode, claims.slice(0, 2), supabase);
         
-        for (const result of dynamicResults) {
-          context.push({
-            source: result.source.toLowerCase().replace(/\s+/g, '_'),
-            title: result.title,
-            content: result.content,
-            url: result.url,
-            relevance: result.relevance * 1.2, // Boost maior para fontes dinâmicas
-            priority: 'official'
-          });
+        if (dynamicResults.length > 0) {
+          console.log(`✅ Encontrados ${dynamicResults.length} resultados de fontes dinâmicas`);
+          
+          for (const result of dynamicResults) {
+            context.push({
+              source: result.source.toLowerCase().replace(/\s+/g, '_'),
+              title: result.title,
+              content: result.content,
+              url: result.url,
+              relevance: result.relevance * 1.2, // Boost maior para fontes dinâmicas
+              priority: 'official'
+            });
+          }
         }
-      } else {
-        // Fallback para fontes estáticas
-        console.log(`🔄 Fallback para fontes estáticas`);
-        const countryResults = await searchCountrySources(countryCode, claims.slice(0, 2));
-        
-        for (const result of countryResults) {
-          context.push({
-            source: result.source.toLowerCase().replace(/\s+/g, '_'),
-            title: result.title,
-            content: result.content,
-            url: result.url,
-            relevance: result.relevance * 1.1, // Boost para fontes oficiais
-            priority: 'official'
-          });
+      } catch (error) {
+        console.warn(`⚠️ Fontes dinâmicas falharam para ${countryCode}: ${error.message}`);
+        // Continuar sem interromper
+      }
+      
+      // Se fontes dinâmicas falharam ou não retornaram resultados, usar fallback
+      if (dynamicResults.length === 0) {
+        try {
+          console.log(`🔄 Fallback para fontes estáticas`);
+          const countryResults = await searchCountrySources(countryCode, claims.slice(0, 2));
+          
+          for (const result of countryResults) {
+            context.push({
+              source: result.source.toLowerCase().replace(/\s+/g, '_'),
+              title: result.title,
+              content: result.content,
+              url: result.url,
+              relevance: result.relevance * 1.1, // Boost para fontes oficiais
+              priority: 'official'
+            });
+          }
+          console.log(`✅ Fontes estáticas: ${countryResults.length} resultados`);
+        } catch (error) {
+          console.warn(`⚠️ Fontes estáticas também falharam para ${countryCode}: ${error.message}`);
+          // Continuar sem interromper - outras fontes ainda podem funcionar
         }
       }
     } catch (error) {
@@ -403,8 +433,8 @@ export async function getContextForClaims(
     console.log(`🔍 Complementando com fontes externas (${context.length} contextos primários encontrados)`);
     
     for (const claim of claims) {
+      // Buscar no Wikipedia (não interromper se falhar)
       try {
-        // Buscar no Wikipedia
         const wikiResults = await searchWikipedia(claim);
         for (const result of wikiResults) {
           context.push({
@@ -416,8 +446,14 @@ export async function getContextForClaims(
             priority: 'secondary'
           });
         }
+        console.log(`✅ Wikipedia: ${wikiResults.length} resultados para "${claim}"`);
+      } catch (error) {
+        console.warn(`⚠️ Wikipedia falhou para "${claim}": ${error.message}`);
+        // Continuar sem interromper
+      }
 
-        // Buscar no Wikidata
+      // Buscar no Wikidata (não interromper se falhar)
+      try {
         const wikidataResults = await searchWikidata(claim);
         for (const result of wikidataResults) {
           context.push({
@@ -430,9 +466,15 @@ export async function getContextForClaims(
             priority: 'secondary'
           });
         }
+        console.log(`✅ Wikidata: ${wikidataResults.length} resultados para "${claim}"`);
+      } catch (error) {
+        console.warn(`⚠️ Wikidata falhou para "${claim}": ${error.message}`);
+        // Continuar sem interromper
+      }
 
-        // Se temos nome da atração, buscar contexto específico
-        if (attractionName) {
+      // Buscar contexto específico da atração (não interromper se falhar)
+      if (attractionName) {
+        try {
           const attractionWikiResults = await searchWikipedia(`${attractionName} ${claim}`);
           for (const result of attractionWikiResults) {
             context.push({
@@ -444,16 +486,26 @@ export async function getContextForClaims(
               priority: 'secondary'
             });
           }
+          console.log(`✅ Wikipedia específico: ${attractionWikiResults.length} resultados para "${attractionName} ${claim}"`);
+        } catch (error) {
+          console.warn(`⚠️ Wikipedia específico falhou para "${attractionName} ${claim}": ${error.message}`);
+          // Continuar sem interromper
         }
-
-      } catch (error) {
-        console.error(`Error getting external context for claim "${claim}":`, error);
       }
     }
   }
 
+  // Resumo das fontes utilizadas
+  const sourcesSummary = context.reduce((acc, ctx) => {
+    acc[ctx.priority] = (acc[ctx.priority] || 0) + 1;
+    return acc;
+  }, {});
+  
+  console.log(`📊 Resumo das fontes encontradas:`, sourcesSummary);
+  console.log(`🎯 Total de contextos coletados: ${context.length}`);
+
   // Ordenar por relevância e prioridade, limitar
-  return context
+  const sortedContext = context
     .sort((a, b) => {
       // Priorizar fontes primárias
       if (a.priority === 'primary' && b.priority !== 'primary') return -1;
@@ -462,6 +514,9 @@ export async function getContextForClaims(
       return b.relevance - a.relevance;
     })
     .slice(0, 15); // Máximo 15 contextos
+
+  console.log(`✅ Contextos finais selecionados: ${sortedContext.length}`);
+  return sortedContext;
 }
 
 function calculateRelevance(claim: string, content: string): number {
