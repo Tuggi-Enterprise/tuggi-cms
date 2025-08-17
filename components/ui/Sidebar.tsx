@@ -18,7 +18,8 @@ import {
   Sun,
   Settings,
   Upload,
-  MessageSquare
+  MessageSquare,
+  CheckCircle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -38,6 +39,11 @@ const navigation = [
     name: 'POI Management',
     href: '/pois',
     icon: MapPin,
+  },
+  {
+    name: 'Verification',
+    href: '/verification',
+    icon: CheckCircle,
   },
   {
     name: 'Reviews',
