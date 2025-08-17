@@ -53,7 +53,7 @@ export default function VerificationPage() {
         .schema('core')
         .from('v_descriptions_with_last_score')
         .select('*')
-        .order('last_processed_at', { ascending: false });
+        .order('last_verified_at', { ascending: false, nullsLast: true });
 
       // Apply filters
       if (filters.verification_status !== 'all') {
@@ -75,7 +75,7 @@ export default function VerificationPage() {
       // Apply score range filter
       if (filters.score_range !== 'all') {
         filteredData = filteredData.filter(desc => {
-          const score = desc.last_overall_score || 0;
+          const score = (desc.last_score_overall || 0) / 100; // Convert from 0-100 to 0-1
           switch (filters.score_range) {
             case 'excellent':
               return score >= 0.9;
@@ -206,7 +206,7 @@ export default function VerificationPage() {
               >
                 <option value="all">Todos os Status</option>
                 <option value="pending">Pendente</option>
-                <option value="verified">Verificado</option>
+                <option value="approved">Aprovado</option>
                 <option value="needs_review">Revisão Necessária</option>
                 <option value="rejected">Rejeitado</option>
               </select>
@@ -315,7 +315,7 @@ export default function VerificationPage() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {descriptions.map((description) => (
-                    <tr key={description.id} className="hover:bg-gray-50">
+                    <tr key={description.description_id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
                           <div className="text-sm font-medium text-gray-900">

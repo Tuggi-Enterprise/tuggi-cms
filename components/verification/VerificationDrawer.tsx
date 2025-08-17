@@ -179,6 +179,8 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
         return 'text-red-600 bg-red-100';
       case 'not_found':
         return 'text-gray-600 bg-gray-100';
+      case 'needs_review':
+        return 'text-yellow-600 bg-yellow-100';
       default:
         return 'text-gray-600 bg-gray-100';
     }
@@ -192,6 +194,8 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
         return 'Contradito';
       case 'not_found':
         return 'Não Encontrado';
+      case 'needs_review':
+        return 'Revisão Necessária';
       default:
         return 'Desconhecido';
     }
