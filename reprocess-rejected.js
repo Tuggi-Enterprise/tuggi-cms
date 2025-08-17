@@ -63,8 +63,8 @@ async function reprocessRejectedItems() {
 
     console.log(`📊 Encontrados ${processedItems.length} itens rejeitados`);
 
-    // 2. Processar em lotes de 50
-    const BATCH_SIZE = 50;
+    // 2. Processar em lotes de 5 (teste)
+    const BATCH_SIZE = 5;
     const totalBatches = Math.ceil(processedItems.length / BATCH_SIZE);
     
     console.log(`📦 Processando em ${totalBatches} lotes de ${BATCH_SIZE} itens cada\n`);
@@ -98,17 +98,56 @@ async function reprocessRejectedItems() {
           console.log(`   📄 Descrição: "${item.description.substring(0, 80)}..."`);
           console.log(`   📊 Score atual: ${oldScore}% | Status: ${oldStatus}`);
           
-          const { data, error } = await supabase.functions.invoke('verify-batch', {
-            body: {
-              description_id: item.id,
-              description: item.description,
-              attraction_id: item.attraction_id,
-              force_reprocess: true
+          // Retry logic para erro 429
+          let data, error;
+          let retryCount = 0;
+          const maxRetries = 3;
+          
+          while (retryCount <= maxRetries) {
+            const result = await supabase.functions.invoke('verify-batch', {
+              body: {
+                description_id: item.id,
+                description: item.description,
+                attraction_id: item.attraction_id,
+                force_reprocess: true
+              }
+            });
+            
+            data = result.data;
+            error = result.error;
+            
+            // Se não há erro ou não é 429, sair do loop
+            if (!error || !error.message?.includes('429')) {
+              break;
             }
-          });
+            
+            retryCount++;
+            if (retryCount <= maxRetries) {
+              const waitTime = Math.pow(2, retryCount) * 60000; // Exponential backoff: 2min, 4min, 8min
+              console.log(`   ⏳ Erro 429 detectado. Retry ${retryCount}/${maxRetries} em ${waitTime/60000} minutos...`);
+              console.log(`   ⏸️  Processamento pausado. Aguardando quota da API...`);
+              
+              // Mostrar countdown
+              let remainingTime = waitTime;
+              const countdownInterval = setInterval(() => {
+                remainingTime -= 10000; // 10 segundos
+                const minutes = Math.floor(remainingTime / 60000);
+                const seconds = Math.floor((remainingTime % 60000) / 1000);
+                process.stdout.write(`\r   ⏳ Aguardando: ${minutes}m ${seconds}s restantes...`);
+                
+                if (remainingTime <= 0) {
+                  clearInterval(countdownInterval);
+                  console.log('\n   🔄 Retomando processamento...');
+                }
+              }, 10000);
+              
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+              clearInterval(countdownInterval);
+            }
+          }
 
           if (error) {
-            console.error(`   ❌ Erro: ${error.message}`);
+            console.error(`   ❌ Erro após ${retryCount} tentativas: ${error.message}`);
             batchFailed++;
           } else {
             const newScore = data.score_overall || 0;

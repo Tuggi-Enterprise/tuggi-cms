@@ -11,6 +11,7 @@ import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
 import { POIMapVisualization } from '@/components/poi-management/POIMapVisualization'
+import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getThumbnailUrl } from '@/lib/imageUtils'
 
 
@@ -1099,6 +1100,13 @@ function POIListWithSearchParams() {
                             Audio
                           </span>
                         </div>
+                        
+                        {/* Verification Badge */}
+                        <VerificationBadge 
+                          attractionId={poi.id}
+                          size="sm"
+                          showScore={true}
+                        />
                       </div>
                       
                       {/* Group Status */}

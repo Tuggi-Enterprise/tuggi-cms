@@ -8,6 +8,7 @@ import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { TriggerPointsManager } from './TriggerPointsManager'
 import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
+import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getFullSizeImageUrl } from '@/lib/imageUtils'
 
 export interface POI {
@@ -1780,7 +1781,28 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   </div>
                 </div>
 
-
+                {/* Verification Section */}
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center justify-between mb-3">
+                    <h5 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                      Factual Verification Status
+                    </h5>
+                    <VerificationBadge 
+                      attractionId={poi.id}
+                      size="md"
+                      showScore={true}
+                      showVerifyButton={true}
+                      onVerificationComplete={() => {
+                        // Refresh modal data if needed
+                        console.log('Verification completed for POI:', poi.id);
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    Automatic verification checks factual claims against authoritative sources (Wikipedia, IPHAN, UNESCO).
+                    Only original Portuguese descriptions are verified.
+                  </p>
+                </div>
 
                 {/* Description Editor */}
                 <div className="space-y-4">
