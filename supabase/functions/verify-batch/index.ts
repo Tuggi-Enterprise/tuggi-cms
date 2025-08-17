@@ -208,21 +208,40 @@ serve(async (req) => {
       const contradictedWeight = contradictedClaims * -50; // Penalize contradicted claims heavily
       const notFoundWeight = notFoundClaims * 0; // Neutral for not found
       factualityScore = Math.max(0, Math.min(100, (supportedWeight + contradictedWeight + notFoundWeight) / totalClaims));
+    } else {
+      // If no claims extracted, give a neutral score based on text quality
+      factualityScore = 50; // Neutral score when no claims to verify
     }
     
     // Calculate TTS clarity score based on text evaluation
-    const ttsScore = await textEvaluation.tts_clarity || 75;
+    const ttsScore = Math.round((textEvaluation.tts_clarity || 0.75) * 100);
     
     // Calculate rules score based on text evaluation
-    const rulesScore = await textEvaluation.rules_score || 75;
+    const rulesScore = Math.round((textEvaluation.rules_score || 0.75) * 100);
     
-    // Coherence score (simplified - based on description length and structure)
+    // Coherence score (more dynamic based on text evaluation)
     let coherenceScore = 70; // Base score
+    
+    // Adjust based on description length
     if (description.length >= 100 && description.length <= 300) {
       coherenceScore += 20; // Good length
     } else if (description.length > 300) {
       coherenceScore += 10; // Acceptable length
+    } else if (description.length < 50) {
+      coherenceScore -= 20; // Too short
     }
+    
+    // Adjust based on text evaluation issues
+    if (textEvaluation.issues && textEvaluation.issues.length > 0) {
+      coherenceScore -= Math.min(20, textEvaluation.issues.length * 5); // Penalize issues
+    }
+    
+    // Bonus for good structure
+    if (textEvaluation.suggestions && textEvaluation.suggestions.length === 0) {
+      coherenceScore += 10; // No suggestions means good structure
+    }
+    
+    coherenceScore = Math.max(0, Math.min(100, coherenceScore));
     
     // Check for contradictions and issues
     const flags = [];
@@ -234,6 +253,24 @@ serve(async (req) => {
     }
     if (supportedClaims === 0 && totalClaims > 0) {
       flags.push('no_supported_claims');
+    }
+    
+    // Add flags based on text evaluation
+    if (textEvaluation.issues && textEvaluation.issues.length > 0) {
+      flags.push(`text_issues:${textEvaluation.issues.length}`);
+    }
+    
+    // Add quality indicators
+    if (factualityScore >= 80) {
+      flags.push('high_factuality');
+    } else if (factualityScore <= 20) {
+      flags.push('low_factuality');
+    }
+    
+    if (coherenceScore >= 80) {
+      flags.push('high_coherence');
+    } else if (coherenceScore <= 20) {
+      flags.push('low_coherence');
     }
     
     // Calculate overall score using configured weights

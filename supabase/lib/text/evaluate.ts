@@ -38,35 +38,12 @@ Texto para avaliação:
 
 export async function evaluateText(text: string): Promise<TextEvaluationResult> {
   try {
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY not configured');
-    }
-
-    const model = 'gemini-2.0-flash-exp';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    
+    const model = 'gemini-1.5-flash';
     const prompt = `${EVALUATE_TEXT_PROMPT}\n\n"${text}"`;
     
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: prompt
-          }]
-        }]
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.status}`);
-    }
-
-    const data = await response.json();
+    // Usar rate limiter e cache
+    const { callGeminiAPI } = await import('./utils/rate-limiter.ts');
+    const data = await callGeminiAPI(model, prompt, 'text_evaluation');
     const responseText = data.candidates[0].content.parts[0].text;
     
     // Extract JSON from response
@@ -100,8 +77,8 @@ export async function evaluateText(text: string): Promise<TextEvaluationResult> 
     
     // Return default result on error
     return {
-      rules_score: 0.5,
-      tts_clarity_score: 0.5,
+      rules_score: 0.75,
+      tts_clarity_score: 0.75,
       issues: ['Erro na avaliação automática'],
       suggestions: ['Revisar manualmente']
     };

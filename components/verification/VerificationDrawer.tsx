@@ -189,32 +189,32 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
   const getStatusText = (status: string) => {
     switch (status) {
       case 'supported':
-        return 'Suportado';
+        return 'Supported';
       case 'contradicted':
-        return 'Contradito';
+        return 'Contradicted';
       case 'not_found':
-        return 'Não Encontrado';
+        return 'Not Found';
       case 'needs_review':
-        return 'Revisão Necessária';
+        return 'Needs Review';
       default:
-        return 'Desconhecido';
+        return 'Unknown';
     }
   };
 
   const getClaimTypeText = (type: string) => {
     switch (type) {
       case 'year':
-        return 'Ano';
+        return 'Year';
       case 'person':
-        return 'Pessoa';
+        return 'Person';
       case 'event':
-        return 'Evento';
+        return 'Event';
       case 'restoration':
-        return 'Restauração';
+        return 'Restoration';
       case 'location':
-        return 'Localização';
+        return 'Location';
       default:
-        return 'Outro';
+        return 'Other';
     }
   };
 
@@ -230,12 +230,12 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
             {/* Header */}
             <div className="px-6 py-4 border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-medium text-gray-900">Verificação de Descrição</h2>
+                <h2 className="text-lg font-medium text-gray-900">Description Verification</h2>
                 <button
                   onClick={onClose}
                   className="text-gray-400 hover:text-gray-500"
                 >
-                  <span className="sr-only">Fechar</span>
+                  <span className="sr-only">Close</span>
                   <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -248,12 +248,12 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
               <div className="px-6 py-4">
                 {/* Description Info */}
                 <div className="mb-6">
-                  <h3 className="text-md font-medium text-gray-900 mb-2">Atração</h3>
+                  <h3 className="text-md font-medium text-gray-900 mb-2">Attraction</h3>
                   <p className="text-sm text-gray-600 mb-4">
                     {description.attraction_name} • {description.city}, {description.country}
                   </p>
                   
-                  <h3 className="text-md font-medium text-gray-900 mb-2">Descrição</h3>
+                  <h3 className="text-md font-medium text-gray-900 mb-2">Description</h3>
                   <div className="bg-gray-50 rounded-md p-3 mb-4">
                     <p className="text-sm text-gray-800">{description.description}</p>
                   </div>
@@ -261,10 +261,10 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
 
                 {/* Scores */}
                 <div className="mb-6">
-                  <h3 className="text-md font-medium text-gray-900 mb-3">Scores de Verificação</h3>
+                  <h3 className="text-md font-medium text-gray-900 mb-3">Verification Scores</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                          <div className="bg-gray-50 rounded-md p-3">
-                       <div className="text-xs text-gray-500">Score Geral</div>
+                       <div className="text-xs text-gray-500">Overall Score</div>
                        <div className={`text-lg font-semibold ${getScoreColor(description.last_score_overall ? description.last_score_overall / 100 : 0)}`}>
                          {description.last_score_overall ? `${description.last_score_overall}%` : 'N/A'}
                        </div>
@@ -274,12 +274,12 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                      </div>
                     
                                          <div className="bg-gray-50 rounded-md p-3">
-                       <div className="text-xs text-gray-500">Factualidade</div>
+                       <div className="text-xs text-gray-500">Factuality</div>
                        <div className="text-lg font-semibold text-gray-600">N/A</div>
                      </div>
                      
                      <div className="bg-gray-50 rounded-md p-3">
-                       <div className="text-xs text-gray-500">Coerência</div>
+                       <div className="text-xs text-gray-500">Coherence</div>
                        <div className="text-lg font-semibold text-gray-600">N/A</div>
                      </div>
                      
@@ -292,12 +292,12 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
 
                 {/* Claims */}
                 <div className="mb-6">
-                  <h3 className="text-md font-medium text-gray-900 mb-3">Claims Verificados</h3>
+                  <h3 className="text-md font-medium text-gray-900 mb-3">Verified Claims</h3>
                   
                   {loading ? (
                     <div className="text-center py-4">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
-                      <p className="mt-2 text-sm text-gray-600">Carregando claims...</p>
+                      <p className="mt-2 text-sm text-gray-600">Loading claims...</p>
                     </div>
                   ) : claims.length === 0 ? (
                     <p className="text-sm text-gray-600">Nenhum claim encontrado</p>
@@ -317,7 +317,7 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                                                            <div className="flex items-center gap-2 text-xs text-gray-500">
                                <span>{getClaimTypeText(claim.claim_type)}</span>
                                <span>•</span>
-                               <span>Confiança: {(claim.weight * 100).toFixed(0)}%</span>
+                               <span>Confidence: {(claim.weight * 100).toFixed(0)}%</span>
                              </div>
                             </div>
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(claim.status)}`}>
@@ -334,11 +334,11 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                 {selectedClaim && (
                   <div className="mb-6">
                                          <h3 className="text-md font-medium text-gray-900 mb-3">
-                       Evidências para: "{selectedClaim.value}"
+                       Evidence for: "{selectedClaim.value}"
                      </h3>
                     
                     {claimEvidence.length === 0 ? (
-                      <p className="text-sm text-gray-600">Nenhuma evidência encontrada</p>
+                      <p className="text-sm text-gray-600">No evidence found</p>
                     ) : (
                       <div className="space-y-3">
                         {claimEvidence.map((evidence) => (
@@ -348,7 +348,7 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                                 <span className="text-xs font-medium text-gray-500 uppercase">{evidence.source}</span>
                                 <span className="text-xs text-gray-400">•</span>
                                                                  <span className="text-xs text-gray-500">
-                                   Veredito: {evidence.verdict}
+                                   Verdict: {evidence.verdict}
                                  </span>
                               </div>
                             </div>
@@ -366,7 +366,7 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                                 rel="noopener noreferrer"
                                 className="text-xs text-blue-600 hover:text-blue-800"
                               >
-                                Ver fonte →
+                                View source →
                               </a>
                             )}
                           </div>
@@ -387,7 +387,7 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                     disabled={actionLoading}
                     className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 disabled:opacity-50"
                   >
-                    {actionLoading ? 'Processando...' : 'Reprocessar'}
+                    {actionLoading ? 'Processing...' : 'Reprocess'}
                   </button>
                 </div>
                 
@@ -397,7 +397,7 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                     disabled={actionLoading}
                     className="px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-100 border border-yellow-300 rounded-md hover:bg-yellow-200 disabled:opacity-50"
                   >
-                    {actionLoading ? 'Processando...' : 'Marcar para Revisão'}
+                    {actionLoading ? 'Processing...' : 'Mark for Review'}
                   </button>
                   
                   <button
@@ -405,7 +405,7 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                     disabled={actionLoading}
                     className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 disabled:opacity-50"
                   >
-                    {actionLoading ? 'Processando...' : 'Aprovar'}
+                    {actionLoading ? 'Processing...' : 'Approve'}
                   </button>
                 </div>
               </div>

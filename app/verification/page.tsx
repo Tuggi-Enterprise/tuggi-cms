@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { VerificationDrawer } from '@/components/verification/VerificationDrawer';
+import { BatchProgressBar } from '@/components/verification/BatchProgressBar';
 import { getScoreDescription, getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute';
 
 const supabase = createClient(
@@ -41,6 +42,7 @@ export default function VerificationPage() {
     is_original: 'all'
   });
   const [processing, setProcessing] = useState(false);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
 
   useEffect(() => {
     loadDescriptions();
@@ -53,7 +55,9 @@ export default function VerificationPage() {
         .schema('core')
         .from('v_descriptions_with_last_score')
         .select('*')
-        .order('last_verified_at', { ascending: false, nullsLast: true });
+        .eq('is_original', true) // Only original descriptions
+        .order('last_verified_at', { ascending: false, nullsLast: true })
+        .limit(1000); // Load up to 1000 items
 
       // Apply filters
       if (filters.verification_status !== 'all') {
@@ -115,20 +119,21 @@ export default function VerificationPage() {
       const result = await response.json();
 
       if (response.ok) {
-        alert(`Reprocessadas ${result.successful} descrições com sucesso${result.failed > 0 ? `, ${result.failed} falharam` : ''}`);
+        alert(`Reprocessed ${result.successful} descriptions successfully${result.failed > 0 ? `, ${result.failed} failed` : ''}`);
         loadDescriptions();
       } else {
         alert(`Erro: ${result.error}`);
       }
     } catch (error) {
       console.error('Error reprocessing:', error);
-      alert('Erro ao reprocessar descrições');
+      alert('Error reprocessing descriptions');
     } finally {
       setProcessing(false);
     }
   };
 
   const handleScheduleBatch = async (batchSize: number = 20) => {
+    console.log(`🚀 Starting batch processing for ${batchSize} items...`);
     setProcessing(true);
     try {
       const response = await fetch('/api/verify/schedule', {
@@ -140,19 +145,35 @@ export default function VerificationPage() {
       });
 
       const result = await response.json();
+      console.log('📡 Full API Response:', result);
 
       if (response.ok) {
-        alert(`Agendadas ${result.scheduled} verificações${result.failed > 0 ? `, ${result.failed} falharam` : ''}\nEncontradas: ${result.total_found}\nPrecisam processamento: ${result.needs_processing}\nJá atualizadas: ${result.already_updated}`);
+        console.log('✅ API Response:', result);
+        // Se retornou um job_id, mostrar barra de progresso
+        if (result.job_id) {
+          console.log(`🎯 Setting currentJobId: ${result.job_id}`);
+          setCurrentJobId(result.job_id);
+          console.log(`Batch job started: ${result.job_id}`);
+        } else {
+          console.log('❌ No job_id returned from API');
+          alert(`Scheduled ${result.scheduled} verifications${result.failed > 0 ? `, ${result.failed} failed` : ''}\nFound: ${result.found_processable}\nEfficiency: ${result.query_efficiency}`);
+        }
         loadDescriptions();
       } else {
-        alert(`Erro: ${result.error}`);
+        console.error('❌ API Error:', result);
+        alert(`Error: ${result.error}`);
       }
     } catch (error) {
       console.error('Error scheduling verification:', error);
-      alert('Erro ao agendar verificação');
+      alert('Error scheduling verification');
     } finally {
       setProcessing(false);
     }
+  };
+
+  const handleJobComplete = () => {
+    setCurrentJobId(null);
+    loadDescriptions();
   };
 
   const openVerificationDrawer = (description: DescriptionWithScore) => {
@@ -176,13 +197,13 @@ export default function VerificationPage() {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'approved':
-        return 'Aprovado';
+        return 'Approved';
       case 'needs_review':
-        return 'Revisão Necessária';
+        return 'Needs Review';
       case 'rejected':
-        return 'Rejeitado';
+        return 'Rejected';
       default:
-        return 'Pendente';
+        return 'Pending';
     }
   };
 
@@ -190,9 +211,9 @@ export default function VerificationPage() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Verificação de Descrições</h1>
+          <h1 className="text-3xl font-bold text-gray-900">Description Verification</h1>
           <p className="mt-2 text-gray-600">
-            Gerencie a verificação factual das descrições originais
+            Manage factual verification of original descriptions
           </p>
         </div>
 
@@ -206,11 +227,11 @@ export default function VerificationPage() {
                 onChange={(e) => setFilters(prev => ({ ...prev, verification_status: e.target.value }))}
                 className="border border-gray-300 rounded-md px-3 py-2 text-sm"
               >
-                <option value="all">Todos os Status</option>
-                <option value="pending">Pendente</option>
-                <option value="approved">Aprovado</option>
-                <option value="needs_review">Revisão Necessária</option>
-                <option value="rejected">Rejeitado</option>
+                <option value="all">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="needs_review">Needs Review</option>
+                <option value="rejected">Rejected</option>
               </select>
 
               {/* Score Filter */}
@@ -219,11 +240,11 @@ export default function VerificationPage() {
                 onChange={(e) => setFilters(prev => ({ ...prev, score_range: e.target.value }))}
                 className="border border-gray-300 rounded-md px-3 py-2 text-sm"
               >
-                <option value="all">Todos os Scores</option>
-                <option value="excellent">Excelente (≥0.9)</option>
-                <option value="good">Bom (0.7-0.9)</option>
-                <option value="acceptable">Aceitável (0.5-0.7)</option>
-                <option value="poor">Ruim (&lt;0.5)</option>
+                <option value="all">All Scores</option>
+                <option value="excellent">Excellent (≥90%)</option>
+                <option value="good">Good (70-89%)</option>
+                <option value="acceptable">Acceptable (50-69%)</option>
+                <option value="poor">Poor (&lt;50%)</option>
               </select>
 
               {/* Original Filter */}
@@ -232,9 +253,9 @@ export default function VerificationPage() {
                 onChange={(e) => setFilters(prev => ({ ...prev, is_original: e.target.value }))}
                 className="border border-gray-300 rounded-md px-3 py-2 text-sm"
               >
-                <option value="all">Todas as Descrições</option>
-                <option value="true">Apenas Originais</option>
-                <option value="false">Apenas Traduzidas</option>
+                <option value="all">All Descriptions</option>
+                <option value="true">Original Only</option>
+                <option value="false">Translated Only</option>
               </select>
             </div>
 
@@ -244,25 +265,40 @@ export default function VerificationPage() {
                 disabled={processing}
                 className="bg-green-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50"
               >
-                {processing ? 'Processando...' : 'Agendar 10'}
+                {processing ? 'Processing...' : 'Schedule 10'}
               </button>
               <button
                 onClick={() => handleScheduleBatch(50)}
                 disabled={processing}
                 className="bg-blue-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
               >
-                {processing ? 'Processando...' : 'Agendar 50'}
+                {processing ? 'Processing...' : 'Schedule 50'}
               </button>
               <button
                 onClick={() => handleScheduleBatch(100)}
                 disabled={processing}
                 className="bg-purple-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
               >
-                {processing ? 'Processando...' : 'Agendar 100'}
+                {processing ? 'Processing...' : 'Schedule 100'}
+              </button>
+              <button
+                onClick={() => handleScheduleBatch(1000)}
+                disabled={processing}
+                className="bg-orange-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
+              >
+                {processing ? 'Processing...' : 'Schedule 1000'}
               </button>
             </div>
           </div>
         </div>
+
+        {/* Progress Bar */}
+        {currentJobId && (
+          <BatchProgressBar 
+            jobId={currentJobId} 
+            onJobComplete={handleJobComplete}
+          />
+        )}
 
         {/* Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -271,19 +307,19 @@ export default function VerificationPage() {
             <p className="text-2xl font-bold text-gray-900">{descriptions.length}</p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">Verificadas</h3>
+            <h3 className="text-sm font-medium text-gray-500">Verified</h3>
             <p className="text-2xl font-bold text-green-600">
               {descriptions.filter(d => d.verification_status === 'approved').length}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">Revisão Necessária</h3>
+            <h3 className="text-sm font-medium text-gray-500">Needs Review</h3>
             <p className="text-2xl font-bold text-yellow-600">
               {descriptions.filter(d => d.verification_status === 'needs_review').length}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">Rejeitadas</h3>
+            <h3 className="text-sm font-medium text-gray-500">Rejected</h3>
             <p className="text-2xl font-bold text-red-600">
               {descriptions.filter(d => d.verification_status === 'rejected').length}
             </p>
@@ -295,11 +331,11 @@ export default function VerificationPage() {
           {loading ? (
             <div className="p-8 text-center">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-2 text-gray-600">Carregando descrições...</p>
+              <p className="mt-2 text-gray-600">Loading descriptions...</p>
             </div>
           ) : descriptions.length === 0 ? (
             <div className="p-8 text-center">
-              <p className="text-gray-600">Nenhuma descrição encontrada</p>
+              <p className="text-gray-600">No descriptions found</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -307,10 +343,10 @@ export default function VerificationPage() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Atração
+                      Attraction
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Descrição
+                      Description
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
@@ -322,10 +358,10 @@ export default function VerificationPage() {
                       Claims
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Última Verificação
+                      Last Verification
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Ações
+                      Actions
                     </th>
                   </tr>
                 </thead>
@@ -347,7 +383,7 @@ export default function VerificationPage() {
                           {description.description}
                         </div>
                         <div className="text-xs text-gray-500 mt-1">
-                          {description.is_original ? 'Original' : 'Traduzida'} • {description.language}
+                          {description.is_original ? 'Original' : 'Translated'} • {description.language}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -384,14 +420,14 @@ export default function VerificationPage() {
                           onClick={() => openVerificationDrawer(description)}
                           className="text-blue-600 hover:text-blue-900 mr-2"
                         >
-                          Verificar
+                          Verify
                         </button>
                                                  <button
                            onClick={() => handleReprocess([description.description_id])}
                           disabled={processing}
                           className="text-gray-600 hover:text-gray-900 disabled:opacity-50"
                         >
-                          Reprocessar
+                          Reprocess
                         </button>
                       </td>
                     </tr>

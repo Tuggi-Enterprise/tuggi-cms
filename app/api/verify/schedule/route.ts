@@ -8,51 +8,108 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const VERIFY_BATCH_SIZE = parseInt(process.env.VERIFY_BATCH_SIZE || '20');
 
+async function createBatchJob(userEmail: string, batchSize: number, totalItems: number, cursorId: string | null) {
+  const { data, error } = await supabase
+    .schema('core')
+    .rpc('create_batch_job', {
+      p_user_email: userEmail,
+      p_batch_size: batchSize,
+      p_total_items: totalItems,
+      p_cursor_id: cursorId
+    });
+
+  if (error) {
+    console.error('Error creating batch job:', error);
+    return null;
+  }
+
+  return data;
+}
+
+async function processDescriptionsInBackground(jobId: string, descriptionsToProcess: any[]) {
+  console.log(`🔄 Starting background processing for job ${jobId} with ${descriptionsToProcess.length} descriptions`);
+  
+  let processedCount = 0;
+  let failedCount = 0;
+  
+  for (const description of descriptionsToProcess) {
+    try {
+      console.log(`🔄 Processing description ${description.id}...`);
+      
+      const { data, error } = await supabase.functions.invoke('verify-batch', {
+        body: {
+          description_id: description.id,
+          description: description.description,
+          attraction_id: description.attraction_id,
+          force_reprocess: false
+        }
+      });
+
+      if (error) {
+        console.error(`❌ Error processing ${description.id}:`, error);
+        failedCount++;
+      } else {
+        console.log(`✅ Description ${description.id} processed successfully`);
+        processedCount++;
+      }
+
+      // Update job progress
+      await supabase
+        .schema('core')
+        .rpc('update_batch_progress', {
+          p_job_id: jobId,
+          p_processed_items: processedCount,
+          p_failed_items: failedCount,
+          p_status: 'running'
+        });
+
+      // Wait 2 seconds between processing to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+    } catch (error) {
+      console.error(`❌ Unexpected error processing ${description.id}:`, error);
+      failedCount++;
+    }
+  }
+
+  // Finalize job
+  console.log(`✅ Background processing completed for job ${jobId}: ${processedCount} processed, ${failedCount} failed`);
+  await supabase
+    .schema('core')
+    .rpc('update_batch_progress', {
+      p_job_id: jobId,
+      p_processed_items: processedCount,
+      p_failed_items: failedCount,
+      p_status: 'completed'
+    });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { batch = VERIFY_BATCH_SIZE, cursor } = await request.json();
 
     console.log(`🔍 Buscando ${batch} descrições que PRECISAM de verificação`);
-    console.log(`🎯 ESTRATÉGIA: Buscar mais itens e filtrar eficientemente`);
+    console.log(`🎯 QUERY DIRETA: Usando função SQL otimizada`);
 
-    // Buscar um número maior de itens para garantir que encontremos suficientes processáveis
-    const searchBatch = Math.max(batch * 3, 50); // Buscar 3x mais para filtrar
-    
-    let query = supabase
+    // Usar função SQL otimizada que busca APENAS itens processáveis
+    const { data: descriptionsToProcess, error: fetchError } = await supabase
       .schema('core')
-      .from('attraction_descriptions')
-      .select(`
-        id, 
-        description, 
-        attraction_id, 
-        description_hash,
-        verification_status,
-        last_score_overall,
-        last_verified_at,
-        language
-      `)
-      .eq('is_original', true)
-      .eq('language', 'pt-br')
-      .neq('verification_status', 'approved') // Excluir aprovadas
-      .limit(searchBatch)
-      .order('updated_at', { ascending: false });
-
-    if (cursor) {
-      query = query.gt('id', cursor);
-    }
-
-    const { data: candidateDescriptions, error: fetchError } = await query;
+      .rpc('get_descriptions_for_batch_processing', {
+        batch_size: batch,
+        cursor_id: cursor,
+        target_language: 'pt-br'
+      });
 
     if (fetchError) {
-      console.error('❌ Erro ao buscar descrições candidatas:', fetchError);
+      console.error('❌ Erro ao buscar descrições:', fetchError);
       return NextResponse.json(
         { error: 'Failed to fetch descriptions' },
         { status: 500 }
       );
     }
 
-    if (!candidateDescriptions || candidateDescriptions.length === 0) {
-      console.log('✅ Nenhuma descrição candidata encontrada');
+    if (!descriptionsToProcess || descriptionsToProcess.length === 0) {
+      console.log('✅ Nenhuma descrição encontrada para verificação');
       return NextResponse.json({
         scheduled: 0,
         nextCursor: null,
@@ -60,118 +117,53 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.log(`📋 Encontradas ${candidateDescriptions.length} descrições candidatas, filtrando...`);
-
-    // Agora filtrar eficientemente para encontrar apenas as que precisam de processamento
-    const descriptionsToProcess = [];
-    const processedDescriptions = [];
-
-    for (const description of candidateDescriptions) {
-      // Parar quando atingir o batch desejado
-      if (descriptionsToProcess.length >= batch) {
-        break;
-      }
-
-      // Buscar o score mais recente
-      const { data: latestScore } = await supabase
-        .schema('core')
-        .from('description_scores')
-        .select('description_hash')
-        .eq('description_id', description.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      // Determinar se precisa processar
-      const needsProcessing = 
-        !latestScore || // Sem score
-        latestScore.description_hash !== description.description_hash || // Hash diferente
-        !['rejected', 'needs_review'].includes(description.verification_status); // Não é rejected/needs_review
-
-      if (needsProcessing) {
-        descriptionsToProcess.push(description);
-      } else {
-        processedDescriptions.push(description.id);
-      }
-    }
-
-    if (descriptionsToProcess.length === 0) {
-      console.log('✅ Nenhuma descrição precisa de processamento após filtragem');
-      return NextResponse.json({
-        scheduled: 0,
-        nextCursor: candidateDescriptions[candidateDescriptions.length - 1]?.id || null,
-        message: 'No descriptions need processing'
-      });
-    }
-
     console.log(`📋 Encontradas ${descriptionsToProcess.length} descrições que PRECISAM de processamento`);
     
-    // Categorizar por tipo (para logs)
-    const priorityDescriptions = []; // Será preenchido durante processamento
-    const updateDescriptions = []; // Será preenchido durante processamento
+    // Categorizar por motivo (para logs)
+    const reasonCounts: Record<string, number> = {};
+    descriptionsToProcess.forEach((d: any) => {
+      reasonCounts[d.needs_processing_reason] = (reasonCounts[d.needs_processing_reason] || 0) + 1;
+    });
 
-    console.log(`📊 ${descriptionsToProcess.length} descrições precisam de processamento`);
-    console.log(`📊 ${processedDescriptions.length} descrições foram puladas (já processadas)`);
-    console.log(`📈 Eficiência: ${candidateDescriptions.length} candidatas → ${descriptionsToProcess.length} processáveis`);
+    console.log('📊 Motivos para processamento:');
+    Object.entries(reasonCounts).forEach(([reason, count]) => {
+      const emoji = {
+        'no_score': '🆕',
+        'hash_changed': '🔄', 
+        'status_allows': '✅'
+      }[reason] || '❓';
+      console.log(`   ${emoji} ${reason}: ${count}`);
+    });
 
-    // Processar todas as descrições encontradas (já filtradas pela query SQL)
-    const scheduledTasks = [];
-    for (const description of descriptionsToProcess) {
-      try {
-        console.log(`🔄 Processando descrição ${description.id}...`);
-        
-        const { data, error } = await supabase.functions.invoke('verify-batch', {
-          body: {
-            description_id: description.id,
-            description: description.description,
-            attraction_id: description.attraction_id,
-            force_reprocess: false
-          }
-        });
-
-        if (error) {
-          console.error(`❌ Erro ao processar ${description.id}:`, error);
-          scheduledTasks.push({
-            description_id: description.id,
-            success: false,
-            error: error.message
-          });
-        } else {
-          console.log(`✅ Descrição ${description.id} processada com sucesso`);
-          scheduledTasks.push({
-            description_id: description.id,
-            success: true,
-            response: data
-          });
-        }
-
-        // Aguardar 2 segundos entre processamentos para evitar rate limiting
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-      } catch (error) {
-        console.error(`❌ Erro inesperado ao processar ${description.id}:`, error);
-        scheduledTasks.push({
-          description_id: description.id,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
+    // Criar job de processamento ANTES de processar
+    const userEmail = 'leandro.ramos@tuggi.app'; // TODO: Get from auth
+    const jobId = await createBatchJob(userEmail, batch, descriptionsToProcess.length, null);
+    
+    if (!jobId) {
+      console.error('❌ Erro ao criar job de processamento');
+      return NextResponse.json(
+        { error: 'Failed to create processing job' },
+        { status: 500 }
+      );
     }
 
-    // Determinar próximo cursor
-    const nextCursor = candidateDescriptions.length > 0 ? candidateDescriptions[candidateDescriptions.length - 1].id : null;
+    console.log(`🎯 Job de processamento criado: ${jobId}`);
 
-    console.log(`✅ Processadas ${scheduledTasks.filter(t => t.success).length} descrições com sucesso`);
+    // Retornar o job_id imediatamente para mostrar a barra de progresso
+    console.log(`🎯 Retornando job_id imediatamente: ${jobId}`);
+    
+    // Processar as descrições em background (não bloquear a resposta)
+    processDescriptionsInBackground(jobId, descriptionsToProcess);
 
     return NextResponse.json({
-      scheduled: scheduledTasks.filter(t => t.success).length,
-      failed: scheduledTasks.filter(t => !t.success).length,
-      nextCursor,
-      total_candidates: candidateDescriptions.length,
-      needs_processing: descriptionsToProcess.length,
-      already_updated: processedDescriptions.length,
-      efficiency: `${candidateDescriptions.length} → ${descriptionsToProcess.length}`,
-      tasks: scheduledTasks
+      job_id: jobId,
+      scheduled: 0, // Será atualizado durante o processamento
+      failed: 0,    // Será atualizado durante o processamento
+      nextCursor: null,
+      found_processable: descriptionsToProcess.length,
+      reason_breakdown: reasonCounts,
+      query_efficiency: '100% (direct SQL query)',
+      message: 'Processing started in background'
     });
 
   } catch (error) {

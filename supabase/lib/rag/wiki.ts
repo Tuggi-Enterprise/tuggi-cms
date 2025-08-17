@@ -57,18 +57,8 @@ async function searchDynamicCountrySources(countryCode: string, queries: string[
           
           console.log(`🔗 Buscando em: ${source.source_name}`);
           
-          // Simular resultado (em produção, faria HTTP request)
-          const mockResult = {
-            source: source.source_name,
-            title: `${source.source_name} - ${query}`,
-            content: `Resultado da busca por "${query}" em ${source.source_name}. Esta é uma simulação de conteúdo relevante encontrado na fonte oficial.`,
-            url: searchUrl,
-            relevance: 0.7 + (Math.random() * 0.2), // Relevância entre 0.7-0.9
-            priority: source.priority
-          };
-          
-          results.push(mockResult);
-          console.log(`✅ ${source.source_name}: resultado adicionado`);
+          // TEMPORARIAMENTE DESABILITADO: Buscas dinâmicas precisam de implementação real
+          console.log(`⚠️ ${source.source_name}: busca dinâmica desabilitada (mock removido)`);
           
           // Rate limiting básico
           await new Promise(resolve => setTimeout(resolve, Math.max(100, 1000 / config.rate_limit_rps)));
@@ -256,7 +246,7 @@ async function searchWikidata(query: string): Promise<WikidataResult[]> {
         headers: {
         'User-Agent': 'TuggiApp/1.0 (contact@tuggi.app)',
         'Accept': 'application/sparql-results+json'
-      },
+        },
       signal: AbortSignal.timeout(10000) // 10 segundos de timeout
     });
     

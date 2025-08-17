@@ -55,12 +55,12 @@ export async function checkClaimWithEscalation(
     }
 
     // First attempt with Gemini Flash
-    const result = await checkClaimWithModel(claim, context, 'gemini-2.0-flash-exp', apiKey);
+    const result = await checkClaimWithModel(claim, context, 'gemini-1.5-flash', apiKey);
     
     // Escalate to Gemini Pro if confidence is low
     if (result.confidence < escalateThreshold) {
       console.log(`Escalating claim "${claim}" to Gemini Pro (confidence: ${result.confidence})`);
-      const escalatedResult = await checkClaimWithModel(claim, context, 'gemini-2.0-pro-exp', apiKey);
+      const escalatedResult = await checkClaimWithModel(claim, context, 'gemini-1.5-pro', apiKey);
       escalatedResult.escalated = true;
       return escalatedResult;
     }
