@@ -156,6 +156,10 @@ serve(async (req) => {
 
     // Step 6: Determine verification status
     const settings = await getVerificationSettings();
+    
+    // Ensure flags is always an array
+    const flags = verificationScores.flags || [];
+    
     const verificationStatus = determineVerificationStatus(
       verificationScores.subscores.factuality / 100, // Convert from percentage to 0-1
       flags
@@ -163,9 +167,6 @@ serve(async (req) => {
 
     // Step 7: Save verification score
     console.log(`Saving verification score for description ${description_id}`);
-    
-    // Ensure flags is always an array
-    const flags = verificationScores.flags || [];
     
     const { data: scoreData, error: scoreError } = await supabase
       .schema('core')

@@ -11,28 +11,31 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function testVerification() {
-  console.log('🔍 Testando verificação com descrição real...');
+  console.log('🔍 Testando verificação com descrição específica...');
   
   try {
-    // 1. Buscar uma descrição original para testar
+    // Usar uma descrição específica que sabemos que tem texto válido
+    const descriptionId = '64f278e6-f536-45d0-a3ca-777b6549ba92';
+    
+    // 1. Buscar a descrição específica
     const { data: descriptions, error: fetchError } = await supabase
       .schema('core')
       .from('attraction_descriptions')
       .select('id, description, attraction_id, is_original')
-      .eq('is_original', true)
-      .limit(1);
+      .eq('id', descriptionId)
+      .single();
 
     if (fetchError) {
-      console.error('❌ Erro ao buscar descrições:', fetchError);
+      console.error('❌ Erro ao buscar descrição:', fetchError);
       return;
     }
 
-    if (!descriptions || descriptions.length === 0) {
-      console.log('❌ Nenhuma descrição original encontrada');
+    if (!descriptions) {
+      console.log('❌ Descrição não encontrada');
       return;
     }
 
-    const description = descriptions[0];
+    const description = descriptions;
     console.log('📋 Descrição encontrada:', {
       id: description.id,
       attraction_id: description.attraction_id,
