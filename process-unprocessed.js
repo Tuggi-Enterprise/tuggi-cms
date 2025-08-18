@@ -14,8 +14,8 @@ async function reprocessUnprocessedItems() {
   console.log('🔄 Iniciando processamento de itens não processados...\n');
 
   try {
-    // 1. Buscar todos os itens não processados (verification_status = null)
-    console.log('🔍 Buscando itens não processados...');
+    // 1. Buscar todos os itens pendentes (verification_status = 'pending')
+    console.log('🔍 Buscando itens pendentes...');
     
     const { data: unprocessedItems, error: fetchError } = await supabase
       .schema('core')
@@ -33,16 +33,16 @@ async function reprocessUnprocessedItems() {
       `)
       .eq('is_original', true)
       .eq('language', 'pt-br')
-      .is('verification_status', null)
+      .eq('verification_status', 'pending')
       .order('updated_at', { ascending: false });
 
     if (fetchError) {
-      console.error('❌ Erro ao buscar itens não processados:', fetchError);
+      console.error('❌ Erro ao buscar itens pendentes:', fetchError);
       return;
     }
 
     if (!unprocessedItems || unprocessedItems.length === 0) {
-      console.log('✅ Nenhum item não processado encontrado!');
+      console.log('✅ Nenhum item pendente encontrado!');
       return;
     }
 
@@ -62,7 +62,7 @@ async function reprocessUnprocessedItems() {
       };
     });
 
-    console.log(`📊 Encontrados ${processedItems.length} itens não processados`);
+    console.log(`📊 Encontrados ${processedItems.length} itens pendentes`);
 
     // 2. Processar em lotes de 50
     const BATCH_SIZE = 50;

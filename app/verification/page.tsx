@@ -307,7 +307,7 @@ export default function VerificationPage() {
             <p className="text-2xl font-bold text-gray-900">{descriptions.length}</p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">Verified</h3>
+            <h3 className="text-sm font-medium text-gray-500">Approved</h3>
             <p className="text-2xl font-bold text-green-600">
               {descriptions.filter(d => d.verification_status === 'approved').length}
             </p>
