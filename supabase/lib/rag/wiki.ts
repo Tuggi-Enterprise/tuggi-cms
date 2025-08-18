@@ -1,6 +1,38 @@
 
 import { searchCountrySources, getCountryFromLocation, type SourceResult } from './country-sources.ts';
 
+// Função para extrair texto limpo de HTML
+function extractTextFromHTML(html: string): string {
+  try {
+    // Remove scripts e styles
+    let text = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    text = text.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    
+    // Remove todas as tags HTML
+    text = text.replace(/<[^>]*>/g, ' ');
+    
+    // Decodifica entidades HTML básicas
+    text = text.replace(/&nbsp;/g, ' ');
+    text = text.replace(/&amp;/g, '&');
+    text = text.replace(/&lt;/g, '<');
+    text = text.replace(/&gt;/g, '>');
+    text = text.replace(/&quot;/g, '"');
+    text = text.replace(/&#39;/g, "'");
+    
+    // Remove espaços extras e quebras de linha
+    text = text.replace(/\s+/g, ' ');
+    text = text.replace(/\n+/g, ' ');
+    
+    // Remove caracteres especiais e mantém apenas texto relevante
+    text = text.trim();
+    
+    return text;
+  } catch (error) {
+    console.warn('Erro ao extrair texto do HTML:', error);
+    return '';
+  }
+}
+
 // Função para buscar fontes dinâmicas em camadas (nacional + cidade)
 async function searchDynamicCountrySources(countryCode: string, cityName: string, queries: string[], supabase: any): Promise<any[]> {
   try {

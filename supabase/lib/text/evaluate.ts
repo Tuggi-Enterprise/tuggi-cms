@@ -76,7 +76,7 @@ export async function evaluateText(text: string): Promise<TextEvaluationResult> 
     console.error('Error evaluating text:', error);
     
     // Return default result on error
-    return {
+  return {
       rules_score: 0.75,
       tts_clarity_score: 0.75,
       issues: ['Erro na avaliação automática'],

@@ -387,8 +387,8 @@ ${sourcesSection}
 TASK: Generate a factual, verification-friendly description in Brazilian Portuguese (max 150 words)
 
 ATTRACTION DATA:
-- Name: ${name}
-- Location: ${locationDetails}
+          - Name: ${name}
+          - Location: ${locationDetails}
 - Coordinates: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
 
 GENERATION INSTRUCTIONS:
