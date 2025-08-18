@@ -27,7 +27,7 @@ export async function generateAudioWithGoogleTTS({ text, voice, speed }: GoogleT
     },
     audioConfig: {
       audioEncoding: 'MP3',
-      speakingRate: speed || 1.1,
+      speakingRate: speed || 1.2,
       sampleRateHertz: 24000,
     },
   };

@@ -198,7 +198,7 @@ const generateAudioWithTTS = async (
     },
     audioConfig: {
       audioEncoding: 'MP3',
-      speakingRate: 1.0,
+      speakingRate: 1.2,
       pitch: 0.0,
       volumeGainDb: 0.0,
       sampleRateHertz: 24000,

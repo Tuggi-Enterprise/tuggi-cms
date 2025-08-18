@@ -423,8 +423,8 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
       verificationApplied = true
     }
 
-        // Auto-generate audio if approved (>75% score) and flag is enabled
-    if (auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao > 75 && attractionId) {
+        // Auto-generate audio if approved (>=75% score) and flag is enabled
+    if (auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75 && attractionId) {
       try {
         console.log('🎵 Auto-generating audio for approved description...')
         
@@ -444,7 +444,7 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
               body: JSON.stringify({
                 attractionId: attractionId,
                 targetLanguage: lang,
-                voiceGender: 'female' // Default to female voice
+                voiceGender: 'male' // Default to male voice
               })
             })
 
@@ -503,9 +503,9 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
       },
       // Incluir informações sobre geração de áudio
       audio_generation: {
-        auto_generated: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao > 75,
-        languages: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao > 75 ? ['en-us', 'es-es'] : [], // pt-br is original
-        score_threshold_met: verificationResult.pontuacao > 75,
+        auto_generated: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75,
+        languages: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75 ? ['en-us', 'es-es'] : [], // pt-br is original
+        score_threshold_met: verificationResult.pontuacao >= 75,
         method: 'edge_function'
       }
     })

@@ -131,8 +131,8 @@ export const POST = async function(request: NextRequest) {
     // Select optimal voice if not specified
     const selectedVoice = voice || selectOptimalVoice(text)
     
-    // Adjust speed for tourism content (slightly slower for comprehension)
-    const selectedSpeed = speed || 0.9
+    // Adjust speed for tourism content (optimized for clarity)
+    const selectedSpeed = speed || 1.2
 
     let audioBuffer: ArrayBuffer | null = null
     let mimeType = 'audio/mpeg'

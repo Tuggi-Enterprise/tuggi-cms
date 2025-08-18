@@ -160,7 +160,7 @@ export default function ImprovePage() {
           if (result.audio_generation.auto_generated) {
             console.log(`✅ Audio generated for ${result.audio_generation.languages.join(', ')}`);
           } else if (result.verification?.score) {
-            console.log(`❌ Audio not generated - Score ${result.verification.score}% is below 75% threshold`);
+            console.log(`❌ Audio not generated - Score ${result.verification.score}% is below 75% threshold (>=75 required)`);
           }
         }
 
@@ -313,11 +313,11 @@ export default function ImprovePage() {
                   className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue mr-2"
                 />
                 <span className="text-sm font-medium text-gray-700">
-                  Auto-generate audio when approved (>75% score)
+                  Auto-generate audio when approved (>=75% score)
                 </span>
               </label>
               <p className="text-xs text-gray-500 ml-6">
-                Only generates audio for descriptions with score above 75%
+                Only generates audio for descriptions with score >= 75%
               </p>
             </div>
             
@@ -397,7 +397,7 @@ export default function ImprovePage() {
               <p className="text-sm mt-1">{success}</p>
               {autoGenerateAudio && (
                 <p className="text-xs mt-1 text-green-600">
-                  Audio will be generated automatically for descriptions with score > 75% (EN, ES)
+                  Audio will be generated automatically for descriptions with score >= 75% (EN, ES)
                 </p>
               )}
             </div>
