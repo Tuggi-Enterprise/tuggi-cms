@@ -36,6 +36,7 @@ function POIListWithSearchParams() {
   const [googleTypesFilter, setGoogleTypesFilter] = useState('')
   const [contentStatusFilter, setContentStatusFilter] = useState<'all' | 'missing_description' | 'missing_audio' | 'complete'>('all')
   const [groupStatusFilter, setGroupStatusFilter] = useState<'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'>('all')
+  const [scoreFilter, setScoreFilter] = useState<'all' | 'no_score' | 'rejected' | 'pending' | 'approved'>('all')
   const [selectedPois, setSelectedPois] = useState<string[]>([])  
   const [cities, setCities] = useState<string[]>([])  
   const [filteredCities, setFilteredCities] = useState<string[]>([])  
@@ -73,6 +74,7 @@ function POIListWithSearchParams() {
     googleTypes?: string
     contentStatus?: string
     groupStatus?: string
+    scoreFilter?: string
     page?: number
     view?: string
   }) => {
@@ -101,6 +103,9 @@ function POIListWithSearchParams() {
     if (filters.groupStatus && filters.groupStatus !== 'all') {
       params.set('groupStatus', filters.groupStatus)
     }
+    if (filters.scoreFilter && filters.scoreFilter !== 'all') {
+      params.set('scoreFilter', filters.scoreFilter)
+    }
     if (filters.page && filters.page > 1) {
       params.set('page', filters.page.toString())
     }
@@ -122,6 +127,7 @@ function POIListWithSearchParams() {
     setGoogleTypesFilter('')
     setContentStatusFilter('all')
     setGroupStatusFilter('all')
+    setScoreFilter('all')
     setCurrentPage(1)
     setIsInitializing(false) // Ensure URL updates work after clearing
   }
@@ -135,6 +141,7 @@ function POIListWithSearchParams() {
     const googleTypes = searchParams.get('googleTypes') || ''
     const contentStatus = searchParams.get('contentStatus') || 'all'
     const groupStatus = searchParams.get('groupStatus') || 'all'
+    const scoreFilter = searchParams.get('scoreFilter') || 'all'
     const page = parseInt(searchParams.get('page') || '1')
     const view = searchParams.get('view') || 'table'
 
@@ -146,6 +153,7 @@ function POIListWithSearchParams() {
     setGoogleTypesFilter(googleTypes)
     setContentStatusFilter(contentStatus as any)
     setGroupStatusFilter(groupStatus as any)
+    setScoreFilter(scoreFilter as any)
     setCurrentPage(page)
     setViewMode(view as 'table' | 'map')
     
@@ -235,8 +243,36 @@ function POIListWithSearchParams() {
       })
     }
 
+    // Score filter
+    if (scoreFilter !== 'all') {
+      filtered = filtered.filter(poi => {
+        const ptBrDescription = poi.descriptions?.find((desc: any) => 
+          desc.language === 'pt-br' && desc.description && desc.description.trim()
+        )
+        
+        if (!ptBrDescription) {
+          return scoreFilter === 'no_score'
+        }
+
+        const verificationStatus = ptBrDescription.verification_status
+        
+        switch (scoreFilter) {
+          case 'no_score':
+            return !verificationStatus
+          case 'rejected':
+            return verificationStatus === 'rejected'
+          case 'pending':
+            return verificationStatus === 'pending'
+          case 'approved':
+            return verificationStatus === 'approved'
+          default:
+            return true
+        }
+      })
+    }
+
     return filtered
-  }, [pois, debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter])
+  }, [pois, debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter])
 
   // Update filteredPois state and pagination when memoized result changes
   useEffect(() => {
@@ -284,11 +320,12 @@ function POIListWithSearchParams() {
         googleTypes: googleTypesFilter,
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
+        scoreFilter: scoreFilter,
         page: currentPage,
         view: viewMode
       })
     }
-  }, [debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, currentPage, viewMode, isInitializing])
+  }, [debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, currentPage, viewMode, isInitializing])
 
   const fetchPois = async () => {
     setIsLoading(true)
@@ -339,7 +376,7 @@ function POIListWithSearchParams() {
           .select(`
             *,
             coordinates:attraction_coordinate!left(latitude, longitude),
-            descriptions:attraction_descriptions!left(id, description, audio_url, language),
+            descriptions:attraction_descriptions!left(id, description, audio_url, language, verification_status),
             trigger_points:attraction_trigger_points!left(id, is_active)
           `)
           .order('created_at', { ascending: false })
@@ -422,7 +459,7 @@ function POIListWithSearchParams() {
           trigger_points_count: triggerPointsCount,
           active_trigger_points_count: activeTriggerPointsCount,
           group_status: groupStatus,
-          descriptions: undefined, // Remove from final object to keep it clean
+          descriptions: descriptions, // Keep descriptions for score filtering
           trigger_points: undefined, // Remove from final object to keep it clean
           group_membership: undefined // Remove from final object to keep it clean
         }
@@ -807,8 +844,6 @@ function POIListWithSearchParams() {
               <option value="pending">Pending</option>
             </select>
 
-            
-
             <select
               value={countryFilter}
               onChange={(e) => setCountryFilter(e.target.value)}
@@ -865,7 +900,19 @@ function POIListWithSearchParams() {
               <option value="group_member">Group Member</option>
             </select>
 
-            {(searchTerm || statusFilter !== 'all' || cityFilter || countryFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
+            <select
+              value={scoreFilter}
+              onChange={(e) => setScoreFilter(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="all">All Scores</option>
+              <option value="no_score">No Score</option>
+              <option value="rejected">Rejected</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+            </select>
+
+            {(searchTerm || statusFilter !== 'all' || cityFilter || countryFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all' || scoreFilter !== 'all') && (
               <button
                 onClick={clearAllFilters}
                 className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"

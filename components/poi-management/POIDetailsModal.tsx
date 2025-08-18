@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, Plus, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getScoreDescription, getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute'
 import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { TriggerPointsManager } from './TriggerPointsManager'
@@ -111,6 +112,37 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   // Add to the state
   const [referenceLinks, setReferenceLinks] = useState<string[]>(poi.reference_links || []);
 
+  // Sources information state
+  const [lastGenerationSources, setLastGenerationSources] = useState<any[]>([])
+  const [verificationInfo, setVerificationInfo] = useState<{
+    mode: string;
+    dynamicSourcesEnabled: boolean;
+    sourcesCount: number;
+  } | null>(null)
+
+  // Historical dates state
+  const [detectedDates, setDetectedDates] = useState<{
+    dates: string[];
+    reliable: string[];
+    moderate: string[];
+    total: number;
+  } | null>(null)
+  
+  // Verification state
+  const [verificationResult, setVerificationResult] = useState<{
+    applied: boolean;
+    approved: boolean;
+    score: number;
+    detected_dates: string[];
+    verifiable_facts: string[];
+    issues: string[];
+    improvement_suggestion: string;
+    improvement_applied: boolean;
+  } | null>(null)
+  
+  // UI state
+  const [showAdvancedInfo, setShowAdvancedInfo] = useState(false)
+
   // Grouping state
   const [nearbyPOIs, setNearbyPOIs] = useState<any[]>([])
   const [selectedPOIs, setSelectedPOIs] = useState<string[]>([])
@@ -120,6 +152,50 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const [drawnPolygon, setDrawnPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
 
   const supabase = useSupabaseClient()
+
+  // Function to detect and validate dates in description
+  const detectHistoricalDates = (text: string) => {
+    const datePatterns = [
+      // Specific years
+      /\b(1[0-9]{3}|20[0-9]{2})\b/g,
+      // Century references
+      /século\s+(XVIII|XIX|XX|XXI|18|19|20|21)/gi,
+      // Decade references
+      /anos?\s+(1[0-9]{3}0s?|20[0-9]0s?)/gi,
+      /década\s+de\s+(1[0-9]{3}0|20[0-9]0)/gi,
+      // Construction/inauguration verbs with dates
+      /(construíd[ao]|inaugurad[ao]|fundad[ao]|restaurad[ao]|reformad[ao]|tombad[ao])\s+em\s+([0-9]{4}|[0-9]{1,2}\s+de\s+[a-z]+\s+de\s+[0-9]{4})/gi,
+      // Month and year combinations
+      /(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s+de\s+([0-9]{4})/gi
+    ]
+
+    const foundDates = []
+    
+    for (const pattern of datePatterns) {
+      const matches = text.match(pattern)
+      if (matches) {
+        foundDates.push(...matches)
+      }
+    }
+
+    // Remove duplicates and return unique dates
+    return [...new Set(foundDates)]
+  }
+
+  // Function to classify date reliability
+  const classifyDateReliability = (dates: string[]) => {
+    const reliable = dates.filter(date => 
+      /\b(1[0-9]{3}|20[0-9]{2})\b/.test(date) || // Specific years
+      /(construíd[ao]|inaugurad[ao]|fundad[ao]|restaurad[ao]|reformad[ao]|tombad[ao])\s+em/.test(date) // Action + date
+    )
+    
+    const moderate = dates.filter(date => 
+      /século\s+(XVIII|XIX|XX|XXI)/gi.test(date) || // Century references
+      /(anos?\s+|década\s+de\s+)/gi.test(date) // Decade references
+    )
+    
+    return { reliable, moderate, total: dates.length }
+  }
 
   // Helper function to show feedback messages
   const showFeedback = (message: string, type: 'success' | 'error') => {
@@ -320,13 +396,166 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
     }
   }, [poi.id, poi.name])
 
+  // Função para buscar dados de verificação da descrição
+  const fetchVerificationData = useCallback(async () => {
+    try {
+      console.log('🔍 Buscando dados de verificação para POI:', poi.id);
+      
+      // Usar a view existente v_descriptions_with_last_score que já consolida os dados
+      const { data: descData, error: descError } = await supabase
+        .schema('core')
+        .from('v_descriptions_with_last_score')
+        .select('*')
+        .eq('attraction_id', poi.id)
+        .eq('language', 'pt-BR')
+        .eq('is_original', true)
+        .maybeSingle();
+      
+      if (descError) {
+        console.error('❌ Erro ao buscar descrição:', descError);
+        return;
+      }
+      
+      if (!descData) {
+        console.log('ℹ️ Nenhuma descrição encontrada para este POI');
+        return;
+      }
+      
+      console.log('✅ Descrição encontrada:', descData.id);
+      
+      // Agora buscar o score mais recente para esta descrição
+      const { data: scoresData, error: scoresError } = await supabase
+        .schema('core')
+        .from('description_scores')
+        .select(`
+          id,
+          description_id,
+          attraction_id,
+          score_overall,
+          subscores,
+          flags,
+          confidence,
+          created_at,
+          description_claims (
+            id,
+            claim_text,
+            claim_type,
+            status,
+            confidence
+          )
+        `)
+        .eq('description_id', descData.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (scoresError) {
+        console.error('❌ Erro ao buscar scores:', scoresError);
+        return;
+      }
+
+      if (scoresData) {
+        console.log('✅ Score encontrado na tabela description_scores:', scoresData);
+        
+        // Score já está em escala de 0-100
+        const score = scoresData.score_overall || 0;
+        
+        // Verificar se o score é aprovado (>= 70)
+        const isApproved = score >= 70;
+        
+        // Extrair fatos verificáveis das claims
+        const verifiableFacts = scoresData.description_claims
+          ?.filter(claim => claim.status === 'supported')
+          .map(claim => claim.claim_text) || [];
+        
+        // Extrair datas das claims
+        const detectedDates = scoresData.description_claims
+          ?.filter(claim => claim.claim_type === 'year')
+          .map(claim => claim.claim_text) || [];
+        
+        // Classificar datas como confiáveis ou moderadas
+        const reliableDates = detectedDates.filter(date => /^\d{4}$/.test(date)); // Anos completos são confiáveis
+        const moderateDates = detectedDates.filter(date => !/^\d{4}$/.test(date)); // Outros formatos são moderados
+        
+        // Definir resultado da verificação
+        setVerificationResult({
+          applied: true,
+          approved: isApproved,
+          score: score,
+          detected_dates: detectedDates,
+          verifiable_facts: verifiableFacts,
+          issues: [],
+          improvement_suggestion: '',
+          improvement_applied: false
+        });
+        
+        // Definir datas detectadas para exibição
+        if (detectedDates.length > 0) {
+          setDetectedDates({
+            dates: detectedDates,
+            reliable: reliableDates,
+            moderate: moderateDates,
+            total: detectedDates.length
+          });
+        }
+        
+        console.log('✅ Dados de verificação carregados:', { 
+          score, 
+          approved: scoresData.verification_status === 'verified',
+          facts: verifiableFacts.length,
+          dates: detectedDates.length
+        });
+      } else {
+        console.log('ℹ️ Nenhum score encontrado na tabela description_scores');
+        
+        // Usar o score da própria descrição que já buscamos
+        if (descData?.verification_score) {
+          // Se tiver score na tabela attraction_descriptions, usar esse valor
+          // Converter score de 0-1 para 0-100
+          const score = Math.round((descData.verification_score || 0) * 100);
+          const isApproved = descData.verification_status === 'verified' || score >= 70;
+          
+          setVerificationResult({
+            applied: true,
+            approved: isApproved,
+            score: score,
+            detected_dates: [],
+            verifiable_facts: [],
+            issues: [],
+            improvement_suggestion: '',
+            improvement_applied: false
+          });
+          
+          console.log('✅ Usando score da tabela attraction_descriptions:', score, 'Status:', descData.verification_status, 'Aprovado:', isApproved);
+        } else {
+          console.log('ℹ️ Nenhum dado de verificação encontrado');
+          // Limpar o resultado de verificação para não mostrar dados antigos
+          setVerificationResult(null);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Erro ao buscar dados de verificação:', error);
+    }
+  }, [supabase, poi.id]);
+
   // useEffect hooks after function declarations
   useEffect(() => {
     if (isOpen) {
+      console.log('🔄 Modal aberto: carregando dados...');
       setEditedPoi(poi)
       fetchAdditionalData()
+      
+      // Garantir que os dados de verificação sejam buscados após os dados da descrição
+      setTimeout(() => {
+        console.log('🔄 Buscando dados de verificação após carregar descrição...');
+        fetchVerificationData()
+      }, 500)
+    } else {
+      // Limpar dados de verificação quando o modal for fechado
+      setVerificationResult(null);
+      setDetectedDates(null);
     }
-  }, [poi, isOpen, fetchAdditionalData])
+  }, [poi, isOpen, fetchAdditionalData, fetchVerificationData])
 
   // Fetch nearby POIs and group info on open
   useEffect(() => {
@@ -516,11 +745,27 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
 
   // Description management functions
   const generateDescription = async () => {
-    console.log('🚀 POI MODAL: Starting description generation...')
+    console.log('🚀 POI MODAL: Starting enhanced description generation with country/city sources...')
     setIsGenerating(true)
     try {
-      console.log('📡 POI MODAL: Making request to /api/descriptions/generate')
-      const response = await fetch('/api/descriptions/generate', {
+      // Buscar ID da descrição existente para persistir verificação
+      let existingDescriptionId = null;
+      const { data: existingDesc } = await supabase
+        .schema('core')
+        .from('attraction_descriptions')
+        .select('id')
+        .eq('attraction_id', poi.id)
+        .eq('language', 'pt-br')
+        .order('updated_at', { ascending: false })
+        .maybeSingle();
+      
+      if (existingDesc) {
+        console.log('🔍 Encontrado ID de descrição existente:', existingDesc.id);
+        existingDescriptionId = existingDesc.id;
+      }
+      
+      console.log('📡 POI MODAL: Making request to /api/descriptions/generate-optimized')
+      const response = await fetch('/api/descriptions/generate-optimized', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -536,6 +781,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
           state: poi.state,
           formatted_address: poi.formatted_address,
           vicinity: poi.vicinity,
+          description_id: existingDescriptionId, // ID da descrição para persistir verificação
+          persist_verification: true, // Ativar persistência de verificação
           google_types: poi.google_types || (poi.category ? [poi.category] : ['tourist_attraction']), // Prioritize google_types over category
           rating: poi.rating,
           user_ratings_total: poi.user_ratings_total,
@@ -547,7 +794,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
           photos_references: poi.photos_references?.length || 0,
           existing_description: currentDescription, // Current description for improvement
           image_url: poi.image_url,
-          reference_links: referenceLinks.filter(link => !!link.trim()) // Add reference links
+          reference_links: referenceLinks.filter(link => !!link.trim()), // Add reference links
+          use_dynamic_sources: true, // Enable dynamic country/city sources
+          optimization_mode: true // Enable verification-optimized prompts
         })
       })
 
@@ -570,7 +819,102 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       }
 
       const data = await response.json()
-      console.log('✅ POI MODAL: Description generated successfully:', data)
+      console.log('✅ POI MODAL: Enhanced description generated successfully:', data)
+      
+      // Show detailed information about sources used if available
+      if (data.sources_used && data.sources_used > 0) {
+        console.log('📚 Sources used for generation:', data.sources_info)
+        
+        let feedbackMessage = `Description generated using ${data.sources_used} verified sources`
+        
+        // Add details about verification mode and dynamic sources
+        if (data.verification_mode === 'maximum') {
+          feedbackMessage += ' (Maximum verification mode)'
+        }
+        
+        if (data.dynamic_sources_enabled) {
+          feedbackMessage += ' with enhanced country/city data'
+        }
+        
+        // Show heritage sources count if available
+        if (data.sources_info) {
+          const heritageSources = data.sources_info.filter((s: any) => s.type === 'heritage' || s.type === 'government').length
+          if (heritageSources > 0) {
+            feedbackMessage += ` (${heritageSources} heritage/government sources)`
+          }
+        }
+        
+        showFeedback(feedbackMessage, 'success')
+        
+        // Store sources information for display
+        if (data.sources_info) {
+          setLastGenerationSources(data.sources_info)
+        }
+        
+        // Store verification information
+        setVerificationInfo({
+          mode: data.verification_mode || 'standard',
+          dynamicSourcesEnabled: data.dynamic_sources_enabled || false,
+          sourcesCount: data.sources_used || 0
+        })
+      }
+      
+      // Armazenar resultados da verificação se disponíveis
+      if (data.verification) {
+        console.log('🔍 Resultados da verificação:', data.verification)
+        const verificationData = {
+          applied: data.verification.applied || false,
+          approved: data.verification.approved || false,
+          score: data.verification.score || 0,
+          detected_dates: data.verification.detected_dates || [],
+          verifiable_facts: data.verification.verifiable_facts || [],
+          issues: data.verification.issues || [],
+          improvement_suggestion: data.verification.improvement_suggestion || '',
+          improvement_applied: data.verification.improvement_applied || false
+        }
+        console.log('📊 Setting verification result:', verificationData)
+        setVerificationResult(verificationData)
+        
+        // Mostrar feedback sobre a verificação
+        if (data.verification.applied) {
+          const score = data.verification.score || 0
+          const scoreEmoji = score >= 80 ? '🌟' : score >= 60 ? '✅' : '⚠️'
+          
+          let verificationMessage = `${scoreEmoji} Verificação: ${score}/100 pontos`
+          
+          if (data.verification.approved) {
+            verificationMessage += ' - Descrição aprovada!'
+          } else if (data.verification.improvement_applied) {
+            verificationMessage += ' - Melhorias aplicadas automaticamente'
+          } else {
+            verificationMessage += ' - Verificar sugestões de melhoria'
+          }
+          
+          showFeedback(verificationMessage, data.verification.approved ? 'success' : 'error')
+        }
+      }
+      
+      // Analyze historical dates in the generated description
+      const detectedDatesArray = detectHistoricalDates(data.description)
+      if (detectedDatesArray.length > 0) {
+        const dateClassification = classifyDateReliability(detectedDatesArray)
+        setDetectedDates({
+          dates: detectedDatesArray,
+          reliable: dateClassification.reliable,
+          moderate: dateClassification.moderate,
+          total: dateClassification.total
+        })
+        
+        console.log('📅 Historical dates detected:', {
+          total: dateClassification.total,
+          reliable: dateClassification.reliable.length,
+          moderate: dateClassification.moderate.length,
+          dates: detectedDatesArray
+        })
+      } else {
+        setDetectedDates(null)
+      }
+      
       setCurrentDescription(data.description)
     } catch (error) {
       console.error('Error generating description:', error)
@@ -695,6 +1039,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       }
       
       showFeedback('Description saved successfully!', 'success')
+      
+      // Buscar dados de verificação atualizados após salvar
+      setTimeout(() => {
+        fetchVerificationData()
+      }, 1000) // Pequeno delay para garantir que os dados estejam atualizados no banco
     } catch (error) {
       console.error('Error saving description:', error)
       showFeedback('Failed to save description. Please try again.', 'error')
@@ -818,6 +1167,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       
       showFeedback('Description saved and audios generated successfully!', 'success')
       
+      // Buscar dados de verificação atualizados após salvar
+      setTimeout(() => {
+        fetchVerificationData()
+      }, 1000) // Pequeno delay para garantir que os dados estejam atualizados no banco
     } catch (error) {
       console.error('Error saving description and generating audios:', error)
       showFeedback('Failed to save description and generate audios. Please try again.', 'error')
@@ -1725,7 +2078,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                       className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                     >
                       <Sparkles className="h-4 w-4 mr-2" />
-                      {isGenerating ? 'Generating...' : 'Generate Description with AI'}
+                      {isGenerating ? 'Generating...' : 'Generate Description with Historical Dates'}
                     </button>
                     {currentDescription !== originalDescription && (
                       <button
@@ -1781,6 +2134,270 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   </div>
                 </div>
 
+                {/* Botão "Saiba mais" para exibir informações avançadas */}
+                <div className="flex justify-center my-4">
+                  <button
+                    onClick={() => setShowAdvancedInfo(!showAdvancedInfo)}
+                    className="flex items-center px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
+                  >
+                    <Info className="h-4 w-4 mr-2" />
+                    {showAdvancedInfo ? 'Ocultar detalhes avançados' : 'Saiba mais sobre esta descrição'}
+                    <span className="ml-2">{showAdvancedInfo ? '▲' : '▼'}</span>
+                  </button>
+                </div>
+
+                {/* Seções detalhadas que só aparecem quando showAdvancedInfo é true */}
+                {showAdvancedInfo && (
+                  <div className="space-y-4 border-t border-gray-200 dark:border-gray-700 pt-4 mt-2">
+                    {/* Sources Information Section */}
+                    {verificationInfo && (
+                      <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="text-sm font-medium text-green-900 dark:text-green-100 flex items-center">
+                            <Info className="h-4 w-4 mr-2" />
+                            Source Information
+                          </h5>
+                          <div className="flex items-center space-x-2">
+                            {verificationInfo.dynamicSourcesEnabled && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                Dynamic Sources
+                              </span>
+                            )}
+                            <span className={cn(
+                              "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
+                              verificationInfo.mode === 'maximum' 
+                                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+                                : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                            )}>
+                              {verificationInfo.mode === 'maximum' ? 'Maximum Verification' : 'Standard Verification'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-sm text-green-700 dark:text-green-300 mb-3">
+                          Last generation used {verificationInfo.sourcesCount} verified sources for enhanced accuracy
+                        </div>
+                        
+                        {lastGenerationSources.length > 0 && (
+                          <div className="space-y-2">
+                            <h6 className="text-xs font-medium text-green-800 dark:text-green-200 uppercase tracking-wide">
+                              Sources Used:
+                            </h6>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                              {lastGenerationSources.map((source, idx) => (
+                                <div key={idx} className="flex items-center justify-between bg-white dark:bg-gray-800 p-2 rounded border border-green-200 dark:border-green-700">
+                                  <div className="flex items-center space-x-2">
+                                    <span className={cn(
+                                      "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
+                                      source.type === 'heritage' || source.type === 'government'
+                                        ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
+                                        : source.type === 'academic' || source.type === 'official'
+                                        ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+                                        : "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
+                                    )}>
+                                      {source.type}
+                                    </span>
+                                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                      {source.name}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center space-x-1">
+                                    {source.layer && (
+                                      <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">
+                                        {source.layer}
+                                      </span>
+                                    )}
+                                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                                      P{source.priority}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Historical Dates Section */}
+                    {detectedDates && (
+                      <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg border border-amber-200 dark:border-amber-800">
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="text-sm font-medium text-amber-900 dark:text-amber-100 flex items-center">
+                            <Calendar className="h-4 w-4 mr-2" />
+                            Date Detection
+                          </h5>
+                          <div className="flex items-center space-x-2">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                              {detectedDates.total} dates found
+                            </span>
+                            {detectedDates.reliable.length > 0 && (
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                                {detectedDates.reliable.length} verified
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="text-sm text-amber-700 dark:text-amber-300 mb-3">
+                          Enhanced date-focused generation successfully identified historical references
+                        </div>
+
+                        <div className="space-y-3">
+                          {detectedDates.reliable.length > 0 && (
+                            <div>
+                              <h6 className="text-xs font-medium text-green-800 dark:text-green-200 uppercase tracking-wide mb-2">
+                                ✅ Verified Dates:
+                              </h6>
+                              <div className="flex flex-wrap gap-2">
+                                {detectedDates.reliable.map((date, idx) => (
+                                  <span key={idx} className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border border-green-200 dark:border-green-700">
+                                    {date}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {detectedDates.moderate.length > 0 && (
+                            <div>
+                              <h6 className="text-xs font-medium text-blue-800 dark:text-blue-200 uppercase tracking-wide mb-2">
+                                📅 Period References:
+                              </h6>
+                              <div className="flex flex-wrap gap-2">
+                                {detectedDates.moderate.map((date, idx) => (
+                                  <span key={idx} className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-200 dark:border-blue-700">
+                                    {date}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {detectedDates.total === 0 && (
+                            <div className="text-center py-3">
+                              <span className="text-sm text-amber-600 dark:text-amber-400">
+                                No historical dates detected in current description
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Verification Results Section */}
+                    {verificationResult && (
+                      <div className={cn(
+                        "p-4 rounded-lg border",
+                        verificationResult.approved 
+                          ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+                          : "bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800"
+                      )}>
+                        <div className="flex items-center justify-between mb-3">
+                          <h5 className="text-sm font-medium flex items-center">
+                            <CheckCircle className={cn(
+                              "h-4 w-4 mr-2",
+                              verificationResult.approved 
+                                ? "text-green-600 dark:text-green-400" 
+                                : "text-orange-600 dark:text-orange-400"
+                            )} />
+                            <span className={cn(
+                              verificationResult.approved 
+                                ? "text-green-900 dark:text-green-100" 
+                                : "text-orange-900 dark:text-orange-100"
+                            )}>
+                              Quality Verification
+                            </span>
+                          </h5>
+                          <div className="flex items-center">
+                            <span className={cn(
+                              "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium",
+                              verificationResult.score >= 80 ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :
+                              verificationResult.score >= 60 ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :
+                              "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
+                            )}>
+                              Score: {verificationResult.score}/100
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Fatos verificáveis */}
+                        {verificationResult.verifiable_facts && verificationResult.verifiable_facts.length > 0 && (
+                          <div className="mb-4">
+                            <h6 className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-2">
+                              ✅ Verifiable Facts:
+                            </h6>
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-3 border border-gray-200 dark:border-gray-700">
+                              <ul className="list-disc pl-5 space-y-1">
+                                {verificationResult.verifiable_facts.map((fact, idx) => (
+                                  <li key={idx} className="text-sm text-gray-700 dark:text-gray-300">
+                                    {fact}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Datas detectadas pela verificação */}
+                        {verificationResult.detected_dates && verificationResult.detected_dates.length > 0 && (
+                          <div className="mb-4">
+                            <h6 className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-2">
+                              📅 Detected Dates:
+                            </h6>
+                            <div className="flex flex-wrap gap-2">
+                              {verificationResult.detected_dates.map((date, idx) => (
+                                <span key={idx} className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-200 dark:border-blue-700">
+                                  {date}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Problemas encontrados */}
+                        {!verificationResult.approved && verificationResult.issues && verificationResult.issues.length > 0 && (
+                          <div className="mb-4">
+                            <h6 className="text-xs font-medium text-red-700 dark:text-red-300 uppercase tracking-wide mb-2">
+                              ⚠️ Issues Found:
+                            </h6>
+                            <div className="bg-red-50 dark:bg-red-900/20 rounded-md p-3 border border-red-200 dark:border-red-700">
+                              <ul className="list-disc pl-5 space-y-1">
+                                {verificationResult.issues.map((issue, idx) => (
+                                  <li key={idx} className="text-sm text-red-700 dark:text-red-300">
+                                    {issue}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Sugestão de melhoria */}
+                        {!verificationResult.approved && verificationResult.improvement_suggestion && (
+                          <div className="mb-2">
+                            <h6 className="text-xs font-medium text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-2">
+                              💡 Improvement Suggestion:
+                            </h6>
+                            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-md p-3 border border-blue-200 dark:border-blue-700">
+                              <p className="text-sm text-blue-700 dark:text-blue-300">
+                                {verificationResult.improvement_suggestion}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Status da melhoria */}
+                        {verificationResult.improvement_applied && (
+                          <div className="mt-3 text-sm text-green-700 dark:text-green-300 flex items-center">
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                            Improvements applied automatically
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Verification Section */}
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
                   <div className="flex items-center justify-between mb-3">
@@ -1807,9 +2424,26 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                 {/* Description Editor */}
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Attraction Description
-                    </label>
+                    <div className="flex justify-between items-center mb-2">
+                      <div className="flex items-center">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Attraction Description
+                        </label>
+                        {/* Score badge - always visible */}
+                                            {verificationResult && (
+                      <div className="ml-3">
+                        <span className={cn(
+                          "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
+                          getScoreBackgroundColor(verificationResult.score / 100),
+                          getScoreColor(verificationResult.score / 100)
+                        )}>
+                          <span className="font-bold">Score: {verificationResult.score}</span>
+                          {verificationResult.approved && <CheckCircle className="h-3 w-3 ml-1 text-green-600" />}
+                        </span>
+                      </div>
+                    )}
+                      </div>
+                    </div>
                     <textarea
                       value={currentDescription}
                       onChange={(e) => setCurrentDescription(e.target.value)}
@@ -1817,8 +2451,25 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white resize-none"
                       placeholder="Enter a rich cultural and historical description for this attraction..."
                     />
-                    <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                      {currentDescription.length} characters
+                    <div className="flex justify-between items-center mt-2">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        {currentDescription.length} characters
+                      </div>
+                      {verificationResult && (
+                        <div className="flex items-center">
+                          {verificationResult.approved ? (
+                            <span className="text-xs text-green-600 dark:text-green-400 flex items-center">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Verified quality
+                            </span>
+                          ) : (
+                            <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center">
+                              <AlertCircle className="h-3 w-3 mr-1" />
+                              Review suggested
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -2843,6 +3494,28 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Verify all information is correct before approving the POI
                 </p>
+                
+                {/* Score Badge - Always visible */}
+                                  <div className="mt-4 mb-2">
+                    <div className={cn(
+                      "inline-flex items-center px-4 py-2 rounded-lg text-base font-medium shadow-sm border",
+                      verificationResult ? getScoreBackgroundColor(verificationResult.score / 100) : "bg-gray-100 dark:bg-gray-800",
+                      verificationResult ? getScoreColor(verificationResult.score / 100) : "text-gray-800 dark:text-gray-200",
+                      verificationResult ? "border-current" : "border-gray-300 dark:border-gray-700"
+                    )}>
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-center">
+                          <span className="font-bold text-lg">
+                            {verificationResult ? `${verificationResult.score}/100` : 'Not Verified'}
+                          </span>
+                          {verificationResult?.approved && <CheckCircle className="h-5 w-5 ml-2 text-green-600" />}
+                        </div>
+                        <span className="text-sm mt-1">
+                          {verificationResult ? getScoreDescription(verificationResult.score / 100) : 'Not Verified'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
               </div>
 
                             {/* POI Summary */}
@@ -2891,7 +3564,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
 
                 {currentDescription.trim() && (
                   <div className="mt-3">
-                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description</p>
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Description</p>
+                      {verificationResult && (
+                        <span className={cn(
+                          "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
+                          verificationResult.score >= 80 ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :
+                          verificationResult.score >= 60 ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :
+                          "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
+                        )}>
+                          Score: {verificationResult.score}/100
+                          {verificationResult.approved && <CheckCircle className="h-3 w-3 ml-1 text-green-600" />}
+                        </span>
+                      )}
+                    </div>
                     <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 max-h-20 overflow-y-auto">
                       <p className="text-xs text-gray-900 dark:text-white">{currentDescription}</p>
                     </div>
@@ -2912,11 +3598,31 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                       <FileText className="h-4 w-4 text-gray-500" />
                       <span className="text-sm font-medium text-gray-900 dark:text-white">Description</span>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-2">
+                      {/* Status badge */}
                       {currentDescription.trim() ? (
                         <>
-                          <CheckCircle className="h-4 w-4 text-green-500" />
-                          <span className="text-xs text-green-600 dark:text-green-400">Complete</span>
+                          <div className={cn(
+                            "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
+                            verificationResult?.score >= 80 ? "bg-green-100 text-green-800" :
+                            verificationResult?.score >= 60 ? "bg-yellow-100 text-yellow-800" :
+                            verificationResult?.score > 0 ? "bg-orange-100 text-orange-800" :
+                            "bg-blue-100 text-blue-800"
+                          )}>
+                            {verificationResult ? 
+                              verificationResult.approved ? 'Verified' : 
+                              `Score: ${verificationResult.score}/100` 
+                              : 'Complete'}
+                          </div>
+                          
+                          {/* Icon */}
+                          {verificationResult?.approved ? (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          ) : verificationResult?.score >= 60 ? (
+                            <CheckCircle className="h-4 w-4 text-yellow-500" />
+                          ) : (
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                          )}
                         </>
                       ) : (
                         <>

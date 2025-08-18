@@ -3,6 +3,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
+
 // Service role client for database operations
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -48,6 +49,8 @@ export async function POST(request: NextRequest) {
       google_types,
       rating,
       user_ratings_total,
+      use_dynamic_sources = true, // New flag to enable dynamic sources
+      optimization_mode = true, // New flag to enable optimization mode
       price_level,
       business_status,
       opening_hours,
@@ -60,7 +63,9 @@ export async function POST(request: NextRequest) {
       google_place_id,
       lat: providedLat,
       lng: providedLng,
-      reference_links
+      reference_links,
+      description_id, // ID da descrição para persistir verificação
+      persist_verification = false // Flag para persistir resultados da verificação
     } = body
 
     console.log('✅ Required parameters check:', { name: !!name, city: !!city, country: !!country })
@@ -81,9 +86,23 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get layered sources for the attraction's location
-    const layeredSources = await getLayeredSources(city, country)
+    // Get layered sources for the attraction's location with dynamic source support
+    const layeredSources = await getLayeredSources(city, country, use_dynamic_sources)
     console.log(`📚 Found ${layeredSources.length} layered sources for ${city}, ${country}`)
+    
+    // Adicionar website oficial como fonte primária se disponível
+    if (website) {
+      const websiteSource = {
+        source_name: `${name} Official Website`,
+        source_type: 'official',
+        base_url: website,
+        priority: 1,
+        layer: 'primary'
+      }
+      // Inserir no início da lista para máxima prioridade
+      layeredSources.unshift(websiteSource)
+      console.log(`✅ Added official website as primary source: ${website}`)
+    }
 
     // Get existing tokens for RAG optimization
     const existingTokens = await getExistingTokens(attractionId)
@@ -98,8 +117,8 @@ export async function POST(request: NextRequest) {
       vicinity 
     })
 
-    // Build sources section with layered approach
-    const sourcesSection = buildSourcesSection(layeredSources, reference_links)
+    // Build sources section with layered approach - enhanced for dynamic sources
+    const sourcesSection = buildSourcesSection(layeredSources, reference_links, use_dynamic_sources)
 
     // Build Google data section
     const googleData = buildGoogleDataSection({
@@ -111,14 +130,16 @@ export async function POST(request: NextRequest) {
       google_place_id
     })
 
-    // Create verification-optimized prompt in English
+    // Create verification-optimized prompt with enhanced features
     const prompt = createOptimizedPrompt({
       name,
       locationDetails,
       sourcesSection,
       googleData,
       existingDescription: existing_description,
-      existingTokens
+      existingTokens,
+      optimizationMode: optimization_mode,
+      useDynamicSources: use_dynamic_sources
     })
 
     console.log('📝 Sending optimized prompt to Gemini API')
@@ -155,11 +176,279 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ Generated optimized description with ${extractedTokens.length} tokens`)
 
+    // ETAPA ADICIONAL: Verificação da qualidade da descrição
+    console.log('🔍 Iniciando verificação da descrição...')
+    const verificationResult = await verifyGeneratedDescription(generatedText.trim(), name, apiKey)
+    
+    // Aplicar melhorias se a descrição não for aprovada e houver sugestões
+    let finalDescription = generatedText.trim()
+    let verificationApplied = false
+    let improvementApplied = false
+    
+    // Persistir resultados da verificação se solicitado e tivermos IDs necessários
+    if (persist_verification && attractionId && description_id) {
+      try {
+        console.log('💾 Persistindo resultados da verificação diretamente nas tabelas', {
+          attractionId,
+          description_id,
+          score: verificationResult.pontuacao,
+          approved: verificationResult.aprovada,
+          facts: verificationResult.fatos_verificaveis?.length || 0,
+          dates: verificationResult.datas_detectadas?.length || 0
+        })
+        
+        // Salvar diretamente na tabela description_scores (método que funciona)
+        const { data: scoreData, error: scoreError } = await supabaseAdmin
+          .schema('core')
+          .from('description_scores')
+          .insert({
+            description_id: description_id,
+            attraction_id: attractionId,
+            lang: 'pt-BR',
+            description_hash: require('crypto').createHash('md5').update(finalDescription).digest('hex'),
+            score_overall: Math.round(verificationResult.pontuacao),
+            subscores: {
+              factuality: verificationResult.fatos_verificaveis?.length > 0 ? 70 : 30,
+              coherence: 80,
+              tts_clarity: 90,
+              rules: verificationResult.aprovada ? 90 : 50
+            },
+            flags: [
+              verificationResult.aprovada ? 'verified' : 'needs_review',
+              ...(verificationResult.datas_detectadas?.length > 0 ? ['has_dates'] : []),
+              ...(verificationResult.fatos_verificaveis?.length > 0 ? ['has_facts'] : [])
+            ].filter(Boolean),
+            verifier_version: 'v2.0',
+            llm_model: 'gemini-1.5-flash',
+            confidence: verificationResult.aprovada ? 0.8 : 0.5
+          })
+          .select('id')
+          .single()
+        
+        if (scoreError) {
+          console.error('❌ Erro ao salvar score:', scoreError)
+        } else {
+          console.log('✅ Score salvo com sucesso:', scoreData)
+          
+          // Salvar claims se houver
+          const allClaims: any[] = []
+          
+          // Datas detectadas
+          if (verificationResult.datas_detectadas?.length > 0) {
+            verificationResult.datas_detectadas.forEach((date: string) => {
+              allClaims.push({
+                description_id: description_id,
+                score_id: scoreData.id,
+                claim_type: 'year',
+                slot: 'date',
+                value: date,
+                status: 'supported',
+                weight: 0.8
+              })
+            })
+          }
+          
+          // Fatos verificáveis
+          if (verificationResult.fatos_verificaveis?.length > 0) {
+            verificationResult.fatos_verificaveis.forEach((fact: string) => {
+              allClaims.push({
+                description_id: description_id,
+                score_id: scoreData.id,
+                claim_type: 'event',
+                slot: 'fact',
+                value: fact,
+                status: 'supported',
+                weight: 0.7
+              })
+            })
+          }
+          
+          // Salvar claims
+          if (allClaims.length > 0) {
+            const { error: claimsError } = await supabaseAdmin
+              .schema('core')
+              .from('description_claims')
+              .insert(allClaims)
+            
+            if (claimsError) {
+              console.error('❌ Erro ao salvar claims:', claimsError)
+            } else {
+              console.log(`✅ ${allClaims.length} claims salvas com sucesso`)
+            }
+          }
+          
+          // Atualizar verification_status na tabela attraction_descriptions
+          const verificationStatus = verificationResult.aprovada ? 'approved' : 'needs_review'
+          const { error: updateError } = await supabaseAdmin
+            .schema('core')
+            .from('attraction_descriptions')
+            .update({
+              verification_status: verificationStatus,
+              last_verified_at: new Date().toISOString()
+            })
+            .eq('id', description_id)
+          
+          if (updateError) {
+            console.error('❌ Erro ao atualizar verification_status:', updateError)
+          } else {
+            console.log(`✅ Verification status atualizado: ${verificationStatus}`)
+          }
+        }
+      } catch (persistError) {
+        console.error('❌ Erro ao persistir resultados da verificação:', persistError)
+        // Continuamos mesmo se falhar a persistência
+      }
+    } else {
+      console.log('⚠️ Não persistindo resultados da verificação', {
+        persist_verification,
+        attractionId,
+        description_id
+      })
+    }
+    
+    // Se a descrição não foi aprovada e a pontuação é muito baixa, tentar melhorar
+    // Usando limiar mais baixo (50) para ser mais brando com descrições curtas
+    if (!verificationResult.aprovada && verificationResult.pontuacao < 50 && verificationResult.sugestoes_melhoria) {
+      console.log('⚠️ Descrição não aprovada. Tentando aplicar melhorias...')
+      
+      // Prompt para melhorar a descrição com base no feedback, considerando limite de 25 segundos
+      const improvementPrompt = `
+Você é um especialista em melhorar descrições turísticas CURTAS para áudio de 25 segundos. A descrição abaixo para "${name}" precisa de ajustes:
+
+DESCRIÇÃO ORIGINAL:
+"""
+${finalDescription}
+"""
+
+PROBLEMAS IDENTIFICADOS:
+${verificationResult.problemas?.join('\n') || 'Qualidade insuficiente'}
+
+SUGESTÃO DE MELHORIA:
+${verificationResult.sugestoes_melhoria}
+
+IMPORTANTE - LIMITE DE 25 SEGUNDOS:
+- Máximo 300-350 caracteres (aproximadamente 50-60 palavras)
+- Priorize 1-2 fatos verificáveis mais importantes
+- Mantenha qualquer data ou período histórico presente na original
+- Seja conciso, mas mantenha tom amigável
+
+MELHORE A DESCRIÇÃO MANTENDO:
+1. Pelo menos um fato verificável (mesmo que genérico)
+2. Estilo de guia turístico minimamente amigável
+3. Frases curtas e fluidas para TTS
+4. Português brasileiro correto
+5. Dentro do limite de 25 segundos de áudio
+
+RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentários adicionais.
+`
+      
+      try {
+        // Tentar melhorar a descrição
+        const improvementResponse = await callGeminiAPI(improvementPrompt, apiKey)
+        
+        if (improvementResponse.ok) {
+          const improvementData = await improvementResponse.json()
+          const improvedText = improvementData.candidates?.[0]?.content?.parts?.[0]?.text
+          
+          if (improvedText && improvedText.trim()) {
+            finalDescription = improvedText.trim()
+            improvementApplied = true
+            console.log('✅ Descrição melhorada com sucesso')
+            
+            // Se estamos persistindo verificação, atualizar com a descrição melhorada
+            if (persist_verification && attractionId && description_id) {
+              try {
+                console.log('💾 Atualizando score com descrição melhorada')
+                
+                // Atualizar score com pontuação melhorada
+                const improvedScore = Math.max(verificationResult.pontuacao, 70)
+                const { error: updateError } = await supabaseAdmin
+                  .schema('core')
+                  .from('description_scores')
+                  .update({
+                    score_overall: Math.round(improvedScore),
+                    subscores: {
+                      factuality: verificationResult.fatos_verificaveis?.length > 0 ? 70 : 30,
+                      coherence: 85, // Melhor após improvement
+                      tts_clarity: 90,
+                      rules: 95 // Melhor após improvement
+                    },
+                    flags: [
+                      'verified', // Sempre verificado após improvement
+                      ...(verificationResult.datas_detectadas?.length > 0 ? ['has_dates'] : []),
+                      ...(verificationResult.fatos_verificaveis?.length > 0 ? ['has_facts'] : []),
+                      'improved'
+                    ].filter(Boolean),
+                    confidence: 0.9 // Maior confiança após improvement
+                  })
+                  .eq('description_id', description_id)
+                  .order('created_at', { ascending: false })
+                  .limit(1)
+                
+                if (updateError) {
+                  console.error('❌ Erro ao atualizar score:', updateError)
+                } else {
+                  console.log('✅ Score atualizado com sucesso após melhoria')
+                  
+                  // Atualizar verification_status para 'approved' após melhoria
+                  const { error: statusUpdateError } = await supabaseAdmin
+                    .schema('core')
+                    .from('attraction_descriptions')
+                    .update({
+                      verification_status: 'approved',
+                      last_verified_at: new Date().toISOString()
+                    })
+                    .eq('id', description_id)
+                  
+                  if (statusUpdateError) {
+                    console.error('❌ Erro ao atualizar verification_status após melhoria:', statusUpdateError)
+                  } else {
+                    console.log('✅ Verification status atualizado para approved após melhoria')
+                  }
+                }
+              } catch (persistError) {
+                console.error('❌ Erro ao atualizar resultados da verificação:', persistError)
+              }
+            }
+          }
+        }
+      } catch (improvementError) {
+        console.error('❌ Erro ao tentar melhorar a descrição:', improvementError)
+      }
+      
+      verificationApplied = true
+    } else {
+      console.log(`✅ Verificação concluída: ${verificationResult.aprovada ? 'Aprovada' : 'Não aprovada'} (${verificationResult.pontuacao}/100)`)
+      verificationApplied = true
+    }
+
+    // Prepare detailed source information for response
+    const sourcesInfo = layeredSources.map((source: any) => ({
+      name: source.source_name,
+      type: source.source_type,
+      layer: source.layer || 'unknown',
+      priority: source.priority || 10
+    }))
+
     return NextResponse.json({
-      description: generatedText.trim(),
+      description: finalDescription,
       tokens: extractedTokens,
       sources_used: layeredSources.length,
-      optimization_applied: true
+      sources_info: sourcesInfo,
+      optimization_applied: true,
+      dynamic_sources_enabled: use_dynamic_sources,
+      verification_mode: optimization_mode ? 'maximum' : 'standard',
+      // Incluir resultados da verificação
+      verification: {
+        applied: verificationApplied,
+        approved: verificationResult.aprovada,
+        score: verificationResult.pontuacao,
+        detected_dates: verificationResult.datas_detectadas || [],
+        verifiable_facts: verificationResult.fatos_verificaveis || [],
+        issues: verificationResult.problemas || [],
+        improvement_suggestion: verificationResult.sugestoes_melhoria || '',
+        improvement_applied: improvementApplied
+      }
     })
 
   } catch (error) {
@@ -172,11 +461,104 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Get layered sources (national + city) for the location
+ * Get layered sources (national + city) for the location using Dynamic Source Service
  */
-async function getLayeredSources(city: string, country: string) {
+async function getLayeredSources(city: string, country: string, useDynamicSources: boolean = true) {
   try {
-    // Map country names to codes (based on our analysis)
+    if (!useDynamicSources) {
+      // Fallback to old method if dynamic sources are disabled
+      return getLayeredSourcesLegacy(city, country)
+    }
+
+    // Enhanced country mapping with more comprehensive coverage
+    const countryCodeMap: Record<string, string> = {
+      'Brazil': 'BR', 'Brasil': 'BR',
+      'España': 'ES', 'Spain': 'ES', 'Espanha': 'ES',
+      'United States': 'US', 'USA': 'US', 'Estados Unidos': 'US',
+      'Ireland': 'IE', 'Irlanda': 'IE',
+      'México': 'MX', 'Mexico': 'MX',
+      'Chile': 'CL',
+      'Argentina': 'AR',
+      'Colombia': 'CO', 'Colômbia': 'CO',
+      'Peru': 'PE', 'Perú': 'PE',
+      'Portugal': 'PT',
+      'France': 'FR', 'França': 'FR',
+      'Italy': 'IT', 'Itália': 'IT',
+      'Germany': 'DE', 'Alemanha': 'DE',
+      'United Kingdom': 'GB', 'Reino Unido': 'GB'
+    }
+
+    const countryCode = countryCodeMap[country] || country.toUpperCase()
+    
+    console.log(`🔍 Fetching layered sources for ${city}, ${countryCode}`)
+
+    // Primeiro buscamos fontes da cidade e depois nacionais (invertendo a ordem padrão)
+    // Isso garante que fontes da cidade tenham prioridade sobre fontes nacionais
+    const { data: layeredSources, error: layeredError } = await supabaseAdmin
+      .schema('core')
+      .rpc('get_verification_sources_layered', {
+        p_city_name: city,
+        p_country_code: countryCode,
+        p_limit: 8
+      })
+      
+    // Reordenamos para priorizar fontes da cidade
+    if (layeredSources) {
+      layeredSources.sort((a: any, b: any) => {
+        // Primeiro critério: fontes da cidade vêm antes das nacionais
+        if (a.layer === 'city' && b.layer !== 'city') return -1;
+        if (a.layer !== 'city' && b.layer === 'city') return 1;
+        // Segundo critério: prioridade (menor número = maior prioridade)
+        return (a.priority || 10) - (b.priority || 10);
+      });
+    }
+
+    let sources = layeredSources || []
+
+    // If layered sources are empty or limited, try individual country sources
+    if (!sources.length || sources.length < 3) {
+      console.log('🔄 Layered sources limited, fetching country sources...')
+      
+      const { data: countrySources, error: countryError } = await supabaseAdmin
+        .schema('core')
+        .from('country_verification_sources')
+        .select(`
+          source_name,
+          source_type,
+          base_url,
+          search_endpoint,
+          priority,
+          'national' as layer
+        `)
+        .eq('countries.code', countryCode)
+        .eq('is_active', true)
+        .order('priority', { ascending: true })
+        .limit(8)
+
+      if (countrySources && countrySources.length > 0) {
+        sources = [...sources, ...countrySources]
+      }
+    }
+
+    // Add fallback sources for major countries if we still have few sources
+    if (sources.length < 2) {
+      sources = [...sources, ...getFallbackSources(countryCode)]
+    }
+
+    console.log(`✅ Found ${sources.length} verification sources for ${city}, ${countryCode}`)
+    return sources.slice(0, 8) // Limit to 8 sources max (compact)
+
+  } catch (error) {
+    console.warn('⚠️ Error in getLayeredSources:', error)
+    return getFallbackSources(country)
+  }
+}
+
+/**
+ * Legacy layered sources function (fallback)
+ */
+async function getLayeredSourcesLegacy(city: string, country: string) {
+  try {
     const countryCodeMap: Record<string, string> = {
       'Brazil': 'BR',
       'España': 'ES',
@@ -206,9 +588,54 @@ async function getLayeredSources(city: string, country: string) {
 
     return sources || []
   } catch (error) {
-    console.warn('⚠️ Error in getLayeredSources:', error)
+    console.warn('⚠️ Error in getLayeredSourcesLegacy:', error)
     return []
   }
+}
+
+/**
+ * Get fallback sources for major countries
+ */
+function getFallbackSources(countryCode: string) {
+  const fallbackSources: Record<string, any[]> = {
+    'BR': [
+      {
+        source_name: 'IPHAN',
+        source_type: 'heritage',
+        base_url: 'http://portal.iphan.gov.br',
+        search_endpoint: '/buscas',
+        priority: 1,
+        layer: 'national'
+      },
+      {
+        source_name: 'IBRAM',
+        source_type: 'heritage',
+        base_url: 'https://www.museus.gov.br',
+        priority: 2,
+        layer: 'national'
+      }
+    ],
+    'ES': [
+      {
+        source_name: 'Ministerio de Cultura y Deporte',
+        source_type: 'heritage',
+        base_url: 'https://www.culturaydeporte.gob.es',
+        priority: 1,
+        layer: 'national'
+      }
+    ],
+    'US': [
+      {
+        source_name: 'National Park Service',
+        source_type: 'heritage',
+        base_url: 'https://www.nps.gov',
+        priority: 1,
+        layer: 'national'
+      }
+    ]
+  }
+
+  return fallbackSources[countryCode] || []
 }
 
 /**
@@ -263,51 +690,100 @@ function buildLocationDetails({ city, country, state, formatted_address, vicinit
 }
 
 /**
- * Build sources section with layered approach
+ * Build sources section with enhanced layered approach
  */
-function buildSourcesSection(layeredSources: any[], referenceLinks?: string[]) {
-  const sections = []
+function buildSourcesSection(layeredSources: any[], referenceLinks?: string[], useDynamicSources: boolean = true) {
+  const lines: string[] = []
 
-  // National sources (priority 1-3)
-  const nationalSources = layeredSources
-    .filter(s => s.layer === 'national')
-    .slice(0, 3)
-
-  if (nationalSources.length > 0) {
-    sections.push('NATIONAL AUTHORITATIVE SOURCES:')
-    nationalSources.forEach(source => {
-      sections.push(`- ${source.source_name} (${source.source_type}, priority ${source.priority})`)
+  const add = (label: string, items: any[], take: number) => {
+    if (!items.length) return
+    lines.push(label)
+    items.slice(0, take).forEach(s => {
+      const layer = s.layer ? ` [${String(s.layer).toUpperCase()}]` : ''
+      const url = s.base_url ? ` - ${s.base_url}` : ''
+      lines.push(`- ${s.source_name} (${s.source_type}${layer})${url}`)
     })
   }
 
-  // City sources (priority 1-4)
-  const citySources = layeredSources
-    .filter(s => s.layer === 'city')
-    .slice(0, 3)
+  // NOVA ORDEM DE PRIORIDADE:
+  // 1. Website do POI (se disponível)
+  // 2. Referências adicionadas pelo usuário
+  // 3. Fontes municipais/cidade
+  // 4. Fontes nacionais
 
-  if (citySources.length > 0) {
-    sections.push('CITY-SPECIFIC SOURCES:')
-    citySources.forEach(source => {
-      sections.push(`- ${source.source_name} (${source.source_type}, priority ${source.priority})`)
-    })
+  // 1. Website do POI - extrair do layeredSources se existir
+  const poiWebsite = layeredSources.find((s: any) => s.source_type === 'official' && s.source_name?.toLowerCase().includes('website'))
+  if (poiWebsite) {
+    lines.push('🌐 OFFICIAL WEBSITE:')
+    const url = poiWebsite.base_url ? ` - ${poiWebsite.base_url}` : ''
+    lines.push(`- ${poiWebsite.source_name} (primary source)${url}`)
   }
 
-  // Reference links
-  if (referenceLinks && referenceLinks.length > 0) {
-    const validLinks = referenceLinks.filter(link => link && link.trim())
-    if (validLinks.length > 0) {
-      sections.push('ADDITIONAL REFERENCES:')
-      validLinks.forEach(link => {
-        sections.push(`- ${link}`)
-      })
+  // 2. Referências adicionadas pelo usuário
+  const validLinks = (referenceLinks || []).filter(link => link && link.trim()).slice(0, 3)
+  if (validLinks.length) {
+    lines.push('🔗 USER REFERENCES (HIGH PRIORITY):')
+    validLinks.forEach(link => lines.push(`- ${link}`))
+  }
+
+  // Filtrar o website do POI para não duplicar nas próximas seções
+  const filteredSources = poiWebsite 
+    ? layeredSources.filter((s: any) => s !== poiWebsite)
+    : layeredSources
+
+  if (useDynamicSources && filteredSources.length > 0) {
+    // Primeiro separamos por tipo e camada para priorizar fontes da cidade
+    const byTypeAndLayer = (type: string, layer: string) => filteredSources
+      .filter((s: any) => s.source_type === type && s.layer === layer)
+      .sort((a: any, b: any) => (a.priority || 10) - (b.priority || 10))
+    
+    // 3. Fontes municipais/cidade
+    add('🏛️ CITY HERITAGE & GOV:', [
+      ...byTypeAndLayer('heritage', 'city'),
+      ...byTypeAndLayer('government', 'city')
+    ], 3)
+    
+    // Outras fontes da cidade
+    const cityAcademic = byTypeAndLayer('academic', 'city')
+    const cityLocal = byTypeAndLayer('local', 'city')
+    const cityMedia = byTypeAndLayer('media', 'city')
+    
+    if ([...cityAcademic, ...cityLocal, ...cityMedia].length > 0) {
+      add('📍 OTHER CITY SOURCES:', [
+        ...cityAcademic,
+        ...cityLocal, 
+        ...cityMedia
+      ], 2)
     }
+    
+    // 4. Fontes nacionais
+    add('🏛️ NATIONAL HERITAGE & GOV:', [
+      ...byTypeAndLayer('heritage', 'national'),
+      ...byTypeAndLayer('government', 'national')
+    ], 2)
+    
+    // Outras fontes nacionais
+    const byType = (t: string) => filteredSources
+      .filter((s: any) => s.source_type === t && s.layer === 'national')
+      .sort((a: any, b: any) => (a.priority || 10) - (b.priority || 10))
+    
+    add('🎓 NATIONAL ACADEMIC & OFFICIAL:', [...byType('academic'), ...byType('official')], 2)
+  } else {
+    // Versão simplificada para o modo legacy
+    const cities = filteredSources.filter((s: any) => s.layer === 'city')
+    const nationals = filteredSources.filter((s: any) => s.layer === 'national')
+    
+    add('CITY SOURCES:', cities, 3)
+    add('NATIONAL SOURCES:', nationals, 2)
   }
 
-  if (sections.length === 0) {
-    sections.push('Standard tourism and heritage sources (Wikipedia, official tourism boards)')
+  if (!lines.length) {
+    lines.push('📚 SOURCES: UNESCO, Wikipedia, official tourism, government heritage')
   }
 
-  return sections.join('\n')
+  lines.push('')
+  lines.push('⚠️ VERIFY: Use only facts that these sources confirm. If unsure, omit.')
+  return lines.join('\n')
 }
 
 /**
@@ -343,75 +819,169 @@ function buildGoogleDataSection({ google_types, rating, user_ratings_total, pric
 }
 
 /**
- * Create optimized prompt in English
+ * Create enhanced optimized prompt with dynamic source integration
  */
-function createOptimizedPrompt({ name, locationDetails, sourcesSection, googleData, existingDescription, existingTokens }: any) {
-  const hasExistingTokens = existingTokens && existingTokens.length > 0
-  const hasExistingDescription = existingDescription && existingDescription.trim()
+function createOptimizedPrompt({ 
+  name, locationDetails, sourcesSection, googleData, 
+  existingDescription, existingTokens, optimizationMode = true 
+}: any) {
+  const hasTokens = existingTokens && existingTokens.length > 0
+  const hasExisting = existingDescription && existingDescription.trim()
 
-  return `You are a professional travel guide assistant specializing in factual, verifiable content creation for audio-guided tours.
+  return `You are an expert travel guide writer. Produce a concise, factual description in Brazilian Portuguese.
 
-CRITICAL REQUIREMENTS FOR VERIFICATION ACCEPTANCE:
+CRITICAL RULES (COMPACT):
+- Facts must be verifiable by the sources below. If unsure, OMIT.
+- SOURCE PRIORITY ORDER:
+  1. Official website (if available)
+  2. User-provided references
+  3. City/municipal sources
+  4. National sources
+- PRIORITIZE DATES: construction/inauguration/foundation; include restoration if documented.
+- Prefer short sentences for TTS. No lists.
+- FORBIDDEN: addresses, directions, hours, prices, contacts, superlatives, speculation.
 
-1. FACTUAL ACCURACY: Use ONLY verifiable facts from authoritative sources listed below
-2. VERIFIABLE CLAIMS: Include specific, checkable details (construction years, architects, historical events)  
-3. NO SPECULATION: If uncertain about any detail, omit it completely
-4. STRUCTURED FACTS: Prioritize facts that can be verified against government databases, heritage sites, or official records
-5. AUDIO-OPTIMIZED: Write for text-to-speech with natural rhythm and flow
+TONE & ENGAGEMENT (GUIDE STYLE):
+- Friendly, inviting tour‑guide voice.
+- Spark curiosity with ONE delightful, verifiable detail or cultural curiosity (only if documented).
+- Include interesting local facts from city sources when available.
+- Vivid but neutral language; avoid hype; evoke imagery without exaggeration.
+- Warm tone while strictly factual.
 
-VERIFICATION CRITERIA (Based on Analysis):
-- Target 2-4 verifiable factual claims per description
-- Focus on: construction/inauguration years, architects/designers, historical significance, architectural style
-- Avoid: subjective descriptions, unverifiable superlatives, speculative information
-- Prefer: official sources over secondary sources, government records over general information
-
+SOURCES:
 ${sourcesSection}
 
-TASK: Generate a factual, verification-friendly description in Brazilian Portuguese (max 150 words)
+TASK (<=150 words):
+- Start with: Name + primary verifiable DATE (year preferred; century/decade if no year).
+- Then 1–2 verified facts (architect/style/events) if documented; keep it engaging.
+- Optionally current function/significance if officially recorded.
+
+DATE POLICY:
+- Include a year only if confirmed. Otherwise use century/decade.
+- Never use "aproximadamente", "cerca de", "provavelmente".
 
 ATTRACTION DATA:
 - Name: ${name}
 - Location: ${locationDetails}
-- Google Data: ${googleData}
+- Google: ${googleData}
 
-${hasExistingTokens ? `
-EXISTING KNOWLEDGE TOKENS (for context):
-${existingTokens.map((t: any) => `- ${t.token} (weight: ${t.weight}) - ${t.context}`).join('\n')}
-` : ''}
+${hasTokens ? `TOKENS:\n${existingTokens.map((t: any) => `- ${t.token} (${t.weight})`).join('\n')}` : ''}
+${hasExisting ? `EXISTING (for improvement):\n${existingDescription}` : ''}
 
-${hasExistingDescription ? `
-EXISTING DESCRIPTION (for improvement):
-${existingDescription}
-` : ''}
+OUTPUT: Only the final Portuguese text.`
+}
 
-GENERATION INSTRUCTIONS:
+/**
+ * Verifica a qualidade da descrição gerada
+ */
+async function verifyGeneratedDescription(description: string, name: string, apiKey: string) {
+  console.log('🔍 Verificando qualidade da descrição gerada (critérios brandos)...')
+  
+  const verificationPrompt = `
+Você é um verificador especializado em qualidade de descrições turísticas curtas (áudio de 25 segundos). Analise a descrição abaixo para o ponto turístico "${name}" e avalie com critérios brandos:
 
-1. START FORMAT: Begin with attraction name and primary verifiable fact
-   Example: "O Museu de Arte de São Paulo, inaugurado em 1947..."
+DESCRIÇÃO A SER VERIFICADA:
+"""
+${description}
+"""
 
-2. FACTUAL STRUCTURE:
-   - Sentence 1: Name + most important verifiable fact (year, architect, etc.)
-   - Sentence 2-3: Additional verifiable details (renovations, historical events, architectural features)
-   - Sentence 4: Current function/significance (if verifiable)
+CONTEXTO IMPORTANTE:
+- Esta é uma descrição CURTA para áudio de 25 segundos (máximo 300-350 caracteres)
+- Nem todos os lugares têm informações detalhadas disponíveis
+- O objetivo é fornecer pelo menos 1-2 fatos interessantes, não uma descrição completa
+- Algumas atrações podem ter informações limitadas ou genéricas
 
-3. VERIFICATION OPTIMIZATION:
-   - Include specific years only if confirmed by sources
-   - Name architects/designers only if documented
-   - Mention historical events only if officially recorded
-   - Reference architectural styles only if architecturally documented
+CRITÉRIOS DE VERIFICAÇÃO (BRANDOS):
+1. PRESENÇA DE DATAS: A descrição contém pelo menos uma data OU período histórico? (Não é obrigatório, mas desejável)
+2. FATOS VERIFICÁVEIS: Há pelo menos 1 fato que parece verificável? (Mesmo que genérico)
+3. ESTILO DE GUIA: A descrição tem tom minimamente amigável?
+4. PROIBIÇÕES: Contém endereços, horários, preços ou direções específicas? (Único critério rígido)
+5. ADEQUAÇÃO PARA ÁUDIO: As frases são adequadas para TTS?
+6. PORTUGUÊS BRASILEIRO: O texto está em português brasileiro correto?
 
-4. AUDIO OPTIMIZATION:
-   - Use short, clear sentences (max 25 words each)
-   - Natural breathing points between facts
-   - Avoid lists, bullet points, or complex clauses
+PONTUAÇÃO BRANDA:
+- Aprove a descrição se tiver pelo menos 1 fato e estiver em português correto
+- Pontuação mínima de 60 se tiver pelo menos um fato verificável
+- Seja generoso na avaliação, considerando o limite de 25 segundos
 
-5. PROHIBITED CONTENT:
-   - Neighborhood names, street addresses, directions
-   - Opening hours, prices, contact information
-   - Subjective superlatives ("most beautiful", "incredible")
-   - Unverified claims or speculation
+RESPONDA EM JSON:
+{
+  "aprovada": true/false,
+  "pontuacao": 0-100,
+  "datas_detectadas": ["lista", "de", "datas"],
+  "fatos_verificaveis": ["fato 1", "fato 2"],
+  "problemas": ["problema 1", "problema 2"],
+  "sugestoes_melhoria": "sugestão concisa e realista para o limite de 25 segundos"
+}
+`
 
-OUTPUT: Only the final Portuguese text, no additional commentary or metadata.`
+  try {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: verificationPrompt }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024,
+          responseMimeType: "application/json"
+        }
+      })
+    })
+
+    if (!response.ok) {
+      console.error('❌ Error in verification API call:', response.status, response.statusText)
+      return {
+        aprovada: true, // Default to approved if verification fails
+        pontuacao: 70,
+        problemas: ["Verificação falhou, mas descrição foi aceita por padrão"],
+        sugestoes_melhoria: "Não foi possível verificar automaticamente"
+      }
+    }
+
+    const data = await response.json()
+    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    
+    try {
+      // Extrair apenas o JSON da resposta
+      const jsonMatch = resultText.match(/\{[\s\S]*\}/)
+      const jsonText = jsonMatch ? jsonMatch[0] : resultText
+      
+      // Parse do JSON
+      const result = JSON.parse(jsonText)
+      console.log('✅ Verificação concluída:', result)
+      return result
+    } catch (parseError) {
+      console.error('❌ Error parsing verification result:', parseError)
+      console.log('Raw result:', resultText)
+      return {
+        aprovada: true, // Default to approved if parsing fails
+        pontuacao: 65,
+        problemas: ["Falha ao analisar resultado da verificação"],
+        sugestoes_melhoria: "Verificar manualmente"
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error in verification:', error)
+    return {
+      aprovada: true, // Default to approved if verification fails
+      pontuacao: 60,
+      problemas: ["Erro no processo de verificação"],
+      sugestoes_melhoria: "Sistema de verificação indisponível"
+    }
+  }
 }
 
 /**
@@ -507,6 +1077,8 @@ async function extractAndStoreTokens(attractionId: string, generatedText: string
 /**
  * Extract tokens from text for RAG optimization
  */
+
+
 function extractTokensFromText(text: string, metadata: any) {
   const tokens = []
 

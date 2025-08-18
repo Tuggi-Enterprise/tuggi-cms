@@ -446,6 +446,25 @@ serve(async (req) => {
       .update({ description_hash: descriptionHash })
       .eq('id', description_id);
 
+    // Update description verification_status based on score
+    const newVerificationStatus = verificationScores.score_overall >= 70 ? 'approved' : 'rejected';
+    
+    const { error: updateStatusError } = await supabase
+      .schema('core')
+      .from('attraction_descriptions')
+      .update({ 
+        verification_status: newVerificationStatus,
+        last_score_overall: verificationScores.score_overall,
+        last_verified_at: new Date().toISOString()
+      })
+      .eq('id', description_id);
+
+    if (updateStatusError) {
+      console.error('Error updating verification status:', updateStatusError);
+    } else {
+      console.log(`Updated verification_status to: ${newVerificationStatus} (score: ${verificationScores.score_overall}%)`);
+    }
+
     console.log(`Successfully processed description ${description_id}`);
 
     return new Response(
@@ -454,6 +473,7 @@ serve(async (req) => {
         description_id,
         score_id: scoreData.id,
         score_overall: verificationScores.score_overall,
+        verification_status: newVerificationStatus,
         subscores: verificationScores.subscores,
         claims_processed: checkedClaims.length,
         reasoning: verificationScores.reasoning,

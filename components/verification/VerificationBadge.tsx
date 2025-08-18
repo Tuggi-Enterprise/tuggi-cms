@@ -166,7 +166,14 @@ export function VerificationBadge({
   const Icon = config.icon;
 
   return (
-    <div className="flex items-center gap-2">
+    <div 
+      className="flex items-center gap-2"
+      data-verification-badge="true"
+      data-attraction-id={attractionId}
+      data-description-id={descriptionId}
+      data-score={verificationData?.score}
+      data-status={verificationData?.verification_status}
+    >
       <div className={cn(
         'inline-flex items-center px-2 py-1 rounded-full border',
         config.bgColor,

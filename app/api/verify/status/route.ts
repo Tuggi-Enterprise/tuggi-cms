@@ -27,7 +27,6 @@ export async function POST(request: NextRequest) {
         .select(`
           id,
           verification_status,
-          score,
           last_verified_at,
           is_original,
           language,
@@ -47,7 +46,7 @@ export async function POST(request: NextRequest) {
 
         verificationData = {
           verification_status: data.verification_status,
-          score: latestScore?.score_overall || data.score,
+          score: latestScore?.score_overall || null,
           last_verified_at: data.last_verified_at,
           is_original: data.is_original,
           language: data.language,
@@ -63,7 +62,6 @@ export async function POST(request: NextRequest) {
         .select(`
           id,
           verification_status,
-          score,
           last_verified_at,
           is_original,
           language,
@@ -85,7 +83,7 @@ export async function POST(request: NextRequest) {
 
         verificationData = {
           verification_status: data.verification_status,
-          score: latestScore?.score_overall || data.score,
+          score: latestScore?.score_overall || null,
           last_verified_at: data.last_verified_at,
           is_original: data.is_original,
           language: data.language,

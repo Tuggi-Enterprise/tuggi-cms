@@ -12,7 +12,7 @@
 export async function createBatchJob(supabase: any, jobType: string, params: any) {
   const { data, error } = await supabase
     .schema('core')
-    .rpc('create_batch_job', {
+    .rpc('create_improvement_batch_job', {
       p_job_type: jobType,
       p_params: params
     });
@@ -33,7 +33,7 @@ export async function createBatchJob(supabase: any, jobType: string, params: any
 export async function updateBatchProgress(supabase: any, jobId: string, progress: any) {
   const { error } = await supabase
     .schema('core')
-    .rpc('update_batch_progress', {
+    .rpc('update_improvement_batch_progress', {
       p_job_id: jobId,
       p_status: progress.status,
       p_progress_message: progress.progress_message,
@@ -58,7 +58,7 @@ export async function updateBatchProgress(supabase: any, jobId: string, progress
 export async function addBatchItem(supabase: any, jobId: string, item: any) {
   const { data, error } = await supabase
     .schema('core')
-    .rpc('add_batch_item', {
+    .rpc('add_improvement_batch_item', {
       p_job_id: jobId,
       p_item_type: item.item_type,
       p_item_id: item.item_id,
@@ -83,7 +83,7 @@ export async function addBatchItem(supabase: any, jobId: string, item: any) {
 export async function updateBatchItemStatus(supabase: any, itemId: string, status: string, result?: any) {
   const { error } = await supabase
     .schema('core')
-    .rpc('update_batch_item_status', {
+    .rpc('update_improvement_batch_item_status', {
       p_item_id: itemId,
       p_status: status,
       p_result: result
