@@ -1,75 +1,136 @@
 
 import { searchCountrySources, getCountryFromLocation, type SourceResult } from './country-sources.ts';
 
-// Função para buscar fontes dinâmicas do país
-async function searchDynamicCountrySources(countryCode: string, queries: string[], supabase: any): Promise<any[]> {
+// Função para buscar fontes dinâmicas em camadas (nacional + cidade)
+async function searchDynamicCountrySources(countryCode: string, cityName: string, queries: string[], supabase: any): Promise<any[]> {
   try {
-    console.log(`🔍 Buscando fontes dinâmicas para país: ${countryCode}`);
+    console.log(`🔍 Buscando fontes dinâmicas em camadas para ${countryCode}/${cityName}`);
     
-    // Buscar fontes ativas para o país
+    // Buscar fontes em camadas usando a nova função
     const { data: sources, error } = await supabase
       .schema('core')
-      .from('country_verification_sources')
-      .select(`
-        id,
-        source_name,
-        source_type,
-        base_url,
-        search_endpoint,
-        priority,
-        source_search_configs!inner(
-          search_type,
-          query_template,
-          rate_limit_rps,
-          timeout_ms,
-          cache_ttl_hours
-        )
-      `)
-      .eq('is_active', true)
-      .order('priority', { ascending: true });
+      .rpc('get_verification_sources_layered', {
+        p_city_name: cityName,
+        p_country_code: countryCode,
+        p_limit: 15
+      });
     
     if (error) {
-      console.error('Error fetching dynamic sources:', error);
+      console.error('Error fetching layered sources:', error);
       return [];
     }
     
     if (!sources || sources.length === 0) {
-      console.log(`⚠️ Nenhuma fonte dinâmica encontrada para país: ${countryCode}`);
+      console.log(`⚠️ Nenhuma fonte configurada para ${countryCode}/${cityName}`);
       return [];
     }
     
-    console.log(`✅ Encontradas ${sources.length} fontes dinâmicas para ${countryCode}`);
+    console.log(`📚 Encontradas ${sources.length} fontes em camadas para ${countryCode}/${cityName}`);
+    console.log(`🏛️ Camadas: ${[...new Set(sources.map(s => s.layer))].join(', ')}`);
     
     const results: any[] = [];
     
-    // Para cada query, buscar nas fontes prioritárias
+    // Para cada query, buscar nas fontes por camada
     for (const query of queries.slice(0, 2)) { // Limitar a 2 queries
-      for (const source of sources.slice(0, 5)) { // Limitar a 5 fontes por query
+      for (const source of sources.slice(0, 8)) { // Limitar a 8 fontes por query
         try {
-          const config = source.source_search_configs;
-          if (!config || !config.query_template) {
+          if (!source.query_template) {
             console.log(`⚠️ Pulando ${source.source_name}: configuração inválida`);
             continue;
           }
           
-          // Construir URL de busca
-          const searchUrl = `${source.base_url}${source.search_endpoint}${config.query_template.replace('{query}', encodeURIComponent(query))}`;
+          // Construir URL de busca com contexto da cidade
+          let searchQuery = query;
+          if (source.layer === 'city') {
+            // Adicionar contexto da cidade para busca mais específica
+            searchQuery = `${query} ${cityName}`;
+          }
           
-          console.log(`🔗 Buscando em: ${source.source_name}`);
+          const searchUrl = `${source.base_url}${source.search_endpoint || ''}${source.query_template.replace('{query}', encodeURIComponent(searchQuery))}`;
           
-          // TEMPORARIAMENTE DESABILITADO: Buscas dinâmicas precisam de implementação real
-          console.log(`⚠️ ${source.source_name}: busca dinâmica desabilitada (mock removido)`);
+          console.log(`🔗 [${source.layer.toUpperCase()}] Buscando em ${source.source_name}: ${searchUrl}`);
           
-          // Rate limiting básico
-          await new Promise(resolve => setTimeout(resolve, Math.max(100, 1000 / config.rate_limit_rps)));
+          // Fazer requisição HTTP com rate limiting
+          const response = await fetch(searchUrl, {
+            method: 'GET',
+            headers: {
+              'User-Agent': 'TuggiApp/1.0 (contact@tuggi.app)',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+              'Accept-Encoding': 'gzip, deflate',
+              'Connection': 'keep-alive',
+              'Upgrade-Insecure-Requests': '1'
+            },
+            signal: AbortSignal.timeout(source.timeout_ms || 5000)
+          });
+          
+          if (response.ok) {
+            const html = await response.text();
+            
+            // Extrair texto relevante
+            const textContent = extractTextFromHTML(html);
+            
+            if (textContent && textContent.length > 100) {
+              // Calcular relevância baseada na camada e tipo de fonte
+              let relevance = 0.7; // Base
+              
+              // Ajustar relevância por camada
+              if (source.layer === 'national') {
+                relevance += 0.2; // Fontes nacionais têm mais peso
+              } else if (source.layer === 'city') {
+                relevance += 0.1; // Fontes de cidade têm peso médio
+              }
+              
+              // Ajustar relevância por tipo de fonte
+              if (source.source_type === 'government') {
+                relevance += 0.1; // Fontes governamentais são mais confiáveis
+              } else if (source.source_type === 'heritage') {
+                relevance += 0.05; // Fontes de patrimônio são relevantes
+              }
+              
+              results.push({
+                source: `${source.source_name} (${source.layer})`,
+                url: searchUrl,
+                title: `${source.source_name} - ${query}`,
+                snippet: textContent.substring(0, 500),
+                relevance: Math.min(relevance, 1.0),
+                timestamp: new Date().toISOString()
+              });
+              
+              console.log(`✅ [${source.layer.toUpperCase()}] Resultado encontrado em ${source.source_name} (relevância: ${relevance.toFixed(2)})`);
+            }
+          } else {
+            console.log(`⚠️ [${source.layer.toUpperCase()}] ${source.source_name}: HTTP ${response.status}`);
+          }
+          
+          // Rate limiting baseado na configuração da fonte
+          if (source.rate_limit_rps && source.rate_limit_rps < 10) {
+            const delay = 1000 / source.rate_limit_rps;
+            console.log(`⏳ Rate limiting: aguardando ${delay.toFixed(0)}ms para ${source.source_name}`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
           
         } catch (error) {
-          console.warn(`⚠️ Falha em ${source.source_name}: ${error.message}`);
+          console.warn(`⚠️ [${source.layer.toUpperCase()}] Falha em ${source.source_name}: ${error.message}`);
           // Continuar com a próxima fonte sem interromper
         }
       }
     }
     
+    // Ordenar resultados por relevância e camada
+    results.sort((a, b) => {
+      // Priorizar fontes nacionais
+      const aIsNational = a.source.includes('(national)');
+      const bIsNational = b.source.includes('(national)');
+      
+      if (aIsNational && !bIsNational) return -1;
+      if (!aIsNational && bIsNational) return 1;
+      
+      // Depois por relevância
+      return b.relevance - a.relevance;
+    });
+    
+    console.log(`🎯 Total de ${results.length} resultados encontrados em camadas`);
     return results;
     
   } catch (error) {
@@ -370,7 +431,7 @@ export async function getContextForClaims(
       // Primeiro tentar fontes dinâmicas (não interromper se falhar)
       let dynamicResults = [];
       try {
-        dynamicResults = await searchDynamicCountrySources(countryCode, claims.slice(0, 2), supabase);
+        dynamicResults = await searchDynamicCountrySources(countryCode, attractionInfo.city || '', claims.slice(0, 2), supabase);
         
         if (dynamicResults.length > 0) {
           console.log(`✅ Encontrados ${dynamicResults.length} resultados de fontes dinâmicas`);

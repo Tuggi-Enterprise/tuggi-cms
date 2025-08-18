@@ -14,7 +14,7 @@ console.log('🔧 DEBUG: Supabase Service Role Key configured:', !!process.env.S
 
 export const POST = async function(request: NextRequest) {
   try {
-    console.log('🚀 Starting description generation (BYPASS MODE)...')
+    console.log('🚀 Starting description generation (ENHANCED WITH OPTIMIZATION)...')
     
     // Basic security check - verify session exists
     const supabase = createRouteHandlerClient({ cookies })
@@ -363,41 +363,63 @@ export const POST = async function(request: NextRequest) {
           - OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
           `
     } else {
-      // SINGLE POI PROMPT
-      console.log(`🎯 Using SINGLE POI prompt for individual attraction`)
-      prompt = `
-        You are a professional travel-guide assistant with deep expertise in global history, culture, and tourism.
+      // OPTIMIZED SINGLE POI PROMPT (ENGLISH - VERIFICATION FOCUSED)
+      console.log(`🎯 Using OPTIMIZED SINGLE POI prompt for individual attraction`)
+      prompt = `You are a professional travel guide assistant specializing in factual, verifiable content creation for audio-guided tours.
 
-          STRICT RULES
+CRITICAL REQUIREMENTS FOR VERIFICATION ACCEPTANCE:
 
-          Use only verifiable facts from the sources provided or other official heritage/tourism sites (e.g., Wikipedia, IPHAN/UNESCO, government portals).
-          If unsure about a date or detail, omit it. Do NOT guess, infer, or invent.
-          Always prioritize historical context, original purpose, and major transformations over time, then mention cultural or environmental relevance.
-          Include 1–3 notable, confirmed facts such as year of construction/foundation, original function, important events, restorations, or environmental/cultural impact.
-          Keep sentences short and fluid for text-to-speech. Avoid lists or bullet points.
-          Do NOT include neighborhood, city, region, coordinates, street names, directions, opening hours, or prices.
-          OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
+1. FACTUAL ACCURACY: Use ONLY verifiable facts from authoritative sources listed below
+2. VERIFIABLE CLAIMS: Include specific, checkable details (construction years, architects, historical events)  
+3. NO SPECULATION: If uncertain about any detail, omit it completely
+4. STRUCTURED FACTS: Prioritize facts that can be verified against government databases, heritage sites, or official records
+5. AUDIO-OPTIMIZED: Write for text-to-speech with natural rhythm and flow
 
-          TASK
-          Write a concise (max 150 words), factual, engaging description of the attraction in Brazilian Portuguese. Spark curiosity and a sense of discovery while staying strictly factual.
+VERIFICATION CRITERIA (Based on System Analysis):
+- Target 2-4 verifiable factual claims per description
+- Focus on: construction/inauguration years, architects/designers, historical significance, architectural style
+- Avoid: subjective descriptions, unverifiable superlatives, speculative information
+- Prefer: official sources over secondary sources, government records over general information
 
-          ATTRACTION DATA
+AUTHORITATIVE SOURCES:
+${sourcesSection}
 
-          - Name: ${name}
-          - Location: ${locationDetails}
-          - Latitude/Longitude: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
-          - Authoritative Sources: ${sourcesSection}
+TASK: Generate a factual, verification-friendly description in Brazilian Portuguese (max 150 words)
 
-          INSTRUCTIONS
+ATTRACTION DATA:
+- Name: ${name}
+- Location: ${locationDetails}
+- Coordinates: ${lat && lng ? `${lat}, ${lng}` : 'Not available'}
 
-          1 - The text will come immediately after an audio cue such as “À sua frente…”, “À direita…” or “À esquerda…”, so do not include this directional cue in the text.
-          2 - Always start with the structure: “[continuação do áudio direcional] [nome do POI], [ano de construção/fundação se confirmado] [fato principal]”.
-          3 - Example: “fica a Represa Guarapiranga, formada em 1908 com o represamento do rio Guarapiranga.”
-          4 - After the first sentence, add 2–3 short sentences about historical changes, current function, and confirmed cultural or environmental importance.
-          5 - If multiple relevant facts exist, weave them naturally into the narrative.
-          6 - If reliable information is scarce, keep it brief but factual.
-          - OUTPUT: Only the final text in Brazilian Portuguese. No links, headings, or meta notes.
-        `
+GENERATION INSTRUCTIONS:
+
+1. START FORMAT: Begin with attraction name and primary verifiable fact
+   Example: "O Museu de Arte de São Paulo, inaugurado em 1947..."
+
+2. FACTUAL STRUCTURE:
+   - Sentence 1: Name + most important verifiable fact (year, architect, etc.)
+   - Sentence 2-3: Additional verifiable details (renovations, historical events, architectural features)
+   - Sentence 4: Current function/significance (if verifiable)
+
+3. VERIFICATION OPTIMIZATION:
+   - Include specific years only if confirmed by sources
+   - Name architects/designers only if documented
+   - Mention historical events only if officially recorded
+   - Reference architectural styles only if architecturally documented
+
+4. AUDIO OPTIMIZATION:
+   - Use short, clear sentences (max 25 words each)
+   - Natural breathing points between facts
+   - Avoid lists, bullet points, or complex clauses
+   - Flow naturally after directional audio cues
+
+5. PROHIBITED CONTENT:
+   - Neighborhood names, street addresses, directions
+   - Opening hours, prices, contact information
+   - Subjective superlatives ("most beautiful", "incredible")
+   - Unverified claims or speculation
+
+OUTPUT: Only the final Portuguese text, no additional commentary or metadata.`
     }
 
 
