@@ -54,21 +54,32 @@ function selectOptimalVoice(text: string): string {
 
 export const POST = async function(request: NextRequest) {
   try {
-    console.log('🚀 Starting audio generation (BYPASS MODE)...')
+    console.log('🚀 Starting audio generation...')
     
-    // Basic security check - verify session exists
-    const supabaseAuth = createRouteHandlerClient({ cookies })
-    const { data: { session }, error } = await supabaseAuth.auth.getSession()
+    // Check for internal API key first (for server-to-server calls)
+    const authHeader = request.headers.get('authorization')
+    const isInternalCall = authHeader === `Bearer ${process.env.INTERNAL_API_KEY || 'internal-key'}`
     
-    if (error || !session) {
-      console.log('❌ No authenticated user found')
-      return NextResponse.json(
-        { error: 'Unauthorized - Authentication required' },
-        { status: 401 }
-      )
+    let userEmail = 'internal-call'
+    
+    if (!isInternalCall) {
+      // Regular authentication check for user requests
+      const supabaseAuth = createRouteHandlerClient({ cookies })
+      const { data: { session }, error } = await supabaseAuth.auth.getSession()
+      
+      if (error || !session) {
+        console.log('❌ No authenticated user found')
+        return NextResponse.json(
+          { error: 'Unauthorized - Authentication required' },
+          { status: 401 }
+        )
+      }
+      
+      userEmail = session.user.email || 'unknown'
+      console.log('✅ User authenticated:', userEmail)
+    } else {
+      console.log('✅ Internal API call authenticated')
     }
-    
-    console.log('✅ User authenticated:', session.user.email)
     
     const body = await request.json()
     let { text, attractionId, voice, speed, provider } = body

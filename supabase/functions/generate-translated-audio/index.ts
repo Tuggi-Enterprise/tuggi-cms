@@ -28,38 +28,61 @@ interface GeneratedAudio {
   translatedText: string;
 }
 
-// Voice mapping for Google Cloud TTS
+// Voice mapping for Google Cloud TTS - Simplified version
 const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
-  const voiceMap: Record<string, { male: string; female: string }> = {
-    'en': { male: 'en-US-Neural2-J', female: 'en-US-Neural2-F' },
-    'en-us': { male: 'en-US-Neural2-J', female: 'en-US-Neural2-F' },
-    'es': { male: 'es-ES-Neural2-B', female: 'es-ES-Neural2-A' },
-    'es-es': { male: 'es-ES-Neural2-B', female: 'es-ES-Neural2-A' },
-    'fr': { male: 'fr-FR-Neural2-B', female: 'fr-FR-Neural2-A' },
-    'fr-fr': { male: 'fr-FR-Neural2-B', female: 'fr-FR-Neural2-A' },
-    'de': { male: 'de-DE-Neural2-B', female: 'de-DE-Neural2-A' },
-    'de-de': { male: 'de-DE-Neural2-B', female: 'de-DE-Neural2-A' },
-    'it': { male: 'it-IT-Neural2-C', female: 'it-IT-Neural2-A' },
-    'it-it': { male: 'it-IT-Neural2-C', female: 'it-IT-Neural2-A' },
-    'pt': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A' },
-    'pt-br': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A' },
+  // Simplified voice mapping with more basic voices
+  const voiceMap: Record<string, { male: string; female: string; languageCode: string }> = {
+    'en': { 
+      male: 'en-US-Standard-B', 
+      female: 'en-US-Standard-F',
+      languageCode: 'en-US'
+    },
+    'en-us': { 
+      male: 'en-US-Standard-B', 
+      female: 'en-US-Standard-F',
+      languageCode: 'en-US'
+    },
+    'es': { 
+      male: 'es-ES-Standard-B', 
+      female: 'es-ES-Standard-A',
+      languageCode: 'es-ES'
+    },
+    'es-es': { 
+      male: 'es-ES-Standard-B', 
+      female: 'es-ES-Standard-A',
+      languageCode: 'es-ES'
+    },
+    'pt': { 
+      male: 'pt-BR-Standard-B', 
+      female: 'pt-BR-Standard-A',
+      languageCode: 'pt-BR'
+    },
+    'pt-br': { 
+      male: 'pt-BR-Standard-B', 
+      female: 'pt-BR-Standard-A',
+      languageCode: 'pt-BR'
+    },
   };
 
   const normalizedLang = language.toLowerCase();
   const voices = voiceMap[normalizedLang];
   
   if (!voices) {
-    // Fallback to English
+    // Fallback to English Standard voices
+    console.log(`[Voice Config] Language ${language} not found, using English fallback`);
     return {
-      name: gender === 'male' ? 'en-US-Neural2-J' : 'en-US-Neural2-F',
+      name: gender === 'male' ? 'en-US-Standard-B' : 'en-US-Standard-F',
       languageCode: 'en-US'
     };
   }
 
-  return {
+  const result = {
     name: voices[gender],
-    languageCode: normalizedLang.includes('-') ? normalizedLang : `${normalizedLang}-${normalizedLang.toUpperCase()}`
+    languageCode: voices.languageCode
   };
+  
+  console.log(`[Voice Config] Selected voice: ${result.name} for language: ${result.languageCode}`);
+  return result;
 };
 
 // Fetch original Portuguese description
@@ -161,7 +184,28 @@ const generateAudioWithTTS = async (
   language: string, 
   gender: 'male' | 'female'
 ): Promise<ArrayBuffer> => {
+  console.log(`[TTS] Starting audio generation for language: ${language}, gender: ${gender}`);
+  console.log(`[TTS] Text length: ${text.length} characters`);
+  
   const voiceConfig = getVoiceConfig(language, gender);
+  console.log(`[TTS] Voice config:`, voiceConfig);
+
+  const requestBody = {
+    input: { text },
+    voice: {
+      languageCode: voiceConfig.languageCode,
+      name: voiceConfig.name,
+    },
+    audioConfig: {
+      audioEncoding: 'MP3',
+      speakingRate: 1.0,
+      pitch: 0.0,
+      volumeGainDb: 0.0,
+      sampleRateHertz: 24000,
+    },
+  };
+
+  console.log(`[TTS] Request body:`, JSON.stringify(requestBody, null, 2));
 
   const response = await fetch(
     `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_CLOUD_API_KEY}`,
@@ -170,35 +214,32 @@ const generateAudioWithTTS = async (
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        input: { text },
-        voice: {
-          languageCode: voiceConfig.languageCode,
-          name: voiceConfig.name,
-        },
-        audioConfig: {
-          audioEncoding: 'MP3',
-          speakingRate: 1.0,
-          pitch: 0.0,
-          volumeGainDb: 0.0,
-          sampleRateHertz: 24000,
-        },
-      }),
+      body: JSON.stringify(requestBody),
     }
   );
 
+  console.log(`[TTS] Response status: ${response.status} ${response.statusText}`);
+
   if (!response.ok) {
-    throw new Error(`Google TTS API error: ${response.statusText}`);
+    const errorText = await response.text();
+    console.error(`[TTS] Error response:`, errorText);
+    throw new Error(`Google TTS API error: ${response.statusText} - ${errorText}`);
   }
 
   const data = await response.json();
+  console.log(`[TTS] Response data keys:`, Object.keys(data));
   
   if (!data.audioContent) {
+    console.error(`[TTS] No audio content in response:`, data);
     throw new Error('No audio content received from Google TTS');
   }
 
+  console.log(`[TTS] Audio content length: ${data.audioContent.length} characters`);
+
   // Convert base64 to ArrayBuffer
   const audioBuffer = Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0));
+  console.log(`[TTS] Audio buffer size: ${audioBuffer.byteLength} bytes`);
+  
   return audioBuffer.buffer;
 };
 

@@ -46,6 +46,11 @@ const navigation = [
     icon: CheckCircle,
   },
   {
+    name: 'Improve',
+    href: '/verification/improve',
+    icon: CheckCircle,
+  },
+  {
     name: 'Reviews',
     href: '/reviews',
     icon: MessageSquare,

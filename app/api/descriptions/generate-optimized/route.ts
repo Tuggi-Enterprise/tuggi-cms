@@ -65,7 +65,8 @@ export async function POST(request: NextRequest) {
       lng: providedLng,
       reference_links,
       description_id, // ID da descrição para persistir verificação
-      persist_verification = false // Flag para persistir resultados da verificação
+      persist_verification = false, // Flag para persistir resultados da verificação
+      auto_generate_audio = false // Flag para gerar áudio automaticamente quando aprovado
     } = body
 
     console.log('✅ Required parameters check:', { name: !!name, city: !!city, country: !!country })
@@ -208,10 +209,10 @@ export async function POST(request: NextRequest) {
             description_hash: require('crypto').createHash('md5').update(finalDescription).digest('hex'),
             score_overall: Math.round(verificationResult.pontuacao),
             subscores: {
-              factuality: verificationResult.fatos_verificaveis?.length > 0 ? 70 : 30,
-              coherence: 80,
-              tts_clarity: 90,
-              rules: verificationResult.aprovada ? 90 : 50
+              factuality: verificationResult.fatos_verificaveis?.length > 0 ? Math.min(100, Math.max(60, verificationResult.pontuacao + 10)) : Math.max(30, verificationResult.pontuacao - 40),
+              coherence: Math.min(100, Math.max(60, verificationResult.pontuacao - 10)), // Baseado na pontuação geral
+              tts_clarity: Math.min(100, Math.max(70, verificationResult.pontuacao + 5)), // Ligeiramente melhor que a pontuação geral
+              rules: verificationResult.aprovada ? Math.min(100, Math.max(80, verificationResult.pontuacao + 10)) : Math.max(50, verificationResult.pontuacao - 20) // Baseado na aprovação e pontuação
             },
             flags: [
               verificationResult.aprovada ? 'verified' : 'needs_review',
@@ -220,7 +221,7 @@ export async function POST(request: NextRequest) {
             ].filter(Boolean),
             verifier_version: 'v2.0',
             llm_model: 'gemini-1.5-flash',
-            confidence: verificationResult.aprovada ? 0.8 : 0.5
+            confidence: Math.min(1.0, Math.max(0.3, verificationResult.pontuacao / 100)) // Baseado na pontuação real
           })
           .select('id')
           .single()
@@ -243,7 +244,7 @@ export async function POST(request: NextRequest) {
                 slot: 'date',
                 value: date,
                 status: 'supported',
-                weight: 0.8
+                weight: 0.8 // Peso padrão para datas - pode ser ajustado baseado na confiança da data
               })
             })
           }
@@ -258,7 +259,7 @@ export async function POST(request: NextRequest) {
                 slot: 'fact',
                 value: fact,
                 status: 'supported',
-                weight: 0.7
+                weight: 0.7 // Peso padrão para fatos - pode ser ajustado baseado na confiança do fato
               })
             })
           }
@@ -360,18 +361,18 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
               try {
                 console.log('💾 Atualizando score com descrição melhorada')
                 
-                // Atualizar score com pontuação melhorada
-                const improvedScore = Math.max(verificationResult.pontuacao, 70)
+                // Atualizar score com pontuação melhorada - usar a pontuação real da verificação
+                const improvedScore = verificationResult.pontuacao
                 const { error: updateError } = await supabaseAdmin
                   .schema('core')
                   .from('description_scores')
                   .update({
                     score_overall: Math.round(improvedScore),
                     subscores: {
-                      factuality: verificationResult.fatos_verificaveis?.length > 0 ? 70 : 30,
-                      coherence: 85, // Melhor após improvement
-                      tts_clarity: 90,
-                      rules: 95 // Melhor após improvement
+                      factuality: verificationResult.fatos_verificaveis?.length > 0 ? Math.min(100, Math.max(60, verificationResult.pontuacao + 10)) : Math.max(30, verificationResult.pontuacao - 40),
+                      coherence: Math.min(100, Math.max(60, verificationResult.pontuacao - 5)), // Baseado na pontuação melhorada
+                      tts_clarity: Math.min(100, Math.max(70, verificationResult.pontuacao + 10)), // Melhor após improvement
+                      rules: Math.min(100, Math.max(50, verificationResult.pontuacao + 15)) // Melhor após improvement
                     },
                     flags: [
                       'verified', // Sempre verificado após improvement
@@ -379,7 +380,7 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
                       ...(verificationResult.fatos_verificaveis?.length > 0 ? ['has_facts'] : []),
                       'improved'
                     ].filter(Boolean),
-                    confidence: 0.9 // Maior confiança após improvement
+                    confidence: Math.min(1.0, Math.max(0.5, verificationResult.pontuacao / 100)) // Baseado na pontuação
                   })
                   .eq('description_id', description_id)
                   .order('created_at', { ascending: false })
@@ -422,6 +423,57 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
       verificationApplied = true
     }
 
+        // Auto-generate audio if approved (>75% score) and flag is enabled
+    if (auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao > 75 && attractionId) {
+      try {
+        console.log('🎵 Auto-generating audio for approved description...')
+        
+        // Generate audio for all languages using Supabase Edge Function
+        const languages = ['en-us', 'es-es'] // pt-br is the original, so we generate en-us and es-es
+        const audioPromises = languages.map(async (lang) => {
+          try {
+            const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-translated-audio`
+            
+            const audioResponse = await fetch(edgeFunctionUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+              },
+              body: JSON.stringify({
+                attractionId: attractionId,
+                targetLanguage: lang,
+                voiceGender: 'female' // Default to female voice
+              })
+            })
+
+            if (audioResponse.ok) {
+              const result = await audioResponse.json()
+              console.log(`✅ Audio generated for ${lang}:`, result.data?.audioUrl)
+              return { language: lang, success: true, audioUrl: result.data?.audioUrl }
+            } else {
+              console.error(`❌ Failed to generate audio for ${lang}:`, await audioResponse.text())
+              return { language: lang, success: false }
+            }
+          } catch (audioError) {
+            console.error(`❌ Error generating audio for ${lang}:`, audioError)
+            return { language: lang, success: false }
+          }
+        })
+
+        const audioResults = await Promise.allSettled(audioPromises)
+        const successfulAudio = audioResults
+          .filter(result => result.status === 'fulfilled')
+          .map(result => (result as PromiseFulfilledResult<any>).value)
+          .filter(result => result.success)
+
+        console.log(`🎵 Audio generation completed: ${successfulAudio.length}/${languages.length} successful`)
+      } catch (audioError) {
+        console.error('❌ Error in auto-audio generation:', audioError)
+      }
+    }
+
     // Prepare detailed source information for response
     const sourcesInfo = layeredSources.map((source: any) => ({
       name: source.source_name,
@@ -448,6 +500,13 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
         issues: verificationResult.problemas || [],
         improvement_suggestion: verificationResult.sugestoes_melhoria || '',
         improvement_applied: improvementApplied
+      },
+      // Incluir informações sobre geração de áudio
+      audio_generation: {
+        auto_generated: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao > 75,
+        languages: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao > 75 ? ['en-us', 'es-es'] : [], // pt-br is original
+        score_threshold_met: verificationResult.pontuacao > 75,
+        method: 'edge_function'
       }
     })
 
@@ -899,10 +958,12 @@ CRITÉRIOS DE VERIFICAÇÃO (BRANDOS):
 5. ADEQUAÇÃO PARA ÁUDIO: As frases são adequadas para TTS?
 6. PORTUGUÊS BRASILEIRO: O texto está em português brasileiro correto?
 
-PONTUAÇÃO BRANDA:
+PONTUAÇÃO BRANDA (SEJA VARIADO):
 - Aprove a descrição se tiver pelo menos 1 fato e estiver em português correto
 - Pontuação mínima de 60 se tiver pelo menos um fato verificável
+- Use pontuações variadas: 65, 70, 75, 80, 85, 90, 95 baseado na qualidade real
 - Seja generoso na avaliação, considerando o limite de 25 segundos
+- NÃO use sempre a mesma pontuação - varie baseado na qualidade específica
 
 RESPONDA EM JSON:
 {

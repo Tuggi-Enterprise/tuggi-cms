@@ -2,16 +2,34 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
-import { BatchProgressBar } from '@/components/verification/BatchProgressBar';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Play, Volume2, Eye, Edit } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+interface POI {
+  id: string;
+  name: string;
+  city: string;
+  country: string;
+  descriptions: Array<{
+    id: string;
+    language: string;
+    description: string;
+    verification_status: string;
+    audio_url?: string;
+  }>;
+  verification_status?: string;
+  score?: number;
+}
 
 export default function ImprovePage() {
   const router = useRouter();
+  const supabase = useSupabaseClient();
   
   const [isLoading, setIsLoading] = useState(false);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [jobStatus, setJobStatus] = useState<any>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   
   // Form state
   const [language, setLanguage] = useState('pt-br');
@@ -19,61 +37,60 @@ export default function ImprovePage() {
   const [status, setStatus] = useState('rejected');
   const [scoreRange, setScoreRange] = useState([0, 60]);
   const [limit, setLimit] = useState(50);
+  const [autoGenerateAudio, setAutoGenerateAudio] = useState(true);
+  
+  // Data state
+  const [pois, setPois] = useState<POI[]>([]);
+  const [selectedPois, setSelectedPois] = useState<string[]>([]);
+  const [processingQueue, setProcessingQueue] = useState<string[]>([]);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
 
-  // Poll for job status if we have a jobId
-  useEffect(() => {
-    if (!jobId) return;
-    
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/verify/job-status?job_id=${jobId}`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch job status');
-        }
-        
-        const data = await response.json();
-        setJobStatus(data);
-        
-        // Stop polling if job is completed or failed
-        if (data.status === 'completed' || data.status === 'failed') {
-          clearInterval(interval);
-        }
-      } catch (err) {
-        console.error('Error fetching job status:', err);
-      }
-    }, 3000); // Poll every 3 seconds
-    
-    return () => clearInterval(interval);
-  }, [jobId]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Fetch POIs based on criteria
+  const fetchPois = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await fetch('/api/descriptions/improve-batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          language,
+      const { data, error } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select(`
+          id,
+          name,
+          city,
           country,
-          status,
-          minScore: scoreRange[0],
-          maxScore: scoreRange[1],
-          limit,
-        }),
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(errorData || 'Failed to start improvement process');
-      }
-      
-      const data = await response.json();
-      setJobId(data.jobId);
+          descriptions:attraction_descriptions!left(
+            id,
+            language,
+            description,
+            verification_status,
+            audio_url
+          )
+        `)
+        .eq('country', country)
+        .eq('descriptions.language', language)
+        .eq('descriptions.verification_status', status)
+        .limit(limit);
+
+      if (error) throw error;
+
+      // Filter by score range and add score info
+      const filteredPois = data?.filter(poi => {
+        const ptBrDescription = poi.descriptions?.find(desc => 
+          desc.language === language && desc.description && desc.description.trim()
+        );
+        
+        if (!ptBrDescription) return false;
+        
+        // For now, we'll use the status as a proxy for score
+        // In a real implementation, you'd join with description_scores table
+        const score = status === 'rejected' ? 30 : status === 'pending' ? 60 : 80;
+        return score >= scoreRange[0] && score <= scoreRange[1];
+      }) || [];
+
+      setPois(filteredPois);
+      setTotalCount(filteredPois.length);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -81,16 +98,116 @@ export default function ImprovePage() {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await fetchPois();
+  };
+
+  // Process selected POIs
+  const processSelectedPois = async () => {
+    if (selectedPois.length === 0) {
+      setError('Please select at least one POI to process');
+      return;
+    }
+
+    setIsProcessing(true);
+    setError(null);
+    setSuccess(null);
+    setProcessedCount(0);
+    setProcessingQueue([...selectedPois]);
+
+    for (const poiId of selectedPois) {
+      try {
+        const poi = pois.find(p => p.id === poiId);
+        if (!poi) continue;
+
+        const ptBrDescription = poi.descriptions?.find(desc => 
+          desc.language === language && desc.description && desc.description.trim()
+        );
+
+        if (!ptBrDescription) continue;
+
+        // Generate improved description
+        const response = await fetch('/api/descriptions/generate-optimized', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            id: poi.id,
+            name: poi.name,
+            city: poi.city,
+            country: poi.country,
+            existing_description: ptBrDescription.description,
+            description_id: ptBrDescription.id,
+            persist_verification: true,
+            auto_generate_audio: autoGenerateAudio
+          }),
+        });
+
+        if (!response.ok) {
+          console.error(`Failed to process POI ${poi.name}:`, await response.text());
+          continue;
+        }
+
+        const result = await response.json();
+        
+        // Audio generation is now handled automatically by the API when auto_generate_audio is true
+        console.log('Audio generation status:', result.audio_generation);
+        
+        // Log detailed audio generation info
+        if (result.audio_generation) {
+          if (result.audio_generation.auto_generated) {
+            console.log(`✅ Audio generated for ${result.audio_generation.languages.join(', ')}`);
+          } else if (result.verification?.score) {
+            console.log(`❌ Audio not generated - Score ${result.verification.score}% is below 75% threshold`);
+          }
+        }
+
+        setProcessedCount(prev => prev + 1);
+        setProcessingQueue(prev => prev.filter(id => id !== poiId));
+        
+      } catch (err) {
+        console.error(`Error processing POI ${poiId}:`, err);
+      }
+    }
+
+    setIsProcessing(false);
+    setSuccess(`Successfully processed ${processedCount} POIs`);
+    setSelectedPois([]);
+  };
+
+
+
+  // Toggle POI selection
+  const togglePoiSelection = (poiId: string) => {
+    setSelectedPois(prev => 
+      prev.includes(poiId) 
+        ? prev.filter(id => id !== poiId)
+        : [...prev, poiId]
+    );
+  };
+
+  // Select all POIs
+  const selectAllPois = () => {
+    setSelectedPois(pois.map(poi => poi.id));
+  };
+
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedPois([]);
+  };
+
   return (
     <div className="container mx-auto py-6">
-      <h1 className="text-3xl font-bold mb-6">Improve Descriptions</h1>
+      <h1 className="text-3xl font-bold mb-6">Improve Descriptions & Generate Audio</h1>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Parameters Card */}
         <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Improvement Parameters</h2>
+          <h2 className="text-xl font-semibold mb-4">Search Parameters</h2>
           <p className="text-gray-600 mb-4">
-            Configure the parameters for the description improvement process
+            Configure the parameters to find POIs that need improvement
           </p>
           
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -141,7 +258,6 @@ export default function ImprovePage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
               >
                 <option value="rejected">Rejected</option>
-                <option value="needs_review">Needs Review</option>
                 <option value="pending">Pending</option>
               </select>
             </div>
@@ -187,6 +303,23 @@ export default function ImprovePage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
               />
             </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={autoGenerateAudio}
+                  onChange={(e) => setAutoGenerateAudio(e.target.checked)}
+                  className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue mr-2"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  Auto-generate audio when approved (>75% score)
+                </span>
+              </label>
+              <p className="text-xs text-gray-500 ml-6">
+                Only generates audio for descriptions with score above 75%
+              </p>
+            </div>
             
             <button
               type="submit"
@@ -196,22 +329,55 @@ export default function ImprovePage() {
               {isLoading ? (
                 <>
                   <Loader2 className="inline-block mr-2 h-4 w-4 animate-spin" />
-                  Starting...
+                  Searching...
                 </>
               ) : (
-                'Start Improvement Process'
+                'Search POIs'
               )}
             </button>
           </form>
         </div>
         
-        {/* Progress Card */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Progress</h2>
-          <p className="text-gray-600 mb-4">
-            Monitor the progress of the description improvement process
-          </p>
-          
+        {/* POIs List */}
+        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">
+              POIs Found ({pois.length})
+            </h2>
+            {pois.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={selectAllPois}
+                  className="px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded hover:bg-blue-200"
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={clearSelection}
+                  className="px-3 py-1 text-sm bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                >
+                  Clear
+                </button>
+                {selectedPois.length > 0 && (
+                  <button
+                    onClick={processSelectedPois}
+                    disabled={isProcessing}
+                    className="px-4 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="inline-block mr-1 h-3 w-3 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      `Process ${selectedPois.length} Selected`
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
               <div className="flex items-center">
@@ -221,50 +387,95 @@ export default function ImprovePage() {
               <p className="text-sm mt-1">{error}</p>
             </div>
           )}
-          
-          {jobId ? (
-            <div className="space-y-4">
-              <div className="text-sm space-y-1">
-                <p><span className="font-medium">Job ID:</span> {jobId}</p>
-                <p><span className="font-medium">Status:</span> {jobStatus?.status || 'Loading...'}</p>
-                <p><span className="font-medium">Message:</span> {jobStatus?.progress_message || 'Loading...'}</p>
+
+          {success && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-4">
+              <div className="flex items-center">
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                <span className="font-medium">Success</span>
               </div>
-              
-              <BatchProgressBar jobId={jobId} />
-              
-              {jobStatus?.status === 'completed' && (
-                <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
-                  <div className="flex items-center">
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                    <span className="font-medium">Completed</span>
-                  </div>
-                  <p className="text-sm mt-1">
-                    Improved {jobStatus.successful_items} descriptions successfully.
-                    {jobStatus.failed_items > 0 && ` Failed: ${jobStatus.failed_items}`}
-                  </p>
-                </div>
+              <p className="text-sm mt-1">{success}</p>
+              {autoGenerateAudio && (
+                <p className="text-xs mt-1 text-green-600">
+                  Audio will be generated automatically for descriptions with score > 75% (EN, ES)
+                </p>
               )}
-              
-              {jobStatus?.status === 'failed' && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-                  <div className="flex items-center">
-                    <AlertCircle className="h-4 w-4 mr-2" />
-                    <span className="font-medium">Process Failed</span>
-                  </div>
-                  <p className="text-sm mt-1">{jobStatus.progress_message}</p>
-                </div>
-              )}
-              
-              <button 
-                onClick={() => router.push('/verification')}
-                className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Go to Verification Page
-              </button>
+            </div>
+          )}
+
+          {isProcessing && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded mb-4">
+              <div className="flex items-center">
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <span className="font-medium">Processing</span>
+              </div>
+              <p className="text-sm mt-1">
+                Processed {processedCount} of {totalCount} POIs
+                {processingQueue.length > 0 && ` (${processingQueue.length} remaining)`}
+              </p>
+            </div>
+          )}
+          
+          {pois.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-40 text-center text-gray-500">
+              <p>No POIs found matching the criteria</p>
+              <p className="text-sm">Try adjusting your search parameters</p>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-40 text-center text-gray-500">
-              <p>Start the improvement process to see progress here</p>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {pois.map((poi) => {
+                const ptBrDescription = poi.descriptions?.find(desc => 
+                  desc.language === language && desc.description && desc.description.trim()
+                );
+                const isSelected = selectedPois.includes(poi.id);
+                const isProcessing = processingQueue.includes(poi.id);
+                
+                return (
+                  <div
+                    key={poi.id}
+                    className={cn(
+                      "flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors",
+                      isSelected 
+                        ? "border-tuggi-blue bg-blue-50" 
+                        : "border-gray-200 hover:border-gray-300",
+                      isProcessing && "opacity-50"
+                    )}
+                    onClick={() => !isProcessing && togglePoiSelection(poi.id)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => !isProcessing && togglePoiSelection(poi.id)}
+                      disabled={isProcessing}
+                      className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue"
+                    />
+                    
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium text-gray-900 truncate">{poi.name}</h3>
+                      <p className="text-sm text-gray-500">{poi.city}, {poi.country}</p>
+                      {ptBrDescription && (
+                        <p className="text-xs text-gray-400 mt-1 truncate">
+                          {ptBrDescription.description.substring(0, 100)}...
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      {isProcessing && (
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                      )}
+                      <span className={cn(
+                        "px-2 py-1 text-xs rounded-full",
+                        status === 'rejected' 
+                          ? "bg-red-100 text-red-800" 
+                          : "bg-yellow-100 text-yellow-800"
+                      )}>
+                        {status}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
