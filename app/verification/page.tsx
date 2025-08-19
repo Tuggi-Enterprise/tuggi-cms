@@ -56,7 +56,7 @@ export default function VerificationPage() {
         .from('v_descriptions_with_last_score')
         .select('*')
         .eq('is_original', true) // Only original descriptions
-        .order('last_verified_at', { ascending: false, nullsLast: true })
+        .order('last_verified_at', { ascending: false })
         .limit(1000); // Load up to 1000 items
 
       // Apply filters

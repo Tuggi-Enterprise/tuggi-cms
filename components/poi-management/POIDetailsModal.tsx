@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, Plus, AlertTriangle } from 'lucide-react'
+import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, Plus, AlertTriangle, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getScoreDescription, getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute'
 import { formatDate } from '@/lib/utils'
@@ -51,6 +51,7 @@ export interface POI {
   trigger_points_count: number
   active_trigger_points_count: number
   reference_links?: string[] // Add reference links field
+  descriptions?: any[] // Add descriptions field for filtering
   // Group status indicators
   group_status?: {
     is_in_group: boolean
@@ -501,7 +502,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
         
         console.log('✅ Dados de verificação carregados:', { 
           score, 
-          approved: scoresData.verification_status === 'verified',
+          approved: isApproved,
           facts: verifiableFacts.length,
           dates: detectedDates.length
         });
@@ -3604,9 +3605,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                         <>
                           <div className={cn(
                             "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-                            verificationResult?.score >= 80 ? "bg-green-100 text-green-800" :
-                            verificationResult?.score >= 60 ? "bg-yellow-100 text-yellow-800" :
-                            verificationResult?.score > 0 ? "bg-orange-100 text-orange-800" :
+                            (verificationResult?.score || 0) >= 80 ? "bg-green-100 text-green-800" :
+                            (verificationResult?.score || 0) >= 60 ? "bg-yellow-100 text-yellow-800" :
+                            (verificationResult?.score || 0) > 0 ? "bg-orange-100 text-orange-800" :
                             "bg-blue-100 text-blue-800"
                           )}>
                             {verificationResult ? 
@@ -3618,7 +3619,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                           {/* Icon */}
                           {verificationResult?.approved ? (
                             <CheckCircle className="h-4 w-4 text-green-500" />
-                          ) : verificationResult?.score >= 60 ? (
+                          ) : (verificationResult?.score || 0) >= 60 ? (
                             <CheckCircle className="h-4 w-4 text-yellow-500" />
                           ) : (
                             <CheckCircle className="h-4 w-4 text-green-500" />

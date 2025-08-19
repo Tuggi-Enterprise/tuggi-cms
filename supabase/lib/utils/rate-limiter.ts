@@ -1,4 +1,8 @@
 // Rate Limiter para APIs externas
+
+// Declare Deno for TypeScript
+declare const Deno: any;
+
 export interface RateLimiter {
   key: string;
   capacity: number;
@@ -115,7 +119,7 @@ export async function callGeminiAPI(
   console.log(`🔄 Chamando Gemini API (${model}) - tokens restantes: ${Math.round(limiter.tokens)}`);
   
   // Fazer a chamada real da API
-  const apiKey = Deno.env.get('GEMINI_API_KEY');
+  const apiKey = (Deno as any).env.get('GEMINI_API_KEY');
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY not configured');
   }

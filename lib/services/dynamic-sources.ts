@@ -100,8 +100,8 @@ export class DynamicSourceService {
    */
   async getActiveCountries(): Promise<Country[]> {
     const cacheKey = 'active_countries';
-    const cached = this.getFromCache(cacheKey);
-    if (cached) return cached;
+    const cached = this.getFromCache(cacheKey) as Country[] | null;
+    if (cached && Array.isArray(cached)) return cached;
 
     const { data, error } = await this.supabase
       .schema('core')
@@ -124,8 +124,8 @@ export class DynamicSourceService {
    */
   async getCountryByCode(code: string): Promise<Country | null> {
     const cacheKey = `country_${code}`;
-    const cached = this.getFromCache(cacheKey);
-    if (cached) return cached;
+    const cached = this.getFromCache(cacheKey) as Country | null;
+    if (cached && cached.id) return cached;
 
     const { data, error } = await this.supabase
       .schema('core')
@@ -161,8 +161,8 @@ export class DynamicSourceService {
    */
   async getSourcesForCountry(countryCode: string): Promise<VerificationSource[]> {
     const cacheKey = `sources_${countryCode}`;
-    const cached = this.getFromCache(cacheKey);
-    if (cached) return cached;
+    const cached = this.getFromCache(cacheKey) as VerificationSource[] | null;
+    if (cached && Array.isArray(cached)) return cached;
 
     const { data, error } = await this.supabase
       .schema('core')
@@ -189,8 +189,8 @@ export class DynamicSourceService {
    */
   async getSearchConfig(sourceId: string): Promise<SearchConfig | null> {
     const cacheKey = `config_${sourceId}`;
-    const cached = this.getFromCache(cacheKey);
-    if (cached) return cached;
+    const cached = this.getFromCache(cacheKey) as SearchConfig | null;
+    if (cached && cached.id) return cached;
 
     const { data, error } = await this.supabase
       .schema('core')

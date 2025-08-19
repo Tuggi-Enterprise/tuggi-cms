@@ -334,7 +334,7 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                 {selectedClaim && (
                   <div className="mb-6">
                                          <h3 className="text-md font-medium text-gray-900 mb-3">
-                       Evidence for: "{selectedClaim.value}"
+                       Evidence for: &quot;{selectedClaim.value}&quot;
                      </h3>
                     
                     {claimEvidence.length === 0 ? (

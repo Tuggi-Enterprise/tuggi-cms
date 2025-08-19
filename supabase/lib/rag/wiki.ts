@@ -1,5 +1,5 @@
 
-import { searchCountrySources, getCountryFromLocation, type SourceResult } from './country-sources.ts';
+import { searchCountrySources, getCountryFromLocation, type SourceResult } from './country-sources';
 
 // Função para extrair texto limpo de HTML
 function extractTextFromHTML(html: string): string {
@@ -58,7 +58,7 @@ async function searchDynamicCountrySources(countryCode: string, cityName: string
     }
     
     console.log(`📚 Encontradas ${sources.length} fontes em camadas para ${countryCode}/${cityName}`);
-    console.log(`🏛️ Camadas: ${[...new Set(sources.map(s => s.layer))].join(', ')}`);
+    console.log(`🏛️ Camadas: ${[...new Set(sources.map((s: any) => s.layer))].join(', ')}`);
     
     const results: any[] = [];
     
@@ -143,7 +143,7 @@ async function searchDynamicCountrySources(countryCode: string, cityName: string
           }
           
         } catch (error) {
-          console.warn(`⚠️ [${source.layer.toUpperCase()}] Falha em ${source.source_name}: ${error.message}`);
+          console.warn(`⚠️ [${source.layer.toUpperCase()}] Falha em ${source.source_name}: ${(error as any).message}`);
           // Continuar com a próxima fonte sem interromper
         }
       }
@@ -480,7 +480,7 @@ export async function getContextForClaims(
           }
         }
       } catch (error) {
-        console.warn(`⚠️ Fontes dinâmicas falharam para ${countryCode}: ${error.message}`);
+        console.warn(`⚠️ Fontes dinâmicas falharam para ${countryCode}: ${(error as any).message}`);
         // Continuar sem interromper
       }
       
@@ -502,7 +502,7 @@ export async function getContextForClaims(
           }
           console.log(`✅ Fontes estáticas: ${countryResults.length} resultados`);
         } catch (error) {
-          console.warn(`⚠️ Fontes estáticas também falharam para ${countryCode}: ${error.message}`);
+          console.warn(`⚠️ Fontes estáticas também falharam para ${countryCode}: ${(error as any).message}`);
           // Continuar sem interromper - outras fontes ainda podem funcionar
         }
       }
@@ -531,7 +531,7 @@ export async function getContextForClaims(
         }
         console.log(`✅ Wikipedia: ${wikiResults.length} resultados para "${claim}"`);
       } catch (error) {
-        console.warn(`⚠️ Wikipedia falhou para "${claim}": ${error.message}`);
+        console.warn(`⚠️ Wikipedia falhou para "${claim}": ${(error as any).message}`);
         // Continuar sem interromper
       }
 
@@ -551,7 +551,7 @@ export async function getContextForClaims(
         }
         console.log(`✅ Wikidata: ${wikidataResults.length} resultados para "${claim}"`);
       } catch (error) {
-        console.warn(`⚠️ Wikidata falhou para "${claim}": ${error.message}`);
+        console.warn(`⚠️ Wikidata falhou para "${claim}": ${(error as any).message}`);
         // Continuar sem interromper
       }
 
@@ -571,7 +571,7 @@ export async function getContextForClaims(
           }
           console.log(`✅ Wikipedia específico: ${attractionWikiResults.length} resultados para "${attractionName} ${claim}"`);
         } catch (error) {
-          console.warn(`⚠️ Wikipedia específico falhou para "${attractionName} ${claim}": ${error.message}`);
+          console.warn(`⚠️ Wikipedia específico falhou para "${attractionName} ${claim}": ${(error as any).message}`);
           // Continuar sem interromper
         }
       }

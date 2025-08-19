@@ -1,4 +1,7 @@
 // Simplified version for Deno Edge Functions
+
+// Declare Deno for TypeScript
+declare const Deno: any;
 export interface Claim {
   text: string;
   type: 'year' | 'person' | 'event' | 'restoration' | 'location' | 'architecture' | 'cultural' | 'dimension' | 'other';
@@ -124,7 +127,7 @@ export async function extractClaims(description: string): Promise<ExtractClaimsR
       };
     }
     
-    const apiKey = Deno.env.get('GEMINI_API_KEY');
+    const apiKey = (Deno as any).env.get('GEMINI_API_KEY');
     if (!apiKey) {
       throw new Error('GEMINI_API_KEY not configured');
     }

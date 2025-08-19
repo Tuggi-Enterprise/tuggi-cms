@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.1.0",
+    "@google/generative-ai": "^0.24.1",
     "@googlemaps/js-api-loader": "^1.16.10",
     "@googlemaps/markerclusterer": "^2.6.2",
     "@googlemaps/react-wrapper": "^1.2.0",

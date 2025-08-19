@@ -42,7 +42,7 @@ export async function evaluateText(text: string): Promise<TextEvaluationResult> 
     const prompt = `${EVALUATE_TEXT_PROMPT}\n\n"${text}"`;
     
     // Usar rate limiter e cache
-    const { callGeminiAPI } = await import('./utils/rate-limiter.ts');
+    const { callGeminiAPI } = await import('../utils/rate-limiter');
     const data = await callGeminiAPI(model, prompt, 'text_evaluation');
     const responseText = data.candidates[0].content.parts[0].text;
     

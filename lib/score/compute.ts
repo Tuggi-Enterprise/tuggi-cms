@@ -228,30 +228,22 @@ export async function computeVerificationScores(
 
 export function validateVerificationScores(scores: VerificationScores): boolean {
   return (
-    typeof scores.overall_score === 'number' &&
-    scores.overall_score >= 0 &&
-    scores.overall_score <= 1 &&
-    typeof scores.factuality_score === 'number' &&
-    scores.factuality_score >= 0 &&
-    scores.factuality_score <= 1 &&
-    typeof scores.coherence_score === 'number' &&
-    scores.coherence_score >= 0 &&
-    scores.coherence_score <= 1 &&
-    typeof scores.tts_clarity_score === 'number' &&
-    scores.tts_clarity_score >= 0 &&
-    scores.tts_clarity_score <= 1 &&
-    typeof scores.rules_score === 'number' &&
-    scores.rules_score >= 0 &&
-    scores.rules_score <= 1 &&
-    typeof scores.claims_count === 'number' &&
-    scores.claims_count >= 0 &&
-    typeof scores.supported_claims === 'number' &&
-    scores.supported_claims >= 0 &&
-    typeof scores.contradicted_claims === 'number' &&
-    scores.contradicted_claims >= 0 &&
-    typeof scores.not_found_claims === 'number' &&
-    scores.not_found_claims >= 0 &&
-    scores.supported_claims + scores.contradicted_claims + scores.not_found_claims === scores.claims_count
+    typeof scores.score_overall === 'number' &&
+    scores.score_overall >= 0 &&
+    scores.score_overall <= 100 &&
+    typeof scores.subscores?.factuality === 'number' &&
+    scores.subscores.factuality >= 0 &&
+    scores.subscores.factuality <= 100 &&
+    typeof scores.subscores?.coherence === 'number' &&
+    scores.subscores.coherence >= 0 &&
+    scores.subscores.coherence <= 100 &&
+    typeof scores.subscores?.tts_clarity === 'number' &&
+    scores.subscores.tts_clarity >= 0 &&
+    scores.subscores.tts_clarity <= 100 &&
+    typeof scores.subscores?.rules === 'number' &&
+    scores.subscores.rules >= 0 &&
+    scores.subscores.rules <= 100 &&
+    Array.isArray(scores.flags)
   );
 }
 
