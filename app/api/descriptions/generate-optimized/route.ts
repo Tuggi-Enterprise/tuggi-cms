@@ -423,13 +423,228 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
       verificationApplied = true
     }
 
-        // Auto-generate audio if approved (>=75% score) and flag is enabled
-    if (auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75 && attractionId) {
+    // Função para salvar descrição e gerar áudio
+    const saveDescriptionAndGenerateAudio = async (description: string, attractionId: string, language: string = 'pt-br') => {
       try {
-        console.log('🎵 Auto-generating audio for approved description...')
+        console.log(`💾 Salvando descrição em ${language} para attraction ${attractionId}`)
         
-        // Generate audio for all languages using Supabase Edge Function
-        const languages = ['en-us', 'es-es'] // pt-br is the original, so we generate en-us and es-es
+        // Salvar ou atualizar a descrição
+        // Primeiro, verificar se já existe uma descrição para este attraction_id e language
+        const { data: existingDescription, error: checkError } = await supabaseAdmin
+          .schema('core')
+          .from('attraction_descriptions')
+          .select('id')
+          .eq('attraction_id', attractionId)
+          .eq('language', language)
+          .single()
+
+        if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+          console.error(`❌ Erro ao verificar descrição existente em ${language}:`, checkError)
+          return false
+        }
+
+        let savedDescription;
+        if (existingDescription) {
+          // Atualizar descrição existente
+          const { data: updatedDescription, error: updateError } = await supabaseAdmin
+            .schema('core')
+            .from('attraction_descriptions')
+            .update({
+              description: description,
+              verification_status: verificationResult.aprovada ? 'approved' : 'needs_review',
+              last_verified_at: new Date().toISOString()
+            })
+            .eq('id', existingDescription.id)
+            .select('id')
+            .single()
+
+          if (updateError) {
+            console.error(`❌ Erro ao atualizar descrição em ${language}:`, updateError)
+            return false
+          }
+          savedDescription = updatedDescription
+        } else {
+          // Inserir nova descrição
+          const { data: newDescription, error: insertError } = await supabaseAdmin
+            .schema('core')
+            .from('attraction_descriptions')
+            .insert({
+              attraction_id: attractionId,
+              language: language,
+              description: description,
+              verification_status: verificationResult.aprovada ? 'approved' : 'needs_review',
+              last_verified_at: new Date().toISOString()
+            })
+            .select('id')
+            .single()
+
+          if (insertError) {
+            console.error(`❌ Erro ao inserir descrição em ${language}:`, insertError)
+            return false
+          }
+          savedDescription = newDescription
+        }
+
+        console.log(`✅ Descrição salva em ${language} com ID:`, savedDescription?.id)
+
+        // Se a descrição foi aprovada e auto_generate_audio está habilitado, gerar áudio
+        if (auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75) {
+          console.log(`🎵 Gerando áudio para ${language}...`)
+          
+          try {
+            // Para português, gerar áudio diretamente sem tradução
+            if (language === 'pt-br') {
+              console.log('🎵 Gerando áudio em português diretamente...')
+              
+              // Importar e usar a função de geração de áudio diretamente
+              const { generateAudioWithGoogleTTS } = await import('@/lib/providers/googleTTS')
+              
+              try {
+                // Step 1: Generate audio using Google TTS
+                const audioResult = await generateAudioWithGoogleTTS({
+                  text: description,
+                  voice: 'pt-BR-Wavenet-A',
+                  speed: 1.2
+                })
+
+                // Step 2: Upload audio to Supabase Storage using Edge Function
+                const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/store-poi-audio`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                    'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+                  },
+                  body: JSON.stringify({
+                    attractionId: attractionId,
+                    audioData: audioResult.audioBuffer.toString('base64'),
+                    mimeType: audioResult.mimeType || 'audio/mpeg',
+                    language: 'pt-br'
+                  })
+                })
+
+                if (uploadResponse.ok) {
+                  const uploadData = await uploadResponse.json()
+                  console.log(`✅ Audio generated and stored for ${language}:`, uploadData.audio.url)
+                  return true
+                } else {
+                  console.error(`❌ Failed to store audio for ${language}:`, await uploadResponse.text())
+                  return false
+                }
+              } catch (audioError) {
+                console.error(`❌ Error generating audio for ${language}:`, audioError)
+                return false
+              }
+            } else {
+              // Para outros idiomas, usar a Edge Function de tradução
+              const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-translated-audio`
+              
+              const audioResponse = await fetch(edgeFunctionUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+                  'apikey': process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+                },
+                body: JSON.stringify({
+                  attractionId: attractionId,
+                  targetLanguage: language,
+                  voiceGender: 'male'
+                })
+              })
+
+              if (audioResponse.ok) {
+                const result = await audioResponse.json()
+                console.log(`✅ Audio generated for ${language}:`, result.data?.audioUrl)
+                return true
+              } else {
+                console.error(`❌ Failed to generate audio for ${language}:`, await audioResponse.text())
+                return false
+              }
+            }
+          } catch (audioError) {
+            console.error(`❌ Error generating audio for ${language}:`, audioError)
+            return false
+          }
+        }
+
+        return true
+      } catch (error) {
+        console.error(`❌ Error in saveDescriptionAndGenerateAudio for ${language}:`, error)
+        return false
+      }
+    }
+
+    // Função para verificar e aprovar automaticamente a POI
+    const checkAndAutoApprovePOI = async (
+      attractionId: string, 
+      descriptionSaved: boolean, 
+      successfulAudioCount: number, 
+      totalAudioCount: number, 
+      verificationResult: any
+    ) => {
+      try {
+        console.log('🔍 Verificando condições para aprovação automática...')
+        
+        // Condições para aprovação automática:
+        // 1. Descrição foi gerada e salva
+        // 2. Áudio PT-BR foi gerado (saveSuccess = true significa que o áudio PT foi gerado)
+        // 3. Score >= 75%
+        // 4. Todos os áudios configurados foram gerados (EN, ES)
+        
+        const conditionsCheck = {
+          descriptionGenerated: !!finalDescription && finalDescription.trim().length > 0,
+          descriptionSaved: descriptionSaved,
+          audioPtBrGenerated: descriptionSaved, // Se saveSuccess = true, áudio PT foi gerado
+          scoreApproved: verificationResult.aprovada && verificationResult.pontuacao >= 75,
+          allAudiosGenerated: successfulAudioCount === totalAudioCount
+        }
+        
+        console.log('📋 Condições para aprovação:', conditionsCheck)
+        
+        // Verificar se todas as condições foram atendidas
+        const allConditionsMet = Object.values(conditionsCheck).every(condition => condition === true)
+        
+        if (allConditionsMet) {
+          console.log('✅ Todas as condições atendidas. Aprovando POI automaticamente...')
+          
+          // Atualizar status da POI para aprovado
+          const { error: approvalError } = await supabaseAdmin
+            .schema('core')
+            .from('attractions')
+            .update({
+              approved: true,
+              approved_at: new Date().toISOString()
+              // Não definir approved_by para indicar aprovação automática (NULL)
+            })
+            .eq('id', attractionId)
+          
+          if (approvalError) {
+            console.error('❌ Erro ao aprovar POI automaticamente:', approvalError)
+          } else {
+            console.log('🎉 POI aprovada automaticamente com sucesso!')
+          }
+        } else {
+          console.log('⚠️ Nem todas as condições foram atendidas. POI não será aprovada automaticamente.')
+          console.log('Condições faltantes:', Object.entries(conditionsCheck)
+            .filter(([_, met]) => !met)
+            .map(([condition, _]) => condition)
+          )
+        }
+      } catch (error) {
+        console.error('❌ Erro na verificação de aprovação automática:', error)
+      }
+    }
+
+    // Salvar descrição em pt-br e gerar áudio
+    if (attractionId) {
+      const saveSuccess = await saveDescriptionAndGenerateAudio(finalDescription, attractionId, 'pt-br')
+      
+      if (saveSuccess && auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75) {
+        // Gerar áudio para outros idiomas
+        console.log('🎵 Generating audio for other languages...')
+        
+        const languages = ['en-us', 'es-es']
         const audioPromises = languages.map(async (lang) => {
           try {
             const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-translated-audio`
@@ -444,7 +659,7 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
               body: JSON.stringify({
                 attractionId: attractionId,
                 targetLanguage: lang,
-                voiceGender: 'male' // Default to male voice
+                voiceGender: 'male'
               })
             })
 
@@ -469,8 +684,9 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
           .filter(result => result.success)
 
         console.log(`🎵 Audio generation completed: ${successfulAudio.length}/${languages.length} successful`)
-      } catch (audioError) {
-        console.error('❌ Error in auto-audio generation:', audioError)
+        
+        // Verificar se deve aprovar automaticamente a POI
+        await checkAndAutoApprovePOI(attractionId, saveSuccess, successfulAudio.length, languages.length, verificationResult)
       }
     }
 
@@ -504,9 +720,21 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
       // Incluir informações sobre geração de áudio
       audio_generation: {
         auto_generated: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75,
-        languages: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75 ? ['en-us', 'es-es'] : [], // pt-br is original
+        languages: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75 ? ['pt-br', 'en-us', 'es-es'] : [], // Incluindo pt-br
         score_threshold_met: verificationResult.pontuacao >= 75,
         method: 'edge_function'
+      },
+      // Incluir informações sobre aprovação automática
+      auto_approval: {
+        enabled: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75,
+        conditions_checked: auto_generate_audio && attractionId ? {
+          description_generated: !!finalDescription && finalDescription.trim().length > 0,
+          description_saved: true, // Se chegou aqui, foi salva
+          audio_pt_br_generated: true, // Se chegou aqui, foi gerada
+          score_approved: verificationResult.aprovada && verificationResult.pontuacao >= 75,
+          all_audios_generated: true // Será verificado na função
+        } : null,
+        status: auto_generate_audio && attractionId ? 'processed' : 'disabled'
       }
     })
 

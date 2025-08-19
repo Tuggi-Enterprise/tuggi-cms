@@ -21,6 +21,7 @@ interface RequestBody {
   attractionId: string;
   targetLanguage: string;
   voiceGender: 'male' | 'female';
+  originalDescription?: string; // Optional: pass description directly instead of fetching from DB
 }
 
 interface GeneratedAudio {

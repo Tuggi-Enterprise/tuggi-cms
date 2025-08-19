@@ -47,47 +47,83 @@ export default function ImprovePage() {
   const [totalCount, setTotalCount] = useState(0);
 
   // Fetch POIs based on criteria
-  const fetchPois = async () => {
+    const fetchPois = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const { data, error } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select(`
-          id,
-          name,
-          city,
-          country,
-          descriptions:attraction_descriptions!left(
+      let data: any[] = [];
+
+      if (status === 'no_description') {
+        // Use RPC function to find POIs without description
+        console.log(`🔍 Using RPC function to find POIs without ${language} description in ${country}`);
+        
+        const { data: rpcData, error: rpcError } = await supabase
+          .schema('core')
+          .rpc('get_pois_without_description', {
+            p_country: country,
+            p_language: language,
+            p_limit: limit
+          });
+
+        if (rpcError) {
+          console.error('❌ RPC function error:', rpcError);
+          throw rpcError;
+        }
+
+        console.log(`✅ Found ${rpcData?.length || 0} POIs without description`);
+        data = rpcData || [];
+
+      } else {
+        // Use normal query for other statuses
+        let query = supabase
+          .schema('core')
+          .from('attractions')
+          .select(`
             id,
-            language,
-            description,
-            verification_status,
-            audio_url
-          )
-        `)
-        .eq('country', country)
-        .eq('descriptions.language', language)
-        .eq('descriptions.verification_status', status)
-        .limit(limit);
+            name,
+            city,
+            country,
+            descriptions:attraction_descriptions!left(
+              id,
+              language,
+              description,
+              verification_status,
+              audio_url
+            )
+          `)
+          .eq('country', country)
+          .eq('descriptions.language', language)
+          .limit(limit);
 
-      if (error) throw error;
+        if (status !== 'all') {
+          query = query.eq('descriptions.verification_status', status);
+        }
 
-      // Filter by score range and add score info
-      const filteredPois = data?.filter(poi => {
-        const ptBrDescription = poi.descriptions?.find(desc => 
-          desc.language === language && desc.description && desc.description.trim()
-        );
-        
-        if (!ptBrDescription) return false;
-        
-        // For now, we'll use the status as a proxy for score
-        // In a real implementation, you'd join with description_scores table
-        const score = status === 'rejected' ? 30 : status === 'pending' ? 60 : 80;
-        return score >= scoreRange[0] && score <= scoreRange[1];
-      }) || [];
+        const { data: queryData, error } = await query;
+        if (error) throw error;
+        data = queryData || [];
+      }
+
+      // Filter POIs based on status and score criteria
+      const filteredPois = data.filter(poi => {
+        if (status === 'no_description') {
+          // For no_description, all POIs from RPC function don't have descriptions
+          return true;
+        } else {
+          // For other statuses, check if they have a description
+          const ptBrDescription = poi.descriptions?.find((desc: any) => 
+            desc.language === language && desc.description && desc.description.trim()
+          );
+          
+          if (!ptBrDescription) return false;
+          
+          // For now, we'll use the status as a proxy for score
+          // In a real implementation, you'd join with description_scores table
+          const score = status === 'rejected' ? 30 : status === 'pending' ? 60 : 80;
+          return score >= scoreRange[0] && score <= scoreRange[1];
+        }
+      });
 
       setPois(filteredPois);
       setTotalCount(filteredPois.length);
@@ -121,28 +157,37 @@ export default function ImprovePage() {
         const poi = pois.find(p => p.id === poiId);
         if (!poi) continue;
 
-        const ptBrDescription = poi.descriptions?.find(desc => 
+        const ptBrDescription = poi.descriptions?.find((desc: any) => 
           desc.language === language && desc.description && desc.description.trim()
         );
 
-        if (!ptBrDescription) continue;
+        // Prepare request body based on whether POI has description or not
+        let requestBody: any = {
+          id: poi.id,
+          name: poi.name,
+          city: poi.city,
+          country: poi.country,
+          persist_verification: true,
+          auto_generate_audio: autoGenerateAudio
+        };
 
-        // Generate improved description
+        if (ptBrDescription) {
+          // POI has description - improve existing one
+          requestBody.existing_description = ptBrDescription.description;
+          requestBody.description_id = ptBrDescription.id;
+          console.log(`🔄 Improving existing description for ${poi.name}`);
+        } else {
+          // POI has no description - generate new one
+          console.log(`🆕 Generating new description for ${poi.name}`);
+        }
+
+        // Generate or improve description
         const response = await fetch('/api/descriptions/generate-optimized', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            id: poi.id,
-            name: poi.name,
-            city: poi.city,
-            country: poi.country,
-            existing_description: ptBrDescription.description,
-            description_id: ptBrDescription.id,
-            persist_verification: true,
-            auto_generate_audio: autoGenerateAudio
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
@@ -207,8 +252,16 @@ export default function ImprovePage() {
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold mb-4">Search Parameters</h2>
           <p className="text-gray-600 mb-4">
-            Configure the parameters to find POIs that need improvement
+            Configure the parameters to find POIs that need improvement or initial description generation
           </p>
+          {status === 'no_description' && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded mb-4">
+              <p className="text-sm">
+                <strong>No Description:</strong> Find POIs without descriptions in the selected language. 
+                These will get new descriptions following our established guidelines.
+              </p>
+            </div>
+          )}
           
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
@@ -257,8 +310,11 @@ export default function ImprovePage() {
                 disabled={isLoading}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
               >
+                <option value="no_description">No Description</option>
                 <option value="rejected">Rejected</option>
                 <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="all">All Statuses</option>
               </select>
             </div>
             
@@ -313,11 +369,14 @@ export default function ImprovePage() {
                   className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue mr-2"
                 />
                 <span className="text-sm font-medium text-gray-700">
-                  Auto-generate audio when approved (>=75% score)
+                  Auto-generate audio when approved (&gt;=75% score)
                 </span>
               </label>
               <p className="text-xs text-gray-500 ml-6">
-                Only generates audio for descriptions with score >= 75%
+                Only generates audio for descriptions with score &gt;= 75% (PT, EN, ES)
+              </p>
+              <p className="text-xs text-blue-600 ml-6 mt-1">
+                ✨ POIs will be automatically approved when all conditions are met
               </p>
             </div>
             
@@ -332,7 +391,7 @@ export default function ImprovePage() {
                   Searching...
                 </>
               ) : (
-                'Search POIs'
+                status === 'no_description' ? 'Find POIs Without Description' : 'Search POIs'
               )}
             </button>
           </form>
@@ -370,7 +429,9 @@ export default function ImprovePage() {
                         Processing...
                       </>
                     ) : (
-                      `Process ${selectedPois.length} Selected`
+                      status === 'no_description' 
+                        ? `Generate Descriptions for ${selectedPois.length} Selected`
+                        : `Process ${selectedPois.length} Selected`
                     )}
                   </button>
                 )}
@@ -397,7 +458,7 @@ export default function ImprovePage() {
               <p className="text-sm mt-1">{success}</p>
               {autoGenerateAudio && (
                 <p className="text-xs mt-1 text-green-600">
-                  Audio will be generated automatically for descriptions with score >= 75% (EN, ES)
+                  Audio will be generated automatically for descriptions with score &gt;= 75% (PT, EN, ES)
                 </p>
               )}
             </div>
@@ -424,7 +485,7 @@ export default function ImprovePage() {
           ) : (
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {pois.map((poi) => {
-                const ptBrDescription = poi.descriptions?.find(desc => 
+                const ptBrDescription = poi.descriptions?.find((desc: any) => 
                   desc.language === language && desc.description && desc.description.trim()
                 );
                 const isSelected = selectedPois.includes(poi.id);
@@ -453,9 +514,13 @@ export default function ImprovePage() {
                     <div className="flex-1 min-w-0">
                       <h3 className="font-medium text-gray-900 truncate">{poi.name}</h3>
                       <p className="text-sm text-gray-500">{poi.city}, {poi.country}</p>
-                      {ptBrDescription && (
+                      {ptBrDescription ? (
                         <p className="text-xs text-gray-400 mt-1 truncate">
                           {ptBrDescription.description.substring(0, 100)}...
+                        </p>
+                      ) : (
+                        <p className="text-xs text-orange-500 mt-1 font-medium">
+                          ⚠️ No description available
                         </p>
                       )}
                     </div>
