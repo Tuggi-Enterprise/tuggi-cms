@@ -105,13 +105,14 @@ export function TriggerPointsManager({
     }
   }, [attractionId, supabase])
 
-  // Generate AI suggestions
+  // Generate AI suggestions using historical patterns + Gemini intelligence
   const generateSuggestions = useCallback(async () => {
     try {
       setIsLoading(true)
       setSuggestions([])
       
-      const response = await fetch('/api/pov-suggestions', {
+      // Use enhanced POV suggestions service
+      const response = await fetch('/api/pov-suggestions/enhanced', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -120,22 +121,25 @@ export function TriggerPointsManager({
           poi_lat: attractionCoordinates.lat,
           poi_lng: attractionCoordinates.lng,
           poi_types: attractionTypes || [],
-          limit: 5,
-          min_confidence: 70
+          city: attractionCoordinates.city || '',
+          country: attractionCoordinates.country || '',
+          limit: 8, // Increased limit for AI suggestions
+          use_gemini: true // Enable Gemini AI enhancement
         })
       })
 
       const result = await response.json()
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to generate suggestions')
+        throw new Error(result.error || 'Failed to generate AI suggestions')
       }
 
-      setSuggestions(result.data.suggestions || [])
-      console.log(`✅ Generated ${result.data.suggestions?.length || 0} AI suggestions`)
+      setSuggestions(result.suggestions || [])
+      console.log(`✅ Generated ${result.suggestions?.length || 0} AI suggestions`)
+      console.log(`🤖 Sources used: ${result.metadata?.sources_used?.join(', ')}`)
       
     } catch (error) {
-      console.error('Error generating suggestions:', error)
+      console.error('Error generating AI suggestions:', error)
       setError('Failed to generate AI suggestions')
     } finally {
       setIsLoading(false)
@@ -386,47 +390,65 @@ export function TriggerPointsManager({
       setError(null)
 
       if (isEditing && selectedTriggerPoint?.id) {
-        // Update existing trigger point
-        const { error: updateError } = await supabase
-          .schema('core')
-          .from('attraction_trigger_points')
-          .update({
-            location: `POINT(${formData.longitude} ${formData.latitude})`,
+        // Update existing trigger point using API route (bypasses RLS issues)
+        const response = await fetch('/api/trigger-points/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            trigger_point_id: selectedTriggerPoint.id,
+            lat: formData.latitude,
+            lng: formData.longitude,
             radius_meters: formData.radius_meters,
             expected_bearing: formData.expected_bearing,
             bearing_threshold: formData.bearing_threshold,
             type: formData.type,
             priority: formData.priority,
-            custom_description_id: formData.custom_description_id,
             is_active: formData.is_active,
-            direction: formData.direction
+            direction: formData.direction,
+            access: 'both',
+            name: `Manual - ${formData.type}`,
+            description: `Manually updated trigger point`
           })
-          .eq('id', selectedTriggerPoint.id)
+        })
 
-        if (updateError) {
-          throw updateError
+        const result = await response.json()
+
+        if (!response.ok || !result.success) {
+          console.error('❌ Error updating trigger point:', result.error)
+          throw new Error(result.error || 'Failed to update trigger point')
         }
+
+        console.log('✅ Trigger point updated successfully:', result.data)
       } else {
-        // Create new trigger point
-        const { error: insertError } = await supabase
-          .schema('core')
-          .from('attraction_trigger_points')
-          .insert({
+        // Create new trigger point using API route (bypasses RLS issues)
+        const response = await fetch('/api/trigger-points/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             attraction_id: attractionId,
-            location: `POINT(${formData.longitude} ${formData.latitude})`,
+            lat: formData.latitude,
+            lng: formData.longitude,
             radius_meters: formData.radius_meters,
             expected_bearing: formData.expected_bearing,
             bearing_threshold: formData.bearing_threshold,
             type: formData.type,
             priority: formData.priority,
-            custom_description_id: formData.custom_description_id,
             is_active: formData.is_active,
-            direction: formData.direction
+            direction: formData.direction,
+            access: 'both',
+            name: `Manual - ${formData.type}`,
+            description: `Manually created trigger point`
           })
+        })
 
-        if (insertError) {
-          throw insertError
+        const result = await response.json()
+
+        if (!response.ok || !result.success) {
+          console.error('❌ Error creating trigger point:', result.error)
+          throw new Error(result.error || 'Failed to create trigger point')
         }
+
+        console.log('✅ Trigger point created successfully:', result.data)
       }
 
       await loadTriggerPoints()
@@ -437,7 +459,7 @@ export function TriggerPointsManager({
     } finally {
       setIsLoading(false)
     }
-  }, [formData, isEditing, selectedTriggerPoint, attractionId, supabase, loadTriggerPoints, validateForm])
+  }, [formData, isEditing, selectedTriggerPoint, attractionId, loadTriggerPoints, validateForm])
 
   // Delete trigger point
   const deleteTriggerPoint = useCallback(async (triggerPointId: string) => {
@@ -1051,71 +1073,361 @@ export function TriggerPointsManager({
                   Quick feedback (optional):
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {feedbackAction === 'reject' ? [
-                    'Poor visibility',
-                    'Too close',
-                    'Too far',
-                    'Blocked by obstacles',
-                    'Inaccessible location',
-                    'Wrong direction'
-                  ] : [
-                    'Good visibility',
-                    'Perfect distance',
-                    'Easy access',
-                    'Great angle',
-                    'Safe location',
-                    'Well positioned'
-                  ].map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        
-                        // Visual feedback
-                        e.currentTarget.style.backgroundColor = '#3b82f6'
-                        e.currentTarget.style.color = '#ffffff'
-                        setTimeout(() => {
+                  {feedbackAction === 'reject' ? (
+                    <>
+                      <button
+                        key="poor-visibility"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Poor visibility` : 'Poor visibility')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
                           e.currentTarget.style.backgroundColor = '#ffffff'
-                          e.currentTarget.style.color = '#374151'
-                        }, 200)
-                        
-                        setFeedbackReason(prev => {
-                          const newReason = prev ? `${prev}; ${option}` : option
-                          console.log('Adding feedback option:', option, 'New reason:', newReason)
-                          return newReason
-                        })
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        fontSize: '12px',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '6px',
-                        backgroundColor: '#ffffff',
-                        color: '#374151',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#f9fafb'
-                        e.currentTarget.style.borderColor = '#9ca3af'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#ffffff'
-                        e.currentTarget.style.borderColor = '#d1d5db'
-                      }}
-                      onFocus={(e) => {
-                        e.currentTarget.style.outline = '2px solid #3b82f6'
-                        e.currentTarget.style.outlineOffset = '2px'
-                      }}
-                      onBlur={(e) => {
-                        e.currentTarget.style.outline = 'none'
-                      }}
-                    >
-                      {option}
-                    </button>
-                  ))}
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Poor visibility
+                      </button>
+                      <button
+                        key="too-close"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Too close` : 'Too close')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Too close
+                      </button>
+                      <button
+                        key="too-far"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Too far` : 'Too far')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Too far
+                      </button>
+                      <button
+                        key="blocked-obstacles"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Blocked by obstacles` : 'Blocked by obstacles')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Blocked by obstacles
+                      </button>
+                      <button
+                        key="inaccessible"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Inaccessible location` : 'Inaccessible location')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Inaccessible location
+                      </button>
+                      <button
+                        key="wrong-direction"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Wrong direction` : 'Wrong direction')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Wrong direction
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        key="good-visibility"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Good visibility` : 'Good visibility')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Good visibility
+                      </button>
+                      <button
+                        key="perfect-distance"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Perfect distance` : 'Perfect distance')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Perfect distance
+                      </button>
+                      <button
+                        key="easy-access"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Easy access` : 'Easy access')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Easy access
+                      </button>
+                      <button
+                        key="great-angle"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Great angle` : 'Great angle')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Great angle
+                      </button>
+                      <button
+                        key="safe-location"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Safe location` : 'Safe location')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Safe location
+                      </button>
+                      <button
+                        key="well-positioned"
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setFeedbackReason(prev => prev ? `${prev}; Well positioned` : 'Well positioned')
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: '12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          backgroundColor: '#ffffff',
+                          color: '#374151',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb'
+                          e.currentTarget.style.borderColor = '#9ca3af'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.borderColor = '#d1d5db'
+                        }}
+                      >
+                        Well positioned
+                      </button>
+                    </>
+                  )}
                 </div>
                 {feedbackReason && (
                   <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">

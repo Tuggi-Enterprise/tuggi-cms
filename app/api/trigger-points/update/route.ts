@@ -10,30 +10,30 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      attraction_id,
+      trigger_point_id,
       lat,
       lng,
-      radius_meters = 50,
+      radius_meters,
       expected_bearing,
-      bearing_threshold = 30,
-      type = 'primary',
-      priority = 1,
-      is_active = true,
-      direction = null,
-      access = 'both',
+      bearing_threshold,
+      type,
+      priority,
+      is_active,
+      direction,
+      access,
       name,
       description
     } = body
 
-    if (!attraction_id || !lat || !lng) {
+    if (!trigger_point_id) {
       return NextResponse.json(
-        { error: 'Missing required fields: attraction_id, lat, lng' },
+        { error: 'Missing required field: trigger_point_id' },
         { status: 400 }
       )
     }
 
-    console.log('🔧 Creating trigger point with service role:', {
-      attraction_id,
+    console.log('🔧 Updating trigger point with service role:', {
+      trigger_point_id,
       lat,
       lng,
       access,
@@ -41,27 +41,27 @@ export async function POST(request: NextRequest) {
       description
     })
 
-    // Insert trigger point using service role (bypasses RLS issues)
+    // Update trigger point using service role (bypasses RLS issues)
     // First, temporarily disable the learning trigger to avoid RLS issues
     await supabase.rpc('disable_learning_trigger')
     
     const { data, error } = await supabase
       .schema('core')
       .from('attraction_trigger_points')
-      .insert({
-        attraction_id,
-        location: `POINT(${lng} ${lat})`,
-        radius_meters,
-        expected_bearing,
-        bearing_threshold,
-        type,
-        priority,
-        is_active,
-        direction,
-        access,
-        name,
-        description
+      .update({
+        ...(lat && lng && { location: `POINT(${lng} ${lat})` }),
+        ...(radius_meters !== undefined && { radius_meters }),
+        ...(expected_bearing !== undefined && { expected_bearing }),
+        ...(bearing_threshold !== undefined && { bearing_threshold }),
+        ...(type && { type }),
+        ...(priority !== undefined && { priority }),
+        ...(is_active !== undefined && { is_active }),
+        ...(direction !== undefined && { direction }),
+        ...(access && { access }),
+        ...(name && { name }),
+        ...(description && { description })
       })
+      .eq('id', trigger_point_id)
       .select()
       .single()
     
@@ -69,14 +69,14 @@ export async function POST(request: NextRequest) {
     await supabase.rpc('enable_learning_trigger')
 
     if (error) {
-      console.error('❌ Error inserting trigger point:', error)
+      console.error('❌ Error updating trigger point:', error)
       return NextResponse.json(
-        { error: 'Failed to insert trigger point', details: error },
+        { error: 'Failed to update trigger point', details: error },
         { status: 500 }
       )
     }
 
-    console.log('✅ Trigger point created successfully:', data.id)
+    console.log('✅ Trigger point updated successfully:', data.id)
 
     return NextResponse.json({
       success: true,
