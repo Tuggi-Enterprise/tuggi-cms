@@ -210,15 +210,23 @@ ${rejectedPatterns || 'No historical rejections available'}
 1. **Enhance existing suggestions**: Improve low-confidence suggestions with better reasoning
 2. **Generate 3-5 NEW suggestions**: Use your geographic knowledge to find optimal viewpoints
 3. **Consider real-world factors**: Traffic flow, parking, safety, photo opportunities
-4. **Prioritize car accessibility**: Most tourists are driving
+4. **STRONGLY PRIORITIZE "both" access**: Most tourists need car+walk accessibility
 5. **Avoid historical mistakes**: Don't repeat rejected patterns
+6. **AVOID impractical "walk" suggestions**: NO building tops, rooftops, or inaccessible areas
+
+**CRITICAL ACCESS TYPE RULES**:
+- **PREFER "both"**: Locations accessible by car WITH walkable final approach
+- **Use "car" only**: For highway overlooks, drive-through viewpoints, parking areas
+- **MINIMIZE "walk"**: Only for parks, squares, or pedestrian areas with nearby parking
+- **NEVER suggest**: Building rooftops, private balconies, restricted areas, or locations requiring climbing
 
 **INTELLIGENCE GUIDELINES**:
-- **For landmarks/monuments**: Find elevated roads, bridges, or plazas with clear sightlines
-- **For natural features**: Look for access roads, overlooks, or scenic routes
-- **For urban POIs**: Consider building tops accessible by car, highway overpasses
+- **For landmarks/monuments**: Street-level viewpoints, accessible plazas, parking areas with short walks
+- **For natural features**: Roadside overlooks, visitor centers, accessible trails from parking
+- **For urban POIs**: Street corners, accessible bridges, public squares with parking nearby
 - **Distance strategy**: 100-500m for detailed views, 500-2000m for context views
 - **Direction strategy**: Multiple angles, avoid sun glare, consider photo composition
+- **Accessibility check**: Can a tourist park nearby and walk <100m safely?
 
 **OUTPUT FORMAT** (JSON only):
 {
@@ -231,7 +239,7 @@ ${rejectedPatterns || 'No historical rejections available'}
       "distance_m": 250,
       "bearing_deg": 45,
       "access_type": "both|car|walk",
-      "vantage_type": "street|bridge|highway|overlook|building_top|square|park",
+      "vantage_type": "street|bridge|highway|overlook|square|park|parking_area|roadside",
       "confidence_score": 85,
       "reasoning": "Clear, specific explanation of why this location works",
       "estimated_visibility": "excellent|good|moderate|limited",
@@ -239,6 +247,28 @@ ${rejectedPatterns || 'No historical rejections available'}
     }
   ]
 }
+
+**EXAMPLES OF GOOD vs BAD SUGGESTIONS**:
+
+✅ GOOD "both" suggestions:
+- Street corner with parking + 50m walk to viewpoint
+- Public square with nearby parking garage
+- Bridge with pedestrian walkway and car access
+- Roadside overlook with parking area
+
+✅ GOOD "car" suggestions:
+- Highway overpass viewpoint
+- Drive-through scenic area
+- Parking lot with direct car view
+
+❌ BAD "walk" suggestions to AVOID:
+- Building rooftops or tops of structures
+- Private balconies or terraces
+- Areas requiring climbing or hiking
+- Locations without nearby parking
+- Restricted access areas
+
+**REMEMBER**: Real tourists with cars, luggage, and limited time need practical accessibility!
 
 Use your geographic intelligence to suggest viewpoints that real tourists can easily access and will love!`
   }
@@ -252,6 +282,12 @@ Use your geographic intelligence to suggest viewpoints that real tourists can ea
       
       if (geminiResponse.enhanced_suggestions) {
         geminiResponse.enhanced_suggestions.forEach((suggestion: any, index: number) => {
+          // Filtrar sugestões "walk" impraticáveis
+          if (this.isImpracticalWalkSuggestion(suggestion)) {
+            console.log(`🚫 Filtering impractical walk suggestion: ${suggestion.vantage_type} - ${suggestion.reasoning}`)
+            return // Skip esta sugestão
+          }
+
           const enhancedSuggestion: EnhancedPOVSuggestion = {
             id: suggestion.action === 'enhance' 
               ? `enhanced_${suggestion.original_id}` 
@@ -278,6 +314,27 @@ Use your geographic intelligence to suggest viewpoints that real tourists can ea
       console.error('Error processing Gemini response:', error)
       return []
     }
+  }
+
+  /**
+   * Verifica se uma sugestão "walk" é impraticável
+   */
+  private isImpracticalWalkSuggestion(suggestion: any): boolean {
+    if (suggestion.access_type !== 'walk') {
+      return false // Não é walk, não precisa filtrar
+    }
+
+    const impracticalKeywords = [
+      'rooftop', 'roof', 'building top', 'top of', 'alto de', 'topo de', 'cobertura',
+      'balcony', 'balcão', 'varanda', 'terraço', 'terrace',
+      'climbing', 'hiking', 'escalada', 'caminhada íngreme',
+      'private', 'restricted', 'privado', 'restrito',
+      'helicopter', 'drone', 'aerial', 'aéreo'
+    ]
+
+    const textToCheck = `${suggestion.vantage_type} ${suggestion.reasoning} ${suggestion.gemini_reasoning}`.toLowerCase()
+    
+    return impracticalKeywords.some(keyword => textToCheck.includes(keyword.toLowerCase()))
   }
 
   /**

@@ -680,6 +680,35 @@ export function TriggerPointsManager({
             </div>
           </div>
 
+          {/* AI Suggestions Legend */}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-purple-50 dark:bg-purple-900/10">
+              <div className="flex items-center mb-2">
+                <Sparkles className="h-4 w-4 mr-2 text-purple-600" />
+                <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                  AI Suggestions Color Guide
+                </h4>
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                <div className="flex items-center text-xs">
+                  <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: '#DC2626' }}></div>
+                  <span className="text-gray-600 dark:text-gray-400">🚗 Carro - Acesso apenas de carro</span>
+                </div>
+                <div className="flex items-center text-xs">
+                  <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: '#059669' }}></div>
+                  <span className="text-gray-600 dark:text-gray-400">🚶 Caminhada - Acesso apenas a pé</span>
+                </div>
+                <div className="flex items-center text-xs">
+                  <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: '#2563EB' }}></div>
+                  <span className="text-gray-600 dark:text-gray-400">🚗🚶 Ambos - Acesso de carro e a pé</span>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                💡 IA prioriza acesso "both" e filtra sugestões "walk" impraticáveis (ex: topos de prédios)
+              </p>
+            </div>
+          )}
+
           {/* Filter and Controls */}
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-3">

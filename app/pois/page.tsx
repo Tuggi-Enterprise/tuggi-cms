@@ -999,6 +999,7 @@ function POIListWithSearchParams() {
             googleTypesFilter={googleTypesFilter}
             contentStatusFilter={contentStatusFilter}
             groupStatusFilter={groupStatusFilter}
+            triggerPointsFilter={triggerPointsFilter}
             onPOIClick={openPOIDetails}
             height="600px"
             className="w-full"

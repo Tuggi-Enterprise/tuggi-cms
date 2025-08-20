@@ -81,6 +81,7 @@ interface POIMapVisualizationProps {
   googleTypesFilter: string
   contentStatusFilter: 'all' | 'missing_description' | 'missing_audio' | 'complete'
   groupStatusFilter?: 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'
+  triggerPointsFilter?: 'all' | 'with_trigger_points' | 'without_trigger_points'
   
   // Callbacks
   onPOIClick: (poi: POI) => void
@@ -150,6 +151,7 @@ function POIMapContent({
   googleTypesFilter,
   contentStatusFilter,
   groupStatusFilter = 'all',
+  triggerPointsFilter = 'all',
   onPOIClick,
   onFiltersChange,
   showPolygons = true,
@@ -273,7 +275,8 @@ function POIMapContent({
         .select(`
           *,
           coordinates:attraction_coordinate(latitude, longitude),
-          descriptions:attraction_descriptions(id, description, audio_url, language)
+          descriptions:attraction_descriptions(id, description, audio_url, language),
+          trigger_points:attraction_trigger_points!left(id, is_active)
         `)
 
       // Apply viewport filtering if bounds provided and map is zoomed in enough
@@ -295,11 +298,16 @@ function POIMapContent({
         return
       }
 
-      // Transform data to include coordinates and content status
+      // Transform data to include coordinates, content status, and trigger points
       const poisWithCoords = data?.map(poi => {
         const descriptions = poi.descriptions || []
+        const triggerPoints = poi.trigger_points || []
         const hasDescription = descriptions.some((desc: any) => desc.description && desc.description.trim())
         const hasAudio = descriptions.some((desc: any) => desc.audio_url && desc.audio_url.trim())
+        
+        // Count trigger points
+        const triggerPointsCount = triggerPoints.length
+        const activeTriggerPointsCount = triggerPoints.filter((tp: any) => tp.is_active).length
         
         return {
           ...poi,
@@ -308,7 +316,10 @@ function POIMapContent({
           has_audio: hasAudio,
           description_count: descriptions.filter((desc: any) => desc.description && desc.description.trim()).length,
           audio_count: descriptions.filter((desc: any) => desc.audio_url && desc.audio_url.trim()).length,
-          descriptions: undefined // Remove from final object to keep it clean
+          trigger_points_count: triggerPointsCount,
+          active_trigger_points_count: activeTriggerPointsCount,
+          descriptions: undefined, // Remove from final object to keep it clean
+          trigger_points: undefined // Remove from final object to keep it clean
         }
       }) || []
 
@@ -378,9 +389,15 @@ function POIMapContent({
         if (contentStatusFilter === 'complete' && (!poi.has_description || !poi.has_audio)) return false
       }
 
+      // Trigger Points filter
+      if (triggerPointsFilter !== 'all') {
+        if (triggerPointsFilter === 'with_trigger_points' && poi.trigger_points_count === 0) return false
+        if (triggerPointsFilter === 'without_trigger_points' && poi.trigger_points_count > 0) return false
+      }
+
       return true
     })
-  }, [pois, searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter])
+  }, [pois, searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, triggerPointsFilter])
 
   // Update markers when filtered POIs change
   const updateMarkers = useCallback(() => {
