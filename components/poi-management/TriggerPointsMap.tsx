@@ -18,7 +18,9 @@ function TriggerPointsMapContent({
   suggestions = [],
   onSuggestionDrag,
   onSuggestionAccept,
-  onSuggestionReject
+  onSuggestionReject,
+  onResetMapView,
+  onPOILocationChange
 }: Omit<TriggerPointMapProps, 'height' | 'className'>) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
@@ -30,6 +32,8 @@ function TriggerPointsMapContent({
   const suggestionMarkersRef = useRef<Map<string, google.maps.Marker>>(new Map())
   const suggestionLinesRef = useRef<Map<string, google.maps.Polyline>>(new Map())
   const isDraggingRef = useRef<boolean>(false)
+  const hasUserInteractedRef = useRef<boolean>(false)
+  const initialBoundsSetRef = useRef<boolean>(false)
 
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
@@ -44,6 +48,19 @@ function TriggerPointsMapContent({
     })
 
     mapInstanceRef.current = map
+
+    // Add listeners to detect user interaction
+    map.addListener('zoom_changed', () => {
+      hasUserInteractedRef.current = true
+    })
+    
+    map.addListener('center_changed', () => {
+      hasUserInteractedRef.current = true
+    })
+    
+    map.addListener('dragend', () => {
+      hasUserInteractedRef.current = true
+    })
   }, [center, zoom])
 
   const getMarkerIcon = useCallback((triggerPoint: TriggerPoint, isSelected: boolean = false) => {
@@ -133,16 +150,16 @@ function TriggerPointsMapContent({
     const poiMarker = new google.maps.Marker({
       position: center,
       map: mapInstanceRef.current,
-      title: `${attractionName || 'POI'} - Reference Point`,
+      title: `${attractionName || 'POI'} - Reference Point (Drag to move)`,
       icon: poiIcon,
-      draggable: false,
+      draggable: true, // Make POI marker draggable
       zIndex: 10000 // Ensure it's above trigger points
     })
 
     // Add info window for POI
     const poiInfoWindow = new google.maps.InfoWindow({
       content: `
-        <div style="padding: 8px; min-width: 150px; text-align: center;">
+        <div style="padding: 8px; min-width: 200px; text-align: center;">
           <h3 style="margin: 0 0 8px 0; font-weight: 600; color: #FF6F00;">
             ${attractionName || 'POI Location'}
           </h3>
@@ -150,6 +167,9 @@ function TriggerPointsMapContent({
             <div>Reference point for trigger placement</div>
             <div style="margin-top: 4px; font-size: 10px; color: #999;">
               ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}
+            </div>
+            <div style="margin-top: 8px; font-size: 11px; color: #FF6F00; font-weight: 500;">
+              💡 Drag to update POI location
             </div>
           </div>
         </div>
@@ -160,8 +180,54 @@ function TriggerPointsMapContent({
       poiInfoWindow.open(mapInstanceRef.current!, poiMarker)
     })
 
+    // Add drag listeners for POI marker
+    poiMarker.addListener('dragstart', () => {
+      isDraggingRef.current = true
+      // Update marker title during drag
+      poiMarker.setTitle('Moving POI...')
+    })
+
+    poiMarker.addListener('dragend', async (event: google.maps.MapMouseEvent) => {
+      isDraggingRef.current = false
+      
+      if (event.latLng) {
+        const newLat = event.latLng.lat()
+        const newLng = event.latLng.lng()
+        
+        // Update marker title back
+        poiMarker.setTitle(`${attractionName || 'POI'} - Reference Point (Drag to move)`)
+        
+        // Update info window content
+        poiInfoWindow.setContent(`
+          <div style="padding: 8px; min-width: 200px; text-align: center;">
+            <h3 style="margin: 0 0 8px 0; font-weight: 600; color: #FF6F00;">
+              ${attractionName || 'POI Location'}
+            </h3>
+            <div style="font-size: 12px; color: #666; line-height: 1.4;">
+              <div>Reference point for trigger placement</div>
+              <div style="margin-top: 4px; font-size: 10px; color: #999;">
+                ${newLat.toFixed(6)}, ${newLng.toFixed(6)}
+              </div>
+              <div style="margin-top: 8px; font-size: 11px; color: #FF6F00; font-weight: 500;">
+                💡 Drag to update POI location
+              </div>
+            </div>
+          </div>
+        `)
+        
+        // Call the onPOILocationChange callback if provided
+        if (onPOILocationChange) {
+          try {
+            onPOILocationChange(newLat, newLng)
+          } catch (error) {
+            console.error('Error updating POI location:', error)
+          }
+        }
+      }
+    })
+
     poiMarkerRef.current = poiMarker
-  }, [center, attractionName])
+  }, [center, attractionName, onPOILocationChange])
 
   const updateTriggerPoints = useCallback(() => {
     if (!mapInstanceRef.current) return
@@ -312,29 +378,34 @@ function TriggerPointsMapContent({
       })
     })
 
-    // Auto-fit bounds to include POI and trigger points
-    const bounds = new google.maps.LatLngBounds()
-    
-    // Always include the POI location
-    bounds.extend(center)
-    
-    // Include trigger points if they exist
-    if (triggerPoints.length > 0) {
-      triggerPoints.forEach(tp => {
-        bounds.extend(new google.maps.LatLng(tp.latitude, tp.longitude))
-        // Extend bounds to include radius
-        const radiusInDegrees = tp.radius_meters / 111000 // Rough conversion
-        bounds.extend(new google.maps.LatLng(tp.latitude + radiusInDegrees, tp.longitude + radiusInDegrees))
-        bounds.extend(new google.maps.LatLng(tp.latitude - radiusInDegrees, tp.longitude - radiusInDegrees))
-      })
-    }
-    
-    // Add some padding and fit bounds
-    mapInstanceRef.current?.fitBounds(bounds, { left: 50, top: 50, right: 50, bottom: 50 })
-    
-    // Ensure minimum zoom level so POI is visible
-    if (triggerPoints.length === 0) {
-      mapInstanceRef.current?.setZoom(Math.max(mapInstanceRef.current.getZoom() || 15, 15))
+    // Only auto-fit bounds if user hasn't interacted with the map yet
+    // or if this is the first time setting bounds
+    if (!hasUserInteractedRef.current || !initialBoundsSetRef.current) {
+      const bounds = new google.maps.LatLngBounds()
+      
+      // Always include the POI location
+      bounds.extend(center)
+      
+      // Include trigger points if they exist
+      if (triggerPoints.length > 0) {
+        triggerPoints.forEach(tp => {
+          bounds.extend(new google.maps.LatLng(tp.latitude, tp.longitude))
+          // Extend bounds to include radius
+          const radiusInDegrees = tp.radius_meters / 111000 // Rough conversion
+          bounds.extend(new google.maps.LatLng(tp.latitude + radiusInDegrees, tp.longitude + radiusInDegrees))
+          bounds.extend(new google.maps.LatLng(tp.latitude - radiusInDegrees, tp.longitude - radiusInDegrees))
+        })
+      }
+      
+      // Add some padding and fit bounds
+      mapInstanceRef.current?.fitBounds(bounds, { left: 50, top: 50, right: 50, bottom: 50 })
+      
+      // Ensure minimum zoom level so POI is visible
+      if (triggerPoints.length === 0) {
+        mapInstanceRef.current?.setZoom(Math.max(mapInstanceRef.current.getZoom() || 15, 15))
+      }
+      
+      initialBoundsSetRef.current = true
     }
   }, [triggerPoints, selectedTriggerPoint, getMarkerIcon, onTriggerPointClick, onTriggerPointDrag, createBearingLine, center])
 
@@ -657,12 +728,52 @@ function TriggerPointsMapContent({
     }
   }, [updateSuggestionMarkers])
 
-  // Update map center when it changes
+  // Update map center when it changes (only if user hasn't interacted)
   useEffect(() => {
-    if (mapInstanceRef.current) {
+    if (mapInstanceRef.current && !hasUserInteractedRef.current) {
       mapInstanceRef.current.setCenter(center)
     }
   }, [center])
+
+  // Function to reset map view to fit all trigger points
+  const resetMapView = useCallback(() => {
+    if (!mapInstanceRef.current) return
+    
+    const bounds = new google.maps.LatLngBounds()
+    
+    // Always include the POI location
+    bounds.extend(center)
+    
+    // Include trigger points if they exist
+    if (triggerPoints.length > 0) {
+      triggerPoints.forEach(tp => {
+        bounds.extend(new google.maps.LatLng(tp.latitude, tp.longitude))
+        // Extend bounds to include radius
+        const radiusInDegrees = tp.radius_meters / 111000 // Rough conversion
+        bounds.extend(new google.maps.LatLng(tp.latitude + radiusInDegrees, tp.longitude + radiusInDegrees))
+        bounds.extend(new google.maps.LatLng(tp.latitude - radiusInDegrees, tp.longitude - radiusInDegrees))
+      })
+    }
+    
+    // Add some padding and fit bounds
+    mapInstanceRef.current.fitBounds(bounds, { left: 50, top: 50, right: 50, bottom: 50 })
+    
+    // Ensure minimum zoom level so POI is visible
+    if (triggerPoints.length === 0) {
+      mapInstanceRef.current.setZoom(Math.max(mapInstanceRef.current.getZoom() || 15, 15))
+    }
+    
+    // Reset user interaction flag
+    hasUserInteractedRef.current = false
+  }, [center, triggerPoints])
+
+  // Expose resetMapView to parent component
+  useEffect(() => {
+    if (onResetMapView) {
+      // Store the reset function in a way that parent can access it
+      ;(window as any).__triggerPointsMapReset = resetMapView
+    }
+  }, [resetMapView, onResetMapView])
 
   // Cleanup on unmount
   useEffect(() => {

@@ -19,8 +19,7 @@ import {
   Settings,
   Upload,
   MessageSquare,
-  CheckCircle,
-  Target
+  CheckCircle
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -65,11 +64,6 @@ const navigation = [
     name: 'Analytics',
     href: '/analytics',
     icon: BarChart3,
-  },
-  {
-    name: 'POV Suggestions',
-    href: '/pov-suggestions',
-    icon: Target,
   },
 ]
 

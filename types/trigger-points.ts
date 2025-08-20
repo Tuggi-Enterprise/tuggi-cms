@@ -99,6 +99,8 @@ export interface TriggerPointMapProps {
   onSuggestionDrag?: (suggestionId: string, newLat: number, newLng: number, newDistance: number, newBearing: number) => void
   onSuggestionAccept?: (suggestion: any) => void
   onSuggestionReject?: (suggestion: any) => void
+  onResetMapView?: () => void
+  onPOILocationChange?: (newLat: number, newLng: number) => void
 }
 
 // Database types

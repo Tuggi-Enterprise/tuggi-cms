@@ -37,6 +37,7 @@ function POIListWithSearchParams() {
   const [contentStatusFilter, setContentStatusFilter] = useState<'all' | 'missing_description' | 'missing_audio' | 'complete'>('all')
   const [groupStatusFilter, setGroupStatusFilter] = useState<'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'>('all')
   const [scoreFilter, setScoreFilter] = useState<'all' | 'no_score' | 'rejected' | 'pending' | 'approved'>('all')
+  const [triggerPointsFilter, setTriggerPointsFilter] = useState<'all' | 'with_trigger_points' | 'without_trigger_points'>('all')
   const [selectedPois, setSelectedPois] = useState<string[]>([])  
   const [cities, setCities] = useState<string[]>([])  
   const [filteredCities, setFilteredCities] = useState<string[]>([])  
@@ -65,7 +66,7 @@ function POIListWithSearchParams() {
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
 
   // Function to update URL with current filter states and view mode
-  // URL params: ?search=term&status=approved&city=Paris&googleTypes=restaurant&contentStatus=complete&page=2&view=map
+  // URL params: ?search=term&status=approved&city=Paris&googleTypes=restaurant&contentStatus=complete&triggerPoints=without_trigger_points&page=2&view=map
   const updateURL = (filters: {
     search?: string
     status?: string
@@ -75,6 +76,7 @@ function POIListWithSearchParams() {
     contentStatus?: string
     groupStatus?: string
     scoreFilter?: string
+    triggerPointsFilter?: string
     page?: number
     view?: string
   }) => {
@@ -106,6 +108,9 @@ function POIListWithSearchParams() {
     if (filters.scoreFilter && filters.scoreFilter !== 'all') {
       params.set('scoreFilter', filters.scoreFilter)
     }
+    if (filters.triggerPointsFilter && filters.triggerPointsFilter !== 'all') {
+      params.set('triggerPointsFilter', filters.triggerPointsFilter)
+    }
     if (filters.page && filters.page > 1) {
       params.set('page', filters.page.toString())
     }
@@ -128,6 +133,7 @@ function POIListWithSearchParams() {
     setContentStatusFilter('all')
     setGroupStatusFilter('all')
     setScoreFilter('all')
+    setTriggerPointsFilter('all')
     setCurrentPage(1)
     setIsInitializing(false) // Ensure URL updates work after clearing
   }
@@ -142,6 +148,7 @@ function POIListWithSearchParams() {
     const contentStatus = searchParams.get('contentStatus') || 'all'
     const groupStatus = searchParams.get('groupStatus') || 'all'
     const scoreFilter = searchParams.get('scoreFilter') || 'all'
+    const triggerPointsFilter = searchParams.get('triggerPointsFilter') || 'all'
     const page = parseInt(searchParams.get('page') || '1')
     const view = searchParams.get('view') || 'table'
 
@@ -154,6 +161,7 @@ function POIListWithSearchParams() {
     setContentStatusFilter(contentStatus as any)
     setGroupStatusFilter(groupStatus as any)
     setScoreFilter(scoreFilter as any)
+    setTriggerPointsFilter(triggerPointsFilter as any)
     setCurrentPage(page)
     setViewMode(view as 'table' | 'map')
     
@@ -271,8 +279,22 @@ function POIListWithSearchParams() {
       })
     }
 
+    // Trigger Points filter
+    if (triggerPointsFilter !== 'all') {
+      filtered = filtered.filter(poi => {
+        switch (triggerPointsFilter) {
+          case 'with_trigger_points':
+            return poi.trigger_points_count > 0
+          case 'without_trigger_points':
+            return poi.trigger_points_count === 0
+          default:
+            return true
+        }
+      })
+    }
+
     return filtered
-  }, [pois, debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter])
+  }, [pois, debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter])
 
   // Update filteredPois state and pagination when memoized result changes
   useEffect(() => {
@@ -321,11 +343,12 @@ function POIListWithSearchParams() {
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
+        triggerPointsFilter: triggerPointsFilter,
         page: currentPage,
         view: viewMode
       })
     }
-  }, [debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, currentPage, viewMode, isInitializing])
+  }, [debouncedSearchTerm, statusFilter, countryFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, currentPage, viewMode, isInitializing])
 
   const fetchPois = async () => {
     setIsLoading(true)
@@ -744,7 +767,7 @@ function POIListWithSearchParams() {
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             Manage and approve imported Points of Interest
-            {(searchTerm || statusFilter !== 'all' || countryFilter || cityFilter ||  googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all') && (
+            {(searchTerm || statusFilter !== 'all' || countryFilter || cityFilter ||  googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all' || triggerPointsFilter !== 'all') && (
               <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue">
                 <Filter className="h-3 w-3 mr-1" />
                 Filtered
@@ -912,7 +935,17 @@ function POIListWithSearchParams() {
               <option value="approved">Approved</option>
             </select>
 
-            {(searchTerm || statusFilter !== 'all' || cityFilter || countryFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all' || scoreFilter !== 'all') && (
+            <select
+              value={triggerPointsFilter}
+              onChange={(e) => setTriggerPointsFilter(e.target.value as any)}
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="all">Todos Trigger Points</option>
+              <option value="with_trigger_points">Com Trigger Points</option>
+              <option value="without_trigger_points">Sem Trigger Points</option>
+            </select>
+
+            {(searchTerm || statusFilter !== 'all' || cityFilter || countryFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all' || scoreFilter !== 'all' || triggerPointsFilter !== 'all') && (
               <button
                 onClick={clearAllFilters}
                 className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"

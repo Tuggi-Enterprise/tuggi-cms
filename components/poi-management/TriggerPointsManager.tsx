@@ -5,12 +5,12 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { 
   Plus, MapPin, Target, Trash2, Edit3, Save, X, 
   Navigation, Circle, Settings, AlertTriangle, 
-  Check, RotateCcw, ZoomIn, Filter, ChevronDown, ChevronUp, Sparkles 
+  Check, RotateCcw, ZoomIn, Filter, ChevronDown, ChevronUp, Sparkles, Loader2, AlertCircle, CheckCircle 
 } from 'lucide-react'
 import { TriggerPointsMap } from './TriggerPointsMap'
 import { DirectionSelector } from './DirectionSelector'
 import { BearingSelector } from './BearingSelector'
-import { POVSuggestionsPanel } from './POVSuggestionsPanel'
+
 import { cn } from '@/lib/utils'
 import { 
   TriggerPoint, 
@@ -41,9 +41,16 @@ export function TriggerPointsManager({
   const [showForm, setShowForm] = useState(false)
   const [filterType, setFilterType] = useState<string>('all')
   const [availableDescriptions, setAvailableDescriptions] = useState<AttractionDescription[]>([])
-  const [activeTab, setActiveTab] = useState<'existing' | 'suggestions'>('existing')
   const [suggestions, setSuggestions] = useState<any[]>([])
   const [autoGenerateRequested, setAutoGenerateRequested] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [isUpdatingPOILocation, setIsUpdatingPOILocation] = useState(false)
+  const [poiUpdateSuccess, setPoiUpdateSuccess] = useState(false)
+  const [poiUpdateError, setPoiUpdateError] = useState<string | null>(null)
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false)
+  const [feedbackSuggestion, setFeedbackSuggestion] = useState<any>(null)
+  const [feedbackReason, setFeedbackReason] = useState('')
+  const [feedbackAction, setFeedbackAction] = useState<'reject' | 'accept'>('reject')
   
   // Form state
   const [formData, setFormData] = useState<TriggerPointFormData>({
@@ -98,20 +105,58 @@ export function TriggerPointsManager({
     }
   }, [attractionId, supabase])
 
+  // Generate AI suggestions
+  const generateSuggestions = useCallback(async () => {
+    try {
+      setIsLoading(true)
+      setSuggestions([])
+      
+      const response = await fetch('/api/pov-suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          poi_id: attractionId,
+          poi_name: attractionName,
+          poi_lat: attractionCoordinates.lat,
+          poi_lng: attractionCoordinates.lng,
+          poi_types: attractionTypes || [],
+          limit: 5,
+          min_confidence: 70
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to generate suggestions')
+      }
+
+      setSuggestions(result.data.suggestions || [])
+      console.log(`✅ Generated ${result.data.suggestions?.length || 0} AI suggestions`)
+      
+    } catch (error) {
+      console.error('Error generating suggestions:', error)
+      setError('Failed to generate AI suggestions')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [attractionId, attractionName, attractionCoordinates, attractionTypes])
+
   useEffect(() => {
     loadTriggerPoints()
   }, [loadTriggerPoints])
 
   // Auto-generate suggestions when there are no trigger points
   useEffect(() => {
-    const shouldAutoGenerate = triggerPoints.length === 0 && !isLoading && activeTab === 'existing' && !autoGenerateRequested
+    const shouldAutoGenerate = triggerPoints.length === 0 && !isLoading && !autoGenerateRequested
     
     if (shouldAutoGenerate) {
-      // Switch to suggestions tab and auto-generate
-      setActiveTab('suggestions')
+      // Show suggestions and auto-generate
+      setShowSuggestions(true)
       setAutoGenerateRequested(true)
+      generateSuggestions()
     }
-  }, [triggerPoints.length, isLoading, activeTab, autoGenerateRequested])
+  }, [triggerPoints.length, isLoading, autoGenerateRequested, generateSuggestions])
 
   // Handle map click for adding new trigger point
   const handleMapClick = useCallback((lat: number, lng: number) => {
@@ -151,107 +196,147 @@ export function TriggerPointsManager({
     ))
   }, [])
 
-  // Handle accepting a suggestion (convert to trigger point)
-  const handleAcceptSuggestion = useCallback(async (suggestion: any) => {
-    console.log('🎯 handleAcceptSuggestion called with:', suggestion)
-    try {
-      setIsLoading(true)
-      
-      // Calculate bearing from trigger point to POI
-      const bearing = calculateBearing(suggestion.lat, suggestion.lng, attractionCoordinates.lat, attractionCoordinates.lng)
-      console.log('📐 Calculated bearing:', bearing)
-      
-      // Insert as trigger point using API (bypasses RLS trigger issues)
-      const response = await fetch('/api/trigger-points/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          attraction_id: attractionId,
-          lat: suggestion.lat,
-          lng: suggestion.lng,
-          radius_meters: 50,
-          expected_bearing: bearing,
-          bearing_threshold: 30,
-          type: 'primary',
-          priority: 1,
-          is_active: true,
-          direction: null,
-          access: suggestion.access_type || 'both',
-          name: `AI Generated - ${suggestion.confidence_score.toFixed(1)}%`,
-          description: suggestion.reasoning || 'AI generated trigger point'
-        })
-      })
 
-      const result = await response.json()
-
-      if (!response.ok || !result.success) {
-        console.error('❌ Error adding trigger point:', result.error)
-        setError('Failed to add trigger point')
-        return
-      }
-      
-      console.log('✅ Trigger point created successfully:', result.data)
-
-      // Send feedback to learning system (try-catch to not block UI)
-      try {
-        await fetch('/api/pov-suggestions/feedback', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            suggestionId: suggestion.id,
-            poiId: attractionId,
-            action: 'accept',
-            coordinates: { lat: suggestion.lat, lng: suggestion.lng }
-          })
-        })
-        console.log('✅ Feedback sent to learning system')
-      } catch (feedbackError) {
-        console.warn('⚠️ Failed to send feedback to learning system:', feedbackError)
-        // Continue anyway - the main action (creating trigger point) succeeded
-      }
-
-      // Remove suggestion from list
-      setSuggestions(prev => prev.filter(s => s.id !== suggestion.id))
-      
-      // Reload trigger points to show the new one
-      loadTriggerPoints()
-      
-      console.log('✅ Suggestion accepted and converted to trigger point')
-      
-    } catch (error) {
-      console.error('Error accepting suggestion:', error)
-      setError('Failed to accept suggestion')
-    } finally {
-      setIsLoading(false)
-    }
-  }, [attractionId, attractionCoordinates, supabase, loadTriggerPoints])
 
   // Handle rejecting a suggestion
   const handleRejectSuggestion = useCallback(async (suggestion: any) => {
+    // Open feedback modal for rejection
+    setFeedbackSuggestion(suggestion)
+    setFeedbackAction('reject')
+    setFeedbackReason('')
+    setShowFeedbackModal(true)
+  }, [])
+
+  // Handle accepting a suggestion
+  const handleAcceptSuggestion = useCallback(async (suggestion: any) => {
+    // Open feedback modal for acceptance
+    setFeedbackSuggestion(suggestion)
+    setFeedbackAction('accept')
+    setFeedbackReason('')
+    setShowFeedbackModal(true)
+  }, [])
+
+  // Submit feedback
+  const submitFeedback = useCallback(async () => {
+    if (!feedbackSuggestion) return
+
     try {
+      setIsLoading(true)
+      
       // Send feedback to learning system
       await fetch('/api/pov-suggestions/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          suggestionId: suggestion.id,
+          suggestionId: feedbackSuggestion.id,
           poiId: attractionId,
-          action: 'reject',
-          feedback: 'Rejected from map InfoWindow',
-          coordinates: { lat: suggestion.lat, lng: suggestion.lng }
+          action: feedbackAction,
+          feedback: feedbackReason || `${feedbackAction === 'accept' ? 'Accepted' : 'Rejected'} without specific reason`,
+          coordinates: { lat: feedbackSuggestion.lat, lng: feedbackSuggestion.lng }
         })
       })
 
+      // If accepting, create trigger point
+      if (feedbackAction === 'accept') {
+        console.log('🎯 Creating trigger point from accepted suggestion')
+        
+        // Calculate bearing from trigger point to POI
+        const bearing = calculateBearing(feedbackSuggestion.lat, feedbackSuggestion.lng, attractionCoordinates.lat, attractionCoordinates.lng)
+        console.log('📐 Calculated bearing:', bearing)
+        
+        // Insert as trigger point using API
+        const response = await fetch('/api/trigger-points/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attraction_id: attractionId,
+            lat: feedbackSuggestion.lat,
+            lng: feedbackSuggestion.lng,
+            radius_meters: 50,
+            expected_bearing: bearing,
+            bearing_threshold: 30,
+            type: 'primary',
+            priority: 1,
+            is_active: true,
+            direction: null,
+            access: feedbackSuggestion.access_type || 'both',
+            name: `AI Generated - ${feedbackSuggestion.confidence_score.toFixed(1)}%`,
+            description: feedbackSuggestion.reasoning || 'AI generated trigger point'
+          })
+        })
+
+        const result = await response.json()
+
+        if (!response.ok || !result.success) {
+          console.error('❌ Error adding trigger point:', result.error)
+          setError('Failed to add trigger point')
+          return
+        }
+        
+        console.log('✅ Trigger point created successfully:', result.data)
+        
+        // Reload trigger points to show the new one
+        loadTriggerPoints()
+      }
+
       // Remove suggestion from list
-      setSuggestions(prev => prev.filter(s => s.id !== suggestion.id))
+      setSuggestions(prev => prev.filter(s => s.id !== feedbackSuggestion.id))
       
-      console.log('❌ Suggestion rejected')
+      console.log(`✅ Suggestion ${feedbackAction}ed with feedback`)
+      
+      // Close modal
+      setShowFeedbackModal(false)
+      setFeedbackSuggestion(null)
+      setFeedbackReason('')
       
     } catch (error) {
-      console.error('Error rejecting suggestion:', error)
-      setError('Failed to reject suggestion')
+      console.error('Error submitting feedback:', error)
+      setError('Failed to submit feedback')
+    } finally {
+      setIsLoading(false)
     }
-  }, [attractionId])
+  }, [feedbackSuggestion, feedbackAction, feedbackReason, attractionId, attractionCoordinates, loadTriggerPoints])
+
+  // Handle POI location change
+  const handlePOILocationChange = useCallback(async (newLat: number, newLng: number) => {
+    try {
+      setIsUpdatingPOILocation(true)
+      setError(null)
+      setPoiUpdateError(null)
+      setPoiUpdateSuccess(false)
+
+      console.log(`🗺️ Updating POI location: ${attractionName} -> ${newLat}, ${newLng}`)
+
+      const response = await fetch('/api/pois/update-coordinates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attractionId,
+          latitude: newLat,
+          longitude: newLng
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to update POI location')
+      }
+
+      console.log('✅ POI location updated successfully')
+      
+      // Show success notification
+      setPoiUpdateSuccess(true)
+      setTimeout(() => setPoiUpdateSuccess(false), 3000) // Hide after 3 seconds
+      
+    } catch (error) {
+      console.error('Error updating POI location:', error)
+      setPoiUpdateError('Failed to update POI location. Please try again.')
+      setTimeout(() => setPoiUpdateError(null), 5000) // Hide after 5 seconds
+    } finally {
+      setIsUpdatingPOILocation(false)
+    }
+  }, [attractionId, attractionName])
 
   // Calculate bearing from point A to point B
   function calculateBearing(fromLat: number, fromLng: number, toLat: number, toLng: number): number {
@@ -482,76 +567,109 @@ export function TriggerPointsManager({
         <div className="flex-1 relative">
           <TriggerPointsMap
             center={attractionCoordinates}
-            zoom={16}
+            zoom={14}
             height="100%"
             attractionName={attractionName}
-            triggerPoints={activeTab === 'existing' ? filteredTriggerPoints : []}
+            triggerPoints={filteredTriggerPoints}
             selectedTriggerPoint={selectedTriggerPoint}
             onMapClick={handleMapClick}
             onTriggerPointClick={handleTriggerPointClick}
             onTriggerPointDrag={handleTriggerPointDrag}
             isAddingMode={isAddingMode}
-            suggestions={activeTab === 'suggestions' ? suggestions : []}
+            suggestions={showSuggestions ? suggestions : []}
             onSuggestionDrag={handleSuggestionDrag}
             onSuggestionAccept={handleAcceptSuggestion}
             onSuggestionReject={handleRejectSuggestion}
+            onPOILocationChange={handlePOILocationChange}
           />
         </div>
 
         {/* Sidebar */}
         <div className="w-80 border-l border-gray-200 dark:border-gray-700 flex flex-col">
-          {/* Tabs */}
-          <div className="border-b border-gray-200 dark:border-gray-700">
-            <nav className="flex">
-              <button
-                onClick={() => setActiveTab('existing')}
-                className={cn(
-                  'flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
-                  activeTab === 'existing'
-                    ? 'border-tuggi-blue text-tuggi-blue'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+          {/* Header with AI Suggestions Toggle */}
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+                  Trigger Points ({filteredTriggerPoints.length})
+                </h3>
+                {isUpdatingPOILocation && (
+                  <div className="ml-2 flex items-center text-xs text-tuggi-orange">
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    Updating POI...
+                  </div>
                 )}
-              >
-                <div className="flex items-center justify-center">
-                  <Target className="h-4 w-4 mr-2" />
-                  Existing ({filteredTriggerPoints.length})
-                </div>
-              </button>
-              <button
-                onClick={() => setActiveTab('suggestions')}
-                className={cn(
-                  'flex-1 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
-                  activeTab === 'suggestions'
-                    ? 'border-purple-600 text-purple-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                {poiUpdateSuccess && (
+                  <div className="ml-2 flex items-center text-xs text-green-600">
+                    <CheckCircle className="h-3 w-3 mr-1" />
+                    POI Updated!
+                  </div>
                 )}
+                {poiUpdateError && (
+                  <div className="ml-2 flex items-center text-xs text-red-600">
+                    <AlertCircle className="h-3 w-3 mr-1" />
+                    {poiUpdateError}
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    // Call the reset function exposed by the map component
+                    if ((window as any).__triggerPointsMapReset) {
+                      (window as any).__triggerPointsMapReset()
+                    }
+                  }}
+                  className="px-2 py-1.5 text-xs font-medium rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+                  title="Reset map view to fit all trigger points"
+                >
+                  <ZoomIn className="h-3 w-3" />
+                </button>
+              <button
+                onClick={() => {
+                  if (showSuggestions && suggestions.length > 0) {
+                    // If suggestions are visible and exist, hide them
+                    setShowSuggestions(false)
+                  } else {
+                    // Show suggestions and generate if needed
+                    setShowSuggestions(true)
+                    if (suggestions.length === 0) {
+                      generateSuggestions()
+                    }
+                  }
+                }}
+                disabled={isLoading}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center disabled:opacity-50 ${
+                  showSuggestions
+                    ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                }`}
               >
-                <div className="flex items-center justify-center">
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  AI Suggestions
-                </div>
+                <Sparkles className="h-4 w-4 mr-1" />
+                {isLoading ? 'Generating...' : 'AI'}
+                {suggestions.length > 0 && (
+                  <span className="ml-1 bg-purple-500 text-white text-xs rounded-full px-1.5 py-0.5">
+                    {suggestions.length}
+                  </span>
+                )}
               </button>
-            </nav>
+              </div>
+            </div>
           </div>
 
-          {/* Tab Content */}
-          {activeTab === 'existing' ? (
-            <>
-              {/* Filter and Controls */}
-              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium text-gray-900 dark:text-white">
-                    Trigger Points ({filteredTriggerPoints.length})
-                  </h3>
-                  <button
-                    onClick={() => setFilterType('all')}
-                    className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
-                  >
-                    Show All
-                  </button>
-                </div>
+          {/* Filter and Controls */}
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between mb-3">
+              <button
+                onClick={() => setFilterType('all')}
+                className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
+              >
+                Show All
+              </button>
+            </div>
             
-                              <select
+            <select
                     value={filterType}
                     onChange={(e) => setFilterType(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
@@ -665,19 +783,6 @@ export function TriggerPointsManager({
               </div>
             )}
           </div>
-            </>
-          ) : (
-            /* AI Suggestions Tab */
-            <POVSuggestionsPanel
-              attractionId={attractionId}
-              attractionName={attractionName}
-              attractionCoordinates={attractionCoordinates}
-              attractionTypes={attractionTypes}
-              onTriggerPointAdded={loadTriggerPoints}
-              onSuggestionsChange={setSuggestions}
-              autoGenerate={autoGenerateRequested && activeTab === 'suggestions'}
-            />
-          )}
         </div>
       </div>
 
@@ -876,6 +981,189 @@ export function TriggerPointsManager({
                   <>
                     <Save className="h-4 w-4 mr-2" />
                     {isEditing ? 'Update' : 'Create'}
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback Modal */}
+      {showFeedbackModal && feedbackSuggestion && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {feedbackAction === 'accept' ? 'Accept' : 'Reject'} Suggestion
+              </h3>
+              <button
+                onClick={() => {
+                  setShowFeedbackModal(false)
+                  setFeedbackSuggestion(null)
+                  setFeedbackReason('')
+                }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              {/* Suggestion Info */}
+              <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  <div className="flex items-center mb-2">
+                    <MapPin className="h-4 w-4 mr-2" />
+                    <span>Distance: {Math.round(feedbackSuggestion.distance_m)}m</span>
+                  </div>
+                  <div className="flex items-center mb-2">
+                    <Navigation className="h-4 w-4 mr-2" />
+                    <span>Direction: {feedbackSuggestion.bearing_deg}°</span>
+                  </div>
+                  <div className="flex items-center">
+                    <Target className="h-4 w-4 mr-2" />
+                    <span>Confidence: {feedbackSuggestion.confidence_score}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Feedback Reason */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {feedbackAction === 'accept' ? 'Why did you accept this suggestion?' : 'Why did you reject this suggestion?'}
+                </label>
+                <textarea
+                  value={feedbackReason}
+                  onChange={(e) => setFeedbackReason(e.target.value)}
+                  placeholder={feedbackAction === 'accept' 
+                    ? "e.g., Good visibility, accessible location, appropriate distance..."
+                    : "e.g., Poor visibility, too close/far, blocked by obstacles..."
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none"
+                  rows={3}
+                />
+              </div>
+
+              {/* Quick Feedback Options */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Quick feedback (optional):
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {feedbackAction === 'reject' ? [
+                    'Poor visibility',
+                    'Too close',
+                    'Too far',
+                    'Blocked by obstacles',
+                    'Inaccessible location',
+                    'Wrong direction'
+                  ] : [
+                    'Good visibility',
+                    'Perfect distance',
+                    'Easy access',
+                    'Great angle',
+                    'Safe location',
+                    'Well positioned'
+                  ].map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        
+                        // Visual feedback
+                        e.currentTarget.style.backgroundColor = '#3b82f6'
+                        e.currentTarget.style.color = '#ffffff'
+                        setTimeout(() => {
+                          e.currentTarget.style.backgroundColor = '#ffffff'
+                          e.currentTarget.style.color = '#374151'
+                        }, 200)
+                        
+                        setFeedbackReason(prev => {
+                          const newReason = prev ? `${prev}; ${option}` : option
+                          console.log('Adding feedback option:', option, 'New reason:', newReason)
+                          return newReason
+                        })
+                      }}
+                      style={{
+                        padding: '8px 12px',
+                        fontSize: '12px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '6px',
+                        backgroundColor: '#ffffff',
+                        color: '#374151',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#f9fafb'
+                        e.currentTarget.style.borderColor = '#9ca3af'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#ffffff'
+                        e.currentTarget.style.borderColor = '#d1d5db'
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.style.outline = '2px solid #3b82f6'
+                        e.currentTarget.style.outlineOffset = '2px'
+                      }}
+                      onBlur={(e) => {
+                        e.currentTarget.style.outline = 'none'
+                      }}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+                {feedbackReason && (
+                  <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                        <strong>Current feedback:</strong> {feedbackReason}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setFeedbackReason('')}
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex items-center justify-end space-x-3 p-4 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => {
+                  setShowFeedbackModal(false)
+                  setFeedbackSuggestion(null)
+                  setFeedbackReason('')
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitFeedback}
+                className={`px-4 py-2 text-sm font-medium text-white rounded-lg flex items-center ${
+                  feedbackAction === 'accept' 
+                    ? 'bg-green-600 hover:bg-green-700' 
+                    : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {feedbackAction === 'accept' ? (
+                  <>
+                    <Check className="h-4 w-4 mr-2" />
+                    Accept
+                  </>
+                ) : (
+                  <>
+                    <X className="h-4 w-4 mr-2" />
+                    Reject
                   </>
                 )}
               </button>

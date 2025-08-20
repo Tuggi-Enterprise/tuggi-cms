@@ -110,7 +110,8 @@ export class POVSuggestionsService {
    * Busca exemplos similares no dataset de treinamento
    */
   private async findSimilarExamples(poiAnalysis: any) {
-    const { data: examples, error } = await supabase
+    // Buscar exemplos positivos (aceitos)
+    const { data: positiveExamples, error: positiveError } = await supabase
       .schema('core')
       .from('pov_training_examples')
       .select(`
@@ -134,18 +135,50 @@ export class POVSuggestionsService {
       .order('quality_score', { ascending: false })
       .limit(50)
     
-    if (error) {
-      throw new Error(`Failed to fetch similar examples: ${error.message}`)
+    if (positiveError) {
+      throw new Error(`Failed to fetch positive examples: ${positiveError.message}`)
     }
+
+    // Buscar exemplos negativos (rejeitados) para evitar padrões similares
+    const { data: negativeExamples, error: negativeError } = await supabase
+      .schema('core')
+      .from('pov_training_examples')
+      .select(`
+        id,
+        poi_name,
+        poi_category,
+        urban_density,
+        distance_m,
+        bearing_deg,
+        access_type,
+        trigger_type,
+        priority,
+        quality_score,
+        is_positive_example,
+        context_text
+      `)
+      .eq('poi_category', poiAnalysis.category)
+      .eq('urban_density', poiAnalysis.urban_density)
+      .eq('is_positive_example', false)
+      .lte('quality_score', 30)
+      .order('quality_score', { ascending: true })
+      .limit(20)
     
-    return examples || []
+    if (negativeError) {
+      console.warn('Failed to fetch negative examples:', negativeError.message)
+    }
+
+    return {
+      positive: positiveExamples || [],
+      negative: negativeExamples || []
+    }
   }
   
   /**
-   * Extrai padrões de sucesso dos exemplos
+   * Extrai padrões de sucesso dos exemplos e evita padrões de falha
    */
-  private extractSuccessPatterns(examples: any[]) {
-    if (examples.length === 0) {
+  private extractSuccessPatterns(examples: { positive: any[], negative: any[] }) {
+    if (examples.positive.length === 0) {
       return []
     }
     
@@ -153,21 +186,21 @@ export class POVSuggestionsService {
     const patterns = []
     
     // Padrão 1: Distâncias de sucesso
-    const distances = examples.map(ex => ex.distance_m)
-    const avgDistance = distances.reduce((a, b) => a + b, 0) / distances.length
+    const positiveDistances = examples.positive.map(ex => ex.distance_m)
+    const avgDistance = positiveDistances.reduce((a, b) => a + b, 0) / positiveDistances.length
     const distanceRange = {
-      min: Math.min(...distances),
-      max: Math.max(...distances),
+      min: Math.min(...positiveDistances),
+      max: Math.max(...positiveDistances),
       avg: Math.round(avgDistance)
     }
     
     // Padrão 2: Direções preferidas
-    const bearings = examples.map(ex => ex.bearing_deg)
-    const bearingSectors = this.groupBearingsIntoSectors(bearings)
+    const positiveBearings = examples.positive.map(ex => ex.bearing_deg)
+    const bearingSectors = this.groupBearingsIntoSectors(positiveBearings)
     
     // Padrão 3: Tipos de acesso preferidos
-    const accessTypes = examples.map(ex => ex.access_type)
-    const accessTypeCounts = accessTypes.reduce((acc, type) => {
+    const positiveAccessTypes = examples.positive.map(ex => ex.access_type)
+    const accessTypeCounts = positiveAccessTypes.reduce((acc, type) => {
       acc[type] = (acc[type] || 0) + 1
       return acc
     }, {} as Record<string, number>)
@@ -175,22 +208,36 @@ export class POVSuggestionsService {
     const preferredAccess = Object.entries(accessTypeCounts)
       .sort(([,a], [,b]) => b - a)[0][0]
     
+    // Padrão 4: Distâncias a evitar (baseado em exemplos negativos)
+    const avoidDistances = examples.negative.length > 0 ? {
+      ranges: this.extractAvoidanceRanges(examples.negative.map(ex => ex.distance_m)),
+      count: examples.negative.length
+    } : null
+    
+    // Padrão 5: Direções a evitar (baseado em exemplos negativos)
+    const avoidBearings = examples.negative.length > 0 ? {
+      sectors: this.groupBearingsIntoSectors(examples.negative.map(ex => ex.bearing_deg)),
+      count: examples.negative.length
+    } : null
+    
     patterns.push({
       type: 'distance',
       data: distanceRange,
-      confidence: examples.length / 50 // Normalizado
+      confidence: examples.positive.length / 50, // Normalizado
+      avoid: avoidDistances
     })
     
     patterns.push({
       type: 'bearing',
       data: bearingSectors,
-      confidence: examples.length / 50
+      confidence: examples.positive.length / 50,
+      avoid: avoidBearings
     })
     
     patterns.push({
       type: 'access',
       data: { preferred: preferredAccess, distribution: accessTypeCounts },
-      confidence: examples.length / 50
+      confidence: examples.positive.length / 50
     })
     
     return patterns
@@ -214,6 +261,47 @@ export class POVSuggestionsService {
     
     return sectors
   }
+
+  /**
+   * Extrai faixas de distância a evitar baseado em exemplos negativos
+   */
+  private extractAvoidanceRanges(distances: number[]) {
+    if (distances.length === 0) return []
+    
+    // Agrupar distâncias similares em faixas
+    const sortedDistances = [...distances].sort((a, b) => a - b)
+    const ranges = []
+    
+    let currentRange = {
+      min: sortedDistances[0],
+      max: sortedDistances[0],
+      count: 1
+    }
+    
+    for (let i = 1; i < sortedDistances.length; i++) {
+      const distance = sortedDistances[i]
+      
+      // Se a distância está próxima (dentro de 50m), expandir a faixa
+      if (distance - currentRange.max <= 50) {
+        currentRange.max = distance
+        currentRange.count++
+      } else {
+        // Finalizar faixa atual e começar nova
+        ranges.push(currentRange)
+        currentRange = {
+          min: distance,
+          max: distance,
+          count: 1
+        }
+      }
+    }
+    
+    // Adicionar última faixa
+    ranges.push(currentRange)
+    
+    // Retornar apenas faixas com múltiplas ocorrências
+    return ranges.filter(range => range.count >= 2)
+  }
   
   /**
    * Gera candidatos baseado nos padrões
@@ -232,8 +320,8 @@ export class POVSuggestionsService {
     // Encontrar padrão de acesso
     const accessPattern = patterns.find(p => p.type === 'access')
     
-    const distances = this.generateDistanceCandidates(distancePattern.data)
-    const bearings = this.generateBearingCandidates(bearingPattern.data)
+    const distances = this.generateDistanceCandidates(distancePattern.data, distancePattern.avoid)
+    const bearings = this.generateBearingCandidates(bearingPattern.data, bearingPattern.avoid)
     
     // Gerar candidatos para cada combinação
     for (const distance of distances) {
@@ -266,7 +354,7 @@ export class POVSuggestionsService {
   /**
    * Gera candidatos de distância baseado no padrão
    */
-  private generateDistanceCandidates(distancePattern: any) {
+  private generateDistanceCandidates(distancePattern: any, avoidPattern?: any) {
     const distances = []
     
     // Distância média
@@ -291,13 +379,24 @@ export class POVSuggestionsService {
       distances.push(mid2)
     }
     
-    return [...new Set(distances)].sort((a, b) => a - b)
+    let filteredDistances = [...new Set(distances)].sort((a, b) => a - b)
+    
+    // Filtrar distâncias que devem ser evitadas
+    if (avoidPattern && avoidPattern.ranges) {
+      filteredDistances = filteredDistances.filter(distance => {
+        return !avoidPattern.ranges.some((range: any) => 
+          distance >= range.min && distance <= range.max
+        )
+      })
+    }
+    
+    return filteredDistances
   }
   
   /**
    * Gera candidatos de direção baseado no padrão
    */
-  private generateBearingCandidates(bearingPattern: any) {
+  private generateBearingCandidates(bearingPattern: any, avoidPattern?: any) {
     const bearings = []
     
     // Direções com mais exemplos (top 4)
@@ -310,7 +409,21 @@ export class POVSuggestionsService {
       bearings.push(bearing)
     }
     
-    return bearings
+    let filteredBearings = bearings
+    
+    // Filtrar direções que devem ser evitadas
+    if (avoidPattern && avoidPattern.sectors) {
+      const avoidSectors = Object.entries(avoidPattern.sectors)
+        .filter(([,count]) => (count as number) > 0)
+        .map(([sector]) => sector)
+      
+      filteredBearings = filteredBearings.filter(bearing => {
+        const sector = this.bearingToSector(bearing)
+        return !avoidSectors.includes(sector)
+      })
+    }
+    
+    return filteredBearings
   }
   
   /**
@@ -322,6 +435,16 @@ export class POVSuggestionsService {
       'S': 180, 'SW': 225, 'W': 270, 'NW': 315
     }
     return sectorMap[sector] || 0
+  }
+
+  /**
+   * Converte bearing em graus para setor (N, NE, E, etc.)
+   */
+  private bearingToSector(bearing: number): string {
+    const normalized = (bearing + 22.5) % 360
+    const sectorIndex = Math.floor(normalized / 45)
+    const sectorNames = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+    return sectorNames[sectorIndex]
   }
   
   /**
@@ -352,24 +475,27 @@ export class POVSuggestionsService {
   /**
    * Valida candidatos usando IA e contexto
    */
-  private async validateCandidates(candidates: POVSuggestion[], similarExamples: any[], poiAnalysis: any) {
+  private async validateCandidates(candidates: POVSuggestion[], similarExamples: { positive: any[], negative: any[] }, poiAnalysis: any) {
     const validatedCandidates = []
     
     for (const candidate of candidates) {
       try {
-        // Calcular score baseado em similaridade com exemplos
-        const similarityScore = this.calculateSimilarityScore(candidate, similarExamples)
+        // Calcular score baseado em similaridade com exemplos positivos
+        const similarityScore = this.calculateSimilarityScore(candidate, similarExamples.positive)
+        
+        // Penalizar similaridade com exemplos negativos
+        const negativePenalty = this.calculateNegativePenalty(candidate, similarExamples.negative)
         
         // Ajustar score baseado em fatores ambientais
         const environmentalScore = this.calculateEnvironmentalScore(candidate, poiAnalysis)
         
-        // Score final
-        const finalScore = Math.min(100, similarityScore + environmentalScore)
+        // Score final (subtrair penalidade de exemplos negativos)
+        const finalScore = Math.max(0, Math.min(100, similarityScore + environmentalScore - negativePenalty))
         
         validatedCandidates.push({
           ...candidate,
           confidence_score: finalScore,
-          reasoning: `Similarity: ${similarityScore.toFixed(1)}, Environment: ${environmentalScore.toFixed(1)}`
+          reasoning: `Similarity: ${similarityScore.toFixed(1)}, Environment: ${environmentalScore.toFixed(1)}, Negative penalty: ${negativePenalty.toFixed(1)}`
         })
         
       } catch (error) {
@@ -411,6 +537,35 @@ export class POVSuggestionsService {
     }
     
     return count > 0 ? totalScore / count : 50
+  }
+
+  /**
+   * Calcula penalidade baseada em similaridade com exemplos negativos
+   */
+  private calculateNegativePenalty(candidate: POVSuggestion, negativeExamples: any[]): number {
+    if (negativeExamples.length === 0) return 0
+    
+    let totalPenalty = 0
+    let count = 0
+    
+    for (const example of negativeExamples) {
+      // Penalidade por similaridade de distância
+      const distanceDiff = Math.abs(candidate.distance_m - example.distance_m)
+      const distancePenalty = distanceDiff < 50 ? 30 : (distanceDiff < 100 ? 15 : 0)
+      
+      // Penalidade por similaridade de direção
+      const bearingDiff = Math.abs(candidate.bearing_deg - example.bearing_deg)
+      const bearingPenalty = bearingDiff < 45 ? 25 : (bearingDiff < 90 ? 10 : 0)
+      
+      // Penalidade por tipo de acesso similar
+      const accessPenalty = candidate.access_type === example.access_type ? 10 : 0
+      
+      const examplePenalty = (distancePenalty + bearingPenalty + accessPenalty) / 3
+      totalPenalty += examplePenalty * ((100 - example.quality_score) / 100) // Quanto menor a qualidade, maior a penalidade
+      count++
+    }
+    
+    return count > 0 ? totalPenalty / count : 0
   }
   
   /**
