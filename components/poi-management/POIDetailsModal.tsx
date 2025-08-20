@@ -2573,6 +2573,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
               attractionId={poi.id}
               attractionName={poi.name}
               attractionCoordinates={poi.coordinates ? { lat: poi.coordinates.latitude, lng: poi.coordinates.longitude } : { lat: 0, lng: 0 }}
+              attractionTypes={poi.google_types || []}
             />
           </div>
         ) : activeTab === 'narration-audio' ? (

@@ -10,7 +10,14 @@
     "security:audit": "tsx scripts/security-audit.ts",
     "security:fix": "npm audit fix",
     "security:check": "npm audit --audit-level=high",
-    "investigate:data": "tsx --env-file=.env scripts/investigate-attraction-data.ts"
+    "investigate:data": "tsx --env-file=.env scripts/investigate-attraction-data.ts",
+    "migrate:trigger-points": "tsx --env-file=.env scripts/migrate-existing-trigger-points.ts",
+    "migrate:trigger-points-robust": "tsx --env-file=.env scripts/migrate-existing-trigger-points-robust.ts",
+    "migrate:trigger-points-test": "tsx --env-file=.env scripts/migrate-existing-trigger-points-robust.ts --dry-run",
+    "setup:coordinates-function": "echo 'Execute: supabase/create-trigger-point-coordinates-function.sql no seu dashboard Supabase'",
+            "test:pov-suggestions-api": "tsx --env-file=.env scripts/test-pov-suggestions-api.ts",
+        "test:learning-system": "tsx --env-file=.env scripts/test-learning-system.ts",
+        "test:feedback-system": "tsx --env-file=.env scripts/test-feedback-system.ts"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.1.0",

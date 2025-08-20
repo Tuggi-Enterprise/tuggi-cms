@@ -14,7 +14,11 @@ function TriggerPointsMapContent({
   onMapClick,
   onTriggerPointClick,
   onTriggerPointDrag,
-  isAddingMode = false
+  isAddingMode = false,
+  suggestions = [],
+  onSuggestionDrag,
+  onSuggestionAccept,
+  onSuggestionReject
 }: Omit<TriggerPointMapProps, 'height' | 'className'>) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
@@ -23,6 +27,9 @@ function TriggerPointsMapContent({
   const bearingLinesRef = useRef<Map<string, google.maps.Polyline>>(new Map())
   const clickListenerRef = useRef<google.maps.MapsEventListener | null>(null)
   const poiMarkerRef = useRef<google.maps.Marker | null>(null)
+  const suggestionMarkersRef = useRef<Map<string, google.maps.Marker>>(new Map())
+  const suggestionLinesRef = useRef<Map<string, google.maps.Polyline>>(new Map())
+  const isDraggingRef = useRef<boolean>(false)
 
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
@@ -364,6 +371,269 @@ function TriggerPointsMapContent({
     }
   }, [isAddingMode, onMapClick])
 
+  // Calculate bearing from one point to another
+  const calculateBearingToPOI = useCallback((fromLat: number, fromLng: number, toLat: number, toLng: number): number => {
+    const φ1 = fromLat * Math.PI / 180
+    const φ2 = toLat * Math.PI / 180
+    const Δλ = (toLng - fromLng) * Math.PI / 180
+
+    const y = Math.sin(Δλ) * Math.cos(φ2)
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ)
+
+    let bearing = Math.atan2(y, x) * 180 / Math.PI
+    bearing = (bearing + 360) % 360
+
+    return Math.round(bearing)
+  }, [])
+
+  // Calculate distance between two points using Haversine formula
+  const calculateHaversineDistance = useCallback((lat1: number, lng1: number, lat2: number, lng2: number): number => {
+    const R = 6371e3 // Earth's radius in meters
+    const φ1 = lat1 * Math.PI / 180
+    const φ2 = lat2 * Math.PI / 180
+    const Δφ = (lat2 - lat1) * Math.PI / 180
+    const Δλ = (lng2 - lng1) * Math.PI / 180
+
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) *
+      Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+    return R * c
+  }, [])
+
+  // Create suggestion markers (optimized to avoid unnecessary recreations)
+  const updateSuggestionMarkers = useCallback(() => {
+    if (!mapInstanceRef.current) return
+
+    // Get existing marker IDs
+    const existingMarkerIds = new Set(suggestionMarkersRef.current.keys())
+    const currentSuggestionIds = new Set(suggestions.map(s => s.id))
+
+    // Remove markers that no longer exist in suggestions
+    existingMarkerIds.forEach(markerId => {
+      if (!currentSuggestionIds.has(markerId)) {
+        const marker = suggestionMarkersRef.current.get(markerId)
+        const line = suggestionLinesRef.current.get(markerId)
+        
+        if (marker) {
+          marker.setMap(null)
+          suggestionMarkersRef.current.delete(markerId)
+        }
+        if (line) {
+          line.setMap(null)
+          suggestionLinesRef.current.delete(markerId)
+        }
+      }
+    })
+
+    // Create or update markers for current suggestions
+    suggestions.forEach((suggestion) => {
+      const position = new google.maps.LatLng(suggestion.lat, suggestion.lng)
+      
+      // Calculate bearing to POI for display
+      const bearingToPOI = calculateBearingToPOI(suggestion.lat, suggestion.lng, center.lat, center.lng)
+      
+      // Check if marker already exists
+      const existingMarker = suggestionMarkersRef.current.get(suggestion.id)
+      const existingLine = suggestionLinesRef.current.get(suggestion.id)
+      
+      if (existingMarker && existingLine) {
+        // Update existing marker position and title if needed
+        const currentPos = existingMarker.getPosition()
+        if (!currentPos || currentPos.lat() !== suggestion.lat || currentPos.lng() !== suggestion.lng) {
+          existingMarker.setPosition(position)
+          existingMarker.setTitle(`AI Suggestion (${suggestion.confidence_score.toFixed(1)}%) - Bearing: ${bearingToPOI}°`)
+          
+          // Update bearing line
+          const newBearingPath = createBearingLine(position, bearingToPOI, 50, '#9333EA')
+          existingLine.setPath(newBearingPath)
+        }
+        return // Skip creating new marker
+      }
+      
+      // Create new marker with different color for suggestions
+      const marker = new google.maps.Marker({
+        position,
+        map: mapInstanceRef.current!,
+        title: `AI Suggestion (${suggestion.confidence_score.toFixed(1)}%) - Bearing: ${bearingToPOI}°`,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 8,
+          fillColor: '#9333EA', // Purple for AI suggestions
+          fillOpacity: 0.8,
+          strokeColor: '#FFFFFF',
+          strokeWeight: 2,
+          strokeOpacity: 1
+        },
+        zIndex: 1000,
+        draggable: true // Enable dragging for suggestions
+      })
+
+      // Create bearing line to POI
+      const bearingPath = createBearingLine(position, bearingToPOI, 50, '#9333EA')
+      const bearingLine = new google.maps.Polyline({
+        path: bearingPath,
+        strokeColor: '#9333EA',
+        strokeWeight: 2,
+        strokeOpacity: 0.7,
+        map: mapInstanceRef.current!,
+        zIndex: 999,
+        icons: [{
+          icon: {
+            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            scale: 3,
+            fillColor: '#9333EA',
+            fillOpacity: 1,
+            strokeColor: '#FFFFFF',
+            strokeWeight: 1
+          },
+          offset: '100%'
+        }]
+      })
+
+      // Store bearing line reference
+      suggestionLinesRef.current.set(suggestion.id, bearingLine)
+
+      // Add dragstart listener
+      marker.addListener('dragstart', () => {
+        isDraggingRef.current = true
+      })
+
+      // Add drag listener to update bearing line and suggestion position
+      marker.addListener('drag', (event: google.maps.MapMouseEvent) => {
+        if (event.latLng) {
+          const newLat = event.latLng.lat()
+          const newLng = event.latLng.lng()
+          const newPosition = new google.maps.LatLng(newLat, newLng)
+          
+          // Recalculate bearing
+          const newBearing = calculateBearingToPOI(newLat, newLng, center.lat, center.lng)
+          
+          // Update bearing line
+          const newBearingPath = createBearingLine(newPosition, newBearing, 50, '#9333EA')
+          bearingLine.setPath(newBearingPath)
+          
+          // Update marker title
+          marker.setTitle(`AI Suggestion (${suggestion.confidence_score.toFixed(1)}%) - Bearing: ${newBearing}°`)
+        }
+      })
+
+      // Add dragend listener to save final position
+      marker.addListener('dragend', (event: google.maps.MapMouseEvent) => {
+        isDraggingRef.current = false
+        
+        if (event.latLng) {
+          const newLat = event.latLng.lat()
+          const newLng = event.latLng.lng()
+          
+          // Calculate new bearing and distance
+          const newBearing = calculateBearingToPOI(newLat, newLng, center.lat, center.lng)
+          const newDistance = Math.round(calculateHaversineDistance(
+            newLat, newLng, center.lat, center.lng
+          ))
+          
+          // Update suggestion data
+          suggestion.lat = newLat
+          suggestion.lng = newLng
+          suggestion.bearing_deg = newBearing
+          suggestion.distance_m = newDistance
+          
+          // Notify parent component about the change
+          if (onSuggestionDrag) {
+            onSuggestionDrag(suggestion.id, newLat, newLng, newDistance, newBearing)
+          }
+          
+          console.log(`Suggestion ${suggestion.id} moved to: ${newLat.toFixed(6)}, ${newLng.toFixed(6)} (${newDistance}m, ${newBearing}°)`)
+        }
+      })
+
+      // Add info window with action buttons
+      const infoWindow = new google.maps.InfoWindow({
+        content: `
+          <div style="font-family: Arial, sans-serif; max-width: 250px;">
+            <h4 style="margin: 0 0 8px 0; color: #9333EA;">AI Suggestion</h4>
+            <p style="margin: 4px 0; font-size: 12px;"><strong>Score:</strong> ${suggestion.confidence_score.toFixed(1)}%</p>
+            <p style="margin: 4px 0; font-size: 12px;"><strong>Distance:</strong> ${suggestion.distance_m}m</p>
+            <p style="margin: 4px 0; font-size: 12px;"><strong>Bearing to POI:</strong> ${bearingToPOI}°</p>
+            <p style="margin: 4px 0; font-size: 12px;"><strong>Access:</strong> ${suggestion.access_type}</p>
+            ${suggestion.reasoning ? `<p style="margin: 4px 0; font-size: 11px; color: #666;"><strong>Reasoning:</strong> ${suggestion.reasoning}</p>` : ''}
+            <p style="margin: 8px 0 4px 0; font-size: 10px; color: #999;">Drag to adjust position</p>
+            
+            <div style="margin-top: 12px; display: flex; gap: 8px;">
+              <button 
+                id="accept-${suggestion.id}" 
+                style="
+                  flex: 1;
+                  background: #10B981; 
+                  color: white; 
+                  border: none; 
+                  padding: 6px 12px; 
+                  border-radius: 4px; 
+                  font-size: 12px; 
+                  cursor: pointer;
+                  font-weight: 500;
+                "
+                onmouseover="this.style.background='#059669'"
+                onmouseout="this.style.background='#10B981'"
+              >
+                ✓ Aceitar
+              </button>
+              <button 
+                id="reject-${suggestion.id}" 
+                style="
+                  flex: 1;
+                  background: #EF4444; 
+                  color: white; 
+                  border: none; 
+                  padding: 6px 12px; 
+                  border-radius: 4px; 
+                  font-size: 12px; 
+                  cursor: pointer;
+                  font-weight: 500;
+                "
+                onmouseover="this.style.background='#DC2626'"
+                onmouseout="this.style.background='#EF4444'"
+              >
+                ✗ Rejeitar
+              </button>
+            </div>
+          </div>
+        `
+      })
+
+      marker.addListener('click', () => {
+        infoWindow.open(mapInstanceRef.current!, marker)
+        
+        // Add event listeners for buttons after InfoWindow is opened
+        setTimeout(() => {
+          const acceptBtn = document.getElementById(`accept-${suggestion.id}`)
+          const rejectBtn = document.getElementById(`reject-${suggestion.id}`)
+          
+          if (acceptBtn) {
+            acceptBtn.addEventListener('click', () => {
+              if (onSuggestionAccept) {
+                onSuggestionAccept(suggestion)
+              }
+              infoWindow.close()
+            })
+          }
+          
+          if (rejectBtn) {
+            rejectBtn.addEventListener('click', () => {
+              if (onSuggestionReject) {
+                onSuggestionReject(suggestion)
+              }
+              infoWindow.close()
+            })
+          }
+        }, 100) // Small delay to ensure DOM is ready
+      })
+
+      suggestionMarkersRef.current.set(suggestion.id, marker)
+    })
+  }, [suggestions, center, calculateBearingToPOI, calculateHaversineDistance, onSuggestionDrag])
+
   useEffect(() => {
     if (window.google && window.google.maps) {
       initializeMap()
@@ -380,6 +650,13 @@ function TriggerPointsMapContent({
     updateTriggerPoints()
   }, [updateTriggerPoints])
 
+  useEffect(() => {
+    // Don't update markers while dragging to prevent map reset
+    if (!isDraggingRef.current) {
+      updateSuggestionMarkers()
+    }
+  }, [updateSuggestionMarkers])
+
   // Update map center when it changes
   useEffect(() => {
     if (mapInstanceRef.current) {
@@ -394,6 +671,17 @@ function TriggerPointsMapContent({
         poiMarkerRef.current.setMap(null)
         poiMarkerRef.current = null
       }
+      
+      // Cleanup suggestion markers and lines
+      suggestionMarkersRef.current.forEach(marker => {
+        marker.setMap(null)
+      })
+      suggestionMarkersRef.current.clear()
+      
+      suggestionLinesRef.current.forEach(line => {
+        line.setMap(null)
+      })
+      suggestionLinesRef.current.clear()
     }
   }, [])
 

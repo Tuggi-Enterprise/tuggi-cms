@@ -95,6 +95,10 @@ export interface TriggerPointMapProps {
   onTriggerPointClick?: (triggerPoint: TriggerPoint) => void
   onTriggerPointDrag?: (triggerPoint: TriggerPoint, newLat: number, newLng: number) => void
   isAddingMode?: boolean
+  suggestions?: any[]
+  onSuggestionDrag?: (suggestionId: string, newLat: number, newLng: number, newDistance: number, newBearing: number) => void
+  onSuggestionAccept?: (suggestion: any) => void
+  onSuggestionReject?: (suggestion: any) => void
 }
 
 // Database types
@@ -139,6 +143,7 @@ export interface TriggerPointsManagerProps {
   attractionId: string
   attractionName: string
   attractionCoordinates: { lat: number; lng: number }
+  attractionTypes?: string[]
   onClose?: () => void
 }
 
