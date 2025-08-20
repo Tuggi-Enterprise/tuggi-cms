@@ -29,12 +29,42 @@ interface PlaceDetailsResult extends PlaceSearchResult {
   international_phone_number?: string
   url?: string
   vicinity?: string
+  plus_code?: {
+    global_code: string
+    compound_code: string
+  }
   business_status?: string
-  address_components?: Array<{
-    long_name: string
-    short_name: string
-    types: string[]
+  editorial_summary?: {
+    overview: string
+  }
+  reviews?: Array<{
+    rating: number
+    text: string
+    time: number
   }>
+}
+
+interface POIEnrichmentData {
+  place_id: string
+  name: string
+  types: string[]
+  formatted_address: string
+  vicinity?: string
+  rating?: number
+  user_ratings_total?: number
+  price_level?: number
+  business_status?: string
+  editorial_summary?: string
+  plus_code?: string
+  website?: string
+  photos_count: number
+  reviews_count: number
+  is_tourist_attraction: boolean
+  is_natural_feature: boolean
+  is_large_area: boolean
+  estimated_size: 'small' | 'medium' | 'large' | 'massive'
+  estimated_height: 'ground' | 'low' | 'medium' | 'high' | 'very_high'
+  estimated_visibility: 'close_only' | 'medium_range' | 'long_range' | 'very_long_range'
 }
 
 // Country to language mapping for localized place names
@@ -458,4 +488,164 @@ export function createGooglePlacesService(apiKey?: string, countryCode?: string)
   }
 }
 
-export type { PlaceSearchResult, PlaceDetailsResult }
+// Função para enriquecer dados do POI usando google_place_id (para testes)
+export async function enrichPOIData(googlePlaceId: string): Promise<POIEnrichmentData | null> {
+  if (!googlePlaceId) {
+    console.log('❌ No google_place_id provided')
+    return null
+  }
+
+  try {
+    console.log(`🔍 Enriching POI data for place_id: ${googlePlaceId}`)
+    
+    // Campos específicos que queremos para análise de POV
+    const fields = [
+      'place_id',
+      'name', 
+      'types',
+      'formatted_address',
+      'vicinity',
+      'geometry',
+      'rating',
+      'user_ratings_total',
+      'price_level',
+      'business_status',
+      'editorial_summary',
+      'plus_code',
+      'website',
+      'photos',
+      'reviews'
+    ].join(',')
+
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    if (!apiKey) {
+      throw new Error('NEXT_PUBLIC_GOOGLE_MAPS_API_KEY not found in environment variables')
+    }
+
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${googlePlaceId}&fields=${fields}&key=${apiKey}`
+    
+    console.log(`📡 Calling Google Places API...`)
+    const response = await fetch(url)
+    
+    if (!response.ok) {
+      throw new Error(`Google Places API error: ${response.status} ${response.statusText}`)
+    }
+    
+    const data = await response.json()
+    
+    if (data.status !== 'OK') {
+      throw new Error(`Google Places API returned status: ${data.status}`)
+    }
+    
+    const details = data.result
+    
+    if (!details) {
+      console.log('❌ No details found for place_id')
+      return null
+    }
+
+    // Analisar e classificar o POI
+    const enrichedData = analyzeAndClassifyPOI(details)
+    
+    console.log(`✅ POI enriched:`, {
+      name: enrichedData.name,
+      types: enrichedData.types,
+      is_large_area: enrichedData.is_large_area,
+      estimated_size: enrichedData.estimated_size,
+      estimated_height: enrichedData.estimated_height,
+      estimated_visibility: enrichedData.estimated_visibility
+    })
+
+    return enrichedData
+
+  } catch (error) {
+    console.error('❌ Error enriching POI data:', error)
+    return null
+  }
+}
+
+// Função para analisar e classificar POI baseado nos dados do Google Places
+function analyzeAndClassifyPOI(details: PlaceDetailsResult): POIEnrichmentData {
+  const types = details.types || []
+  const name = details.name.toLowerCase()
+  
+  // Classificação de área grande
+  const largeAreaTypes = [
+    'park', 'amusement_park', 'aquarium', 'zoo', 'stadium', 'airport',
+    'shopping_mall', 'university', 'hospital', 'cemetery', 'golf_course',
+    'beach', 'lake', 'natural_feature'
+  ]
+  const isLargeArea = types.some(type => largeAreaTypes.includes(type)) ||
+                     name.includes('lago') || name.includes('parque') || 
+                     name.includes('praia') || name.includes('estádio')
+
+  // Classificação de atração turística
+  const isTouristAttraction = types.includes('tourist_attraction') ||
+                             types.includes('point_of_interest') ||
+                             (details.rating && details.rating > 4.0) ||
+                             (details.user_ratings_total && details.user_ratings_total > 100)
+
+  // Classificação de característica natural
+  const isNaturalFeature = types.some(type => 
+    ['natural_feature', 'park', 'beach', 'mountain', 'lake'].includes(type)
+  ) || name.includes('pico') || name.includes('morro') || name.includes('serra')
+
+  // Estimativa de tamanho baseada nos tipos e dados
+  let estimatedSize: 'small' | 'medium' | 'large' | 'massive' = 'medium'
+  if (types.includes('airport') || types.includes('university')) {
+    estimatedSize = 'massive'
+  } else if (types.includes('stadium') || types.includes('shopping_mall') || types.includes('amusement_park')) {
+    estimatedSize = 'large'
+  } else if (isLargeArea) {
+    estimatedSize = 'medium'
+  } else {
+    estimatedSize = 'small'
+  }
+
+  // Estimativa de altura
+  let estimatedHeight: 'ground' | 'low' | 'medium' | 'high' | 'very_high' = 'medium'
+  if (types.includes('mountain') || name.includes('pico') || name.includes('morro')) {
+    estimatedHeight = 'very_high'
+  } else if (types.includes('building') || name.includes('torre') || name.includes('edifício')) {
+    estimatedHeight = 'high'
+  } else if (types.includes('bridge') || name.includes('ponte')) {
+    estimatedHeight = 'medium'
+  } else if (isLargeArea) {
+    estimatedHeight = 'ground'
+  }
+
+  // Estimativa de visibilidade baseada na altura e tamanho
+  let estimatedVisibility: 'close_only' | 'medium_range' | 'long_range' | 'very_long_range' = 'medium_range'
+  if (estimatedHeight === 'very_high') {
+    estimatedVisibility = 'very_long_range'
+  } else if (estimatedHeight === 'high' || estimatedSize === 'massive') {
+    estimatedVisibility = 'long_range'
+  } else if (estimatedSize === 'small') {
+    estimatedVisibility = 'close_only'
+  }
+
+  return {
+    place_id: details.place_id,
+    name: details.name,
+    types: details.types || [],
+    formatted_address: details.formatted_address,
+    vicinity: details.vicinity,
+    rating: details.rating,
+    user_ratings_total: details.user_ratings_total,
+    price_level: details.price_level,
+    business_status: details.business_status,
+    editorial_summary: details.editorial_summary?.overview,
+    plus_code: details.plus_code?.global_code,
+    website: details.website,
+    photos_count: details.photos?.length || 0,
+    reviews_count: details.reviews?.length || 0,
+    is_tourist_attraction: isTouristAttraction,
+    is_natural_feature: isNaturalFeature,
+    is_large_area: isLargeArea,
+    estimated_size: estimatedSize,
+    estimated_height: estimatedHeight,
+    estimated_visibility: estimatedVisibility
+  }
+}
+
+export type { PlaceSearchResult, PlaceDetailsResult, POIEnrichmentData }

@@ -2,6 +2,7 @@
 // These types define the structure for POI trigger points used in the Tuggi Drive app
 
 export type Direction = 'front' | 'right' | 'left' | 'back'
+export type AccessType = 'walk' | 'car' | 'both'
 
 export interface TriggerPoint {
   id?: string
@@ -16,6 +17,9 @@ export interface TriggerPoint {
   custom_description_id?: string | null
   is_active: boolean
   direction?: Direction | null
+  access?: AccessType // ✅ NOVO CAMPO
+  name?: string // ✅ NOVO CAMPO
+  description?: string // ✅ NOVO CAMPO
   created_at?: string
   updated_at?: string
   created_by?: string | null
@@ -60,6 +64,9 @@ export interface TriggerPointFormData {
   custom_description_id?: string | null
   is_active: boolean
   direction?: Direction | null
+  access?: AccessType // ✅ NOVO CAMPO
+  name?: string // ✅ NOVO CAMPO
+  description?: string // ✅ NOVO CAMPO
 }
 
 export interface TriggerPointValidation {
@@ -176,4 +183,11 @@ export const DIRECTION_OPTIONS = [
   { value: 'right', label: 'Right', emoji: '➡️', description: 'To your right' },
   { value: 'left', label: 'Left', emoji: '⬅️', description: 'To your left' },
   { value: 'back', label: 'Back', emoji: '⬇️', description: 'Behind you' }
+] as const
+
+// Access options for the UI
+export const ACCESS_OPTIONS = [
+  { value: 'walk', label: 'Pedestre', icon: '🚶' },
+  { value: 'car', label: 'Carro', icon: '🚗' },
+  { value: 'both', label: 'Ambos', icon: '🚶🚗' }
 ] as const 
