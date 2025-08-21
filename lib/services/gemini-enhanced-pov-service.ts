@@ -8,6 +8,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+export interface POIGeometry {
+  bounds?: {
+    northeast: { lat: number; lng: number }
+    southwest: { lat: number; lng: number }
+  }
+  viewport?: {
+    northeast: { lat: number; lng: number }
+    southwest: { lat: number; lng: number }
+  }
+  area_size?: 'small' | 'medium' | 'large' | 'very_large'
+  estimated_radius?: number
+}
+
 export interface EnhancedPOVRequest {
   poi_id: string
   poi_name: string
@@ -18,6 +31,7 @@ export interface EnhancedPOVRequest {
   country?: string
   limit?: number
   use_gemini?: boolean
+  geometry?: POIGeometry
 }
 
 export interface EnhancedPOVSuggestion {
@@ -47,25 +61,122 @@ export class GeminiEnhancedPOVService {
     try {
       const allSuggestions: EnhancedPOVSuggestion[] = []
 
-      // 1. Gerar sugestões baseadas em padrões (aprendizado histórico)
+      // 1. Detectar geometria do POI se não fornecida
+      if (!request.geometry) {
+        request.geometry = await this.detectPOIGeometry(request)
+        console.log(`📐 Detected POI area: ${request.geometry.area_size} (radius: ~${request.geometry.estimated_radius}m)`)
+      }
+
+      // 2. Gerar sugestões baseadas em padrões (aprendizado histórico)
       const patternSuggestions = await this.generatePatternBasedSuggestions(request)
       allSuggestions.push(...patternSuggestions)
       console.log(`🧠 Generated ${patternSuggestions.length} pattern-based suggestions`)
 
-      // 2. Usar Gemini para gerar novas sugestões (sem consolidação)
+      // 3. Usar Gemini para gerar novas sugestões (sem consolidação)
       if (request.use_gemini !== false) {
         const geminiSuggestions = await this.generateGeminiEnhancedSuggestions(request, []) // Sem sugestões existentes
         allSuggestions.push(...geminiSuggestions)
         console.log(`🤖 Generated ${geminiSuggestions.length} Gemini AI suggestions`)
       }
 
-      // 3. NÃO consolidar - manter separados para comparação
+      // 4. NÃO consolidar - manter separados para comparação
       console.log(`📊 Returning ${allSuggestions.length} separate suggestions for comparison`)
       return allSuggestions
 
     } catch (error) {
       console.error('❌ Error generating AI suggestions:', error)
       throw error
+    }
+  }
+
+  /**
+   * Detecta a geometria e área do POI
+   */
+  private async detectPOIGeometry(request: EnhancedPOVRequest): Promise<POIGeometry> {
+    try {
+      // Estimar área baseada nos tipos do POI
+      const poiTypes = request.poi_types || []
+      let estimatedRadius = 50 // Padrão para POIs pequenos
+      let areaSize: 'small' | 'medium' | 'large' | 'very_large' = 'medium'
+
+      // Classificação por tipos conhecidos
+      if (poiTypes.some(type => ['park', 'natural_feature'].includes(type))) {
+        // Parques podem ser grandes
+        estimatedRadius = 200
+        areaSize = 'large'
+      } else if (poiTypes.some(type => ['shopping_mall', 'university', 'hospital'].includes(type))) {
+        // Complexos médios a grandes
+        estimatedRadius = 150
+        areaSize = 'medium'
+      } else if (poiTypes.some(type => ['tourist_attraction', 'museum', 'church'].includes(type))) {
+        // Atrações pontuais
+        estimatedRadius = 75
+        areaSize = 'small'
+      } else if (poiTypes.some(type => ['establishment', 'point_of_interest'].includes(type))) {
+        // POIs genéricos - médio
+        estimatedRadius = 100
+        areaSize = 'medium'
+      }
+
+      // Ajustar baseado no nome
+      const name = request.poi_name.toLowerCase()
+      if (name.includes('parque') || name.includes('park')) {
+        estimatedRadius = Math.max(estimatedRadius, 200)
+        areaSize = 'large'
+      } else if (name.includes('shopping') || name.includes('mall')) {
+        estimatedRadius = Math.max(estimatedRadius, 150)
+        areaSize = 'medium'
+      } else if (name.includes('ponte') || name.includes('bridge')) {
+        estimatedRadius = 100
+        areaSize = 'medium'
+      } else if (name.includes('museu') || name.includes('museum')) {
+        estimatedRadius = 75
+        areaSize = 'small'
+      }
+
+      // Criar bounds estimados baseado no raio
+      const latOffset = estimatedRadius / 111000 // Aproximadamente 1 grau = 111km
+      const lngOffset = estimatedRadius / (111000 * Math.cos(request.poi_lat * Math.PI / 180))
+
+      const geometry: POIGeometry = {
+        bounds: {
+          northeast: { lat: request.poi_lat + latOffset, lng: request.poi_lng + lngOffset },
+          southwest: { lat: request.poi_lat - latOffset, lng: request.poi_lng - lngOffset }
+        },
+        viewport: {
+          northeast: { lat: request.poi_lat + latOffset * 1.5, lng: request.poi_lng + lngOffset * 1.5 },
+          southwest: { lat: request.poi_lat - latOffset * 1.5, lng: request.poi_lng - lngOffset * 1.5 }
+        },
+        area_size: areaSize,
+        estimated_radius: estimatedRadius
+      }
+
+      return geometry
+    } catch (error) {
+      console.error('Error detecting POI geometry:', error)
+      // Fallback para geometria padrão
+      return {
+        area_size: 'medium',
+        estimated_radius: 100
+      }
+    }
+  }
+
+  /**
+   * Estratégia de cobertura baseada no tamanho da área
+   */
+  private getAreaStrategy(areaSize: 'small' | 'medium' | 'large' | 'very_large'): string {
+    switch (areaSize) {
+      case 'small':
+        return 'Single optimal viewpoint with direct sightline'
+      case 'medium':
+        return 'Multiple angles covering main facades/entrances'
+      case 'large':
+        return 'Perimeter coverage with overview perspectives'
+      case 'very_large':
+        return 'Strategic entrance points + elevated overviews'
+      default:
+        return 'Balanced multi-angle coverage'
     }
   }
 
@@ -175,31 +286,55 @@ export class GeminiEnhancedPOVService {
       .slice(0, 10)
       .join('\n')
 
-    return `You are an expert AI for tourist viewpoint optimization. Generate 3-5 practical car-accessible viewpoints for the POI.
+    const geometry = request.geometry
+    const areaInfo = geometry ? `
+**POI AREA ANALYSIS**:
+- **Size**: ${geometry.area_size} (estimated radius: ~${geometry.estimated_radius}m)
+- **Bounds**: NE(${geometry.bounds?.northeast.lat.toFixed(4)}, ${geometry.bounds?.northeast.lng.toFixed(4)}) to SW(${geometry.bounds?.southwest.lat.toFixed(4)}, ${geometry.bounds?.southwest.lng.toFixed(4)})
+- **Coverage Strategy**: ${this.getAreaStrategy(geometry.area_size)}` : ''
 
-**POI**: ${request.poi_name} at ${request.poi_lat}, ${request.poi_lng} (${request.city || 'Unknown'})
-**Types**: ${request.poi_types?.join(', ') || 'Unknown'}
+    return `You are an expert AI for AUDIO TRIGGER POINT optimization. Generate 3-5 strategic locations where tourists will hear audio descriptions about the POI.
 
-**PRIORITY ORDER**:
-1. **"car" access** - Drive-up viewpoints (highways, overlooks, parking lots)
-2. **"both" access** - Car parking + short walk (<100m)
-3. **"walk" only** - AVOID unless exceptional (parks with parking)
+**CRITICAL MISSION**: These are audio activation zones. When tourists pass through these points, they will automatically hear descriptive audio about the POI. The locations must be:
+1. **Naturally traversed** by tourists (main roads, popular routes, transit paths)
+2. **Optimal for audio experience** (good POI visibility + natural stopping/slowing points)
+3. **Accessible by target audience** (car tourists are priority)
 
-**COMPARISON MODE**: Generate independent suggestions (not based on existing patterns)
+**POI TARGET**: ${request.poi_name} at ${request.poi_lat}, ${request.poi_lng} (${request.city || 'Unknown'})
+**POI Types**: ${request.poi_types?.join(', ') || 'Unknown'}
+${areaInfo}
 
-**REJECTED PATTERNS** (avoid these):
-${rejectedPatterns ? rejectedPatterns.split('\n').slice(0, 5).join('\n') : 'None'}
+**AUDIO ACTIVATION STRATEGY**:
+- **Primary**: Main roads/highways where cars naturally slow down with POI views
+- **Secondary**: Parking areas where tourists stop and can observe while listening
+- **Tertiary**: Pedestrian areas with high foot traffic and clear sightlines
 
-**GENERATE** viewpoints prioritizing:
-- **Highway overpasses/bridges** with POI views
-- **Parking areas** with direct sightlines  
-- **Roadside pullouts** and scenic stops
-- **Drive-through locations** with clear views
-- **Public parking** + minimal walking
+**ACCESS PRIORITY** (for audio trigger effectiveness):
+1. **"car" access** - Main roads, highway viewpoints, drive-by locations
+2. **"both" access** - Parking + short walk areas, transit stops
+3. **"walk" only** - AVOID unless exceptional foot traffic
 
-**AVOID**: Building tops, private areas, hiking trails, restricted access
+**DISTANCE OPTIMIZATION** for audio experience:
+- **Small POIs** (museums, monuments): 100-400m (intimate audio experience)
+- **Medium POIs** (shopping, buildings): 200-600m (comprehensive audio coverage)  
+- **Large POIs** (parks, complexes): 300-800m (overview audio perspective)
 
-**DISTANCE TARGETS**: 150-800m (optimal car viewing range)
+**REJECTED PATTERNS** (avoid these failed locations):
+${rejectedPatterns ? rejectedPatterns.split('\n').slice(0, 5).join('\n') : 'None available'}
+
+**GENERATE AUDIO TRIGGER POINTS** prioritizing:
+- **Main approach roads** where tourists naturally arrive
+- **Highway overpasses/bridges** with unobstructed POI views
+- **Popular parking areas** where tourists stop and observe
+- **Public transit stops** with POI visibility
+- **Tourist route intersections** with natural slowing points
+- **Scenic pullouts** and designated viewpoints
+
+**STRICTLY AVOID**:
+- Private property, restricted access areas
+- Building rooftops, hiking trails requiring effort
+- Areas with poor POI visibility or audio interference
+- Locations where tourists don't naturally pass
 
 **OUTPUT** (JSON only, no explanations):
 {
@@ -211,19 +346,19 @@ ${rejectedPatterns ? rejectedPatterns.split('\n').slice(0, 5).join('\n') : 'None
       "distance_m": 250,
       "bearing_deg": 45,
       "access_type": "car",
-      "vantage_type": "highway",
+      "vantage_type": "main_road",
       "confidence_score": 90,
-      "reasoning": "Highway overpass with direct POI view, easy parking",
+      "reasoning": "Main approach road where tourists naturally slow down, excellent POI visibility for audio experience",
       "estimated_visibility": "excellent"
     }
   ]
 }
 
-**EXAMPLES**:
-✅ PRIORITIZE: Highway bridges, parking lots with views, roadside overlooks, drive-through areas
-❌ AVOID: Building tops, walking trails, private areas, restricted zones
+**AUDIO TRIGGER EXAMPLES**:
+✅ **EXCELLENT**: Main roads with POI views, popular parking areas, tourist route points, highway scenic stops
+❌ **POOR**: Hidden locations, private areas, places tourists don't naturally visit
 
-Focus on car-first accessibility for tourist convenience.`
+Remember: These points will trigger automatic audio - prioritize natural tourist flow patterns and clear POI visibility.`
   }
 
   /**

@@ -308,12 +308,18 @@ RETURNS text AS $$
 DECLARE
   category text := 'building'; -- Default
 BEGIN
-  -- Classificação baseada em google_types
+  -- Classificação baseada em google_types (ordem de prioridade importa!)
   IF poi_types IS NOT NULL AND array_length(poi_types, 1) > 0 THEN
+    -- Prioridade 1: Park (mais específico)
     IF 'park' = ANY(poi_types) OR 'natural_feature' = ANY(poi_types) THEN
       category := 'park';
+    -- Prioridade 2: Shopping (mais específico)
+    ELSIF 'shopping_mall' = ANY(poi_types) THEN
+      category := 'shopping';
+    -- Prioridade 3: Landmark/Museum (mais específico)
     ELSIF 'tourist_attraction' = ANY(poi_types) OR 'museum' = ANY(poi_types) THEN
       category := 'landmark';
+    -- Prioridade 4: Building (genérico)
     ELSIF 'establishment' = ANY(poi_types) OR 'point_of_interest' = ANY(poi_types) THEN
       category := 'building';
     END IF;

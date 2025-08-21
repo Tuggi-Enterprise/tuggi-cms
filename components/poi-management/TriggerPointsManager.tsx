@@ -44,6 +44,9 @@ export function TriggerPointsManager({
   const [suggestions, setSuggestions] = useState<any[]>([])
   const [autoGenerateRequested, setAutoGenerateRequested] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false)
+  const [suggestionsTimestamp, setSuggestionsTimestamp] = useState<number | null>(null)
+  const [acceptedSuggestionIds, setAcceptedSuggestionIds] = useState<Set<string>>(new Set())
   const [isUpdatingPOILocation, setIsUpdatingPOILocation] = useState(false)
   const [poiUpdateSuccess, setPoiUpdateSuccess] = useState(false)
   const [poiUpdateError, setPoiUpdateError] = useState<string | null>(null)
@@ -108,8 +111,9 @@ export function TriggerPointsManager({
   // Generate AI suggestions using historical patterns + Gemini intelligence
   const generateSuggestions = useCallback(async () => {
     try {
-      setIsLoading(true)
+      setIsGeneratingSuggestions(true)
       setSuggestions([])
+      setError(null)
       
       // Use enhanced POV suggestions service
       const response = await fetch('/api/pov-suggestions/enhanced', {
@@ -135,6 +139,8 @@ export function TriggerPointsManager({
       }
 
       setSuggestions(result.suggestions || [])
+      setSuggestionsTimestamp(Date.now())
+      setAcceptedSuggestionIds(new Set()) // Reset accepted suggestions
       console.log(`✅ Generated ${result.suggestions?.length || 0} AI suggestions`)
       console.log(`🤖 Sources used: ${result.metadata?.sources_used?.join(', ')}`)
       
@@ -142,9 +148,65 @@ export function TriggerPointsManager({
       console.error('Error generating AI suggestions:', error)
       setError('Failed to generate AI suggestions')
     } finally {
-      setIsLoading(false)
+      setIsGeneratingSuggestions(false)
     }
   }, [attractionId, attractionName, attractionCoordinates, attractionTypes])
+
+  // Save unused suggestions as negative examples
+  const saveUnusedSuggestions = useCallback(async () => {
+    if (!suggestions.length || !suggestionsTimestamp) return
+
+    // Find unused suggestions (not accepted and visible for more than 2 minutes)
+    const now = Date.now()
+    const timeThreshold = 2 * 60 * 1000 // 2 minutes
+    const isOldEnough = now - suggestionsTimestamp > timeThreshold
+
+    if (!isOldEnough) return
+
+    const unusedSuggestions = suggestions.filter(suggestion => 
+      !acceptedSuggestionIds.has(suggestion.id)
+    )
+
+    if (unusedSuggestions.length === 0) return
+
+    try {
+      console.log(`💾 Saving ${unusedSuggestions.length} unused suggestions as negative examples`)
+      
+      // Send bulk negative feedback
+      const response = await fetch('/api/pov-suggestions/bulk-negative-feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          poiId: attractionId,
+          poiName: attractionName,
+          poiLat: attractionCoordinates.lat,
+          poiLng: attractionCoordinates.lng,
+          suggestions: unusedSuggestions.map(suggestion => ({
+            suggestionId: suggestion.id,
+            coordinates: { lat: suggestion.lat, lng: suggestion.lng },
+            accessType: suggestion.access_type,
+            source: suggestion.source,
+            confidence: suggestion.confidence_score,
+            reasoning: suggestion.reasoning || 'Unused suggestion - automatically marked as negative'
+          }))
+        })
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.success) {
+        console.log(`✅ Saved ${result.saved_count} unused suggestions as negative examples`)
+        // Clear suggestions after saving
+        setSuggestions([])
+        setSuggestionsTimestamp(null)
+        setAcceptedSuggestionIds(new Set())
+      } else {
+        console.error('❌ Failed to save unused suggestions:', result.error)
+      }
+    } catch (error) {
+      console.error('❌ Error saving unused suggestions:', error)
+    }
+  }, [suggestions, suggestionsTimestamp, acceptedSuggestionIds, attractionId, attractionName, attractionCoordinates])
 
   useEffect(() => {
     loadTriggerPoints()
@@ -152,7 +214,7 @@ export function TriggerPointsManager({
 
   // Auto-generate suggestions when there are no trigger points
   useEffect(() => {
-    const shouldAutoGenerate = triggerPoints.length === 0 && !isLoading && !autoGenerateRequested
+    const shouldAutoGenerate = triggerPoints.length === 0 && !isLoading && !isGeneratingSuggestions && !autoGenerateRequested
     
     if (shouldAutoGenerate) {
       // Show suggestions and auto-generate
@@ -160,7 +222,26 @@ export function TriggerPointsManager({
       setAutoGenerateRequested(true)
       generateSuggestions()
     }
-  }, [triggerPoints.length, isLoading, autoGenerateRequested, generateSuggestions])
+  }, [triggerPoints.length, isLoading, isGeneratingSuggestions, autoGenerateRequested, generateSuggestions])
+
+  // Periodically check for unused suggestions
+  useEffect(() => {
+    const interval = setInterval(() => {
+      saveUnusedSuggestions()
+    }, 30000) // Check every 30 seconds
+
+    return () => clearInterval(interval)
+  }, [saveUnusedSuggestions])
+
+  // Save unused suggestions when component unmounts or suggestions change
+  useEffect(() => {
+    return () => {
+      // Save unused suggestions when component unmounts
+      if (suggestions.length > 0 && suggestionsTimestamp) {
+        saveUnusedSuggestions()
+      }
+    }
+  }, [suggestions.length, suggestionsTimestamp, saveUnusedSuggestions])
 
   // Handle map click for adding new trigger point
   const handleMapClick = useCallback((lat: number, lng: number) => {
@@ -213,6 +294,9 @@ export function TriggerPointsManager({
 
   // Handle accepting a suggestion
   const handleAcceptSuggestion = useCallback(async (suggestion: any) => {
+    // Track accepted suggestion
+    setAcceptedSuggestionIds(prev => new Set(prev).add(suggestion.id))
+    
     // Open feedback modal for acceptance
     setFeedbackSuggestion(suggestion)
     setFeedbackAction('accept')
@@ -533,8 +617,9 @@ export function TriggerPointsManager({
         <div className="flex items-center space-x-2">
           <button
             onClick={() => setIsAddingMode(!isAddingMode)}
+            disabled={isGeneratingSuggestions}
             className={cn(
-              "flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+              "flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
               isAddingMode
                 ? "bg-tuggi-orange text-white hover:bg-orange-600"
                 : "bg-tuggi-blue text-white hover:bg-blue-600"
@@ -595,15 +680,15 @@ export function TriggerPointsManager({
             attractionName={attractionName}
             triggerPoints={filteredTriggerPoints}
             selectedTriggerPoint={selectedTriggerPoint}
-            onMapClick={handleMapClick}
-            onTriggerPointClick={handleTriggerPointClick}
-            onTriggerPointDrag={handleTriggerPointDrag}
-            isAddingMode={isAddingMode}
+            onMapClick={isGeneratingSuggestions ? undefined : handleMapClick}
+            onTriggerPointClick={isGeneratingSuggestions ? undefined : handleTriggerPointClick}
+            onTriggerPointDrag={isGeneratingSuggestions ? undefined : handleTriggerPointDrag}
+            isAddingMode={isAddingMode && !isGeneratingSuggestions}
             suggestions={showSuggestions ? suggestions : []}
-            onSuggestionDrag={handleSuggestionDrag}
-            onSuggestionAccept={handleAcceptSuggestion}
-            onSuggestionReject={handleRejectSuggestion}
-            onPOILocationChange={handlePOILocationChange}
+            onSuggestionDrag={isGeneratingSuggestions ? undefined : handleSuggestionDrag}
+            onSuggestionAccept={isGeneratingSuggestions ? undefined : handleAcceptSuggestion}
+            onSuggestionReject={isGeneratingSuggestions ? undefined : handleRejectSuggestion}
+            onPOILocationChange={isGeneratingSuggestions ? undefined : handlePOILocationChange}
           />
         </div>
 
@@ -662,16 +747,20 @@ export function TriggerPointsManager({
                     }
                   }
                 }}
-                disabled={isLoading}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center disabled:opacity-50 ${
+                disabled={isGeneratingSuggestions}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center disabled:opacity-50 disabled:cursor-not-allowed ${
                   showSuggestions
                     ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                 }`}
               >
-                <Sparkles className="h-4 w-4 mr-1" />
-                {isLoading ? 'Generating...' : 'AI'}
-                {suggestions.length > 0 && (
+                {isGeneratingSuggestions ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4 mr-1" />
+                )}
+                {isGeneratingSuggestions ? 'Generating...' : 'AI'}
+                {suggestions.length > 0 && !isGeneratingSuggestions && (
                   <span className="ml-1 bg-purple-500 text-white text-xs rounded-full px-1.5 py-0.5">
                     {suggestions.length}
                   </span>
@@ -716,6 +805,27 @@ export function TriggerPointsManager({
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                 🔍 <strong>Modo Comparação:</strong> Compare qual IA está mais assertiva!
               </p>
+              <div className="flex justify-between items-center mt-3 pt-2 border-t border-gray-300 dark:border-gray-600">
+                <button
+                  onClick={() => {
+                    // Manually save all current suggestions as negative examples
+                    const unusedSuggestions = suggestions.filter(suggestion => 
+                      !acceptedSuggestionIds.has(suggestion.id)
+                    )
+                    if (unusedSuggestions.length > 0) {
+                      saveUnusedSuggestions()
+                      setShowSuggestions(false)
+                    }
+                  }}
+                  className="px-2 py-1 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
+                  disabled={isGeneratingSuggestions}
+                >
+                  🗑️ Descartar Todas
+                </button>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {suggestions.filter(s => !acceptedSuggestionIds.has(s.id)).length} não utilizadas
+                </span>
+              </div>
             </div>
           )}
 
@@ -746,6 +856,23 @@ export function TriggerPointsManager({
 
           {/* Trigger Points List */}
           <div className="flex-1 overflow-y-auto">
+            {/* Loading state for suggestions */}
+            {isGeneratingSuggestions && (
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-purple-50 dark:bg-purple-900/10">
+                <div className="flex items-center justify-center">
+                  <Loader2 className="h-5 w-5 mr-3 animate-spin text-purple-600" />
+                  <div className="text-sm">
+                    <div className="font-medium text-purple-900 dark:text-purple-100">
+                      Gerando sugestões de IA...
+                    </div>
+                    <div className="text-purple-700 dark:text-purple-300 text-xs mt-1">
+                      Analisando área do POI e padrões históricos
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {isLoading ? (
               <div className="flex items-center justify-center h-32">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-tuggi-blue"></div>
@@ -764,9 +891,12 @@ export function TriggerPointsManager({
                   return (
                     <div
                       key={triggerPoint.id}
-                      onClick={() => handleTriggerPointClick(triggerPoint)}
+                      onClick={isGeneratingSuggestions ? undefined : () => handleTriggerPointClick(triggerPoint)}
                       className={cn(
-                        "p-3 rounded-lg border cursor-pointer transition-colors",
+                        "p-3 rounded-lg border transition-colors",
+                        isGeneratingSuggestions 
+                          ? "cursor-not-allowed opacity-50"
+                          : "cursor-pointer",
                         isSelected
                           ? "border-tuggi-blue bg-blue-50 dark:bg-blue-900/20"
                           : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600"
