@@ -198,7 +198,8 @@ export class GeminiEnhancedPOVService {
       
       return patternSuggestions.map(suggestion => ({
         ...suggestion,
-        source: 'pattern_based' as const
+        source: 'pattern_based' as const,
+        vantage_type: suggestion.vantage_type || 'general'
       }))
     } catch (error) {
       console.error('Error generating pattern-based suggestions:', error)
@@ -291,7 +292,7 @@ export class GeminiEnhancedPOVService {
 **POI AREA ANALYSIS**:
 - **Size**: ${geometry.area_size} (estimated radius: ~${geometry.estimated_radius}m)
 - **Bounds**: NE(${geometry.bounds?.northeast.lat.toFixed(4)}, ${geometry.bounds?.northeast.lng.toFixed(4)}) to SW(${geometry.bounds?.southwest.lat.toFixed(4)}, ${geometry.bounds?.southwest.lng.toFixed(4)})
-- **Coverage Strategy**: ${this.getAreaStrategy(geometry.area_size)}` : ''
+- **Coverage Strategy**: ${geometry.area_size ? this.getAreaStrategy(geometry.area_size) : 'Balanced multi-angle coverage'}` : ''
 
     return `You are an expert AI for AUDIO TRIGGER POINT optimization. Generate 3-5 strategic locations where tourists will hear audio descriptions about the POI.
 

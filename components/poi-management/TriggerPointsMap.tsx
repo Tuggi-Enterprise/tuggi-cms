@@ -488,7 +488,7 @@ function TriggerPointsMapContent({
       'both': '#2563EB'
     }
     
-    const color = accessColors[accessType?.toLowerCase()] || '#9333EA'
+    const color = accessColors[accessType?.toLowerCase() as keyof typeof accessColors] || '#9333EA'
     
     // Different icons and scales based on source
     if (source === 'pattern_based') {

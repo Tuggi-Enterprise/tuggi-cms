@@ -971,7 +971,7 @@ export default function POIImporterPage() {
         let country = ''
         let countryCode = selectedCountry || ''
 
-        if ('address_components' in placeData && placeData.address_components) {
+        if ('address_components' in placeData && placeData.address_components && Array.isArray(placeData.address_components)) {
           const locationData = extractLocationFromAddressComponents(placeData.address_components)
           // Only extract country info, keep the user's searched city
           country = locationData.country

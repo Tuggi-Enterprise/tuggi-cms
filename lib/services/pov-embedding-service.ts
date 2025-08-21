@@ -82,7 +82,6 @@ export class POVEmbeddingService {
 
     // Buscar exemplos sem embeddings
     const { data: examples, error } = await this.supabase
-      .schema('core')
       .from('pov_training_examples')
       .select('id, context_text')
       .is('context_embedding', null)
@@ -107,14 +106,13 @@ export class POVEmbeddingService {
         console.log(`⚙️  Processing ${index + 1}/${examples.length}: ${example.id}`)
 
         // Gerar embedding
-        const embedding = await this.generateEmbedding(example.context_text)
+        const embedding = await this.generateEmbedding(String(example.context_text))
 
         // Atualizar no banco
         const { error: updateError } = await this.supabase
-          .schema('core')
           .from('pov_training_examples')
           .update({ context_embedding: `[${embedding.join(',')}]` })
-          .eq('id', example.id)
+          .eq('id', String(example.id))
 
         if (updateError) {
           throw new Error(`Failed to update embedding: ${updateError.message}`)
@@ -156,7 +154,7 @@ export class POVEmbeddingService {
         query_embedding: `[${queryEmbedding.join(',')}]`,
         match_threshold: threshold,
         match_count: limit
-      }, { schema: 'core' })
+      })
 
     if (error) {
       // Se a função RPC não existir, usar busca alternativa
@@ -164,7 +162,7 @@ export class POVEmbeddingService {
       return await this.findSimilarExamplesAlternative(contextText, limit)
     }
 
-    if (!results || results.length === 0) {
+    if (!results || !Array.isArray(results) || results.length === 0) {
       console.log('ℹ️  No similar examples found')
       return {
         examples: [],
@@ -174,7 +172,7 @@ export class POVEmbeddingService {
     }
 
     // Processar resultados
-    const similarExamples: SimilarExample[] = results.map((result: any) => ({
+    const similarExamples: SimilarExample[] = (results as any[]).map((result: any) => ({
       example: {
         id: result.id,
         poi_name: result.poi_name,
@@ -216,7 +214,6 @@ export class POVEmbeddingService {
     const keywords = this.extractKeywords(contextText)
     
     let query = this.supabase
-      .schema('core')
       .from('pov_training_examples')
       .select('*')
       .limit(limit)
@@ -238,10 +235,22 @@ export class POVEmbeddingService {
       throw new Error(`Failed to search examples: ${error.message}`)
     }
 
-    const similarExamples: SimilarExample[] = (examples || []).map(example => ({
-      example,
+    const similarExamples: SimilarExample[] = (examples || []).map((example: any) => ({
+      example: {
+        id: example.id,
+        poi_name: example.poi_name || '',
+        poi_category: example.poi_category || '',
+        urban_density: example.urban_density || '',
+        access_type: example.access_type || '',
+        trigger_type: example.trigger_type || '',
+        distance_m: example.distance_m || 0,
+        bearing_deg: example.bearing_deg || 0,
+        priority: example.priority || 0,
+        context_text: example.context_text || '',
+        quality_score: example.quality_score || 0
+      },
       similarity: 0.5, // Similaridade estimada
-      distance: example.distance_m
+      distance: example.distance_m || 0
     }))
 
     const patterns = this.extractPatternsFromSimilarExamples(similarExamples)

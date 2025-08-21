@@ -53,10 +53,8 @@ export class GeometricPOVGenerator {
         enrichedData = await enrichPOIData(attraction.google_place_id)
       }
 
-      // 2. Criar perfil do POI (usando dados enriquecidos se disponível)
-      const profile = enrichedData 
-        ? this.createProfileFromEnrichedData(enrichedData, poiInput)
-        : this.createPOIProfile(poiInput)
+      // 2. Criar perfil do POI
+      const profile = this.createPOIProfile(poiInput)
       
       // 2. Detectar ambiente (fallback)
       const environment = this.detectEnvironment(poiInput)

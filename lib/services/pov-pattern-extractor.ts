@@ -52,7 +52,7 @@ export class POVPatternExtractor {
     console.log('🔍 Extracting patterns from training examples...')
 
     const { data: examples, error } = await this.supabase
-      .schema('core')
+
       .from('pov_training_examples')
       .select('*')
       .eq('is_positive_example', true)
@@ -71,7 +71,7 @@ export class POVPatternExtractor {
     console.log(`📊 Analyzing ${examples.length} training examples...`)
 
     // Agrupar por categoria, densidade urbana e tipo de acesso
-    const groupedPatterns = this.groupExamplesByPattern(examples)
+    const groupedPatterns = this.groupExamplesByPattern(examples as any[])
     
     // Extrair padrões estatísticos
     const patterns: LearningPattern[] = []
@@ -94,7 +94,7 @@ export class POVPatternExtractor {
     console.log(`🔍 Extracting patterns for category: ${category}`)
 
     const { data: examples, error } = await this.supabase
-      .schema('core')
+
       .from('pov_training_examples')
       .select('*')
       .eq('poi_category', category)
@@ -109,7 +109,7 @@ export class POVPatternExtractor {
       return []
     }
 
-    const groupedPatterns = this.groupExamplesByPattern(examples)
+    const groupedPatterns = this.groupExamplesByPattern(examples as any[])
     const patterns: LearningPattern[] = []
     
     for (const [key, group] of groupedPatterns.entries()) {
@@ -127,7 +127,7 @@ export class POVPatternExtractor {
     console.log('🧠 Generating pattern insights...')
 
     const { data: patterns, error } = await this.supabase
-      .schema('core')
+
       .from('pov_learning_patterns')
       .select('*')
       .order('pattern_confidence', { ascending: false })
@@ -146,23 +146,23 @@ export class POVPatternExtractor {
       }
     }
 
-    const strongPatterns = patterns.filter(p => p.pattern_confidence > 0.7)
-    const weakPatterns = patterns.filter(p => p.pattern_confidence < 0.4)
+    const strongPatterns = (patterns as any[]).filter((p: any) => p.pattern_confidence > 0.7)
+    const weakPatterns = (patterns as any[]).filter((p: any) => p.pattern_confidence < 0.4)
 
     // Contar por categoria
     const categoryCount = new Map<string, number>()
-    patterns.forEach(p => {
+    ;(patterns as any[]).forEach((p: any) => {
       const count = categoryCount.get(p.poi_category) || 0
       categoryCount.set(p.poi_category, count + 1)
     })
 
-    const topCategories = Array.from(categoryCount.entries())
-      .map(([category, count]) => ({ category, count }))
-      .sort((a, b) => b.count - a.count)
+    const topCategories: Array<{category: string, count: number}> = Array.from(categoryCount.entries())
+      .map(([category, count]: [string, number]) => ({ category, count }))
+      .sort((a: any, b: any) => b.count - a.count)
       .slice(0, 5)
 
     // Gerar recomendações
-    const recommendations = this.generateRecommendations(patterns)
+    const recommendations = this.generateRecommendations(patterns as any[])
 
     return {
       totalPatterns: patterns.length,
@@ -184,7 +184,7 @@ export class POVPatternExtractor {
     console.log(`🔍 Finding patterns similar to: ${JSON.stringify(context)}`)
 
     let query = this.supabase
-      .schema('core')
+
       .from('pov_learning_patterns')
       .select('*')
       .eq('poi_category', context.poi_category)
@@ -203,7 +203,7 @@ export class POVPatternExtractor {
       throw new Error(`Failed to find similar patterns: ${error.message}`)
     }
 
-    return patterns || []
+    return (patterns as any[]) || []
   }
 
   /**
@@ -213,7 +213,7 @@ export class POVPatternExtractor {
     console.log('🔄 Updating learning patterns...')
 
     const { error } = await this.supabase
-      .rpc('update_learning_patterns', {}, { schema: 'core' })
+      .rpc('update_learning_patterns', {})
 
     if (error) {
       throw new Error(`Failed to update patterns: ${error.message}`)

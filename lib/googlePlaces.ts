@@ -639,7 +639,7 @@ function analyzeAndClassifyPOI(details: PlaceDetailsResult): POIEnrichmentData {
     website: details.website,
     photos_count: details.photos?.length || 0,
     reviews_count: details.reviews?.length || 0,
-    is_tourist_attraction: isTouristAttraction,
+    is_tourist_attraction: Boolean(isTouristAttraction),
     is_natural_feature: isNaturalFeature,
     is_large_area: isLargeArea,
     estimated_size: estimatedSize,

@@ -249,7 +249,7 @@ export class POVSuggestionsService {
     }, {} as Record<string, number>)
     
     const preferredAccess = Object.entries(accessTypeCounts)
-      .sort(([,a], [,b]) => b - a)[0][0]
+      .sort(([,a], [,b]) => (b as number) - (a as number))[0][0]
     
     // Padrão 4: Distâncias a evitar (baseado em exemplos negativos)
     const avoidDistances = examples.negative.length > 0 ? {

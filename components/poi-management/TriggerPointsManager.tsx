@@ -125,8 +125,8 @@ export function TriggerPointsManager({
           poi_lat: attractionCoordinates.lat,
           poi_lng: attractionCoordinates.lng,
           poi_types: attractionTypes || [],
-          city: attractionCoordinates.city || '',
-          country: attractionCoordinates.country || '',
+          city: '',
+          country: '',
           limit: 8, // Increased limit for AI suggestions
           use_gemini: true // Enable Gemini AI enhancement
         })
