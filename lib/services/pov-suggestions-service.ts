@@ -59,7 +59,7 @@ export class POVSuggestionsService {
       
       // 2. Buscar exemplos similares
       const similarExamples = await this.findSimilarExamples(poiAnalysis)
-      console.log(`🔍 Found ${similarExamples.length} similar examples`)
+      console.log(`🔍 Found ${similarExamples.positive.length} positive and ${similarExamples.negative.length} negative examples`)
       
       // 3. Extrair padrões de sucesso
       const patterns = this.extractSuccessPatterns(similarExamples)
@@ -110,6 +110,8 @@ export class POVSuggestionsService {
    * Busca exemplos similares no dataset de treinamento
    */
   private async findSimilarExamples(poiAnalysis: any) {
+    console.log(`🔍 Searching for examples with category: "${poiAnalysis.category}" and density: "${poiAnalysis.urban_density}"`)
+    
     // Buscar exemplos positivos (aceitos)
     const { data: positiveExamples, error: positiveError } = await supabase
       .schema('core')
@@ -136,6 +138,7 @@ export class POVSuggestionsService {
       .limit(50)
     
     if (positiveError) {
+      console.error('Error fetching positive examples:', positiveError)
       throw new Error(`Failed to fetch positive examples: ${positiveError.message}`)
     }
 
@@ -168,6 +171,38 @@ export class POVSuggestionsService {
       console.warn('Failed to fetch negative examples:', negativeError.message)
     }
 
+    console.log(`📊 Found ${positiveExamples?.length || 0} positive and ${negativeExamples?.length || 0} negative examples`)
+
+    // Se não encontrou exemplos positivos, vamos verificar quais categorias existem na tabela
+    if ((positiveExamples?.length || 0) === 0) {
+      console.log(`🔍 No positive examples found for category: "${poiAnalysis.category}" and density: "${poiAnalysis.urban_density}"`)
+      
+      // Verificar categorias disponíveis
+      const { data: categories } = await supabase
+        .schema('core')
+        .from('pov_training_examples')
+        .select('poi_category')
+        .not('poi_category', 'is', null)
+        .limit(10)
+      
+      console.log(`📋 Available categories in table:`, categories?.map(c => c.poi_category))
+      
+      // Verificar densidades disponíveis
+      const { data: densities } = await supabase
+        .schema('core')
+        .from('pov_training_examples')
+        .select('urban_density')
+        .not('urban_density', 'is', null)
+        .limit(10)
+      
+      console.log(`📋 Available densities in table:`, densities?.map(d => d.urban_density))
+    }
+    
+    // Se não encontrou exemplos negativos, isso é normal - a tabela só tem exemplos positivos
+    if ((negativeExamples?.length || 0) === 0) {
+      console.log(`ℹ️ No negative examples found - this is normal, table only contains positive examples`)
+    }
+
     return {
       positive: positiveExamples || [],
       negative: negativeExamples || []
@@ -178,8 +213,16 @@ export class POVSuggestionsService {
    * Extrai padrões de sucesso dos exemplos e evita padrões de falha
    */
   private extractSuccessPatterns(examples: { positive: any[], negative: any[] }) {
+    console.log(`📈 Extracting patterns from ${examples.positive.length} positive and ${examples.negative.length} negative examples`)
+    
     if (examples.positive.length === 0) {
+      console.log(`⚠️ No positive examples found - this may indicate a data mismatch`)
       return []
+    }
+    
+    // Se não há exemplos negativos, isso é normal - a tabela só tem exemplos positivos
+    if (examples.negative.length === 0) {
+      console.log(`ℹ️ No negative examples available - will use only positive patterns`)
     }
     
     // Agrupar por características similares
@@ -594,6 +637,8 @@ export class POVSuggestionsService {
    * Classifica categoria do POI
    */
   private classifyPOICategory(googleTypes: string[], name: string): string {
+    console.log(`🏷️ Classifying POI: "${name}" with types: [${googleTypes.join(', ')}]`)
+    
     if (googleTypes.includes('park') || googleTypes.includes('natural_feature')) {
       return 'park'
     }
@@ -606,7 +651,9 @@ export class POVSuggestionsService {
     if (googleTypes.includes('establishment') || googleTypes.includes('point_of_interest')) {
       return 'building'
     }
-    return 'building'
+    
+    // Fallback para categorias mais genéricas que existem na tabela
+    return 'landmark' // Usar 'landmark' como fallback pois é mais comum na tabela
   }
   
   /**

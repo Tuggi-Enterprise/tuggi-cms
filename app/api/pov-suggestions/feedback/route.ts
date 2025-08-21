@@ -9,7 +9,7 @@ const supabase = createClient(
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { suggestionId, poiId, action, feedback, coordinates } = body
+    const { suggestionId, poiId, action, feedback, coordinates, accessType } = body
 
     if (!suggestionId || !poiId || !action || !coordinates) {
       return NextResponse.json(
@@ -66,6 +66,22 @@ export async function POST(request: NextRequest) {
       coordinates.lat, coordinates.lng
     ))
 
+    // Classify POI category and detect urban density
+    const { data: categoryResult } = await supabase.rpc('classify_poi_category', {
+      google_types: poiData.google_types,
+      poi_name: poiData.name
+    })
+    
+    const { data: densityResult } = await supabase.rpc('detect_urban_density', {
+      poi_lat: poiLat,
+      poi_lng: poiLng
+    })
+    
+    const poiCategory = categoryResult || 'landmark'
+    const urbanDensity = densityResult || 'mixed'
+    
+    console.log(`🏷️ Classified POI: category="${poiCategory}", density="${urbanDensity}"`)
+    
     // Create context text for learning
     const contextText = `POI: ${poiData.name} (${poiLat}, ${poiLng}) | Types: ${poiData.google_types?.join(', ')} | POV: (${coordinates.lat}, ${coordinates.lng}) | Distance: ${distance}m | Bearing: ${bearing}° | Action: ${action} | Feedback: ${feedback || 'None'}`
 
@@ -79,14 +95,14 @@ export async function POST(request: NextRequest) {
         poi_lat: poiLat,
         poi_lng: poiLng,
         poi_types: poiData.google_types,
-        urban_density: 'mixed', // Default, can be improved later
-        poi_category: 'building', // Default, can be improved later
+        urban_density: urbanDensity,
+        poi_category: poiCategory,
         
         trigger_lat: coordinates.lat,
         trigger_lng: coordinates.lng,
         distance_m: distance,
         bearing_deg: bearing,
-        access_type: 'both', // Default, can be improved later
+        access_type: accessType || 'both', // Use from suggestion or default
         trigger_type: 'suggested',
         priority: action === 'accept' ? 1 : 0,
         radius_meters: 50, // Default value

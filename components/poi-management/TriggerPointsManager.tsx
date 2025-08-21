@@ -236,7 +236,8 @@ export function TriggerPointsManager({
           poiId: attractionId,
           action: feedbackAction,
           feedback: feedbackReason || `${feedbackAction === 'accept' ? 'Accepted' : 'Rejected'} without specific reason`,
-          coordinates: { lat: feedbackSuggestion.lat, lng: feedbackSuggestion.lng }
+          coordinates: { lat: feedbackSuggestion.lat, lng: feedbackSuggestion.lng },
+          accessType: feedbackSuggestion.access_type
         })
       })
 
@@ -691,20 +692,29 @@ export function TriggerPointsManager({
               </div>
               <div className="grid grid-cols-1 gap-2">
                 <div className="flex items-center text-xs">
-                  <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: '#DC2626' }}></div>
-                  <span className="text-gray-600 dark:text-gray-400">🚗 Carro - Acesso apenas de carro</span>
+                  <span className="mr-2">🧠</span>
+                  <span className="text-gray-600 dark:text-gray-400"><strong>Nossa IA</strong> (padrões históricos) - Círculos maiores</span>
                 </div>
                 <div className="flex items-center text-xs">
-                  <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: '#059669' }}></div>
-                  <span className="text-gray-600 dark:text-gray-400">🚶 Caminhada - Acesso apenas a pé</span>
+                  <span className="mr-2">🤖</span>
+                  <span className="text-gray-600 dark:text-gray-400"><strong>Gemini AI</strong> (conhecimento geográfico) - Círculos menores</span>
+                </div>
+                <div className="border-t border-gray-300 dark:border-gray-600 my-2"></div>
+                <div className="flex items-center text-xs">
+                  <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: '#DC2626' }}></div>
+                  <span className="text-gray-600 dark:text-gray-400">🚗 Carro - <strong>PRIORIDADE MÁXIMA</strong></span>
                 </div>
                 <div className="flex items-center text-xs">
                   <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: '#2563EB' }}></div>
-                  <span className="text-gray-600 dark:text-gray-400">🚗🚶 Ambos - Acesso de carro e a pé</span>
+                  <span className="text-gray-600 dark:text-gray-400">🚗🚶 Ambos - Segunda prioridade</span>
+                </div>
+                <div className="flex items-center text-xs">
+                  <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: '#059669' }}></div>
+                  <span className="text-gray-600 dark:text-gray-400">🚶 Caminhada - Menor prioridade</span>
                 </div>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                💡 IA prioriza acesso "both" e filtra sugestões "walk" impraticáveis (ex: topos de prédios)
+                🔍 <strong>Modo Comparação:</strong> Compare qual IA está mais assertiva!
               </p>
             </div>
           )}

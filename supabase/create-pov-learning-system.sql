@@ -222,17 +222,78 @@ RETURNS text AS $$
 DECLARE
   density text := 'mixed'; -- Default
 BEGIN
-  -- Lógica simplificada baseada em coordenadas conhecidas
+  -- Lógica expandida para múltiplas cidades brasileiras
+  
   -- São Paulo centro: very_dense
   IF lat BETWEEN -23.57 AND -23.52 AND lng BETWEEN -46.66 AND -46.62 THEN
     density := 'very_dense';
   -- São Paulo periferia: dense
   ELSIF lat BETWEEN -23.75 AND -23.40 AND lng BETWEEN -46.80 AND -46.40 THEN
     density := 'dense';
-  -- Outras áreas metropolitanas: mixed
+  -- São Paulo área metropolitana: mixed
   ELSIF lat BETWEEN -23.85 AND -23.30 AND lng BETWEEN -46.90 AND -46.30 THEN
     density := 'mixed';
-  -- Áreas rurais: open
+  
+  -- Rio de Janeiro centro: very_dense
+  ELSIF lat BETWEEN -22.92 AND -22.89 AND lng BETWEEN -43.20 AND -43.16 THEN
+    density := 'very_dense';
+  -- Rio de Janeiro zona sul: dense
+  ELSIF lat BETWEEN -22.95 AND -22.88 AND lng BETWEEN -43.25 AND -43.15 THEN
+    density := 'dense';
+  -- Rio de Janeiro área metropolitana: mixed
+  ELSIF lat BETWEEN -23.00 AND -22.85 AND lng BETWEEN -43.30 AND -43.10 THEN
+    density := 'mixed';
+  
+  -- Brasília centro: dense
+  ELSIF lat BETWEEN -15.80 AND -15.75 AND lng BETWEEN -47.95 AND -47.90 THEN
+    density := 'dense';
+  -- Brasília área metropolitana: mixed
+  ELSIF lat BETWEEN -15.85 AND -15.70 AND lng BETWEEN -48.00 AND -47.85 THEN
+    density := 'mixed';
+  
+  -- Belo Horizonte centro: dense
+  ELSIF lat BETWEEN -19.95 AND -19.90 AND lng BETWEEN -43.95 AND -43.90 THEN
+    density := 'dense';
+  -- Belo Horizonte área metropolitana: mixed
+  ELSIF lat BETWEEN -20.00 AND -19.85 AND lng BETWEEN -44.00 AND -43.85 THEN
+    density := 'mixed';
+  
+  -- Porto Alegre centro: dense
+  ELSIF lat BETWEEN -30.05 AND -30.00 AND lng BETWEEN -51.25 AND -51.20 THEN
+    density := 'dense';
+  -- Porto Alegre área metropolitana: mixed
+  ELSIF lat BETWEEN -30.10 AND -29.95 AND lng BETWEEN -51.30 AND -51.15 THEN
+    density := 'mixed';
+  
+  -- Curitiba centro: dense
+  ELSIF lat BETWEEN -25.45 AND -25.40 AND lng BETWEEN -49.30 AND -49.25 THEN
+    density := 'dense';
+  -- Curitiba área metropolitana: mixed
+  ELSIF lat BETWEEN -25.50 AND -25.35 AND lng BETWEEN -49.35 AND -49.20 THEN
+    density := 'mixed';
+  
+  -- Salvador centro: dense
+  ELSIF lat BETWEEN -12.98 AND -12.93 AND lng BETWEEN -38.53 AND -38.48 THEN
+    density := 'dense';
+  -- Salvador área metropolitana: mixed
+  ELSIF lat BETWEEN -13.03 AND -12.88 AND lng BETWEEN -38.58 AND -38.43 THEN
+    density := 'mixed';
+  
+  -- Recife centro: dense
+  ELSIF lat BETWEEN -8.05 AND -8.00 AND lng BETWEEN -34.90 AND -34.85 THEN
+    density := 'dense';
+  -- Recife área metropolitana: mixed
+  ELSIF lat BETWEEN -8.10 AND -7.95 AND lng BETWEEN -34.95 AND -34.80 THEN
+    density := 'mixed';
+  
+  -- Fortaleza centro: dense
+  ELSIF lat BETWEEN -3.73 AND -3.68 AND lng BETWEEN -38.53 AND -38.48 THEN
+    density := 'dense';
+  -- Fortaleza área metropolitana: mixed
+  ELSIF lat BETWEEN -3.78 AND -3.63 AND lng BETWEEN -38.58 AND -38.43 THEN
+    density := 'mixed';
+  
+  -- Áreas rurais ou não identificadas: open
   ELSE
     density := 'open';
   END IF;
@@ -621,28 +682,36 @@ ALTER TABLE core.pov_ai_recommendations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE core.pov_system_metrics ENABLE ROW LEVEL SECURITY;
 
 -- Políticas para leitura (authenticated users)
+DROP POLICY IF EXISTS "Allow read access to learning patterns" ON core.pov_learning_patterns;
 CREATE POLICY "Allow read access to learning patterns" 
 ON core.pov_learning_patterns FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Allow read access to training examples" ON core.pov_training_examples;
 CREATE POLICY "Allow read access to training examples" 
 ON core.pov_training_examples FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Allow read access to AI recommendations" ON core.pov_ai_recommendations;
 CREATE POLICY "Allow read access to AI recommendations" 
 ON core.pov_ai_recommendations FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "Allow read access to system metrics" ON core.pov_system_metrics;
 CREATE POLICY "Allow read access to system metrics" 
 ON core.pov_system_metrics FOR SELECT TO authenticated USING (true);
 
 -- Políticas para escrita (service role only)
+DROP POLICY IF EXISTS "Service role can manage learning patterns" ON core.pov_learning_patterns;
 CREATE POLICY "Service role can manage learning patterns" 
 ON core.pov_learning_patterns FOR ALL TO service_role USING (true);
 
+DROP POLICY IF EXISTS "Service role can manage training examples" ON core.pov_training_examples;
 CREATE POLICY "Service role can manage training examples" 
 ON core.pov_training_examples FOR ALL TO service_role USING (true);
 
+DROP POLICY IF EXISTS "Service role can manage AI recommendations" ON core.pov_ai_recommendations;
 CREATE POLICY "Service role can manage AI recommendations" 
 ON core.pov_ai_recommendations FOR ALL TO service_role USING (true);
 
+DROP POLICY IF EXISTS "Service role can manage system metrics" ON core.pov_system_metrics;
 CREATE POLICY "Service role can manage system metrics" 
 ON core.pov_system_metrics FOR ALL TO service_role USING (true);
 

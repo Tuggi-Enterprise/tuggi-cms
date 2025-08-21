@@ -39,10 +39,10 @@ export class GeminiEnhancedPOVService {
   private patternService = new POVSuggestionsService()
 
   /**
-   * Gera sugestões inteligentes usando padrões históricos + Gemini AI
+   * Gera sugestões separadas: padrões históricos + Gemini AI (sem consolidação)
    */
   async generateEnhancedSuggestions(request: EnhancedPOVRequest): Promise<EnhancedPOVSuggestion[]> {
-    console.log(`🚀 Generating AI-powered POV suggestions for: ${request.poi_name}`)
+    console.log(`🚀 Generating separate AI suggestions for: ${request.poi_name}`)
     
     try {
       const allSuggestions: EnhancedPOVSuggestion[] = []
@@ -52,22 +52,16 @@ export class GeminiEnhancedPOVService {
       allSuggestions.push(...patternSuggestions)
       console.log(`🧠 Generated ${patternSuggestions.length} pattern-based suggestions`)
 
-      // 2. Usar Gemini para melhorar e gerar novas sugestões
+      // 2. Usar Gemini para gerar novas sugestões (sem consolidação)
       if (request.use_gemini !== false) {
-        const geminiSuggestions = await this.generateGeminiEnhancedSuggestions(request, allSuggestions)
+        const geminiSuggestions = await this.generateGeminiEnhancedSuggestions(request, []) // Sem sugestões existentes
         allSuggestions.push(...geminiSuggestions)
         console.log(`🤖 Generated ${geminiSuggestions.length} Gemini AI suggestions`)
       }
 
-      // 3. Remover duplicatas e rankear (priorizar Gemini)
-      const uniqueSuggestions = this.removeDuplicatesAndRank(allSuggestions)
-      
-      // 4. Aplicar limite
-      const limit = request.limit || 10
-      const finalSuggestions = uniqueSuggestions.slice(0, limit)
-
-      console.log(`✅ Returning ${finalSuggestions.length} AI-powered suggestions`)
-      return finalSuggestions
+      // 3. NÃO consolidar - manter separados para comparação
+      console.log(`📊 Returning ${allSuggestions.length} separate suggestions for comparison`)
+      return allSuggestions
 
     } catch (error) {
       console.error('❌ Error generating AI suggestions:', error)
@@ -181,96 +175,55 @@ export class GeminiEnhancedPOVService {
       .slice(0, 10)
       .join('\n')
 
-    return `You are an expert tourism AI specializing in finding optimal viewpoints for Points of Interest (POIs). You have deep knowledge of geography, urban planning, and tourist behavior.
+    return `You are an expert AI for tourist viewpoint optimization. Generate 3-5 practical car-accessible viewpoints for the POI.
 
-**TASK**: Generate intelligent trigger point suggestions for optimal POI viewing experiences.
+**POI**: ${request.poi_name} at ${request.poi_lat}, ${request.poi_lng} (${request.city || 'Unknown'})
+**Types**: ${request.poi_types?.join(', ') || 'Unknown'}
 
-**POI INFORMATION**:
-- Name: ${request.poi_name}
-- Location: ${request.poi_lat}, ${request.poi_lng}
-- City: ${request.city || 'Unknown'}
-- Types: ${request.poi_types?.join(', ') || 'Unknown'}
+**PRIORITY ORDER**:
+1. **"car" access** - Drive-up viewpoints (highways, overlooks, parking lots)
+2. **"both" access** - Car parking + short walk (<100m)
+3. **"walk" only** - AVOID unless exceptional (parks with parking)
 
-**EXISTING PATTERN-BASED SUGGESTIONS** (${existingSuggestions.length} from historical data):
-${existingSuggestions.slice(0, 6).map((s, i) => 
-  `${i+1}. Location: ${s.lat}, ${s.lng}
-     Distance: ${s.distance_m}m, Direction: ${s.bearing_deg}°
-     Access: ${s.access_type}, Confidence: ${s.confidence_score}%
-     Reasoning: ${s.reasoning}`
-).join('\n\n')}
+**COMPARISON MODE**: Generate independent suggestions (not based on existing patterns)
 
-**HISTORICAL FEEDBACK** (What users have rejected):
-${rejectedPatterns || 'No historical rejections available'}
+**REJECTED PATTERNS** (avoid these):
+${rejectedPatterns ? rejectedPatterns.split('\n').slice(0, 5).join('\n') : 'None'}
 
-**CONTEXT DATA**:
-- Similar POIs in area: ${context.similarPOIs.map((p: any) => p.name).join(', ')}
-- Nearby trigger points: ${context.nearbyTriggerPoints.length}
+**GENERATE** viewpoints prioritizing:
+- **Highway overpasses/bridges** with POI views
+- **Parking areas** with direct sightlines  
+- **Roadside pullouts** and scenic stops
+- **Drive-through locations** with clear views
+- **Public parking** + minimal walking
 
-**YOUR MISSION**:
-1. **Enhance existing suggestions**: Improve low-confidence suggestions with better reasoning
-2. **Generate 3-5 NEW suggestions**: Use your geographic knowledge to find optimal viewpoints
-3. **Consider real-world factors**: Traffic flow, parking, safety, photo opportunities
-4. **STRONGLY PRIORITIZE "both" access**: Most tourists need car+walk accessibility
-5. **Avoid historical mistakes**: Don't repeat rejected patterns
-6. **AVOID impractical "walk" suggestions**: NO building tops, rooftops, or inaccessible areas
+**AVOID**: Building tops, private areas, hiking trails, restricted access
 
-**CRITICAL ACCESS TYPE RULES**:
-- **PREFER "both"**: Locations accessible by car WITH walkable final approach
-- **Use "car" only**: For highway overlooks, drive-through viewpoints, parking areas
-- **MINIMIZE "walk"**: Only for parks, squares, or pedestrian areas with nearby parking
-- **NEVER suggest**: Building rooftops, private balconies, restricted areas, or locations requiring climbing
+**DISTANCE TARGETS**: 150-800m (optimal car viewing range)
 
-**INTELLIGENCE GUIDELINES**:
-- **For landmarks/monuments**: Street-level viewpoints, accessible plazas, parking areas with short walks
-- **For natural features**: Roadside overlooks, visitor centers, accessible trails from parking
-- **For urban POIs**: Street corners, accessible bridges, public squares with parking nearby
-- **Distance strategy**: 100-500m for detailed views, 500-2000m for context views
-- **Direction strategy**: Multiple angles, avoid sun glare, consider photo composition
-- **Accessibility check**: Can a tourist park nearby and walk <100m safely?
-
-**OUTPUT FORMAT** (JSON only):
+**OUTPUT** (JSON only, no explanations):
 {
   "enhanced_suggestions": [
     {
-      "action": "enhance|new",
-      "original_id": "pattern_123", // only for enhance action
+      "action": "new",
       "lat": -23.5505,
       "lng": -46.6333,
       "distance_m": 250,
       "bearing_deg": 45,
-      "access_type": "both|car|walk",
-      "vantage_type": "street|bridge|highway|overlook|square|park|parking_area|roadside",
-      "confidence_score": 85,
-      "reasoning": "Clear, specific explanation of why this location works",
-      "estimated_visibility": "excellent|good|moderate|limited",
-      "gemini_reasoning": "Your AI analysis of why this viewpoint is optimal"
+      "access_type": "car",
+      "vantage_type": "highway",
+      "confidence_score": 90,
+      "reasoning": "Highway overpass with direct POI view, easy parking",
+      "estimated_visibility": "excellent"
     }
   ]
 }
 
-**EXAMPLES OF GOOD vs BAD SUGGESTIONS**:
+**EXAMPLES**:
+✅ PRIORITIZE: Highway bridges, parking lots with views, roadside overlooks, drive-through areas
+❌ AVOID: Building tops, walking trails, private areas, restricted zones
 
-✅ GOOD "both" suggestions:
-- Street corner with parking + 50m walk to viewpoint
-- Public square with nearby parking garage
-- Bridge with pedestrian walkway and car access
-- Roadside overlook with parking area
-
-✅ GOOD "car" suggestions:
-- Highway overpass viewpoint
-- Drive-through scenic area
-- Parking lot with direct car view
-
-❌ BAD "walk" suggestions to AVOID:
-- Building rooftops or tops of structures
-- Private balconies or terraces
-- Areas requiring climbing or hiking
-- Locations without nearby parking
-- Restricted access areas
-
-**REMEMBER**: Real tourists with cars, luggage, and limited time need practical accessibility!
-
-Use your geographic intelligence to suggest viewpoints that real tourists can easily access and will love!`
+Focus on car-first accessibility for tourist convenience.`
   }
 
   /**
@@ -358,17 +311,27 @@ Use your geographic intelligence to suggest viewpoints that real tourists can ea
       }
     }
 
-          // Rankear por confiança e fonte (priorizar Gemini)
+          // Rankear priorizando "car" > "both" > "walk", depois por confiança e fonte
     return unique.sort((a, b) => {
-      // Priorizar sugestões do Gemini sobre padrões históricos
+      // 1. Priorizar por tipo de acesso
+      const accessWeight = {
+        'car': 10,     // Máxima prioridade para car
+        'both': 7,     // Segunda prioridade
+        'walk': 3      // Menor prioridade
+      }
+      
+      // 2. Priorizar por fonte
       const sourceWeight = {
         'gemini_original': 4,
         'gemini_enhanced': 3,
         'pattern_based': 2
       }
       
-      const aWeight = sourceWeight[a.source] * a.confidence_score
-      const bWeight = sourceWeight[b.source] * b.confidence_score
+      // 3. Calcular peso total: access_type é o fator mais importante
+      const aWeight = (accessWeight[a.access_type] || 5) * 100 + 
+                      sourceWeight[a.source] * a.confidence_score
+      const bWeight = (accessWeight[b.access_type] || 5) * 100 + 
+                      sourceWeight[b.source] * b.confidence_score
       
       return bWeight - aWeight
     })

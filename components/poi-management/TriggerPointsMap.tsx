@@ -473,17 +473,40 @@ function TriggerPointsMapContent({
     return R * c
   }, [])
 
-  // Get color based on access type for AI suggestions
-  const getAccessTypeColor = useCallback((accessType: string): { color: string, name: string, emoji: string } => {
-    switch (accessType?.toLowerCase()) {
-      case 'car':
-        return { color: '#DC2626', name: 'Carro', emoji: '🚗' } // Red for car only
-      case 'walk':
-        return { color: '#059669', name: 'Caminhada', emoji: '🚶' } // Green for walk only  
-      case 'both':
-        return { color: '#2563EB', name: 'Ambos', emoji: '🚗🚶' } // Blue for both
-      default:
-        return { color: '#9333EA', name: 'Desconhecido', emoji: '❓' } // Purple for unknown
+  // Get color and icon based on access type and source for AI suggestions
+  const getSuggestionStyle = useCallback((accessType: string, source: string): { 
+    color: string, 
+    name: string, 
+    emoji: string, 
+    icon: string,
+    scale: number 
+  } => {
+    // Base colors by access type
+    const accessColors = {
+      'car': '#DC2626',
+      'walk': '#059669', 
+      'both': '#2563EB'
+    }
+    
+    const color = accessColors[accessType?.toLowerCase()] || '#9333EA'
+    
+    // Different icons and scales based on source
+    if (source === 'pattern_based') {
+      return {
+        color,
+        name: accessType === 'car' ? 'Carro (IA)' : accessType === 'both' ? 'Ambos (IA)' : 'Caminhada (IA)',
+        emoji: accessType === 'car' ? '🚗' : accessType === 'both' ? '🚗🚶' : '🚶',
+        icon: '🧠', // Brain icon for our AI
+        scale: 12
+      }
+    } else {
+      return {
+        color,
+        name: accessType === 'car' ? 'Carro (Gemini)' : accessType === 'both' ? 'Ambos (Gemini)' : 'Caminhada (Gemini)',
+        emoji: accessType === 'car' ? '🚗' : accessType === 'both' ? '🚗🚶' : '🚶',
+        icon: '🤖', // Robot icon for Gemini
+        scale: 10
+      }
     }
   }, [])
 
@@ -524,48 +547,48 @@ function TriggerPointsMapContent({
       const existingLine = suggestionLinesRef.current.get(suggestion.id)
       
       if (existingMarker && existingLine) {
-        // Get color based on access type
-        const accessTypeInfo = getAccessTypeColor(suggestion.access_type)
+        // Get style based on access type and source
+        const suggestionStyle = getSuggestionStyle(suggestion.access_type, suggestion.source)
         
         // Update existing marker position and title if needed
         const currentPos = existingMarker.getPosition()
         if (!currentPos || currentPos.lat() !== suggestion.lat || currentPos.lng() !== suggestion.lng) {
           existingMarker.setPosition(position)
-          existingMarker.setTitle(`AI Suggestion (${suggestion.confidence_score.toFixed(1)}%) - ${accessTypeInfo.emoji} ${accessTypeInfo.name} - Bearing: ${bearingToPOI}°`)
+          existingMarker.setTitle(`${suggestionStyle.icon} ${suggestionStyle.name} (${suggestion.confidence_score.toFixed(1)}%) - Bearing: ${bearingToPOI}°`)
           
-          // Update bearing line with access type color
-          const newBearingPath = createBearingLine(position, bearingToPOI, 50, accessTypeInfo.color)
+          // Update bearing line with suggestion style color
+          const newBearingPath = createBearingLine(position, bearingToPOI, 50, suggestionStyle.color)
           existingLine.setPath(newBearingPath)
         }
         return // Skip creating new marker
       }
       
-      // Get color based on access type
-      const accessTypeInfo = getAccessTypeColor(suggestion.access_type)
+      // Get style based on access type and source
+      const suggestionStyle = getSuggestionStyle(suggestion.access_type, suggestion.source)
       
-      // Create new marker with color based on access type
+      // Create new marker with different icons for each AI source
       const marker = new google.maps.Marker({
         position,
         map: mapInstanceRef.current!,
-        title: `AI Suggestion (${suggestion.confidence_score.toFixed(1)}%) - ${accessTypeInfo.emoji} ${accessTypeInfo.name} - Bearing: ${bearingToPOI}°`,
+        title: `${suggestionStyle.icon} ${suggestionStyle.name} (${suggestion.confidence_score.toFixed(1)}%) - Bearing: ${bearingToPOI}°`,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
-          scale: 10,
-          fillColor: accessTypeInfo.color,
+          scale: suggestionStyle.scale,
+          fillColor: suggestionStyle.color,
           fillOpacity: 0.8,
           strokeColor: '#FFFFFF',
           strokeWeight: 2,
           strokeOpacity: 1
         },
-        zIndex: 1000,
+        zIndex: suggestion.source === 'pattern_based' ? 1001 : 1000, // Our AI slightly higher
         draggable: true // Enable dragging for suggestions
       })
 
-      // Create bearing line to POI with access type color
-      const bearingPath = createBearingLine(position, bearingToPOI, 50, accessTypeInfo.color)
+      // Create bearing line to POI with suggestion style color
+      const bearingPath = createBearingLine(position, bearingToPOI, 50, suggestionStyle.color)
       const bearingLine = new google.maps.Polyline({
         path: bearingPath,
-        strokeColor: accessTypeInfo.color,
+        strokeColor: suggestionStyle.color,
         strokeWeight: 2,
         strokeOpacity: 0.7,
         map: mapInstanceRef.current!,
@@ -574,7 +597,7 @@ function TriggerPointsMapContent({
           icon: {
             path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
             scale: 3,
-            fillColor: accessTypeInfo.color,
+            fillColor: suggestionStyle.color,
             fillOpacity: 1,
             strokeColor: '#FFFFFF',
             strokeWeight: 1
@@ -602,11 +625,11 @@ function TriggerPointsMapContent({
           const newBearing = calculateBearingToPOI(newLat, newLng, center.lat, center.lng)
           
           // Update bearing line
-          const newBearingPath = createBearingLine(newPosition, newBearing, 50, accessTypeInfo.color)
+          const newBearingPath = createBearingLine(newPosition, newBearing, 50, suggestionStyle.color)
           bearingLine.setPath(newBearingPath)
           
           // Update marker title
-          marker.setTitle(`AI Suggestion (${suggestion.confidence_score.toFixed(1)}%) - ${accessTypeInfo.emoji} ${accessTypeInfo.name} - Bearing: ${newBearing}°`)
+          marker.setTitle(`${suggestionStyle.icon} ${suggestionStyle.name} (${suggestion.confidence_score.toFixed(1)}%) - Bearing: ${newBearing}°`)
         }
       })
 
@@ -643,14 +666,15 @@ function TriggerPointsMapContent({
       const infoWindow = new google.maps.InfoWindow({
         content: `
           <div style="font-family: Arial, sans-serif; max-width: 280px;">
-            <h4 style="margin: 0 0 8px 0; color: ${accessTypeInfo.color};">
-              ${accessTypeInfo.emoji} AI Suggestion
+            <h4 style="margin: 0 0 8px 0; color: ${suggestionStyle.color};">
+              ${suggestionStyle.icon} ${suggestionStyle.name}
             </h4>
+            <p style="margin: 4px 0; font-size: 12px;"><strong>Source:</strong> ${suggestion.source === 'pattern_based' ? '🧠 Our AI (Historical)' : '🤖 Gemini AI'}</p>
             <p style="margin: 4px 0; font-size: 12px;"><strong>Score:</strong> ${suggestion.confidence_score.toFixed(1)}%</p>
             <p style="margin: 4px 0; font-size: 12px;"><strong>Distance:</strong> ${suggestion.distance_m}m</p>
             <p style="margin: 4px 0; font-size: 12px;"><strong>Bearing to POI:</strong> ${bearingToPOI}°</p>
-            <div style="margin: 4px 0; font-size: 12px; padding: 4px 8px; background-color: ${accessTypeInfo.color}15; border-left: 3px solid ${accessTypeInfo.color}; border-radius: 3px;">
-              <strong>Access:</strong> <span style="color: ${accessTypeInfo.color}; font-weight: 600;">${accessTypeInfo.emoji} ${accessTypeInfo.name}</span>
+            <div style="margin: 4px 0; font-size: 12px; padding: 4px 8px; background-color: ${suggestionStyle.color}15; border-left: 3px solid ${suggestionStyle.color}; border-radius: 3px;">
+              <strong>Access:</strong> <span style="color: ${suggestionStyle.color}; font-weight: 600;">${suggestionStyle.emoji} ${suggestion.access_type}</span>
             </div>
             ${suggestion.reasoning ? `<p style="margin: 4px 0; font-size: 11px; color: #666;"><strong>Reasoning:</strong> ${suggestion.reasoning}</p>` : ''}
             <p style="margin: 8px 0 4px 0; font-size: 10px; color: #999;">Drag to adjust position</p>
@@ -727,7 +751,7 @@ function TriggerPointsMapContent({
 
       suggestionMarkersRef.current.set(suggestion.id, marker)
     })
-  }, [suggestions, center, calculateBearingToPOI, calculateHaversineDistance, getAccessTypeColor, onSuggestionDrag, createBearingLine])
+  }, [suggestions, center, calculateBearingToPOI, calculateHaversineDistance, getSuggestionStyle, onSuggestionDrag, createBearingLine])
 
   useEffect(() => {
     if (window.google && window.google.maps) {
