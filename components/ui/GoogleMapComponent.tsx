@@ -34,6 +34,7 @@ interface GoogleMapComponentProps {
     center: { lat: number; lng: number }
     radius: number // in meters
   }
+
 }
 
 interface MapProps extends GoogleMapComponentProps {
@@ -48,6 +49,7 @@ function Map({
   onMarkerClick,
   markers = [],
   polygon,
+
   savedPolygons = [],
   cityBoundary,
   cityName,
@@ -61,6 +63,7 @@ function Map({
   const savedPolygonsRef = useRef<google.maps.Polygon[]>([])
   const cityBoundaryRef = useRef<google.maps.Polygon | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
+
   const drawingButtonRef = useRef<HTMLButtonElement | null>(null)
   const circleRef = useRef<google.maps.Circle | null>(null)
 
@@ -400,6 +403,10 @@ function Map({
     }
   }, [circle])
 
+
+
+
+
   useEffect(() => {
     if (window.google && window.google.maps && window.google.maps.drawing) {
       initializeMap()
@@ -420,6 +427,8 @@ function Map({
   useEffect(() => {
     updateMarkers()
   }, [updateMarkers])
+
+
 
   useEffect(() => {
     updatePolygon()

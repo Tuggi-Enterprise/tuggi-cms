@@ -15,9 +15,9 @@
     "migrate:trigger-points-robust": "tsx --env-file=.env scripts/migrate-existing-trigger-points-robust.ts",
     "migrate:trigger-points-test": "tsx --env-file=.env scripts/migrate-existing-trigger-points-robust.ts --dry-run",
     "setup:coordinates-function": "echo 'Execute: supabase/create-trigger-point-coordinates-function.sql no seu dashboard Supabase'",
-            "test:pov-suggestions-api": "tsx --env-file=.env scripts/test-pov-suggestions-api.ts",
-        "test:learning-system": "tsx --env-file=.env scripts/test-learning-system.ts",
-        "test:feedback-system": "tsx --env-file=.env scripts/test-feedback-system.ts"
+    "test:pov-suggestions-api": "tsx --env-file=.env scripts/test-pov-suggestions-api.ts",
+    "test:learning-system": "tsx --env-file=.env scripts/test-learning-system.ts",
+    "test:feedback-system": "tsx --env-file=.env scripts/test-feedback-system.ts"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.1.0",
@@ -29,6 +29,7 @@
     "@supabase/auth-helpers-nextjs": "^0.8.7",
     "@supabase/auth-helpers-react": "^0.4.2",
     "@supabase/supabase-js": "^2.39.0",
+    "@turf/turf": "^7.2.0",
     "@types/google.maps": "^3.58.1",
     "clsx": "^2.0.0",
     "date-fns": "^2.30.0",

@@ -19,7 +19,9 @@ import {
   Settings,
   Upload,
   MessageSquare,
-  CheckCircle
+  CheckCircle,
+  Sparkles,
+  Eye
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -65,6 +67,8 @@ const navigation = [
     href: '/analytics',
     icon: BarChart3,
   },
+
+
 ]
 
 interface SidebarProps {
