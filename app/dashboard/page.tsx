@@ -643,7 +643,7 @@ export default function DashboardPage() {
                feedback_type: feedback.feedback_type,
                rating: feedback.rating,
                feedback_details: feedback.feedback_details,
-               created_at: new Date(feedback.created_at).toLocaleDateString('pt-BR', { 
+               created_at: new Date(feedback.created_at).toLocaleDateString('en-US', { 
                  year: 'numeric', 
                  month: 'short', 
                  day: 'numeric', 
@@ -651,8 +651,8 @@ export default function DashboardPage() {
                  minute: '2-digit' 
                }),
                attraction_id: feedback.attraction_id,
-               attraction_name: attractionData?.name || 'POI não encontrado',
-               user_name: userData?.full_name || userData?.nickname || 'Usuário'
+               attraction_name: attractionData?.name || 'POI not found',
+               user_name: userData?.full_name || userData?.nickname || 'User'
              }
           })
       )
@@ -747,7 +747,7 @@ export default function DashboardPage() {
           <div className="flex items-center mb-4">
             <Globe className="h-5 w-5 text-tuggi-blue mr-2" />
             <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-              Aprovação por País e Cidade
+              Approval by Country and City
             </h3>
           </div>
           <div className="space-y-3">
@@ -767,7 +767,7 @@ export default function DashboardPage() {
         <div className="flex items-center mb-4">
           <Globe className="h-5 w-5 text-tuggi-blue mr-2" />
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            Aprovação por País e Cidade
+            Approval by Country and City
           </h3>
         </div>
         <div className="space-y-4">
@@ -793,7 +793,7 @@ export default function DashboardPage() {
                         {countryData.country}
                       </p>
                       <p className="text-sm text-gray-600 dark:text-gray-400">
-                        {countryData.approved} de {countryData.total} POIs
+                        {countryData.approved} of {countryData.total} POIs
                       </p>
                     </div>
                   </div>
@@ -820,7 +820,7 @@ export default function DashboardPage() {
                             {cityData.city}
                           </p>
                           <p className="text-sm text-gray-600 dark:text-gray-400">
-                            {cityData.approved} de {cityData.total} POIs
+                            {cityData.approved} of {cityData.total} POIs
                           </p>
                         </div>
                         <div className="flex items-center">
@@ -838,7 +838,7 @@ export default function DashboardPage() {
                     ))}
                     {citiesInCountry.length > 10 && (
                       <div className="p-3 pl-8 text-sm text-gray-500 dark:text-gray-400">
-                        +{citiesInCountry.length - 10} outras cidades
+                        +{citiesInCountry.length - 10} other cities
                       </div>
                     )}
                   </div>
@@ -858,7 +858,7 @@ export default function DashboardPage() {
           <div className="flex items-center mb-4">
             <Users className="h-5 w-5 text-tuggi-blue mr-2" />
             <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-              Estatísticas de Usuários
+              User Statistics
             </h3>
           </div>
           <div className="space-y-3">
@@ -878,30 +878,30 @@ export default function DashboardPage() {
         <div className="flex items-center mb-4">
           <Users className="h-5 w-5 text-tuggi-blue mr-2" />
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            Estatísticas de Usuários
+            User Statistics
           </h3>
         </div>
         <div className="space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Total de Usuários</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Total Users</span>
             <span className="text-sm font-semibold text-tuggi-text dark:text-white">
               {stats.totalUsers.toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Total de Viagens</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Total Trips</span>
             <span className="text-sm font-semibold text-tuggi-text dark:text-white">
               {stats.totalTrips.toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Distância Total</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Total Distance</span>
             <span className="text-sm font-semibold text-tuggi-text dark:text-white">
               {stats.totalKmDriven.toLocaleString()} km
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Duração Média</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Average Duration</span>
             <span className="text-sm font-semibold text-tuggi-text dark:text-white">
               {stats.avgTripDuration} min
             </span>
@@ -918,7 +918,7 @@ export default function DashboardPage() {
           <div className="flex items-center mb-4">
             <TrendingUp className="h-5 w-5 text-green-500 mr-2" />
             <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-              Crescimento de Usuários
+              User Growth
             </h3>
           </div>
           <div className="h-48 bg-gray-100 dark:bg-gray-800 rounded animate-pulse"></div>
@@ -990,7 +990,7 @@ export default function DashboardPage() {
         <div className="flex items-center mb-4">
           <MapPin className="h-5 w-5 text-tuggi-orange mr-2" />
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            Estatísticas de POIs
+            POI Statistics
           </h3>
         </div>
         <div className="space-y-4">
@@ -1050,7 +1050,7 @@ export default function DashboardPage() {
         <div className="flex items-center mb-4">
           <MapPin className="h-5 w-5 text-tuggi-orange mr-2" />
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            POIs Mais Reproduzidos
+            Most Played POIs
           </h3>
         </div>
         <div className="space-y-3">
@@ -1112,7 +1112,7 @@ export default function DashboardPage() {
         <div className="flex items-center mb-4">
           <TrendingUp className="h-5 w-5 text-green-500 mr-2" />
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            Viagens por Plataforma
+            Trips by Platform
           </h3>
         </div>
         <div className="space-y-3">
