@@ -782,7 +782,7 @@ export function TriggerPointsManager({
               <div className="grid grid-cols-1 gap-2">
                 <div className="flex items-center text-xs">
                   <span className="mr-2">🧠</span>
-                  <span className="text-gray-600 dark:text-gray-400"><strong>Nossa IA</strong> (padrões históricos) - Círculos maiores</span>
+                  <span className="text-gray-600 dark:text-gray-400"><strong>Our AI</strong> (historical patterns) - Larger circles</span>
                 </div>
                 <div className="flex items-center text-xs">
                   <span className="mr-2">🤖</span>
@@ -803,7 +803,7 @@ export function TriggerPointsManager({
                 </div>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                🔍 <strong>Modo Comparação:</strong> Compare qual IA está mais assertiva!
+                🔍 <strong>Comparison Mode:</strong> Compare which AI is more assertive!
               </p>
               <div className="flex justify-between items-center mt-3 pt-2 border-t border-gray-300 dark:border-gray-600">
                 <button
@@ -820,10 +820,10 @@ export function TriggerPointsManager({
                   className="px-2 py-1 text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
                   disabled={isGeneratingSuggestions}
                 >
-                  🗑️ Descartar Todas
+                  🗑️ Discard All
                 </button>
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {suggestions.filter(s => !acceptedSuggestionIds.has(s.id)).length} não utilizadas
+                  {suggestions.filter(s => !acceptedSuggestionIds.has(s.id)).length} unused
                 </span>
               </div>
             </div>
@@ -863,10 +863,10 @@ export function TriggerPointsManager({
                   <Loader2 className="h-5 w-5 mr-3 animate-spin text-purple-600" />
                   <div className="text-sm">
                     <div className="font-medium text-purple-900 dark:text-purple-100">
-                      Gerando sugestões de IA...
+                      Generating AI suggestions...
                     </div>
                     <div className="text-purple-700 dark:text-purple-300 text-xs mt-1">
-                      Analisando área do POI e padrões históricos
+                      Analyzing POI area and historical patterns
                     </div>
                   </div>
                 </div>

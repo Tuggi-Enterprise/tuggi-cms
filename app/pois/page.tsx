@@ -1136,7 +1136,7 @@ function POIListWithSearchParams() {
                     {/* Available Languages */}
                     {poi.available_languages.length > 0 && (
                       <div className="space-y-2">
-                        <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300">Idiomas Disponíveis:</h4>
+                        <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300">Available Languages:</h4>
                         <div className="flex flex-wrap gap-1">
                           {poi.available_languages.map((language, index) => (
                             <span 
@@ -1154,7 +1154,7 @@ function POIListWithSearchParams() {
                     <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
                       <div className="flex items-center space-x-1">
                         <span className="w-2 h-2 bg-tuggi-blue rounded-full"></span>
-                        <span>{poi.active_trigger_points_count}/{poi.trigger_points_count} trigger points ativos</span>
+                        <span>{poi.active_trigger_points_count}/{poi.trigger_points_count} active trigger points</span>
                       </div>
                     </div>
 

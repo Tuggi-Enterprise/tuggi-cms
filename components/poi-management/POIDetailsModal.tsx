@@ -1308,7 +1308,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   const translateAndGenerateAudio = async () => {
     // Validation: Check if Portuguese base description exists
     if (!currentDescription.trim()) {
-      showFeedback('Please save a Portuguese description first before generating translations.', 'error')
+      showFeedback('Please save an original description first before generating translations.', 'error')
       return
     }
 
@@ -1380,7 +1380,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
   // Regenerate all audios (PT, EN, ES) with both genders
   const regenerateAllAudios = async () => {
     if (!currentDescription.trim()) {
-      showFeedback('Please save a Portuguese description first.', 'error')
+      showFeedback('Please save an original description first.', 'error')
       return
     }
 
@@ -2135,14 +2135,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   </div>
                 </div>
 
-                {/* Botão "Saiba mais" para exibir informações avançadas */}
+                {/* "Learn more" button to display advanced information */}
                 <div className="flex justify-center my-4">
                   <button
                     onClick={() => setShowAdvancedInfo(!showAdvancedInfo)}
                     className="flex items-center px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     <Info className="h-4 w-4 mr-2" />
-                    {showAdvancedInfo ? 'Ocultar detalhes avançados' : 'Saiba mais sobre esta descrição'}
+                    {showAdvancedInfo ? 'Hide advanced details' : 'Learn more about this description'}
                     <span className="ml-2">{showAdvancedInfo ? '▲' : '▼'}</span>
                   </button>
                 </div>
@@ -2321,7 +2321,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                           </div>
                         </div>
 
-                        {/* Fatos verificáveis */}
+                        {/* Verifiable facts */}
                         {verificationResult.verifiable_facts && verificationResult.verifiable_facts.length > 0 && (
                           <div className="mb-4">
                             <h6 className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-2">
@@ -2418,7 +2418,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                   </div>
                   <p className="text-xs text-blue-700 dark:text-blue-300">
                     Automatic verification checks factual claims against authoritative sources (Wikipedia, IPHAN, UNESCO).
-                    Only original Portuguese descriptions are verified.
+                    Only original descriptions are verified.
                   </p>
                 </div>
 
@@ -2997,7 +2997,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
                             <AlertTriangle className="h-4 w-4" />
                           </span>
                           <span className="text-sm text-amber-800 dark:text-amber-200">
-                            ⚠️ Please save a Portuguese description first before generating translations.{' '}
+                            ⚠️ Please save an original description first before generating translations.{' '}
                             <button
                               type="button"
                               className="underline text-amber-800 hover:text-amber-900 dark:text-amber-200 dark:hover:text-amber-100 ml-1"

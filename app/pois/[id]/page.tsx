@@ -62,12 +62,12 @@ export default function POIPage({ params }: POIPageProps) {
 
         if (fetchError) {
           console.error('Error fetching POI:', fetchError)
-          setError('POI não encontrado')
+          setError('POI not found')
           return
         }
 
         if (!data) {
-          setError('POI não encontrado')
+          setError('POI not found')
           return
         }
 
@@ -122,7 +122,7 @@ export default function POIPage({ params }: POIPageProps) {
         setPoi(transformedPOI)
       } catch (err) {
         console.error('Error fetching POI:', err)
-        setError('Erro ao carregar POI')
+        setError('Error loading POI')
       } finally {
         setIsLoading(false)
       }
@@ -149,7 +149,7 @@ export default function POIPage({ params }: POIPageProps) {
       <div className="min-h-screen bg-tuggi-background flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-8 w-8 text-tuggi-blue animate-spin mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">Carregando POI...</p>
+          <p className="text-gray-600 dark:text-gray-400">Loading POI...</p>
         </div>
       </div>
     )
@@ -161,7 +161,7 @@ export default function POIPage({ params }: POIPageProps) {
         <div className="text-center">
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-6 max-w-md">
             <h2 className="text-xl font-semibold text-red-800 dark:text-red-200 mb-2">
-              POI não encontrado
+              POI not found
             </h2>
             <p className="text-red-600 dark:text-red-300 mb-4">
               {error || 'O POI solicitado não foi encontrado ou não existe.'}
@@ -171,7 +171,7 @@ export default function POIPage({ params }: POIPageProps) {
               className="inline-flex items-center px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Voltar para POIs
+              Back to POIs
             </button>
           </div>
         </div>
@@ -188,7 +188,7 @@ export default function POIPage({ params }: POIPageProps) {
           className="inline-flex items-center px-4 py-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg shadow-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border border-gray-200 dark:border-gray-600"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Voltar para POIs
+          Back to POIs
         </button>
       </div>
 

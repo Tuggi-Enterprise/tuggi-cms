@@ -390,7 +390,7 @@ export default function ReviewsPage() {
             className="inline-flex items-center px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors"
           >
             <RefreshCw className="h-4 w-4 mr-2" />
-            Tentar Novamente
+            Try Again
           </button>
         </div>
       </div>
@@ -406,11 +406,11 @@ export default function ReviewsPage() {
             Reviews & Feedbacks
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Análise detalhada de feedbacks e avaliações dos usuários
+            Detailed analysis of user feedback and reviews
           </p>
           {lastUpdated && !isLoading && (
             <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
-              Última atualização: {lastUpdated.toLocaleTimeString()}
+              Last updated: {lastUpdated.toLocaleTimeString()}
             </p>
           )}
         </div>
@@ -420,7 +420,7 @@ export default function ReviewsPage() {
           className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-          Atualizar
+          Refresh
         </button>
       </div>
 
@@ -432,7 +432,7 @@ export default function ReviewsPage() {
               <MessageSquare className="h-6 w-6 text-purple-600 dark:text-purple-400" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total de Feedbacks</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Feedbacks</p>
               <p className="text-2xl font-bold text-tuggi-text dark:text-white">{stats.totalFeedbacks}</p>
             </div>
           </div>
@@ -444,7 +444,7 @@ export default function ReviewsPage() {
               <Star className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Avaliação Média</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Average Rating</p>
               <p className="text-2xl font-bold text-tuggi-text dark:text-white">{stats.averageRating.toFixed(1)}</p>
             </div>
           </div>
@@ -456,7 +456,7 @@ export default function ReviewsPage() {
               <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Problemas Críticos</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Critical Issues</p>
               <p className="text-2xl font-bold text-tuggi-text dark:text-white">
                 {stats.feedbackByType.find(f => f.feedback_type === 'wrong_info')?.count || 0}
               </p>
@@ -527,7 +527,7 @@ export default function ReviewsPage() {
         {/* Feedback Types Chart */}
         <div className="tuggi-card p-6">
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white mb-4">
-            Tipos de Feedback
+            Feedback Types
           </h3>
           {isLoading ? (
             <div className="h-80 bg-gray-100 dark:bg-gray-800 rounded animate-pulse"></div>
@@ -568,7 +568,7 @@ export default function ReviewsPage() {
         {/* Rating Distribution Chart */}
         <div className="tuggi-card p-6">
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white mb-4">
-            Distribuição de Avaliações
+            Rating Distribution
           </h3>
           {isLoading ? (
             <div className="h-80 bg-gray-100 dark:bg-gray-800 rounded animate-pulse"></div>
@@ -610,19 +610,19 @@ export default function ReviewsPage() {
       {/* POIs with Most Feedback */}
       <div className="tuggi-card p-6">
         <h3 className="text-lg font-semibold text-tuggi-text dark:text-white mb-4">
-          POIs com Mais Feedbacks
+          POIs with Most Feedback
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700">
                 <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">POI</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Cidade</th>
+                <th className="text-left py-3 px-4 font-medium text-gray-600 dark:text-gray-400">City</th>
                 <th className="text-center py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Feedbacks</th>
-                <th className="text-center py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Avaliação</th>
-                <th className="text-center py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Problemas Críticos</th>
-                <th className="text-center py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Último Feedback</th>
-                <th className="text-center py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Ações</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Rating</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Critical Issues</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Last Feedback</th>
+                <th className="text-center py-3 px-4 font-medium text-gray-600 dark:text-gray-400">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -659,7 +659,7 @@ export default function ReviewsPage() {
                       className="inline-flex items-center px-3 py-1 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors text-sm"
                     >
                       <Eye className="h-4 w-4 mr-1" />
-                      Ver POI
+                      View POI
                     </Link>
                   </td>
                 </tr>
@@ -672,7 +672,7 @@ export default function ReviewsPage() {
       {/* Recent Feedbacks */}
       <div className="tuggi-card p-6">
         <h3 className="text-lg font-semibold text-tuggi-text dark:text-white mb-4">
-          Feedbacks Recentes
+          Recent Feedbacks
         </h3>
         <div className="space-y-4 max-h-96 overflow-y-auto">
           {getFilteredFeedbacks().map((feedback) => (
@@ -709,13 +709,13 @@ export default function ReviewsPage() {
               )}
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">
-                  Por: {feedback.user_name}
+                  By: {feedback.user_name}
                 </span>
                 <Link 
                   href={`/pois/${feedback.attraction_id}`}
                   className="text-xs text-tuggi-blue hover:text-tuggi-blue/80 font-medium hover:underline transition-colors"
                 >
-                  Ver POI →
+                  View POI →
                 </Link>
               </div>
             </div>

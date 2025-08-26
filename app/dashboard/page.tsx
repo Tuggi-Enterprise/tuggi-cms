@@ -931,7 +931,7 @@ export default function DashboardPage() {
         <div className="flex items-center mb-4">
           <TrendingUp className="h-5 w-5 text-green-500 mr-2" />
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            Novos Usuários por Mês
+            New Users per Month
           </h3>
         </div>
         <div className="h-48">
@@ -953,7 +953,7 @@ export default function DashboardPage() {
                   borderRadius: '8px',
                   color: 'white'
                 }}
-                formatter={(value, name) => [`${value} novos usuários`, 'Novos Usuários']}
+                formatter={(value, name) => [`${value} new users`, 'New Users']}
               />
               <Bar dataKey="newUsers" fill="#10B981" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -970,7 +970,7 @@ export default function DashboardPage() {
           <div className="flex items-center mb-4">
             <MapPin className="h-5 w-5 text-tuggi-orange mr-2" />
             <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-              Estatísticas de POIs
+              POI Statistics
             </h3>
           </div>
           <div className="space-y-3">
@@ -995,25 +995,25 @@ export default function DashboardPage() {
         </div>
         <div className="space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">POIs Reproduzidos</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">POIs Played</span>
             <span className="text-sm font-semibold text-tuggi-text dark:text-white">
               {stats.totalPOIsPlayed.toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Trigger Points Ativados</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Trigger Points Activated</span>
             <span className="text-sm font-semibold text-tuggi-text dark:text-white">
               {stats.totalTriggerPointsActivated.toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Qualidade do Áudio</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Audio Quality</span>
             <span className="text-sm font-semibold text-tuggi-text dark:text-white">
               {stats.audioQualityStats.avg_rating}/5
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Avaliações de Áudio</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Audio Ratings</span>
             <span className="text-sm font-semibold text-tuggi-text dark:text-white">
               {stats.audioQualityStats.total_ratings}
             </span>
@@ -1030,7 +1030,7 @@ export default function DashboardPage() {
           <div className="flex items-center mb-4">
             <MapPin className="h-5 w-5 text-tuggi-orange mr-2" />
             <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-              POIs Mais Reproduzidos
+              Most Played POIs
             </h3>
           </div>
           <div className="space-y-3">
@@ -1092,7 +1092,7 @@ export default function DashboardPage() {
           <div className="flex items-center mb-4">
             <TrendingUp className="h-5 w-5 text-green-500 mr-2" />
             <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-              Viagens por Plataforma
+              Trips by Platform
             </h3>
           </div>
           <div className="space-y-3">
@@ -1122,7 +1122,7 @@ export default function DashboardPage() {
                 {platform.platform}
               </span>
               <span className="text-sm font-semibold text-green-500">
-                {platform.trips} viagens
+                {platform.trips} trips
               </span>
             </div>
           ))}
@@ -1140,18 +1140,18 @@ export default function DashboardPage() {
             <MessageSquare className="h-5 w-5 text-purple-600 dark:text-purple-400" />
           </div>
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            Visão Geral dos Feedbacks
+            Feedback Overview
           </h3>
         </div>
         <div className="space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Total de Feedbacks</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Total Feedbacks</span>
             <span className="text-lg font-semibold text-purple-600 dark:text-purple-400">
               {stats.totalFeedbacks}
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Avaliação Média</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Average Rating</span>
             <div className="flex items-center">
               <Star className="h-4 w-4 text-yellow-500 mr-1" />
               <span className="text-lg font-semibold text-yellow-600 dark:text-yellow-400">
@@ -1160,7 +1160,7 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Últimos 30 dias</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">Last 30 days</span>
             <span className="text-sm font-semibold text-green-500">
               {stats.feedbackByType.length > 0 ? 
                 stats.feedbackByType.reduce((sum, type) => sum + type.count, 0) : 0
@@ -1180,7 +1180,7 @@ export default function DashboardPage() {
             <ThumbsUp className="h-5 w-5 text-orange-600 dark:text-orange-400" />
           </div>
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            Feedbacks por Tipo
+            Feedback by Type
           </h3>
         </div>
         <div className="space-y-3">
@@ -1192,12 +1192,12 @@ export default function DashboardPage() {
                 </span>
                 {feedback.feedback_type === 'wrong_info' && (
                   <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full">
-                    Crítico
+                    Critical
                   </span>
                 )}
                 {feedback.feedback_type === 'audio_quality_poor' && (
                   <span className="text-xs bg-yellow-100 text-yellow-600 px-2 py-1 rounded-full">
-                    Áudio
+                    Audio
                   </span>
                 )}
               </div>
@@ -1215,7 +1215,7 @@ export default function DashboardPage() {
         {stats.feedbackByType.some(f => f.feedback_type === 'wrong_info') && (
           <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
             <p className="text-xs text-red-700 dark:text-red-300">
-              ⚠️ <strong>POIs com informações incorretas</strong> precisam de atenção imediata
+              ⚠️ <strong>POIs with incorrect information</strong> need immediate attention
             </p>
           </div>
         )}
@@ -1231,7 +1231,7 @@ export default function DashboardPage() {
             <Star className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
           </div>
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            Distribuição de Avaliações
+            Rating Distribution
           </h3>
         </div>
         <div className="space-y-3">
@@ -1269,7 +1269,7 @@ export default function DashboardPage() {
             <MessageSquare className="h-5 w-5 text-green-600 dark:text-green-400" />
           </div>
           <h3 className="text-lg font-semibold text-tuggi-text dark:text-white">
-            Feedbacks Recentes
+            Recent Feedbacks
           </h3>
         </div>
         <div className="space-y-3 max-h-64 overflow-y-auto">
@@ -1308,13 +1308,13 @@ export default function DashboardPage() {
                 )}
                 <div className="flex justify-between items-center mt-1">
                   <span className="text-xs text-gray-500">
-                    Por: {feedback.user_name}
+                    By: {feedback.user_name}
                   </span>
                   <a 
                     href={`/pois/${feedback.attraction_id}`}
                     className="text-xs text-tuggi-blue hover:text-tuggi-blue/80 dark:text-tuggi-blue dark:hover:text-tuggi-blue/80 font-medium hover:underline transition-colors"
                   >
-                    Ver POI →
+                    View POI →
                   </a>
                 </div>
               </div>
@@ -1322,7 +1322,7 @@ export default function DashboardPage() {
           ) : (
             <div className="text-center py-4">
               <MessageSquare className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-              <p className="text-sm text-gray-500">Nenhum feedback recente</p>
+              <p className="text-sm text-gray-500">No recent feedback</p>
             </div>
           )}
         </div>
@@ -1578,7 +1578,7 @@ export default function DashboardPage() {
                 className="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
               >
                 <ExternalLink className="h-4 w-4 mr-2" />
-                Ver Análise Detalhada
+                View Detailed Analysis
               </Link>
             </div>
             
