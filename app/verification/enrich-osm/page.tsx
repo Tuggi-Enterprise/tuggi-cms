@@ -41,7 +41,7 @@ export default function EnrichOSMPage() {
   // Form state
   const [country, setCountry] = useState('Brazil');
   const [city, setCity] = useState('');
-  const [enrichmentType, setEnrichmentType] = useState('all');
+  const [enrichmentType, setEnrichmentType] = useState('unprocessed_only');
   const [limit, setLimit] = useState(50);
   const [delayBetweenCalls, setDelayBetweenCalls] = useState(2000); // 2 seconds
   
@@ -83,15 +83,28 @@ export default function EnrichOSMPage() {
         query = query.eq('city', city);
       }
 
-      // Filter by enrichment type
+      // Filter by enrichment type - EXCLUDE already processed POIs
       if (enrichmentType === 'no_osm_data') {
+        // POIs sem dados OSM (não processados)
         query = query.is('osm_category', null);
       } else if (enrichmentType === 'low_quality') {
-        query = query.lt('osm_data_quality_score', 70);
+        // POIs com qualidade baixa (já processados mas com dados ruins)
+        query = query.lt('osm_data_quality_score', 70)
+                   .not('osm_category', 'is', null); // Deve ter sido processado
       } else if (enrichmentType === 'no_heritage') {
-        query = query.is('heritage_status', null);
+        // POIs sem status patrimonial (já processados mas sem heritage)
+        query = query.is('heritage_status', null)
+                   .not('osm_category', 'is', null); // Deve ter sido processado
       } else if (enrichmentType === 'no_pov_scores') {
-        query = query.is('pov_quality_score', null);
+        // POIs sem scores POV (já processados mas sem scores)
+        query = query.is('pov_quality_score', null)
+                   .not('osm_category', 'is', null); // Deve ter sido processado
+      } else if (enrichmentType === 'all') {
+        // Todos os POIs (incluindo já processados)
+        // Não adiciona filtros extras
+      } else if (enrichmentType === 'unprocessed_only') {
+        // APENAS POIs não processados (sem dados OSM)
+        query = query.is('osm_category', null);
       }
 
       const { data, error } = await query;
@@ -223,10 +236,39 @@ export default function EnrichOSMPage() {
 
   // Get enrichment status for a POI
   const getEnrichmentStatus = (poi: POI) => {
-    if (!poi.osm_category) return { status: 'no_data', label: 'No OSM Data', color: 'bg-red-100 text-red-800' };
-    if ((poi.osm_data_quality_score || 0) < 70) return { status: 'low_quality', label: 'Low Quality', color: 'bg-yellow-100 text-yellow-800' };
-    if (!poi.heritage_status) return { status: 'partial', label: 'Partial Data', color: 'bg-blue-100 text-blue-800' };
-    return { status: 'complete', label: 'Complete', color: 'bg-green-100 text-green-800' };
+    if (!poi.osm_category) {
+      return { 
+        status: 'no_data', 
+        label: 'No OSM Data', 
+        color: 'bg-red-100 text-red-800',
+        description: 'Nunca processado'
+      };
+    }
+    
+    if ((poi.osm_data_quality_score || 0) < 70) {
+      return { 
+        status: 'low_quality', 
+        label: 'Low Quality', 
+        color: 'bg-yellow-100 text-yellow-800',
+        description: 'Processado mas qualidade baixa'
+      };
+    }
+    
+    if (!poi.heritage_status) {
+      return { 
+        status: 'partial', 
+        label: 'Partial Data', 
+        color: 'bg-blue-100 text-blue-800',
+        description: 'Processado mas sem heritage'
+      };
+    }
+    
+    return { 
+      status: 'complete', 
+      label: 'Complete', 
+      color: 'bg-green-100 text-green-800',
+      description: 'Completamente processado'
+    };
   };
 
   return (
@@ -291,12 +333,35 @@ export default function EnrichOSMPage() {
                 disabled={isLoading}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
               >
-                <option value="all">All POIs</option>
+                <option value="unprocessed_only">Unprocessed POIs Only</option>
                 <option value="no_osm_data">No OSM Data</option>
                 <option value="low_quality">Low Quality OSM Data (&lt;70%)</option>
                 <option value="no_heritage">No Heritage Status</option>
                 <option value="no_pov_scores">No POV Quality Scores</option>
+                <option value="all">All POIs (Including Processed)</option>
               </select>
+              
+              {/* Descrição do filtro selecionado */}
+              <div className="text-xs text-gray-500 mt-1">
+                {enrichmentType === 'unprocessed_only' && (
+                  <span>🔍 Busca apenas POIs que nunca foram processados (sem dados OSM)</span>
+                )}
+                {enrichmentType === 'no_osm_data' && (
+                  <span>🔍 Busca POIs sem dados OSM (mesmo que já tenham sido processados)</span>
+                )}
+                {enrichmentType === 'low_quality' && (
+                  <span>🔍 Busca POIs já processados mas com qualidade OSM &lt; 70%</span>
+                )}
+                {enrichmentType === 'no_heritage' && (
+                  <span>🔍 Busca POIs já processados mas sem status patrimonial</span>
+                )}
+                {enrichmentType === 'no_pov_scores' && (
+                  <span>🔍 Busca POIs já processados mas sem scores de POV</span>
+                )}
+                {enrichmentType === 'all' && (
+                  <span>🔍 Busca todos os POIs (incluindo já processados)</span>
+                )}
+              </div>
             </div>
             
             <div className="space-y-2">
@@ -506,17 +571,22 @@ export default function EnrichOSMPage() {
                       )}
                     </div>
                     
-                    <div className="flex items-center gap-2">
-                      {isProcessing && (
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                      )}
-                      <span className={cn(
-                        "px-2 py-1 text-xs rounded-full",
-                        enrichmentStatus.color
-                      )}>
-                        {enrichmentStatus.label}
-                      </span>
-                    </div>
+                                         <div className="flex items-center gap-2">
+                       {isProcessing && (
+                         <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                       )}
+                       <div className="text-right">
+                         <span className={cn(
+                           "px-2 py-1 text-xs rounded-full",
+                           enrichmentStatus.color
+                         )}>
+                           {enrichmentStatus.label}
+                         </span>
+                         <div className="text-xs text-gray-500 mt-1">
+                           {enrichmentStatus.description}
+                         </div>
+                       </div>
+                     </div>
                   </div>
                 );
               })}

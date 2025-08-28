@@ -97,10 +97,10 @@ ADD COLUMN IF NOT EXISTS shade_availability text CHECK (shade_availability IN (
 
 -- Scores específicos para geração de POVs
 ALTER TABLE core.attractions 
-ADD COLUMN IF NOT EXISTS pov_quality_score numeric(3,2) CHECK (pov_quality_score >= 0 AND pov_quality_score <= 100),
-ADD COLUMN IF NOT EXISTS visibility_score numeric(3,2) CHECK (visibility_score >= 0 AND visibility_score <= 100),
-ADD COLUMN IF NOT EXISTS accessibility_score numeric(3,2) CHECK (accessibility_score >= 0 AND accessibility_score <= 100),
-ADD COLUMN IF NOT EXISTS photogenic_score numeric(3,2) CHECK (photogenic_score >= 0 AND photogenic_score <= 100);
+ADD COLUMN IF NOT EXISTS pov_quality_score numeric(5,2) CHECK (pov_quality_score >= 0 AND pov_quality_score <= 100),
+ADD COLUMN IF NOT EXISTS visibility_score numeric(5,2) CHECK (visibility_score >= 0 AND visibility_score <= 100),
+ADD COLUMN IF NOT EXISTS accessibility_score numeric(5,2) CHECK (accessibility_score >= 0 AND accessibility_score <= 100),
+ADD COLUMN IF NOT EXISTS photogenic_score numeric(5,2) CHECK (photogenic_score >= 0 AND photogenic_score <= 100);
 
 -- ============================================================================
 -- 8. DADOS CULTURAIS E SOCIAIS

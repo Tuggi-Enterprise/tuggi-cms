@@ -31,7 +31,57 @@ interface BoundaryResult {
 export async function POST(request: NextRequest) {
   try {
     const body: POIBoundaryRequest = await request.json()
-    const { attraction_id, poi_lat, poi_lng, poi_name } = body
+    let { attraction_id, poi_lat, poi_lng, poi_name } = body
+
+    // If only attraction_id is provided, fetch POI data from database
+    if (attraction_id && (!poi_lat || !poi_lng || !poi_name)) {
+      console.log(`🔍 Fetching POI data from database for ID: ${attraction_id}`)
+      
+      const { createClient } = await import('@supabase/supabase-js')
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+
+      const { data: poiData, error: poiError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select(`
+          id,
+          name,
+          attraction_coordinate!left(latitude, longitude)
+        `)
+        .eq('id', attraction_id)
+        .single()
+
+      if (poiError || !poiData) {
+        return NextResponse.json({ 
+          success: false, 
+          error: `POI not found: ${poiError?.message || 'Unknown error'}` 
+        })
+      }
+
+      if (!poiData.attraction_coordinate || poiData.attraction_coordinate.length === 0) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'POI has no coordinates' 
+        })
+      }
+
+      const coordinate = poiData.attraction_coordinate[0]
+      poi_lat = coordinate.latitude
+      poi_lng = coordinate.longitude
+      poi_name = poiData.name
+
+      console.log(`✅ POI data loaded: ${poi_name} at (${poi_lat}, ${poi_lng})`)
+    }
+
+    if (!poi_lat || !poi_lng || !poi_name) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Missing required parameters: poi_lat, poi_lng, poi_name or attraction_id' 
+      })
+    }
 
     console.log(`🌍 OSM boundary detection for: ${poi_name}`)
 
@@ -42,7 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Strategy 1: Search by name near coordinates using OSM Nominatim (PRIORITY - more precise)
-    const nameSearchResult = await searchOSMByName(poi_lat, poi_lng, poi_name)
+    const nameSearchResult = await searchOSMByName(poi_lat, poi_lng, poi_name, landmarkInfo)
     if (nameSearchResult.success && nameSearchResult.boundary) {
       console.log('✅ Found precise boundary from OSM Nominatim')
       
@@ -63,10 +113,43 @@ export async function POST(request: NextRequest) {
       } as BoundaryResult)
     }
 
-    // Strategy 2: Search for multiple nearby features using Overpass API (COMPLEMENTARY - for complex areas)
+    // Check if POI was completely not found in OSM
+    if (nameSearchResult.error && nameSearchResult.error.includes('No suitable polygons found by name')) {
+      console.log('❌ POI not found in OpenStreetMap - trying fallback street analysis')
+      
+      // Fallback Strategy: Analyze nearby streets and create minimal boundary
+      const fallbackResult = await createFallbackBoundaryFromStreets(poi_lat, poi_lng, poi_name, landmarkInfo)
+      
+      if (fallbackResult.success && fallbackResult.boundary && fallbackResult.trigger_points) {
+        console.log(`✅ Created fallback boundary and ${fallbackResult.trigger_points.length} trigger points from nearby streets`)
+        
+        return NextResponse.json({
+          success: true,
+          boundary: fallbackResult.boundary,
+          trigger_points: fallbackResult.trigger_points,
+          source: 'fallback_street_analysis',
+          poi_name: poi_name,
+          note: 'POI not found in OSM - generated boundary from nearby street analysis'
+        } as BoundaryResult)
+      }
+      
+      // If fallback also fails, return error
+      console.log('❌ Both OSM search and fallback street analysis failed')
+      return NextResponse.json({
+        success: false,
+        error: `POI "${poi_name}" not found in OpenStreetMap and no suitable nearby streets found for fallback analysis.`,
+        poi_name: poi_name,
+        coordinates: { lat: poi_lat, lng: poi_lng },
+        suggestion: 'This location may be in a very remote area or have incorrect coordinates.'
+      })
+    }
+
+    // Strategy 2: Search for multiple nearby features using Overpass API (COMPLEMENTARY - for complex areas like parks)
+    // Only proceed if we had partial matches but need more comprehensive boundary data
+    console.log('🔄 Trying complementary Overpass API search for complex area boundaries...')
     const nearbyFeaturesResult = await searchOSMNearbyFeatures(poi_lat, poi_lng, poi_name)
     if (nearbyFeaturesResult.success && nearbyFeaturesResult.boundary) {
-      console.log('✅ Found enhanced boundary from OSM Overpass API (fallback)')
+      console.log('✅ Found enhanced boundary from OSM Overpass API (complementary search)')
       
       // Generate street-based trigger points
       const streetTriggerPoints = await generateStreetBasedTriggerPoints(
@@ -206,9 +289,18 @@ async function processOSMGeometry(geojson: any, poiLat: number, poiLng: number) 
 }
 
 // OSM Strategy 1: Search by name (IMPROVED - prioritizes precise matches)
-async function searchOSMByName(lat: number, lng: number, name: string) {
+async function searchOSMByName(lat: number, lng: number, name: string, landmarkInfo?: any) {
   try {
+    if (!name || typeof name !== 'string') {
+      console.log('❌ Invalid name parameter for OSM search')
+      return { success: false, error: 'Invalid name parameter' }
+    }
+
     console.log(`🔍 Searching OSM Nominatim for: "${name}"`)
+    
+    // Check if this is a high-visibility landmark
+    const landmark = landmarkInfo || await checkHighVisibilityLandmark(lat, lng, 0)
+    console.log(`🗿 Landmark info for scoring: isHighVisibility=${landmark.isHighVisibility}, elevation=${landmark.elevationDiff}m`)
     
     // Smaller, more precise search area for buildings (800m radius)
     const viewboxRadius = 0.008 // ~800m in degrees  
@@ -291,13 +383,31 @@ async function searchOSMByName(lat: number, lng: number, name: string) {
             else if (searchName.includes(resultName.split(',')[0].toLowerCase())) nameScore = 0.8
             else nameScore = 0.3
             
-            // Distance score (prefer very close matches for buildings)
-            const distanceScore = distance < 100 ? 1.0 : Math.max(0, (200 - distance) / 200)
+            // Distance score (different thresholds for different POI types)
+            let distanceScore
+            if (searchName.includes('parque') || searchName.includes('park')) {
+              // Parks can be larger and further - more lenient distance scoring
+              distanceScore = distance < 500 ? 1.0 : Math.max(0, (1000 - distance) / 1000)
+            } else if (searchName.includes('pico') || searchName.includes('morro') || searchName.includes('cristo') || landmark.isHighVisibility) {
+              // Landmarks can be even further due to their nature - very lenient scoring
+              distanceScore = distance < 1000 ? 1.0 : Math.max(0, (2000 - distance) / 2000)
+            } else {
+              // Buildings need to be very close
+              distanceScore = distance < 100 ? 1.0 : Math.max(0, (200 - distance) / 200)
+            }
             
             // Type relevance
             let typeScore = 1.0
             if (result.type === 'building' || result.category === 'building') typeScore = 1.4
             if (result.osm_type === 'way') typeScore *= 1.1
+            if (result.type === 'leisure' || result.category === 'leisure') typeScore = 1.3 // Boost for parks
+            if (result.osm_type === 'relation') typeScore *= 1.2 // Relations often represent complex areas like parks
+            
+            // Special boost for high-visibility landmarks
+            if (landmark.isHighVisibility) {
+              typeScore *= 1.5 // Major boost for landmarks
+              console.log(`🗿 Landmark boost applied: typeScore *= 1.5`)
+            }
             
             const totalScore = nameScore * distanceScore * typeScore
             
@@ -309,7 +419,7 @@ async function searchOSMByName(lat: number, lng: number, name: string) {
 
         // Try the best matches first
         for (const { result, score } of scoredResults) {
-          if (score > 0.5) { // Higher threshold for precision
+          if (score > 0.3) { // Adjusted threshold to allow parks with lower scores
             const boundaryResult = await processOSMGeometry(result.geojson, lat, lng)
             if (boundaryResult.success) {
               console.log(`🎯 Best match: "${result.display_name.split(',')[0]}" (Score: ${score.toFixed(2)})`)
@@ -800,20 +910,39 @@ function calculatePolygonPerimeter(coordinates: Array<{lat: number, lng: number}
 }
 
 // Street-based trigger point functions
-async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: string, landmarkInfo?: any) {
+async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: string, landmarkInfo?: any, customRadius?: number) {
   try {
     console.log('🗺️ Searching for nearby streets with Overpass API...')
     
     // Use provided landmark info or check if this is a high-visibility landmark
     const landmark = landmarkInfo || await checkHighVisibilityLandmark(lat, lng, 0)
     
-    // Adjust search radius for high-visibility landmarks based on actual elevation
-    const majorRadius = landmark.isHighVisibility ? Math.min(landmark.maxRange * 1.2, 6000) : 1500
-    const mediumRadius = landmark.isHighVisibility ? Math.min(landmark.maxRange, 4000) : 1000
-    const minorRadius = landmark.isHighVisibility ? Math.min(landmark.maxRange * 0.7, 3000) : 800
+    // Adjust search radius - use custom radius for fallback, otherwise use landmark-based calculation
+    let majorRadius, mediumRadius, minorRadius
+    
+    if (customRadius) {
+      // For fallback street analysis, use smaller, focused radius
+      majorRadius = customRadius * 1.5
+      mediumRadius = customRadius
+      minorRadius = customRadius * 0.7
+      console.log(`🔧 Using custom radius: ${customRadius}m (fallback mode)`)
+    } else {
+      // Normal landmark-based calculation
+      majorRadius = landmark.isHighVisibility ? Math.min(landmark.maxRange * 1.2, 6000) : 1500
+      mediumRadius = landmark.isHighVisibility ? Math.min(landmark.maxRange, 4000) : 1000
+      minorRadius = landmark.isHighVisibility ? Math.min(landmark.maxRange * 0.7, 3000) : 800
+    }
     
     console.log(`🔍 Street search radius: major=${majorRadius}m, medium=${mediumRadius}m, minor=${minorRadius}m`)
     console.log(`🔍 Landmark info: isHighVisibility=${landmark.isHighVisibility}, maxRange=${landmark.maxRange}m`)
+    console.log(`🔍 Landmark object:`, JSON.stringify(landmark))
+    
+    // CRITICAL DEBUG: Force log to verify landmark detection
+    if (landmark.isHighVisibility) {
+      console.log(`🚨 HIGH VISIBILITY LANDMARK DETECTED! maxRange=${landmark.maxRange}m`)
+    } else {
+      console.log(`🚨 NOT A HIGH VISIBILITY LANDMARK! isHighVisibility=${landmark.isHighVisibility}`)
+    }
     
     // Enhanced query to find EXTERNAL streets around the POI (avoiding internal paths)
     const overpassQuery = `[out:json][timeout:30];
@@ -847,6 +976,24 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
 
     const data = await response.json()
     console.log(`📊 Overpass found ${data.elements?.length || 0} street elements`)
+    
+    // CRITICAL: Check if we have distant elements
+    if (data.elements && data.elements.length > 0) {
+      const distances = []
+      for (const element of data.elements.slice(0, 100)) { // Check first 100 elements
+        if (element.geometry && element.geometry.length >= 2) {
+          const coordinates = element.geometry.map((node: any) => ({lat: node.lat, lng: node.lon}))
+          const closestPoint = findClosestPointOnStreet(coordinates, lat, lng)
+          const distance = calculateDistance(lat, lng, closestPoint.lat, closestPoint.lng)
+          distances.push(distance)
+        }
+      }
+      if (distances.length > 0) {
+        const maxDist = Math.max(...distances)
+        const minDist = Math.min(...distances)
+        console.log(`🚨 RAW OVERPASS DISTANCES: ${minDist.toFixed(0)}m - ${maxDist.toFixed(0)}m`)
+      }
+    }
 
     const streets = []
 
@@ -865,16 +1012,31 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
           // Filter for EXTERNAL streets only (avoid internal park paths)
           const highwayType = element.tags?.highway || 'unknown'
           const isExternalStreet = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'living_street'].includes(highwayType)
+          
+          // Filter out tunnels and underground/covered ways for POV quality
+          const streetName = element.tags?.name || 'Unnamed'
+          const isTunnel = element.tags?.tunnel === 'yes' || 
+                          element.tags?.covered === 'yes' ||
+                          streetName.toLowerCase().includes('túnel') ||
+                          streetName.toLowerCase().includes('tunnel') ||
+                          streetName.toLowerCase().includes('viaduto subterrâneo')
+          
           const isMinDistance = distance >= 80 // At least 80m from POI center  
           // Use dynamic max distance based on landmark info
           const maxSearchDistance = landmark.isHighVisibility ? landmark.maxRange : 1000
           const isMaxDistance = distance <= maxSearchDistance
           
-          if (landmark.isHighVisibility && distance > 1000) {
-            console.log(`🛣️ Found distant street: ${element.tags?.name || 'Unnamed'} at ${distance.toFixed(0)}m (${highwayType})`)
+          // Debug: log all distance checks for landmarks
+          if (distance > 1000) {
+            console.log(`🛣️ Found distant street: ${element.tags?.name || 'Unnamed'} at ${distance.toFixed(0)}m (${highwayType}) - isHighVisibility: ${landmark.isHighVisibility}, maxRange: ${landmark.maxRange}`)
           }
           
-          if (isExternalStreet && isMinDistance && isMaxDistance) {
+          // Debug: log filtered tunnels
+          if (isTunnel) {
+            console.log(`🚫 Filtered tunnel/covered way: ${streetName} at ${distance.toFixed(0)}m`)
+          }
+          
+          if (isExternalStreet && isMinDistance && isMaxDistance && !isTunnel) {
             const confidence = calculateStreetConfidence(element.tags, distance)
             
             streets.push({
@@ -889,14 +1051,28 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
       }
     }
 
-    // Sort by relevance (closer and higher confidence first)
+    // Sort by relevance - different strategy for high-visibility landmarks
     streets.sort((a, b) => {
-      const scoreA = a.confidence / (1 + a.distance_to_poi / 100)
-      const scoreB = b.confidence / (1 + b.distance_to_poi / 100)
-      return scoreB - scoreA
+      if (landmark.isHighVisibility) {
+        // For landmarks: prioritize variety of distances (near + far)
+        // Mix close streets (good confidence) with distant streets (better coverage)
+        const scoreA = a.confidence * (1 + Math.min(a.distance_to_poi / 1000, 2)) // Bonus for distance up to 2km
+        const scoreB = b.confidence * (1 + Math.min(b.distance_to_poi / 1000, 2))
+        return scoreB - scoreA
+      } else {
+        // For regular POIs: closer and higher confidence first
+        const scoreA = a.confidence / (1 + a.distance_to_poi / 100)
+        const scoreB = b.confidence / (1 + b.distance_to_poi / 100)
+        return scoreB - scoreA
+      }
     })
 
-    console.log(`🎯 Processed ${streets.length} relevant streets`)
+    console.log(`🎯 Processed ${streets.length} relevant streets (maxSearchDistance: ${landmark.isHighVisibility ? landmark.maxRange : 1000}m)`)
+    console.log(`🎯 Street distances: ${streets.slice(0, 5).map(s => s.distance_to_poi.toFixed(0) + 'm').join(', ')}`)
+    
+    // CRITICAL: Show max distance found
+    const maxDistance = Math.max(...streets.map(s => s.distance_to_poi))
+    console.log(`🚨 MAX STREET DISTANCE FOUND: ${maxDistance.toFixed(0)}m`)
     return streets.slice(0, 30) // Increased to 30 streets for more coverage
 
   } catch (error) {
@@ -916,7 +1092,16 @@ async function generateTriggersOnStreets(
   
   for (const street of streets) {
     // Find strategic points on this street
-    const streetPoints = await findStrategicPointsOnStreet(street, poiLat, poiLng, boundaryCoordinates)
+    const streetPoints = await findStrategicPointsOnStreet(street, poiLat, poiLng, boundaryCoordinates, landmarkInfo)
+    
+    // Debug: log points generated for distant streets
+    if (street.distance_to_poi > 1000) {
+      console.log(`🚨 Distant street ${street.name} (${street.distance_to_poi.toFixed(0)}m) generated ${streetPoints.length} points`)
+      if (streetPoints.length === 0) {
+        console.log(`❌ No points generated for distant street: ${street.name}`)
+      }
+    }
+    
     triggerPoints.push(...streetPoints)
   }
 
@@ -947,7 +1132,7 @@ async function generateTriggersOnStreets(
   // Dynamic limit based on LANDMARK INFO FIRST, then POI size
   let maxPoints = 15 // Default
   if (landmarkInfo?.isHighVisibility) {
-    maxPoints = 25 // High-visibility landmarks get more points for better coverage
+    maxPoints = 40 // Increased for high-visibility landmarks since they pass visibility filter
     console.log(`🏔️ High-visibility landmark: allowing up to ${maxPoints} trigger points`)
   } else if (poiArea > 1000000) {
     maxPoints = 20 // Large areas get more points
@@ -960,7 +1145,7 @@ async function generateTriggersOnStreets(
   return classifiedPoints.slice(0, maxPoints)
 }
 
-async function findStrategicPointsOnStreet(street: any, poiLat: number, poiLng: number, boundaryCoordinates: Array<{lat: number, lng: number}>) {
+async function findStrategicPointsOnStreet(street: any, poiLat: number, poiLng: number, boundaryCoordinates: Array<{lat: number, lng: number}>, landmarkInfo?: any) {
   const points = []
   
   // Strategy 1: Find closest point on street to POI
@@ -969,7 +1154,11 @@ async function findStrategicPointsOnStreet(street: any, poiLat: number, poiLng: 
   const bearing = calculateBearing(closestPoint.lat, closestPoint.lng, poiLat, poiLng)
   
   // Check if this point has good visibility to POI
-  const hasVisibility = await checkVisibilityToPOI(closestPoint, boundaryCoordinates, poiLat, poiLng)
+  const hasVisibility = await checkVisibilityToPOI(closestPoint, boundaryCoordinates, poiLat, poiLng, landmarkInfo)
+  
+  if (distance > 1000) {
+    console.log(`🔍 Distant street point: ${street.name} at ${distance.toFixed(0)}m - visibility: ${hasVisibility}`)
+  }
   
   // Dynamic distance check (will be validated again in checkVisibilityToPOI)
   if (hasVisibility) { // Let checkVisibilityToPOI handle distance validation
@@ -991,7 +1180,7 @@ async function findStrategicPointsOnStreet(street: any, poiLat: number, poiLng: 
   for (const intersection of intersectionPoints) {
     const intDistance = calculateDistance(poiLat, poiLng, intersection.lat, intersection.lng)
     const intBearing = calculateBearing(intersection.lat, intersection.lng, poiLat, poiLng)
-    const intVisibility = await checkVisibilityToPOI(intersection, boundaryCoordinates, poiLat, poiLng)
+    const intVisibility = await checkVisibilityToPOI(intersection, boundaryCoordinates, poiLat, poiLng, landmarkInfo)
     
     if (intVisibility) {
       points.push({
@@ -1016,7 +1205,7 @@ async function findStrategicPointsOnStreet(street: any, poiLat: number, poiLng: 
       const intermediatePoint = street.coordinates[i]
       const intDistance = calculateDistance(poiLat, poiLng, intermediatePoint.lat, intermediatePoint.lng)
       const intBearing = calculateBearing(intermediatePoint.lat, intermediatePoint.lng, poiLat, poiLng)
-      const intVisibility = await checkVisibilityToPOI(intermediatePoint, boundaryCoordinates, poiLat, poiLng)
+      const intVisibility = await checkVisibilityToPOI(intermediatePoint, boundaryCoordinates, poiLat, poiLng, landmarkInfo)
       
       if (intVisibility) {
         points.push({
@@ -1065,34 +1254,68 @@ function calculateStreetConfidence(tags: any, distance: number): number {
   // Named streets are more reliable
   if (tags?.name) confidence += 0.2
   
-  // Distance factor (closer is better)
+  // POV quality bonuses for better viewpoints
+  const streetName = (tags?.name || '').toLowerCase()
+  
+  // High priority POV locations (known viewpoints)
+  if (streetName.includes('mirante') || 
+      streetName.includes('vista') || 
+      streetName.includes('belvedere') ||
+      streetName.includes('morro') ||
+      streetName.includes('praia') ||
+      streetName.includes('orla') ||
+      streetName.includes('lagoa') ||
+      streetName.includes('botafogo')) {
+    confidence += 0.5 // Major bonus for known viewpoints
+  }
+  
+  // Medium priority locations (elevated areas)
+  if (streetName.includes('alto') ||
+      streetName.includes('ladeira') ||
+      streetName.includes('rua real grandeza') || // Known good view in Urca
+      streetName.includes('urca') ||
+      streetName.includes('flamengo') ||
+      streetName.includes('copacabana')) {
+    confidence += 0.3
+  }
+  
+  // Penalty for likely obstructed views
+  if (streetName.includes('shopping') ||
+      streetName.includes('centro') ||
+      streetName.includes('galeria') ||
+      streetName.includes('subsolo')) {
+    confidence -= 0.3
+  }
+  
+  // Distance factor (for landmarks, distant points can be good too)
   if (distance < 100) confidence += 0.3
   else if (distance < 300) confidence += 0.2
   else if (distance < 500) confidence += 0.1
+  else if (distance > 2000) confidence += 0.2 // Bonus for distant viewpoints
   
   return Math.min(1.0, confidence)
 }
 
-async function checkVisibilityToPOI(point: {lat: number, lng: number}, boundaryCoordinates: Array<{lat: number, lng: number}>, poiLat: number, poiLng: number): Promise<boolean> {
+async function checkVisibilityToPOI(point: {lat: number, lng: number}, boundaryCoordinates: Array<{lat: number, lng: number}>, poiLat: number, poiLng: number, landmarkInfo?: any): Promise<boolean> {
   // Enhanced visibility check for street-based trigger points
   const distance = calculateDistance(poiLat, poiLng, point.lat, point.lng)
   
   // Calculate POI area to adjust criteria dynamically
   const poiArea = calculatePolygonArea(boundaryCoordinates)
   
-  // Check if this is a high-visibility landmark (like Cristo Redentor)
-  const landmarkInfo = await checkHighVisibilityLandmark(poiLat, poiLng, distance)
+  // Use provided landmark info or check if this is a high-visibility landmark (fallback)
+  const landmark = landmarkInfo || await checkHighVisibilityLandmark(poiLat, poiLng, distance)
   
   // Dynamic distance limits based on POI size and elevation
   let minDistance = 80
   let maxDistance = 800
   let bufferDistance = 20
   
-  if (landmarkInfo.isHighVisibility) { // High elevation landmarks
+  if (landmark.isHighVisibility) { // High elevation landmarks
     minDistance = 300  // Much further minimum distance for elevated POIs
-    maxDistance = landmarkInfo.maxRange // Dynamic range based on elevation
+    maxDistance = landmark.maxRange // Dynamic range based on elevation
     bufferDistance = 10
-    console.log(`🏔️ High-visibility landmark detected - extended range: ${minDistance}m-${maxDistance}m (elevation diff: ${landmarkInfo.elevationDiff}m)`)
+    console.log(`🏔️ High-visibility landmark detected - extended range: ${minDistance}m-${maxDistance}m (elevation diff: ${landmark.elevationDiff}m)`)
   } else if (poiArea > 1000000) { // Large areas like Ibirapuera (>1M m²)
     minDistance = 50
     maxDistance = 1200
@@ -1124,7 +1347,7 @@ async function checkVisibilityToPOI(point: {lat: number, lng: number}, boundaryC
   
   // For urban areas (small POIs), check for building obstructions (EXPERIMENTAL)
   // Skip obstruction check for high-visibility landmarks (they're visible over buildings)
-  if (poiArea < 100000 && !landmarkInfo.isHighVisibility) { // Only for very small POIs in dense urban areas, excluding landmarks
+  if (poiArea < 100000 && !landmark.isHighVisibility) { // Only for very small POIs in dense urban areas, excluding landmarks
     try {
       const hasObstruction = await checkBuildingObstructions(point, poiLat, poiLng)
       if (hasObstruction) {
@@ -1135,7 +1358,7 @@ async function checkVisibilityToPOI(point: {lat: number, lng: number}, boundaryC
       console.log('⚠️ Obstruction check failed, allowing trigger point')
       // If obstruction check fails, allow the trigger point
     }
-  } else if (landmarkInfo.isHighVisibility) {
+  } else if (landmark.isHighVisibility) {
     console.log(`🏔️ Skipping building obstruction check for high-visibility landmark`)
   }
   
@@ -1526,4 +1749,406 @@ function classifyTriggerPointsByStreet(points: any[], poiLat: number, poiLng: nu
       type
     }
   })
+}
+
+// Fallback Strategy: Direct street detection for immediate trigger point placement
+async function createFallbackBoundaryFromStreets(lat: number, lng: number, poiName: string, landmarkInfo?: any) {
+  try {
+    console.log(`🔄 Fallback: Finding closest street directly in front of POI at (${lat}, ${lng})`)
+    
+    // Use very small radius (50m) to find only the immediate surrounding streets
+    const immediateStreets = await findImmediateStreets(lat, lng)
+    
+    if (!immediateStreets || immediateStreets.length === 0) {
+      console.log('❌ No immediate streets found for direct placement')
+      return { success: false, error: 'No streets found in immediate vicinity' }
+    }
+    
+    console.log(`🎯 Found ${immediateStreets.length} immediate streets`)
+    
+    // Create minimal boundary (20m radius for very small POIs like restaurants)
+    const boundaryRadius = 20
+    const boundary = createCircularBoundary(lat, lng, boundaryRadius)
+    
+    // Generate trigger points using directional analysis
+    const triggerPoints = await generateDirectionalTriggerPoints(lat, lng, immediateStreets)
+    
+    if (triggerPoints.length === 0) {
+      console.log('❌ No suitable trigger points could be generated')
+      return { success: false, error: 'No suitable trigger points found' }
+    }
+    
+    console.log(`✅ Generated ${triggerPoints.length} direct trigger points`)
+    triggerPoints.forEach(point => {
+      console.log(`   - ${point.street_name}: ${point.distance_from_poi.toFixed(0)}m (${point.direction})`)
+    })
+    
+    return {
+      success: true,
+      boundary: boundary,
+      trigger_points: triggerPoints
+    }
+    
+  } catch (error) {
+    console.error('❌ Direct street detection failed:', error)
+    return { 
+      success: false, 
+      error: `Direct street detection error: ${error instanceof Error ? error.message : 'Unknown error'}` 
+    }
+  }
+}
+
+// Helper function to create a circular boundary around a point
+function createCircularBoundary(centerLat: number, centerLng: number, radiusMeters: number) {
+  const points = []
+  const earthRadius = 6371000 // Earth radius in meters
+  
+  // Create 16 points around the circle
+  for (let i = 0; i < 16; i++) {
+    const angle = (i * 2 * Math.PI) / 16
+    
+    // Calculate offset in degrees
+    const latOffset = (radiusMeters * Math.cos(angle)) / earthRadius * (180 / Math.PI)
+    const lngOffset = (radiusMeters * Math.sin(angle)) / (earthRadius * Math.cos(centerLat * Math.PI / 180)) * (180 / Math.PI)
+    
+    points.push({
+      lat: centerLat + latOffset,
+      lng: centerLng + lngOffset
+    })
+  }
+  
+  // Close the polygon
+  points.push(points[0])
+  
+  const area = Math.PI * radiusMeters * radiusMeters // Circle area
+  const perimeter = 2 * Math.PI * radiusMeters // Circle circumference
+  
+  return {
+    coordinates: points,
+    area_m2: area,
+    perimeter_m: perimeter,
+    confidence: 0.7 // Lower confidence since it's a fallback
+  }
+}
+
+// Find streets in immediate vicinity (50m radius) for direct trigger point placement
+async function findImmediateStreets(lat: number, lng: number) {
+  try {
+    console.log(`🔍 Searching for immediate streets within 50m of (${lat}, ${lng})`)
+    
+    const radius = 50 // Very small radius for immediate vicinity
+    const overpassQuery = `[out:json][timeout:15];
+    (
+      way[highway~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|service)$"](around:${radius},${lat},${lng});
+    );
+    out geom;`
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: overpassQuery
+    })
+    
+    if (!response.ok) {
+      throw new Error(`Overpass API error: ${response.status}`)
+    }
+    
+    const data = await response.json()
+    console.log(`📊 Found ${data.elements?.length || 0} immediate street elements`)
+    
+    if (!data.elements || data.elements.length === 0) {
+      return []
+    }
+    
+    const streets = []
+    for (const element of data.elements) {
+      if (element.geometry && element.geometry.length >= 2) {
+        const coordinates = element.geometry.map((node: any) => ({
+          lat: node.lat,
+          lng: node.lon
+        }))
+        
+        // Calculate closest point and distance
+        const closestPoint = findClosestPointOnStreet(coordinates, lat, lng)
+        const distance = calculateDistance(lat, lng, closestPoint.lat, closestPoint.lng)
+        
+        // Only include very close streets (5-50m)
+        if (distance >= 5 && distance <= 50) {
+          streets.push({
+            name: element.tags?.name || 'Unnamed Street',
+            coordinates: coordinates,
+            distance: distance,
+            closestPoint: closestPoint,
+            highway: element.tags?.highway || 'unknown',
+            oneway: element.tags?.oneway || 'no',
+            direction: element.tags?.direction || null,
+            tags: element.tags || {}
+          })
+        }
+      }
+    }
+    
+    // Sort by distance (closest first)
+    streets.sort((a, b) => a.distance - b.distance)
+    
+    console.log(`🛣️ Found ${streets.length} immediate streets:`)
+    streets.forEach(street => {
+      console.log(`   - ${street.name}: ${street.distance.toFixed(1)}m (${street.highway})`)
+    })
+    
+    return streets
+    
+  } catch (error) {
+    console.error('❌ Error finding immediate streets:', error)
+    return []
+  }
+}
+
+// Generate trigger points using directional analysis (North, South, East, West)
+async function generateDirectionalTriggerPoints(poiLat: number, poiLng: number, streets: any[]) {
+  const triggerPoints = []
+  
+  // Define cardinal directions for analysis
+  const directions = [
+    { name: 'North', bearing: 0, range: [315, 45] },
+    { name: 'East', bearing: 90, range: [45, 135] },
+    { name: 'South', bearing: 180, range: [135, 225] },
+    { name: 'West', bearing: 270, range: [225, 315] }
+  ]
+  
+  console.log(`🧭 Analyzing streets in cardinal directions...`)
+  
+  for (const direction of directions) {
+    let bestStreet = null
+    let minDistance = Infinity
+    
+    // Find closest street in this direction
+    for (const street of streets) {
+      const bearing = calculateBearing(poiLat, poiLng, street.closestPoint.lat, street.closestPoint.lng)
+      
+      // Check if street is in this cardinal direction
+      const isInDirection = isInBearingRange(bearing, direction.range)
+      
+      if (isInDirection && street.distance < minDistance) {
+        minDistance = street.distance
+        bestStreet = street
+      }
+    }
+    
+    // Add trigger point for this direction if street found
+    if (bestStreet && minDistance <= 40) { // Max 40m for immediate placement
+      // Find optimal point on the street (not just closest point)
+      const optimalPoint = findOptimalPointOnStreet(bestStreet, poiLat, poiLng)
+      const optimalDistance = calculateDistance(poiLat, poiLng, optimalPoint.lat, optimalPoint.lng)
+      const confidence = Math.max(0.5, 1.0 - (optimalDistance / 40))
+      
+      triggerPoints.push({
+        lat: optimalPoint.lat,
+        lng: optimalPoint.lng,
+        type: optimalDistance <= 15 ? 'primary' : (optimalDistance <= 30 ? 'secondary' : 'fallback'),
+        reasoning: `Optimal walking point on ${bestStreet.name} in ${direction.name} direction`,
+        confidence: confidence,
+        distance_from_poi: optimalDistance,
+        expected_bearing: calculateBearing(optimalPoint.lat, optimalPoint.lng, poiLat, poiLng),
+        street_name: bestStreet.name,
+        direction: direction.name.toLowerCase()
+      })
+      
+      console.log(`📍 ${direction.name}: ${bestStreet.name} at ${optimalDistance.toFixed(1)}m (optimal point)`)
+    } else {
+      console.log(`❌ ${direction.name}: No suitable street found`)
+    }
+  }
+  
+  // If no directional streets found, take the closest street regardless of direction
+  if (triggerPoints.length === 0 && streets.length > 0) {
+    const closestStreet = streets[0] // Already sorted by distance
+    console.log(`🎯 Using closest street as fallback: ${closestStreet.name}`)
+    
+    // Use optimal point even for fallback
+    const optimalPoint = findOptimalPointOnStreet(closestStreet, poiLat, poiLng)
+    const optimalDistance = calculateDistance(poiLat, poiLng, optimalPoint.lat, optimalPoint.lng)
+    
+    triggerPoints.push({
+      lat: optimalPoint.lat,
+      lng: optimalPoint.lng,
+      type: 'primary',
+      reasoning: `Optimal point on closest available street`,
+      confidence: Math.max(0.6, 1.0 - (optimalDistance / 40)),
+      distance_from_poi: optimalDistance,
+      expected_bearing: calculateBearing(optimalPoint.lat, optimalPoint.lng, poiLat, poiLng),
+      street_name: closestStreet.name,
+      direction: 'closest'
+    })
+  }
+  
+  return triggerPoints
+}
+
+// Find optimal point on street for trigger placement (considers walkability, accessibility, and POV direction)
+function findOptimalPointOnStreet(street: any, poiLat: number, poiLng: number) {
+  const coordinates = street.coordinates
+  const streetLength = coordinates.length
+  
+  if (streetLength < 2) {
+    return street.closestPoint
+  }
+  
+  console.log(`🔍 Finding optimal point on ${street.name} (${streetLength} coordinates)`)
+  console.log(`🧭 Street direction info: oneway=${street.oneway}, direction=${street.direction}`)
+  
+  // Sample multiple points along the street to find the best one
+  const candidatePoints = []
+  
+  // Sample every 10% of the street length (minimum 3 points, maximum 10 points)
+  const sampleCount = Math.max(3, Math.min(10, Math.floor(streetLength / 3)))
+  const step = Math.max(1, Math.floor(streetLength / sampleCount))
+  
+  for (let i = 0; i < streetLength; i += step) {
+    const point = coordinates[i]
+    const distanceToPOI = calculateDistance(poiLat, poiLng, point.lat, point.lng)
+    
+    // Only consider points that are reasonably close (5-50m)
+    if (distanceToPOI >= 5 && distanceToPOI <= 50) {
+      // Calculate score based on multiple factors
+      let score = 0
+      
+      // Factor 1: Distance to POI (closer is better, but not too close)
+      const distanceScore = distanceToPOI <= 15 ? 1.0 : Math.max(0.3, 1.0 - (distanceToPOI - 15) / 35)
+      score += distanceScore * 0.3
+      
+      // Factor 2: Position on street (middle sections are better than endpoints)
+      const positionRatio = i / (streetLength - 1)
+      const positionScore = 1.0 - Math.abs(positionRatio - 0.5) * 2 // Peak at middle (0.5)
+      score += positionScore * 0.2
+      
+      // Factor 3: Accessibility (avoid points too close to intersections)
+      const intersectionDistance = Math.min(i, streetLength - 1 - i)
+      const accessibilityScore = Math.min(1.0, intersectionDistance / Math.max(1, streetLength * 0.1))
+      score += accessibilityScore * 0.2
+      
+      // Factor 4: POV Direction Validation (NEW - most important!)
+      const povScore = validatePOVDirection(point, poiLat, poiLng, street, i)
+      score += povScore * 0.3
+      
+      candidatePoints.push({
+        lat: point.lat,
+        lng: point.lng,
+        distanceToPOI: distanceToPOI,
+        score: score,
+        index: i,
+        positionRatio: positionRatio,
+        povScore: povScore
+      })
+    }
+  }
+  
+  if (candidatePoints.length === 0) {
+    console.log(`⚠️ No suitable points found on ${street.name}, using closest point`)
+    return street.closestPoint
+  }
+  
+  // Sort by score (highest first)
+  candidatePoints.sort((a, b) => b.score - a.score)
+  
+  const bestPoint = candidatePoints[0]
+  console.log(`✅ Optimal point: ${bestPoint.distanceToPOI.toFixed(1)}m from POI, score: ${bestPoint.score.toFixed(2)}, POV: ${bestPoint.povScore.toFixed(2)}, position: ${(bestPoint.positionRatio * 100).toFixed(0)}% along street`)
+  
+  return {
+    lat: bestPoint.lat,
+    lng: bestPoint.lng
+  }
+}
+
+// Validate POV direction to ensure trigger point offers good view of POI
+function validatePOVDirection(triggerPoint: any, poiLat: number, poiLng: number, street: any, streetIndex: number): number {
+  // Calculate bearing from trigger point to POI
+  const bearingToPOI = calculateBearing(triggerPoint.lat, triggerPoint.lng, poiLat, poiLng)
+  
+  // Check if this is a one-way street
+  const isOneway = street.oneway === 'yes' || street.oneway === '1' || street.oneway === 'true'
+  const isReverseOneway = street.oneway === '-1' || street.oneway === 'reverse'
+  
+  let score = 1.0 // Default score for two-way streets
+  
+  if (isOneway || isReverseOneway) {
+    // For one-way streets, calculate the street direction
+    const streetDirection = calculateStreetDirection(street.coordinates, streetIndex, isReverseOneway)
+    
+    // Calculate angle difference between street direction and POI view angle
+    const viewAngle = (bearingToPOI + 90) % 360 // Perpendicular to POI bearing (left side view)
+    const viewAngle2 = (bearingToPOI - 90 + 360) % 360 // Perpendicular to POI bearing (right side view)
+    
+    const angleDiff1 = Math.abs(normalizeAngleDifference(streetDirection - viewAngle))
+    const angleDiff2 = Math.abs(normalizeAngleDifference(streetDirection - viewAngle2))
+    const bestAngleDiff = Math.min(angleDiff1, angleDiff2)
+    
+    console.log(`🧭 Street direction: ${streetDirection.toFixed(0)}°, POI bearing: ${bearingToPOI.toFixed(0)}°, angle diff: ${bestAngleDiff.toFixed(0)}°`)
+    
+    // Score based on how well the street direction aligns with good POV angles
+    if (bestAngleDiff <= 30) {
+      score = 1.0 // Perfect alignment - person walking can see POI from side
+    } else if (bestAngleDiff <= 60) {
+      score = 0.8 // Good alignment
+    } else if (bestAngleDiff <= 90) {
+      score = 0.6 // Acceptable alignment
+    } else if (bestAngleDiff <= 120) {
+      score = 0.4 // Poor alignment - person might be walking away from POI
+    } else {
+      score = 0.2 // Very poor alignment - person likely walking with back to POI
+    }
+    
+    console.log(`🎯 POV direction score: ${score.toFixed(2)} (angle diff: ${bestAngleDiff.toFixed(0)}°)`)
+  } else {
+    console.log(`🛣️ Two-way street - no direction restriction`)
+  }
+  
+  return score
+}
+
+// Calculate the direction a street is heading at a specific point
+function calculateStreetDirection(coordinates: any[], pointIndex: number, isReverse: boolean = false): number {
+  const coordLength = coordinates.length
+  
+  // Use a segment around the point to calculate direction
+  let startIndex = Math.max(0, pointIndex - 1)
+  let endIndex = Math.min(coordLength - 1, pointIndex + 1)
+  
+  // If we're at the start or end, use a longer segment
+  if (pointIndex === 0) {
+    endIndex = Math.min(coordLength - 1, pointIndex + 2)
+  } else if (pointIndex === coordLength - 1) {
+    startIndex = Math.max(0, pointIndex - 2)
+  }
+  
+  const startPoint = coordinates[startIndex]
+  const endPoint = coordinates[endIndex]
+  
+  let direction = calculateBearing(startPoint.lat, startPoint.lng, endPoint.lat, endPoint.lng)
+  
+  // If reverse one-way, flip the direction
+  if (isReverse) {
+    direction = (direction + 180) % 360
+  }
+  
+  return direction
+}
+
+// Normalize angle difference to be between -180 and 180
+function normalizeAngleDifference(angleDiff: number): number {
+  while (angleDiff > 180) angleDiff -= 360
+  while (angleDiff < -180) angleDiff += 360
+  return angleDiff
+}
+
+// Helper function to check if a bearing is within a range
+function isInBearingRange(bearing: number, range: [number, number]): boolean {
+  const [start, end] = range
+  
+  // Handle wrap-around case (e.g., North: 315-45)
+  if (start > end) {
+    return bearing >= start || bearing <= end
+  } else {
+    return bearing >= start && bearing <= end
+  }
 }

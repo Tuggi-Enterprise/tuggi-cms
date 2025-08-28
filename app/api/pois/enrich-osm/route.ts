@@ -40,10 +40,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2: Process and extract relevant information
-    const extractedData = extractOSMData(osmData, name, city, country);
+    const extractedData = await extractOSMData(osmData, name, city, country);
     
-    // Step 3: Calculate quality score
-    const qualityScore = calculateQualityScore(extractedData);
+    // Step 3: Calculate quality score using OSM's native importance
+    const osmImportance = osmData.nominatim?.importance || osmData.reverse?.importance;
+    const qualityScore = calculateQualityScore(extractedData, osmImportance);
     
     // Step 4: Update database
     const updateResult = await updatePOIWithOSMData(poi_id, extractedData, qualityScore);
@@ -86,22 +87,72 @@ async function fetchOSMData(name: string, city: string, country: string): Promis
   const osmData: OSMData = {};
   
   try {
-    // 1. Nominatim search (by name)
-    console.log(`🔍 Searching Nominatim for: ${name}, ${city}, ${country}`);
-    const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(`${name}, ${city}, ${country}`)}&format=json&limit=1&addressdetails=1&extratags=1`;
+    console.log(`🔍 Fetching OSM data for: ${name} in ${city}, ${country}`);
     
-    const nominatimResponse = await fetch(nominatimUrl, {
-      headers: {
-        'User-Agent': 'Tuggi-CMS/1.0 (https://tuggi.com)'
-      }
-    });
+    // Strategy 1: Try multiple search variations
+    const searchTerms = [];
     
-    if (nominatimResponse.ok) {
-      const nominatimData = await nominatimResponse.json();
-      if (nominatimData && nominatimData.length > 0) {
-        osmData.nominatim = nominatimData[0];
-        console.log(`✅ Found Nominatim data for: ${name}`);
+    // Add original name
+    searchTerms.push(`${name}, ${city}, ${country}`);
+    
+    // Add specific variations for known POIs
+    if (name.includes('Estádio Cícero Pompeu de Toledo - Morumbis')) {
+      searchTerms.push('MorumBIS, São Paulo, Brazil');
+      searchTerms.push('Estádio do Morumbi, São Paulo, Brazil');
+      searchTerms.push('Arena Morumbi, São Paulo, Brazil');
+    }
+    
+    // Add simplified variations
+    const words = name.split(' ').filter(word => word.length > 3);
+    if (words.length > 1) {
+      searchTerms.push(`${words[0]} ${words[words.length - 1]}, ${city}, ${country}`);
+    }
+    
+    // Try each search term
+    for (const searchTerm of searchTerms) {
+      console.log(`🔍 Trying: "${searchTerm}"`);
+      
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchTerm)}&format=json&limit=3&addressdetails=1&extratags=1`;
+      
+      const response = await fetch(nominatimUrl, {
+        headers: {
+          'User-Agent': 'Tuggi-CMS/1.0 (https://tuggi.com)'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0) {
+          // Find the best match
+          let bestMatch = null;
+          let bestScore = 0;
+          
+          for (const result of data) {
+            const resultName = (result.display_name || '').toLowerCase();
+            const searchName = searchTerm.toLowerCase();
+            
+            // Calculate score
+            let score = 0;
+            if (resultName.includes(searchName.split(',')[0].toLowerCase())) score += 1;
+            if (result.class === 'leisure' && result.type === 'stadium') score += 2;
+            if (result.class === 'tourism') score += 1;
+            
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = result;
+            }
+          }
+          
+          if (bestMatch && bestScore > 0) {
+            osmData.nominatim = bestMatch;
+            console.log(`✅ Found match: "${bestMatch.display_name}" (Score: ${bestScore})`);
+            break;
+          }
+        }
       }
+      
+      // Small delay between requests
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     // Add delay to respect rate limits
@@ -137,6 +188,14 @@ async function fetchOSMData(name: string, city: string, country: string): Promis
           node["tourism"](around:1000,${osmData.nominatim.lat},${osmData.nominatim.lon});
           way["tourism"](around:1000,${osmData.nominatim.lat},${osmData.nominatim.lon});
           relation["tourism"](around:1000,${osmData.nominatim.lat},${osmData.nominatim.lon});
+          node["leisure"](around:1000,${osmData.nominatim.lat},${osmData.nominatim.lon});
+          way["leisure"](around:1000,${osmData.nominatim.lat},${osmData.nominatim.lon});
+          node["sport"](around:1000,${osmData.nominatim.lat},${osmData.nominatim.lon});
+          way["sport"](around:1000,${osmData.nominatim.lat},${osmData.nominatim.lon});
+          node["highway"="bus_stop"](around:500,${osmData.nominatim.lat},${osmData.nominatim.lon});
+          node["railway"="station"](around:1000,${osmData.nominatim.lat},${osmData.nominatim.lon});
+          node["amenity"="subway_entrance"](around:500,${osmData.nominatim.lat},${osmData.nominatim.lon});
+          node["amenity"="parking"](around:300,${osmData.nominatim.lat},${osmData.nominatim.lon});
         );
         out body;
         >;
@@ -164,7 +223,7 @@ async function fetchOSMData(name: string, city: string, country: string): Promis
   return osmData;
 }
 
-function extractOSMData(osmData: OSMData, name: string, city: string, country: string) {
+async function extractOSMData(osmData: OSMData, name: string, city: string, country: string) {
   const nominatim = osmData.nominatim;
   const reverse = osmData.reverse;
   const overpass = osmData.overpass;
@@ -176,30 +235,33 @@ function extractOSMData(osmData: OSMData, name: string, city: string, country: s
       ...nominatim?.extratags,
       ...reverse?.extratags,
       name: nominatim?.name || reverse?.name,
-      address: nominatim?.address || reverse?.address
+      address: nominatim?.address || reverse?.address,
+      type: nominatim?.type || reverse?.type
     },
-    osm_geometry: nominatim?.geojson || null,
+    osm_geometry: nominatim?.geojson || (nominatim?.lat && nominatim?.lon ? 
+      `POINT(${nominatim.lon} ${nominatim.lat})` : null),
     osm_last_updated: new Date().toISOString(),
 
     // Geographic data
-    elevation_m: nominatim?.extratags?.ele ? parseInt(nominatim.extratags.ele) : null,
-    estimated_height_m: nominatim?.extratags?.height ? parseFloat(nominatim.extratags.height) : null,
-    osm_area_m2: nominatim?.extratags?.area ? parseInt(nominatim.extratags.area) : null,
+    elevation_m: await extractElevation(nominatim, reverse),
+    estimated_height_m: extractHeight(nominatim, reverse),
+    osm_area_m2: extractArea(nominatim, reverse),
 
     // Heritage and cultural data
     heritage_status: determineHeritageStatus(nominatim, reverse),
     unesco_status: determineUNESCOStatus(nominatim, reverse),
     landmark_level: determineLandmarkLevel(nominatim, reverse),
     importance_level: determineImportanceLevel(nominatim, reverse),
-    architect: nominatim?.extratags?.architect || reverse?.extratags?.architect,
+    architect: extractArchitect(nominatim, reverse),
     architectural_style: determineArchitecturalStyle(nominatim, reverse),
     historical_period: determineHistoricalPeriod(nominatim, reverse),
+    completion_estimated_year: extractCompletionYear(nominatim, reverse),
     landmark_type: determineLandmarkType(nominatim, reverse),
 
     // Accessibility data
     wheelchair_accessible: determineWheelchairAccess(nominatim, reverse),
     wheelchair_toilets: nominatim?.extratags?.['toilets:wheelchair'] === 'yes',
-    parking_capacity: determineParkingCapacity(nominatim, reverse),
+    parking_capacity: determineParkingCapacity(nominatim, reverse, overpass),
     public_transport: determinePublicTransport(nominatim, reverse, overpass),
     access_points: determineAccessPoints(nominatim, reverse),
 
@@ -220,9 +282,9 @@ function extractOSMData(osmData: OSMData, name: string, city: string, country: s
     monument_type: determineMonumentType(nominatim, reverse),
 
     // Physical characteristics
-    building_colour: nominatim?.extratags?.['building:colour'],
-    roof_colour: nominatim?.extratags?.['roof:colour'],
-    building_material: nominatim?.extratags?.['building:material'],
+    building_colour: extractBuildingColour(nominatim, reverse),
+    roof_colour: extractRoofColour(nominatim, reverse),
+    building_material: extractBuildingMaterial(nominatim, reverse),
 
     // Metadados
     verification_status: 'pending',
@@ -238,43 +300,40 @@ function extractOSMData(osmData: OSMData, name: string, city: string, country: s
   return extractedData;
 }
 
-function calculateQualityScore(data: any): number {
-  let score = 50; // Base score
+function calculateQualityScore(data: any, osmImportance?: number): number {
+  // Use OSM's native importance score as the primary base (0.0 to 1.0 scale)
+  // Convert to 0-100 scale and use as base score
+  let score = osmImportance ? Math.round(osmImportance * 100) : 30; // Default to 30 if no importance
 
-  // Points for OSM tags
+  console.log(`🎯 Using OSM importance: ${osmImportance} -> Base score: ${score}/100`);
+
+  // Add points for data richness (complement the OSM importance)
   if (data.osm_tags) {
     const tagCount = Object.keys(data.osm_tags).length;
-    score += Math.min(tagCount * 2, 20); // Max 20 points for tags
+    if (tagCount > 5) score += 5; // Bonus for rich data
+    if (tagCount > 10) score += 5; // Extra bonus for very rich data
   }
 
-  // Points for heritage status
+  // Bonus for heritage status (these are objectively important)
   if (data.heritage_status === 'unesco_world_heritage') score += 15;
   else if (data.heritage_status === 'national_heritage') score += 10;
-  else if (data.heritage_status === 'local_heritage') score += 5;
+  else if (data.heritage_status === 'regional_heritage') score += 5;
 
-  // Points for UNESCO status
+  // Bonus for UNESCO status
   if (data.unesco_status === 'world_heritage_site') score += 10;
 
-  // Points for landmark level
-  if (data.landmark_level) score += Math.min(data.landmark_level, 10);
-
-  // Points for architect information
-  if (data.architect) score += 5;
-
-  // Points for accessibility data
-  if (data.wheelchair_accessible !== null) score += 3;
+  // Bonus for having accessibility information (data quality indicator)
+  if (data.wheelchair_accessible !== null) score += 2;
   if (data.parking_capacity) score += 2;
   if (data.public_transport?.length > 0) score += 3;
 
-  // Points for cultural data
+  // Bonus for having detailed metadata (indicates well-maintained entry)
+  if (data.architect) score += 3;
+  if (data.building_material) score += 2;
   if (data.cultural_significance) score += 3;
-  if (data.local_traditions?.length > 0) score += 2;
 
-  // Points for type-specific data
-  if (data.museum_type || data.park_type || data.monument_type) score += 3;
-
-  // Ensure score is within valid range for numeric(3,2) field (0-9.99)
-  return Math.min(Math.max(score, 0), 9.99);
+  // Ensure score is within valid range for numeric(5,2) field (0-100)
+  return Math.min(Math.max(score, 0), 100);
 }
 
 async function updatePOIWithOSMData(poi_id: string, data: any, qualityScore: number) {
@@ -312,55 +371,231 @@ async function updatePOIWithOSMData(poi_id: string, data: any, qualityScore: num
 }
 
 function calculatePOVScores(data: any, qualityScore: number) {
-  // Base POV scores on quality score and available data
-  let povQualityScore = qualityScore;
-  let visibilityScore = 70;
-  let accessibilityScore = 70;
-  let photogenicScore = 70;
+  // Base POV scores on quality score and available data - more realistic starting points
+  let povQualityScore = qualityScore * 0.8; // POV quality correlates with data quality but is slightly lower
+  let visibilityScore = 50; // Start neutral
+  let accessibilityScore = 40; // Start lower as most places aren't fully accessible
+  let photogenicScore = 60; // Start slightly above average
 
   // Adjust based on heritage status
   if (data.heritage_status === 'unesco_world_heritage') {
+    povQualityScore += 20;
+    visibilityScore += 25;
+    photogenicScore += 25;
+  } else if (data.heritage_status === 'national_heritage') {
+    povQualityScore += 15;
+    visibilityScore += 20;
+    photogenicScore += 20;
+  } else if (data.heritage_status === 'regional_heritage') {
     povQualityScore += 10;
     visibilityScore += 15;
     photogenicScore += 15;
-  } else if (data.heritage_status === 'national_heritage') {
+  } else if (data.heritage_status === 'local_heritage') {
     povQualityScore += 5;
     visibilityScore += 10;
     photogenicScore += 10;
   }
 
-  // Adjust based on accessibility
-  if (data.wheelchair_accessible) accessibilityScore += 10;
-  if (data.public_transport?.length > 0) accessibilityScore += 5;
+  // Adjust based on accessibility features
+  if (data.wheelchair_accessible === 'yes') {
+    accessibilityScore += 30;
+  } else if (data.wheelchair_accessible === 'limited') {
+    accessibilityScore += 15;
+  } else if (data.wheelchair_accessible === 'no') {
+    accessibilityScore += 5; // At least we know
+  }
+
+  if (data.public_transport?.length > 0) accessibilityScore += 15;
+  if (data.parking_capacity && data.parking_capacity > 0) accessibilityScore += 10;
 
   // Adjust based on cultural significance
   if (data.cultural_significance === 'very_high') {
+    povQualityScore += 15;
+    photogenicScore += 20;
+  } else if (data.cultural_significance === 'high') {
     povQualityScore += 10;
+    photogenicScore += 15;
+  } else if (data.cultural_significance === 'medium') {
+    povQualityScore += 5;
     photogenicScore += 10;
   }
 
-  // Adjust based on urban density
-  if (data.urban_density === 'dense' || data.urban_density === 'very_dense') {
-    visibilityScore += 5;
+  // Adjust based on urban density and environment
+  if (data.urban_density === 'very_dense') {
+    visibilityScore += 15; // Easy to find
+    accessibilityScore += 10; // Better infrastructure
+  } else if (data.urban_density === 'dense') {
+    visibilityScore += 10;
+    accessibilityScore += 5;
+  } else if (data.urban_density === 'sparse') {
+    visibilityScore -= 10; // Harder to find
+    accessibilityScore -= 5;
   }
 
-  // Ensure all scores are within valid range for numeric(3,2) field (0-9.99)
+  // Adjust based on type-specific factors
+  if (data.museum_type) {
+    photogenicScore += 10; // Museums are usually photogenic
+    accessibilityScore += 5; // Usually have good access
+  }
+  
+  if (data.park_type) {
+    photogenicScore += 15; // Parks are very photogenic
+    visibilityScore += 10; // Usually visible
+  }
+
+  if (data.monument_type) {
+    photogenicScore += 20; // Monuments are made to be photogenic
+    visibilityScore += 15; // Usually prominent
+  }
+
+  // Ensure all scores are within valid range for numeric(5,2) field (0-100)
   return {
-    pov_quality_score: Math.min(Math.max(povQualityScore, 0), 9.99),
-    visibility_score: Math.min(Math.max(visibilityScore, 0), 9.99),
-    accessibility_score: Math.min(Math.max(accessibilityScore, 0), 9.99),
-    photogenic_score: Math.min(Math.max(photogenicScore, 0), 9.99)
+    pov_quality_score: Math.min(Math.max(povQualityScore, 0), 100),
+    visibility_score: Math.min(Math.max(visibilityScore, 0), 100),
+    accessibility_score: Math.min(Math.max(accessibilityScore, 0), 100),
+    photogenic_score: Math.min(Math.max(photogenicScore, 0), 100)
   };
+}
+
+// Helper functions for extracting physical characteristics
+function extractBuildingColour(nominatim: any, reverse: any): string | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  return tags['building:colour'] || tags['building:color'] || tags.colour || tags.color || null;
+}
+
+function extractRoofColour(nominatim: any, reverse: any): string | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  return tags['roof:colour'] || tags['roof:color'] || null;
+}
+
+function extractBuildingMaterial(nominatim: any, reverse: any): string | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  return tags['building:material'] || tags.material || null;
+}
+
+function extractArchitect(nominatim: any, reverse: any): string | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  return tags.architect || tags['architect:name'] || tags['architect:full_name'] || null;
+}
+
+function extractCompletionYear(nominatim: any, reverse: any): number | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  // Try different date formats
+  if (tags.start_date) {
+    const year = parseInt(tags.start_date.split('-')[0]);
+    if (year && year > 1000 && year < 3000) return year;
+  }
+  
+  if (tags.built) {
+    const year = parseInt(tags.built.split('-')[0]);
+    if (year && year > 1000 && year < 3000) return year;
+  }
+  
+  if (tags.construction_date) {
+    const year = parseInt(tags.construction_date.split('-')[0]);
+    if (year && year > 1000 && year < 3000) return year;
+  }
+  
+  if (tags['building:start_date']) {
+    const year = parseInt(tags['building:start_date'].split('-')[0]);
+    if (year && year > 1000 && year < 3000) return year;
+  }
+  
+  return null;
+}
+
+// Helper functions for extracting geographic data
+async function extractElevation(nominatim: any, reverse: any): Promise<number | null> {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  // Try OSM tags first
+  if (tags.ele) return parseInt(tags.ele);
+  if (tags.elevation) return parseInt(tags.elevation);
+  if (tags['ele:m']) return parseInt(tags['ele:m']);
+  
+  // If no elevation in OSM, try to get from coordinates using a free elevation API
+  const lat = nominatim?.lat || reverse?.lat;
+  const lon = nominatim?.lon || reverse?.lon;
+  
+  if (lat && lon) {
+    try {
+      // Using Open-Elevation API (free)
+      const elevationUrl = `https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lon}`;
+      const elevationResponse = await fetch(elevationUrl);
+      
+      if (elevationResponse.ok) {
+        const elevationData = await elevationResponse.json();
+        if (elevationData.results && elevationData.results[0]) {
+          const elevation = Math.round(elevationData.results[0].elevation);
+          console.log(`🏔️ Got elevation from API: ${elevation}m for ${lat},${lon}`);
+          return elevation;
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Elevation API error (non-critical):', error);
+    }
+  }
+  
+  return null;
+}
+
+function extractHeight(nominatim: any, reverse: any): number | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  if (tags.height) return parseFloat(tags.height);
+  if (tags['height:m']) return parseFloat(tags['height:m']);
+  if (tags['building:height']) return parseFloat(tags['building:height']);
+  if (tags.min_height) {
+    // Convert from string like "10,63" to number
+    const height = parseFloat(tags.min_height.replace(',', '.'));
+    if (!isNaN(height)) return height;
+  }
+  if (tags.max_height) {
+    const height = parseFloat(tags.max_height.replace(',', '.'));
+    if (!isNaN(height)) return height;
+  }
+  
+  return null;
+}
+
+function extractArea(nominatim: any, reverse: any): number | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  if (tags.area) return parseInt(tags.area);
+  if (tags['area:m2']) return parseInt(tags['area:m2']);
+  
+  return null;
 }
 
 // Helper functions for determining various characteristics
 function determineHeritageStatus(nominatim: any, reverse: any): string | null {
   const tags = { ...nominatim?.extratags, ...reverse?.extratags };
   
-  if (tags['whc:inscription_date']) return 'unesco_world_heritage';
+  // UNESCO World Heritage
+  if (tags['whc:inscription_date'] || tags['ref:whc']) return 'unesco_world_heritage';
+  
+  // Heritage levels
   if (tags.heritage === '1') return 'national_heritage';
   if (tags.heritage === '2') return 'regional_heritage';
   if (tags.heritage === '3') return 'local_heritage';
+  
+  // Check for heritage indicators
+  if (tags.historic) {
+    // Important historic landmarks likely have some heritage status
+    if (tags.landmark === '1' || tags.tourism === 'attraction') {
+      return 'local_heritage'; // Default to local heritage for historic attractions
+    }
+  }
+  
+  // Religious/cultural monuments often have heritage value
+  if (tags.man_made === 'monument' && tags.landmark === '1') {
+    return 'local_heritage';
+  }
   
   return null;
 }
@@ -415,13 +650,24 @@ function determineHistoricalPeriod(nominatim: any, reverse: any): string | null 
 
 function determineLandmarkType(nominatim: any, reverse: any): string | null {
   const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  const category = nominatim?.class || reverse?.class;
   
+  // Check specific tags first
+  if (tags.man_made === 'monument') return 'monument';
+  if (tags.historic === 'monument') return 'monument';
   if (tags.tourism === 'museum') return 'museum';
   if (tags.leisure === 'park') return 'park';
-  if (tags.historic === 'monument') return 'monument';
+  if (tags.leisure === 'stadium') return 'stadium';
   if (tags.amenity === 'place_of_worship') return 'religious';
+  if (tags.building === 'cathedral' || tags.building === 'church') return 'religious';
   
-  return tags.tourism || tags.leisure || tags.historic || tags.amenity || null;
+  // Check by category
+  if (category === 'tourism') return 'tourism';
+  if (category === 'leisure') return 'leisure';
+  if (category === 'historic') return 'historic';
+  if (category === 'amenity') return 'amenity';
+  
+  return null;
 }
 
 function determineWheelchairAccess(nominatim: any, reverse: any): boolean | null {
@@ -433,16 +679,38 @@ function determineWheelchairAccess(nominatim: any, reverse: any): boolean | null
   return null;
 }
 
-function determineParkingCapacity(nominatim: any, reverse: any): string | null {
+function determineParkingCapacity(nominatim: any, reverse: any, overpass?: any): string | null {
   const tags = { ...nominatim?.extratags, ...reverse?.extratags };
   
+  // Check specific capacity numbers
   if (tags['parking:capacity']) {
     const capacity = parseInt(tags['parking:capacity']);
     if (capacity > 100) return 'very_large';
     if (capacity > 50) return 'large';
     if (capacity > 20) return 'medium';
     if (capacity > 5) return 'small';
-    return 'none';
+    return 'small';
+  }
+  
+  // Check for parking availability indicators
+  if (tags.parking === 'yes' || tags.amenity === 'parking') return 'medium';
+  if (tags.parking === 'no') return 'none';
+  
+  // Check for parking-related tags
+  if (tags['parking:fee'] || tags['parking:maxstay']) return 'small';
+  
+  // Check Overpass data for nearby parking
+  if (overpass?.elements) {
+    const parkingSpots = overpass.elements.filter((element: any) => 
+      element.tags?.amenity === 'parking'
+    );
+    
+    if (parkingSpots.length > 0) {
+      // If we found multiple parking areas, assume medium to large capacity
+      if (parkingSpots.length > 2) return 'large';
+      if (parkingSpots.length > 1) return 'medium';
+      return 'small';
+    }
   }
   
   return null;
@@ -556,11 +824,28 @@ function determineSeasonalAttractions(nominatim: any, reverse: any): string[] | 
 
 function determineMuseumType(nominatim: any, reverse: any): string | null {
   const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  const category = nominatim?.class || reverse?.class;
   
-  if (tags.tourism === 'museum') {
+  // Check direct museum tag first
+  if (tags.museum) {
+    if (tags.museum === 'art') return 'art';
+    if (tags.museum === 'history') return 'history';
+    if (tags.museum === 'science') return 'science';
+    if (tags.museum === 'natural_history') return 'natural_history';
+    return 'general';
+  }
+  
+  // Check museum:type
+  if (tags['museum:type']) {
     if (tags['museum:type'] === 'art') return 'art';
     if (tags['museum:type'] === 'history') return 'history';
     if (tags['museum:type'] === 'science') return 'science';
+    if (tags['museum:type'] === 'natural_history') return 'natural_history';
+    return 'specialized';
+  }
+  
+  // Check if it's a tourism museum
+  if (tags.tourism === 'museum' || category === 'tourism') {
     return 'general';
   }
   
@@ -569,11 +854,26 @@ function determineMuseumType(nominatim: any, reverse: any): string | null {
 
 function determineParkType(nominatim: any, reverse: any): string | null {
   const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  const category = nominatim?.class || reverse?.class;
   
-  if (tags.leisure === 'park') {
+  if (tags.leisure === 'park' || category === 'leisure') {
+    // Check explicit park type
     if (tags['park:type'] === 'national') return 'national';
     if (tags['park:type'] === 'state') return 'state';
     if (tags['park:type'] === 'municipal') return 'municipal';
+    
+    // Check ownership
+    if (tags.ownership === 'municipal') return 'municipal';
+    if (tags.ownership === 'state') return 'state';
+    if (tags.ownership === 'national') return 'national';
+    if (tags.ownership === 'private') return 'recreational';
+    
+    // Check operator
+    if (tags.operator && tags.operator.toLowerCase().includes('municipal')) return 'municipal';
+    if (tags.operator && tags.operator.toLowerCase().includes('estado')) return 'state';
+    if (tags.operator && tags.operator.toLowerCase().includes('nacional')) return 'national';
+    
+    // Default to urban for city parks
     return 'urban';
   }
   
@@ -583,11 +883,22 @@ function determineParkType(nominatim: any, reverse: any): string | null {
 function determineMonumentType(nominatim: any, reverse: any): string | null {
   const tags = { ...nominatim?.extratags, ...reverse?.extratags };
   
-  if (tags.historic === 'monument') {
+  // Check for monument indicators
+  if (tags.historic === 'monument' || tags.man_made === 'monument') {
     if (tags['monument:type'] === 'statue') return 'statue';
     if (tags['monument:type'] === 'memorial') return 'memorial';
+    if (tags.man_made === 'monument') return 'statue'; // Most monuments are statues
     return 'monument';
   }
+  
+  // Check for religious monuments
+  if (tags.building === 'cathedral') return 'cathedral';
+  if (tags.building === 'church') return 'church';
+  if (tags.building === 'basilica') return 'basilica';
+  
+  // Check for specific structures
+  if (tags.man_made === 'tower') return 'tower';
+  if (tags.historic === 'memorial') return 'memorial';
   
   return null;
 }
