@@ -1,0 +1,529 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Play, Database, Globe, MapPin } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+interface POI {
+  id: string;
+  name: string;
+  city: string;
+  country: string;
+  google_place_id?: string;
+  osm_category?: string;
+  osm_data_quality_score?: number;
+  heritage_status?: string;
+  unesco_status?: string;
+  pov_quality_score?: number;
+  verification_status?: string;
+}
+
+interface EnrichmentResult {
+  poi_id: string;
+  success: boolean;
+  message: string;
+  data_quality_score?: number;
+  fields_updated?: string[];
+  errors?: string[];
+}
+
+export default function EnrichOSMPage() {
+  const router = useRouter();
+  const supabase = useSupabaseClient();
+  
+  const [isLoading, setIsLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  
+  // Form state
+  const [country, setCountry] = useState('Brazil');
+  const [city, setCity] = useState('');
+  const [enrichmentType, setEnrichmentType] = useState('all');
+  const [limit, setLimit] = useState(50);
+  const [delayBetweenCalls, setDelayBetweenCalls] = useState(2000); // 2 seconds
+  
+  // Data state
+  const [pois, setPois] = useState<POI[]>([]);
+  const [selectedPois, setSelectedPois] = useState<string[]>([]);
+  const [processingQueue, setProcessingQueue] = useState<string[]>([]);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [enrichmentResults, setEnrichmentResults] = useState<EnrichmentResult[]>([]);
+
+  // Fetch POIs based on criteria
+  const fetchPois = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      let query = supabase
+        .schema('core')
+        .from('attractions')
+        .select(`
+          id,
+          name,
+          city,
+          country,
+          google_place_id,
+          osm_category,
+          osm_data_quality_score,
+          heritage_status,
+          unesco_status,
+          pov_quality_score,
+          verification_status
+        `)
+        .eq('country', country)
+        .eq('approved', true)
+        .limit(limit);
+
+      if (city) {
+        query = query.eq('city', city);
+      }
+
+      // Filter by enrichment type
+      if (enrichmentType === 'no_osm_data') {
+        query = query.is('osm_category', null);
+      } else if (enrichmentType === 'low_quality') {
+        query = query.lt('osm_data_quality_score', 70);
+      } else if (enrichmentType === 'no_heritage') {
+        query = query.is('heritage_status', null);
+      } else if (enrichmentType === 'no_pov_scores') {
+        query = query.is('pov_quality_score', null);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      setPois(data || []);
+      setTotalCount(data?.length || 0);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await fetchPois();
+  };
+
+  // Process selected POIs with OSM enrichment
+  const processSelectedPois = async () => {
+    if (selectedPois.length === 0) {
+      setError('Please select at least one POI to enrich');
+      return;
+    }
+
+    setIsProcessing(true);
+    setError(null);
+    setSuccess(null);
+    setProcessedCount(0);
+    setProcessingQueue([...selectedPois]);
+    setEnrichmentResults([]);
+
+    for (const poiId of selectedPois) {
+      try {
+        const poi = pois.find(p => p.id === poiId);
+        if (!poi) continue;
+
+        console.log(`🔄 Enriching POI: ${poi.name} (${poi.city}, ${poi.country})`);
+
+        // Call OSM enrichment API
+        const response = await fetch('/api/pois/enrich-osm', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            poi_id: poi.id,
+            name: poi.name,
+            city: poi.city,
+            country: poi.country,
+            google_place_id: poi.google_place_id
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Failed to enrich POI ${poi.name}:`, errorText);
+          
+          setEnrichmentResults(prev => [...prev, {
+            poi_id: poi.id,
+            success: false,
+            message: `API Error: ${response.status}`,
+            errors: [errorText]
+          }]);
+          
+          setProcessedCount(prev => prev + 1);
+          setProcessingQueue(prev => prev.filter(id => id !== poiId));
+          continue;
+        }
+
+        const result = await response.json();
+        
+        setEnrichmentResults(prev => [...prev, {
+          poi_id: poi.id,
+          success: result.success,
+          message: result.message,
+          data_quality_score: result.data_quality_score,
+          fields_updated: result.fields_updated
+        }]);
+
+        setProcessedCount(prev => prev + 1);
+        setProcessingQueue(prev => prev.filter(id => id !== poiId));
+        
+        // Add delay between calls to avoid rate limiting
+        if (delayBetweenCalls > 0) {
+          await new Promise(resolve => setTimeout(resolve, delayBetweenCalls));
+        }
+        
+      } catch (err) {
+        console.error(`Error enriching POI ${poiId}:`, err);
+        
+        setEnrichmentResults(prev => [...prev, {
+          poi_id: poiId,
+          success: false,
+          message: 'Network Error',
+          errors: [err instanceof Error ? err.message : 'Unknown error']
+        }]);
+        
+        setProcessedCount(prev => prev + 1);
+        setProcessingQueue(prev => prev.filter(id => id !== poiId));
+      }
+    }
+
+    setIsProcessing(false);
+    const successCount = enrichmentResults.filter(r => r.success).length;
+    setSuccess(`Successfully enriched ${successCount} out of ${processedCount} POIs`);
+    setSelectedPois([]);
+  };
+
+  // Toggle POI selection
+  const togglePoiSelection = (poiId: string) => {
+    setSelectedPois(prev => 
+      prev.includes(poiId) 
+        ? prev.filter(id => id !== poiId)
+        : [...prev, poiId]
+    );
+  };
+
+  // Select all POIs
+  const selectAllPois = () => {
+    setSelectedPois(pois.map(poi => poi.id));
+  };
+
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedPois([]);
+  };
+
+  // Get enrichment status for a POI
+  const getEnrichmentStatus = (poi: POI) => {
+    if (!poi.osm_category) return { status: 'no_data', label: 'No OSM Data', color: 'bg-red-100 text-red-800' };
+    if ((poi.osm_data_quality_score || 0) < 70) return { status: 'low_quality', label: 'Low Quality', color: 'bg-yellow-100 text-yellow-800' };
+    if (!poi.heritage_status) return { status: 'partial', label: 'Partial Data', color: 'bg-blue-100 text-blue-800' };
+    return { status: 'complete', label: 'Complete', color: 'bg-green-100 text-green-800' };
+  };
+
+  return (
+    <div className="container mx-auto py-6">
+      <h1 className="text-3xl font-bold mb-6">Enrich POIs with OSM Data</h1>
+      
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Parameters Card */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Search Parameters</h2>
+          <p className="text-gray-600 mb-4">
+            Configure parameters to find POIs that need OSM data enrichment
+          </p>
+          
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="country" className="block text-sm font-medium text-gray-700">
+                Country
+              </label>
+              <select
+                id="country"
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
+                disabled={isLoading}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
+              >
+                <option value="Brazil">Brazil</option>
+                <option value="Spain">Spain</option>
+                <option value="United States">United States</option>
+                <option value="Ireland">Ireland</option>
+                <option value="Mexico">Mexico</option>
+                <option value="Argentina">Argentina</option>
+                <option value="Chile">Chile</option>
+                <option value="Colombia">Colombia</option>
+                <option value="Peru">Peru</option>
+              </select>
+            </div>
+            
+            <div className="space-y-2">
+              <label htmlFor="city" className="block text-sm font-medium text-gray-700">
+                City (Optional)
+              </label>
+              <input
+                id="city"
+                type="text"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                disabled={isLoading}
+                placeholder="Leave empty for all cities"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <label htmlFor="enrichmentType" className="block text-sm font-medium text-gray-700">
+                Enrichment Type
+              </label>
+              <select
+                id="enrichmentType"
+                value={enrichmentType}
+                onChange={(e) => setEnrichmentType(e.target.value)}
+                disabled={isLoading}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
+              >
+                <option value="all">All POIs</option>
+                <option value="no_osm_data">No OSM Data</option>
+                <option value="low_quality">Low Quality OSM Data (&lt;70%)</option>
+                <option value="no_heritage">No Heritage Status</option>
+                <option value="no_pov_scores">No POV Quality Scores</option>
+              </select>
+            </div>
+            
+            <div className="space-y-2">
+              <label htmlFor="limit" className="block text-sm font-medium text-gray-700">
+                Limit (max items)
+              </label>
+              <input
+                id="limit"
+                type="number"
+                min={1}
+                max={1000}
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                disabled={isLoading}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="delay" className="block text-sm font-medium text-gray-700">
+                Delay Between Calls (ms)
+              </label>
+              <input
+                id="delay"
+                type="number"
+                min={0}
+                max={10000}
+                step={500}
+                value={delayBetweenCalls}
+                onChange={(e) => setDelayBetweenCalls(Number(e.target.value))}
+                disabled={isLoading}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
+              />
+              <p className="text-xs text-gray-500">
+                Recommended: 2000ms to avoid API rate limits
+              </p>
+            </div>
+            
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-tuggi-blue text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="inline-block mr-2 h-4 w-4 animate-spin" />
+                  Searching...
+                </>
+              ) : (
+                'Search POIs'
+              )}
+            </button>
+          </form>
+        </div>
+        
+        {/* POIs List */}
+        <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">
+              POIs Found ({pois.length})
+            </h2>
+            {pois.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={selectAllPois}
+                  className="px-3 py-1 text-sm bg-blue-100 text-blue-800 rounded hover:bg-blue-200"
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={clearSelection}
+                  className="px-3 py-1 text-sm bg-gray-100 text-gray-800 rounded hover:bg-gray-200"
+                >
+                  Clear
+                </button>
+                {selectedPois.length > 0 && (
+                  <button
+                    onClick={processSelectedPois}
+                    disabled={isProcessing}
+                    className="px-4 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="inline-block mr-1 h-3 w-3 animate-spin" />
+                        Enriching...
+                      </>
+                    ) : (
+                      `Enrich ${selectedPois.length} Selected`
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+              <div className="flex items-center">
+                <AlertCircle className="h-4 w-4 mr-2" />
+                <span className="font-medium">Error</span>
+              </div>
+              <p className="text-sm mt-1">{error}</p>
+            </div>
+          )}
+
+          {success && (
+            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-4">
+              <div className="flex items-center">
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                <span className="font-medium">Success</span>
+              </div>
+              <p className="text-sm mt-1">{success}</p>
+            </div>
+          )}
+
+          {isProcessing && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded mb-4">
+              <div className="flex items-center">
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <span className="font-medium">Enriching POIs</span>
+              </div>
+              <p className="text-sm mt-1">
+                Processed {processedCount} of {totalCount} POIs
+                {processingQueue.length > 0 && ` (${processingQueue.length} remaining)`}
+              </p>
+              <div className="w-full bg-blue-200 rounded-full h-2 mt-2">
+                <div 
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(processedCount / totalCount) * 100}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
+          
+          {pois.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-40 text-center text-gray-500">
+              <Database className="h-8 w-8 mb-2" />
+              <p>No POIs found matching the criteria</p>
+              <p className="text-sm">Try adjusting your search parameters</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {pois.map((poi) => {
+                const enrichmentStatus = getEnrichmentStatus(poi);
+                const isSelected = selectedPois.includes(poi.id);
+                const isProcessing = processingQueue.includes(poi.id);
+                const result = enrichmentResults.find(r => r.poi_id === poi.id);
+                
+                return (
+                  <div
+                    key={poi.id}
+                    className={cn(
+                      "flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors",
+                      isSelected 
+                        ? "border-tuggi-blue bg-blue-50" 
+                        : "border-gray-200 hover:border-gray-300",
+                      isProcessing && "opacity-50"
+                    )}
+                    onClick={() => !isProcessing && togglePoiSelection(poi.id)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => !isProcessing && togglePoiSelection(poi.id)}
+                      disabled={isProcessing}
+                      className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue"
+                    />
+                    
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium text-gray-900 truncate">{poi.name}</h3>
+                      <p className="text-sm text-gray-500 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />
+                        {poi.city}, {poi.country}
+                      </p>
+                      
+                      <div className="flex items-center gap-2 mt-1">
+                        {poi.osm_category && (
+                          <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                            OSM: {poi.osm_category}
+                          </span>
+                        )}
+                        {poi.osm_data_quality_score && (
+                          <span className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded">
+                            Quality: {poi.osm_data_quality_score}%
+                          </span>
+                        )}
+                        {poi.heritage_status && (
+                          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">
+                            {poi.heritage_status}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {result && (
+                        <div className="mt-2">
+                          {result.success ? (
+                            <p className="text-xs text-green-600">
+                              ✅ {result.message}
+                              {result.data_quality_score && ` (Quality: ${result.data_quality_score}%)`}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-red-600">
+                              ❌ {result.message}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      {isProcessing && (
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                      )}
+                      <span className={cn(
+                        "px-2 py-1 text-xs rounded-full",
+                        enrichmentStatus.color
+                      )}>
+                        {enrichmentStatus.label}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -17,7 +17,8 @@
     "setup:coordinates-function": "echo 'Execute: supabase/create-trigger-point-coordinates-function.sql no seu dashboard Supabase'",
     "test:pov-suggestions-api": "tsx --env-file=.env scripts/test-pov-suggestions-api.ts",
     "test:learning-system": "tsx --env-file=.env scripts/test-learning-system.ts",
-    "test:feedback-system": "tsx --env-file=.env scripts/test-feedback-system.ts"
+    "test:feedback-system": "tsx --env-file=.env scripts/test-feedback-system.ts",
+    "get:sample-pois": "tsx --env-file=.env scripts/get-sample-pois.ts"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.1.0",

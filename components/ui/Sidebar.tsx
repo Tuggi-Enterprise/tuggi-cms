@@ -21,7 +21,8 @@ import {
   MessageSquare,
   CheckCircle,
   Sparkles,
-  Eye
+  Eye,
+  Database
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -51,6 +52,11 @@ const navigation = [
     name: 'Improve',
     href: '/verification/improve',
     icon: CheckCircle,
+  },
+  {
+    name: 'Enrich OSM',
+    href: '/verification/enrich-osm',
+    icon: Database,
   },
   {
     name: 'Reviews',
