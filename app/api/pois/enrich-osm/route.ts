@@ -27,14 +27,35 @@ export async function POST(request: NextRequest) {
 
     console.log(`🔄 Starting OSM enrichment for POI: ${name} (${city}, ${country})`);
 
+    // Step 0: Get POI coordinates from database for distance validation
+    const poiCoordinates = await getPOICoordinates(poi_id);
+    console.log(`📍 POI coordinates: ${poiCoordinates ? `${poiCoordinates.lat}, ${poiCoordinates.lng}` : 'Not available'}`);
+
+    // REQUIRE coordinates for processing to avoid false positives
+    if (!poiCoordinates) {
+      console.log(`❌ Cannot enrich POI without coordinates - skipping to avoid false positives`);
+      return NextResponse.json({
+        success: false,
+        message: 'POI coordinates required for accurate matching',
+        poi_id,
+        errors: ['No coordinates found in attraction_coordinate table']
+      });
+    }
+
     // Step 1: Fetch OSM data using multiple APIs
-    const osmData = await fetchOSMData(name, city, country);
+    const osmData = await fetchOSMData(name, city, country, poiCoordinates);
     
     if (!osmData.nominatim && !osmData.reverse) {
+      // MARK POI AS "NOT FOUND" TO AVOID REPROCESSING
+      console.log(`❌ No OSM data found for POI: ${name} - Marking as not found`);
+      
+      const notFoundResult = await markPOIAsNotFound(poi_id);
+      
       return NextResponse.json({
         success: false,
         message: 'No OSM data found for this POI',
         poi_id,
+        marked_as_not_found: notFoundResult.success,
         errors: ['No data found in Nominatim or Reverse Geocoding']
       });
     }
@@ -83,7 +104,31 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function fetchOSMData(name: string, city: string, country: string): Promise<OSMData> {
+async function getPOICoordinates(poi_id: string): Promise<{lat: number, lng: number} | null> {
+  try {
+    const { data, error } = await supabase
+      .schema('core')
+      .from('attraction_coordinate')
+      .select('latitude, longitude')
+      .eq('attraction_id', poi_id)
+      .single();
+
+    if (error || !data) {
+      console.log(`⚠️ No coordinates found for POI ${poi_id} in attraction_coordinate table`);
+      return null;
+    }
+
+    return {
+      lat: data.latitude,
+      lng: data.longitude
+    };
+  } catch (error) {
+    console.error('❌ Error fetching POI coordinates:', error);
+    return null;
+  }
+}
+
+async function fetchOSMData(name: string, city: string, country: string, poiCoordinates?: {lat: number, lng: number} | null): Promise<OSMData> {
   const osmData: OSMData = {};
   
   try {
@@ -205,20 +250,72 @@ async function fetchOSMData(name: string, city: string, country: string): Promis
       }
     });
     
+    // Clean name variations (remove parentheses, acronyms, etc.)
+    const cleanVariations = [];
+    
+    // Remove content in parentheses (like MuBi, MASP, etc.)
+    const withoutParens = name.replace(/\s*\([^)]*\)\s*/g, '').trim();
+    if (withoutParens !== name && withoutParens.length > 3) {
+      cleanVariations.push(withoutParens);
+    }
+    
+    // Remove content in brackets
+    const withoutBrackets = name.replace(/\s*\[[^\]]*\]\s*/g, '').trim();
+    if (withoutBrackets !== name && withoutBrackets.length > 3) {
+      cleanVariations.push(withoutBrackets);
+    }
+    
+    // Remove common suffixes/prefixes that might not match OSM
+    const cleanedName = name
+      .replace(/\s*\([^)]*\)\s*/g, '') // Remove parentheses
+      .replace(/\s*\[[^\]]*\]\s*/g, '') // Remove brackets
+      .replace(/\s*-\s*.*$/g, '') // Remove everything after dash
+      .replace(/^(Centro|Center|Complexo|Complex)\s+/gi, '') // Remove common prefixes
+      .replace(/\s+(Centro|Center|Complex|Complexo)$/gi, '') // Remove common suffixes
+      .trim();
+    
+    if (cleanedName !== name && cleanedName.length > 3) {
+      cleanVariations.push(cleanedName);
+    }
+    
+    // Add all clean variations
+    cleanVariations.forEach(variation => {
+      searchTerms.push(`${variation}, ${city}, ${country}`);
+    });
+    
     // Add simplified variations (keep most important words)
-    const words = name.split(' ').filter(word => word.length > 3);
+    const words = name.split(' ').filter(word => 
+      word.length > 3 && 
+      !word.match(/^\(.*\)$/) && // Skip parentheses content
+      !word.match(/^(de|da|do|dos|das|of|the|and|&)$/gi) // Skip articles/prepositions
+    );
     if (words.length > 1) {
       searchTerms.push(`${words[0]} ${words[words.length - 1]}, ${city}, ${country}`);
     }
     
     // Add variations without common prefixes
     const withoutPrefixes = name
-      .replace(/^(Antiguo|Old|Igreja de|Church of|Museu de|Museum of|Catedral de|Cathedral of)\s+/gi, '')
+      .replace(/^(Antiguo|Old|Igreja de|Church of|Museu de|Museum of|Catedral de|Cathedral of|Centro de|Center of)\s+/gi, '')
+      .replace(/\s*\([^)]*\)\s*/g, '') // Also remove parentheses
       .trim();
     
     if (withoutPrefixes !== name && withoutPrefixes.length > 3) {
       searchTerms.push(`${withoutPrefixes}, ${city}, ${country}`);
     }
+    
+    // Add single word searches for unique terms
+    const uniqueWords = name
+      .replace(/\s*\([^)]*\)\s*/g, '') // Remove parentheses
+      .split(' ')
+      .filter(word => 
+        word.length > 4 && 
+        !word.match(/^(Museu|Museum|Igreja|Church|Centro|Center|Parque|Park|Estádio|Stadium)$/gi) &&
+        !word.match(/^(de|da|do|dos|das|of|the|and|&)$/gi)
+      );
+    
+    uniqueWords.forEach(word => {
+      searchTerms.push(`${word}, ${city}, ${country}`);
+    });
     
     // Try each search term
     for (const searchTerm of searchTerms) {
@@ -243,11 +340,97 @@ async function fetchOSMData(name: string, city: string, country: string): Promis
             const resultName = (result.display_name || '').toLowerCase();
             const searchName = searchTerm.toLowerCase();
             
+            // SIMPLE VALIDATION: Only check if it's obviously wrong (cemetery for museum, etc.)
+            if (isObviouslyWrongType(name, result.class, result.type)) {
+              console.log(`   🚫 Skipping obviously wrong type: ${result.class}/${result.type} for "${name}"`);
+              continue;
+            }
+            
+            // MAIN VALIDATION: Name similarity check
+            if (!hasReasonableNameSimilarity(name, result.display_name)) {
+              console.log(`   🚫 Skipping dissimilar name: "${result.display_name.substring(0, 50)}..." for "${name}"`);
+              continue;
+            }
+            
+            // DISTANCE VALIDATION: Check if OSM result is geographically close to original POI
+            if (poiCoordinates && result.lat && result.lon) {
+              const distance = calculateDistance(
+                poiCoordinates.lat, poiCoordinates.lng,
+                parseFloat(result.lat), parseFloat(result.lon)
+              );
+              
+              // Reject results more than 2km away (different POIs)
+              if (distance > 2000) {
+                console.log(`   🚫 Skipping distant POI: ${distance.toFixed(0)}m away (>${2000}m limit) - "${result.display_name.substring(0, 50)}..."`);
+                continue;
+              } else {
+                console.log(`   📏 Distance validation: ${distance.toFixed(0)}m (within ${2000}m limit)`);
+              }
+            }
+            
+            // SPECIFIC VALIDATION: Check for specific keyword matches (avoid different POIs with similar generic names)
+            if (!hasSpecificKeywordMatch(name, result.display_name)) {
+              console.log(`   🚫 Skipping different POI with similar generic name: "${result.display_name.substring(0, 50)}..." for "${name}"`);
+              continue;
+            }
+            
             // Calculate score
             let score = 0;
             if (resultName.includes(searchName.split(',')[0].toLowerCase())) score += 1;
-            if (result.class === 'leisure' && result.type === 'stadium') score += 2;
-            if (result.class === 'tourism') score += 1;
+            
+            // 🔴 VERY HIGH PRIORITY (3 points)
+            if (result.class === 'tourism') score += 3; // Tourist attractions
+            if (result.class === 'historic') score += 3; // Historic sites
+            
+            // 🟠 HIGH PRIORITY (2 points)
+            if (result.class === 'aerialway') score += 2; // Cable cars, chairlifts
+            if (result.class === 'aeroway') score += 2; // Airports, helipads
+            if (result.class === 'railway') score += 2; // Train stations
+            if (result.class === 'leisure') score += 2; // Parks, stadiums, sports
+            if (result.class === 'natural') score += 2; // Natural features
+            if (result.class === 'amenity') score += 2; // General amenities
+            if (result.class === 'waterway' && ['waterfall', 'dam', 'weir'].includes(result.type)) score += 2; // Waterfalls, dams
+            
+            // 🟡 MEDIUM PRIORITY (1 point)
+            if (result.class === 'shop') score += 1; // Shopping centers, markets
+            if (result.class === 'building') score += 1; // Significant buildings
+            if (result.class === 'man_made') score += 1; // Bridges, towers, lighthouses
+            if (result.class === 'highway' && ['services', 'rest_area'].includes(result.type)) score += 1; // Highway services
+            if (result.class === 'landuse' && ['cemetery', 'military'].includes(result.type)) score += 1; // Cemeteries, military
+            
+            // 🟢 LOW PRIORITY (0.5 points, rounded up)
+            if (result.class === 'power') score += 1; // Power plants
+            if (result.class === 'office' && ['government', 'diplomatic'].includes(result.type)) score += 1; // Government
+            if (result.class === 'military') score += 1; // Military bases
+            if (result.class === 'barrier' && ['city_wall'].includes(result.type)) score += 1; // Historic walls
+            
+            // SPECIAL BONUSES
+            // Stadium bonus (leisure/stadium gets extra points)
+            if (result.class === 'leisure' && result.type === 'stadium') score += 1; // Total: 3 points
+            
+            // Religious sites bonus (very important culturally)
+            if (result.class === 'amenity' && ['place_of_worship', 'monastery'].includes(result.type)) score += 1; // Total: 3 points
+            
+            // Cultural venues bonus
+            if (result.class === 'amenity' && ['theatre', 'cinema', 'arts_centre', 'community_centre'].includes(result.type)) score += 1; // Total: 3 points
+            
+            // Educational institutions bonus
+            if (result.class === 'amenity' && ['university', 'college', 'school', 'library'].includes(result.type)) score += 1; // Total: 3 points
+            
+            // Healthcare bonus
+            if (result.class === 'amenity' && ['hospital', 'clinic'].includes(result.type)) score += 1; // Total: 3 points
+            
+            // Natural wonders bonus
+            if (result.class === 'natural' && ['peak', 'volcano', 'cave', 'hot_spring', 'geyser', 'beach'].includes(result.type)) score += 1; // Total: 3 points
+            
+            // Shopping centers bonus
+            if (result.class === 'shop' && ['mall', 'department_store'].includes(result.type)) score += 1; // Total: 2 points
+            
+            // Significant buildings bonus
+            if (result.class === 'building' && ['cathedral', 'church', 'mosque', 'temple', 'civic', 'stadium', 'train_station'].includes(result.type)) score += 1; // Total: 2 points
+            
+            // Infrastructure bonus
+            if (result.class === 'man_made' && ['bridge', 'tower', 'lighthouse', 'observatory'].includes(result.type)) score += 1; // Total: 2 points
             
             if (score > bestScore) {
               bestScore = score;
@@ -484,6 +667,39 @@ async function updatePOIWithOSMData(poi_id: string, data: any, qualityScore: num
 
   } catch (error) {
     console.error('❌ Error updating POI:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
+async function markPOIAsNotFound(poi_id: string) {
+  try {
+    console.log(`🏷️ Marking POI ${poi_id} as not found in OSM`);
+    
+    const notFoundData = {
+      osm_category: 'not_found',
+      osm_data_quality_score: 0,
+      verification_status: 'unverified',
+      data_sources: ['osm_search_attempted'],
+      osm_last_updated: new Date().toISOString(),
+      osm_import_date: new Date().toISOString()
+    };
+
+    const { error } = await supabase
+      .schema('core')
+      .from('attractions')
+      .update(notFoundData)
+      .eq('id', poi_id);
+
+    if (error) {
+      console.error('❌ Error marking POI as not found:', error);
+      return { success: false, error: error.message };
+    }
+
+    console.log(`✅ POI ${poi_id} marked as not found in OSM`);
+    return { success: true };
+
+  } catch (error) {
+    console.error('❌ Error marking POI as not found:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
@@ -1075,4 +1291,168 @@ function determineMonumentType(nominatim: any, reverse: any): string | null {
   if (tags.historic === 'arch' || tags.man_made === 'arch') return 'arch';
   
   return null;
+}
+
+// ===== VALIDATION FUNCTIONS =====
+
+/**
+ * Checks if the OSM result is obviously wrong (only extreme cases)
+ */
+function isObviouslyWrongType(poiName: string, osmClass: string, osmType: string): boolean {
+  const poiNameLower = poiName.toLowerCase();
+  const category = `${osmClass}/${osmType}`;
+  
+  // ONLY block the most obvious wrong matches
+  const obviouslyWrongMatches = [
+    // Museums should never be cemeteries or prisons
+    { poi: 'museu', forbidden: ['landuse/cemetery', 'amenity/grave_yard', 'amenity/prison'] },
+    { poi: 'museum', forbidden: ['landuse/cemetery', 'amenity/grave_yard', 'amenity/prison'] },
+    
+    // Churches should never be shopping malls
+    { poi: 'igreja', forbidden: ['shop/mall', 'shop/department_store'] },
+    { poi: 'church', forbidden: ['shop/mall', 'shop/department_store'] },
+    
+    // Parks should never be cemeteries
+    { poi: 'parque', forbidden: ['landuse/cemetery', 'amenity/grave_yard'] },
+    { poi: 'park', forbidden: ['landuse/cemetery', 'amenity/grave_yard'] },
+    
+    // Shopping should never be cemeteries or churches
+    { poi: 'shopping', forbidden: ['landuse/cemetery', 'amenity/grave_yard', 'amenity/place_of_worship'] },
+  ];
+  
+  for (const rule of obviouslyWrongMatches) {
+    if (poiNameLower.includes(rule.poi) && rule.forbidden.includes(category)) {
+      return true; // Obviously wrong, reject it
+    }
+  }
+  
+  return false; // Not obviously wrong, allow it
+}
+
+/**
+ * Checks if the OSM result name has reasonable similarity to the POI name (simplified)
+ */
+function hasReasonableNameSimilarity(poiName: string, osmDisplayName: string): boolean {
+  const poiNameLower = poiName.toLowerCase();
+  const osmNameLower = osmDisplayName.toLowerCase();
+  
+  // Extract key words from POI name (remove common words)
+  const poiKeywords = poiNameLower
+    .replace(/\s*\([^)]*\)\s*/g, '') // Remove parentheses
+    .replace(/\s*\[[^\]]*\]\s*/g, '') // Remove brackets
+    .split(/[\s,.-]+/)
+    .filter(word => 
+      word.length > 3 && 
+      !word.match(/^(de|da|do|dos|das|of|the|and|&|em|in|at|centro|center|municipal|nacional|national)$/gi)
+    );
+  
+  // If POI has very few keywords, be more permissive
+  if (poiKeywords.length <= 1) {
+    return true;
+  }
+  
+  // Check if at least one significant keyword appears in OSM result
+  const matchingKeywords = poiKeywords.filter(keyword => 
+    osmNameLower.includes(keyword) || 
+    // Check for partial matches (at least 4 characters)
+    (keyword.length >= 4 && osmNameLower.includes(keyword.substring(0, 4)))
+  );
+  
+  // More permissive: require at least 20% of keywords to match (was 30%)
+  const matchRatio = matchingKeywords.length / poiKeywords.length;
+  return matchRatio >= 0.2;
+}
+
+/**
+ * Checks if POI and OSM result have at least one specific (non-generic) keyword in common
+ * This prevents matching different POIs that share only generic terms
+ */
+function hasSpecificKeywordMatch(poiName: string, osmDisplayName: string): boolean {
+  const poiNameLower = poiName.toLowerCase();
+  const osmNameLower = osmDisplayName.toLowerCase();
+  
+  // Generic words that shouldn't be used for specific matching
+  const genericWords = [
+    // Religious
+    'capela', 'igreja', 'church', 'catedral', 'cathedral', 'basilica', 'mosteiro', 'monastery',
+    'nossa', 'senhora', 'santo', 'santa', 'são', 'saint', 'virgin', 'mary',
+    
+    // Cultural
+    'museu', 'museum', 'centro', 'center', 'cultural', 'casa', 'house', 'memorial',
+    
+    // Sports/Leisure
+    'estádio', 'stadium', 'ginásio', 'gym', 'parque', 'park', 'jardim', 'garden',
+    'clube', 'club', 'campo', 'field',
+    
+    // Commercial
+    'shopping', 'mercado', 'market', 'loja', 'shop', 'store',
+    
+    // Educational
+    'escola', 'school', 'universidade', 'university', 'colégio', 'college', 'instituto', 'institute',
+    
+    // Transportation
+    'estação', 'station', 'terminal', 'aeroporto', 'airport', 'rodoviária',
+    
+    // Government/Civic
+    'prefeitura', 'câmara', 'municipal', 'municipal', 'nacional', 'national',
+    
+    // Common adjectives
+    'grande', 'pequeno', 'novo', 'velho', 'antigo', 'old', 'new', 'big', 'small',
+    'principal', 'central', 'main', 'first', 'segundo', 'second', 'internacional', 'international'
+  ];
+  
+  // Extract specific (non-generic) words from POI name
+  const poiSpecificWords = poiNameLower
+    .replace(/\s*\([^)]*\)\s*/g, '') // Remove parentheses
+    .split(/[\s,.-]+/)
+    .filter(word => 
+      word.length > 3 && 
+      !genericWords.includes(word) &&
+      !word.match(/^(de|da|do|dos|das|of|the|and|&|em|in|at)$/gi)
+    );
+  
+  // If POI has no specific words, be more permissive (rely on general similarity)
+  if (poiSpecificWords.length === 0) {
+    return true;
+  }
+  
+  // Extract specific words from OSM result
+  const osmSpecificWords = osmNameLower
+    .split(/[\s,.-]+/)
+    .filter(word => 
+      word.length > 3 && 
+      !genericWords.includes(word) &&
+      !word.match(/^(de|da|do|dos|das|of|the|and|&|em|in|at)$/gi)
+    );
+  
+  // Check if there's at least one specific word in common
+  const commonSpecificWords = poiSpecificWords.filter(poiWord => 
+    osmSpecificWords.some(osmWord => 
+      osmWord.includes(poiWord) || 
+      poiWord.includes(osmWord) ||
+      // Check for partial matches (at least 4 characters)
+      (poiWord.length >= 4 && osmWord.includes(poiWord.substring(0, 4))) ||
+      (osmWord.length >= 4 && poiWord.includes(osmWord.substring(0, 4)))
+    )
+  );
+  
+  return commonSpecificWords.length > 0;
+}
+
+/**
+ * Calculate distance between two coordinates in meters
+ */
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3; // Earth's radius in meters
+  const φ1 = lat1 * Math.PI/180;
+  const φ2 = lat2 * Math.PI/180;
+  const Δφ = (lat2-lat1) * Math.PI/180;
+  const Δλ = (lon2-lon1) * Math.PI/180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+          Math.cos(φ1) * Math.cos(φ2) *
+          Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c;
 }

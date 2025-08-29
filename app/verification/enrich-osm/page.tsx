@@ -39,11 +39,17 @@ export default function EnrichOSMPage() {
   const [success, setSuccess] = useState<string | null>(null);
   
   // Form state
-  const [country, setCountry] = useState('Brazil');
+  const [country, setCountry] = useState('');
   const [city, setCity] = useState('');
   const [enrichmentType, setEnrichmentType] = useState('unprocessed_only');
-  const [limit, setLimit] = useState(50);
+  const [limit, setLimit] = useState(100);
   const [delayBetweenCalls, setDelayBetweenCalls] = useState(2000); // 2 seconds
+  
+  // New states for dynamic filters
+  const [availableCountries, setAvailableCountries] = useState<Array<{country: string, cityCount: number, totalPOIs: number}>>([]);
+  const [availableCities, setAvailableCities] = useState<string[]>([]);
+  const [isLoadingCountries, setIsLoadingCountries] = useState(false);
+  const [isLoadingCities, setIsLoadingCities] = useState(false);
   
   // Data state
   const [pois, setPois] = useState<POI[]>([]);
@@ -53,65 +59,152 @@ export default function EnrichOSMPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [enrichmentResults, setEnrichmentResults] = useState<EnrichmentResult[]>([]);
 
-  // Fetch POIs based on criteria
+  // Load available countries from database
+  const loadCountries = async () => {
+    setIsLoadingCountries(true);
+    try {
+      const response = await fetch('/api/locations/countries-cities');
+      const result = await response.json();
+      
+      if (result.success) {
+        setAvailableCountries(result.countries);
+        // Set first country as default if none selected
+        if (!country && result.countries.length > 0) {
+          setCountry(result.countries[0].country);
+        }
+      } else {
+        console.error('Failed to load countries:', result.error);
+      }
+    } catch (error) {
+      console.error('Error loading countries:', error);
+    } finally {
+      setIsLoadingCountries(false);
+    }
+  };
+
+  // Load available cities for selected country
+  const loadCities = async (selectedCountry: string) => {
+    if (!selectedCountry) {
+      setAvailableCities([]);
+      return;
+    }
+
+    setIsLoadingCities(true);
+    try {
+      const response = await fetch(`/api/locations/countries-cities?country=${encodeURIComponent(selectedCountry)}`);
+      const result = await response.json();
+      
+      if (result.success) {
+        setAvailableCities(result.cities);
+      } else {
+        console.error('Failed to load cities:', result.error);
+        setAvailableCities([]);
+      }
+    } catch (error) {
+      console.error('Error loading cities:', error);
+      setAvailableCities([]);
+    } finally {
+      setIsLoadingCities(false);
+    }
+  };
+
+  // Fetch POIs based on criteria with pagination support
   const fetchPois = async () => {
+    if (!country) {
+      setError('Please select a country');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     
     try {
-      let query = supabase
-        .schema('core')
-        .from('attractions')
-        .select(`
-          id,
-          name,
-          city,
-          country,
-          google_place_id,
-          osm_category,
-          osm_data_quality_score,
-          heritage_status,
-          unesco_status,
-          pov_quality_score,
-          verification_status
-        `)
-        .eq('country', country)
-        .eq('approved', true)
-        .limit(limit);
+      // Fetch data with pagination to handle >1000 records
+      let allPois: POI[] = [];
+      let hasMore = true;
+      let page = 0;
+      const pageSize = 1000;
+      let totalFetched = 0;
 
-      if (city) {
-        query = query.eq('city', city);
+      while (hasMore && totalFetched < limit) {
+        let query = supabase
+          .schema('core')
+          .from('attractions')
+          .select(`
+            id,
+            name,
+            city,
+            country,
+            google_place_id,
+            osm_category,
+            osm_data_quality_score,
+            heritage_status,
+            unesco_status,
+            pov_quality_score,
+            verification_status
+          `)
+          .eq('country', country)
+          .eq('approved', true)
+          .range(page * pageSize, Math.min((page + 1) * pageSize - 1, limit - 1));
+
+        if (city) {
+          query = query.eq('city', city);
+        }
+
+        // Filter by enrichment type - EXCLUDE already processed POIs
+        if (enrichmentType === 'no_osm_data') {
+          query = query.is('osm_category', null);
+        } else if (enrichmentType === 'low_quality') {
+          query = query.lt('osm_data_quality_score', 70)
+                     .not('osm_category', 'is', null)
+                     .neq('osm_category', 'not_found');
+        } else if (enrichmentType === 'no_heritage') {
+          query = query.is('heritage_status', null)
+                     .not('osm_category', 'is', null)
+                     .neq('osm_category', 'not_found');
+        } else if (enrichmentType === 'no_pov_scores') {
+          query = query.is('pov_quality_score', null)
+                     .not('osm_category', 'is', null)
+                     .neq('osm_category', 'not_found');
+        } else if (enrichmentType === 'all') {
+          query = query.neq('osm_category', 'not_found');
+        } else if (enrichmentType === 'unprocessed_only') {
+          query = query.is('osm_category', null);
+        } else if (enrichmentType === 'not_found') {
+          query = query.eq('osm_category', 'not_found');
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allPois = [...allPois, ...data];
+          totalFetched += data.length;
+          page++;
+          
+          // If we got less than pageSize, we've reached the end
+          if (data.length < pageSize) {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+
+        // Safety check to prevent infinite loops
+        if (page > 20) {
+          hasMore = false;
+        }
       }
 
-      // Filter by enrichment type - EXCLUDE already processed POIs
-      if (enrichmentType === 'no_osm_data') {
-        // POIs sem dados OSM (não processados)
-        query = query.is('osm_category', null);
-      } else if (enrichmentType === 'low_quality') {
-        // POIs com qualidade baixa (já processados mas com dados ruins)
-        query = query.lt('osm_data_quality_score', 70)
-                   .not('osm_category', 'is', null); // Deve ter sido processado
-      } else if (enrichmentType === 'no_heritage') {
-        // POIs sem status patrimonial (já processados mas sem heritage)
-        query = query.is('heritage_status', null)
-                   .not('osm_category', 'is', null); // Deve ter sido processado
-      } else if (enrichmentType === 'no_pov_scores') {
-        // POIs sem scores POV (já processados mas sem scores)
-        query = query.is('pov_quality_score', null)
-                   .not('osm_category', 'is', null); // Deve ter sido processado
-      } else if (enrichmentType === 'all') {
-        // Todos os POIs (incluindo já processados)
-        // Não adiciona filtros extras
-      } else if (enrichmentType === 'unprocessed_only') {
-        // APENAS POIs não processados (sem dados OSM)
-        query = query.is('osm_category', null);
+      // Limit to requested amount
+      const limitedPois = allPois.slice(0, limit);
+      
+      setPois(limitedPois);
+      setTotalCount(limitedPois.length);
+      
+      if (allPois.length >= limit) {
+        console.log(`📊 Found ${allPois.length} POIs, showing first ${limit}`);
       }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      setPois(data || []);
-      setTotalCount(data?.length || 0);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -123,6 +216,25 @@ export default function EnrichOSMPage() {
     e.preventDefault();
     await fetchPois();
   };
+
+  // Handle country change
+  const handleCountryChange = (newCountry: string) => {
+    setCountry(newCountry);
+    setCity(''); // Reset city when country changes
+    loadCities(newCountry);
+  };
+
+  // Load countries on component mount
+  useEffect(() => {
+    loadCountries();
+  }, []);
+
+  // Load cities when country changes
+  useEffect(() => {
+    if (country) {
+      loadCities(country);
+    }
+  }, [country]);
 
   // Process selected POIs with OSM enrichment
   const processSelectedPois = async () => {
@@ -236,6 +348,15 @@ export default function EnrichOSMPage() {
 
   // Get enrichment status for a POI
   const getEnrichmentStatus = (poi: POI) => {
+    if (poi.osm_category === 'not_found') {
+      return { 
+        status: 'not_found', 
+        label: 'Not Found', 
+        color: 'bg-gray-100 text-gray-800',
+        description: 'Não encontrada no OSM'
+      };
+    }
+    
     if (!poi.osm_category) {
       return { 
         status: 'no_data', 
@@ -291,35 +412,53 @@ export default function EnrichOSMPage() {
               <select
                 id="country"
                 value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                disabled={isLoading}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
+                onChange={(e) => handleCountryChange(e.target.value)}
+                disabled={isLoading || isLoadingCountries}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue disabled:opacity-50"
               >
-                <option value="Brazil">Brazil</option>
-                <option value="Spain">Spain</option>
-                <option value="United States">United States</option>
-                <option value="Ireland">Ireland</option>
-                <option value="Mexico">Mexico</option>
-                <option value="Argentina">Argentina</option>
-                <option value="Chile">Chile</option>
-                <option value="Colombia">Colombia</option>
-                <option value="Peru">Peru</option>
+                <option value="">
+                  {isLoadingCountries ? 'Loading countries...' : 'Select a country'}
+                </option>
+                {availableCountries.map((countryData) => (
+                  <option key={countryData.country} value={countryData.country}>
+                    {countryData.country} ({countryData.totalPOIs} POIs, {countryData.cityCount} cities)
+                  </option>
+                ))}
               </select>
+              {availableCountries.length > 0 && (
+                <div className="text-xs text-gray-500">
+                  📊 {availableCountries.length} countries available with {availableCountries.reduce((sum, c) => sum + c.totalPOIs, 0)} total POIs
+                </div>
+              )}
             </div>
             
             <div className="space-y-2">
               <label htmlFor="city" className="block text-sm font-medium text-gray-700">
                 City (Optional)
               </label>
-              <input
+              <select
                 id="city"
-                type="text"
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
-                disabled={isLoading}
-                placeholder="Leave empty for all cities"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
-              />
+                disabled={isLoading || isLoadingCities || !country}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue disabled:opacity-50"
+              >
+                <option value="">
+                  {!country ? 'Select a country first' : 
+                   isLoadingCities ? 'Loading cities...' : 
+                   'All cities'}
+                </option>
+                {availableCities.map((cityName) => (
+                  <option key={cityName} value={cityName}>
+                    {cityName}
+                  </option>
+                ))}
+              </select>
+              {country && availableCities.length > 0 && (
+                <div className="text-xs text-gray-500">
+                  🏙️ {availableCities.length} cities available in {country}
+                </div>
+              )}
             </div>
             
             <div className="space-y-2">
@@ -338,6 +477,7 @@ export default function EnrichOSMPage() {
                 <option value="low_quality">Low Quality OSM Data (&lt;70%)</option>
                 <option value="no_heritage">No Heritage Status</option>
                 <option value="no_pov_scores">No POV Quality Scores</option>
+                <option value="not_found">Not Found in OSM</option>
                 <option value="all">All POIs (Including Processed)</option>
               </select>
               
@@ -358,6 +498,9 @@ export default function EnrichOSMPage() {
                 {enrichmentType === 'no_pov_scores' && (
                   <span>🔍 Busca POIs já processados mas sem scores de POV</span>
                 )}
+                {enrichmentType === 'not_found' && (
+                  <span>🔍 Busca POIs marcadas como não encontradas no OSM</span>
+                )}
                 {enrichmentType === 'all' && (
                   <span>🔍 Busca todos os POIs (incluindo já processados)</span>
                 )}
@@ -372,12 +515,15 @@ export default function EnrichOSMPage() {
                 id="limit"
                 type="number"
                 min={1}
-                max={1000}
+                max={10000}
                 value={limit}
                 onChange={(e) => setLimit(Number(e.target.value))}
                 disabled={isLoading}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
               />
+              <div className="text-xs text-gray-500">
+                ⚡ System automatically handles pagination for large datasets (&gt;1000 records)
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -402,16 +548,24 @@ export default function EnrichOSMPage() {
             
             <button
               type="submit"
-              disabled={isLoading}
-              className="w-full bg-tuggi-blue text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              disabled={isLoading || !country}
+              className="w-full bg-tuggi-blue text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <>
                   <Loader2 className="inline-block mr-2 h-4 w-4 animate-spin" />
                   Searching...
                 </>
+              ) : !country ? (
+                <>
+                  <Database className="inline-block mr-2 h-4 w-4" />
+                  Select Country First
+                </>
               ) : (
-                'Search POIs'
+                <>
+                  <Database className="inline-block mr-2 h-4 w-4" />
+                  Search POIs
+                </>
               )}
             </button>
           </form>
@@ -510,23 +664,26 @@ export default function EnrichOSMPage() {
                 const isProcessing = processingQueue.includes(poi.id);
                 const result = enrichmentResults.find(r => r.poi_id === poi.id);
                 
+                const isNotAllowed = enrichmentStatus.status === 'not_found';
+                
                 return (
                   <div
                     key={poi.id}
                     className={cn(
-                      "flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors",
+                      "flex items-center gap-3 p-3 border rounded-lg transition-colors",
                       isSelected 
                         ? "border-tuggi-blue bg-blue-50" 
                         : "border-gray-200 hover:border-gray-300",
-                      isProcessing && "opacity-50"
+                      isProcessing && "opacity-50",
+                      isNotAllowed && "opacity-60 cursor-not-allowed"
                     )}
-                    onClick={() => !isProcessing && togglePoiSelection(poi.id)}
+                    onClick={() => !isProcessing && !isNotAllowed && togglePoiSelection(poi.id)}
                   >
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      onChange={() => !isProcessing && togglePoiSelection(poi.id)}
-                      disabled={isProcessing}
+                      onChange={() => !isProcessing && !isNotAllowed && togglePoiSelection(poi.id)}
+                      disabled={isProcessing || isNotAllowed}
                       className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue"
                     />
                     

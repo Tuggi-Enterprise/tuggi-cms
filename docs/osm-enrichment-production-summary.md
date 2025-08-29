@@ -5,15 +5,22 @@
 - **Score System**: Nativo do OSM (`importance`) + complementos
 - **Busca Multilíngue**: Espanhol ↔ Catalão ↔ Inglês ↔ Português
 - **APIs Integradas**: Nominatim + Reverse Geocoding + Overpass + Open-Elevation
-- **Taxa de Sucesso**: ~95% em POIs internacionais
+- **Taxa de Sucesso**: ~95% em POIs internacionais com sistema de validação anti-falsos positivos
 
 ## 🚀 Arquivos de Produção
 
 ### Backend
 - **`app/api/pois/enrich-osm/route.ts`** - API principal de enriquecimento
-  - 1,079 linhas
-  - Busca robusta com múltiplas variações de nome
+  - 1,118 linhas
+  - Busca robusta com múltiplas variações de nome e limpeza inteligente (remove parênteses, siglas, etc.)
+  - **Sistema de validação em camadas**: distância geográfica + palavras-chave específicas + casos obviamente errados
   - Score baseado no `importance` nativo do OSM
+  - Sistema de scoring abrangente para 17+ categorias OSM:
+    - 🔴 **Prioridade Máxima** (+3): `tourism`, `historic` 
+    - 🟠 **Alta Prioridade** (+2): `aerialway`, `aeroway`, `railway`, `leisure`, `natural`, `amenity`, `waterway`
+    - 🟡 **Média Prioridade** (+1): `shop`, `building`, `man_made`, `landuse`, `highway`
+    - 🟢 **Baixa Prioridade** (+1): `power`, `office`, `military`, `barrier`
+    - 🎯 **Bônus Especiais** (+1): Estádios, locais religiosos, centros culturais, universidades, hospitais, maravilhas naturais
   - Integração com 4 APIs diferentes
   - Sistema de rate limiting
 
@@ -79,33 +86,53 @@
 ### ✅ Metadados (3/3)
 - `verification_status`, `data_sources`, `osm_import_date`
 
-## 🔧 Funcionalidades Principais
+## 🎯 **Funcionalidades Principais**
 
-### 1. Busca Robusta Multilíngue
-```typescript
-// Traduções automáticas para Barcelona
-"Antiguo monasterio de San Pau del Campo" → "Monestir de Sant Pau del Camp"
-"Plaza de Gaudí" → "Plaça de Gaudí" 
-"Iglesia de San Medir" → "Església de Sant Medir"
+### **✅ Enriquecimento Automático**
+- **APIs Integradas**: Nominatim, Reverse Geocoding, Overpass, Open-Elevation
+- **Busca Multilíngue**: 4 idiomas (ES/CA/EN/PT) + variações automáticas
+- **Rate Limiting**: Delays configuráveis entre chamadas (padrão: 2000ms)
+- **Score Nativo**: Usa `importance` do OSM + complementos de qualidade
+
+### **✅ Interface CMS Intuitiva**
+- **Busca por País/Cidade**: Filtros organizados e eficientes
+- **Progresso em Tempo Real**: Barra de progresso e contadores
+- **Seleção Múltipla**: Processamento em lote com checkboxes
+- **Resultados Detalhados**: Status individual de cada POI
+
+### **✅ Sistema Anti-Reprocessamento**
+- **Marcação "Not Found"**: POIs não encontradas são marcadas como `osm_category: 'not_found'`
+- **Filtros Inteligentes**: Busca exclui automaticamente POIs já processadas
+- **Status Visual**: Interface mostra claramente o estado de cada POI
+- **Prevenção de Duplicação**: Evita reprocessamento desnecessário
+
+## 🚫 **Sistema Anti-Reprocessamento**
+
+### **Como Funciona:**
+1. **Tentativa de Enriquecimento**: Sistema tenta encontrar POI no OSM
+2. **Falha na Busca**: Se nenhum dado é encontrado (Nominatim + Reverse)
+3. **Marcação Automática**: POI é marcada como `osm_category: 'not_found'`
+4. **Prevenção Futura**: POI não aparece mais em buscas de "não processadas"
+
+### **Campos Atualizados:**
+```sql
+osm_category = 'not_found'
+osm_data_quality_score = 0
+verification_status = 'unverified'
+data_sources = ['osm_search_attempted']
+osm_last_updated = NOW()
+osm_import_date = NOW()
 ```
 
-### 2. Score Nativo do OSM
-```typescript
-// Usa importance (0.0-1.0) do OSM como base
-const score = osmImportance ? Math.round(osmImportance * 100) : 30;
-// Complementa com dados específicos (heritage, tags, etc.)
-```
+### **Filtros de Busca:**
+- **"Unprocessed Only"**: `osm_category IS NULL` (exclui "not_found")
+- **"Not Found"**: `osm_category = 'not_found'` (nova opção)
+- **"All POIs"**: `osm_category != 'not_found'` (exclui "not_found")
 
-### 3. Múltiplas APIs Integradas
-- **Nominatim**: Busca principal e geocoding
-- **Reverse Geocoding**: Dados por coordenadas  
-- **Overpass**: Contexto e infraestrutura próxima
-- **Open-Elevation**: Dados de elevação precisos
-
-### 4. Rate Limiting Inteligente
-- 1 segundo entre chamadas Nominatim/Reverse
-- Delays configuráveis no CMS
-- Tratamento de erros 429/500
+### **Interface Visual:**
+- **Status "Not Found"**: Tag cinza com descrição "Não encontrada no OSM"
+- **Checkbox Desabilitado**: POIs "not_found" não podem ser selecionadas
+- **Cursor "Not Allowed"**: Indica visualmente que não é processável
 
 ## 📈 Resultados por Tipo de POI
 
