@@ -102,10 +102,122 @@ async function fetchOSMData(name: string, city: string, country: string): Promis
       searchTerms.push('Arena Morumbi, São Paulo, Brazil');
     }
     
-    // Add simplified variations
+    // Add multiple language variations for international cities
+    if (city.toLowerCase() === 'barcelona') {
+      // Spanish → Catalan translations
+      const spanishToCatalan = [
+        { es: /Plaza de/gi, ca: 'Plaça de' },
+        { es: /Plaza/gi, ca: 'Plaça' },
+        { es: /Iglesia de/gi, ca: 'Església de' },
+        { es: /Iglesia/gi, ca: 'Església' },
+        { es: /Antiguo monasterio de/gi, ca: 'Monestir de' },
+        { es: /Monasterio de/gi, ca: 'Monestir de' },
+        { es: /San /gi, ca: 'Sant ' },
+        { es: /Santa /gi, ca: 'Santa ' },
+        { es: /del Campo/gi, ca: 'del Camp' },
+        { es: /Museo/gi, ca: 'Museu' },
+        { es: /Olímpico/gi, ca: 'Olímpic' },
+        { es: /y del/gi, ca: 'i de l\'' },
+        { es: /Deporte/gi, ca: 'Esport' }
+      ];
+      
+      let catalanName = name;
+      spanishToCatalan.forEach(({ es, ca }) => {
+        catalanName = catalanName.replace(es, ca);
+      });
+      
+      if (catalanName !== name) {
+        searchTerms.push(`${catalanName}, ${city}, ${country}`);
+      }
+      
+      // Add English variations
+      let englishName = name;
+      englishName = englishName.replace(/Plaza de/gi, 'Square of');
+      englishName = englishName.replace(/Plaza/gi, 'Square');
+      englishName = englishName.replace(/Iglesia de/gi, 'Church of');
+      englishName = englishName.replace(/Iglesia/gi, 'Church');
+      englishName = englishName.replace(/Museo/gi, 'Museum');
+      englishName = englishName.replace(/Antiguo/gi, 'Old');
+      englishName = englishName.replace(/monasterio/gi, 'monastery');
+      
+      if (englishName !== name) {
+        searchTerms.push(`${englishName}, ${city}, ${country}`);
+      }
+      
+      // Specific known translations and variations
+      if (name.includes('Plaza de Gaudí') || name.includes('Gaudí')) {
+        searchTerms.push('Plaça de Gaudí, Barcelona, Spain');
+        searchTerms.push('Gaudí Square, Barcelona, Spain');
+        searchTerms.push('Casa Museu Gaudí, Barcelona, Spain');
+        searchTerms.push('Gaudí House Museum, Barcelona, Spain');
+        searchTerms.push('Park Güell Gaudí, Barcelona, Spain');
+      }
+      
+      if (name.includes('San Pau del Campo') || name.includes('Sant Pau')) {
+        searchTerms.push('Sant Pau del Camp, Barcelona, Spain');
+        searchTerms.push('Església de Sant Pau del Camp, Barcelona, Spain');
+        searchTerms.push('Church of Sant Pau del Camp, Barcelona, Spain');
+        searchTerms.push('Saint Paul of the Fields, Barcelona, Spain');
+      }
+      
+      if (name.includes('San Medir') || name.includes('Sant Medir')) {
+        searchTerms.push('Sant Medir, Barcelona, Spain');
+        searchTerms.push('Església de Sant Medir, Barcelona, Spain');
+        searchTerms.push('Church of Sant Medir, Barcelona, Spain');
+        searchTerms.push('Saint Medir, Barcelona, Spain');
+      }
+      
+      if (name.includes('Olímpico') || name.includes('Olympic')) {
+        searchTerms.push('Museu Olímpic, Barcelona, Spain');
+        searchTerms.push('Olympic Museum, Barcelona, Spain');
+        searchTerms.push('Joan Antoni Samaranch, Barcelona, Spain');
+      }
+    }
+    
+    // Add generic multi-language variations for any location
+    const commonTranslations = [
+      // Portuguese variations
+      { from: /Igreja de/gi, to: 'Church of' },
+      { from: /Museu de/gi, to: 'Museum of' },
+      { from: /Estádio/gi, to: 'Stadium' },
+      { from: /Parque/gi, to: 'Park' },
+      { from: /Centro/gi, to: 'Center' },
+      
+      // Spanish variations
+      { from: /Catedral de/gi, to: 'Cathedral of' },
+      { from: /Basílica de/gi, to: 'Basilica of' },
+      { from: /Torre de/gi, to: 'Tower of' },
+      { from: /Palacio de/gi, to: 'Palace of' },
+      
+      // French variations (for international POIs)
+      { from: /Église de/gi, to: 'Church of' },
+      { from: /Musée de/gi, to: 'Museum of' },
+      { from: /Cathédrale de/gi, to: 'Cathedral of' }
+    ];
+    
+    // Apply generic translations
+    let translatedName = name;
+    commonTranslations.forEach(({ from, to }) => {
+      const newName = translatedName.replace(from, to);
+      if (newName !== translatedName) {
+        searchTerms.push(`${newName}, ${city}, ${country}`);
+        translatedName = newName;
+      }
+    });
+    
+    // Add simplified variations (keep most important words)
     const words = name.split(' ').filter(word => word.length > 3);
     if (words.length > 1) {
       searchTerms.push(`${words[0]} ${words[words.length - 1]}, ${city}, ${country}`);
+    }
+    
+    // Add variations without common prefixes
+    const withoutPrefixes = name
+      .replace(/^(Antiguo|Old|Igreja de|Church of|Museu de|Museum of|Catedral de|Cathedral of)\s+/gi, '')
+      .trim();
+    
+    if (withoutPrefixes !== name && withoutPrefixes.length > 3) {
+      searchTerms.push(`${withoutPrefixes}, ${city}, ${country}`);
     }
     
     // Try each search term
@@ -238,8 +350,7 @@ async function extractOSMData(osmData: OSMData, name: string, city: string, coun
       address: nominatim?.address || reverse?.address,
       type: nominatim?.type || reverse?.type
     },
-    osm_geometry: nominatim?.geojson || (nominatim?.lat && nominatim?.lon ? 
-      `POINT(${nominatim.lon} ${nominatim.lat})` : null),
+    osm_geometry: nominatim?.geojson || null, // Only use proper polygon data from OSM
     osm_last_updated: new Date().toISOString(),
 
     // Geographic data
@@ -286,6 +397,13 @@ async function extractOSMData(osmData: OSMData, name: string, city: string, coun
     roof_colour: extractRoofColour(nominatim, reverse),
     building_material: extractBuildingMaterial(nominatim, reverse),
 
+    // OSM Links e referências
+    osm_wikidata_id: extractWikidataId(nominatim, reverse),
+    osm_wikipedia_url: extractWikipediaUrl(nominatim, reverse),
+    contact_phone: extractContactPhone(nominatim, reverse),
+    contact_email: extractContactEmail(nominatim, reverse),
+    operator_name: extractOperatorName(nominatim, reverse),
+    
     // Metadados
     verification_status: 'pending',
     data_sources: ['osm_nominatim', 'osm_reverse'],
@@ -480,6 +598,49 @@ function extractArchitect(nominatim: any, reverse: any): string | null {
   const tags = { ...nominatim?.extratags, ...reverse?.extratags };
   
   return tags.architect || tags['architect:name'] || tags['architect:full_name'] || null;
+}
+
+// Helper functions for extracting OSM reference data
+function extractWikidataId(nominatim: any, reverse: any): string | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  return tags.wikidata || tags['subject:wikidata'] || null;
+}
+
+function extractWikipediaUrl(nominatim: any, reverse: any): string | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  if (tags.wikipedia) {
+    // Convert "pt:Cristo Redentor" to full URL
+    const [lang, title] = tags.wikipedia.split(':');
+    if (lang && title) {
+      return `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title.replace(' ', '_'))}`;
+    }
+  }
+  
+  if (tags['wikipedia:en']) {
+    return `https://en.wikipedia.org/wiki/${encodeURIComponent(tags['wikipedia:en'].replace(' ', '_'))}`;
+  }
+  
+  return null;
+}
+
+function extractContactPhone(nominatim: any, reverse: any): string | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  return tags.phone || tags['contact:phone'] || tags['phone:mobile'] || null;
+}
+
+function extractContactEmail(nominatim: any, reverse: any): string | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  return tags.email || tags['contact:email'] || null;
+}
+
+function extractOperatorName(nominatim: any, reverse: any): string | null {
+  const tags = { ...nominatim?.extratags, ...reverse?.extratags };
+  
+  return tags.operator || tags['operator:name'] || tags.owner || tags.ownership || null;
 }
 
 function extractCompletionYear(nominatim: any, reverse: any): number | null {
@@ -883,11 +1044,23 @@ function determineParkType(nominatim: any, reverse: any): string | null {
 function determineMonumentType(nominatim: any, reverse: any): string | null {
   const tags = { ...nominatim?.extratags, ...reverse?.extratags };
   
+  // Check for specific monument types first
+  if (tags['monument:type']) {
+    return tags['monument:type']; // Use exact OSM value
+  }
+  
   // Check for monument indicators
   if (tags.historic === 'monument' || tags.man_made === 'monument') {
-    if (tags['monument:type'] === 'statue') return 'statue';
-    if (tags['monument:type'] === 'memorial') return 'memorial';
-    if (tags.man_made === 'monument') return 'statue'; // Most monuments are statues
+    // Check by name for specific types
+    const name = (tags.name || '').toLowerCase();
+    if (name.includes('arc') || name.includes('arco')) return 'arch';
+    if (name.includes('obelisk') || name.includes('obelisco')) return 'obelisk';
+    if (name.includes('memorial')) return 'memorial';
+    if (name.includes('statue') || name.includes('estátua')) return 'statue';
+    if (name.includes('tower') || name.includes('torre')) return 'tower';
+    if (name.includes('fountain') || name.includes('fonte')) return 'fountain';
+    
+    // Return generic monument if no specific type found
     return 'monument';
   }
   
@@ -899,6 +1072,7 @@ function determineMonumentType(nominatim: any, reverse: any): string | null {
   // Check for specific structures
   if (tags.man_made === 'tower') return 'tower';
   if (tags.historic === 'memorial') return 'memorial';
+  if (tags.historic === 'arch' || tags.man_made === 'arch') return 'arch';
   
   return null;
 }
