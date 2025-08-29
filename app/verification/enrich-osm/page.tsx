@@ -18,6 +18,7 @@ interface POI {
   unesco_status?: string;
   pov_quality_score?: number;
   verification_status?: string;
+  approved?: boolean;
 }
 
 interface EnrichmentResult {
@@ -141,10 +142,10 @@ export default function EnrichOSMPage() {
             heritage_status,
             unesco_status,
             pov_quality_score,
-            verification_status
+            verification_status,
+            approved
           `)
           .eq('country', country)
-          .eq('approved', true)
           .range(page * pageSize, Math.min((page + 1) * pageSize - 1, limit - 1));
 
         if (city) {
@@ -692,6 +693,11 @@ export default function EnrichOSMPage() {
                       <p className="text-sm text-gray-500 flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
                         {poi.city}, {poi.country}
+                        {poi.approved === false && (
+                          <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded ml-2">
+                            Not Approved
+                          </span>
+                        )}
                       </p>
                       
                       <div className="flex items-center gap-2 mt-1">

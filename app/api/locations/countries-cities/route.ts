@@ -19,7 +19,6 @@ export async function GET(request: NextRequest) {
         .select('city')
         .eq('country', country)
         .not('city', 'is', null)
-        .eq('approved', true)
         .order('city');
 
       if (error) {
@@ -55,7 +54,6 @@ export async function GET(request: NextRequest) {
           .select('country, city')
           .not('country', 'is', null)
           .not('city', 'is', null)
-          .eq('approved', true)
           .range(page * pageSize, (page + 1) * pageSize - 1);
 
         if (error) {

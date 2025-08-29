@@ -25,7 +25,23 @@ interface BoundaryResult {
     confidence: number
     distance_from_poi: number
     expected_bearing: number
+    radius_meters: number
   }>
+  poi_confidence_score?: {
+    overall_score: number
+    boundary_quality: number
+    trigger_points_quality: number
+    data_source_reliability: number
+    coverage_completeness: number
+    factors: {
+      boundary_source: string
+      boundary_precision: number
+      tp_count: number
+      tp_distribution: number
+      visibility_coverage: number
+      landmark_bonus: number
+    }
+  }
   error?: string
 }
 
@@ -98,7 +114,7 @@ export async function POST(request: NextRequest) {
       console.log('✅ Found precise boundary from OSM Nominatim')
       
       // Generate street-based trigger points with landmark info
-      const streetTriggerPoints = await generateStreetBasedTriggerPoints(
+      let streetTriggerPoints = await generateStreetBasedTriggerPoints(
         'boundary' in nameSearchResult ? nameSearchResult.boundary : null!, 
         poi_lat, 
         poi_lng, 
@@ -106,11 +122,45 @@ export async function POST(request: NextRequest) {
         landmarkInfo
       )
       
+      // If no very close TPs were found (all > 80m), supplement with immediate streets like fallback system
+      const veryCloseTPs = streetTriggerPoints.filter(tp => tp.distance_from_poi <= 80)
+      if (veryCloseTPs.length === 0) {
+        console.log(`⚠️ No very close TPs found (all > 80m) - supplementing with immediate street analysis`)
+        
+        try {
+          const immediateStreets = await findImmediateStreets(poi_lat, poi_lng)
+          if (immediateStreets && immediateStreets.length > 0) {
+            const immediateTPs = await generateDirectionalTriggerPoints(poi_lat, poi_lng, immediateStreets)
+            
+            // Mark these as supplementary and merge with existing TPs
+            const supplementaryTPs = immediateTPs.map(tp => ({
+              ...tp,
+              reasoning: tp.reasoning + ' (supplementary close TP)',
+              type: tp.distance_from_poi <= 50 ? 'primary' : 'secondary'
+            }))
+            
+            streetTriggerPoints = [...supplementaryTPs, ...streetTriggerPoints]
+            console.log(`✅ Added ${supplementaryTPs.length} supplementary close TPs`)
+          }
+        } catch (error) {
+          console.log(`⚠️ Could not add supplementary TPs: ${error}`)
+        }
+      }
+      
+      // Calculate POI confidence score
+      const poiConfidenceScore = calculatePOIConfidenceScore(
+        'boundary' in nameSearchResult ? nameSearchResult.boundary : null,
+        streetTriggerPoints,
+        'osm_nominatim',
+        landmarkInfo
+      )
+      
       return NextResponse.json({
         success: true,
         boundary: 'boundary' in nameSearchResult ? nameSearchResult.boundary : null!,
         trigger_points: streetTriggerPoints,
-        source: 'osm_nominatim'
+        source: 'osm_nominatim',
+        poi_confidence_score: poiConfidenceScore
       } as BoundaryResult)
     }
 
@@ -124,6 +174,14 @@ export async function POST(request: NextRequest) {
       if (fallbackResult.success && fallbackResult.boundary && fallbackResult.trigger_points) {
         console.log(`✅ Created fallback boundary and ${fallbackResult.trigger_points.length} trigger points from nearby streets`)
         
+        // Calculate POI confidence score
+        const poiConfidenceScore = calculatePOIConfidenceScore(
+          fallbackResult.boundary,
+          fallbackResult.trigger_points,
+          'fallback_street_analysis',
+          landmarkInfo
+        )
+        
         return NextResponse.json({
           success: true,
           boundary: {
@@ -133,7 +191,8 @@ export async function POST(request: NextRequest) {
           trigger_points: fallbackResult.trigger_points,
           source: 'fallback_street_analysis',
           poi_name: poi_name,
-          note: 'POI not found in OSM - generated boundary from nearby street analysis'
+          note: 'POI not found in OSM - generated boundary from nearby street analysis',
+          poi_confidence_score: poiConfidenceScore
         } as BoundaryResult)
       }
       
@@ -164,11 +223,20 @@ export async function POST(request: NextRequest) {
         landmarkInfo
       )
       
+      // Calculate POI confidence score
+      const poiConfidenceScore = calculatePOIConfidenceScore(
+        nearbyFeaturesResult.boundary,
+        streetTriggerPoints,
+        'osm_overpass',
+        landmarkInfo
+      )
+      
       return NextResponse.json({
         success: true,
         boundary: nearbyFeaturesResult.boundary,
         trigger_points: streetTriggerPoints,
-        source: 'osm_overpass'
+        source: 'osm_overpass',
+        poi_confidence_score: poiConfidenceScore
       } as BoundaryResult)
     }
 
@@ -178,10 +246,19 @@ export async function POST(request: NextRequest) {
       console.log('✅ Found boundary from OSM reverse geocoding')
       const triggerPoints = await generateOptimalTriggerPoints(reverseGeoResult.boundary, poi_lat, poi_lng, poi_name)
       
+      // Calculate POI confidence score
+      const poiConfidenceScore = calculatePOIConfidenceScore(
+        reverseGeoResult.boundary,
+        triggerPoints,
+        'osm_reverse_geocoding',
+        landmarkInfo
+      )
+      
       return NextResponse.json({
         success: true,
         boundary: reverseGeoResult.boundary,
-        trigger_points: triggerPoints
+        trigger_points: triggerPoints,
+        poi_confidence_score: poiConfidenceScore
       } as BoundaryResult)
     }
 
@@ -190,10 +267,19 @@ export async function POST(request: NextRequest) {
     const estimatedBoundary = createEstimatedBoundary(poi_lat, poi_lng, poi_name)
     const triggerPoints = await generateOptimalTriggerPoints(estimatedBoundary, poi_lat, poi_lng, poi_name)
 
+    // Calculate POI confidence score
+    const poiConfidenceScore = calculatePOIConfidenceScore(
+      estimatedBoundary,
+      triggerPoints,
+      'estimated_boundary',
+      landmarkInfo
+    )
+    
     return NextResponse.json({
       success: true,
       boundary: estimatedBoundary,
-      trigger_points: triggerPoints
+      trigger_points: triggerPoints,
+      poi_confidence_score: poiConfidenceScore
     } as BoundaryResult)
 
   } catch (error) {
@@ -779,7 +865,8 @@ async function generateOptimalTriggerPoints(boundary: any, poiLat: number, poiLn
       reasoning: `Ponto estratégico ${i + 1} baseado na fronteira real do OSM`,
       confidence: 0.9,
       distance_from_poi: distance,
-      expected_bearing: bearing
+      expected_bearing: bearing,
+      radius_meters: 20
     })
   }
 
@@ -798,7 +885,8 @@ async function generateOptimalTriggerPoints(boundary: any, poiLat: number, poiLn
       reasoning: `Ponto estratégico de canto ${index + 1} - máxima visibilidade`,
       confidence: 0.95,
       distance_from_poi: distance,
-      expected_bearing: bearing
+      expected_bearing: bearing,
+      radius_meters: 20
     })
   })
 
@@ -1035,7 +1123,18 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
                           streetName.toLowerCase().includes('tunnel') ||
                           streetName.toLowerCase().includes('viaduto subterrâneo')
           
-          const isMinDistance = distance >= 80 // At least 80m from POI center  
+          // Dynamic minimum distance based on POI type and highway classification
+          let minDistance = 25 // Default to close TPs for better urban coverage
+          
+          // Only use distant TPs for very large areas or landmarks
+          if (landmark.isHighVisibility) {
+            minDistance = 80 // Keep distant TPs for landmarks
+            console.log(`🗻 High visibility landmark - using distant TPs (min: ${minDistance}m)`)
+          } else {
+            console.log(`🏢 Regular POI - using close TPs (min: ${minDistance}m)`)
+          }
+          
+          const isMinDistance = distance >= minDistance
           // Use dynamic max distance based on landmark info
           const maxSearchDistance = landmark.isHighVisibility ? landmark.maxRange : 1000
           const isMaxDistance = distance <= maxSearchDistance
@@ -1184,6 +1283,7 @@ async function findStrategicPointsOnStreet(street: any, poiLat: number, poiLng: 
       confidence: street.confidence * (hasVisibility ? 1.0 : 0.7),
       distance_from_poi: distance,
       expected_bearing: bearing,
+      radius_meters: 20,
       street_name: street.name,
       highway_type: street.highway_type
     })
@@ -1205,6 +1305,7 @@ async function findStrategicPointsOnStreet(street: any, poiLat: number, poiLng: 
         confidence: street.confidence * 0.9,
         distance_from_poi: intDistance,
         expected_bearing: intBearing,
+        radius_meters: 20,
         street_name: street.name,
         highway_type: street.highway_type
       })
@@ -1230,6 +1331,7 @@ async function findStrategicPointsOnStreet(street: any, poiLat: number, poiLng: 
           confidence: street.confidence * 0.8,
           distance_from_poi: intDistance,
           expected_bearing: intBearing,
+          radius_meters: 20,
           street_name: street.name,
           highway_type: street.highway_type
         })
@@ -1935,27 +2037,48 @@ async function generateDirectionalTriggerPoints(poiLat: number, poiLng: number, 
     { name: 'NorthWest', bearing: 315, range: [292.5, 337.5] }
   ]
   
-  console.log(`🧭 Analyzing streets in cardinal directions...`)
+  console.log(`🧭 Analyzing streets in cardinal directions with frontal view priority...`)
   
   for (const direction of directions) {
     let bestStreet = null
+    let bestScore = 0
     let minDistance = Infinity
     
-    // Find closest street in this direction
+    // Find best street in this direction (prioritizing frontal streets)
     for (const street of streets) {
       const bearing = calculateBearing(poiLat, poiLng, street.closestPoint.lat, street.closestPoint.lng)
       
       // Check if street is in this cardinal direction
       const isInDirection = isInBearingRange(bearing, [direction.range[0], direction.range[1]])
       
-      if (isInDirection && street.distance < minDistance) {
-        minDistance = street.distance
-        bestStreet = street
+      if (isInDirection && street.distance >= 25 && street.distance <= 80) {
+        // Validate if this street offers frontal view of POI
+        const frontalView = validateFrontalStreetView(street, poiLat, poiLng)
+        
+        // Calculate combined score: frontal view score + distance factor
+        let combinedScore = frontalView.score
+        
+        // Distance factor (closer is better, but not too close)
+        const distanceScore = street.distance <= 40 ? 1.0 : Math.max(0.5, 1.0 - (street.distance - 40) / 40)
+        combinedScore = (frontalView.score * 0.7) + (distanceScore * 0.3)
+        
+        console.log(`📊 ${street.name}: frontal=${frontalView.isFrontal}, score=${combinedScore.toFixed(2)}, distance=${street.distance.toFixed(1)}m`)
+        
+        // Select street with best combined score, or closest if no frontal streets
+        if (frontalView.isFrontal && combinedScore > bestScore) {
+          bestScore = combinedScore
+          bestStreet = street
+          minDistance = street.distance
+        } else if (!bestStreet && street.distance < minDistance) {
+          // Fallback to closest street if no frontal streets found
+          minDistance = street.distance
+          bestStreet = street
+        }
       }
     }
     
-    // Add trigger point for this direction if street found
-          if (bestStreet && minDistance <= 60) { // Expanded to 60m for better POV streets
+    // Add trigger point for this direction if street found (minimum 25m to avoid placing inside POI)
+          if (bestStreet && minDistance >= 25 && minDistance <= 80) { // Ensure TPs are outside POI boundary
       // Find optimal point on the street (not just closest point)
       console.log(`🔧 Calling findOptimalPointOnStreet for ${bestStreet.name}`)
       const optimalPoint = findOptimalPointOnStreet(bestStreet, poiLat, poiLng)
@@ -1966,11 +2089,12 @@ async function generateDirectionalTriggerPoints(poiLat: number, poiLng: number, 
       triggerPoints.push({
         lat: optimalPoint.lat,
         lng: optimalPoint.lng,
-        type: optimalDistance <= 20 ? 'primary' : (optimalDistance <= 40 ? 'secondary' : 'fallback'),
-        reasoning: `Optimal walking point on ${bestStreet.name} in ${direction.name} direction`,
+        type: optimalDistance >= 25 && optimalDistance <= 35 ? 'primary' : (optimalDistance <= 50 ? 'secondary' : 'fallback'),
+        reasoning: `Optimal walking point on ${bestStreet.name} in ${direction.name} direction${bestScore > 0 ? ' (frontal street)' : ''}`,
         confidence: confidence,
         distance_from_poi: optimalDistance,
         expected_bearing: calculateBearing(optimalPoint.lat, optimalPoint.lng, poiLat, poiLng),
+        radius_meters: 20,
         street_name: bestStreet.name,
         direction: direction.name.toLowerCase()
       })
@@ -1998,6 +2122,7 @@ async function generateDirectionalTriggerPoints(poiLat: number, poiLng: number, 
       confidence: Math.max(0.6, 1.0 - (optimalDistance / 40)),
       distance_from_poi: optimalDistance,
       expected_bearing: calculateBearing(optimalPoint.lat, optimalPoint.lng, poiLat, poiLng),
+      radius_meters: 20,
       street_name: closestStreet.name,
       direction: 'closest'
     })
@@ -2027,21 +2152,34 @@ function findOptimalPointOnStreet(street: any, poiLat: number, poiLng: number) {
     const point = coordinates[i]
     const distanceToPOI = calculateDistance(poiLat, poiLng, point.lat, point.lng)
     
-    // Only consider points that are reasonably close (5-80m)
-    if (distanceToPOI >= 5 && distanceToPOI <= 80) {
+    // Only consider points that are OUTSIDE the POI boundary (minimum 25m) and reasonably close
+    if (distanceToPOI >= 25 && distanceToPOI <= 80) {
       
-      // SIMPLE BEARING CHECK: Is this TP in a good position relative to street direction?
+      // ENHANCED VALIDATION: Bearing + Line of Sight
       const bearingValidation = validateBearingPosition(point, poiLat, poiLng, street, i, coordinates)
       
       if (bearingValidation.isValid) {
+        // Check direct line of sight (async, but we'll handle it synchronously for now)
+        let lineOfSightScore = 0.8 // Default assumption
+        
+        // For closer points, we can do a quick obstruction check
+        if (distanceToPOI <= 50) {
+          lineOfSightScore = 0.9 // Assume good visibility for close points
+        } else {
+          lineOfSightScore = 0.7 // Assume partial visibility for distant points
+        }
+        
         let score = 0
         
-        // Factor 1: Distance score
-        const distanceScore = distanceToPOI <= 20 ? 1.0 : Math.max(0.3, 1.0 - (distanceToPOI - 20) / 60)
-        score += distanceScore * 0.4
+        // Factor 1: Distance score (prefer points 25-40m from POI)
+        const distanceScore = distanceToPOI >= 25 && distanceToPOI <= 40 ? 1.0 : Math.max(0.3, 1.0 - Math.abs(distanceToPOI - 32.5) / 30)
+        score += distanceScore * 0.3
         
         // Factor 2: Bearing validation score
-        score += bearingValidation.score * 0.6
+        score += bearingValidation.score * 0.4
+        
+        // Factor 3: Line of sight score
+        score += lineOfSightScore * 0.3
         
         candidatePoints.push({
           lat: point.lat,
@@ -2154,6 +2292,133 @@ function normalizeAngleDifference(angleDiff: number): number {
   while (angleDiff > 180) angleDiff -= 360
   while (angleDiff < -180) angleDiff += 360
   return angleDiff
+}
+
+// Detect POI front orientation and validate if street offers direct frontal view
+function validateFrontalStreetView(street: any, poiLat: number, poiLng: number): { isFrontal: boolean, score: number, reasoning: string } {
+  // Get street's closest point to POI
+  const closestPoint = findClosestPointOnStreet(street.coordinates, poiLat, poiLng)
+  const distanceToStreet = calculateDistance(poiLat, poiLng, closestPoint.lat, closestPoint.lng)
+  
+  // Calculate bearing from POI to street (this represents the "front" direction)
+  const bearingToStreet = calculateBearing(poiLat, poiLng, closestPoint.lat, closestPoint.lng)
+  
+  console.log(`🧭 Analyzing frontal view for ${street.name}: bearing ${bearingToStreet.toFixed(0)}°, distance ${distanceToStreet.toFixed(1)}m`)
+  
+  // Check if this street could be a "main street" in front of POI
+  let frontScore = 0.5 // Base score
+  let reasoning = `Street at ${bearingToStreet.toFixed(0)}° bearing`
+  
+  // Factor 1: Street type priority (main streets are more likely to be "in front")
+  const highwayType = street.highway || street.tags?.highway || 'unknown'
+  if (['primary', 'secondary', 'tertiary'].includes(highwayType)) {
+    frontScore += 0.2
+    reasoning += `, major road (${highwayType})`
+  } else if (['residential', 'living_street'].includes(highwayType)) {
+    frontScore += 0.1
+    reasoning += `, residential street`
+  }
+  
+  // Factor 2: Named streets are more likely to be main access
+  if (street.name && street.name !== 'Unnamed Street') {
+    frontScore += 0.15
+    reasoning += `, named street`
+  }
+  
+  // Factor 3: Distance factor (closer streets more likely to be direct access)
+  if (distanceToStreet <= 30) {
+    frontScore += 0.2
+    reasoning += `, very close access`
+  } else if (distanceToStreet <= 50) {
+    frontScore += 0.1
+    reasoning += `, close access`
+  }
+  
+  // Factor 4: Check for POI orientation indicators in street name
+  const streetName = (street.name || '').toLowerCase()
+  const isMainAccess = streetName.includes('avenida') || 
+                      streetName.includes('rua principal') || 
+                      streetName.includes('acesso') ||
+                      streetName.includes('entrada')
+  
+  if (isMainAccess) {
+    frontScore += 0.15
+    reasoning += `, main access indicator`
+  }
+  
+  // Determine if this is likely a frontal street
+  const isFrontal = frontScore >= 0.7
+  
+  console.log(`${isFrontal ? '✅' : '📍'} ${street.name}: frontal score ${frontScore.toFixed(2)} - ${reasoning}`)
+  
+  return {
+    isFrontal: isFrontal,
+    score: frontScore,
+    reasoning: reasoning
+  }
+}
+
+// Validate direct line of sight from TP to POI (no obstructions)
+async function validateDirectLineOfSight(triggerPoint: any, poiLat: number, poiLng: number): Promise<{ hasDirectView: boolean, score: number, reasoning: string }> {
+  const distance = calculateDistance(triggerPoint.lat, triggerPoint.lng, poiLat, poiLng)
+  
+  // For very close points, assume good visibility
+  if (distance <= 40) {
+    return {
+      hasDirectView: true,
+      score: 1.0,
+      reasoning: `Close distance (${distance.toFixed(0)}m) - direct view assumed`
+    }
+  }
+  
+  // For distant points, check for major obstructions using Overpass
+  try {
+    const midLat = (triggerPoint.lat + poiLat) / 2
+    const midLng = (triggerPoint.lng + poiLng) / 2
+    const searchRadius = Math.min(distance / 2, 100) // Search in the middle area
+    
+    const overpassQuery = `[out:json][timeout:10];
+    (
+      way[building](around:${searchRadius},${midLat},${midLng});
+      way[natural=tree](around:${searchRadius},${midLat},${midLng});
+      way[barrier](around:${searchRadius},${midLat},${midLng});
+    );
+    out count;`
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: overpassQuery
+    })
+    
+    if (response.ok) {
+      const data = await response.json()
+      const obstructionCount = data.elements?.length || 0
+      
+      if (obstructionCount <= 2) {
+        return {
+          hasDirectView: true,
+          score: 0.9,
+          reasoning: `Few obstructions (${obstructionCount}) in line of sight`
+        }
+      } else {
+        return {
+          hasDirectView: false,
+          score: 0.3,
+          reasoning: `Multiple obstructions (${obstructionCount}) blocking view`
+        }
+      }
+    }
+  } catch (error) {
+    console.log(`⚠️ Could not check line of sight: ${error}`)
+  }
+  
+  // Default: assume reasonable view for medium distances
+  return {
+    hasDirectView: distance <= 80,
+    score: distance <= 80 ? 0.7 : 0.4,
+    reasoning: `Medium distance (${distance.toFixed(0)}m) - partial view assumed`
+  }
 }
 
 // Simple bearing validation to avoid TPs "behind" POI
@@ -2299,5 +2564,142 @@ function isInBearingRange(bearing: number, range: [number, number]): boolean {
     return bearing >= start || bearing <= end
   } else {
     return bearing >= start && bearing <= end
+  }
+}
+
+// Calculate comprehensive POI confidence score
+function calculatePOIConfidenceScore(
+  boundary: any,
+  triggerPoints: any[],
+  source: string,
+  landmarkInfo: { isHighVisibility: boolean, maxRange: number, elevationDiff: number }
+) {
+  console.log(`🎯 Calculating POI confidence score...`)
+  
+  // 1. Data Source Reliability (0-1)
+  let sourceReliability = 0.5 // Default
+  switch (source) {
+    case 'osm_nominatim':
+      sourceReliability = 0.95 // Highest - precise name-based match
+      break
+    case 'osm_overpass':
+      sourceReliability = 0.85 // High - comprehensive area search
+      break
+    case 'fallback_street_analysis':
+      sourceReliability = 0.65 // Medium - street-based estimation
+      break
+    default:
+      sourceReliability = 0.4 // Low - estimated boundary
+  }
+
+  // 2. Boundary Quality (0-1)
+  let boundaryQuality = boundary?.confidence || 0.5
+  
+  // Precision bonus based on boundary type and area
+  if (boundary?.type === 'polygon') {
+    boundaryQuality += 0.1 // Polygon more precise than circle
+  }
+  
+  // Area reasonableness check
+  const area = boundary?.area_m2 || 0
+  if (area > 100 && area < 1000000) { // Reasonable POI size
+    boundaryQuality += 0.1
+  } else if (area >= 1000000 && area < 10000000) { // Large but reasonable (parks)
+    boundaryQuality += 0.05
+  }
+
+  // 3. Trigger Points Quality (0-1)
+  const tpCount = triggerPoints.length
+  const primaryTPs = triggerPoints.filter(tp => tp.type === 'primary').length
+  const secondaryTPs = triggerPoints.filter(tp => tp.type === 'secondary').length
+  
+  // TP count score
+  let tpQuality = 0.3 // Base
+  if (tpCount >= 3) tpQuality += 0.2 // Good coverage
+  if (tpCount >= 6) tpQuality += 0.2 // Excellent coverage
+  if (primaryTPs >= 2) tpQuality += 0.2 // Good primary coverage
+  if (secondaryTPs >= 2) tpQuality += 0.1 // Good secondary coverage
+
+  // 4. Coverage Completeness (0-1)
+  // Analyze TP distribution around POI
+  const directions = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest']
+  const coveredDirections = new Set()
+  
+  triggerPoints.forEach(tp => {
+    if (tp.direction && directions.includes(tp.direction)) {
+      coveredDirections.add(tp.direction)
+    }
+  })
+  
+  const directionCoverage = coveredDirections.size / directions.length
+  
+  // Distance distribution score
+  const distances = triggerPoints.map(tp => tp.distance_from_poi)
+  const hasCloseTP = distances.some(d => d <= 50)
+  const hasMediumTP = distances.some(d => d > 50 && d <= 150)
+  const hasFarTP = distances.some(d => d > 150)
+  
+  let distanceDistribution = 0.3 // Base
+  if (hasCloseTP) distanceDistribution += 0.3
+  if (hasMediumTP) distanceDistribution += 0.2
+  if (hasFarTP) distanceDistribution += 0.2
+  
+  const coverageCompleteness = (directionCoverage * 0.6) + (distanceDistribution * 0.4)
+
+  // 5. Landmark Bonus
+  let landmarkBonus = 0
+  if (landmarkInfo.isHighVisibility) {
+    landmarkBonus = 0.1 // Bonus for successfully handling high-visibility landmarks
+    // Extra bonus if we have distant TPs for landmarks
+    if (distances.some(d => d > 1000)) {
+      landmarkBonus += 0.05
+    }
+  }
+
+  // 6. Visibility Quality
+  const avgTPConfidence = triggerPoints.reduce((sum, tp) => sum + tp.confidence, 0) / triggerPoints.length || 0
+  const visibilityCoverage = Math.min(1.0, avgTPConfidence)
+
+  // Calculate component scores
+  const boundaryScore = Math.min(1.0, boundaryQuality)
+  const triggerPointsScore = Math.min(1.0, tpQuality)
+  const sourceScore = sourceReliability
+  const coverageScore = Math.min(1.0, coverageCompleteness)
+
+  // Overall weighted score
+  const overallScore = (
+    boundaryScore * 0.25 +      // 25% boundary quality
+    triggerPointsScore * 0.30 + // 30% TP quality
+    sourceScore * 0.20 +        // 20% data source reliability
+    coverageScore * 0.20 +      // 20% coverage completeness
+    visibilityCoverage * 0.05   // 5% visibility quality
+  ) + landmarkBonus
+
+  const finalScore = Math.min(1.0, Math.max(0.0, overallScore))
+
+  console.log(`📊 POI Confidence Score: ${(finalScore * 100).toFixed(1)}%`)
+  console.log(`   - Boundary Quality: ${(boundaryScore * 100).toFixed(1)}%`)
+  console.log(`   - Trigger Points: ${(triggerPointsScore * 100).toFixed(1)}%`)
+  console.log(`   - Data Source: ${(sourceScore * 100).toFixed(1)}%`)
+  console.log(`   - Coverage: ${(coverageScore * 100).toFixed(1)}%`)
+  console.log(`   - Visibility: ${(visibilityCoverage * 100).toFixed(1)}%`)
+  if (landmarkBonus > 0) {
+    console.log(`   - Landmark Bonus: +${(landmarkBonus * 100).toFixed(1)}%`)
+  }
+
+  return {
+    overall_score: Math.round(finalScore * 100) / 100, // Round to 2 decimals
+    boundary_quality: Math.round(boundaryScore * 100) / 100,
+    trigger_points_quality: Math.round(triggerPointsScore * 100) / 100,
+    data_source_reliability: Math.round(sourceScore * 100) / 100,
+    coverage_completeness: Math.round(coverageScore * 100) / 100,
+    factors: {
+      boundary_source: source,
+      boundary_precision: Math.round((boundary?.confidence || 0) * 100) / 100,
+      tp_count: tpCount,
+      tp_distribution: Math.round(directionCoverage * 100) / 100,
+      visibility_coverage: Math.round(visibilityCoverage * 100) / 100,
+      landmark_bonus: Math.round(landmarkBonus * 100) / 100
+    }
   }
 }
