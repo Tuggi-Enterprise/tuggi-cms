@@ -428,8 +428,8 @@ export default function POIBoundariesTestPage() {
               <h3 className="font-semibold text-blue-900 mb-3">📋 Como Usar:</h3>
               <ol className="space-y-2 text-sm text-blue-800">
                 <li>1. Cole o ID de um POI do banco de dados</li>
-                <li>2. Clique em "Carregar" para buscar os dados</li>
-                <li>3. Clique em "Detectar Fronteiras Reais"</li>
+                <li>2. Clique em &quot;Carregar&quot; para buscar os dados</li>
+                <li>3. Clique em &quot;Detectar Fronteiras Reais&quot;</li>
                 <li>4. Analise a fronteira e trigger points no mapa</li>
                 <li>5. Verifique se os pontos estão bem posicionados</li>
               </ol>

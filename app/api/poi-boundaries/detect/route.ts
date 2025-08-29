@@ -126,7 +126,10 @@ export async function POST(request: NextRequest) {
         
         return NextResponse.json({
           success: true,
-          boundary: fallbackResult.boundary,
+          boundary: {
+            ...fallbackResult.boundary,
+            type: 'polygon' as const
+          },
           trigger_points: fallbackResult.trigger_points,
           source: 'fallback_street_analysis',
           poi_name: poi_name,
@@ -339,6 +342,8 @@ async function searchOSMByName(lat: number, lng: number, name: string, landmarkI
     }
 
     for (const searchTerm of searchVariations) {
+      if (!searchTerm || searchTerm.trim() === '') continue;
+      
       console.log(`🔍 Trying search term: "${searchTerm}"`)
       
       const searchUrl = `https://nominatim.openstreetmap.org/search?` +
@@ -369,8 +374,8 @@ async function searchOSMByName(lat: number, lng: number, name: string, landmarkI
         
         // Score and rank results for best match
         const scoredResults = data
-          .filter(result => result.geojson && (result.geojson.type === 'Polygon' || result.geojson.type === 'MultiPolygon'))
-          .map(result => {
+          .filter((result: any) => result.geojson && (result.geojson.type === 'Polygon' || result.geojson.type === 'MultiPolygon'))
+          .map((result: any) => {
             const resultLat = parseFloat(result.lat)
             const resultLng = parseFloat(result.lon)
             const distance = calculateDistance(lat, lng, resultLat, resultLng)
@@ -416,7 +421,7 @@ async function searchOSMByName(lat: number, lng: number, name: string, landmarkI
             
             return { result, score: totalScore, distance }
           })
-          .sort((a, b) => b.score - a.score)
+          .sort((a: any, b: any) => b.score - a.score)
 
         // Try the best matches first
         for (const { result, score, distance } of scoredResults) {
@@ -799,7 +804,7 @@ async function generateOptimalTriggerPoints(boundary: any, poiLat: number, poiLn
 
   // Sort by priority and confidence
   const sortedTriggerPoints = triggerPoints.sort((a, b) => {
-    const priority = { primary: 3, secondary: 2, fallback: 1 }
+    const priority: { [key: string]: number } = { primary: 3, secondary: 2, fallback: 1 }
     if (a.type !== b.type) {
       return priority[b.type] - priority[a.type]
     }

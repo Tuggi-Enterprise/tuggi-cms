@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Play, Database, Globe, MapPin } from 'lucide-react';
@@ -60,7 +60,7 @@ export default function EnrichOSMPage() {
   const [enrichmentResults, setEnrichmentResults] = useState<EnrichmentResult[]>([]);
 
   // Load available countries from database
-  const loadCountries = async () => {
+  const loadCountries = useCallback(async () => {
     setIsLoadingCountries(true);
     try {
       const response = await fetch('/api/locations/countries-cities');
@@ -80,7 +80,7 @@ export default function EnrichOSMPage() {
     } finally {
       setIsLoadingCountries(false);
     }
-  };
+  }, [country]);
 
   // Load available cities for selected country
   const loadCities = async (selectedCountry: string) => {
@@ -227,7 +227,7 @@ export default function EnrichOSMPage() {
   // Load countries on component mount
   useEffect(() => {
     loadCountries();
-  }, []);
+  }, [loadCountries]);
 
   // Load cities when country changes
   useEffect(() => {
