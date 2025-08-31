@@ -178,7 +178,7 @@ export default function TriggerPointsGenerationPage() {
           has_new_tps: hasNewTPs,
           has_old_tps: hasOldTPs,
           last_tp_generation: tpData?.[0]?.created_at || null,
-          tp_generation_status: tpData?.length > 0 ? 'completed' : 'none',
+          tp_generation_status: (tpData?.length || 0) > 0 ? 'completed' : 'none',
           tp_confidence_score: hasNewTPs ? 
             Math.round((newTPs.reduce((sum, tp) => sum + (tp.confidence_score || 0), 0) / newTPs.length) * 100) / 100 : null
         } as POIForTriggerGeneration;
@@ -264,13 +264,13 @@ export default function TriggerPointsGenerationPage() {
           `📊 POI Confidence: ${(result.poi_confidence_score?.overall_score * 100 || 0).toFixed(0)}%\n` +
           `${result.note ? `📝 Note: ${result.note}\n` : ''}` +
           `\n🔍 Trigger Points Breakdown:\n` +
-          `   - Primary: ${result.trigger_points?.filter(tp => tp.type === 'primary').length || 0}\n` +
-          `   - Secondary: ${result.trigger_points?.filter(tp => tp.type === 'secondary').length || 0}\n` +
-          `   - Fallback: ${result.trigger_points?.filter(tp => tp.type === 'fallback').length || 0}\n` +
+          `   - Primary: ${result.trigger_points?.filter((tp: any) => tp.type === 'primary').length || 0}\n` +
+          `   - Secondary: ${result.trigger_points?.filter((tp: any) => tp.type === 'secondary').length || 0}\n` +
+          `   - Fallback: ${result.trigger_points?.filter((tp: any) => tp.type === 'fallback').length || 0}\n` +
           `\n📈 Status Distribution:\n` +
-          `   - Approved: ${result.trigger_points?.filter(tp => tp.auto_status === 'approved').length || 0}\n` +
-          `   - Review: ${result.trigger_points?.filter(tp => tp.auto_status === 'review').length || 0}\n` +
-          `   - Rejected: ${result.trigger_points?.filter(tp => tp.auto_status === 'rejected').length || 0}`;
+          `   - Approved: ${result.trigger_points?.filter((tp: any) => tp.auto_status === 'approved').length || 0}\n` +
+          `   - Review: ${result.trigger_points?.filter((tp: any) => tp.auto_status === 'review').length || 0}\n` +
+          `   - Rejected: ${result.trigger_points?.filter((tp: any) => tp.auto_status === 'rejected').length || 0}`;
         
         alert(message);
         
@@ -327,7 +327,7 @@ export default function TriggerPointsGenerationPage() {
         
         if (result.errors.length > 0) {
           console.log('❌ Errors occurred:');
-          result.errors.forEach(err => {
+          result.errors.forEach((err: any) => {
             console.log(`   - ${err.attraction_name}: ${err.error}`);
           });
         }
@@ -623,7 +623,7 @@ export default function TriggerPointsGenerationPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {pois.map((poi) => (
+                  {pois.map((poi) => [
                     <tr key={poi.attraction_id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
@@ -718,11 +718,11 @@ export default function TriggerPointsGenerationPage() {
                           </button>
                         </div>
                       </td>
-                    </tr>
+                    </tr>,
                     
-                    {/* Enrichment Component Expansion */}
-                    {expandedEnrichment === poi.attraction_id && (
-                      <tr>
+                    // Enrichment Component Expansion
+                    expandedEnrichment === poi.attraction_id && (
+                      <tr key={`${poi.attraction_id}-enrichment`}>
                         <td colSpan={8} className="px-6 py-4 bg-gray-50 border-t border-gray-200">
                           <OSMDataEnrichment
                             attractionId={poi.attraction_id}
@@ -745,8 +745,8 @@ export default function TriggerPointsGenerationPage() {
                           />
                         </td>
                       </tr>
-                    )}
-                  ))}
+                    )
+                  ].filter(Boolean))}
                 </tbody>
               </table>
             </div>

@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
             const supplementaryTPs = immediateTPs.map(tp => ({
               ...tp,
               reasoning: tp.reasoning + ' (supplementary close TP)',
-              type: tp.distance_from_poi <= 50 ? 'primary' : 'secondary'
+              type: (tp.distance_from_poi <= 50 ? 'primary' : 'secondary') as 'primary' | 'secondary'
             }))
             
             streetTriggerPoints = [...supplementaryTPs, ...streetTriggerPoints]
@@ -222,7 +222,7 @@ export async function POST(request: NextRequest) {
               base_confidence: tp.confidence,
               distance_score: tp.distance_from_poi,
               type_bonus: tp.type,
-              street_quality: tp.highway_type || 'unknown',
+              street_quality: (tp as any).highway_type || 'unknown',
               frontal_bonus: tp.reasoning?.includes('frontal street') || false
             },
             generation_method: 'fallback_street_analysis'
@@ -336,26 +336,26 @@ export async function POST(request: NextRequest) {
     if (fallbackResult.success && fallbackResult.boundary && fallbackResult.trigger_points) {
       console.log(`✅ FALLBACK 1 SUCESSO: Criado boundary baseado em ${fallbackResult.trigger_points.length} ruas próximas`)
       
-      // Calculate individual TP scores and add status
-      const enhancedFallbackTPs = fallbackResult.trigger_points.map(tp => {
-        const individualScore = calculateTriggerPointScore(tp, fallbackResult.boundary, landmarkInfo)
-        const autoStatus = calculateTriggerPointStatus(individualScore)
-        
-        return {
-          ...tp,
-          individual_confidence_score: Math.round(individualScore * 100) / 100,
-          auto_status: autoStatus,
-          final_status: autoStatus,
-          score_factors: {
-            base_confidence: tp.confidence,
-            distance_score: tp.distance_from_poi,
-            type_bonus: tp.type,
-            street_quality: tp.highway_type || 'unknown',
-            frontal_bonus: tp.reasoning?.includes('frontal street') || false
-          },
-          generation_method: 'fallback_street_analysis'
-        }
-      })
+              // Calculate individual TP scores and add status
+        const enhancedFallbackTPs = fallbackResult.trigger_points.map(tp => {
+          const individualScore = calculateTriggerPointScore(tp, fallbackResult.boundary, landmarkInfo)
+          const autoStatus = calculateTriggerPointStatus(individualScore)
+          
+          return {
+            ...tp,
+            individual_confidence_score: Math.round(individualScore * 100) / 100,
+            auto_status: autoStatus,
+            final_status: autoStatus,
+            score_factors: {
+              base_confidence: tp.confidence,
+              distance_score: tp.distance_from_poi,
+              type_bonus: tp.type,
+              street_quality: (tp as any).highway_type || 'unknown',
+              frontal_bonus: tp.reasoning?.includes('frontal street') || false
+            },
+            generation_method: 'fallback_street_analysis'
+          }
+        })
       
       // Calculate POI confidence score
       const poiConfidenceScore = calculatePOIConfidenceScore(
@@ -1275,8 +1275,8 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
       const sampleSize = Math.min(50, data.elements.length) // Reduced sample size
       const distances = data.elements
         .slice(0, sampleSize)
-        .filter(element => element.geometry && element.geometry.length >= 2)
-        .map(element => {
+        .filter((element: any) => element.geometry && element.geometry.length >= 2)
+        .map((element: any) => {
           const coordinates = element.geometry.map((node: any) => ({lat: node.lat, lng: node.lon}))
           const closestPoint = findClosestPointOnStreet(coordinates, lat, lng)
           return calculateDistance(lat, lng, closestPoint.lat, closestPoint.lng)
@@ -1293,7 +1293,7 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
 
     if (data.elements && data.elements.length > 0) {
       console.log(`🔍 DEBUG: Overpass returned ${data.elements.length} elements`)
-      const elementTypes = data.elements.map(e => e.tags?.highway).filter(Boolean)
+      const elementTypes = data.elements.map((e: any) => e.tags?.highway).filter(Boolean)
       console.log(`🔍 DEBUG: Highway types found: ${[...new Set(elementTypes)].join(', ')}`)
       
       for (const element of data.elements) {
@@ -1368,6 +1368,7 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
               name: element.tags?.name || 'Unnamed Street',
               highway_type: highwayType,
               distance_to_poi: distance,
+              closestPoint,
               confidence
             })
           }
@@ -1738,6 +1739,82 @@ function calculateDistanceToLineSegment(
   return calculateDistance(point.lat, point.lng, xx, yy)
 }
 
+// Get city base elevation by sampling nearby area
+async function getCityBaseElevation(lat: number, lng: number): Promise<number> {
+  try {
+    // Sample elevation points in a 2km radius around the POI to get city base
+    const overpassQuery = `[out:json][timeout:10];
+    (
+      node[ele](around:2000,${lat},${lng});
+      way[ele](around:2000,${lat},${lng});
+    );
+    out tags;`
+
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: overpassQuery,
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (city-elevation-check)',
+        'Content-Type': 'text/plain'
+      }
+    })
+
+    if (!response.ok) {
+      console.log('⚠️ City elevation check failed, using regional defaults')
+      // Default elevations by region
+      if (lat > -25 && lat < -22 && lng > -47 && lng < -43) {
+        return 760 // São Paulo region
+      } else if (lat > -23.5 && lat < -22 && lng > -44 && lng < -43) {
+        return 10  // Rio de Janeiro region
+      }
+      return 200 // General default
+    }
+
+    const data = await response.json()
+    const elevations: number[] = []
+
+    if (data.elements && data.elements.length > 0) {
+      for (const element of data.elements) {
+        const tags = element.tags || {}
+        if (tags.ele) {
+          const elevation = parseInt(tags.ele)
+          if (elevation > 0 && elevation < 3000) { // Valid elevation range
+            elevations.push(elevation)
+          }
+        }
+      }
+    }
+
+    if (elevations.length > 0) {
+      // Use median elevation as city base (more robust than average)
+      elevations.sort((a, b) => a - b)
+      const median = elevations[Math.floor(elevations.length / 2)]
+      console.log(`🏙️ City base elevation calculated: ${median}m (from ${elevations.length} samples)`)
+      return median
+    }
+
+    // Fallback to regional defaults
+    if (lat > -25 && lat < -22 && lng > -47 && lng < -43) {
+      console.log('🏙️ Using São Paulo region default: 760m')
+      return 760 // São Paulo region
+    } else if (lat > -23.5 && lat < -22 && lng > -44 && lng < -43) {
+      console.log('🏙️ Using Rio de Janeiro region default: 10m')
+      return 10  // Rio de Janeiro region
+    }
+    
+    console.log('🏙️ Using general default: 200m')
+    return 200 // General default
+
+  } catch (error) {
+    console.error('❌ Error getting city base elevation:', error)
+    // Fallback to regional defaults
+    if (lat > -25 && lat < -22 && lng > -47 && lng < -43) {
+      return 760 // São Paulo region
+    }
+    return 200
+  }
+}
+
 // Check if POI is a high-visibility landmark and calculate visibility range
 async function checkHighVisibilityLandmark(poiLat: number, poiLng: number, currentDistance: number): Promise<{ isHighVisibility: boolean, maxRange: number, elevationDiff: number }> {
   try {
@@ -1794,16 +1871,21 @@ async function checkHighVisibilityLandmark(poiLat: number, poiLng: number, curre
         for (const element of data.elements) {
           const tags = element.tags || {}
           
-          // ONLY check for significant elevation (above 300m) - NO TYPE CONDITIONALS
+          // Check elevation RELATIVE to city base elevation
           if (tags.ele) {
             const elevation = parseInt(tags.ele)
-            if (elevation > 300) {
-              const elevationDiff = elevation - 200 // Assume 200m base elevation
+            const cityBaseElevation = await getCityBaseElevation(poiLat, poiLng)
+            const elevationDiff = elevation - cityBaseElevation
+            
+            console.log(`📏 Elevation analysis: POI=${elevation}m, CityBase=${cityBaseElevation}m, Diff=${elevationDiff}m`)
+            
+            // Only consider high visibility if significantly elevated above city base (>200m difference)
+            if (elevationDiff > 200) {
               const maxRange = Math.min(Math.sqrt(elevationDiff) * 150, 5000) // Conservative range
-              console.log(`🏔️ Significant elevation detected: ${elevation}m, max range: ${maxRange.toFixed(0)}m`)
+              console.log(`🏔️ Significant elevation above city detected: ${elevationDiff}m above base, max range: ${maxRange.toFixed(0)}m`)
               return { isHighVisibility: true, maxRange, elevationDiff }
             } else {
-              console.log(`📍 Low elevation found: ${elevation}m - using urban density logic instead`)
+              console.log(`📍 Elevation within city range: ${elevationDiff}m above base - using urban density logic`)
             }
           }
         }

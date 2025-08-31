@@ -201,6 +201,21 @@ export class BoundaryDetectionService {
           name.split(' ').slice(-2).join(' ') // Last two words
         )
       }
+      // For stadiums (like Morumbis, Maracanã)
+      else if (nameLower.includes('estádio') || nameLower.includes('stadium') || nameLower.includes('arena')) {
+        searchVariations.push(
+          name.replace(/estádio\s+/gi, ''), // Remove "Estádio" prefix
+          name.replace(/stadium\s+/gi, ''), // Remove "Stadium" prefix
+          name.replace(/arena\s+/gi, ''), // Remove "Arena" prefix
+          name.replace(/estádio/gi, 'stadium'),
+          name.replace(/stadium/gi, 'estádio'),
+          name.split(' ').pop(), // Last word (e.g., "Morumbis")
+          name.split(' ').slice(-2).join(' '), // Last two words
+          name.split(' ').slice(1).join(' '), // Remove first word
+          name.replace(/\s*-\s*.*$/g, ''), // Remove everything after dash
+          name.split(' - ')[0] // First part before dash
+        )
+      }
       // For parks (like Ibirapuera)
       else if (nameLower.includes('parque') || nameLower.includes('park')) {
         searchVariations.push(
@@ -210,6 +225,20 @@ export class BoundaryDetectionService {
           name.replace(/park/gi, 'parque'),
           name.split(' ').pop(), // Last word
           name.split(' ').slice(-2).join(' ') // Last two words
+        )
+      }
+      // For museums and cultural sites
+      else if (nameLower.includes('museu') || nameLower.includes('museum') || nameLower.includes('galeria') || nameLower.includes('gallery')) {
+        searchVariations.push(
+          name.replace(/museu\s+/gi, ''),
+          name.replace(/museum\s+/gi, ''),
+          name.replace(/galeria\s+/gi, ''),
+          name.replace(/gallery\s+/gi, ''),
+          name.split(' ').slice(1).join(' '), // Remove first word
+          name.split(' ').slice(-2).join(' '), // Last two words
+          name.split(' ').pop(), // Last word
+          name.replace(/\s*-\s*.*$/g, ''), // Remove everything after dash
+          name.split(' - ')[0] // First part before dash
         )
       }
       // For churches and religious sites
@@ -248,7 +277,7 @@ export class BoundaryDetectionService {
         console.log(`🔍 Trying search term: "${searchTerm}"`)
         
         const searchUrl = `https://nominatim.openstreetmap.org/search?` +
-          `q=${encodeURIComponent(searchTerm)}&` +
+          `q=${encodeURIComponent(searchTerm || '')}&` +
           `format=json&` +
           `polygon_geojson=1&` +
           `addressdetails=1&` +
@@ -273,8 +302,8 @@ export class BoundaryDetectionService {
         if (results && results.length > 0) {
           // Score and filter results for this search term
           const scoredResults = results
-            .filter(result => result.geojson && (result.geojson.type === 'Polygon' || result.geojson.type === 'MultiPolygon'))
-            .map(result => {
+            .filter((result: any) => result.geojson && (result.geojson.type === 'Polygon' || result.geojson.type === 'MultiPolygon'))
+            .map((result: any) => {
               const resultLat = parseFloat(result.lat)
               const resultLng = parseFloat(result.lon)
               const distance = calculateDistance(lat, lng, resultLat, resultLng)
@@ -284,8 +313,8 @@ export class BoundaryDetectionService {
               
               return { ...result, distance, score }
             })
-            .filter(result => result.score > 0.3) // Lowered threshold
-            .sort((a, b) => b.score - a.score)
+            .filter((result: any) => result.score > 0.3) // Lowered threshold
+            .sort((a: any, b: any) => b.score - a.score)
 
           if (scoredResults.length > 0) {
             // Process the best result from this search term
@@ -374,7 +403,8 @@ export class BoundaryDetectionService {
             coordinates,
             area_m2,
             perimeter_m,
-            confidence
+            confidence,
+            source: 'osm_coordinates'
           }
         }
       }
@@ -483,7 +513,8 @@ export class BoundaryDetectionService {
             coordinates,
             area_m2,
             perimeter_m,
-            confidence: Math.min(0.8, mainPolygon.relevanceScore / 10)
+            confidence: Math.min(0.8, mainPolygon.relevanceScore / 10),
+            source: 'osm_nearby'
           }
         }
       }
@@ -616,7 +647,8 @@ export class BoundaryDetectionService {
             coordinates: allCoordinates,
             area_m2: Math.round(totalArea),
             perimeter_m: Math.round(totalPerimeter),
-            confidence: 0.85
+            confidence: 0.85,
+            source: 'osm_name'
           }
         }
       }
@@ -667,13 +699,16 @@ export class BoundaryDetectionService {
   static calculateFeatureRelevance(tags: any, searchName: string): number {
     let relevanceScore = 0
     
-    // Base relevance by type
+    // Base relevance by type - Enhanced for important venues
     if (tags.building) relevanceScore += 2
     if (tags.leisure === 'park') relevanceScore += 5
     if (tags.leisure === 'garden') relevanceScore += 4
+    if (tags.leisure === 'stadium') relevanceScore += 8 // High priority for stadiums
+    if (tags.leisure === 'sports_centre') relevanceScore += 6
     if (tags.amenity === 'place_of_worship') relevanceScore += 3
+    if (tags.amenity === 'theatre') relevanceScore += 5
     if (tags.tourism === 'attraction') relevanceScore += 4
-    if (tags.tourism === 'museum') relevanceScore += 3
+    if (tags.tourism === 'museum') relevanceScore += 5
     if (tags.historic) relevanceScore += 3
     if (tags.natural === 'beach') relevanceScore += 4
     if (tags.landuse === 'recreation_ground') relevanceScore += 3

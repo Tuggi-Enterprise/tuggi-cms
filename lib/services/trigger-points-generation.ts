@@ -445,8 +445,8 @@ export class TriggerPointsService {
       const minDistanceFromBoundary = boundaryCoordinates ? calculateDistanceToPolygon(point, boundaryCoordinates) : 0
       
       // Dynamic distance limits based on landmark info
-      let minDistance = 15
-      let maxDistance = 120
+      let minDistance = 10
+      let maxDistance = 200 // Increased from 120m to 800m for better urban coverage
       
       if (landmarkInfo?.isHighVisibility) {
         // For high-visibility landmarks: much larger range

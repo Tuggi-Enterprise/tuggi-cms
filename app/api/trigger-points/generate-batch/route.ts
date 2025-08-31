@@ -142,13 +142,13 @@ export async function POST(request: NextRequest) {
 
         if (result.success && result.trigger_points && result.trigger_points.length > 0) {
           // Filter trigger points: only approved primary and secondary types
-          const approvedTPs = result.trigger_points.filter(tp => 
+          const approvedTPs = result.trigger_points.filter((tp: any) => 
             tp.auto_status === 'approved' && 
             (tp.type === 'primary' || tp.type === 'secondary')
           )
-          const reviewTPs = result.trigger_points.filter(tp => tp.auto_status === 'review')
-          const rejectedTPs = result.trigger_points.filter(tp => tp.auto_status === 'rejected')
-          const fallbackTPs = result.trigger_points.filter(tp => tp.type === 'fallback')
+          const reviewTPs = result.trigger_points.filter((tp: any) => tp.auto_status === 'review')
+          const rejectedTPs = result.trigger_points.filter((tp: any) => tp.auto_status === 'rejected')
+          const fallbackTPs = result.trigger_points.filter((tp: any) => tp.type === 'fallback')
           
           results.summary.approved_tps += approvedTPs.length
           results.summary.review_tps += reviewTPs.length
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
           if (approvedTPs.length > 0) {
             // Save approved TPs to database
-            const tpsForDB = approvedTPs.map(tp => ({
+            const tpsForDB = approvedTPs.map((tp: any) => ({
               attraction_id: poi.id,
               location: `POINT(${tp.lng} ${tp.lat})`,
               radius_meters: tp.radius_meters || 20,
