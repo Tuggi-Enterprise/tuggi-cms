@@ -1246,7 +1246,7 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
             minDistance = 80 // Keep distant TPs for landmarks
             console.log(`🗻 High visibility landmark - using distant TPs (min: ${minDistance}m)`)
           } else {
-            console.log(`🏢 Regular POI - using close TPs (min: ${minDistance}m)`)
+            // console.log(`🏢 Regular POI - using close TPs (min: ${minDistance}m)`)
           }
           
           const isMinDistance = distance >= minDistance

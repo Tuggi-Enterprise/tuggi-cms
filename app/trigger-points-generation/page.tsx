@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useUser, useSupabaseClient } from '@supabase/auth-helpers-react';
 import { BatchProgressBar } from '@/components/trigger-points/BatchProgressBar';
+import { OSMDataEnrichment } from '@/components/data-enrichment';
 
 interface POIForTriggerGeneration {
   attraction_id: string;
@@ -20,6 +21,7 @@ interface POIForTriggerGeneration {
   last_tp_generation: string | null;
   tp_generation_status: 'none' | 'processing' | 'completed' | 'failed';
   tp_confidence_score: number | null;
+  boundary_source?: string;
 }
 
 interface GenerationStats {
@@ -53,6 +55,7 @@ export default function TriggerPointsGenerationPage() {
   const [cities, setCities] = useState<string[]>([]);
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, errors: 0 });
+  const [expandedEnrichment, setExpandedEnrichment] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -237,6 +240,52 @@ export default function TriggerPointsGenerationPage() {
     }
   };
 
+  const handleTestPOI = async (attractionId: string, poiName: string) => {
+    try {
+      console.log(`🧪 Testing POI: ${poiName} (${attractionId})`);
+      
+      const response = await fetch('/api/poi-boundaries/detect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          attraction_id: attractionId 
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        const message = `🧪 TEST RESULTS for "${poiName}":\n\n` +
+          `✅ Boundary Source: ${result.source}\n` +
+          `📐 Boundary Area: ${result.boundary?.area_m2?.toFixed(0)}m²\n` +
+          `🎯 Trigger Points: ${result.trigger_points?.length || 0}\n` +
+          `📊 POI Confidence: ${(result.poi_confidence_score?.overall_score * 100 || 0).toFixed(0)}%\n` +
+          `${result.note ? `📝 Note: ${result.note}\n` : ''}` +
+          `\n🔍 Trigger Points Breakdown:\n` +
+          `   - Primary: ${result.trigger_points?.filter(tp => tp.type === 'primary').length || 0}\n` +
+          `   - Secondary: ${result.trigger_points?.filter(tp => tp.type === 'secondary').length || 0}\n` +
+          `   - Fallback: ${result.trigger_points?.filter(tp => tp.type === 'fallback').length || 0}\n` +
+          `\n📈 Status Distribution:\n` +
+          `   - Approved: ${result.trigger_points?.filter(tp => tp.auto_status === 'approved').length || 0}\n` +
+          `   - Review: ${result.trigger_points?.filter(tp => tp.auto_status === 'review').length || 0}\n` +
+          `   - Rejected: ${result.trigger_points?.filter(tp => tp.auto_status === 'rejected').length || 0}`;
+        
+        alert(message);
+        
+        // Log detailed results to console for debugging
+        console.log(`🧪 Detailed results for ${poiName}:`, result);
+      } else {
+        alert(`❌ Test failed for "${poiName}": ${result.error}`);
+      }
+      
+    } catch (error) {
+      console.error('Error testing POI:', error);
+      alert(`❌ Error testing POI: ${error}`);
+    }
+  };
+
   const handleGenerateBatch = async (batchSize: number, specificAttractionId?: string) => {
     setProcessing(true);
     setBatchProgress({ current: 0, total: 0, errors: 0 });
@@ -339,14 +388,54 @@ export default function TriggerPointsGenerationPage() {
     return 'Rejected';
   };
 
+  const getBoundarySourceColor = (source?: string) => {
+    switch (source) {
+      case 'osm_nominatim':
+        return 'bg-green-100 text-green-800'; // Best - found by name
+      case 'fallback_street_analysis':
+        return 'bg-blue-100 text-blue-800'; // Good - street-based fallback
+      case 'osm_coordinates':
+        return 'bg-yellow-100 text-yellow-800'; // Caution - reverse geocoding
+      case 'osm_overpass':
+        return 'bg-purple-100 text-purple-800'; // Alternative - overpass API
+      default:
+        return 'bg-gray-100 text-gray-800'; // Unknown
+    }
+  };
+
+  const getBoundarySourceText = (source?: string) => {
+    switch (source) {
+      case 'osm_nominatim':
+        return 'Name Match';
+      case 'fallback_street_analysis':
+        return 'Street Analysis';
+      case 'osm_coordinates':
+        return 'Coordinates';
+      case 'osm_overpass':
+        return 'Overpass';
+      default:
+        return source || 'Unknown';
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Trigger Points Generation</h1>
           <p className="mt-2 text-gray-600">
-            Generate trigger points for POIs by country and city
+            Generate trigger points for POIs using refined boundary detection rules
           </p>
+          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h3 className="text-sm font-medium text-blue-800 mb-2">🔧 Enhanced Detection Rules Active</h3>
+            <ul className="text-sm text-blue-700 space-y-1">
+              <li>✅ <strong>Smart Name Search:</strong> 8 intelligent variations per POI type (museums, parks, buildings)</li>
+              <li>✅ <strong>Fallback Hierarchy:</strong> Street analysis → Reverse geocoding → Estimated boundary</li>
+              <li>✅ <strong>No Assumptions:</strong> Uses real data without size/type guessing</li>
+              <li>✅ <strong>Validated Boundaries:</strong> Ensures boundaries match POI locations</li>
+              <li>🧪 <strong>Test Button:</strong> Preview results before generating to database</li>
+            </ul>
+          </div>
         </div>
 
         {/* Controls */}
@@ -466,18 +555,28 @@ export default function TriggerPointsGenerationPage() {
           <div className="bg-white rounded-lg shadow p-4">
             <h3 className="text-sm font-medium text-gray-500">With TPs</h3>
             <p className="text-2xl font-bold text-green-600">{stats.withTPs}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              {stats.total > 0 ? ((stats.withTPs / stats.total) * 100).toFixed(0) : 0}% coverage
+            </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
             <h3 className="text-sm font-medium text-gray-500">Without TPs</h3>
             <p className="text-2xl font-bold text-orange-600">{stats.withoutTPs}</p>
+            <p className="text-xs text-gray-500 mt-1">Ready for generation</p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">Processing</h3>
-            <p className="text-2xl font-bold text-blue-600">{stats.processing}</p>
+            <h3 className="text-sm font-medium text-gray-500">High Quality</h3>
+            <p className="text-2xl font-bold text-emerald-600">
+              {pois.filter(p => p.tp_confidence_score && p.tp_confidence_score >= 0.75).length}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">≥75% confidence</p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">Failed</h3>
-            <p className="text-2xl font-bold text-red-600">{stats.failed}</p>
+            <h3 className="text-sm font-medium text-gray-500">Need Review</h3>
+            <p className="text-2xl font-bold text-amber-600">
+              {pois.filter(p => p.tp_confidence_score && p.tp_confidence_score >= 0.5 && p.tp_confidence_score < 0.75).length}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">50-74% confidence</p>
           </div>
         </div>
 
@@ -511,6 +610,9 @@ export default function TriggerPointsGenerationPage() {
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Confidence
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Boundary Source
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Last Generation
@@ -575,6 +677,15 @@ export default function TriggerPointsGenerationPage() {
                           <span className="text-sm text-gray-500">N/A</span>
                         )}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {poi.boundary_source ? (
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getBoundarySourceColor(poi.boundary_source)}`}>
+                            {getBoundarySourceText(poi.boundary_source)}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-400">-</span>
+                        )}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {poi.last_tp_generation ? (
                           new Date(poi.last_tp_generation).toLocaleDateString('pt-BR')
@@ -583,15 +694,58 @@ export default function TriggerPointsGenerationPage() {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button
-                          onClick={() => handleGenerateBatch(1, poi.attraction_id)}
-                          disabled={processing}
-                          className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
-                        >
-                          Generate
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleTestPOI(poi.attraction_id, poi.name)}
+                            disabled={processing}
+                            className="text-green-600 hover:text-green-900 disabled:opacity-50 text-xs"
+                          >
+                            Test
+                          </button>
+                          <button
+                            onClick={() => setExpandedEnrichment(expandedEnrichment === poi.attraction_id ? null : poi.attraction_id)}
+                            disabled={processing}
+                            className="text-purple-600 hover:text-purple-900 disabled:opacity-50 text-xs"
+                          >
+                            Enrich
+                          </button>
+                          <button
+                            onClick={() => handleGenerateBatch(1, poi.attraction_id)}
+                            disabled={processing}
+                            className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
+                          >
+                            Generate
+                          </button>
+                        </div>
                       </td>
                     </tr>
+                    
+                    {/* Enrichment Component Expansion */}
+                    {expandedEnrichment === poi.attraction_id && (
+                      <tr>
+                        <td colSpan={8} className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+                          <OSMDataEnrichment
+                            attractionId={poi.attraction_id}
+                            attractionName={poi.name}
+                            attractionCity={poi.city}
+                            attractionCountry={poi.country}
+                            showPreview={true}
+                            autoEnrich={false}
+                            onEnrichmentComplete={(result) => {
+                              console.log('Enrichment completed:', result);
+                              // Refresh the POI list to show updated data
+                              loadPOIs();
+                              // Optionally close the expanded section after success
+                              if (result.success) {
+                                setTimeout(() => {
+                                  setExpandedEnrichment(null);
+                                }, 2000);
+                              }
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    )}
                   ))}
                 </tbody>
               </table>

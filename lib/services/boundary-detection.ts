@@ -145,14 +145,13 @@ export class BoundaryDetectionService {
         }
       }
 
-      // Strategy 4: Create estimated boundary as fallback
-      console.log(`⚠️ No OSM boundaries found, creating estimated boundary`)
-      const estimatedBoundary = this.createEstimatedBoundary(lat, lng, name)
+      // No OSM boundaries found - let the main route handle fallback
+      console.log(`⚠️ No OSM boundaries found`)
       
       return {
-        success: true,
-        boundary: { ...estimatedBoundary, source: 'estimated' },
-        processing_notes: 'No OSM boundary found, using estimated circular boundary'
+        success: false,
+        error: 'No OSM boundaries found',
+        processing_notes: 'All OSM strategies failed'
       }
 
     } catch (error) {
@@ -174,65 +173,144 @@ export class BoundaryDetectionService {
     landmarkInfo?: any
   ): Promise<SearchResult> {
     try {
-      const searchUrl = `https://nominatim.openstreetmap.org/search?` +
-        `q=${encodeURIComponent(name)}&` +
-        `format=json&` +
-        `polygon_geojson=1&` +
-        `addressdetails=1&` +
-        `limit=10&` +
-        `bounded=1&` +
-        `viewbox=${lng-0.01},${lat+0.01},${lng+0.01},${lat-0.01}`
-
-      const response = await fetch(searchUrl, {
-        headers: {
-          'User-Agent': 'TuggiCMS/1.0 (poi-boundary-detection)'
-        }
-      })
-
-      if (!response.ok) {
-        throw new Error(`OSM API error: ${response.status}`)
+      // Build comprehensive search variations to avoid missing POIs
+      const searchVariations = []
+      const nameLower = name.toLowerCase()
+      
+      // Always try the original name first
+      searchVariations.push(name)
+      searchVariations.push(`"${name}"`) // Exact phrase
+      
+      // For museums
+      if (nameLower.includes('museu') || nameLower.includes('museum')) {
+        searchVariations.push(
+          name.replace(/museu\s+/gi, ''), // Remove "Museu" prefix
+          name.replace(/museum\s+/gi, ''), // Remove "Museum" prefix
+          name.replace(/\s*-\s*.*$/g, ''), // Remove everything after first dash
+          name.split(' - ')[0], // First part before dash
+          name.split(' ').slice(0, 2).join(' '), // First two words
+          name.split(' ')[1] || name // Second word (main name)
+        )
       }
-
-      const results = await response.json()
-      console.log(`🔍 Nominatim found ${results.length} results for "${name}"`)
-
-      if (!results || results.length === 0) {
-        return { success: false, error: 'No results found by name' }
+      // For buildings (like Copan)
+      else if (nameLower.includes('edifício') || nameLower.includes('building') || nameLower.includes('copan')) {
+        searchVariations.push(
+          name.replace(/edifício\s+/gi, ''), // Remove "Edifício" prefix
+          name.replace(/building\s+/gi, ''), // Remove "Building" prefix
+          name.split(' ').pop(), // Last word (e.g., "Copan")
+          name.split(' ').slice(-2).join(' ') // Last two words
+        )
       }
+      // For parks (like Ibirapuera)
+      else if (nameLower.includes('parque') || nameLower.includes('park')) {
+        searchVariations.push(
+          name.replace(/parque\s+/gi, ''), // Remove "Parque" prefix
+          name.replace(/park\s+/gi, ''), // Remove "Park" prefix
+          name.replace(/parque/gi, 'park'),
+          name.replace(/park/gi, 'parque'),
+          name.split(' ').pop(), // Last word
+          name.split(' ').slice(-2).join(' ') // Last two words
+        )
+      }
+      // For churches and religious sites
+      else if (nameLower.includes('igreja') || nameLower.includes('church') || nameLower.includes('catedral') || nameLower.includes('cathedral')) {
+        searchVariations.push(
+          name.replace(/igreja\s+/gi, ''),
+          name.replace(/church\s+/gi, ''),
+          name.replace(/catedral\s+/gi, ''),
+          name.replace(/cathedral\s+/gi, ''),
+          name.split(' ').slice(1).join(' '), // Remove first word
+          name.split(' ').slice(-2).join(' ') // Last two words
+        )
+      }
+      // Generic comprehensive approach for any POI
+      else {
+        searchVariations.push(
+          name.split(' ')[0], // First word
+          name.split(' ').slice(0, 2).join(' '), // First two words
+          name.split(' ').slice(-2).join(' '), // Last two words
+          name.split(' ').pop(), // Last word
+          name.replace(/\s*-\s*.*$/g, ''), // Remove everything after first dash
+          name.split(' - ')[0] // First part before dash
+        )
+      }
+      
+      // Remove duplicates, empty strings, and very short terms
+      const uniqueVariations = [...new Set(searchVariations)]
+        .filter(term => term && term.trim().length > 2)
+        .slice(0, 8) // Limit to 8 variations to avoid too many requests
+      
+      console.log(`🔍 Generated ${uniqueVariations.length} search variations for: "${name}"`)
+      console.log(`🔍 Variations: ${uniqueVariations.join(', ')}`)
 
-      // Score and filter results
-      const scoredResults = results
-        .filter(result => result.geojson && (result.geojson.type === 'Polygon' || result.geojson.type === 'MultiPolygon'))
-        .map(result => {
-          const resultLat = parseFloat(result.lat)
-          const resultLng = parseFloat(result.lon)
-          const distance = calculateDistance(lat, lng, resultLat, resultLng)
-          
-          // Enhanced scoring for landmarks
-          let score = this.calculateRelevanceScore(result, distance, name, landmarkInfo)
-          
-          return { ...result, distance, score }
+      // Try each variation until we find results
+      for (const searchTerm of uniqueVariations) {
+        console.log(`🔍 Trying search term: "${searchTerm}"`)
+        
+        const searchUrl = `https://nominatim.openstreetmap.org/search?` +
+          `q=${encodeURIComponent(searchTerm)}&` +
+          `format=json&` +
+          `polygon_geojson=1&` +
+          `addressdetails=1&` +
+          `limit=5&` +
+          `bounded=1&` +
+          `viewbox=${lng-0.01},${lat+0.01},${lng+0.01},${lat-0.01}`
+
+        const response = await fetch(searchUrl, {
+          headers: {
+            'User-Agent': 'TuggiCMS/1.0 (poi-boundary-detection)'
+          }
         })
-        .filter(result => result.score > 0.3) // Lowered threshold
-        .sort((a, b) => b.score - a.score)
 
-      if (scoredResults.length === 0) {
-        return { success: false, error: 'No suitable polygons found by name' }
-      }
-
-      // Process the best result
-      const bestResult = scoredResults[0]
-      console.log(`🏆 Best result: ${bestResult.display_name} (score: ${bestResult.score.toFixed(2)}, distance: ${bestResult.distance.toFixed(0)}m)`)
-
-      const processedGeometry = await this.processOSMGeometry(bestResult.geojson, lat, lng)
-      if (processedGeometry.success && processedGeometry.boundary) {
-        return {
-          success: true,
-          boundary: processedGeometry.boundary
+        if (!response.ok) {
+          console.log(`⚠️ Search failed for "${searchTerm}": ${response.status}`)
+          continue
         }
+
+        const results = await response.json()
+        console.log(`🔍 Nominatim found ${results.length} results for "${searchTerm}"`)
+
+        if (results && results.length > 0) {
+          // Score and filter results for this search term
+          const scoredResults = results
+            .filter(result => result.geojson && (result.geojson.type === 'Polygon' || result.geojson.type === 'MultiPolygon'))
+            .map(result => {
+              const resultLat = parseFloat(result.lat)
+              const resultLng = parseFloat(result.lon)
+              const distance = calculateDistance(lat, lng, resultLat, resultLng)
+              
+              // Enhanced scoring for landmarks
+              let score = this.calculateRelevanceScore(result, distance, name, landmarkInfo)
+              
+              return { ...result, distance, score }
+            })
+            .filter(result => result.score > 0.3) // Lowered threshold
+            .sort((a, b) => b.score - a.score)
+
+          if (scoredResults.length > 0) {
+            // Process the best result from this search term
+            const bestResult = scoredResults[0]
+            console.log(`🏆 Best result for "${searchTerm}": ${bestResult.display_name} (score: ${bestResult.score.toFixed(2)}, distance: ${bestResult.distance.toFixed(0)}m)`)
+
+            const processedGeometry = await this.processOSMGeometry(bestResult.geojson, lat, lng)
+            if (processedGeometry.success && processedGeometry.boundary) {
+              console.log(`✅ Successfully found POI boundary using search term: "${searchTerm}"`)
+              return {
+                success: true,
+                boundary: processedGeometry.boundary
+              }
+            }
+          }
+        }
+        
+        // Add delay between requests to be respectful to OSM
+        await new Promise(resolve => setTimeout(resolve, 100))
       }
 
-      return { success: false, error: 'Failed to process geometry' }
+      // If we get here, no search term found suitable results
+      console.log(`❌ BUSCA POR NOME FALHOU: Testadas ${uniqueVariations.length} variações do nome "${name}", nenhuma retornou polígonos válidos`)
+      console.log(`🔍 Variações testadas: ${uniqueVariations.join(', ')}`)
+      return { success: false, error: `No suitable polygons found by name after trying ${uniqueVariations.length} variations` }
 
     } catch (error) {
       return { 
@@ -272,6 +350,23 @@ export class BoundaryDetectionService {
         const area_m2 = calculatePolygonArea(coordinates)
         const perimeter_m = calculatePolygonPerimeter(coordinates)
 
+        // SEM SUPOSIÇÕES: Aceitar qualquer polígono válido encontrado nas coordenadas
+        console.log(`📍 BOUNDARY ENCONTRADO POR COORDENADAS:`)
+        console.log(`   📐 Área: ${area_m2}m² | Perímetro: ${perimeter_m}m`)
+        console.log(`   🏷️ OSM Type: ${data.type} | Category: ${data.category}`)
+        console.log(`   📍 Display: ${data.display_name}`)
+        
+        // Apenas validação mínima para evitar polígonos inválidos (< 10m²)
+        if (area_m2 < 10) {
+          console.log(`⚠️ REJEITANDO: Polígono inválido (${area_m2}m²) - muito pequeno para ser real`)
+          return { success: false, error: 'Invalid polygon geometry' }
+        }
+        
+        // Confiança moderada para reverse geocoding (sem suposições sobre tamanho)
+        const confidence = 0.7 // Confiança razoável - é o que está realmente nas coordenadas
+        
+        console.log(`✅ BOUNDARY ACEITO: Área ${area_m2}m² | Confiança: ${confidence}`)
+
         return {
           success: true,
           boundary: {
@@ -279,7 +374,7 @@ export class BoundaryDetectionService {
             coordinates,
             area_m2,
             perimeter_m,
-            confidence: 0.9
+            confidence
           }
         }
       }

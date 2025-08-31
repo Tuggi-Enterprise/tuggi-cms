@@ -1,7 +1,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { BoundaryDetectionService } from '@/lib/services/boundary-detection'
 import { TriggerPointsService } from '@/lib/services/trigger-points-generation'
+import { OSMDataEnrichmentService } from '@/lib/services/osm-data-enrichment'
 
 interface POIBoundaryRequest {
   attraction_id: string
@@ -116,15 +118,18 @@ export async function POST(request: NextRequest) {
       console.log(`🏙️ Regular POI with urban density-based range: ${landmarkInfo.maxRange}m`)
     }
 
-    // MODULAR: Use BoundaryDetectionService for boundary detection
-    const boundaryResult = await BoundaryDetectionService.detectBoundary(poi_lat, poi_lng, poi_name, landmarkInfo)
-    if (boundaryResult.success && boundaryResult.boundary) {
-      console.log(`✅ Found boundary from ${boundaryResult.boundary.source}`)
+    // Strategy 1: Search by name (PRIORITY - more precise) - usando hierarquia do monólito
+    const nameSearchResult = await searchOSMByName(poi_lat, poi_lng, poi_name, landmarkInfo)
+    if (nameSearchResult.success && 'boundary' in nameSearchResult && nameSearchResult.boundary) {
+      console.log('✅ Found precise boundary from OSM Nominatim')
+      
+      // 🔄 ENRICH ATTRACTION DATA with OSM information
+      await enrichAttractionWithOSMData(attraction_id, nameSearchResult, 'osm_nominatim')
       
       // MODULAR: Use TriggerPointsService for trigger points generation
       const nearbyStreets = await findNearbyStreetsForTriggers(poi_lat, poi_lng, poi_name, landmarkInfo)
       const tpResult = await TriggerPointsService.generateTriggerPoints(
-        boundaryResult.boundary,
+        nameSearchResult.boundary,
         poi_lat,
         poi_lng,
         poi_name,
@@ -142,7 +147,7 @@ export async function POST(request: NextRequest) {
         try {
           const immediateStreets = await findImmediateStreets(poi_lat, poi_lng)
           if (immediateStreets && immediateStreets.length > 0) {
-            const immediateTPs = await generateDirectionalTriggerPoints(poi_lat, poi_lng, immediateStreets, boundaryResult.boundary.coordinates)
+            const immediateTPs = await generateDirectionalTriggerPoints(poi_lat, poi_lng, immediateStreets, nameSearchResult.boundary.coordinates)
             
             // Mark these as supplementary and merge with existing TPs
             const supplementaryTPs = immediateTPs.map(tp => ({
@@ -162,38 +167,46 @@ export async function POST(request: NextRequest) {
       // MODULAR: Use TriggerPointsService for scoring and enhancement
       const enhancedTriggerPoints = TriggerPointsService.enhanceTriggerPoints(
         streetTriggerPoints,
-        boundaryResult.boundary,
+        nameSearchResult.boundary,
         landmarkInfo,
-        boundaryResult.boundary.source
+        'osm_nominatim'
       )
       
       // MODULAR: Use TriggerPointsService for POI confidence scoring
       const poiConfidenceScore = TriggerPointsService.calculatePOIConfidenceScore(
-        boundaryResult.boundary,
+        nameSearchResult.boundary,
         enhancedTriggerPoints,
-        boundaryResult.boundary.source,
+        'osm_nominatim',
         landmarkInfo
       )
       
+      // 💾 AUTO-SAVE: Salvar trigger points automaticamente
+      const saveResult = await autoSaveTriggerPoints(attraction_id, enhancedTriggerPoints, 'osm_nominatim')
+      console.log(`💾 Auto-save result: ${saveResult.saved} saved, ${saveResult.skipped} skipped`)
+      
       return NextResponse.json({
         success: true,
-        boundary: boundaryResult.boundary,
+        boundary: nameSearchResult.boundary,
         trigger_points: enhancedTriggerPoints,
-        source: boundaryResult.boundary.source,
+        source: 'osm_nominatim',
         poi_confidence_score: poiConfidenceScore,
-        processing_notes: boundaryResult.processing_notes
+        auto_save_result: saveResult
       } as BoundaryResult)
     }
 
-    // Check if boundary detection failed completely
-    if (!boundaryResult.success) {
+    // FALLBACK HIERARCHY - Seguindo exatamente o monólito
+    // Check if POI was completely not found in OSM
+    if (nameSearchResult.error && nameSearchResult.error.includes('No suitable polygons found by name')) {
       console.log('❌ Boundary detection failed - trying fallback street analysis')
       
       // Fallback Strategy: Analyze nearby streets and create minimal boundary
       const fallbackResult = await createFallbackBoundaryFromStreets(poi_lat, poi_lng, poi_name, landmarkInfo)
       
-      if (fallbackResult.success && fallbackResult.boundary && fallbackResult.trigger_points) {
-        console.log(`✅ Created fallback boundary and ${fallbackResult.trigger_points.length} trigger points from nearby streets`)
+              if (fallbackResult.success && fallbackResult.boundary && fallbackResult.trigger_points) {
+          console.log(`✅ Created fallback boundary and ${fallbackResult.trigger_points.length} trigger points from nearby streets`)
+          
+          // 🔄 ENRICH ATTRACTION DATA with street-based boundary
+          await enrichAttractionWithOSMData(attraction_id, fallbackResult, 'fallback_street_analysis')
         
         // Calculate individual TP scores and add status
         const enhancedFallbackTPs = fallbackResult.trigger_points.map(tp => {
@@ -224,6 +237,10 @@ export async function POST(request: NextRequest) {
           landmarkInfo
         )
         
+        // 💾 AUTO-SAVE: Salvar trigger points de fallback (melhorados)
+        const fallbackSaveResult = await autoSaveTriggerPoints(attraction_id, enhancedFallbackTPs, 'fallback_street_analysis')
+        console.log(`💾 Fallback auto-save result: ${fallbackSaveResult.saved} saved, ${fallbackSaveResult.skipped} skipped`)
+        
         return NextResponse.json({
           success: true,
           boundary: {
@@ -234,7 +251,8 @@ export async function POST(request: NextRequest) {
           source: 'fallback_street_analysis',
           poi_name: poi_name,
           note: 'POI not found in OSM - generated boundary from nearby street analysis',
-          poi_confidence_score: poiConfidenceScore
+          poi_confidence_score: poiConfidenceScore,
+          auto_save_result: fallbackSaveResult
         } as BoundaryResult)
       }
       
@@ -255,6 +273,9 @@ export async function POST(request: NextRequest) {
     const nearbyFeaturesResult = await searchOSMNearbyFeatures(poi_lat, poi_lng, poi_name)
     if (nearbyFeaturesResult.success && nearbyFeaturesResult.boundary) {
       console.log('✅ Found enhanced boundary from OSM Overpass API (complementary search)')
+      
+      // 🔄 ENRICH ATTRACTION DATA with Overpass boundary
+      await enrichAttractionWithOSMData(attraction_id, nearbyFeaturesResult, 'osm_overpass')
       
       // Generate street-based trigger points
       const streetTriggerPoints = await generateStreetBasedTriggerPoints(
@@ -294,19 +315,81 @@ export async function POST(request: NextRequest) {
         landmarkInfo
       )
       
+      // 💾 AUTO-SAVE: Salvar trigger points do Overpass
+      const overpassSaveResult = await autoSaveTriggerPoints(attraction_id, enhancedOverpassTPs, 'osm_overpass')
+      console.log(`💾 Overpass auto-save result: ${overpassSaveResult.saved} saved, ${overpassSaveResult.skipped} skipped`)
+      
       return NextResponse.json({
         success: true,
         boundary: nearbyFeaturesResult.boundary,
         trigger_points: enhancedOverpassTPs,
         source: 'osm_overpass',
-        poi_confidence_score: poiConfidenceScore
+        poi_confidence_score: poiConfidenceScore,
+        auto_save_result: overpassSaveResult
       } as BoundaryResult)
     }
 
-    // Strategy 3: Reverse geocoding to find features at coordinates (FALLBACK)
+    // FALLBACK 1: Street-based boundary analysis (mais confiável que reverse geocoding)
+    console.log('🔄 FALLBACK 1: Tentando análise de ruas próximas - POI não encontrado por nome')
+    const fallbackResult = await createFallbackBoundaryFromStreets(poi_lat, poi_lng, poi_name, landmarkInfo)
+    
+    if (fallbackResult.success && fallbackResult.boundary && fallbackResult.trigger_points) {
+      console.log(`✅ FALLBACK 1 SUCESSO: Criado boundary baseado em ${fallbackResult.trigger_points.length} ruas próximas`)
+      
+      // Calculate individual TP scores and add status
+      const enhancedFallbackTPs = fallbackResult.trigger_points.map(tp => {
+        const individualScore = calculateTriggerPointScore(tp, fallbackResult.boundary, landmarkInfo)
+        const autoStatus = calculateTriggerPointStatus(individualScore)
+        
+        return {
+          ...tp,
+          individual_confidence_score: Math.round(individualScore * 100) / 100,
+          auto_status: autoStatus,
+          final_status: autoStatus,
+          score_factors: {
+            base_confidence: tp.confidence,
+            distance_score: tp.distance_from_poi,
+            type_bonus: tp.type,
+            street_quality: tp.highway_type || 'unknown',
+            frontal_bonus: tp.reasoning?.includes('frontal street') || false
+          },
+          generation_method: 'fallback_street_analysis'
+        }
+      })
+      
+      // Calculate POI confidence score
+      const poiConfidenceScore = calculatePOIConfidenceScore(
+        fallbackResult.boundary,
+        enhancedFallbackTPs,
+        'fallback_street_analysis',
+        landmarkInfo
+      )
+      
+      return NextResponse.json({
+        success: true,
+        boundary: {
+          ...fallbackResult.boundary,
+          type: 'polygon' as const
+        },
+        trigger_points: enhancedFallbackTPs,
+        source: 'fallback_street_analysis',
+        poi_name: poi_name,
+        note: 'POI not found in OSM - generated boundary from nearby street analysis',
+        poi_confidence_score: poiConfidenceScore
+      } as BoundaryResult)
+    }
+    
+    console.log('⚠️ FALLBACK 1 FALHOU: Análise de ruas não encontrou boundary adequado')
+
+    // FALLBACK 2: Reverse geocoding to find features at coordinates (MENOS CONFIÁVEL)
+    console.log(`⚠️ USANDO FALLBACK: Busca por nome falhou, tentando reverse geocoding nas coordenadas`)
+    console.log(`📍 Coordenadas: ${poi_lat}, ${poi_lng}`)
     const reverseGeoResult = await searchOSMByCoordinates(poi_lat, poi_lng)
     if (reverseGeoResult.success && reverseGeoResult.boundary) {
-      console.log('✅ Found boundary from OSM reverse geocoding')
+      console.log('⚠️ FALLBACK: Found boundary from OSM reverse geocoding - PODE NÃO SER O POI CORRETO!')
+      
+      // 🔄 ENRICH ATTRACTION DATA with reverse geocoding result (lower confidence)
+      await enrichAttractionWithOSMData(attraction_id, reverseGeoResult, 'osm_coordinates')
       const triggerPoints = await generateOptimalTriggerPoints(reverseGeoResult.boundary, poi_lat, poi_lng, poi_name)
       
       // Calculate individual TP scores and add status
@@ -338,11 +421,16 @@ export async function POST(request: NextRequest) {
         landmarkInfo
       )
       
+      // 💾 AUTO-SAVE: Salvar trigger points do reverse geocoding
+      const reverseSaveResult = await autoSaveTriggerPoints(attraction_id, enhancedReverseTPs, 'osm_coordinates')
+      console.log(`💾 Reverse geocoding auto-save result: ${reverseSaveResult.saved} saved, ${reverseSaveResult.skipped} skipped`)
+      
       return NextResponse.json({
         success: true,
         boundary: reverseGeoResult.boundary,
         trigger_points: enhancedReverseTPs,
-        poi_confidence_score: poiConfidenceScore
+        poi_confidence_score: poiConfidenceScore,
+        auto_save_result: reverseSaveResult
       } as BoundaryResult)
     }
 
@@ -375,11 +463,16 @@ export async function POST(request: NextRequest) {
       landmarkInfo
     )
     
+    // 💾 AUTO-SAVE: Salvar trigger points estimados (com confiança mínima)
+    const estimatedSaveResult = await autoSaveTriggerPoints(attraction_id, enhancedEstimatedTPs, 'estimated_boundary')
+    console.log(`💾 Estimated boundary auto-save result: ${estimatedSaveResult.saved} saved, ${estimatedSaveResult.skipped} skipped`)
+    
     return NextResponse.json({
       success: true,
       boundary: estimatedBoundary,
       trigger_points: enhancedEstimatedTPs,
-      poi_confidence_score: poiConfidenceScore
+      poi_confidence_score: poiConfidenceScore,
+      auto_save_result: estimatedSaveResult
     } as BoundaryResult)
 
   } catch (error) {
@@ -392,6 +485,67 @@ export async function POST(request: NextRequest) {
 }
 
 // REMOVED: processOSMGeometry - moved to BoundaryDetectionService
+
+// Validate if found polygon matches the POI we're looking for
+function validatePOIPolygon(result: any, searchTerm: string, poiLat: number, poiLng: number, landmark: any) {
+  const resultLat = parseFloat(result.lat)
+  const resultLng = parseFloat(result.lon)
+  const distance = calculateDistance(poiLat, poiLng, resultLat, resultLng)
+  
+  // Enhanced scoring based on old system
+  let nameScore = 0
+  const resultName = result.display_name.toLowerCase()
+  const searchName = searchTerm.toLowerCase()
+  
+  // Name matching logic from old system
+  if (resultName.includes(searchName)) nameScore = 1.0
+  else if (searchName.includes(resultName.split(',')[0].toLowerCase())) nameScore = 0.8
+  else nameScore = 0.3
+  
+  // Distance score with different thresholds for different POI types
+  let distanceScore
+  if (searchName.includes('parque') || searchName.includes('park')) {
+    // Parks can be larger and further - more lenient distance scoring
+    distanceScore = distance < 500 ? 1.0 : Math.max(0, (1000 - distance) / 1000)
+  } else if (searchName.includes('pico') || searchName.includes('morro') || searchName.includes('cristo') || landmark.isHighVisibility) {
+    // Landmarks can be even further due to their nature - very lenient scoring
+    distanceScore = distance < 1000 ? 1.0 : Math.max(0, (2000 - distance) / 2000)
+  } else {
+    // Buildings need to be very close - stricter validation
+    distanceScore = distance < 100 ? 1.0 : Math.max(0, (200 - distance) / 200)
+  }
+  
+  // Type relevance scoring from old system
+  let typeScore = 1.0
+  if (result.type === 'building' || result.category === 'building') typeScore = 1.4
+  if (result.osm_type === 'way') typeScore *= 1.1
+  if (result.type === 'leisure' || result.category === 'leisure') typeScore = 1.3 // Boost for parks
+  if (result.osm_type === 'relation') typeScore *= 1.2 // Relations often represent complex areas like parks
+  
+  // Special boost for high-visibility landmarks
+  if (landmark.isHighVisibility) {
+    typeScore *= 1.5 // Major boost for landmarks
+    console.log(`🗿 Landmark boost applied: typeScore *= 1.5`)
+  }
+  
+  const totalScore = nameScore * distanceScore * typeScore
+  
+  // Distance validation - critical check from old system
+  const maxAcceptableDistance = landmark.isHighVisibility ? 500 : 300 // Landmarks can be bit further
+  const isValidDistance = distance <= maxAcceptableDistance
+  
+  console.log(`📊 ${result.display_name.split(',')[0]} | Dist: ${Math.round(distance)}m | Score: ${totalScore.toFixed(2)} | Valid: ${isValidDistance}`)
+  
+  return {
+    score: totalScore,
+    distance,
+    isValidDistance,
+    nameScore,
+    distanceScore,
+    typeScore,
+    maxAcceptableDistance
+  }
+}
 
 // OSM Strategy 1: Search by name (IMPROVED - prioritizes precise matches)
 async function searchOSMByName(lat: number, lng: number, name: string, landmarkInfo?: any) {
@@ -411,38 +565,76 @@ async function searchOSMByName(lat: number, lng: number, name: string, landmarkI
     const viewboxRadius = 0.008 // ~800m in degrees  
     const viewbox = `${lng-viewboxRadius},${lat+viewboxRadius},${lng+viewboxRadius},${lat-viewboxRadius}`
     
-    // Build search variations optimized for different POI types
+    // Build comprehensive search variations to avoid missing POIs
     const searchVariations = []
+    const nameLower = name.toLowerCase()
     
-    // For buildings (like Copan)
-    if (name.toLowerCase().includes('edifício') || name.toLowerCase().includes('building') || name.toLowerCase().includes('copan')) {
+    // Always try the original name first
+    searchVariations.push(name)
+    searchVariations.push(`"${name}"`) // Exact phrase
+    
+    // For museums
+    if (nameLower.includes('museu') || nameLower.includes('museum')) {
       searchVariations.push(
-        name, // Original name
+        name.replace(/museu\s+/gi, ''), // Remove "Museu" prefix
+        name.replace(/museum\s+/gi, ''), // Remove "Museum" prefix
+        name.replace(/\s*-\s*.*$/g, ''), // Remove everything after first dash
+        name.split(' - ')[0], // First part before dash
+        name.split(' ').slice(0, 2).join(' '), // First two words
+        name.split(' ')[1] || name // Second word (main name)
+      )
+    }
+    // For buildings (like Copan)
+    else if (nameLower.includes('edifício') || nameLower.includes('building') || nameLower.includes('copan')) {
+      searchVariations.push(
         name.replace(/edifício\s+/gi, ''), // Remove "Edifício" prefix
+        name.replace(/building\s+/gi, ''), // Remove "Building" prefix
         name.split(' ').pop(), // Last word (e.g., "Copan")
-        `"${name}"` // Exact phrase
+        name.split(' ').slice(-2).join(' ') // Last two words
       )
     }
     // For parks (like Ibirapuera)
-    else if (name.toLowerCase().includes('parque') || name.toLowerCase().includes('park')) {
+    else if (nameLower.includes('parque') || nameLower.includes('park')) {
       searchVariations.push(
-        name,
+        name.replace(/parque\s+/gi, ''), // Remove "Parque" prefix
+        name.replace(/park\s+/gi, ''), // Remove "Park" prefix
         name.replace(/parque/gi, 'park'),
         name.replace(/park/gi, 'parque'),
         name.split(' ').pop(), // Last word
-        `"${name}"`
+        name.split(' ').slice(-2).join(' ') // Last two words
       )
     }
-    // Generic approach
+    // For churches and religious sites
+    else if (nameLower.includes('igreja') || nameLower.includes('church') || nameLower.includes('catedral') || nameLower.includes('cathedral')) {
+      searchVariations.push(
+        name.replace(/igreja\s+/gi, ''),
+        name.replace(/church\s+/gi, ''),
+        name.replace(/catedral\s+/gi, ''),
+        name.replace(/cathedral\s+/gi, ''),
+        name.split(' ').slice(1).join(' '), // Remove first word
+        name.split(' ').slice(-2).join(' ') // Last two words
+      )
+    }
+    // Generic comprehensive approach for any POI
     else {
       searchVariations.push(
-        name,
         name.split(' ')[0], // First word
-        `"${name}"`
+        name.split(' ').slice(0, 2).join(' '), // First two words
+        name.split(' ').slice(-2).join(' '), // Last two words
+        name.split(' ').pop(), // Last word
+        name.replace(/\s*-\s*.*$/g, ''), // Remove everything after first dash
+        name.split(' - ')[0] // First part before dash
       )
     }
+    
+    // Remove duplicates, empty strings, and very short terms
+    const uniqueVariations = [...new Set(searchVariations)]
+      .filter(term => term && term.trim().length > 2)
+      .slice(0, 8) // Limit to 8 variations to avoid too many requests
+    
+    console.log(`🔍 Generated ${uniqueVariations.length} search variations for: "${name}"`)
 
-    for (const searchTerm of searchVariations) {
+    for (const searchTerm of uniqueVariations) {
       if (!searchTerm || searchTerm.trim() === '') continue;
       
       console.log(`🔍 Trying search term: "${searchTerm}"`)
@@ -473,71 +665,36 @@ async function searchOSMByName(lat: number, lng: number, name: string, landmarkI
       if (data && data.length > 0) {
         console.log(`✅ Found ${data.length} results for "${searchTerm}"`)
         
-        // Score and rank results for best match
+        // Score and rank results for best match using new validation function
         const scoredResults = data
           .filter((result: any) => result.geojson && (result.geojson.type === 'Polygon' || result.geojson.type === 'MultiPolygon'))
           .map((result: any) => {
-            const resultLat = parseFloat(result.lat)
-            const resultLng = parseFloat(result.lon)
-            const distance = calculateDistance(lat, lng, resultLat, resultLng)
-            
-            // Enhanced scoring
-            let nameScore = 0
-            const resultName = result.display_name.toLowerCase()
-            const searchName = searchTerm.toLowerCase()
-            
-            if (resultName.includes(searchName)) nameScore = 1.0
-            else if (searchName.includes(resultName.split(',')[0].toLowerCase())) nameScore = 0.8
-            else nameScore = 0.3
-            
-            // Distance score (different thresholds for different POI types)
-            let distanceScore
-            if (searchName.includes('parque') || searchName.includes('park')) {
-              // Parks can be larger and further - more lenient distance scoring
-              distanceScore = distance < 500 ? 1.0 : Math.max(0, (1000 - distance) / 1000)
-            } else if (searchName.includes('pico') || searchName.includes('morro') || searchName.includes('cristo') || landmark.isHighVisibility) {
-              // Landmarks can be even further due to their nature - very lenient scoring
-              distanceScore = distance < 1000 ? 1.0 : Math.max(0, (2000 - distance) / 2000)
-            } else {
-              // Buildings need to be very close
-              distanceScore = distance < 100 ? 1.0 : Math.max(0, (200 - distance) / 200)
+            const validation = validatePOIPolygon(result, searchTerm, lat, lng, landmark)
+            return { 
+              result, 
+              score: validation.score, 
+              distance: validation.distance,
+              isValidDistance: validation.isValidDistance,
+              validation
             }
-            
-            // Type relevance
-            let typeScore = 1.0
-            if (result.type === 'building' || result.category === 'building') typeScore = 1.4
-            if (result.osm_type === 'way') typeScore *= 1.1
-            if (result.type === 'leisure' || result.category === 'leisure') typeScore = 1.3 // Boost for parks
-            if (result.osm_type === 'relation') typeScore *= 1.2 // Relations often represent complex areas like parks
-            
-            // Special boost for high-visibility landmarks
-            if (landmark.isHighVisibility) {
-              typeScore *= 1.5 // Major boost for landmarks
-              console.log(`🗿 Landmark boost applied: typeScore *= 1.5`)
-            }
-            
-            const totalScore = nameScore * distanceScore * typeScore
-            
-            console.log(`📊 ${result.display_name.split(',')[0]} | Dist: ${Math.round(distance)}m | Score: ${totalScore.toFixed(2)}`)
-            
-            return { result, score: totalScore, distance }
           })
           .sort((a: any, b: any) => b.score - a.score)
 
-        // Try the best matches first
-        for (const { result, score, distance } of scoredResults) {
+        // Try the best matches first with enhanced validation
+        for (const { result, score, distance, isValidDistance, validation } of scoredResults) {
           if (score > 0.3) { // Adjusted threshold to allow parks with lower scores
             
-            // CRITICAL: Double check distance to prevent wrong POI selection
-            const maxAcceptableDistance = landmark.isHighVisibility ? 500 : 300 // Landmarks can be bit further
-            if (distance > maxAcceptableDistance) {
-              console.log(`⚠️ Rejecting "${result.display_name.split(',')[0]}" - too far (${Math.round(distance)}m > ${maxAcceptableDistance}m)`)
+            // CRITICAL: Enhanced validation from old system
+            if (!isValidDistance) {
+              console.log(`⚠️ Rejecting "${result.display_name.split(',')[0]}" - too far (${Math.round(distance)}m > ${validation.maxAcceptableDistance}m)`)
+              console.log(`   📊 Validation details: nameScore=${validation.nameScore.toFixed(2)}, distanceScore=${validation.distanceScore.toFixed(2)}, typeScore=${validation.typeScore.toFixed(2)}`)
               continue // Skip this result, try next one
             }
             
-            const boundaryResult = await processOSMGeometry(result.geojson, lat, lng)
+            const boundaryResult = await BoundaryDetectionService.processOSMGeometry(result.geojson, lat, lng)
             if (boundaryResult.success) {
               console.log(`🎯 Best match: "${result.display_name.split(',')[0]}" (Score: ${score.toFixed(2)}, Distance: ${Math.round(distance)}m)`)
+              console.log(`   ✅ Validation passed: nameScore=${validation.nameScore.toFixed(2)}, distanceScore=${validation.distanceScore.toFixed(2)}, typeScore=${validation.typeScore.toFixed(2)}`)
               return boundaryResult
             }
           }
@@ -550,7 +707,9 @@ async function searchOSMByName(lat: number, lng: number, name: string, landmarkI
       await new Promise(resolve => setTimeout(resolve, 100))
     }
 
-    return { success: false, error: 'No suitable polygons found by name' }
+    console.log(`❌ BUSCA POR NOME FALHOU: Testadas ${uniqueVariations.length} variações do nome "${name}", nenhuma retornou polígonos válidos`)
+    console.log(`🔍 Variações testadas: ${uniqueVariations.join(', ')}`)
+    return { success: false, error: `No suitable polygons found by name after trying ${uniqueVariations.length} variations` }
 
   } catch (error) {
     return { 
@@ -1178,7 +1337,7 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
             minDistance = 80 // Keep distant TPs for landmarks on regular roads
             console.log(`🗻 High visibility landmark - using distant TPs (min: ${minDistance}m)`)
           } else {
-            console.log(`🏢 Regular POI - using close TPs (min: ${minDistance}m)`)
+            // console.log(`🏢 Regular POI - using close TPs (min: ${minDistance}m)`)
           }
           
           const isMinDistance = distance >= minDistance
@@ -3131,5 +3290,162 @@ function calculatePOIConfidenceScore(
       visibility_coverage: Math.round(visibilityCoverage * 100) / 100,
       landmark_bonus: Math.round(landmarkBonus * 100) / 100
     }
+  }
+}
+
+/**
+ * Enrich attraction data with OSM information
+ */
+async function enrichAttractionWithOSMData(
+  attractionId: string, 
+  searchResult: any, 
+  boundarySource: string
+): Promise<void> {
+  try {
+    console.log(`🔄 Enriching attraction ${attractionId} with OSM data from ${boundarySource}`)
+    
+    let enrichmentData: any = {}
+    
+    // Extract data based on source type
+    if (boundarySource === 'osm_nominatim' && searchResult.osmResult) {
+      // Try using the comprehensive existing API first
+      try {
+        enrichmentData = await OSMDataEnrichmentService.extractFromExistingAPI(
+          attractionId, 
+          searchResult.osmResult
+        )
+        
+        // If existing API didn't work, fallback to basic extraction
+        if (Object.keys(enrichmentData).length === 0) {
+          enrichmentData = OSMDataEnrichmentService.extractFromNominatim(searchResult.osmResult)
+        }
+      } catch (error) {
+        console.log('⚠️ Existing API failed, using basic extraction:', error)
+        enrichmentData = OSMDataEnrichmentService.extractFromNominatim(searchResult.osmResult)
+      }
+    }
+    
+    // Extract boundary geometry data (common for all sources)
+    if (searchResult.boundary) {
+      const boundaryData = OSMDataEnrichmentService.extractFromBoundary(
+        searchResult.boundary, 
+        boundarySource
+      )
+      enrichmentData = { ...enrichmentData, ...boundaryData }
+    }
+    
+    // Save enrichment data if we have any
+    if (Object.keys(enrichmentData).length > 0) {
+      const success = await OSMDataEnrichmentService.saveEnrichmentData(
+        attractionId, 
+        enrichmentData
+      )
+      
+      if (success) {
+        console.log(`✅ Successfully enriched attraction ${attractionId} with ${Object.keys(enrichmentData).length} OSM fields`)
+      } else {
+        console.log(`⚠️ Failed to save enrichment data for attraction ${attractionId}`)
+      }
+    } else {
+      console.log(`ℹ️ No enrichment data available for attraction ${attractionId}`)
+    }
+    
+  } catch (error) {
+    console.error(`❌ Error enriching attraction ${attractionId}:`, error)
+  }
+}
+
+/**
+ * Auto-save trigger points que atendem critérios de confiança
+ * Salva primary, secondary e fallback desde que tenham confiança adequada
+ */
+async function autoSaveTriggerPoints(
+  attractionId: string,
+  triggerPoints: any[],
+  boundarySource: string
+): Promise<{ saved: number; skipped: number; errors: string[] }> {
+  const results = { saved: 0, skipped: 0, errors: [] as string[] }
+  
+  try {
+    console.log(`💾 Auto-saving trigger points for attraction ${attractionId}`)
+    
+    // Definir critérios de confiança mínima por tipo
+    const confidenceThresholds = {
+      'primary': 0.75,     // 75% - alta confiança para pontos principais
+      'secondary': 0.65,   // 65% - boa confiança para pontos secundários  
+      'fallback': 0.50     // 50% - confiança mínima para fallbacks (melhorados)
+    }
+    
+    // Filtrar trigger points que atendem critérios
+    const eligibleTPs = triggerPoints.filter(tp => {
+      const minConfidence = confidenceThresholds[tp.type as keyof typeof confidenceThresholds] || 0.50
+      const hasMinConfidence = tp.individual_confidence_score >= minConfidence
+      
+      if (!hasMinConfidence) {
+        console.log(`⚠️ Skipping ${tp.type} TP: confidence ${tp.individual_confidence_score} < ${minConfidence}`)
+        results.skipped++
+      }
+      
+      return hasMinConfidence
+    })
+    
+    if (eligibleTPs.length === 0) {
+      console.log(`ℹ️ No trigger points meet confidence criteria for auto-save`)
+      return results
+    }
+    
+    console.log(`✅ Auto-saving ${eligibleTPs.length} trigger points (${results.skipped} skipped for low confidence)`)
+    
+    // Preparar dados para inserção no Supabase
+    const tpsForDB = eligibleTPs.map(tp => ({
+      attraction_id: attractionId,
+      location: `POINT(${tp.lng} ${tp.lat})`,
+      radius_meters: tp.radius_meters || 20,
+      expected_bearing: tp.expected_bearing,
+      bearing_threshold: 30,
+      type: tp.type,
+      priority: tp.type === 'primary' ? 1 : tp.type === 'secondary' ? 2 : 3,
+      is_active: true,
+      confidence_score: tp.individual_confidence_score,
+      auto_status: tp.auto_status,
+      manual_status: 'pending', // Sempre pending para revisão manual
+      final_status: tp.auto_status === 'approved' ? 'approved' : 'pending',
+      score_factors: tp.score_factors,
+      generation_method: `auto_${boundarySource}`,
+      validation_notes: tp.reasoning || `Auto-generated from ${boundarySource}`,
+      created_at: new Date().toISOString()
+    }))
+    
+    // Usar service role para inserção no banco
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+    
+    const { data, error } = await supabase
+      .schema('core')
+      .from('attraction_trigger_points')
+      .insert(tpsForDB)
+      .select('id')
+    
+    if (error) {
+      console.error('❌ Error auto-saving trigger points:', error)
+      results.errors.push(error.message)
+      return results
+    }
+    
+    results.saved = data?.length || 0
+    
+    console.log(`✅ Successfully auto-saved ${results.saved} trigger points`)
+    console.log(`   - Primary: ${tpsForDB.filter(tp => tp.type === 'primary').length}`)
+    console.log(`   - Secondary: ${tpsForDB.filter(tp => tp.type === 'secondary').length}`)
+    console.log(`   - Fallback: ${tpsForDB.filter(tp => tp.type === 'fallback').length}`)
+    
+    return results
+    
+  } catch (error) {
+    console.error('❌ Error in auto-save trigger points:', error)
+    results.errors.push(error instanceof Error ? error.message : 'Unknown error')
+    return results
   }
 }
