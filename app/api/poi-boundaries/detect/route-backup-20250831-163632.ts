@@ -1,7 +1,5 @@
 
 import { NextRequest, NextResponse } from 'next/server'
-import { BoundaryDetectionService } from '@/lib/services/boundary-detection'
-import { TriggerPointsService } from '@/lib/services/trigger-points-generation'
 
 interface POIBoundaryRequest {
   attraction_id: string
@@ -46,8 +44,6 @@ interface BoundaryResult {
   }
   error?: string
 }
-
-// REMOVED: CONFIG object - was created but never used in the code
 
 export async function POST(request: NextRequest) {
   try {
@@ -116,23 +112,19 @@ export async function POST(request: NextRequest) {
       console.log(`🏙️ Regular POI with urban density-based range: ${landmarkInfo.maxRange}m`)
     }
 
-    // MODULAR: Use BoundaryDetectionService for boundary detection
-    const boundaryResult = await BoundaryDetectionService.detectBoundary(poi_lat, poi_lng, poi_name, landmarkInfo)
-    if (boundaryResult.success && boundaryResult.boundary) {
-      console.log(`✅ Found boundary from ${boundaryResult.boundary.source}`)
+    // Strategy 1: Search by name near coordinates using OSM Nominatim (PRIORITY - more precise)
+    const nameSearchResult = await searchOSMByName(poi_lat, poi_lng, poi_name, landmarkInfo)
+    if (nameSearchResult.success && 'boundary' in nameSearchResult && nameSearchResult.boundary) {
+      console.log('✅ Found precise boundary from OSM Nominatim')
       
-      // MODULAR: Use TriggerPointsService for trigger points generation
-      const nearbyStreets = await findNearbyStreetsForTriggers(poi_lat, poi_lng, poi_name, landmarkInfo)
-      const tpResult = await TriggerPointsService.generateTriggerPoints(
-        boundaryResult.boundary,
-        poi_lat,
-        poi_lng,
+      // Generate street-based trigger points with landmark info
+      let streetTriggerPoints = await generateStreetBasedTriggerPoints(
+        'boundary' in nameSearchResult ? nameSearchResult.boundary : null!, 
+        poi_lat, 
+        poi_lng, 
         poi_name,
-        nearbyStreets,
         landmarkInfo
       )
-      
-      let streetTriggerPoints = tpResult.trigger_points
       
       // If no very close TPs were found (all > 80m), supplement with immediate streets like fallback system
       const veryCloseTPs = streetTriggerPoints.filter(tp => tp.distance_from_poi <= 80)
@@ -142,7 +134,7 @@ export async function POST(request: NextRequest) {
         try {
           const immediateStreets = await findImmediateStreets(poi_lat, poi_lng)
           if (immediateStreets && immediateStreets.length > 0) {
-            const immediateTPs = await generateDirectionalTriggerPoints(poi_lat, poi_lng, immediateStreets, boundaryResult.boundary.coordinates)
+            const immediateTPs = await generateDirectionalTriggerPoints(poi_lat, poi_lng, immediateStreets, 'boundary' in nameSearchResult ? nameSearchResult.boundary?.coordinates : undefined)
             
             // Mark these as supplementary and merge with existing TPs
             const supplementaryTPs = immediateTPs.map(tp => ({
@@ -159,35 +151,47 @@ export async function POST(request: NextRequest) {
         }
       }
       
-      // MODULAR: Use TriggerPointsService for scoring and enhancement
-      const enhancedTriggerPoints = TriggerPointsService.enhanceTriggerPoints(
-        streetTriggerPoints,
-        boundaryResult.boundary,
-        landmarkInfo,
-        boundaryResult.boundary.source
-      )
+      // Calculate individual TP scores and add status
+      const enhancedTriggerPoints = streetTriggerPoints.map(tp => {
+        const individualScore = calculateTriggerPointScore(tp, 'boundary' in nameSearchResult ? nameSearchResult.boundary : null, landmarkInfo)
+        const autoStatus = calculateTriggerPointStatus(individualScore)
+        
+        return {
+          ...tp,
+          individual_confidence_score: Math.round(individualScore * 100) / 100,
+          auto_status: autoStatus,
+          final_status: autoStatus, // No manual override yet
+          score_factors: {
+            base_confidence: tp.confidence,
+            distance_score: tp.distance_from_poi,
+            type_bonus: tp.type,
+            street_quality: tp.highway_type || 'unknown',
+            frontal_bonus: tp.reasoning?.includes('frontal street') || false
+          },
+          generation_method: 'osm_nominatim'
+        }
+      })
       
-      // MODULAR: Use TriggerPointsService for POI confidence scoring
-      const poiConfidenceScore = TriggerPointsService.calculatePOIConfidenceScore(
-        boundaryResult.boundary,
+      // Calculate POI confidence score
+      const poiConfidenceScore = calculatePOIConfidenceScore(
+        'boundary' in nameSearchResult ? nameSearchResult.boundary : null,
         enhancedTriggerPoints,
-        boundaryResult.boundary.source,
+        'osm_nominatim',
         landmarkInfo
       )
       
       return NextResponse.json({
         success: true,
-        boundary: boundaryResult.boundary,
+        boundary: 'boundary' in nameSearchResult ? nameSearchResult.boundary : null!,
         trigger_points: enhancedTriggerPoints,
-        source: boundaryResult.boundary.source,
-        poi_confidence_score: poiConfidenceScore,
-        processing_notes: boundaryResult.processing_notes
+        source: 'osm_nominatim',
+        poi_confidence_score: poiConfidenceScore
       } as BoundaryResult)
     }
 
-    // Check if boundary detection failed completely
-    if (!boundaryResult.success) {
-      console.log('❌ Boundary detection failed - trying fallback street analysis')
+    // Check if POI was completely not found in OSM
+    if (nameSearchResult.error && nameSearchResult.error.includes('No suitable polygons found by name')) {
+      console.log('❌ POI not found in OpenStreetMap - trying fallback street analysis')
       
       // Fallback Strategy: Analyze nearby streets and create minimal boundary
       const fallbackResult = await createFallbackBoundaryFromStreets(poi_lat, poi_lng, poi_name, landmarkInfo)
@@ -349,26 +353,31 @@ export async function POST(request: NextRequest) {
     // Fallback: Create estimated boundary if OSM fails
     console.log('⚠️ OSM failed, using estimated boundary')
     const estimatedBoundary = createEstimatedBoundary(poi_lat, poi_lng, poi_name)
-    // MODULAR: Use TriggerPointsService for estimated boundary trigger points
-    const tpResult = await TriggerPointsService.generateTriggerPoints(
-      estimatedBoundary,
-      poi_lat,
-      poi_lng,
-      poi_name,
-      [], // No streets for estimated boundary
-      landmarkInfo
-    )
+    const triggerPoints = await generateOptimalTriggerPoints(estimatedBoundary, poi_lat, poi_lng, poi_name)
 
-    // MODULAR: Use TriggerPointsService for scoring and enhancement
-    const enhancedEstimatedTPs = TriggerPointsService.enhanceTriggerPoints(
-      tpResult.trigger_points,
-      estimatedBoundary,
-      landmarkInfo,
-      'estimated_boundary'
-    )
+    // Calculate individual TP scores and add status
+    const enhancedEstimatedTPs = triggerPoints.map(tp => {
+      const individualScore = calculateTriggerPointScore(tp, estimatedBoundary, landmarkInfo)
+      const autoStatus = calculateTriggerPointStatus(individualScore)
+      
+      return {
+        ...tp,
+        individual_confidence_score: Math.round(individualScore * 100) / 100,
+        auto_status: autoStatus,
+        final_status: autoStatus,
+        score_factors: {
+          base_confidence: tp.confidence,
+          distance_score: tp.distance_from_poi,
+          type_bonus: tp.type,
+          street_quality: 'estimated',
+          frontal_bonus: false
+        },
+        generation_method: 'estimated_boundary'
+      }
+    })
     
-    // MODULAR: Use TriggerPointsService for POI confidence scoring
-    const poiConfidenceScore = TriggerPointsService.calculatePOIConfidenceScore(
+    // Calculate POI confidence score
+    const poiConfidenceScore = calculatePOIConfidenceScore(
       estimatedBoundary,
       enhancedEstimatedTPs,
       'estimated_boundary',
@@ -391,7 +400,92 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// REMOVED: processOSMGeometry - moved to BoundaryDetectionService
+// Helper function to process OSM geometry (Polygon or MultiPolygon)
+async function processOSMGeometry(geojson: any, poiLat: number, poiLng: number) {
+  try {
+    let allCoordinates: Array<{lat: number, lng: number}> = []
+    let totalArea = 0
+    let totalPerimeter = 0
+    
+    // Handle both Polygon and MultiPolygon
+    if (geojson.type === 'Polygon') {
+      const coordinates = convertOSMPolygon(geojson.coordinates[0])
+      
+      // Check if this polygon is close to our POI
+      const center = calculatePolygonCenter(coordinates)
+      const distance = calculateDistance(poiLat, poiLng, center.lat, center.lng)
+      
+      if (distance < 1000) { // Within 1km
+        allCoordinates = coordinates
+        totalArea = calculatePolygonArea(coordinates)
+        totalPerimeter = calculatePolygonPerimeter(coordinates)
+      }
+    } else if (geojson.type === 'MultiPolygon') {
+      console.log(`🔍 Found MultiPolygon with ${geojson.coordinates.length} parts`)
+      
+      // Process all polygons in the MultiPolygon
+      const polygonParts: Array<Array<{lat: number, lng: number}>> = []
+      
+      for (const polygonCoords of geojson.coordinates) {
+        const coordinates = convertOSMPolygon(polygonCoords[0]) // First ring (outer boundary)
+        
+        // Check if this polygon part is close to our POI
+        const center = calculatePolygonCenter(coordinates)
+        const distance = calculateDistance(poiLat, poiLng, center.lat, center.lng)
+        
+        if (distance < 2000) { // Increased radius for MultiPolygon parts
+          polygonParts.push(coordinates)
+          totalArea += calculatePolygonArea(coordinates)
+          totalPerimeter += calculatePolygonPerimeter(coordinates)
+        }
+      }
+      
+      // Combine all polygon parts into one boundary
+      if (polygonParts.length > 0) {
+        // Use the largest polygon as the main boundary
+        const largestPolygon = polygonParts.reduce((largest, current) => 
+          calculatePolygonArea(current) > calculatePolygonArea(largest) ? current : largest
+        )
+        
+        // Add points from smaller polygons to create a more complete boundary
+        allCoordinates = [...largestPolygon]
+        
+        // Add key points from other polygons to fill gaps
+        for (const otherPolygon of polygonParts) {
+          if (otherPolygon !== largestPolygon) {
+            // Add every 3rd point from smaller polygons to avoid overcrowding
+            for (let i = 0; i < otherPolygon.length; i += 3) {
+              allCoordinates.push(otherPolygon[i])
+            }
+          }
+        }
+        
+        console.log(`✅ Combined ${polygonParts.length} polygon parts into boundary`)
+      }
+    }
+    
+    if (allCoordinates.length > 0) {
+      return {
+        success: true,
+        boundary: {
+          type: 'polygon' as const,
+          coordinates: allCoordinates,
+          area_m2: totalArea,
+          perimeter_m: totalPerimeter,
+          confidence: 0.95
+        }
+      }
+    }
+
+    return { success: false, error: 'No valid geometry found' }
+
+  } catch (error) {
+    return { 
+      success: false, 
+      error: `Geometry processing error: ${error instanceof Error ? error.message : 'Unknown error'}` 
+    }
+  }
+}
 
 // OSM Strategy 1: Search by name (IMPROVED - prioritizes precise matches)
 async function searchOSMByName(lat: number, lng: number, name: string, landmarkInfo?: any) {
@@ -736,22 +830,16 @@ async function searchOSMNearbyFeatures(lat: number, lng: number, name: string) {
 
         console.log(`🏆 Main polygon: ${mainPolygon.tags.name || mainPolygon.tags.leisure || 'unnamed'} (score: ${mainPolygon.relevanceScore})`)
 
-        // OPTIMIZATION: Memory-efficient polygon merging with limits
-        const additionalPolygons = allPolygons.slice(1, Math.min(3, allPolygons.length)) // Reduced from 6 to 3
-        const maxCoordinates = 500 // Prevent memory bloat
+        // Add strategic points from other relevant polygons to create a more complete boundary
+        const additionalPolygons = allPolygons.slice(1, Math.min(6, allPolygons.length))
         
         for (const polygon of additionalPolygons) {
-          if (polygon.relevanceScore >= 2 && allCoordinates.length < maxCoordinates) {
+          if (polygon.relevanceScore >= 2) { // Only include reasonably relevant polygons
             console.log(`➕ Adding points from: ${polygon.tags.name || polygon.tags.leisure || 'unnamed'} (score: ${polygon.relevanceScore})`)
             
-            // OPTIMIZATION: Smart sampling based on polygon size
-            const sampleRate = Math.max(5, Math.ceil(polygon.coordinates.length / 20)) // Adaptive sampling
-            const remainingCapacity = maxCoordinates - allCoordinates.length
-            let addedPoints = 0
-            
-            for (let i = 0; i < polygon.coordinates.length && addedPoints < remainingCapacity; i += sampleRate) {
+            // Add every 5th point from other polygons to avoid overcrowding
+            for (let i = 0; i < polygon.coordinates.length; i += 5) {
               allCoordinates.push(polygon.coordinates[i])
-              addedPoints++
             }
             
             // Add partial area (weighted by relevance)
@@ -1060,13 +1148,14 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
     console.log(`🔍 Landmark info: isHighVisibility=${landmark.isHighVisibility}, maxRange=${landmark.maxRange}m`)
     console.log(`🔍 Landmark object:`, JSON.stringify(landmark))
     
-    // Log landmark detection result
+    // CRITICAL DEBUG: Force log to verify landmark detection
     if (landmark.isHighVisibility) {
-      console.log(`🗿 High visibility landmark detected: maxRange=${landmark.maxRange}m`)
+      console.log(`🚨 HIGH VISIBILITY LANDMARK DETECTED! maxRange=${landmark.maxRange}m`)
+    } else {
+      console.log(`🚨 NOT A HIGH VISIBILITY LANDMARK! isHighVisibility=${landmark.isHighVisibility}`)
     }
     
     // Enhanced query to find EXTERNAL streets around the POI (avoiding internal paths)
-    // REVERTED TO ORIGINAL WORKING VERSION
     const overpassQuery = `[out:json][timeout:30];
     (
       // Major highways and roads (priority - further out)
@@ -1083,10 +1172,6 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
     );
     out geom;`
 
-    // DEBUG: Log the exact query being sent
-    console.log(`🔍 DEBUG: Overpass query:`)
-    console.log(overpassQuery)
-    console.log(`🔍 DEBUG: Sending Overpass query to API...`)
     const response = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       body: overpassQuery,
@@ -1103,40 +1188,27 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
     const data = await response.json()
     console.log(`📊 Overpass found ${data.elements?.length || 0} street elements`)
     
-    // DEBUG: Log response status and potential errors
-    if (data.remark) {
-      console.log(`🔍 DEBUG: Overpass remark: ${data.remark}`)
-    }
-    if (data.elements?.length === 0) {
-      console.log(`🔍 DEBUG: Query returned 0 elements. Response keys:`, Object.keys(data))
-    }
-    
-    // OPTIMIZATION: Efficient distance calculation with early exit
+    // CRITICAL: Check if we have distant elements
     if (data.elements && data.elements.length > 0) {
-      const sampleSize = Math.min(50, data.elements.length) // Reduced sample size
-      const distances = data.elements
-        .slice(0, sampleSize)
-        .filter(element => element.geometry && element.geometry.length >= 2)
-        .map(element => {
+      const distances = []
+      for (const element of data.elements.slice(0, 100)) { // Check first 100 elements
+        if (element.geometry && element.geometry.length >= 2) {
           const coordinates = element.geometry.map((node: any) => ({lat: node.lat, lng: node.lon}))
           const closestPoint = findClosestPointOnStreet(coordinates, lat, lng)
-          return calculateDistance(lat, lng, closestPoint.lat, closestPoint.lng)
-        })
-      
+          const distance = calculateDistance(lat, lng, closestPoint.lat, closestPoint.lng)
+          distances.push(distance)
+        }
+      }
       if (distances.length > 0) {
         const maxDist = Math.max(...distances)
         const minDist = Math.min(...distances)
-        console.log(`📏 Distance range (${distances.length} samples): ${minDist.toFixed(0)}m - ${maxDist.toFixed(0)}m`)
+        console.log(`🚨 RAW OVERPASS DISTANCES: ${minDist.toFixed(0)}m - ${maxDist.toFixed(0)}m`)
       }
     }
 
     const streets = []
 
     if (data.elements && data.elements.length > 0) {
-      console.log(`🔍 DEBUG: Overpass returned ${data.elements.length} elements`)
-      const elementTypes = data.elements.map(e => e.tags?.highway).filter(Boolean)
-      console.log(`🔍 DEBUG: Highway types found: ${[...new Set(elementTypes)].join(', ')}`)
-      
       for (const element of data.elements) {
         if (element.geometry && element.geometry.length >= 2) {
           const coordinates = element.geometry.map((node: any) => ({
@@ -1155,8 +1227,7 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
             'pedestrian', // CRITICAL: Pedestrian areas like plazas (perfect for TPs!)
             'service',    // Service roads (often good viewpoints)
             'footway',    // Footways and sidewalks
-            'path',       // Walking paths (if named and accessible)
-            'track'       // CRITICAL FIX: Tracks for mountain/rural areas
+            'path'        // Walking paths (if named and accessible)
           ].includes(highwayType)
           
           // Filter out tunnels and underground/covered ways for POV quality
@@ -1170,12 +1241,9 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
           // Dynamic minimum distance based on POI type and highway classification
           let minDistance = 25 // Default to close TPs for better urban coverage
           
-          // Special handling for natural areas (mountains, parks)
-          if (landmark.isHighVisibility && ['footway', 'path', 'track'].includes(highwayType)) {
-            minDistance = 30 // Relaxed distance for natural paths on landmarks
-            console.log(`🗻 High visibility landmark with natural path - using relaxed distance (min: ${minDistance}m)`)
-          } else if (landmark.isHighVisibility) {
-            minDistance = 80 // Keep distant TPs for landmarks on regular roads
+          // Only use distant TPs for very large areas or landmarks
+          if (landmark.isHighVisibility) {
+            minDistance = 80 // Keep distant TPs for landmarks
             console.log(`🗻 High visibility landmark - using distant TPs (min: ${minDistance}m)`)
           } else {
             console.log(`🏢 Regular POI - using close TPs (min: ${minDistance}m)`)
@@ -1185,11 +1253,6 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
           // Use dynamic max distance based on landmark info
           const maxSearchDistance = landmark.isHighVisibility ? landmark.maxRange : 1000
           const isMaxDistance = distance <= maxSearchDistance
-          
-          // DEBUG: Log filtering decisions for landmarks
-          if (landmark.isHighVisibility && ['footway', 'path', 'track'].includes(highwayType)) {
-            console.log(`🔍 DEBUG ${streetName}: highway=${highwayType}, dist=${distance.toFixed(0)}m, external=${isExternalStreet}, tunnel=${isTunnel}, minDist=${isMinDistance}(>=${minDistance}), maxDist=${isMaxDistance}(<=${maxSearchDistance.toFixed(0)})`)
-          }
           
           // Debug: log all distance checks for landmarks
           if (distance > 1000) {
@@ -1237,7 +1300,7 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
     
     // CRITICAL: Show max distance found
     const maxDistance = Math.max(...streets.map(s => s.distance_to_poi))
-    console.log(`📏 Max street distance: ${maxDistance.toFixed(0)}m`)
+    console.log(`🚨 MAX STREET DISTANCE FOUND: ${maxDistance.toFixed(0)}m`)
     return streets.slice(0, 30) // Increased to 30 streets for more coverage
 
   } catch (error) {
@@ -1261,7 +1324,7 @@ async function generateTriggersOnStreets(
     
     // Debug: log points generated for distant streets
     if (street.distance_to_poi > 1000) {
-      console.log(`🛣️ Distant street ${street.name} (${street.distance_to_poi.toFixed(0)}m) generated ${streetPoints.length} points`)
+      console.log(`🚨 Distant street ${street.name} (${street.distance_to_poi.toFixed(0)}m) generated ${streetPoints.length} points`)
       if (streetPoints.length === 0) {
         console.log(`❌ No points generated for distant street: ${street.name}`)
       }
@@ -1660,17 +1723,12 @@ async function checkHighVisibilityLandmark(poiLat: number, poiLng: number, curre
       detectUrbanDensity(poiLat, poiLng)
     ])
     
-    console.log(`🏗️ POI height: ${poiHeight.height}m (${poiHeight.category}, confidence: ${poiHeight.confidence})`)
+    console.log(`🏗️ POI height: ${poiHeight.height}m (${poiHeight.category})`)
     console.log(`🏙️ Urban density: ${urbanDensity}`)
     
-    // Only use height-based range if we have REAL data (confidence > 0)
-    let maxRange = 1000 // Default range
-    if (poiHeight.confidence > 0) {
-      maxRange = calculateHeightBasedRange(poiHeight, urbanDensity)
-      console.log(`📐 Using height-based range: ${maxRange}m (based on REAL data)`)
-    } else {
-      console.log(`📐 Using default range: ${maxRange}m (no real height data available)`)
-    }
+    // Calculate dynamic range based on HEIGHT vs DENSITY
+    const maxRange = calculateHeightBasedRange(poiHeight, urbanDensity)
+    console.log(`🎯 Height-based range: ${maxRange}m`)
     
     return { isHighVisibility: false, maxRange, elevationDiff: 0 }
 
@@ -1752,44 +1810,6 @@ function calculateHeightBasedRange(
   return cappedRange
 }
 
-// OPTIMIZATION: Unified Overpass API helper to reduce code duplication
-async function queryOverpassAPI(query: string, purpose: string, timeout: number = 15): Promise<any> {
-  try {
-    const response = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      body: query,
-      headers: {
-        'User-Agent': `TuggiCMS/1.0 (${purpose})`,
-        'Content-Type': 'text/plain'
-      }
-    })
-
-    if (!response.ok) {
-      console.log(`⚠️ ${purpose} failed: ${response.status}`)
-      return null
-    }
-
-    return await response.json()
-  } catch (error) {
-    console.error(`❌ Error in ${purpose}:`, error)
-    return null
-  }
-}
-
-// OPTIMIZATION: Template for common Overpass queries
-function buildOverpassQuery(
-  elements: string[], 
-  location: {lat: number, lng: number}, 
-  radius: number, 
-  timeout: number = 10
-): string {
-  return `[out:json][timeout:${timeout}];
-(
-  ${elements.join(';\n  ')};
-);
-out geom;`
-}
-
 // Estimate building height from OSM tags (helper function)
 function getEstimatedBuildingHeight(tags: any): number {
   // Method 1: Direct height tag
@@ -1831,8 +1851,7 @@ function getEstimatedBuildingHeight(tags: any): number {
       return 15 // Industrial buildings
     case 'church':
     case 'cathedral':
-    case 'basilica':
-      return 45 // Religious buildings (basilicas tend to be taller)
+      return 25 // Religious buildings
     case 'hospital':
     case 'school':
       return 20 // Institutional
@@ -1844,136 +1863,123 @@ function getEstimatedBuildingHeight(tags: any): number {
 // Detect POI height from OSM building data
 async function detectPOIHeight(lat: number, lng: number): Promise<{ height: number, category: 'low' | 'medium' | 'high' | 'very_high', confidence: number }> {
   try {
-    console.log(`🏗️ Detecting REAL POI height for ${lat}, ${lng}`)
+    console.log(`🏗️ Detecting POI height for ${lat}, ${lng}`)
     
-    // PRIORITY 1: Search for buildings AND TOWERS with REAL height data
-    const realHeightQuery = `[out:json][timeout:15];
-(
-  // Search for buildings with direct height data
-  way[building][height](around:50,${lat},${lng});
-  relation[building][height](around:50,${lat},${lng});
-  
-  // Search for buildings with building:height
-  way[building]["building:height"](around:50,${lat},${lng});
-  relation[building]["building:height"](around:50,${lat},${lng});
-  
-  // Search for buildings with building:levels (most common)
-  way[building]["building:levels"](around:50,${lat},${lng});
-  relation[building]["building:levels"](around:50,${lat},${lng});
-  
-  // EXPANDED: Search for towers and building parts with height (like Sagrada Família towers)
-  way[man_made=tower][height](around:200,${lat},${lng});
-  relation[man_made=tower][height](around:200,${lat},${lng});
-  way["building:part"=tower][height](around:200,${lat},${lng});
-  relation["building:part"=tower][height](around:200,${lat},${lng});
-  
-  // Search for any building parts with height data
-  way["building:part"][height](around:100,${lat},${lng});
-  relation["building:part"][height](around:100,${lat},${lng});
-);
-out tags;`
+    // Query OSM for building data at POI location
+    const overpassQuery = `[out:json][timeout:10];
+    (
+      // Buildings at exact POI location
+      way[building](around:50,${lat},${lng});
+      relation[building](around:50,${lat},${lng});
+    );
+    out tags;`
 
-    console.log(`🔍 Searching for REAL height data in OSM...`)
-    const data = await queryOverpassAPI(realHeightQuery, 'real-poi-height-detection', 10)
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: overpassQuery,
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (poi-height-detection)',
+        'Content-Type': 'text/plain'
+      }
+    })
+
+    if (!response.ok) {
+      console.log('⚠️ Height detection failed, assuming medium height')
+      return { height: 25, category: 'medium', confidence: 0.3 }
+    }
+
+    const data = await response.json()
     
-    if (!data || !data.elements || data.elements.length === 0) {
-      console.log('❌ NO REAL HEIGHT DATA found in OSM for this location')
-      return { 
-        height: 0, 
-        category: 'low', 
-        confidence: 0.0 // Zero confidence = no real data
+    if (data.elements && data.elements.length > 0) {
+      for (const element of data.elements) {
+        const tags = element.tags || {}
+        let estimatedHeight = 0
+        let confidence = 0.5
+        
+        // Method 1: Direct height tag (most accurate)
+        if (tags.height) {
+          const heightMatch = tags.height.match(/(\d+(?:\.\d+)?)/);
+          if (heightMatch) {
+            estimatedHeight = parseFloat(heightMatch[1])
+            confidence = 0.9
+            console.log(`📏 Direct height found: ${estimatedHeight}m (confidence: ${confidence})`)
+          }
+        }
+        
+        // Method 2: building:height tag
+        if (!estimatedHeight && tags['building:height']) {
+          const heightMatch = tags['building:height'].match(/(\d+(?:\.\d+)?)/);
+          if (heightMatch) {
+            estimatedHeight = parseFloat(heightMatch[1])
+            confidence = 0.9
+            console.log(`📏 Building height found: ${estimatedHeight}m (confidence: ${confidence})`)
+          }
+        }
+        
+        // Method 3: building:levels (estimate 3.5m per floor)
+        if (!estimatedHeight && tags['building:levels']) {
+          const levels = parseInt(tags['building:levels'])
+          if (levels > 0) {
+            estimatedHeight = levels * 3.5 // Average floor height
+            confidence = 0.7
+            console.log(`🏢 Estimated from ${levels} levels: ${estimatedHeight}m (confidence: ${confidence})`)
+          }
+        }
+        
+        // Method 4: Building type estimation
+        if (!estimatedHeight) {
+          const buildingType = tags.building || 'unknown'
+          switch (buildingType) {
+            case 'cathedral':
+            case 'church':
+            case 'basilica':
+              estimatedHeight = 45 // Religious buildings often tall
+              confidence = 0.6
+              console.log(`⛪ Religious building estimated: ${estimatedHeight}m`)
+              break
+            case 'tower':
+              estimatedHeight = 80
+              confidence = 0.6
+              console.log(`🗼 Tower estimated: ${estimatedHeight}m`)
+              break
+            case 'skyscraper':
+              estimatedHeight = 150
+              confidence = 0.7
+              console.log(`🏙️ Skyscraper estimated: ${estimatedHeight}m`)
+              break
+            case 'hospital':
+            case 'university':
+              estimatedHeight = 30
+              confidence = 0.5
+              console.log(`🏥 Institutional building estimated: ${estimatedHeight}m`)
+              break
+            default:
+              estimatedHeight = 15 // Default building height
+              confidence = 0.3
+              console.log(`🏠 Default building estimated: ${estimatedHeight}m`)
+          }
+        }
+        
+        // Categorize height
+        let category: 'low' | 'medium' | 'high' | 'very_high'
+        if (estimatedHeight < 20) {
+          category = 'low'
+        } else if (estimatedHeight < 50) {
+          category = 'medium'
+        } else if (estimatedHeight < 100) {
+          category = 'high'
+        } else {
+          category = 'very_high'
+        }
+        
+        console.log(`🏗️ POI height analysis: ${estimatedHeight}m (${category}, confidence: ${confidence})`)
+        return { height: estimatedHeight, category, confidence }
       }
     }
     
-    // Process REAL height data found
-    console.log(`✅ Found ${data.elements.length} buildings/towers with height data`)
-    
-    let bestHeight = 0
-    let bestConfidence = 0
-    let bestSource = 'none'
-    let bestStructure = 'building'
-    
-    for (const element of data.elements) {
-      const tags = element.tags || {}
-      let realHeight = 0
-      let confidence = 0
-      let source = 'none'
-      let structureType = 'building'
-      
-      // Determine structure type for better logging
-      if (tags.man_made === 'tower' || tags['building:part'] === 'tower') {
-        structureType = 'tower'
-      } else if (tags['building:part']) {
-        structureType = 'building_part'
-      }
-      
-      // PRIORITY 1: Direct height tag (most reliable)
-      if (tags.height) {
-        const heightMatch = tags.height.match(/(\d+(?:\.\d+)?)/);
-        if (heightMatch) {
-          realHeight = parseFloat(heightMatch[1])
-          confidence = 0.95
-          source = 'direct_height'
-          const structureName = tags.name || `${structureType}`
-          console.log(`🎯 REAL HEIGHT found: ${realHeight}m from ${structureName} (${structureType})`)
-        }
-      }
-      
-      // PRIORITY 2: building:height tag
-      else if (tags['building:height']) {
-        const heightMatch = tags['building:height'].match(/(\d+(?:\.\d+)?)/);
-        if (heightMatch) {
-          realHeight = parseFloat(heightMatch[1])
-          confidence = 0.9
-          source = 'building_height'
-          console.log(`🎯 REAL HEIGHT found: ${realHeight}m from building:height tag`)
-        }
-      }
-      
-      // PRIORITY 3: building:levels (calculate from floors)
-      else if (tags['building:levels']) {
-        const levels = parseInt(tags['building:levels'])
-        if (levels > 0) {
-          realHeight = levels * 3.5 // Standard floor height
-          confidence = 0.8
-          source = 'building_levels'
-          console.log(`🏢 REAL HEIGHT calculated: ${realHeight}m from ${levels} levels`)
-        }
-      }
-      
-      // Keep the HIGHEST height found (for landmarks like Sagrada Família with towers)
-      // OR the most confident if heights are similar
-      if (realHeight > bestHeight || (Math.abs(realHeight - bestHeight) < 10 && confidence > bestConfidence)) {
-        bestHeight = realHeight
-        bestConfidence = confidence
-        bestSource = source
-        bestStructure = structureType
-      }
-    }
-    
-    if (bestHeight > 0) {
-      // Categorize height based on REAL data
-      let category: 'low' | 'medium' | 'high' | 'very_high'
-      if (bestHeight < 20) {
-        category = 'low'
-      } else if (bestHeight < 50) {
-        category = 'medium'
-      } else if (bestHeight < 100) {
-        category = 'high'
-      } else {
-        category = 'very_high'
-      }
-      
-      console.log(`✅ REAL HEIGHT DATA: ${bestHeight}m (${category}) from ${bestStructure} using ${bestSource} (confidence: ${bestConfidence})`)
-      return { height: bestHeight, category, confidence: bestConfidence }
-    } else {
-      console.log(`❌ No valid height data found in ${data.elements.length} buildings`)
-      return { 
-        height: 0, 
-        category: 'low', 
-        confidence: 0.0 // Zero confidence = no real data
-      }
-    }
+    // No building found - assume ground level POI
+    console.log(`📍 No building data found - assuming ground level POI`)
+    return { height: 0, category: 'low', confidence: 0.8 }
 
   } catch (error) {
     console.error('❌ Error detecting POI height:', error)
@@ -2171,7 +2177,7 @@ function lineIntersectsPolygon(point1: {lat: number, lng: number}, point2: {lat:
     const edgeEnd = polygon[i + 1]
     
     // Calculate distance from line to edge
-    const distanceToEdge = calculateDistanceToLineSegment(
+    const distanceToEdge = distanceFromPointToLineSegment(
       calculatePolygonCenter([edgeStart, edgeEnd]), 
       point1, 
       point2
@@ -2186,7 +2192,33 @@ function lineIntersectsPolygon(point1: {lat: number, lng: number}, point2: {lat:
   return false
 }
 
-// REMOVED: Duplicate function - using calculateDistanceToLineSegment instead
+// Calculate distance from a point to a line segment
+function distanceFromPointToLineSegment(point: {lat: number, lng: number}, lineStart: {lat: number, lng: number}, lineEnd: {lat: number, lng: number}): number {
+  const A = point.lat - lineStart.lat
+  const B = point.lng - lineStart.lng
+  const C = lineEnd.lat - lineStart.lat
+  const D = lineEnd.lng - lineStart.lng
+
+  const dot = A * C + B * D
+  const lenSq = C * C + D * D
+  let param = -1
+  if (lenSq !== 0) param = dot / lenSq
+
+  let xx, yy
+
+  if (param < 0) {
+    xx = lineStart.lat
+    yy = lineStart.lng
+  } else if (param > 1) {
+    xx = lineEnd.lat
+    yy = lineEnd.lng
+  } else {
+    xx = lineStart.lat + param * C
+    yy = lineStart.lng + param * D
+  }
+
+  return calculateDistance(point.lat, point.lng, xx, yy)
+}
 
 function isPointInPolygon(point: {lat: number, lng: number}, polygon: Array<{lat: number, lng: number}>): boolean {
   let inside = false
@@ -2901,9 +2933,44 @@ function findClosestPointIndexOnStreet(coordinates: any[], poiLat: number, poiLn
 }
 
 // Get indices for points upstream (before POI in traffic flow)
-// REMOVED: getUpstreamIndices - function was defined but never called
+function getUpstreamIndices(coordinates: any[], closestIndex: number, isReverse: boolean): number[] {
+  const indices = []
+  const streetLength = coordinates.length
+  
+  if (isReverse) {
+    // Reverse one-way: upstream is towards end of array
+    for (let i = closestIndex + 1; i < Math.min(streetLength, closestIndex + 8); i++) {
+      indices.push(i)
+    }
+  } else {
+    // Normal one-way: upstream is towards beginning of array
+    for (let i = Math.max(0, closestIndex - 8); i < closestIndex; i++) {
+      indices.push(i)
+    }
+  }
+  
+  return indices
+}
 
-// REMOVED: getDownstreamIndices - function was defined but never called
+// Get indices for points downstream (after POI in traffic flow) - used as backup
+function getDownstreamIndices(coordinates: any[], closestIndex: number, isReverse: boolean, count: number): number[] {
+  const indices = []
+  const streetLength = coordinates.length
+  
+  if (isReverse) {
+    // Reverse one-way: downstream is towards beginning of array
+    for (let i = Math.max(0, closestIndex - count); i < closestIndex; i++) {
+      indices.push(i)
+    }
+  } else {
+    // Normal one-way: downstream is towards end of array
+    for (let i = closestIndex + 1; i < Math.min(streetLength, closestIndex + count + 1); i++) {
+      indices.push(i)
+    }
+  }
+  
+  return indices
+}
 
 // Calculate bonus for stream position (upstream = good, downstream = bad)
 function calculateStreamPositionBonus(pointIndex: number, closestIndex: number, isOneway: boolean, isReverse: boolean, streetLength: number): number {
