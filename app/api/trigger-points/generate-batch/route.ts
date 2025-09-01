@@ -153,18 +153,20 @@ export async function POST(request: NextRequest) {
       try {
         console.log(`🎯 Processing: ${poi.name} (${poi.city}, ${poi.country})`)
 
-        // Use the same API endpoint that /test-poi-boundaries uses (ensures consistent logic)
-        const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/poi-boundaries/detect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        // Call the boundary detection API directly (avoid internal fetch in production)
+        const { POST: detectBoundaryHandler } = await import('@/app/api/poi-boundaries/detect/route')
+        
+        // Create a mock request object
+        const mockRequest = {
+          json: async () => ({
             attraction_id: poi.id,
             poi_lat: coordinate.latitude,
             poi_lng: coordinate.longitude,
             poi_name: poi.name
           })
-        })
+        } as any
         
+        const response = await detectBoundaryHandler(mockRequest)
         const result = await response.json()
 
         if (result.success && result.trigger_points && Array.isArray(result.trigger_points) && result.trigger_points.length > 0) {
