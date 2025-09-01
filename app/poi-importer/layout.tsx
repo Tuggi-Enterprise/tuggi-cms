@@ -1,4 +1,4 @@
-import { Sidebar } from '@/components/ui/Sidebar'
+import { Header } from '@/components/ui/Header'
 
 export default function POIImporterLayout({
   children,
@@ -6,11 +6,9 @@ export default function POIImporterLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-h-screen bg-gray-50 relative">
-      <div className="fixed left-0 top-0 h-full z-10">
-        <Sidebar />
-      </div>
-      <main className="ml-64 overflow-auto min-h-screen">
+    <div className="flex flex-col min-h-screen bg-gray-50">
+      <Header />
+      <main className="flex-1 overflow-auto">
         {children}
       </main>
     </div>

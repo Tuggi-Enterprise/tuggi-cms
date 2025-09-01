@@ -22,7 +22,8 @@ import {
   CheckCircle,
   Sparkles,
   Eye,
-  Database
+  Database,
+  Target
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -57,6 +58,11 @@ const navigation = [
     name: 'Enrich OSM',
     href: '/verification/enrich-osm',
     icon: Database,
+  },
+  {
+    name: 'Trigger Points Generation',
+    href: '/trigger-points-generation',
+    icon: Target,
   },
   {
     name: 'Reviews',

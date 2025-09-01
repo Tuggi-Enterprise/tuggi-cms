@@ -1,14 +1,16 @@
-import { Metadata } from 'next'
-
-export const metadata: Metadata = {
-  title: 'Trigger Points Generation | Tuggi CMS',
-  description: 'Generate trigger points for POIs by country and city',
-}
+import { Header } from '@/components/ui/Header'
 
 export default function TriggerPointsGenerationLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  return <>{children}</>
+  return (
+    <div className="flex flex-col h-screen bg-tuggi-background dark:bg-gray-900">
+      <Header />
+      <main className="flex-1 overflow-auto">
+        {children}
+      </main>
+    </div>
+  )
 }

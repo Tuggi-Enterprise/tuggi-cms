@@ -300,20 +300,19 @@ export default function TriggerPointsGenerationPage() {
   }, [country, city, processingType, limit]);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
-                <Target className="h-8 w-8 mr-3 text-tuggi-orange" />
-                Trigger Points Generation
-              </h1>
-              <p className="text-gray-600 dark:text-gray-400 mt-2">
-                Generate trigger points for POIs using advanced boundary detection and street analysis
-              </p>
-            </div>
+    <div className="p-6">
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
+              <Target className="h-8 w-8 mr-3 text-tuggi-orange" />
+              Trigger Points Generation
+            </h1>
+            <p className="text-gray-600 dark:text-gray-400 mt-2">
+              Generate trigger points for POIs using advanced boundary detection and street analysis
+            </p>
+          </div>
             <button
               onClick={() => router.push('/pois')}
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
@@ -654,7 +653,6 @@ export default function TriggerPointsGenerationPage() {
             )}
           </div>
         </div>
-      </div>
     </div>
   );
 }

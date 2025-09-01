@@ -1790,9 +1790,129 @@ function calculateDistanceToLineSegment(
   return calculateDistance(point.lat, point.lng, xx, yy)
 }
 
+// Known city elevations database (most accurate)
+const KNOWN_CITY_ELEVATIONS: { [key: string]: number } = {
+  // Brazil major cities (accurate elevations)
+  'belo horizonte': 852,
+  'são paulo': 760,
+  'rio de janeiro': 10,
+  'brasília': 1172,
+  'salvador': 8,
+  'fortaleza': 21,
+  'recife': 4,
+  'porto alegre': 10,
+  'curitiba': 934,
+  'goiânia': 749,
+  'belém': 10,
+  'manaus': 92,
+  'campo grande': 532,
+  'florianópolis': 3,
+  'vitória': 2,
+  'natal': 30,
+  'joão pessoa': 37,
+  'aracaju': 4,
+  'maceió': 7,
+  'teresina': 72,
+  'são luís': 24,
+  'macapá': 16,
+  'boa vista': 90,
+  'rio branco': 153,
+  'porto velho': 90,
+  'cuiabá': 165,
+  'palmas': 280
+}
+
+// Get known city elevation from database
+async function getKnownCityElevation(lat: number, lng: number): Promise<number | null> {
+  try {
+    // Use reverse geocoding to get city name
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`, {
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (city-elevation-lookup)'
+      }
+    })
+    
+    if (!response.ok) {
+      return null
+    }
+    
+    const data = await response.json()
+    
+    if (data.address) {
+      // Try different address components for city name
+      const cityNames = [
+        data.address.city,
+        data.address.town,
+        data.address.municipality,
+        data.address.county
+      ].filter(Boolean)
+      
+      for (const cityName of cityNames) {
+        const normalizedName = cityName.toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '') // Remove accents
+          .trim()
+        
+        if (KNOWN_CITY_ELEVATIONS[normalizedName]) {
+          console.log(`🏙️ Found known city elevation: ${cityName} = ${KNOWN_CITY_ELEVATIONS[normalizedName]}m`)
+          return KNOWN_CITY_ELEVATIONS[normalizedName]
+        }
+      }
+    }
+    
+    return null
+  } catch (error) {
+    console.log('⚠️ Error getting known city elevation:', error)
+    return null
+  }
+}
+
+// Get elevation from Open Elevation API
+async function getOpenElevationAPI(lat: number, lng: number): Promise<number | null> {
+  try {
+    const response = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`)
+    
+    if (!response.ok) {
+      return null
+    }
+    
+    const data = await response.json()
+    
+    if (data.results && data.results.length > 0) {
+      const elevation = data.results[0].elevation
+      console.log(`🌍 Open Elevation API: ${elevation}m`)
+      return elevation
+    }
+    
+    return null
+  } catch (error) {
+    console.log('⚠️ Error with Open Elevation API:', error)
+    return null
+  }
+}
+
 // Get city base elevation by sampling nearby area
 async function getCityBaseElevation(lat: number, lng: number): Promise<number> {
   try {
+    console.log(`🏙️ Getting city base elevation for ${lat}, ${lng}`)
+    
+    // METHOD 1: Try known cities database first (most accurate and fast)
+    const knownElevation = await getKnownCityElevation(lat, lng)
+    if (knownElevation !== null) {
+      console.log(`✅ Using known city elevation: ${knownElevation}m`)
+      return knownElevation
+    }
+    
+    // METHOD 2: Try Open Elevation API (fast and reliable)
+    const openElevation = await getOpenElevationAPI(lat, lng)
+    if (openElevation !== null && openElevation > 0) {
+      console.log(`✅ Using Open Elevation API: ${openElevation}m`)
+      return openElevation
+    }
+    
+    // METHOD 3: Fallback to existing OSM sampling logic (preserved for compatibility)
+    console.log(`🔄 Falling back to OSM sampling method...`)
+    
     // Sample elevation points in a 2km radius around the POI to get city base
     const overpassQuery = `[out:json][timeout:30];
     (
