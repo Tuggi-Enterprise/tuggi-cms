@@ -407,10 +407,51 @@ export class TriggerPointsService {
       maxPoints = 10 // Small POIs need fewer points
     }
 
-    const finalPoints = classifiedPoints.slice(0, maxPoints)
-    console.log(`📍 Generated ${finalPoints.length} street-based trigger points`)
+    const limitedPoints = classifiedPoints.slice(0, maxPoints)
+    
+    // Apply spacing filter to prevent overlapping trigger points
+    const finalPoints = this.filterTriggerPointsBySpacing(limitedPoints, minPointDistance)
+    
+    console.log(`📍 Generated ${finalPoints.length} street-based trigger points (after spacing filter)`)
     
     return finalPoints
+  }
+
+  /**
+   * Filter trigger points to maintain minimum spacing between them
+   * This prevents overlapping trigger points in fallback scenarios
+   */
+  static filterTriggerPointsBySpacing(
+    triggerPoints: TriggerPoint[],
+    minSpacingMeters: number = 60 // Minimum 60m between trigger points
+  ): TriggerPoint[] {
+    if (triggerPoints.length <= 1) return triggerPoints
+
+    const filtered: TriggerPoint[] = []
+    const sortedByPriority = [...triggerPoints].sort((a, b) => {
+      // Sort by priority: primary > secondary > fallback
+      const priorityOrder = { primary: 3, secondary: 2, fallback: 1 }
+      const priorityDiff = (priorityOrder[a.type] || 0) - (priorityOrder[b.type] || 0)
+      if (priorityDiff !== 0) return priorityDiff
+      
+      // If same priority, sort by confidence (higher first)
+      return (b.confidence || 0) - (a.confidence || 0)
+    })
+
+    for (const tp of sortedByPriority) {
+      // Check if this trigger point is too close to any already accepted one
+      const isTooClose = filtered.some(existingTp => {
+        const distance = calculateDistance(tp.lat, tp.lng, existingTp.lat, existingTp.lng)
+        return distance < minSpacingMeters
+      })
+
+      if (!isTooClose) {
+        filtered.push(tp)
+      }
+    }
+
+    console.log(`🔍 Spacing filter: ${triggerPoints.length} → ${filtered.length} trigger points (min spacing: ${minSpacingMeters}m)`)
+    return filtered
   }
 
   /**
@@ -427,12 +468,22 @@ export class TriggerPointsService {
     const triggerPoints: TriggerPoint[] = []
     const coordinates = boundary.coordinates
 
+    // Calculate POI area to determine appropriate offset distances
+    const poiArea = calculatePolygonArea(coordinates)
+    const poiRadius = Math.sqrt(poiArea / Math.PI) // Approximate radius
+    
+    // Adaptive offset based on POI size (much more conservative)
+    let edgeOffset = Math.min(30, Math.max(15, poiRadius * 0.3)) // 15-30m based on size
+    let cornerOffset = Math.min(40, Math.max(20, poiRadius * 0.4)) // 20-40m based on size
+    
+    console.log(`📐 POI area: ${Math.round(poiArea)}m², radius: ${Math.round(poiRadius)}m, offsets: edge=${Math.round(edgeOffset)}m, corner=${Math.round(cornerOffset)}m`)
+
     // Strategy: Points along polygon edges, offset outward for street positioning
     for (let i = 0; i < coordinates.length - 1; i += Math.max(1, Math.floor(coordinates.length / 12))) {
       const point = coordinates[i]
       
-      // Offset point outward from POI center to position on nearby streets
-      const offsetPoint = this.offsetPointFromCenter(point.lat, point.lng, poiLat, poiLng, 75) // 75m offset
+      // Use adaptive offset instead of fixed 75m
+      const offsetPoint = this.offsetPointFromCenter(point.lat, point.lng, poiLat, poiLng, edgeOffset)
       
       // Use boundary-aware bearing and distance calculation
       const boundaryResult = calculateBearingToBoundary(offsetPoint, coordinates, poiLat, poiLng)
@@ -442,42 +493,58 @@ export class TriggerPointsService {
       // Determine priority based on position
       const type = i < 4 ? 'primary' : i < 8 ? 'secondary' : 'fallback'
       
+      // Calculate auto_status based on confidence and type
+      const auto_status = type === 'primary' ? 'approved' : type === 'secondary' ? 'approved' : 'review'
+      
       triggerPoints.push({
         lat: offsetPoint.lat,
         lng: offsetPoint.lng,
         type,
-        reasoning: `Strategic point ${i + 1} based on boundary geometry`,
+        reasoning: `Strategic point ${i + 1} based on boundary geometry (${Math.round(edgeOffset)}m offset)`,
         confidence: 0.7,
         distance_from_poi: distance,
         expected_bearing: bearing,
-        radius_meters: 20
+        radius_meters: 20,
+        auto_status,
+        final_status: auto_status,
+        individual_confidence_score: 0.7
       })
     }
 
     // Add strategic corner points
     const corners = this.findPolygonCorners(coordinates, poiLat, poiLng)
     corners.forEach((corner, index) => {
-      const offsetCorner = this.offsetPointFromCenter(corner.lat, corner.lng, poiLat, poiLng, 100)
+      // Use adaptive offset instead of fixed 100m
+      const offsetCorner = this.offsetPointFromCenter(corner.lat, corner.lng, poiLat, poiLng, cornerOffset)
       
       // Use boundary-aware bearing and distance calculation
       const boundaryResult = calculateBearingToBoundary(offsetCorner, coordinates, poiLat, poiLng)
       const distance = boundaryResult.distance
       const bearing = boundaryResult.bearing
       
+      const type = index < 2 ? 'primary' : 'secondary'
+      const auto_status = 'approved' // Corner points are strategic and approved
+      
       triggerPoints.push({
         lat: offsetCorner.lat,
         lng: offsetCorner.lng,
-        type: index < 2 ? 'primary' : 'secondary',
-        reasoning: `Strategic corner point with optimal POI visibility`,
+        type,
+        reasoning: `Strategic corner point with optimal POI visibility (${Math.round(cornerOffset)}m offset)`,
         confidence: 0.8,
         distance_from_poi: distance,
         expected_bearing: bearing,
-        radius_meters: 25
+        radius_meters: 25,
+        auto_status,
+        final_status: auto_status,
+        individual_confidence_score: 0.8
       })
     })
 
-    console.log(`✅ Generated ${triggerPoints.length} boundary-based trigger points`)
-    return triggerPoints
+    // Apply spacing filter to prevent overlapping trigger points
+    const filteredTriggerPoints = this.filterTriggerPointsBySpacing(triggerPoints, 60)
+    
+    console.log(`✅ Generated ${filteredTriggerPoints.length} boundary-based trigger points (after spacing filter)`)
+    return filteredTriggerPoints
   }
 
   /**
@@ -518,6 +585,14 @@ export class TriggerPointsService {
       let confidence = 0.6 // Base confidence
       confidence += this.calculateStreetConfidence(street.tags || {}, distance)
       
+      // Calculate auto_status based on confidence and type
+      let auto_status = 'review'
+      if (confidence >= 0.75 || type === 'primary') {
+        auto_status = 'approved'
+      } else if (confidence < 0.5) {
+        auto_status = 'rejected'
+      }
+      
       points.push({
         lat: optimalPoint.lat,
         lng: optimalPoint.lng,
@@ -528,7 +603,10 @@ export class TriggerPointsService {
         expected_bearing: bearing,
         radius_meters: 20,
         street_name: street.name,
-        highway_type: street.highway_type
+        highway_type: street.highway_type,
+        auto_status,
+        final_status: auto_status,
+        individual_confidence_score: Math.min(0.95, confidence)
       })
     }
     

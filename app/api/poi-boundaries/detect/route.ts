@@ -3885,13 +3885,19 @@ async function enrichAttractionWithOSMData(
  * Salva primary, secondary e fallback desde que tenham confiança adequada
  */
 async function autoSaveTriggerPoints(
-  attractionId: string,
+  attractionId: string | undefined,
   triggerPoints: any[],
   boundarySource: string
 ): Promise<{ saved: number; skipped: number; errors: string[] }> {
   const results = { saved: 0, skipped: 0, errors: [] as string[] }
   
   try {
+    // Skip auto-save if no attraction_id is provided (direct API calls)
+    if (!attractionId) {
+      console.log(`⚠️ Skipping auto-save: no attraction_id provided (direct API call)`)
+      return results
+    }
+    
     console.log(`💾 Auto-saving trigger points for attraction ${attractionId}`)
     
     // Definir critérios de confiança mínima por tipo

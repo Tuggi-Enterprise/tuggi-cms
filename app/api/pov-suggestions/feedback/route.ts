@@ -7,23 +7,16 @@ const supabase = createClient(
 )
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json()
-    const { suggestionId, poiId, action, feedback, coordinates, accessType } = body
-
-    if (!suggestionId || !poiId || !action || !coordinates) {
-      return NextResponse.json(
-        { error: 'Missing required fields: suggestionId, poiId, action, coordinates' },
-        { status: 400 }
-      )
-    }
-
-    if (!['accept', 'reject'].includes(action)) {
-      return NextResponse.json(
-        { error: 'Action must be either "accept" or "reject"' },
-        { status: 400 }
-      )
-    }
+  // TEMPORARILY DISABLED - AI trigger points functionality
+  console.log('🚫 POV suggestions feedback API temporarily disabled')
+  
+  return NextResponse.json(
+    { 
+      error: 'POV suggestions feedback API is temporarily disabled',
+      details: 'AI trigger points functionality has been temporarily disabled'
+    },
+    { status: 503 }
+  )
 
     // Get POI data for context
     const { data: poiData, error: poiError } = await supabase

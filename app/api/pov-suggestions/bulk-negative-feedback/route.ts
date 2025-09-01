@@ -18,24 +18,17 @@ interface BulkNegativeFeedbackRequest {
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const supabase = createRouteHandlerClient({ cookies })
-    
-    // Check authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const body: BulkNegativeFeedbackRequest = await request.json()
-    const { poiId, poiName, poiLat, poiLng, suggestions } = body
-
-    if (!poiId || !suggestions || suggestions.length === 0) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'POI ID and suggestions are required' 
-      }, { status: 400 })
-    }
+  // TEMPORARILY DISABLED - AI trigger points functionality
+  console.log('🚫 Bulk negative feedback API temporarily disabled')
+  
+  return NextResponse.json(
+    { 
+      success: false,
+      error: 'Bulk negative feedback API is temporarily disabled',
+      details: 'AI trigger points functionality has been temporarily disabled'
+    },
+    { status: 503 }
+  )
 
     console.log(`💾 Processing bulk negative feedback for ${poiName}: ${suggestions.length} suggestions`)
 

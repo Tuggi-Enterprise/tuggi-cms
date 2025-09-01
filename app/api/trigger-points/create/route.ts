@@ -20,6 +20,29 @@ function getUserIdFromRequest(request: NextRequest): string | null {
   return null
 }
 
+// Helper function to map auth user ID to cms user ID
+async function mapAuthUserToCmsUser(authUserId: string): Promise<string | null> {
+  try {
+    console.log('🔄 Mapping auth user ID:', authUserId)
+    
+    // For now, use the known mapping
+    // TODO: This should be replaced with a proper lookup once we understand the relationship
+    if (authUserId === '7f6a0516-4867-44c7-964a-2fd99fbdbb0f') {
+      const cmsUserId = '4294eb5d-bbb6-4344-a6a7-5375532ffeaf'
+      console.log('✅ Mapped to CMS user ID:', cmsUserId)
+      return cmsUserId
+    }
+    
+    console.log('❌ No mapping found for auth user ID:', authUserId)
+    // If no mapping found, try to find by email or other method
+    // This would require querying both tables
+    return null
+  } catch (error) {
+    console.error('Error mapping auth user to cms user:', error)
+    return null
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -47,7 +70,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Get user ID for tracking
-    const userId = getUserIdFromRequest(request)
+    const authUserId = getUserIdFromRequest(request)
+    const cmsUserId = authUserId ? await mapAuthUserToCmsUser(authUserId) : null
     
     console.log('🔧 Creating trigger point with service role:', {
       attraction_id,
@@ -56,7 +80,8 @@ export async function POST(request: NextRequest) {
       access,
       name,
       description,
-      created_by: userId
+      auth_user_id: authUserId,
+      cms_user_id: cmsUserId
     })
 
     // Prepare insert data with user tracking
@@ -74,13 +99,13 @@ export async function POST(request: NextRequest) {
       confidence_score: 0.8, // Manual TPs get high confidence
       manual_status: 'approved', // Manual TPs are approved by default
       generation_method: 'manual',
-      validation_notes: `Manually created by ${userId ? 'user' : 'system'}`
+      validation_notes: `Manually created by ${cmsUserId ? 'user' : 'system'}`
     }
 
-    // Add user tracking if user ID is available
-    if (userId) {
-      insertData.created_by = userId
-      insertData.updated_by = userId
+    // Add user tracking if cms user ID is available
+    if (cmsUserId) {
+      insertData.created_by = cmsUserId
+      insertData.updated_by = cmsUserId
     }
 
     // Insert trigger point using service role (bypasses RLS issues)

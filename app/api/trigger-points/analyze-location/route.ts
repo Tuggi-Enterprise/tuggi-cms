@@ -101,78 +101,16 @@ interface RecommendedTriggerPoint {
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json()
-    const { poiLat, poiLng, poiName, poiTypes = [], analysisRadius = 2000 } = body
-
-    if (!poiLat || !poiLng) {
-      return NextResponse.json(
-        { error: 'Missing required parameters: poiLat, poiLng' },
-        { status: 400 }
-      )
-    }
-
-    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: 'Google Maps API key not configured' },
-        { status: 500 }
-      )
-    }
-
-    console.log(`🧠 Analyzing location for POI: ${poiName} at (${poiLat}, ${poiLng})`)
-
-    // 1. PRIMEIRO: Analisar a área do POI usando Google Maps Roads API
-    const poiAreaAnalysis = await analyzePOIArea(poiLat, poiLng, apiKey)
-    console.log(`📍 POI Area Analysis: ${poiAreaAnalysis.areaType} - ${poiAreaAnalysis.estimatedSize}m²`)
-    
-    // 2. SEGUNDO: Identificar vias ao redor da área do POI
-    const nearbyRoads = await analyzeNearbyRoadsWithArea(poiLat, poiLng, poiAreaAnalysis, analysisRadius, apiKey)
-    
-    // 3. TERCEIRO: Infraestrutura de transporte baseada na área
-    const transportInfrastructure = await analyzeTransportInfrastructureWithArea(poiLat, poiLng, poiAreaAnalysis, analysisRadius, apiKey)
-    
-    // 4. QUARTO: Pontos turísticos com vista para a área
-    const touristHotspots = await analyzeTouristHotspotsWithArea(poiLat, poiLng, poiAreaAnalysis, analysisRadius, apiKey)
-    
-    // 5. QUINTO: Áreas de estacionamento estratégicas
-    const parkingAreas = await analyzeParkingAreasWithArea(poiLat, poiLng, poiAreaAnalysis, analysisRadius, apiKey)
-    
-    // 6. SEXTO: Gerar recomendações baseadas na análise da área
-    const recommendedTriggerPoints = generateTriggerPointRecommendationsWithArea({
-      poiLocation: { lat: poiLat, lng: poiLng },
-      poiArea: poiAreaAnalysis,
-      nearbyRoads,
-      transportInfrastructure,
-      touristHotspots,
-      parkingAreas
-    })
-
-    const analysis: LocationAnalysis = {
-      poiData: { lat: poiLat, lng: poiLng, name: poiName, types: poiTypes },
-      poiArea: poiAreaAnalysis,
-      nearbyRoads,
-      transportInfrastructure,
-      touristHotspots,
-      parkingAreas,
-      recommendedTriggerPoints,
-      analysisTimestamp: new Date().toISOString()
-    }
-
-    console.log(`✅ Location analysis complete. Found ${recommendedTriggerPoints.length} recommended trigger points`)
-
-    return NextResponse.json({
-      success: true,
-      analysis
-    })
-
-  } catch (error) {
-    console.error('❌ Error analyzing location:', error)
-    return NextResponse.json(
-      { error: 'Failed to analyze location', details: error },
-      { status: 500 }
-    )
-  }
+  // TEMPORARILY DISABLED - AI trigger points functionality
+  console.log('🚫 Location analysis API temporarily disabled')
+  
+  return NextResponse.json(
+    { 
+      error: 'Location analysis API is temporarily disabled',
+      details: 'AI trigger points functionality has been temporarily disabled'
+    },
+    { status: 503 }
+  )
 }
 
 async function analyzePOIArea(poiLat: number, poiLng: number, apiKey: string): Promise<POIAreaAnalysis> {

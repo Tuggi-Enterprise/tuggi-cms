@@ -32,46 +32,21 @@ interface VisionAnalysisResult {
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body: VisionAnalysisRequest = await request.json()
-    const { poiId, poiLat, poiLng, mapZoom = 16, useHighResolution = true } = body
-
-    console.log(`🔍 Starting automated vision analysis for POI ${poiId} at ${poiLat}, ${poiLng}`)
-
-    // 1. Capturar múltiplas imagens do mapa para análise completa
-    const mapImages = await captureMultipleMapViews(poiLat, poiLng, mapZoom, useHighResolution)
-
-    // 2. Analisar as imagens com Gemini Vision
-    const visionResult = await analyzeMapWithGeminiVision(mapImages.mainView, poiLat, poiLng)
-
-    // 3. Converter análise em trigger points precisos
-    const triggerPoints = await convertVisionToTriggerPoints(visionResult, poiLat, poiLng)
-
-    const result: VisionAnalysisResult = {
-      success: true,
-      triggerPoints,
-      analysisText: visionResult.analysis,
-      mapAnalysis: visionResult.mapAnalysis,
-    }
-
-    console.log(`✅ Vision analysis complete: ${triggerPoints.length} trigger points identified`)
-    return NextResponse.json(result)
-
-  } catch (error) {
-    console.error('❌ Error in vision analysis:', error)
-    return NextResponse.json({
-      success: false,
-      triggerPoints: [],
-      analysisText: '',
-      mapAnalysis: {
-        lakeShape: '',
-        roadNetwork: '',
-        accessPoints: [],
-        strategicLocations: []
-      },
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 })
-  }
+  // TEMPORARILY DISABLED - AI trigger points functionality
+  console.log('🚫 Vision analysis API temporarily disabled')
+  
+  return NextResponse.json({
+    success: false,
+    triggerPoints: [],
+    analysisText: '',
+    mapAnalysis: {
+      lakeShape: '',
+      roadNetwork: '',
+      accessPoints: [],
+      strategicLocations: []
+    },
+    error: 'Vision analysis API is temporarily disabled - AI trigger points functionality has been temporarily disabled'
+  }, { status: 503 })
 }
 
 async function captureMultipleMapViews(lat: number, lng: number, zoom: number, useHighResolution: boolean): Promise<{
