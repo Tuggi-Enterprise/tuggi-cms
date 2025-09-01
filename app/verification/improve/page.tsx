@@ -38,6 +38,7 @@ export default function ImprovePage() {
   const [scoreRange, setScoreRange] = useState([0, 60]);
   const [limit, setLimit] = useState(50);
   const [autoGenerateAudio, setAutoGenerateAudio] = useState(true);
+  const [includeApproved, setIncludeApproved] = useState(false);
   
   // Data state
   const [pois, setPois] = useState<POI[]>([]);
@@ -124,6 +125,8 @@ export default function ImprovePage() {
 
       } else {
         // Use normal query for other statuses
+        console.log(`🔍 Querying POIs with status: ${status}, country: ${country}, language: ${language}`);
+        
         let query = supabase
           .schema('core')
           .from('attractions')
@@ -132,6 +135,7 @@ export default function ImprovePage() {
             name,
             city,
             country,
+            approved,
             descriptions:attraction_descriptions!left(
               id,
               language,
@@ -141,9 +145,17 @@ export default function ImprovePage() {
             )
           `)
           .eq('country', country)
-          .eq('is_active', false)  // Include only inactive POIs
-          .eq('descriptions.language', language)
           .limit(limit);
+
+        // Only filter by approved status if not including approved POIs
+        if (!includeApproved) {
+          query = query.eq('approved', false);
+        }
+
+        // Only filter by language if not 'all' status
+        if (status !== 'all') {
+          query = query.eq('descriptions.language', language);
+        }
 
         if (status !== 'all') {
           query = query.eq('descriptions.verification_status', status);
@@ -294,19 +306,19 @@ export default function ImprovePage() {
 
   return (
     <div className="container mx-auto py-6">
-      <h1 className="text-3xl font-bold mb-6">Improve Inactive POIs - Descriptions & Audio</h1>
+      <h1 className="text-3xl font-bold mb-6">Improve Unapproved POIs - Descriptions & Audio</h1>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Parameters Card */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold mb-4">Search Parameters</h2>
           <p className="text-gray-600 mb-4">
-            Configure the parameters to find inactive POIs that need improvement or initial description generation
+            Configure the parameters to find unapproved POIs that need improvement or initial description generation
           </p>
                       {status === 'no_description' && (
             <div className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded mb-4">
               <p className="text-sm">
-                <strong>No Description:</strong> Find inactive POIs without descriptions in the selected language. 
+                <strong>No Description:</strong> Find unapproved POIs without descriptions in the selected language. 
                 These will get new descriptions following our established guidelines.
               </p>
             </div>
@@ -367,6 +379,20 @@ export default function ImprovePage() {
                 <option value="approved">Approved</option>
                 <option value="all">All Statuses</option>
               </select>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={includeApproved}
+                  onChange={(e) => setIncludeApproved(e.target.checked)}
+                  className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue mr-2"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  Include approved POIs (for testing)
+                </span>
+              </label>
             </div>
             
             <div className="space-y-2">
