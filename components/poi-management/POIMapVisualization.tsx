@@ -269,37 +269,66 @@ function POIMapContent({
         setIsLoading(true)
       }
       
-      let query = supabase
-        .schema('core')
-        .from('attractions')
-        .select(`
-          *,
-          coordinates:attraction_coordinate(latitude, longitude),
-          descriptions:attraction_descriptions(id, description, audio_url, language),
-          trigger_points:attraction_trigger_points!left(id, is_active)
-        `)
+      // Fetch all POIs with pagination to overcome the 1000 limit
+      let allPoisData: any[] = []
+      let hasMore = true
+      let page = 0
+      const pageSize = 1000
 
-      // Apply viewport filtering if bounds provided and map is zoomed in enough
-      if (bounds && mapInstanceRef.current && mapInstanceRef.current.getZoom()! > 8) {
-        const ne = bounds.getNorthEast()
-        const sw = bounds.getSouthWest()
-        
-        query = query
-          .gte('attraction_coordinate.latitude', sw.lat())
-          .lte('attraction_coordinate.latitude', ne.lat())
-          .gte('attraction_coordinate.longitude', sw.lng())
-          .lte('attraction_coordinate.longitude', ne.lng())
-      }
+      while (hasMore) {
+        let query = supabase
+          .schema('core')
+          .from('attractions')
+          .select(`
+            *,
+            coordinates:attraction_coordinate(latitude, longitude),
+            descriptions:attraction_descriptions(id, description, audio_url, language),
+            trigger_points:attraction_trigger_points!left(id, is_active)
+          `)
+          .order('created_at', { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1)
 
-      const { data, error } = await query.order('created_at', { ascending: false })
+        // Apply viewport filtering if bounds provided and map is zoomed in enough
+        if (bounds && mapInstanceRef.current && mapInstanceRef.current.getZoom()! > 8) {
+          const ne = bounds.getNorthEast()
+          const sw = bounds.getSouthWest()
+          
+          query = query
+            .gte('attraction_coordinate.latitude', sw.lat())
+            .lte('attraction_coordinate.latitude', ne.lat())
+            .gte('attraction_coordinate.longitude', sw.lng())
+            .lte('attraction_coordinate.longitude', ne.lng())
+        }
 
-      if (error) {
-        console.error('Error fetching POIs:', error)
-        return
+        const { data: poisData, error: poisError } = await query
+
+        if (poisError) {
+          console.error('Error fetching POIs page', page, ':', poisError)
+          break
+        }
+
+        if (poisData && poisData.length > 0) {
+          allPoisData = [...allPoisData, ...poisData]
+          
+          // If we got less than pageSize, we've reached the end
+          if (poisData.length < pageSize) {
+            hasMore = false
+          } else {
+            page++
+          }
+        } else {
+          hasMore = false
+        }
+
+        // Safety check to prevent infinite loop
+        if (page > 10) {
+          console.warn('Reached safety limit of 10 pages, stopping pagination')
+          break
+        }
       }
 
       // Transform data to include coordinates, content status, and trigger points
-      const poisWithCoords = data?.map(poi => {
+      const poisWithCoords = allPoisData.map(poi => {
         const descriptions = poi.descriptions || []
         const triggerPoints = poi.trigger_points || []
         const hasDescription = descriptions.some((desc: any) => desc.description && desc.description.trim())
@@ -321,14 +350,14 @@ function POIMapContent({
           descriptions: undefined, // Remove from final object to keep it clean
           trigger_points: undefined // Remove from final object to keep it clean
         }
-      }) || []
+      })
 
       // Filter out POIs without coordinates
       const validPois = poisWithCoords.filter(poi => poi.coordinates?.latitude && poi.coordinates?.longitude)
       
       setPois(validPois)
       setPOICount({ 
-        total: data?.length || 0, 
+        total: allPoisData.length, 
         visible: validPois.length 
       })
     } catch (error) {
