@@ -157,8 +157,46 @@ export async function POST(request: NextRequest) {
           console.log(`📊 ${poi.name}: Generated ${result.trigger_points.length} TPs (${approvedTPs.length} approved primary/secondary, ${fallbackTPs.length} fallback excluded)`)
 
           if (approvedTPs.length > 0) {
-            // Save approved TPs to database
-            const tpsForDB = approvedTPs.map((tp: any) => ({
+            // Validate for duplicates before saving
+            console.log(`🔍 ${poi.name}: Validating ${approvedTPs.length} TPs for duplicates`)
+            
+            const tpsForValidation = approvedTPs.map((tp: any) => ({
+              lat: tp.lat,
+              lng: tp.lng,
+              type: tp.type,
+              confidence: tp.individual_confidence_score,
+              auto_status: tp.auto_status,
+              reasoning: tp.reasoning,
+              radius_meters: tp.radius_meters || 20,
+              expected_bearing: tp.expected_bearing,
+              score_factors: tp.score_factors,
+              generation_method: tp.generation_method,
+              final_status: tp.final_status
+            }))
+            
+            const { data: validatedTPs, error: validationError } = await supabase
+              .schema('core')
+              .rpc('validate_trigger_points_batch', {
+                p_attraction_id: poi.id,
+                p_trigger_points: tpsForValidation,
+                p_distance_threshold: 20.0
+              })
+            
+            if (validationError) {
+              throw new Error(`Validation failed: ${validationError.message}`)
+            }
+            
+            const validatedTPsArray = validatedTPs as any[]
+            const duplicatesSkipped = approvedTPs.length - validatedTPsArray.length
+            
+            if (validatedTPsArray.length === 0) {
+              console.log(`⚠️ ${poi.name}: All ${approvedTPs.length} TPs were duplicates - skipping`)
+              results.successful++
+              continue
+            }
+            
+            // Save validated TPs to database
+            const tpsForDB = validatedTPsArray.map((tp: any) => ({
               attraction_id: poi.id,
               location: `POINT(${tp.lng} ${tp.lat})`,
               radius_meters: tp.radius_meters || 20,
@@ -167,7 +205,7 @@ export async function POST(request: NextRequest) {
               type: tp.type,
               priority: tp.type === 'primary' ? 1 : tp.type === 'secondary' ? 2 : 3,
               is_active: true,
-              confidence_score: tp.individual_confidence_score,
+              confidence_score: tp.confidence,
               auto_status: tp.auto_status,
               manual_status: 'pending',
               final_status: tp.final_status,
@@ -185,7 +223,7 @@ export async function POST(request: NextRequest) {
               throw new Error(`Database insert failed: ${insertError.message}`)
             }
 
-            console.log(`✅ ${poi.name}: ${approvedTPs.length} approved TPs saved successfully`)
+            console.log(`✅ ${poi.name}: ${validatedTPsArray.length} validated TPs saved (${duplicatesSkipped} duplicates skipped)`)
             results.successful++
           } else {
             // Mark POI as having no approved primary/secondary TPs

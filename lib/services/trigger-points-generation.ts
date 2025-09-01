@@ -98,6 +98,108 @@ export function calculateBearing(lat1: number, lng1: number, lat2: number, lng2:
   return (bearing + 360) % 360
 }
 
+/**
+ * Find the closest point on a boundary polygon to a given trigger point
+ * This enables accurate bearing calculation to the visible edge of the POI
+ */
+export function findClosestPointOnBoundary(
+  triggerPoint: {lat: number, lng: number},
+  boundaryCoordinates: BoundaryCoordinates
+): {lat: number, lng: number, distance: number} {
+  let closestPoint = boundaryCoordinates[0]
+  let minDistance = calculateDistance(triggerPoint.lat, triggerPoint.lng, closestPoint.lat, closestPoint.lng)
+  
+  // Check all boundary points
+  for (const point of boundaryCoordinates) {
+    const distance = calculateDistance(triggerPoint.lat, triggerPoint.lng, point.lat, point.lng)
+    if (distance < minDistance) {
+      minDistance = distance
+      closestPoint = point
+    }
+  }
+  
+  // Also check points along boundary edges for better precision
+  for (let i = 0; i < boundaryCoordinates.length - 1; i++) {
+    const edgeStart = boundaryCoordinates[i]
+    const edgeEnd = boundaryCoordinates[i + 1]
+    
+    // Find closest point on this edge
+    const closestOnEdge = findClosestPointOnLineSegment(triggerPoint, edgeStart, edgeEnd)
+    const distanceToEdge = calculateDistance(triggerPoint.lat, triggerPoint.lng, closestOnEdge.lat, closestOnEdge.lng)
+    
+    if (distanceToEdge < minDistance) {
+      minDistance = distanceToEdge
+      closestPoint = closestOnEdge
+    }
+  }
+  
+  return {
+    lat: closestPoint.lat,
+    lng: closestPoint.lng,
+    distance: minDistance
+  }
+}
+
+/**
+ * Find the closest point on a line segment to a given point
+ */
+function findClosestPointOnLineSegment(
+  point: {lat: number, lng: number},
+  lineStart: {lat: number, lng: number},
+  lineEnd: {lat: number, lng: number}
+): {lat: number, lng: number} {
+  const dx = lineEnd.lng - lineStart.lng
+  const dy = lineEnd.lat - lineStart.lat
+  
+  if (dx === 0 && dy === 0) {
+    // Line segment is a point
+    return lineStart
+  }
+  
+  const t = Math.max(0, Math.min(1, 
+    ((point.lng - lineStart.lng) * dx + (point.lat - lineStart.lat) * dy) / (dx * dx + dy * dy)
+  ))
+  
+  return {
+    lat: lineStart.lat + t * dy,
+    lng: lineStart.lng + t * dx
+  }
+}
+
+/**
+ * Calculate bearing from trigger point to the closest point on POI boundary
+ * This provides more accurate directional guidance than pointing to POI center
+ */
+export function calculateBearingToBoundary(
+  triggerPoint: {lat: number, lng: number},
+  boundaryCoordinates: BoundaryCoordinates,
+  fallbackLat?: number,
+  fallbackLng?: number
+): {bearing: number, distance: number, targetPoint: {lat: number, lng: number}} {
+  // If no boundary available, fallback to center point
+  if (!boundaryCoordinates || boundaryCoordinates.length === 0) {
+    if (fallbackLat !== undefined && fallbackLng !== undefined) {
+      const bearing = calculateBearing(triggerPoint.lat, triggerPoint.lng, fallbackLat, fallbackLng)
+      const distance = calculateDistance(triggerPoint.lat, triggerPoint.lng, fallbackLat, fallbackLng)
+      return {
+        bearing,
+        distance,
+        targetPoint: {lat: fallbackLat, lng: fallbackLng}
+      }
+    }
+    return {bearing: 0, distance: 0, targetPoint: triggerPoint}
+  }
+  
+  const closestPoint = findClosestPointOnBoundary(triggerPoint, boundaryCoordinates)
+  const bearing = calculateBearing(triggerPoint.lat, triggerPoint.lng, closestPoint.lat, closestPoint.lng)
+  
+  return {
+    bearing,
+    distance: closestPoint.distance,
+    targetPoint: {lat: closestPoint.lat, lng: closestPoint.lng}
+  }
+}
+
 export function calculatePolygonArea(coordinates: BoundaryCoordinates): number {
   let area = 0
   const n = coordinates.length - 1
@@ -332,8 +434,10 @@ export class TriggerPointsService {
       // Offset point outward from POI center to position on nearby streets
       const offsetPoint = this.offsetPointFromCenter(point.lat, point.lng, poiLat, poiLng, 75) // 75m offset
       
-      const distance = calculateDistance(poiLat, poiLng, offsetPoint.lat, offsetPoint.lng)
-      const bearing = calculateBearing(offsetPoint.lat, offsetPoint.lng, poiLat, poiLng)
+      // Use boundary-aware bearing and distance calculation
+      const boundaryResult = calculateBearingToBoundary(offsetPoint, coordinates, poiLat, poiLng)
+      const distance = boundaryResult.distance
+      const bearing = boundaryResult.bearing
       
       // Determine priority based on position
       const type = i < 4 ? 'primary' : i < 8 ? 'secondary' : 'fallback'
@@ -354,8 +458,11 @@ export class TriggerPointsService {
     const corners = this.findPolygonCorners(coordinates, poiLat, poiLng)
     corners.forEach((corner, index) => {
       const offsetCorner = this.offsetPointFromCenter(corner.lat, corner.lng, poiLat, poiLng, 100)
-      const distance = calculateDistance(poiLat, poiLng, offsetCorner.lat, offsetCorner.lng)
-      const bearing = calculateBearing(offsetCorner.lat, offsetCorner.lng, poiLat, poiLng)
+      
+      // Use boundary-aware bearing and distance calculation
+      const boundaryResult = calculateBearingToBoundary(offsetCorner, coordinates, poiLat, poiLng)
+      const distance = boundaryResult.distance
+      const bearing = boundaryResult.bearing
       
       triggerPoints.push({
         lat: offsetCorner.lat,
@@ -389,8 +496,15 @@ export class TriggerPointsService {
     const optimalPoint = this.findOptimalPointOnStreet(street, poiLat, poiLng, boundaryCoordinates, landmarkInfo)
     
     if (optimalPoint) {
-      const distance = calculateDistance(poiLat, poiLng, optimalPoint.lat, optimalPoint.lng)
-      const bearing = calculateBearing(optimalPoint.lat, optimalPoint.lng, poiLat, poiLng)
+      // Use boundary-aware bearing and distance calculation
+      const boundaryResult = calculateBearingToBoundary(
+        {lat: optimalPoint.lat, lng: optimalPoint.lng}, 
+        boundaryCoordinates, 
+        poiLat, 
+        poiLng
+      )
+      const distance = boundaryResult.distance
+      const bearing = boundaryResult.bearing
       
       // Determine type based on distance and street quality
       let type: 'primary' | 'secondary' | 'fallback' = 'secondary'
@@ -457,8 +571,8 @@ export class TriggerPointsService {
       // Ensure point is outside boundary AND at appropriate distance for landmark type
       if (isOutsideBoundary && minDistanceFromBoundary >= 10 && distanceToPOI >= minDistance && distanceToPOI <= maxDistance) {
         
-        // Enhanced validation: Bearing position
-        const bearingValidation = this.validateBearingPosition(point, poiLat, poiLng, street, i, coordinates)
+        // Enhanced validation: Bearing position (with boundary awareness)
+        const bearingValidation = this.validateBearingPosition(point, poiLat, poiLng, street, i, coordinates, boundaryCoordinates)
         
         if (bearingValidation.isValid) {
           let score = 0
@@ -520,10 +634,12 @@ export class TriggerPointsService {
     poiLng: number,
     street: Street,
     pointIndex: number,
-    coordinates: Array<{lat: number, lng: number}>
+    coordinates: Array<{lat: number, lng: number}>,
+    boundaryCoordinates?: BoundaryCoordinates
   ): {isValid: boolean, score: number, reasoning: string} {
-    // Calculate bearing from trigger point to POI
-    const bearing = calculateBearing(triggerPoint.lat, triggerPoint.lng, poiLat, poiLng)
+    // Calculate bearing from trigger point to closest boundary point (or POI center as fallback)
+    const boundaryResult = calculateBearingToBoundary(triggerPoint, boundaryCoordinates || [], poiLat, poiLng)
+    const bearing = boundaryResult.bearing
     
     // Check if this is a one-way street
     const isOneway = street.oneway === 'yes' || street.oneway === '1' || street.oneway === 'true'

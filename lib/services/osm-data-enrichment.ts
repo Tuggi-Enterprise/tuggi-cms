@@ -233,10 +233,21 @@ export class OSMDataEnrichmentService {
     
     if (boundary.coordinates && boundary.coordinates.length > 0) {
       // Convert coordinates to WKT format for PostGIS
-      const wktCoordinates = boundary.coordinates
+      const coords = boundary.coordinates
+      const wktCoordinates = coords
         .map((coord: any) => `${coord.lng} ${coord.lat}`)
         .join(', ')
-      enrichmentData.osm_geometry = `POLYGON((${wktCoordinates}))`
+      
+      // Ensure polygon is closed (first point = last point)
+      const firstPoint = coords[0]
+      const lastPoint = coords[coords.length - 1]
+      let closedWktCoordinates = wktCoordinates
+      
+      if (firstPoint.lng !== lastPoint.lng || firstPoint.lat !== lastPoint.lat) {
+        closedWktCoordinates += `, ${firstPoint.lng} ${firstPoint.lat}`
+      }
+      
+      enrichmentData.osm_geometry = `POLYGON((${closedWktCoordinates}))`
     }
     
     // Add boundary source to data sources
@@ -253,14 +264,12 @@ export class OSMDataEnrichmentService {
       console.log(`💾 Saving OSM enrichment data for attraction ${attractionId}`)
       console.log(`📊 Data fields: ${Object.keys(enrichmentData).join(', ')}`)
       
-      // Convert geometry to PostGIS format if present
+      // Handle geometry separately from other fields
       const updateData: any = { ...enrichmentData }
-      if (enrichmentData.osm_geometry) {
-        // Use PostGIS ST_GeomFromText function
-        updateData.osm_geometry = `ST_GeomFromText('${enrichmentData.osm_geometry}', 4326)`
-      }
+      delete updateData.osm_geometry // Remove geometry from regular update
       
-      const { error } = await supabase
+      // Update non-geometry fields first
+      const { error: updateError } = await supabase
         .schema('core')
         .from('attractions')
         .update({
@@ -268,6 +277,39 @@ export class OSMDataEnrichmentService {
           updated_at: new Date().toISOString()
         })
         .eq('id', attractionId)
+      
+      if (updateError) {
+        console.error('❌ Error updating attraction data:', updateError)
+        return false
+      }
+      
+      // Handle geometry using RPC call in core schema
+      let geometryError = null
+      if (enrichmentData.osm_geometry) {
+        try {
+          console.log(`🔄 Updating geometry with WKT: ${enrichmentData.osm_geometry.substring(0, 100)}...`)
+          
+          // Use RPC to update geometry with PostGIS function in core schema
+          const { error: geomError } = await supabase
+            .schema('core')
+            .rpc('update_attraction_osm_geometry', {
+              p_attraction_id: attractionId,
+              p_wkt_geometry: enrichmentData.osm_geometry
+            })
+          
+          if (geomError) {
+            console.error('❌ RPC geometry update failed:', geomError)
+            geometryError = geomError
+          } else {
+            console.log('✅ Geometry updated successfully via RPC')
+          }
+        } catch (geomError) {
+          console.error('❌ Error updating geometry:', geomError)
+          geometryError = geomError
+        }
+      }
+      
+      const error = geometryError
       
       if (error) {
         console.error('❌ Error saving OSM enrichment data:', error)

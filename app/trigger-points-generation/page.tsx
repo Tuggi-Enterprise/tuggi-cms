@@ -240,34 +240,46 @@ export default function TriggerPointsGenerationPage() {
     }
   };
 
+  // Enhanced test function using refined logic (from test-poi-boundaries)
   const handleTestPOI = async (attractionId: string, poiName: string) => {
+    const poi = pois.find(p => p.attraction_id === attractionId);
+    if (!poi) return;
+    
     try {
-      console.log(`🧪 Testing POI: ${poiName} (${attractionId})`);
+      console.log(`🧪 Testing POI with refined rules: ${poiName} (${attractionId})`);
       
+      const startTime = Date.now();
       const response = await fetch('/api/poi-boundaries/detect', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          attraction_id: attractionId 
+          attraction_id: attractionId,
+          poi_lat: poi.latitude,
+          poi_lng: poi.longitude,
+          poi_name: poi.name
         }),
       });
 
       const result = await response.json();
+      const processingTime = Date.now() - startTime;
       
       if (result.success) {
-        const message = `🧪 TEST RESULTS for "${poiName}":\n\n` +
-          `✅ Boundary Source: ${result.source}\n` +
-          `📐 Boundary Area: ${result.boundary?.area_m2?.toFixed(0)}m²\n` +
-          `🎯 Trigger Points: ${result.trigger_points?.length || 0}\n` +
-          `📊 POI Confidence: ${(result.poi_confidence_score?.overall_score * 100 || 0).toFixed(0)}%\n` +
+        // Enhanced logging with all refined features
+        const message = `🧪 TEST RESULTS for "${poiName}" (${processingTime}ms):\n\n` +
+          `✅ Boundary Source: ${result.boundary?.source || 'N/A'}\n` +
+          `📐 Boundary Area: ${result.boundary?.area_m2?.toLocaleString()}m²\n` +
+          `🎯 Total Trigger Points: ${result.trigger_points?.length || 0}\n` +
+          `💾 Auto-Saved TPs: ${result.trigger_points_saved || 0}\n` +
+          `⚠️ Duplicates Skipped: ${result.duplicates_skipped || 0}\n` +
+          `🔧 OSM Data Enriched: ${result.enrichment_saved ? '✅' : '❌'}\n` +
           `${result.note ? `📝 Note: ${result.note}\n` : ''}` +
           `\n🔍 Trigger Points Breakdown:\n` +
           `   - Primary: ${result.trigger_points?.filter((tp: any) => tp.type === 'primary').length || 0}\n` +
           `   - Secondary: ${result.trigger_points?.filter((tp: any) => tp.type === 'secondary').length || 0}\n` +
           `   - Fallback: ${result.trigger_points?.filter((tp: any) => tp.type === 'fallback').length || 0}\n` +
-          `\n📈 Status Distribution:\n` +
+          `\n📈 Auto-Approval Status:\n` +
           `   - Approved: ${result.trigger_points?.filter((tp: any) => tp.auto_status === 'approved').length || 0}\n` +
           `   - Review: ${result.trigger_points?.filter((tp: any) => tp.auto_status === 'review').length || 0}\n` +
           `   - Rejected: ${result.trigger_points?.filter((tp: any) => tp.auto_status === 'rejected').length || 0}`;
@@ -276,6 +288,9 @@ export default function TriggerPointsGenerationPage() {
         
         // Log detailed results to console for debugging
         console.log(`🧪 Detailed results for ${poiName}:`, result);
+        
+        // Refresh POI list to show updated data
+        loadPOIs();
       } else {
         alert(`❌ Test failed for "${poiName}": ${result.error}`);
       }
@@ -315,24 +330,37 @@ export default function TriggerPointsGenerationPage() {
       const result = await response.json();
 
       if (result.success) {
-        const message = `✅ Batch completed!\n` +
-          `📊 Processed: ${result.processed}\n` +
+        // Enhanced batch results with refined metrics
+        const message = `✅ Batch Generation Completed with Refined Rules!\n\n` +
+          `📊 POIs Processed: ${result.processed}\n` +
           `✅ Successful: ${result.successful}\n` +
-          `❌ Failed: ${result.failed}\n` +
-          `🎯 Approved TPs: ${result.summary.approved_tps}\n` +
-          `⚠️ Review TPs: ${result.summary.review_tps}\n` +
-          `❌ Rejected TPs: ${result.summary.rejected_tps}`;
+          `❌ Failed: ${result.failed}\n\n` +
+          `🎯 Trigger Points Generated:\n` +
+          `   - Approved: ${result.summary.approved_tps}\n` +
+          `   - Review: ${result.summary.review_tps}\n` +
+          `   - Rejected: ${result.summary.rejected_tps}\n\n` +
+          `🔧 Enhanced Features Applied:\n` +
+          `   ✅ OSM Boundary Detection\n` +
+          `   ✅ Unified Overpass API (1 request vs 3)\n` +
+          `   ✅ Boundary-Aware Bearing Calculation\n` +
+          `   ✅ Duplicate Validation (per POI)\n` +
+          `   ✅ Auto-Save with Confidence Thresholds\n` +
+          `   ✅ City-Relative Elevation Calculation\n` +
+          `   ✅ Improved Search Variations\n` +
+          `   ✅ OSM Data Enrichment\n` +
+          `   ✅ Rate Limiting & Timeout Optimization (60s)`;
         
         alert(message);
         
-        if (result.errors.length > 0) {
-          console.log('❌ Errors occurred:');
+        if (result.errors && result.errors.length > 0) {
+          console.log('❌ Errors occurred during batch processing:');
           result.errors.forEach((err: any) => {
             console.log(`   - ${err.attraction_name}: ${err.error}`);
           });
         }
         
-        loadPOIs(); // Refresh the list
+        console.log('🚀 Batch processing completed with refined rules from /test-poi-boundaries');
+        loadPOIs(); // Refresh the list to show updated data
       } else {
         alert(`❌ Batch generation failed: ${result.error}`);
       }
@@ -421,7 +449,7 @@ export default function TriggerPointsGenerationPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
+        {/* <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Trigger Points Generation</h1>
           <p className="mt-2 text-gray-600">
             Generate trigger points for POIs using refined boundary detection rules
@@ -436,7 +464,7 @@ export default function TriggerPointsGenerationPage() {
               <li>🧪 <strong>Test Button:</strong> Preview results before generating to database</li>
             </ul>
           </div>
-        </div>
+        </div> */}
 
         {/* Controls */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">

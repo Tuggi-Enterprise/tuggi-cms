@@ -267,22 +267,37 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Strategy 2: Search for multiple nearby features using Overpass API (COMPLEMENTARY - for complex areas like parks)
-    // Only proceed if we had partial matches but need more comprehensive boundary data
-    console.log('🔄 Trying complementary Overpass API search for complex area boundaries...')
-    const nearbyFeaturesResult = await searchOSMNearbyFeatures(poi_lat, poi_lng, poi_name)
-    if (nearbyFeaturesResult.success && nearbyFeaturesResult.boundary) {
-      console.log('✅ Found enhanced boundary from OSM Overpass API (complementary search)')
+    // Strategy 2: UNIFIED Overpass API (boundaries + streets in ONE call)
+    console.log('🔄 Making UNIFIED Overpass API call for all POI data...')
+    const unifiedData = await queryUnifiedOverpassData(poi_lat, poi_lng, poi_name, landmarkInfo)
+    
+    // Process boundaries from unified data
+    let nearbyFeaturesResult: any = null
+    if (unifiedData.boundaries.length > 0) {
+      console.log(`✅ Found ${unifiedData.boundaries.length} potential boundaries from unified Overpass`)
       
-      // 🔄 ENRICH ATTRACTION DATA with Overpass boundary
-      await enrichAttractionWithOSMData(attraction_id, nearbyFeaturesResult, 'osm_overpass')
+      // Process boundaries using existing logic (adapted for unified data)
+      nearbyFeaturesResult = await processBoundariesFromUnifiedData(unifiedData.boundaries, poi_lat, poi_lng, poi_name)
       
-      // Generate street-based trigger points
-      const streetTriggerPoints = await generateStreetBasedTriggerPoints(
-        nearbyFeaturesResult.boundary, 
-        poi_lat, 
-        poi_lng, 
-        poi_name,
+      if (nearbyFeaturesResult?.success && nearbyFeaturesResult?.boundary) {
+        console.log('✅ Selected best boundary from unified Overpass data')
+        
+        // 🔄 ENRICH ATTRACTION DATA with Overpass boundary
+        await enrichAttractionWithOSMData(attraction_id, nearbyFeaturesResult, 'osm_overpass')
+      }
+    }
+    
+    // Generate trigger points using unified street data (no additional API calls needed!)
+    let streetTriggerPoints: any[] = []
+    if (nearbyFeaturesResult?.success && nearbyFeaturesResult?.boundary) {
+      console.log(`🛣️ Generating trigger points using ${unifiedData.streets.length} streets from unified data`)
+      
+      // Use streets from unified data instead of making separate API call
+      streetTriggerPoints = await generateTriggersFromUnifiedStreets(
+        nearbyFeaturesResult.boundary,
+        poi_lat,
+        poi_lng,
+        unifiedData.streets,
         landmarkInfo
       )
       
@@ -775,7 +790,7 @@ async function searchOSMNearbyFeatures(lat: number, lng: number, name: string) {
     console.log('🔍 Searching for multiple nearby park features with Overpass API...')
     
     // Enhanced query to find ALL park-related features in the area
-    const overpassQuery = `[out:json][timeout:30];
+    const overpassQuery = `[out:json][timeout:60];
     (
       // Main park areas
       way[leisure=park](around:1500,${lat},${lng});
@@ -1226,7 +1241,7 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
     
     // Enhanced query to find EXTERNAL streets around the POI (avoiding internal paths)
     // REVERTED TO ORIGINAL WORKING VERSION
-    const overpassQuery = `[out:json][timeout:30];
+    const overpassQuery = `[out:json][timeout:60];
     (
       // Major highways and roads (priority - further out)
       way[highway~"^(motorway|trunk|primary|secondary)$"](around:${majorRadius},${lat},${lng});
@@ -1246,6 +1261,10 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
     console.log(`🔍 DEBUG: Overpass query:`)
     console.log(overpassQuery)
     console.log(`🔍 DEBUG: Sending Overpass query to API...`)
+    
+    // Rate limiting: Add delay between requests to avoid 429 errors
+    await new Promise(resolve => setTimeout(resolve, 1000)) // 1 second delay
+    
     const response = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       body: overpassQuery,
@@ -1256,22 +1275,56 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
     })
 
     if (!response.ok) {
+      if (response.status === 429) {
+        console.log('⏳ Rate limited by Overpass API, waiting 5 seconds and retrying...')
+        await new Promise(resolve => setTimeout(resolve, 5000))
+        
+        // Retry once
+        const retryResponse = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: overpassQuery,
+          headers: {
+            'User-Agent': 'TuggiCMS/1.0 (street-trigger-generation)',
+            'Content-Type': 'text/plain'
+          }
+        })
+        
+        if (!retryResponse.ok) {
+          throw new Error(`Overpass API error after retry: ${retryResponse.status}`)
+        }
+        
+        const retryData = await retryResponse.json()
+        console.log(`✅ Retry successful: ${retryData.elements?.length || 0} elements found`)
+        return processOverpassStreetData(retryData, lat, lng, poiName, landmark)
+      }
+      
       throw new Error(`Overpass API error: ${response.status}`)
     }
 
     const data = await response.json()
-    console.log(`📊 Overpass found ${data.elements?.length || 0} street elements`)
+    return processOverpassStreetData(data, lat, lng, poiName, landmark)
     
-    // DEBUG: Log response status and potential errors
-    if (data.remark) {
-      console.log(`🔍 DEBUG: Overpass remark: ${data.remark}`)
-    }
-    if (data.elements?.length === 0) {
-      console.log(`🔍 DEBUG: Query returned 0 elements. Response keys:`, Object.keys(data))
-    }
-    
-    // OPTIMIZATION: Efficient distance calculation with early exit
-    if (data.elements && data.elements.length > 0) {
+  } catch (error) {
+    console.error('❌ Error finding nearby streets:', error)
+    return []
+  }
+}
+
+// Process Overpass API street data (extracted for reuse in retry logic)
+function processOverpassStreetData(data: any, lat: number, lng: number, poiName: string, landmark: any) {
+  console.log(`📊 Overpass found ${data.elements?.length || 0} street elements`)
+  
+  // DEBUG: Log response status and potential errors
+  if (data.remark) {
+    console.log(`🔍 DEBUG: Overpass remark: ${data.remark}`)
+  }
+  if (data.elements?.length === 0) {
+    console.log(`🔍 DEBUG: Query returned 0 elements. Response keys:`, Object.keys(data))
+    return []
+  }
+  
+  // OPTIMIZATION: Efficient distance calculation with early exit
+  if (data.elements && data.elements.length > 0) {
       const sampleSize = Math.min(50, data.elements.length) // Reduced sample size
       const distances = data.elements
         .slice(0, sampleSize)
@@ -1392,18 +1445,16 @@ async function findNearbyStreetsForTriggers(lat: number, lng: number, poiName: s
       }
     })
 
-    console.log(`🎯 Processed ${streets.length} relevant streets (maxSearchDistance: ${landmark.isHighVisibility ? landmark.maxRange : 1000}m)`)
-    console.log(`🎯 Street distances: ${streets.slice(0, 5).map(s => s.distance_to_poi.toFixed(0) + 'm').join(', ')}`)
-    
-    // CRITICAL: Show max distance found
+  console.log(`🎯 Processed ${streets.length} relevant streets (maxSearchDistance: ${landmark.isHighVisibility ? landmark.maxRange : 1000}m)`)
+  console.log(`🎯 Street distances: ${streets.slice(0, 5).map(s => s.distance_to_poi.toFixed(0) + 'm').join(', ')}`)
+  
+  // CRITICAL: Show max distance found
+  if (streets.length > 0) {
     const maxDistance = Math.max(...streets.map(s => s.distance_to_poi))
     console.log(`📏 Max street distance: ${maxDistance.toFixed(0)}m`)
-    return streets.slice(0, 30) // Increased to 30 streets for more coverage
-
-  } catch (error) {
-    console.error('❌ Error finding nearby streets:', error)
-    return []
   }
+  
+  return streets.slice(0, 30) // Increased to 30 streets for more coverage
 }
 
 async function generateTriggersOnStreets(
@@ -1743,7 +1794,7 @@ function calculateDistanceToLineSegment(
 async function getCityBaseElevation(lat: number, lng: number): Promise<number> {
   try {
     // Sample elevation points in a 2km radius around the POI to get city base
-    const overpassQuery = `[out:json][timeout:10];
+    const overpassQuery = `[out:json][timeout:30];
     (
       node[ele](around:2000,${lat},${lng});
       way[ele](around:2000,${lat},${lng});
@@ -1844,7 +1895,7 @@ async function checkHighVisibilityLandmark(poiLat: number, poiLng: number, curre
     }
     
     // Check for ONLY significant elevation via Overpass API (no type conditionals)
-    const overpassQuery = `[out:json][timeout:10];
+    const overpassQuery = `[out:json][timeout:30];
     (
       // Only elements with elevation tags - no type filtering
       way[ele](around:500,${poiLat},${poiLng});
@@ -1993,8 +2044,400 @@ function calculateHeightBasedRange(
   return cappedRange
 }
 
-// OPTIMIZATION: Unified Overpass API helper to reduce code duplication
-async function queryOverpassAPI(query: string, purpose: string, timeout: number = 15): Promise<any> {
+// OPTIMIZATION: Unified Overpass API call for all POI data (boundaries + streets)
+async function queryUnifiedOverpassData(lat: number, lng: number, name: string, landmarkInfo?: any): Promise<{
+  boundaries: any[],
+  streets: any[],
+  immediateStreets: any[]
+}> {
+  try {
+    console.log('🔍 Making unified Overpass API call for all POI data...')
+    
+    // Calculate search radii based on landmark info
+    const landmark = landmarkInfo || await checkHighVisibilityLandmark(lat, lng, 0)
+    const majorRadius = landmark.isHighVisibility ? Math.min(landmark.maxRange * 1.2, 6000) : Math.min(landmark.maxRange * 1.2, 1500)
+    const mediumRadius = landmark.isHighVisibility ? Math.min(landmark.maxRange, 4000) : Math.min(landmark.maxRange, 1000)
+    const minorRadius = landmark.isHighVisibility ? Math.min(landmark.maxRange * 0.7, 3000) : Math.min(landmark.maxRange * 0.7, 800)
+    const immediateRadius = 80
+    
+    console.log(`🔍 Unified search radii: major=${majorRadius}m, medium=${mediumRadius}m, minor=${minorRadius}m, immediate=${immediateRadius}m`)
+    
+    // UNIFIED QUERY: Get boundaries + streets + immediate streets in ONE request
+    const unifiedQuery = `[out:json][timeout:60];
+    (
+      // === BOUNDARIES SEARCH ===
+      // Main park areas
+      way[leisure=park](around:1500,${lat},${lng});
+      relation[leisure=park](around:1500,${lat},${lng});
+      
+      // Recreation and green areas
+      way[landuse=recreation_ground](around:1500,${lat},${lng});
+      way[landuse=grass](around:1500,${lat},${lng});
+      way[landuse=forest](around:1500,${lat},${lng});
+      
+      // Water bodies (lakes, ponds)
+      way[natural=water](around:1500,${lat},${lng});
+      way[leisure=swimming_pool](around:1500,${lat},${lng});
+      
+      // Tourism attractions
+      way[tourism=attraction](around:1500,${lat},${lng});
+      
+      // Named features (generic search)
+      way[name](around:2000,${lat},${lng});
+      relation[name](around:2000,${lat},${lng});
+      
+      // Areas that might be part of complex
+      way[amenity=parking](around:1000,${lat},${lng});
+      way[sport](around:1000,${lat},${lng});
+      
+      // === STREETS SEARCH ===
+      // Major highways and roads (priority - further out)
+      way[highway~"^(motorway|trunk|primary|secondary)$"](around:${majorRadius},${lat},${lng});
+      
+      // Tertiary roads (medium distance)  
+      way[highway~"^(tertiary)$"](around:${mediumRadius},${lat},${lng});
+      
+      // Residential streets (closer but still external)
+      way[highway~"^(residential|living_street)$"](around:${minorRadius},${lat},${lng});
+      
+      // Named roads that are likely external access routes
+      way[highway~"^(trunk|primary|secondary|tertiary|residential)$"][name](around:${mediumRadius},${lat},${lng});
+      
+      // === IMMEDIATE STREETS SEARCH ===
+      // Very close streets for POV detection
+      way[highway~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|service)$"](around:${immediateRadius},${lat},${lng});
+    );
+    out geom;`
+
+    console.log(`🔍 DEBUG: Unified Overpass query:`)
+    console.log(unifiedQuery)
+    
+    // Rate limiting: Single delay for the unified request
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: unifiedQuery,
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (unified-poi-data)',
+        'Content-Type': 'text/plain'
+      }
+    })
+
+    if (!response.ok) {
+      if (response.status === 429) {
+        console.log('⏳ Rate limited by Overpass API, waiting 5 seconds and retrying...')
+        await new Promise(resolve => setTimeout(resolve, 5000))
+        
+        // Retry once
+        const retryResponse = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: unifiedQuery,
+          headers: {
+            'User-Agent': 'TuggiCMS/1.0 (unified-poi-data-retry)',
+            'Content-Type': 'text/plain'
+          }
+        })
+        
+        if (!retryResponse.ok) {
+          throw new Error(`Unified Overpass API error after retry: ${retryResponse.status}`)
+        }
+        
+        const retryData = await retryResponse.json()
+        console.log(`✅ Unified retry successful: ${retryData.elements?.length || 0} elements found`)
+        return processUnifiedOverpassData(retryData, lat, lng, name, landmark)
+      }
+      
+      throw new Error(`Unified Overpass API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log(`📊 Unified Overpass found ${data.elements?.length || 0} total elements`)
+    
+    return processUnifiedOverpassData(data, lat, lng, name, landmark)
+    
+  } catch (error) {
+    console.error('❌ Error in unified Overpass query:', error)
+    return { boundaries: [], streets: [], immediateStreets: [] }
+  }
+}
+
+// Process unified Overpass data and separate into categories
+function processUnifiedOverpassData(data: any, lat: number, lng: number, name: string, landmark: any): {
+  boundaries: any[],
+  streets: any[],
+  immediateStreets: any[]
+} {
+  if (!data.elements || data.elements.length === 0) {
+    console.log('⚠️ No elements found in unified Overpass response')
+    return { boundaries: [], streets: [], immediateStreets: [] }
+  }
+
+  const boundaries: any[] = []
+  const streets: any[] = []
+  const immediateStreets: any[] = []
+
+  console.log(`🔍 Processing ${data.elements.length} unified elements...`)
+
+  for (const element of data.elements) {
+    if (!element.geometry || element.geometry.length < 2) continue
+
+    const tags = element.tags || {}
+    const highway = tags.highway
+    const leisure = tags.leisure
+    const landuse = tags.landuse
+    const natural = tags.natural
+    const tourism = tags.tourism
+    const amenity = tags.amenity
+    const sport = tags.sport
+
+    // Categorize as BOUNDARY if it's a potential POI area
+    if (leisure || landuse || natural || tourism || amenity === 'parking' || sport) {
+      const coordinates = element.geometry.map((node: any) => ({
+        lat: node.lat,
+        lng: node.lon
+      }))
+
+      boundaries.push({
+        ...element,
+        coordinates,
+        category: leisure || landuse || natural || tourism || amenity || sport,
+        element_type: element.type
+      })
+    }
+    
+    // Categorize as STREET if it has highway tag
+    else if (highway) {
+      const coordinates = element.geometry.map((node: any) => ({
+        lat: node.lat,
+        lng: node.lon
+      }))
+
+      // Calculate distance to POI
+      const closestPoint = findClosestPointOnStreet(coordinates, lat, lng)
+      const distance = calculateDistance(lat, lng, closestPoint.lat, closestPoint.lng)
+
+      const streetData = {
+        coordinates,
+        name: tags.name || 'Unnamed Street',
+        highway_type: highway,
+        distance_to_poi: distance,
+        closestPoint,
+        confidence: calculateStreetConfidence(tags, distance)
+      }
+
+      // Separate immediate streets (within 80m) from regular streets
+      if (distance <= 80) {
+        immediateStreets.push(streetData)
+      } else {
+        streets.push(streetData)
+      }
+    }
+  }
+
+  console.log(`📊 Categorized: ${boundaries.length} boundaries, ${streets.length} streets, ${immediateStreets.length} immediate streets`)
+  
+  return { boundaries, streets, immediateStreets }
+}
+
+
+
+// Process boundaries from unified data (adapts existing boundary processing logic)
+async function processBoundariesFromUnifiedData(boundaries: any[], lat: number, lng: number, name: string): Promise<any> {
+  if (boundaries.length === 0) {
+    return { success: false, error: 'No boundaries found in unified data' }
+  }
+
+  console.log(`🔍 Processing ${boundaries.length} boundaries from unified data`)
+
+  // Use existing boundary processing logic
+  const processedBoundaries = []
+  
+  for (const boundary of boundaries) {
+    try {
+      // Calculate polygon area and perimeter
+      const area = calculatePolygonArea(boundary.coordinates)
+      const perimeter = calculatePolygonPerimeter(boundary.coordinates)
+      
+      // Calculate distance from POI to boundary center
+      const center = calculatePolygonCenter(boundary.coordinates)
+      const distanceToCenter = calculateDistance(lat, lng, center.lat, center.lng)
+      
+      // Score this boundary
+      const score = scoreBoundaryRelevance(boundary, lat, lng, name)
+      
+      processedBoundaries.push({
+        ...boundary,
+        area_m2: area,
+        perimeter_m: perimeter,
+        center,
+        distance_to_poi: distanceToCenter,
+        confidence_score: score,
+        source: 'unified_overpass'
+      })
+      
+    } catch (error) {
+      console.error(`❌ Error processing boundary:`, error)
+      continue
+    }
+  }
+
+  if (processedBoundaries.length === 0) {
+    return { success: false, error: 'No valid boundaries after processing' }
+  }
+
+  // Sort by confidence score and select the best one
+  processedBoundaries.sort((a, b) => b.confidence_score - a.confidence_score)
+  const bestBoundary = processedBoundaries[0]
+  
+  console.log(`✅ Selected boundary with confidence ${bestBoundary.confidence_score.toFixed(2)} (${bestBoundary.category})`)
+
+  return {
+    success: true,
+    boundary: {
+      coordinates: bestBoundary.coordinates,
+      area_m2: bestBoundary.area_m2,
+      perimeter_m: bestBoundary.perimeter_m,
+      confidence: bestBoundary.confidence_score,
+      source: 'unified_overpass',
+      osm_data: {
+        category: bestBoundary.category,
+        element_type: bestBoundary.element_type,
+        tags: bestBoundary.tags
+      }
+    }
+  }
+}
+
+// Generate trigger points from unified street data (avoids separate API calls)
+async function generateTriggersFromUnifiedStreets(
+  boundary: any,
+  poiLat: number,
+  poiLng: number,
+  streets: any[],
+  landmarkInfo?: any
+): Promise<any[]> {
+  console.log(`🛣️ Generating trigger points from ${streets.length} unified streets`)
+
+  if (streets.length === 0) {
+    console.log('⚠️ No streets in unified data, falling back to boundary-based triggers')
+    return generateOptimalTriggerPoints(boundary, poiLat, poiLng, 'Unknown POI')
+  }
+
+  // Sort streets by relevance (distance and confidence)
+  const sortedStreets = streets.sort((a, b) => {
+    if (landmarkInfo?.isHighVisibility) {
+      // For landmarks: prioritize variety of distances
+      const scoreA = a.confidence * (1 + Math.min(a.distance_to_poi / 1000, 2))
+      const scoreB = b.confidence * (1 + Math.min(b.distance_to_poi / 1000, 2))
+      return scoreB - scoreA
+    } else {
+      // For regular POIs: closer and higher confidence first
+      const scoreA = a.confidence / (1 + a.distance_to_poi / 100)
+      const scoreB = b.confidence / (1 + b.distance_to_poi / 100)
+      return scoreB - scoreA
+    }
+  })
+
+  // Generate trigger points on strategic street locations
+  const triggerPoints = []
+  
+  for (const street of sortedStreets.slice(0, 30)) { // Limit to top 30 streets
+    try {
+      // Find strategic points on this street
+      const streetPoints = await findStrategicPointsOnStreet(
+        street, 
+        poiLat, 
+        poiLng, 
+        boundary.coordinates, 
+        landmarkInfo
+      )
+      
+      triggerPoints.push(...streetPoints)
+      
+    } catch (error) {
+      console.error(`❌ Error processing street ${street.name}:`, error)
+      continue
+    }
+  }
+
+  // Remove duplicates and apply filtering
+  const poiArea = calculatePolygonArea(boundary.coordinates)
+  let minPointDistance = 50
+  
+  if (landmarkInfo?.isHighVisibility) {
+    minPointDistance = 100
+  } else if (poiArea > 1000000) {
+    minPointDistance = 30
+  } else if (poiArea > 100000) {
+    minPointDistance = 40
+  } else if (poiArea < 50000) {
+    minPointDistance = 60
+  }
+
+  const filteredPoints = removeDuplicatePoints(triggerPoints, minPointDistance)
+  const classifiedPoints = classifyTriggerPointsByStreet(filteredPoints, poiLat, poiLng)
+
+  // Apply dynamic limits
+  let maxPoints = 15
+  if (landmarkInfo?.isHighVisibility) {
+    maxPoints = Math.min(25, Math.max(15, Math.round(poiArea / 100000)))
+  } else if (poiArea > 500000) {
+    maxPoints = 20
+  } else if (poiArea < 10000) {
+    maxPoints = 8
+  }
+
+  const finalPoints = classifiedPoints.slice(0, maxPoints)
+  console.log(`✅ Generated ${finalPoints.length} trigger points from unified street data`)
+
+  return finalPoints
+}
+
+// Helper function to score boundary relevance
+function scoreBoundaryRelevance(boundary: any, lat: number, lng: number, name: string): number {
+  let score = 0.5 // Base score
+
+  // Category bonus
+  const category = boundary.category
+  if (category === 'park') score += 0.3
+  else if (category === 'attraction') score += 0.4
+  else if (category === 'water') score += 0.2
+  else if (category === 'recreation_ground') score += 0.25
+  else if (category === 'forest' || category === 'grass') score += 0.15
+
+  // Name matching bonus
+  if (boundary.tags?.name) {
+    const boundaryName = boundary.tags.name.toLowerCase()
+    const searchName = name.toLowerCase()
+    
+    if (boundaryName.includes(searchName) || searchName.includes(boundaryName)) {
+      score += 0.4
+    }
+  }
+
+  // Distance penalty (closer is better)
+  const center = calculatePolygonCenter(boundary.coordinates)
+  const distance = calculateDistance(lat, lng, center.lat, center.lng)
+  const distancePenalty = Math.min(distance / 1000, 0.3) // Max 0.3 penalty
+  score -= distancePenalty
+
+  // Size bonus/penalty (reasonable sizes preferred)
+  const area = calculatePolygonArea(boundary.coordinates)
+  if (area > 10000 && area < 5000000) { // 1 hectare to 500 hectares
+    score += 0.1
+  } else if (area < 1000) { // Very small
+    score -= 0.2
+  } else if (area > 10000000) { // Very large
+    score -= 0.1
+  }
+
+  return Math.max(0.1, Math.min(1.0, score))
+}
+
+// LEGACY: Keep for backwards compatibility (now uses unified data)
+async function queryOverpassAPI(query: string, purpose: string, timeout: number = 30): Promise<any> {
+  console.log(`⚠️ DEPRECATED: queryOverpassAPI called for ${purpose}. Use queryUnifiedOverpassData instead.`)
   try {
     const response = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
@@ -2022,7 +2465,7 @@ function buildOverpassQuery(
   elements: string[], 
   location: {lat: number, lng: number}, 
   radius: number, 
-  timeout: number = 10
+  timeout: number = 30
 ): string {
   return `[out:json][timeout:${timeout}];
 (
@@ -2088,7 +2531,7 @@ async function detectPOIHeight(lat: number, lng: number): Promise<{ height: numb
     console.log(`🏗️ Detecting REAL POI height for ${lat}, ${lng}`)
     
     // PRIORITY 1: Search for buildings AND TOWERS with REAL height data
-    const realHeightQuery = `[out:json][timeout:15];
+    const realHeightQuery = `[out:json][timeout:60];
 (
   // Search for buildings with direct height data
   way[building][height](around:50,${lat},${lng});
@@ -2228,7 +2671,7 @@ async function detectUrbanDensity(lat: number, lng: number): Promise<'very_dense
     console.log(`🏙️ Detecting urban density for ${lat}, ${lng}`)
     
     // Use Overpass API to count buildings and streets in different radii
-    const overpassQuery = `[out:json][timeout:10];
+    const overpassQuery = `[out:json][timeout:30];
     (
       // Buildings in 200m radius
       way[building](around:200,${lat},${lng});
@@ -2308,7 +2751,7 @@ async function checkBuildingObstructions(triggerPoint: {lat: number, lng: number
     // Search for buildings in a corridor between trigger point and POI
     const searchRadius = Math.min(200, calculateDistance(triggerPoint.lat, triggerPoint.lng, poiLat, poiLng) / 2)
     
-    const overpassQuery = `[out:json][timeout:15];
+    const overpassQuery = `[out:json][timeout:30];
     (
       // Buildings that might obstruct view
       way[building](around:${searchRadius},${midLat},${midLng});
@@ -2603,7 +3046,7 @@ async function findImmediateStreets(lat: number, lng: number) {
     console.log(`🔍 Searching for immediate streets with enhanced POV detection at (${lat}, ${lng})`)
     
     const radius = 80 // Expanded radius to catch better POV streets (was 50m)
-    const overpassQuery = `[out:json][timeout:15];
+    const overpassQuery = `[out:json][timeout:30];
     (
       way[highway~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|service)$"](around:${radius},${lat},${lng});
     );
@@ -3032,7 +3475,7 @@ async function validateDirectLineOfSight(triggerPoint: any, poiLat: number, poiL
     const midLng = (triggerPoint.lng + poiLng) / 2
     const searchRadius = Math.min(distance / 2, 100) // Search in the middle area
     
-    const overpassQuery = `[out:json][timeout:10];
+    const overpassQuery = `[out:json][timeout:30];
     (
       way[building](around:${searchRadius},${midLat},${midLng});
       way[natural=tree](around:${searchRadius},${midLat},${midLng});
@@ -3476,10 +3919,55 @@ async function autoSaveTriggerPoints(
       return results
     }
     
-    console.log(`✅ Auto-saving ${eligibleTPs.length} trigger points (${results.skipped} skipped for low confidence)`)
+    console.log(`🔍 Validating ${eligibleTPs.length} trigger points for duplicates (${results.skipped} skipped for low confidence)`)
     
-    // Preparar dados para inserção no Supabase
-    const tpsForDB = eligibleTPs.map(tp => ({
+    // Usar service role para validação e inserção no banco
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+    
+    // Preparar dados para validação de duplicatas
+    const tpsForValidation = eligibleTPs.map(tp => ({
+      lat: tp.lat,
+      lng: tp.lng,
+      type: tp.type,
+      confidence: tp.individual_confidence_score,
+      auto_status: tp.auto_status,
+      reasoning: tp.reasoning || `Auto-generated from ${boundarySource}`,
+      radius_meters: tp.radius_meters || 20,
+      expected_bearing: tp.expected_bearing,
+      score_factors: tp.score_factors
+    }))
+    
+    // Validar duplicatas usando RPC (apenas para este POI)
+    const { data: validatedTPs, error: validationError } = await supabase
+      .schema('core')
+      .rpc('validate_trigger_points_batch', {
+        p_attraction_id: attractionId,
+        p_trigger_points: tpsForValidation,
+        p_distance_threshold: 20.0 // 20m threshold para duplicatas
+      })
+    
+    if (validationError) {
+      console.error('❌ Error validating trigger points:', validationError)
+      results.errors.push(`Validation error: ${validationError.message}`)
+      return results
+    }
+    
+    const validatedTPsArray = validatedTPs as any[]
+    const duplicatesSkipped = eligibleTPs.length - validatedTPsArray.length
+    
+    if (validatedTPsArray.length === 0) {
+      console.log(`⚠️ All ${eligibleTPs.length} trigger points were duplicates - skipping insert`)
+      results.skipped += duplicatesSkipped
+      return results
+    }
+    
+    console.log(`✅ Auto-saving ${validatedTPsArray.length} validated trigger points (${duplicatesSkipped} duplicates skipped)`)
+    
+    // Preparar dados validados para inserção no Supabase
+    const tpsForDB = validatedTPsArray.map(tp => ({
       attraction_id: attractionId,
       location: `POINT(${tp.lng} ${tp.lat})`,
       radius_meters: tp.radius_meters || 20,
@@ -3488,21 +3976,15 @@ async function autoSaveTriggerPoints(
       type: tp.type,
       priority: tp.type === 'primary' ? 1 : tp.type === 'secondary' ? 2 : 3,
       is_active: true,
-      confidence_score: tp.individual_confidence_score,
+      confidence_score: tp.confidence,
       auto_status: tp.auto_status,
       manual_status: 'pending', // Sempre pending para revisão manual
       final_status: tp.auto_status === 'approved' ? 'approved' : 'pending',
       score_factors: tp.score_factors,
       generation_method: `auto_${boundarySource}`,
-      validation_notes: tp.reasoning || `Auto-generated from ${boundarySource}`,
+      validation_notes: tp.reasoning,
       created_at: new Date().toISOString()
     }))
-    
-    // Usar service role para inserção no banco
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
     
     const { data, error } = await supabase
       .schema('core')
@@ -3517,11 +3999,13 @@ async function autoSaveTriggerPoints(
     }
     
     results.saved = data?.length || 0
+    results.skipped += duplicatesSkipped // Include duplicates in skipped count
     
     console.log(`✅ Successfully auto-saved ${results.saved} trigger points`)
     console.log(`   - Primary: ${tpsForDB.filter(tp => tp.type === 'primary').length}`)
     console.log(`   - Secondary: ${tpsForDB.filter(tp => tp.type === 'secondary').length}`)
     console.log(`   - Fallback: ${tpsForDB.filter(tp => tp.type === 'fallback').length}`)
+    console.log(`   - Duplicates skipped: ${duplicatesSkipped}`)
     
     return results
     
