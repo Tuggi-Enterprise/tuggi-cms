@@ -6,6 +6,20 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Helper function to get user ID from request headers
+function getUserIdFromRequest(request: NextRequest): string | null {
+  // Try to get user ID from authorization header or other sources
+  const authHeader = request.headers.get('authorization')
+  const userIdHeader = request.headers.get('x-user-id')
+  
+  if (userIdHeader) {
+    return userIdHeader
+  }
+  
+  // Could add JWT parsing here if needed
+  return null
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -32,33 +46,48 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Get user ID for tracking
+    const userId = getUserIdFromRequest(request)
+    
     console.log('🔧 Creating trigger point with service role:', {
       attraction_id,
       lat,
       lng,
       access,
       name,
-      description
+      description,
+      created_by: userId
     })
+
+    // Prepare insert data with user tracking
+    const insertData: any = {
+      attraction_id,
+      location: `POINT(${lng} ${lat})`,
+      radius_meters,
+      expected_bearing,
+      bearing_threshold,
+      type,
+      priority,
+      is_active,
+      direction,
+      // For manual TPs, set appropriate confidence system values
+      confidence_score: 0.8, // Manual TPs get high confidence
+      manual_status: 'approved', // Manual TPs are approved by default
+      generation_method: 'manual',
+      validation_notes: `Manually created by ${userId ? 'user' : 'system'}`
+    }
+
+    // Add user tracking if user ID is available
+    if (userId) {
+      insertData.created_by = userId
+      insertData.updated_by = userId
+    }
 
     // Insert trigger point using service role (bypasses RLS issues)
     const { data, error } = await supabase
       .schema('core')
       .from('attraction_trigger_points')
-      .insert({
-        attraction_id,
-        location: `POINT(${lng} ${lat})`,
-        radius_meters,
-        expected_bearing,
-        bearing_threshold,
-        type,
-        priority,
-        is_active,
-        direction,
-        access,
-        name,
-        description
-      })
+      .insert(insertData)
       .select()
       .single()
 

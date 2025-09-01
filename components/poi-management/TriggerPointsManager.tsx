@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useSupabaseClient } from '@supabase/auth-helpers-react'
+import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react'
 import { 
   Plus, MapPin, Target, Trash2, Edit3, Save, X, 
   Navigation, Circle, Settings, AlertTriangle, 
@@ -30,6 +30,7 @@ export function TriggerPointsManager({
   onClose 
 }: TriggerPointsManagerProps) {
   const supabase = useSupabaseClient()
+  const user = useUser()
   
   // State
   const [triggerPoints, setTriggerPoints] = useState<TriggerPoint[]>([])
@@ -476,9 +477,14 @@ export function TriggerPointsManager({
 
       if (isEditing && selectedTriggerPoint?.id) {
         // Update existing trigger point using API route (bypasses RLS issues)
+        const headers: any = { 'Content-Type': 'application/json' }
+        if (user?.id) {
+          headers['x-user-id'] = user.id
+        }
+        
         const response = await fetch('/api/trigger-points/update', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             trigger_point_id: selectedTriggerPoint.id,
             lat: formData.latitude,
@@ -492,7 +498,7 @@ export function TriggerPointsManager({
             direction: formData.direction,
             access: 'both',
             name: `Manual - ${formData.type}`,
-            description: `Manually updated trigger point`
+            description: `Manually updated trigger point by ${user?.email || 'unknown user'}`
           })
         })
 
@@ -506,9 +512,14 @@ export function TriggerPointsManager({
         console.log('✅ Trigger point updated successfully:', result.data)
       } else {
         // Create new trigger point using API route (bypasses RLS issues)
+        const headers: any = { 'Content-Type': 'application/json' }
+        if (user?.id) {
+          headers['x-user-id'] = user.id
+        }
+        
         const response = await fetch('/api/trigger-points/create', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({
             attraction_id: attractionId,
             lat: formData.latitude,
@@ -522,7 +533,7 @@ export function TriggerPointsManager({
             direction: formData.direction,
             access: 'both',
             name: `Manual - ${formData.type}`,
-            description: `Manually created trigger point`
+            description: `Manually created trigger point by ${user?.email || 'unknown user'}`
           })
         })
 
@@ -593,12 +604,18 @@ export function TriggerPointsManager({
       setError(null)
 
       // Use API route to update trigger point status (bypasses RLS issues)
+      const headers: any = { 'Content-Type': 'application/json' }
+      if (user?.id) {
+        headers['x-user-id'] = user.id
+      }
+      
       const response = await fetch('/api/trigger-points/update', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           trigger_point_id: triggerPointId,
-          is_active: !currentStatus
+          is_active: !currentStatus,
+          description: `Status ${!currentStatus ? 'activated' : 'deactivated'} by ${user?.email || 'unknown user'}`
         })
       })
 
@@ -992,6 +1009,27 @@ export function TriggerPointsManager({
                             </span>
                           </div>
                         )}
+                        
+                        {/* User tracking information */}
+                        <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+                            {(triggerPoint as any).created_by_email && (
+                              <div>
+                                <span className="font-medium">Created:</span> {(triggerPoint as any).created_at_formatted} by {(triggerPoint as any).created_by_email}
+                              </div>
+                            )}
+                            {(triggerPoint as any).updated_by_email && (triggerPoint as any).updated_by !== (triggerPoint as any).created_by && (
+                              <div>
+                                <span className="font-medium">Updated:</span> {(triggerPoint as any).updated_at_formatted} by {(triggerPoint as any).updated_by_email}
+                              </div>
+                            )}
+                            {!(triggerPoint as any).created_by_email && (
+                              <div className="text-gray-400">
+                                <span className="font-medium">Created:</span> {(triggerPoint as any).created_at_formatted || 'Unknown date'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
                       
                       <div className="flex items-center justify-between mt-2">
