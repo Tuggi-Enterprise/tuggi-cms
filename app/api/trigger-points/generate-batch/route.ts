@@ -7,6 +7,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+// Import services to avoid fetch issues in production
+import { BoundaryDetectionService } from '@/lib/services/boundary-detection'
+import { TriggerPointsService } from '@/lib/services/trigger-points-generation'
+import { OSMDataEnrichmentService } from '@/lib/services/osm-data-enrichment'
+
 interface BatchGenerationRequest {
   country?: string
   city?: string
@@ -127,20 +132,10 @@ export async function POST(request: NextRequest) {
       try {
         console.log(`🎯 Processing: ${poi.name} (${poi.city}, ${poi.country})`)
 
-        // Generate trigger points using our detection API
-        const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/poi-boundaries/detect`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            attraction_id: poi.id 
-          }),
-        })
+        // Generate trigger points using direct function call (avoids fetch issues in production)
+        const result = await detectPOIBoundariesDirect(poi.id)
 
-        const result = await response.json()
-
-        if (result.success && result.trigger_points && result.trigger_points.length > 0) {
+        if (result.success && result.trigger_points && Array.isArray(result.trigger_points) && result.trigger_points.length > 0) {
           // Filter trigger points: only approved primary and secondary types
           const approvedTPs = result.trigger_points.filter((tp: any) => 
             tp.auto_status === 'approved' && 
@@ -278,6 +273,69 @@ export async function POST(request: NextRequest) {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })
+  }
+}
+
+// Helper function to detect POI boundaries and generate trigger points (avoids fetch issues)
+async function detectPOIBoundariesDirect(attractionId: string) {
+  try {
+    // Get POI data
+    const { data: poi, error: poiError } = await supabase
+      .schema('core')
+      .from('attractions')
+      .select(`
+        id,
+        name,
+        city,
+        country,
+        attraction_coordinate!inner(latitude, longitude)
+      `)
+      .eq('id', attractionId)
+      .single()
+
+    if (poiError || !poi) {
+      return { success: false, error: 'POI not found' }
+    }
+
+    const coordinate = poi.attraction_coordinate[0]
+    
+    // Detect boundary using the service
+    const boundaryResult = await BoundaryDetectionService.detectBoundary(
+      coordinate.latitude,
+      coordinate.longitude,
+      poi.name
+    )
+
+    if (!boundaryResult.success || !boundaryResult.boundary) {
+      return { success: false, error: boundaryResult.error || 'Boundary detection failed' }
+    }
+
+    // Generate trigger points
+    const triggerPoints = await TriggerPointsService.generateTriggerPoints(
+      boundaryResult.boundary,
+      coordinate.latitude,
+      coordinate.longitude,
+      poi.name,
+      [], // Empty streets array for now
+      { isHighVisibility: false, maxRange: 1000, elevationDiff: 0 } // Default landmark info
+    )
+
+    // Enrich OSM data
+    const enrichmentData = OSMDataEnrichmentService.extractFromBoundary(boundaryResult.boundary, boundaryResult.boundary.source)
+    await OSMDataEnrichmentService.saveEnrichmentData(poi.id, enrichmentData)
+
+    return {
+      success: true,
+      trigger_points: triggerPoints,
+      boundary: boundaryResult.boundary
+    }
+
+  } catch (error) {
+    console.error('Error in direct boundary detection:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
   }
 }
 
