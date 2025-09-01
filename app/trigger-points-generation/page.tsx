@@ -1,770 +1,658 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useUser, useSupabaseClient } from '@supabase/auth-helpers-react';
-import { BatchProgressBar } from '@/components/trigger-points/BatchProgressBar';
-import { OSMDataEnrichment } from '@/components/data-enrichment';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Play, Target, MapPin, Filter, Database, Globe } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-interface POIForTriggerGeneration {
-  attraction_id: string;
+interface POI {
+  id: string;
   name: string;
   city: string;
   country: string;
-  latitude: number;
-  longitude: number;
-  google_types: string[];
-  trigger_points_count: number;
-  new_tps_count: number;
-  old_tps_count: number;
-  has_new_tps: boolean;
-  has_old_tps: boolean;
-  last_tp_generation: string | null;
-  tp_generation_status: 'none' | 'processing' | 'completed' | 'failed';
-  tp_confidence_score: number | null;
-  boundary_source?: string;
+  google_place_id?: string;
+  osm_category?: string;
+  osm_data_quality_score?: number;
+  heritage_status?: string;
+  unesco_status?: string;
+  pov_quality_score?: number;
+  verification_status?: string;
+  approved?: boolean;
+  trigger_points_count?: number;
+  has_boundary?: boolean;
+  last_processed?: string;
 }
 
-interface GenerationStats {
-  total: number;
-  withTPs: number;
-  withoutTPs: number;
-  processing: number;
-  failed: number;
+interface TriggerPointGenerationResult {
+  poi_id: string;
+  poi_name: string;
+  success: boolean;
+  message: string;
+  trigger_points_generated?: number;
+  trigger_points_saved?: number;
+  trigger_points_skipped?: number;
+  boundary_source?: string;
+  processing_time?: number;
+  errors?: string[];
 }
 
 export default function TriggerPointsGenerationPage() {
-  const user = useUser();
+  const router = useRouter();
   const supabase = useSupabaseClient();
-  const [pois, setPois] = useState<POIForTriggerGeneration[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [filters, setFilters] = useState({
-    country: 'all',
-    city: 'all',
-    tp_status: 'all',
-    confidence_range: 'all'
-  });
-  const [stats, setStats] = useState<GenerationStats>({
-    total: 0,
-    withTPs: 0,
-    withoutTPs: 0,
-    processing: 0,
-    failed: 0
-  });
-  const [countries, setCountries] = useState<string[]>([]);
-  const [cities, setCities] = useState<string[]>([]);
-  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
-  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, errors: 0 });
-  const [expandedEnrichment, setExpandedEnrichment] = useState<string | null>(null);
+  
+  const [isLoading, setIsLoading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  
+  // Form state
+  const [country, setCountry] = useState('');
+  const [city, setCity] = useState('');
+  const [processingType, setProcessingType] = useState('without_trigger_points');
+  const [limit, setLimit] = useState(50);
+  const [delayBetweenCalls, setDelayBetweenCalls] = useState(3000); // 3 seconds for trigger point generation
+  
+  // Filter states
+  const [availableCountries, setAvailableCountries] = useState<Array<{country: string, cityCount: number, totalPOIs: number}>>([]);
+  const [availableCities, setAvailableCities] = useState<string[]>([]);
+  const [isLoadingCountries, setIsLoadingCountries] = useState(false);
+  const [isLoadingCities, setIsLoadingCities] = useState(false);
+  
+  // Data state
+  const [pois, setPois] = useState<POI[]>([]);
+  const [selectedPois, setSelectedPois] = useState<string[]>([]);
+  const [processingQueue, setProcessingQueue] = useState<string[]>([]);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [generationResults, setGenerationResults] = useState<TriggerPointGenerationResult[]>([]);
 
-  useEffect(() => {
-    if (user) {
-      loadCountriesAndCities();
-      loadPOIs();
-    }
-  }, [filters, user]);
-
-  // Show loading or login message if not authenticated
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Authentication Required</h1>
-          <p className="text-gray-600">Please log in to access the Trigger Points Generation system.</p>
-        </div>
-      </div>
-    );
-  }
-
-  const loadCountriesAndCities = async () => {
+  // Load available countries from database
+  const loadCountries = useCallback(async () => {
+    setIsLoadingCountries(true);
     try {
-      // Load unique countries
-      const { data: countryData } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select('country')
-        .not('country', 'is', null);
+      const response = await fetch('/api/locations/countries-cities');
+      const result = await response.json();
       
-      const uniqueCountries = [...new Set(countryData?.map(item => item.country) || [])];
-      setCountries(uniqueCountries);
-
-      // Load unique cities for selected country
-      let cityQuery = supabase
-        .schema('core')
-        .from('attractions')
-        .select('city')
-        .not('city', 'is', null);
-
-      if (filters.country !== 'all') {
-        cityQuery = cityQuery.eq('country', filters.country);
+      if (result.success) {
+        setAvailableCountries(result.countries);
+        // Set first country as default if none selected
+        if (!country && result.countries.length > 0) {
+          setCountry(result.countries[0].country);
+        }
+      } else {
+        console.error('Failed to load countries:', result.error);
       }
-
-      const { data: cityData } = await cityQuery;
-      const uniqueCities = [...new Set(cityData?.map(item => item.city) || [])];
-      setCities(uniqueCities);
     } catch (error) {
-      console.error('Error loading countries/cities:', error);
+      console.error('Error loading countries:', error);
+    } finally {
+      setIsLoadingCountries(false);
+    }
+  }, [country]);
+
+  // Load available cities for selected country
+  const loadCities = async (selectedCountry: string) => {
+    if (!selectedCountry) {
+      setAvailableCities([]);
+      return;
+    }
+
+    setIsLoadingCities(true);
+    try {
+      const response = await fetch(`/api/locations/countries-cities?country=${encodeURIComponent(selectedCountry)}`);
+      const result = await response.json();
+      
+      if (result.success) {
+        setAvailableCities(result.cities);
+      } else {
+        console.error('Failed to load cities:', result.error);
+      }
+    } catch (error) {
+      console.error('Error loading cities:', error);
+    } finally {
+      setIsLoadingCities(false);
     }
   };
 
+  // Load POIs based on filters
   const loadPOIs = async () => {
-    setLoading(true);
+    setIsLoading(true);
+    setError(null);
+    
     try {
-      let query = supabase
-        .schema('core')
-        .from('attractions')
-        .select(`
-          id,
-          name,
-          city,
-          country,
-          attraction_coordinate!inner(latitude, longitude),
-          google_types
-        `)
-        .not('attraction_coordinate', 'is', null)
-        .order('name');
-
-      // Apply filters
-      if (filters.country !== 'all') {
-        query = query.eq('country', filters.country);
-      }
-      if (filters.city !== 'all') {
-        query = query.eq('city', filters.city);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error loading POIs:', error);
-        return;
-      }
-
-      // Get trigger points count for each POI
-      const poisWithTPs = await Promise.all((data || []).map(async (poi) => {
-        const { data: tpData, error: tpError } = await supabase
-          .schema('core')
-          .from('attraction_trigger_points')
-          .select('id, confidence_score, auto_status, created_at')
-          .eq('attraction_id', poi.id);
-
-        // Debug logging for first few POIs
-        if (data.indexOf(poi) < 3) {
-          console.log(`🔍 ${poi.name}: ${tpData?.length || 0} trigger points`, { 
-            tpError, 
-            hasNewTPs: tpData?.some(tp => tp.auto_status === 'approved') || false,
-            hasOldTPs: tpData?.some(tp => !tp.auto_status) || false
-          });
-        }
-
-        const coordinate = poi.attraction_coordinate[0];
-        
-        // Categorize TPs
-        const newTPs = tpData?.filter(tp => tp.auto_status === 'approved') || [];
-        const oldTPs = tpData?.filter(tp => !tp.auto_status) || [];
-        const hasNewTPs = newTPs.length > 0;
-        const hasOldTPs = oldTPs.length > 0;
-        
-        return {
-          attraction_id: poi.id,
-          name: poi.name,
-          city: poi.city,
-          country: poi.country,
-          latitude: coordinate.latitude,
-          longitude: coordinate.longitude,
-          google_types: poi.google_types || [],
-          trigger_points_count: tpData?.length || 0,
-          new_tps_count: newTPs.length,
-          old_tps_count: oldTPs.length,
-          has_new_tps: hasNewTPs,
-          has_old_tps: hasOldTPs,
-          last_tp_generation: tpData?.[0]?.created_at || null,
-          tp_generation_status: (tpData?.length || 0) > 0 ? 'completed' : 'none',
-          tp_confidence_score: hasNewTPs ? 
-            Math.round((newTPs.reduce((sum, tp) => sum + (tp.confidence_score || 0), 0) / newTPs.length) * 100) / 100 : null
-        } as POIForTriggerGeneration;
-      }));
-
-      // Apply TP status filter
-      let filteredPOIs = poisWithTPs;
-      if (filters.tp_status !== 'all') {
-        filteredPOIs = poisWithTPs.filter(poi => {
-          switch (filters.tp_status) {
-            case 'with_tps':
-              return poi.trigger_points_count > 0;
-            case 'without_tps':
-              return poi.trigger_points_count === 0;
-            case 'with_new_tps':
-              return poi.has_new_tps;
-            case 'with_old_tps':
-              return poi.has_old_tps && !poi.has_new_tps;
-            case 'high_confidence':
-              return poi.tp_confidence_score && poi.tp_confidence_score >= 0.8;
-            case 'needs_review':
-              return poi.tp_confidence_score && poi.tp_confidence_score >= 0.5 && poi.tp_confidence_score < 0.75;
-            default:
-              return true;
-          }
-        });
-      }
-
-      setPois(filteredPOIs);
-      
-      // Calculate stats with debugging
-      const withTPs = filteredPOIs.filter(p => p.trigger_points_count > 0).length;
-      const withoutTPs = filteredPOIs.filter(p => p.trigger_points_count === 0).length;
-      const withNewTPs = filteredPOIs.filter(p => p.has_new_tps).length;
-      const withOldTPs = filteredPOIs.filter(p => p.has_old_tps && !p.has_new_tps).length;
-      
-      console.log(`📊 Statistics:`, {
-        total: filteredPOIs.length,
-        withTPs,
-        withoutTPs,
-        withNewTPs,
-        withOldTPs,
-        sampleWithNewTPs: filteredPOIs.filter(p => p.has_new_tps).slice(0, 3).map(p => ({ name: p.name, new: p.new_tps_count, old: p.old_tps_count })),
-        sampleWithOldTPs: filteredPOIs.filter(p => p.has_old_tps && !p.has_new_tps).slice(0, 3).map(p => ({ name: p.name, count: p.trigger_points_count }))
-      });
-      
-      setStats({
-        total: filteredPOIs.length,
-        withTPs,
-        withoutTPs,
-        processing: 0, // TODO: Implement processing status
-        failed: 0 // TODO: Implement failed status
+      const params = new URLSearchParams({
+        limit: limit.toString(),
+        processing_type: processingType,
+        ...(country && { country }),
+        ...(city && { city })
       });
 
+      const response = await fetch(`/api/trigger-points/list-for-generation?${params}`);
+      const result = await response.json();
+      
+      if (result.success) {
+        setPois(result.pois || []);
+        setSelectedPois([]);
+        setGenerationResults([]);
+        setSuccess(`Loaded ${result.pois?.length || 0} POIs for trigger point generation`);
+      } else {
+        setError(result.error || 'Failed to load POIs');
+      }
     } catch (error) {
       console.error('Error loading POIs:', error);
+      setError('Failed to load POIs');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  // Enhanced test function using refined logic (from test-poi-boundaries)
-  const handleTestPOI = async (attractionId: string, poiName: string) => {
-    const poi = pois.find(p => p.attraction_id === attractionId);
-    if (!poi) return;
-    
-    try {
-      console.log(`🧪 Testing POI with refined rules: ${poiName} (${attractionId})`);
-      
-      const startTime = Date.now();
-      const response = await fetch('/api/poi-boundaries/detect', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          attraction_id: attractionId,
-          poi_lat: poi.latitude,
-          poi_lng: poi.longitude,
-          poi_name: poi.name
-        }),
-      });
-
-      const result = await response.json();
-      const processingTime = Date.now() - startTime;
-      
-      if (result.success) {
-        // Enhanced logging with all refined features
-        const message = `🧪 TEST RESULTS for "${poiName}" (${processingTime}ms):\n\n` +
-          `✅ Boundary Source: ${result.boundary?.source || 'N/A'}\n` +
-          `📐 Boundary Area: ${result.boundary?.area_m2?.toLocaleString()}m²\n` +
-          `🎯 Total Trigger Points: ${result.trigger_points?.length || 0}\n` +
-          `💾 Auto-Saved TPs: ${result.trigger_points_saved || 0}\n` +
-          `⚠️ Duplicates Skipped: ${result.duplicates_skipped || 0}\n` +
-          `🔧 OSM Data Enriched: ${result.enrichment_saved ? '✅' : '❌'}\n` +
-          `${result.note ? `📝 Note: ${result.note}\n` : ''}` +
-          `\n🔍 Trigger Points Breakdown:\n` +
-          `   - Primary: ${result.trigger_points?.filter((tp: any) => tp.type === 'primary').length || 0}\n` +
-          `   - Secondary: ${result.trigger_points?.filter((tp: any) => tp.type === 'secondary').length || 0}\n` +
-          `   - Fallback: ${result.trigger_points?.filter((tp: any) => tp.type === 'fallback').length || 0}\n` +
-          `\n📈 Auto-Approval Status:\n` +
-          `   - Approved: ${result.trigger_points?.filter((tp: any) => tp.auto_status === 'approved').length || 0}\n` +
-          `   - Review: ${result.trigger_points?.filter((tp: any) => tp.auto_status === 'review').length || 0}\n` +
-          `   - Rejected: ${result.trigger_points?.filter((tp: any) => tp.auto_status === 'rejected').length || 0}`;
-        
-        alert(message);
-        
-        // Log detailed results to console for debugging
-        console.log(`🧪 Detailed results for ${poiName}:`, result);
-        
-        // Refresh POI list to show updated data
-        loadPOIs();
-      } else {
-        alert(`❌ Test failed for "${poiName}": ${result.error}`);
-      }
-      
-    } catch (error) {
-      console.error('Error testing POI:', error);
-      alert(`❌ Error testing POI: ${error}`);
+  // Generate trigger points for selected POIs
+  const generateTriggerPoints = async () => {
+    if (selectedPois.length === 0) {
+      setError('Please select at least one POI to process');
+      return;
     }
-  };
 
-  const handleGenerateBatch = async (batchSize: number, specificAttractionId?: string) => {
-    setProcessing(true);
-    setBatchProgress({ current: 0, total: 0, errors: 0 });
-    
-    try {
-      const requestBody: any = {
-        batch_size: batchSize
-      };
+    setIsProcessing(true);
+    setError(null);
+    setSuccess(null);
+    setProcessingQueue([...selectedPois]);
+    setProcessedCount(0);
+    setTotalCount(selectedPois.length);
+    setGenerationResults([]);
 
-      if (specificAttractionId) {
-        requestBody.attraction_ids = [specificAttractionId];
-      } else {
-        if (filters.country !== 'all') requestBody.country = filters.country;
-        if (filters.city !== 'all') requestBody.city = filters.city;
-      }
+    let successCount = 0;
+    let errorCount = 0;
 
-      console.log(`🚀 Starting batch generation with:`, requestBody);
+    for (let i = 0; i < selectedPois.length; i++) {
+      const poiId = selectedPois[i];
+      const poi = pois.find(p => p.id === poiId);
+      
+      if (!poi) continue;
 
-      const response = await fetch('/api/trigger-points/generate-batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        // Enhanced batch results with refined metrics
-        const message: string = `✅ Batch Generation Completed with Refined Rules!\n\n` +
-          `📊 POIs Processed: ${result.processed}\n` +
-          `✅ Successful: ${result.successful}\n` +
-          `❌ Failed: ${result.failed}\n\n`; 
+      try {
+        console.log(`🎯 Processing POI ${i + 1}/${selectedPois.length}: ${poi.name}`);
         
-        alert(message);
+        const response = await fetch('/api/trigger-points/generate-batch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            attraction_ids: [poiId],
+            batch_size: 1
+          })
+        });
+
+        const result = await response.json();
         
-        if (result.errors && result.errors.length > 0) {
-          console.log('❌ Errors occurred during batch processing:');
-          result.errors.forEach((err: any) => {
-            console.log(`   - ${err.attraction_name}: ${err.error}`);
-          });
+        const triggerPointsSaved = result.results?.[0]?.trigger_points_saved || 0;
+        const triggerPointsSkipped = result.results?.[0]?.trigger_points_skipped || 0;
+        const triggerPointsGenerated = result.results?.[0]?.trigger_points_generated || 0;
+        
+        // Create a more descriptive message
+        let message = result.results?.[0]?.message || result.message || 'Unknown result';
+        if (result.success && triggerPointsSaved === 0 && triggerPointsSkipped > 0) {
+          message = `Processed successfully - ${triggerPointsSkipped} trigger points already exist (duplicates)`;
+        } else if (result.success && triggerPointsSaved > 0) {
+          message = `Successfully generated ${triggerPointsSaved} new trigger points`;
+          if (triggerPointsSkipped > 0) {
+            message += ` (${triggerPointsSkipped} duplicates skipped)`;
+          }
         }
+
+        const processingResult: TriggerPointGenerationResult = {
+          poi_id: poiId,
+          poi_name: poi.name,
+          success: result.success, // Use overall success, not just result[0].success
+          message: message,
+          trigger_points_generated: triggerPointsGenerated,
+          trigger_points_saved: triggerPointsSaved,
+          trigger_points_skipped: triggerPointsSkipped,
+          boundary_source: result.results?.[0]?.boundary_source,
+          processing_time: result.results?.[0]?.processing_time,
+          errors: result.results?.[0]?.errors || (result.success ? [] : [result.message])
+        };
+
+        setGenerationResults(prev => [...prev, processingResult]);
+
+        if (processingResult.success) {
+          successCount++;
+        } else {
+          errorCount++;
+        }
+
+      } catch (error) {
+        console.error(`Error processing POI ${poi.name}:`, error);
         
-        console.log('🚀 Batch processing completed with refined rules from /test-poi-boundaries');
-        loadPOIs(); // Refresh the list to show updated data
-      } else {
-        alert(`❌ Batch generation failed: ${result.error}`);
+        const errorResult: TriggerPointGenerationResult = {
+          poi_id: poiId,
+          poi_name: poi.name,
+          success: false,
+          message: 'Network or processing error',
+          errors: [error instanceof Error ? error.message : 'Unknown error']
+        };
+        
+        setGenerationResults(prev => [...prev, errorResult]);
+        errorCount++;
       }
-      
-    } catch (error) {
-      console.error('Error in batch generation:', error);
-      alert('Error in batch generation');
-    } finally {
-      setProcessing(false);
-      setBatchProgress({ current: 0, total: 0, errors: 0 });
+
+      setProcessedCount(i + 1);
+      setProcessingQueue(prev => prev.slice(1));
+
+      // Add delay between calls to avoid overwhelming the system
+      if (i < selectedPois.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, delayBetweenCalls));
+      }
     }
-  };
 
-
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'text-green-600 bg-green-100';
-      case 'processing':
-        return 'text-blue-600 bg-blue-100';
-      case 'failed':
-        return 'text-red-600 bg-red-100';
-      default:
-        return 'text-gray-600 bg-gray-100';
+    setIsProcessing(false);
+    
+    if (errorCount === 0) {
+      setSuccess(`✅ Successfully generated trigger points for all ${successCount} POIs!`);
+    } else if (successCount > 0) {
+      setSuccess(`⚠️ Completed with mixed results: ${successCount} successful, ${errorCount} failed`);
+    } else {
+      setError(`❌ All ${errorCount} POI processing attempts failed`);
     }
+
+    // Reload POIs to show updated trigger point counts
+    setTimeout(() => {
+      loadPOIs();
+    }, 2000);
   };
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'Completed';
-      case 'processing':
-        return 'Processing';
-      case 'failed':
-        return 'Failed';
-      default:
-        return 'No TPs';
+  // Handle POI selection
+  const handleSelectPoi = (poiId: string) => {
+    setSelectedPois(prev => 
+      prev.includes(poiId) 
+        ? prev.filter(id => id !== poiId)
+        : [...prev, poiId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    setSelectedPois(pois.map(poi => poi.id));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedPois([]);
+  };
+
+  // Load countries on component mount
+  useEffect(() => {
+    loadCountries();
+  }, [loadCountries]);
+
+  // Load cities when country changes
+  useEffect(() => {
+    if (country) {
+      loadCities(country);
+      setCity(''); // Reset city when country changes
     }
-  };
+  }, [country]);
 
-  const getConfidenceColor = (score: number | null) => {
-    if (!score) return 'text-gray-500';
-    if (score >= 0.75) return 'text-green-600';
-    if (score >= 0.50) return 'text-yellow-600';
-    return 'text-red-600';
-  };
-
-  const getConfidenceText = (score: number | null) => {
-    if (!score) return 'N/A';
-    if (score >= 0.75) return 'Approved';
-    if (score >= 0.50) return 'Review';
-    return 'Rejected';
-  };
-
-  const getBoundarySourceColor = (source?: string) => {
-    switch (source) {
-      case 'osm_nominatim':
-        return 'bg-green-100 text-green-800'; // Best - found by name
-      case 'fallback_street_analysis':
-        return 'bg-blue-100 text-blue-800'; // Good - street-based fallback
-      case 'osm_coordinates':
-        return 'bg-yellow-100 text-yellow-800'; // Caution - reverse geocoding
-      case 'osm_overpass':
-        return 'bg-purple-100 text-purple-800'; // Alternative - overpass API
-      default:
-        return 'bg-gray-100 text-gray-800'; // Unknown
+  // Auto-load POIs when filters change
+  useEffect(() => {
+    if (country) {
+      loadPOIs();
     }
-  };
-
-  const getBoundarySourceText = (source?: string) => {
-    switch (source) {
-      case 'osm_nominatim':
-        return 'Name Match';
-      case 'fallback_street_analysis':
-        return 'Street Analysis';
-      case 'osm_coordinates':
-        return 'Coordinates';
-      case 'osm_overpass':
-        return 'Overpass';
-      default:
-        return source || 'Unknown';
-    }
-  };
+  }, [country, city, processingType, limit]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Trigger Points Generation</h1>
-          <p className="mt-2 text-gray-600">
-            Generate trigger points for POIs using refined boundary detection rules
-          </p>
-          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-blue-800 mb-2">🔧 Enhanced Detection Rules Active</h3>
-            <ul className="text-sm text-blue-700 space-y-1">
-              <li>✅ <strong>Smart Name Search:</strong> 8 intelligent variations per POI type (museums, parks, buildings)</li>
-              <li>✅ <strong>Fallback Hierarchy:</strong> Street analysis → Reverse geocoding → Estimated boundary</li>
-              <li>✅ <strong>No Assumptions:</strong> Uses real data without size/type guessing</li>
-              <li>✅ <strong>Validated Boundaries:</strong> Ensures boundaries match POI locations</li>
-              <li>🧪 <strong>Test Button:</strong> Preview results before generating to database</li>
-            </ul>
-          </div>
-        </div> */}
-
-        {/* Controls */}
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="flex flex-wrap gap-4 items-center justify-between">
-            <div className="flex flex-wrap gap-4">
-              {/* Country Filter */}
-              <select
-                value={filters.country}
-                onChange={(e) => {
-                  setFilters(prev => ({ ...prev, country: e.target.value, city: 'all' }));
-                }}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm"
-              >
-                <option value="all">All Countries</option>
-                {countries.map(country => (
-                  <option key={country} value={country}>{country}</option>
-                ))}
-              </select>
-
-              {/* City Filter */}
-              <select
-                value={filters.city}
-                onChange={(e) => setFilters(prev => ({ ...prev, city: e.target.value }))}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm"
-                disabled={filters.country === 'all'}
-              >
-                <option value="all">All Cities</option>
-                {cities.map(city => (
-                  <option key={city} value={city}>{city}</option>
-                ))}
-              </select>
-
-              {/* TP Status Filter */}
-              <select
-                value={filters.tp_status}
-                onChange={(e) => setFilters(prev => ({ ...prev, tp_status: e.target.value }))}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm"
-              >
-                <option value="all">All Status</option>
-                <option value="without_tps">Without TPs</option>
-                <option value="with_tps">With TPs (Any)</option>
-                <option value="with_new_tps">With New TPs (Approved)</option>
-                <option value="with_old_tps">With Old TPs Only</option>
-                <option value="high_confidence">High Confidence (≥80%)</option>
-                <option value="needs_review">Needs Review (50-74%)</option>
-              </select>
-
-              {/* Confidence Filter */}
-              <select
-                value={filters.confidence_range}
-                onChange={(e) => setFilters(prev => ({ ...prev, confidence_range: e.target.value }))}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm"
-              >
-                <option value="all">All Confidence</option>
-                <option value="approved">Approved (≥75%)</option>
-                <option value="review">Review (50-74%)</option>
-                <option value="rejected">Rejected (&lt;50%)</option>
-              </select>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
+                <Target className="h-8 w-8 mr-3 text-tuggi-orange" />
+                Trigger Points Generation
+              </h1>
+              <p className="text-gray-600 dark:text-gray-400 mt-2">
+                Generate trigger points for POIs using advanced boundary detection and street analysis
+              </p>
             </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  console.log('🔄 Force refreshing data...');
-                  loadPOIs();
-                }}
-                disabled={processing}
-                className="bg-gray-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-700 disabled:opacity-50"
-              >
-                🔄 Refresh
-              </button>
-              <button
-                onClick={() => handleGenerateBatch(10)}
-                disabled={processing}
-                className="bg-green-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-              >
-                {processing ? 'Processing...' : 'Generate 10'}
-              </button>
-              <button
-                onClick={() => handleGenerateBatch(50)}
-                disabled={processing}
-                className="bg-blue-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                {processing ? 'Processing...' : 'Generate 50'}
-              </button>
-              <button
-                onClick={() => handleGenerateBatch(100)}
-                disabled={processing}
-                className="bg-purple-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
-              >
-                {processing ? 'Processing...' : 'Generate 100'}
-              </button>
-              <button
-                onClick={() => handleGenerateBatch(1000)}
-                disabled={processing}
-                className="bg-orange-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
-              >
-                {processing ? 'Processing...' : 'Generate 1000'}
-              </button>
-            </div>
+            <button
+              onClick={() => router.push('/pois')}
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              Back to POIs
+            </button>
           </div>
         </div>
 
-        {/* Progress Bar */}
-        <BatchProgressBar 
-          progress={batchProgress}
-          isActive={processing}
-        />
+        <div className="flex gap-6">
+          {/* Left Column - 40% */}
+          <div className="w-2/5">
+            {/* Filters */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+              <div className="flex items-center mb-4">
+                <Filter className="h-5 w-5 mr-2 text-tuggi-blue" />
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Filters & Settings</h2>
+              </div>
+              
+              <div className="space-y-4">
+                {/* Country Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Country
+                  </label>
+                  <select
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
+                    disabled={isLoadingCountries}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
+                  >
+                    <option value="">All Countries</option>
+                    {availableCountries.map(({country: countryName, totalPOIs}) => (
+                      <option key={countryName} value={countryName}>
+                        {countryName} ({totalPOIs} POIs)
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-        {/* Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">Total POIs</h3>
-            <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">With TPs</h3>
-            <p className="text-2xl font-bold text-green-600">{stats.withTPs}</p>
-            <p className="text-xs text-gray-500 mt-1">
-              {stats.total > 0 ? ((stats.withTPs / stats.total) * 100).toFixed(0) : 0}% coverage
-            </p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">Without TPs</h3>
-            <p className="text-2xl font-bold text-orange-600">{stats.withoutTPs}</p>
-            <p className="text-xs text-gray-500 mt-1">Ready for generation</p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">High Quality</h3>
-            <p className="text-2xl font-bold text-emerald-600">
-              {pois.filter(p => p.tp_confidence_score && p.tp_confidence_score >= 0.75).length}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">≥75% confidence</p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-sm font-medium text-gray-500">Need Review</h3>
-            <p className="text-2xl font-bold text-amber-600">
-              {pois.filter(p => p.tp_confidence_score && p.tp_confidence_score >= 0.5 && p.tp_confidence_score < 0.75).length}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">50-74% confidence</p>
-          </div>
-        </div>
+                {/* City Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    City
+                  </label>
+                  <select
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    disabled={isLoadingCities || !country}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
+                  >
+                    <option value="">All Cities</option>
+                    {availableCities.map(cityName => (
+                      <option key={cityName} value={cityName}>
+                        {cityName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-        {/* POIs List */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          {loading ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              <p className="mt-2 text-gray-600">Loading POIs...</p>
+                {/* Processing Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Processing Type
+                  </label>
+                  <select
+                    value={processingType}
+                    onChange={(e) => setProcessingType(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
+                  >
+                    <option value="without_trigger_points">POIs without trigger points</option>
+                    <option value="with_few_trigger_points">POIs with few trigger points (&lt;3)</option>
+                    <option value="all_approved">All approved POIs</option>
+                    <option value="needs_update">Needs update (old processing)</option>
+                  </select>
+                </div>
+
+                {/* Limit */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Limit
+                  </label>
+                  <select
+                    value={limit}
+                    onChange={(e) => setLimit(parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
+                  >
+                    <option value={25}>25 POIs</option>
+                    <option value={50}>50 POIs</option>
+                    <option value={100}>100 POIs</option>
+                    <option value={200}>200 POIs</option>
+                    <option value={500}>500 POIs</option>
+                  </select>
+                </div>
+
+                {/* Processing Settings */}
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Delay Between Calls (ms)
+                    </label>
+                    <select
+                      value={delayBetweenCalls}
+                      onChange={(e) => setDelayBetweenCalls(parseInt(e.target.value))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
+                    >
+                      <option value={1000}>1 second (Fast)</option>
+                      <option value={2000}>2 seconds</option>
+                      <option value={3000}>3 seconds (Recommended)</option>
+                      <option value={5000}>5 seconds (Safe)</option>
+                      <option value={10000}>10 seconds (Very Safe)</option>
+                    </select>
+                  </div>
+                  
+                  <div className="mt-4">
+                    <button
+                      onClick={loadPOIs}
+                      disabled={isLoading || !country}
+                      className="w-full px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Reload POIs
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-          ) : pois.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-gray-600">No POIs found</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      POI
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Location
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      TP Count
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Confidence
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Boundary Source
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Last Generation
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {pois.map((poi) => [
-                    <tr key={poi.attraction_id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">
-                            {poi.name}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {poi.google_types.slice(0, 2).join(', ')}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {poi.city}, {poi.country}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {poi.latitude.toFixed(4)}, {poi.longitude.toFixed(4)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <div className="flex flex-col">
-                          <span className="font-medium">{poi.trigger_points_count}</span>
-                          {poi.has_new_tps && (
-                            <span className="text-xs text-green-600">
-                              {poi.new_tps_count} new
-                            </span>
+
+            {/* Processing Summary */}
+            {generationResults.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Processing Summary
+                  </h3>
+                </div>
+                <div className="p-4">
+                  <div className="space-y-3">
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
+                      <div className="text-xl font-bold text-blue-600 dark:text-blue-400">
+                        {generationResults.length}
+                      </div>
+                      <div className="text-sm text-blue-700 dark:text-blue-300">Total Processed</div>
+                    </div>
+                    <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg">
+                      <div className="text-xl font-bold text-green-600 dark:text-green-400">
+                        {generationResults.filter(r => r.success).length}
+                      </div>
+                      <div className="text-sm text-green-700 dark:text-green-300">Successful</div>
+                    </div>
+                    <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+                      <div className="text-xl font-bold text-red-600 dark:text-red-400">
+                        {generationResults.filter(r => !r.success).length}
+                      </div>
+                      <div className="text-sm text-red-700 dark:text-red-300">Failed</div>
+                    </div>
+                    <div className="bg-tuggi-orange/10 p-3 rounded-lg">
+                      <div className="text-xl font-bold text-tuggi-orange">
+                        {generationResults.reduce((sum, r) => sum + (r.trigger_points_saved || 0), 0)}
+                      </div>
+                      <div className="text-sm text-orange-700 dark:text-orange-300">TPs Generated</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Column - 60% */}
+          <div className="w-3/5">
+            {/* Results/Error Messages */}
+            {error && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
+                <div className="flex items-center">
+                  <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mr-2" />
+                  <p className="text-red-700 dark:text-red-300">{error}</p>
+                </div>
+              </div>
+            )}
+
+            {success && (
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-6">
+                <div className="flex items-center">
+                  <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 mr-2" />
+                  <p className="text-green-700 dark:text-green-300">{success}</p>
+                </div>
+              </div>
+            )}
+
+            {/* POI Selection */}
+            {pois.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+                {/* Selection Header */}
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                        <Database className="h-5 w-5 mr-2 text-tuggi-orange" />
+                        POI Selection ({pois.length} available)
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        {selectedPois.length} selected for trigger point generation
+                      </p>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={handleSelectAll}
+                        disabled={selectedPois.length === pois.length}
+                        className="px-3 py-1.5 text-xs font-medium text-tuggi-blue border border-tuggi-blue rounded hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        onClick={handleDeselectAll}
+                        disabled={selectedPois.length === 0}
+                        className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Deselect All
+                      </button>
+                      <button
+                        onClick={generateTriggerPoints}
+                        disabled={selectedPois.length === 0 || isProcessing}
+                        className="px-4 py-1.5 text-sm font-medium text-white bg-tuggi-orange rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
+                      >
+                        {isProcessing ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Processing ({processedCount}/{totalCount})
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-4 w-4 mr-2" />
+                            Generate Trigger Points
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* POI List */}
+                <div className="max-h-96 overflow-y-auto">
+                  <div className="space-y-0">
+                    {pois.map((poi) => {
+                      const isSelected = selectedPois.includes(poi.id);
+                      const isProcessing = processingQueue.includes(poi.id);
+                      const result = generationResults.find(r => r.poi_id === poi.id);
+                      
+                      return (
+                        <div
+                          key={poi.id}
+                          className={cn(
+                            "p-4 border-b border-gray-100 dark:border-gray-700 last:border-b-0 transition-colors",
+                            isSelected && "bg-blue-50 dark:bg-blue-900/10",
+                            isProcessing && "bg-yellow-50 dark:bg-yellow-900/10"
                           )}
-                          {poi.has_old_tps && (
-                            <span className="text-xs text-gray-500">
-                              {poi.old_tps_count} old
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(poi.tp_generation_status)}`}>
-                          {getStatusText(poi.tp_generation_status)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {poi.tp_confidence_score !== null ? (
-                          <div>
-                            <span className={`text-sm font-medium ${getConfidenceColor(poi.tp_confidence_score)}`}>
-                              {(poi.tp_confidence_score * 100).toFixed(0)}%
-                            </span>
-                            <div className="text-xs text-gray-500">
-                              {getConfidenceText(poi.tp_confidence_score)}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleSelectPoi(poi.id)}
+                                disabled={isProcessing}
+                                className="h-4 w-4 text-tuggi-blue rounded border-gray-300 focus:ring-tuggi-blue focus:ring-offset-0"
+                              />
+                              <div className="ml-3">
+                                <div className="flex items-center">
+                                  <h4 className="text-sm font-medium text-gray-900 dark:text-white">
+                                    {poi.name}
+                                  </h4>
+                                  {isProcessing && (
+                                    <Loader2 className="h-4 w-4 ml-2 text-yellow-600 animate-spin" />
+                                  )}
+                                  {result && (
+                                    <div className="ml-2">
+                                      {result.success ? (
+                                        <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                      ) : (
+                                        <AlertCircle className="h-4 w-4 text-red-600" />
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex items-center text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  <MapPin className="h-3 w-3 mr-1" />
+                                  <span>{poi.city}, {poi.country}</span>
+                                  {poi.trigger_points_count !== undefined && (
+                                    <span className="ml-2 px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">
+                                      {poi.trigger_points_count} TPs
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="text-right">
+                              {result && (
+                                <div className="text-xs">
+                                  {result.success ? (
+                                    <div className="text-green-600">
+                                      <div>✅ {result.trigger_points_saved || 0} saved</div>
+                                      {result.trigger_points_skipped && result.trigger_points_skipped > 0 && (
+                                        <div className="text-yellow-600">⚠️ {result.trigger_points_skipped} skipped</div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="text-red-600">
+                                      ❌ {result.message}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
-                        ) : (
-                          <span className="text-sm text-gray-500">N/A</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {poi.boundary_source ? (
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getBoundarySourceColor(poi.boundary_source)}`}>
-                            {getBoundarySourceText(poi.boundary_source)}
-                          </span>
-                        ) : (
-                          <span className="text-sm text-gray-400">-</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {poi.last_tp_generation ? (
-                          new Date(poi.last_tp_generation).toLocaleDateString('pt-BR')
-                        ) : (
-                          'Never'
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleTestPOI(poi.attraction_id, poi.name)}
-                            disabled={processing}
-                            className="text-green-600 hover:text-green-900 disabled:opacity-50 text-xs"
-                          >
-                            Test
-                          </button>
-                          <button
-                            onClick={() => setExpandedEnrichment(expandedEnrichment === poi.attraction_id ? null : poi.attraction_id)}
-                            disabled={processing}
-                            className="text-purple-600 hover:text-purple-900 disabled:opacity-50 text-xs"
-                          >
-                            Enrich
-                          </button>
-                          <button
-                            onClick={() => handleGenerateBatch(1, poi.attraction_id)}
-                            disabled={processing}
-                            className="text-blue-600 hover:text-blue-900 disabled:opacity-50"
-                          >
-                            Generate
-                          </button>
+                          
+                          {result && result.errors && result.errors.length > 0 && (
+                            <div className="mt-2 text-xs text-red-600 bg-red-50 dark:bg-red-900/20 p-2 rounded">
+                              {result.errors.join(', ')}
+                            </div>
+                          )}
                         </div>
-                      </td>
-                    </tr>,
-                    
-                    // Enrichment Component Expansion
-                    expandedEnrichment === poi.attraction_id && (
-                      <tr key={`${poi.attraction_id}-enrichment`}>
-                        <td colSpan={8} className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-                          <OSMDataEnrichment
-                            attractionId={poi.attraction_id}
-                            attractionName={poi.name}
-                            attractionCity={poi.city}
-                            attractionCountry={poi.country}
-                            showPreview={true}
-                            autoEnrich={false}
-                            onEnrichmentComplete={(result) => {
-                              console.log('Enrichment completed:', result);
-                              // Refresh the POI list to show updated data
-                              loadPOIs();
-                              // Optionally close the expanded section after success
-                              if (result.success) {
-                                setTimeout(() => {
-                                  setExpandedEnrichment(null);
-                                }, 2000);
-                              }
-                            }}
-                          />
-                        </td>
-                      </tr>
-                    )
-                  ].filter(Boolean))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

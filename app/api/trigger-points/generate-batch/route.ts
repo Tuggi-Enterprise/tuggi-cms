@@ -31,6 +31,18 @@ interface BatchGenerationResult {
     review_tps: number
     rejected_tps: number
   }
+  results?: Array<{
+    poi_id: string
+    poi_name: string
+    success: boolean
+    message: string
+    trigger_points_generated: number
+    trigger_points_saved: number
+    trigger_points_skipped: number
+    boundary_source?: string
+    processing_time?: number
+    errors?: string[]
+  }>
 }
 
 export async function POST(request: NextRequest) {
@@ -118,7 +130,19 @@ export async function POST(request: NextRequest) {
       successful: 0,
       failed: 0,
       errors: [] as Array<{ attraction_id: string, attraction_name: string, error: string }>,
-      summary: { approved_tps: 0, review_tps: 0, rejected_tps: 0 }
+      summary: { approved_tps: 0, review_tps: 0, rejected_tps: 0 },
+      results: [] as Array<{
+        poi_id: string
+        poi_name: string
+        success: boolean
+        message: string
+        trigger_points_generated: number
+        trigger_points_saved: number
+        trigger_points_skipped: number
+        boundary_source?: string
+        processing_time?: number
+        errors?: string[]
+      }>
     }
 
     // Process each POI
@@ -190,11 +214,36 @@ export async function POST(request: NextRequest) {
               throw new Error(`Validation failed: ${validationError.message}`)
             }
             
-            const validatedTPsArray = validatedTPs as any[]
+            // validatedTPs is a JSONB array, need to parse it properly
+            const validatedTPsArray = Array.isArray(validatedTPs) ? validatedTPs : []
             const duplicatesSkipped = approvedTPs.length - validatedTPsArray.length
             
             if (validatedTPsArray.length === 0) {
               console.log(`⚠️ ${poi.name}: All ${approvedTPs.length} TPs were duplicates - skipping`)
+              
+              // Mark POI as processed even though no new TPs were created
+              await supabase
+                .schema('core')
+                .from('attractions')
+                .update({ last_processed_at: new Date().toISOString() })
+                .eq('id', poi.id)
+              
+              console.log(`✅ ${poi.name}: Marked as processed (duplicates only)`)
+              
+              // Add detailed result for frontend
+              results.results.push({
+                poi_id: poi.id,
+                poi_name: poi.name,
+                success: true,
+                message: `Processed successfully - ${approvedTPs.length} trigger points already exist (duplicates)`,
+                trigger_points_generated: triggerPointsArray.length,
+                trigger_points_saved: 0,
+                trigger_points_skipped: approvedTPs.length,
+                boundary_source: result.boundary_source,
+                processing_time: result.processing_time,
+                errors: []
+              })
+              
               results.successful++
               continue
             }
@@ -227,18 +276,71 @@ export async function POST(request: NextRequest) {
               throw new Error(`Database insert failed: ${insertError.message}`)
             }
 
+            // Mark POI as processed after successful TP creation
+            await supabase
+              .schema('core')
+              .from('attractions')
+              .update({ last_processed_at: new Date().toISOString() })
+              .eq('id', poi.id)
+
             console.log(`✅ ${poi.name}: ${validatedTPsArray.length} validated TPs saved (${duplicatesSkipped} duplicates skipped)`)
+            console.log(`✅ ${poi.name}: Marked as processed`)
+            
+            // Add detailed result for frontend
+            results.results.push({
+              poi_id: poi.id,
+              poi_name: poi.name,
+              success: true,
+              message: `Successfully generated ${validatedTPsArray.length} trigger points`,
+              trigger_points_generated: triggerPointsArray.length,
+              trigger_points_saved: validatedTPsArray.length,
+              trigger_points_skipped: duplicatesSkipped,
+              boundary_source: result.boundary_source,
+              processing_time: result.processing_time,
+              errors: []
+            })
+            
             results.successful++
           } else {
             // Mark POI as having no approved primary/secondary TPs
             await markPOIAsNoTPs(poi.id, 'no_approved_primary_secondary_tps', `Generated ${triggerPointsArray.length} TPs but none were approved primary/secondary types`)
             console.log(`⚠️ ${poi.name}: No approved primary/secondary TPs (${fallbackTPs.length} fallback TPs excluded)`)
+            
+            // Add detailed result for frontend
+            results.results.push({
+              poi_id: poi.id,
+              poi_name: poi.name,
+              success: true,
+              message: `Generated ${triggerPointsArray.length} trigger points but none were approved (${fallbackTPs.length} fallback excluded)`,
+              trigger_points_generated: triggerPointsArray.length,
+              trigger_points_saved: 0,
+              trigger_points_skipped: triggerPointsArray.length,
+              boundary_source: result.boundary_source,
+              processing_time: result.processing_time,
+              errors: []
+            })
+            
             results.successful++ // Still count as processed successfully
           }
         } else {
           // Generation failed completely
           await markPOIAsNoTPs(poi.id, 'generation_failed', result.error || 'Unknown generation error')
           console.log(`❌ ${poi.name}: Generation failed - ${result.error}`)
+          
+          // Add detailed result for frontend
+          results.results.push({
+            poi_id: poi.id,
+            poi_name: poi.name,
+            success: false,
+            message: result.error || 'Unknown generation error',
+            trigger_points_generated: 0,
+            trigger_points_saved: 0,
+            trigger_points_skipped: 0,
+            boundary_source: result.boundary_source,
+            processing_time: result.processing_time,
+            errors: [result.error || 'Unknown generation error']
+          })
+          
           results.failed++
           results.errors.push({
             attraction_id: poi.id,
@@ -250,6 +352,18 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown processing error'
         console.error(`❌ Error processing ${poi.name}:`, errorMsg)
+        
+        // Add detailed result for frontend
+        results.results.push({
+          poi_id: poi.id,
+          poi_name: poi.name,
+          success: false,
+          message: errorMsg,
+          trigger_points_generated: 0,
+          trigger_points_saved: 0,
+          trigger_points_skipped: 0,
+          errors: [errorMsg]
+        })
         
         results.failed++
         results.errors.push({

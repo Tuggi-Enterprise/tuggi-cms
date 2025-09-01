@@ -3961,11 +3961,24 @@ async function autoSaveTriggerPoints(
       return results
     }
     
-    const validatedTPsArray = validatedTPs as any[]
+    // validatedTPs is a JSONB array, need to parse it properly
+    const validatedTPsArray = Array.isArray(validatedTPs) ? validatedTPs : []
     const duplicatesSkipped = eligibleTPs.length - validatedTPsArray.length
     
     if (validatedTPsArray.length === 0) {
       console.log(`⚠️ All ${eligibleTPs.length} trigger points were duplicates - skipping insert`)
+      
+      // Mark POI as processed even though no new TPs were created
+      if (attractionId) {
+        await supabase
+          .schema('core')
+          .from('attractions')
+          .update({ last_processed_at: new Date().toISOString() })
+          .eq('id', attractionId)
+        
+        console.log(`✅ POI marked as processed (duplicates only)`)
+      }
+      
       results.skipped += duplicatesSkipped
       return results
     }
@@ -4006,6 +4019,17 @@ async function autoSaveTriggerPoints(
     
     results.saved = data?.length || 0
     results.skipped += duplicatesSkipped // Include duplicates in skipped count
+    
+    // Mark POI as processed after successful TP creation
+    if (attractionId) {
+      await supabase
+        .schema('core')
+        .from('attractions')
+        .update({ last_processed_at: new Date().toISOString() })
+        .eq('id', attractionId)
+      
+      console.log(`✅ POI marked as processed`)
+    }
     
     console.log(`✅ Successfully auto-saved ${results.saved} trigger points`)
     console.log(`   - Primary: ${tpsForDB.filter(tp => tp.type === 'primary').length}`)
