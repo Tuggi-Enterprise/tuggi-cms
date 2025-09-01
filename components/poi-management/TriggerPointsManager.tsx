@@ -556,15 +556,23 @@ export function TriggerPointsManager({
       setIsLoading(true)
       setError(null)
 
-      const { error: deleteError } = await supabase
-        .schema('core')
-        .from('attraction_trigger_points')
-        .delete()
-        .eq('id', triggerPointId)
+      // Use API route to delete trigger point (bypasses RLS issues)
+      const response = await fetch('/api/trigger-points/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          trigger_point_id: triggerPointId
+        })
+      })
 
-      if (deleteError) {
-        throw deleteError
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        console.error('❌ Error deleting trigger point:', result.error)
+        throw new Error(result.error || 'Failed to delete trigger point')
       }
+
+      console.log('✅ Trigger point deleted successfully:', result.data)
 
       await loadTriggerPoints()
       if (selectedTriggerPoint?.id === triggerPointId) {
@@ -576,7 +584,41 @@ export function TriggerPointsManager({
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, loadTriggerPoints, selectedTriggerPoint])
+  }, [loadTriggerPoints, selectedTriggerPoint])
+
+  // Toggle trigger point active status
+  const toggleTriggerPointStatus = useCallback(async (triggerPointId: string, currentStatus: boolean) => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      // Use API route to update trigger point status (bypasses RLS issues)
+      const response = await fetch('/api/trigger-points/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          trigger_point_id: triggerPointId,
+          is_active: !currentStatus
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        console.error('❌ Error toggling trigger point status:', result.error)
+        throw new Error(result.error || 'Failed to toggle trigger point status')
+      }
+
+      console.log(`✅ Trigger point ${!currentStatus ? 'activated' : 'deactivated'} successfully:`, result.data)
+      await loadTriggerPoints()
+      
+    } catch (err) {
+      console.error('Error toggling trigger point status:', err)
+      setError('Failed to toggle trigger point status')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [loadTriggerPoints])
 
   // Handle form close
   const handleCloseForm = useCallback(() => {
@@ -956,17 +998,37 @@ export function TriggerPointsManager({
                         <span className="text-xs text-gray-500 dark:text-gray-400">
                           {triggerPoint.latitude.toFixed(6)}, {triggerPoint.longitude.toFixed(6)}
                         </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (triggerPoint.id) {
-                              deleteTriggerPoint(triggerPoint.id)
-                            }
-                          }}
-                          className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (triggerPoint.id) {
+                                toggleTriggerPointStatus(triggerPoint.id, triggerPoint.is_active)
+                              }
+                            }}
+                            className={cn(
+                              "p-1 rounded",
+                              triggerPoint.is_active 
+                                ? "text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                                : "text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-400"
+                            )}
+                            title={triggerPoint.is_active ? 'Deactivate trigger point' : 'Activate trigger point'}
+                          >
+                            <Circle className={cn("h-3 w-3", triggerPoint.is_active && "fill-current")} />
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (triggerPoint.id) {
+                                deleteTriggerPoint(triggerPoint.id)
+                              }
+                            }}
+                            className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                            title="Delete trigger point"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )

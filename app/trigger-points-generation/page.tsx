@@ -339,16 +339,7 @@ export default function TriggerPointsGenerationPage() {
           `   - Approved: ${result.summary.approved_tps}\n` +
           `   - Review: ${result.summary.review_tps}\n` +
           `   - Rejected: ${result.summary.rejected_tps}\n\n` +
-          `🔧 Enhanced Features Applied:\n` +
-          `   ✅ OSM Boundary Detection\n` +
-          `   ✅ Unified Overpass API (1 request vs 3)\n` +
-          `   ✅ Boundary-Aware Bearing Calculation\n` +
-          `   ✅ Duplicate Validation (per POI)\n` +
-          `   ✅ Auto-Save with Confidence Thresholds\n` +
-          `   ✅ City-Relative Elevation Calculation\n` +
-          `   ✅ Improved Search Variations\n` +
-          `   ✅ OSM Data Enrichment\n` +
-          `   ✅ Rate Limiting & Timeout Optimization (60s)`;
+       
         
         alert(message);
         

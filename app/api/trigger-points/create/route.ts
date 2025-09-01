@@ -42,9 +42,6 @@ export async function POST(request: NextRequest) {
     })
 
     // Insert trigger point using service role (bypasses RLS issues)
-    // First, temporarily disable the learning trigger to avoid RLS issues
-    await supabase.rpc('disable_learning_trigger')
-    
     const { data, error } = await supabase
       .schema('core')
       .from('attraction_trigger_points')
@@ -64,9 +61,6 @@ export async function POST(request: NextRequest) {
       })
       .select()
       .single()
-    
-    // Re-enable the learning trigger
-    await supabase.rpc('enable_learning_trigger')
 
     if (error) {
       console.error('❌ Error inserting trigger point:', error)
