@@ -331,7 +331,7 @@ export default function TriggerPointsGenerationPage() {
 
       if (result.success) {
         // Enhanced batch results with refined metrics
-        const message = `✅ Batch Generation Completed with Refined Rules!\n\n` +
+        const message: string = `✅ Batch Generation Completed with Refined Rules!\n\n` +
           `📊 POIs Processed: ${result.processed}\n` +
           `✅ Successful: ${result.successful}\n` +
           `❌ Failed: ${result.failed}\n\n` +
@@ -339,7 +339,16 @@ export default function TriggerPointsGenerationPage() {
           `   - Approved: ${result.summary.approved_tps}\n` +
           `   - Review: ${result.summary.review_tps}\n` +
           `   - Rejected: ${result.summary.rejected_tps}\n\n` +
-       
+          `🔧 Applied Improvements:\n` +
+          `   - OSM Boundary Detection\n` +
+          `   - Duplicate Validation\n` +
+          `   - Auto-Save with Confidence\n` +
+          `   - City-Relative Elevation\n` +
+          `   - Improved Search Variations\n` +
+          `   - OSM Data Enrichment\n` +
+          `   - Unified Overpass API\n` +
+          `   - Boundary-Aware Bearing\n` +
+          `   - Rate Limiting & Timeout Optimization`;
         
         alert(message);
         
