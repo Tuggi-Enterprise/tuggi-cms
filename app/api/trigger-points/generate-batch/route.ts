@@ -135,21 +135,22 @@ export async function POST(request: NextRequest) {
         // Generate trigger points using direct function call (avoids fetch issues in production)
         const result = await detectPOIBoundariesDirect(poi.id)
 
-        if (result.success && result.trigger_points && Array.isArray(result.trigger_points) && result.trigger_points.length > 0) {
+        if (result.success && result.trigger_points && result.trigger_points.success && Array.isArray(result.trigger_points.trigger_points) && result.trigger_points.trigger_points.length > 0) {
           // Filter trigger points: only approved primary and secondary types
-          const approvedTPs = result.trigger_points.filter((tp: any) => 
+          const triggerPointsArray = result.trigger_points.trigger_points
+          const approvedTPs = triggerPointsArray.filter((tp: any) => 
             tp.auto_status === 'approved' && 
             (tp.type === 'primary' || tp.type === 'secondary')
           )
-          const reviewTPs = result.trigger_points.filter((tp: any) => tp.auto_status === 'review')
-          const rejectedTPs = result.trigger_points.filter((tp: any) => tp.auto_status === 'rejected')
-          const fallbackTPs = result.trigger_points.filter((tp: any) => tp.type === 'fallback')
+          const reviewTPs = triggerPointsArray.filter((tp: any) => tp.auto_status === 'review')
+          const rejectedTPs = triggerPointsArray.filter((tp: any) => tp.auto_status === 'rejected')
+          const fallbackTPs = triggerPointsArray.filter((tp: any) => tp.type === 'fallback')
           
           results.summary.approved_tps += approvedTPs.length
           results.summary.review_tps += reviewTPs.length
           results.summary.rejected_tps += rejectedTPs.length
 
-          console.log(`📊 ${poi.name}: Generated ${result.trigger_points.length} TPs (${approvedTPs.length} approved primary/secondary, ${fallbackTPs.length} fallback excluded)`)
+          console.log(`📊 ${poi.name}: Generated ${triggerPointsArray.length} TPs (${approvedTPs.length} approved primary/secondary, ${fallbackTPs.length} fallback excluded)`)
 
           if (approvedTPs.length > 0) {
             // Validate for duplicates before saving
@@ -222,7 +223,7 @@ export async function POST(request: NextRequest) {
             results.successful++
           } else {
             // Mark POI as having no approved primary/secondary TPs
-            await markPOIAsNoTPs(poi.id, 'no_approved_primary_secondary_tps', `Generated ${result.trigger_points.length} TPs but none were approved primary/secondary types`)
+            await markPOIAsNoTPs(poi.id, 'no_approved_primary_secondary_tps', `Generated ${triggerPointsArray.length} TPs but none were approved primary/secondary types`)
             console.log(`⚠️ ${poi.name}: No approved primary/secondary TPs (${fallbackTPs.length} fallback TPs excluded)`)
             results.successful++ // Still count as processed successfully
           }
