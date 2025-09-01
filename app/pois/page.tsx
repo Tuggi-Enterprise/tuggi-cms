@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye, Trash2, MapPin, Calendar, Star, Users, Clock, ChevronLeft, ChevronRight, List, Map } from 'lucide-react'
+import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye, Trash2, MapPin, Calendar, Star, Users, Clock, ChevronLeft, ChevronRight, List, Map, Grid, X } from 'lucide-react'
 import Link from 'next/link'
 
 import { cn } from '@/lib/utils'
@@ -48,7 +48,7 @@ function POIListWithSearchParams() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   
   // View state
-  const [viewMode, setViewMode] = useState<'table' | 'map'>('table')
+  const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -114,7 +114,7 @@ function POIListWithSearchParams() {
     if (filters.page && filters.page > 1) {
       params.set('page', filters.page.toString())
     }
-    if (filters.view && filters.view !== 'table') {
+    if (filters.view && filters.view !== 'cards') {
       params.set('view', filters.view)
     }
 
@@ -150,7 +150,7 @@ function POIListWithSearchParams() {
     const scoreFilter = searchParams.get('scoreFilter') || 'all'
     const triggerPointsFilter = searchParams.get('triggerPointsFilter') || 'all'
     const page = parseInt(searchParams.get('page') || '1')
-    const view = searchParams.get('view') || 'table'
+    const view = searchParams.get('view') || 'cards'
 
     // Set states from URL parameters without triggering URL updates
     setSearchTerm(search)
@@ -163,7 +163,7 @@ function POIListWithSearchParams() {
     setScoreFilter(scoreFilter as any)
     setTriggerPointsFilter(triggerPointsFilter as any)
     setCurrentPage(page)
-    setViewMode(view as 'table' | 'map')
+    setViewMode(view as 'list' | 'cards' | 'map')
     
     // Mark initialization as complete
     setIsInitializing(false)
@@ -545,6 +545,19 @@ function POIListWithSearchParams() {
     )
   }
 
+  const toggleAllPOIs = () => {
+    const currentPagePois = getPaginatedPois()
+    const allSelected = currentPagePois.every(poi => selectedPois.includes(poi.id))
+    
+    if (allSelected) {
+      // Deselect all from current page
+      setSelectedPois(prev => prev.filter(id => !currentPagePois.map(p => p.id).includes(id)))
+    } else {
+      // Select all from current page
+      setSelectedPois(prev => [...new Set([...prev, ...currentPagePois.map(p => p.id)])])
+    }
+  }
+
   const selectAllPois = () => {
     const currentPagePois = getPaginatedPois()
     const allSelected = currentPagePois.every(poi => selectedPois.includes(poi.id))
@@ -758,58 +771,25 @@ function POIListWithSearchParams() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header with Statistics */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-bold text-tuggi-text dark:text-white">
-            POI Management
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Manage and approve imported Points of Interest
-            {(searchTerm || statusFilter !== 'all' || countryFilter || cityFilter ||  googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all' || triggerPointsFilter !== 'all') && (
-              <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue">
-                <Filter className="h-3 w-3 mr-1" />
-                Filtered
-              </span>
-            )}
-          </p>
+    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Sidebar Filters */}
+      <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">Filters</h3>
+          {(searchTerm || statusFilter !== 'all' || countryFilter || cityFilter ||  googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all' || triggerPointsFilter !== 'all') && (
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue mt-2">
+              <Filter className="h-3 w-3 mr-1" />
+              Filtered
+            </span>
+          )}
         </div>
-        
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-            <div className="text-2xl font-bold text-tuggi-blue">{stats.total}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">Total POIs</div>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-            <div className="text-2xl font-bold text-green-600">{stats.approved}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">Approved</div>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-            <div className="text-2xl font-bold text-tuggi-orange">{stats.pending}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">Pending</div>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-            <div className="text-2xl font-bold text-blue-600">{stats.withDescription}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">With Desc</div>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-            <div className="text-2xl font-bold text-purple-600">{stats.withAudio}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">With Audio</div>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
-            <div className="text-2xl font-bold text-emerald-600">{stats.contentComplete}</div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">Complete</div>
-          </div>
-        </div>
-      </div>
 
-      {/* Controls Bar */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          {/* Search and View Toggle */}
-          <div className="flex items-center gap-4">
+        {/* Filters */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {/* Search */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Search</h3>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
@@ -817,7 +797,7 @@ function POIListWithSearchParams() {
                 placeholder="Search POIs..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-64 pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
               />
               {searchTerm !== debouncedSearchTerm && searchTerm && (
                 <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
@@ -825,19 +805,216 @@ function POIListWithSearchParams() {
                 </div>
               )}
             </div>
-            
+          </div>
+
+          {/* Status Filter */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Status</h3>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="all">All Status</option>
+              <option value="approved">Approved</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+
+          {/* Country Filter */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Country</h3>
+            <select
+              value={countryFilter}
+              onChange={(e) => setCountryFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="">All Countries</option>
+              {countries.map(country => (
+                <option key={country} value={country}>{country}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* City Filter */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">City</h3>
+            <select
+              value={cityFilter}
+              onChange={(e) => setCityFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="">{countryFilter ? `All Cities in ${countryFilter}` : 'All Cities'}</option>
+              {filteredCities.map(city => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Type Filter */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Type</h3>
+            <select
+              value={googleTypesFilter}
+              onChange={(e) => setGoogleTypesFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="">All Types</option>
+              {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
+                <option key={category.value} value={category.value}>{category.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Content Status Filter */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Content Status</h3>
+            <select
+              value={contentStatusFilter}
+              onChange={(e) => setContentStatusFilter(e.target.value as any)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="all">All Content</option>
+              <option value="missing_description">Missing Desc</option>
+              <option value="missing_audio">Missing Audio</option>
+              <option value="complete">Complete</option>
+            </select>
+          </div>
+
+          {/* Group Status Filter */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Group Status</h3>
+            <select
+              value={groupStatusFilter}
+              onChange={(e) => setGroupStatusFilter(e.target.value as any)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="all">All Groups</option>
+              <option value="grouped">Grouped</option>
+              <option value="ungrouped">Ungrouped</option>
+              <option value="group_main">Group Main</option>
+              <option value="group_member">Group Member</option>
+            </select>
+          </div>
+
+          {/* Score Filter */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Score</h3>
+            <select
+              value={scoreFilter}
+              onChange={(e) => setScoreFilter(e.target.value as any)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="all">All Scores</option>
+              <option value="no_score">No Score</option>
+              <option value="rejected">Rejected</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+            </select>
+          </div>
+
+          {/* Trigger Points Filter */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Trigger Points</h3>
+            <select
+              value={triggerPointsFilter}
+              onChange={(e) => setTriggerPointsFilter(e.target.value as any)}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+            >
+              <option value="all">All Trigger Points</option>
+              <option value="with_trigger_points">With Trigger Points</option>
+              <option value="without_trigger_points">Without Trigger Points</option>
+            </select>
+          </div>
+
+          {/* Clear Filters */}
+          {(searchTerm || statusFilter !== 'all' || cityFilter || countryFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all' || scoreFilter !== 'all' || triggerPointsFilter !== 'all') && (
+            <div>
+              <button
+                onClick={clearAllFilters}
+                className="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              >
+                <XCircle className="h-4 w-4 mr-2" />
+                Clear All Filters
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Page Header */}
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-6">
+              <div>
+                <h1 className="text-2xl font-bold text-tuggi-text dark:text-white">
+                  POI Management
+                </h1>
+                <p className="text-gray-600 dark:text-gray-400 text-sm">
+                  Manage and approve imported Points of Interest
+                </p>
+              </div>
+              
+              {/* Compact Stats */}
+              <div className="flex items-center space-x-4 ml-8">
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Total:</span>
+                  <span className="text-lg font-bold text-tuggi-blue">{stats.total}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Approved:</span>
+                  <span className="text-lg font-bold text-green-600">{stats.approved}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Pending:</span>
+                  <span className="text-lg font-bold text-tuggi-orange">{stats.pending}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">With Desc:</span>
+                  <span className="text-lg font-bold text-blue-600">{stats.withDescription}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">With Audio:</span>
+                  <span className="text-lg font-bold text-purple-600">{stats.withAudio}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Complete:</span>
+                  <span className="text-lg font-bold text-emerald-600">{stats.contentComplete}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Top Bar */}
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between">
             {/* View Toggle */}
             <div className="flex items-center bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
               <button
-                onClick={() => setViewMode('table')}
+                onClick={() => setViewMode('list')}
                 className={cn(
                   'flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                  viewMode === 'table'
+                  viewMode === 'list'
                     ? 'bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm'
                     : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
                 )}
               >
                 <List className="h-4 w-4 mr-1.5" />
+                List
+              </button>
+              <button
+                onClick={() => setViewMode('cards')}
+                className={cn(
+                  'flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                  viewMode === 'cards'
+                    ? 'bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300'
+                )}
+              >
+                <Grid className="h-4 w-4 mr-1.5" />
                 Cards
               </button>
               <button
@@ -853,145 +1030,44 @@ function POIListWithSearchParams() {
                 Map
               </button>
             </div>
-          </div>
 
-          {/* Filters */}
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-            >
-              <option value="all">All Status</option>
-              <option value="approved">Approved</option>
-              <option value="pending">Pending</option>
-            </select>
-
-            <select
-              value={countryFilter}
-              onChange={(e) => setCountryFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-            >
-              <option value="">All Countries</option>
-              {countries.map(country => (
-                <option key={country} value={country}>{country}</option>
-              ))}
-            </select>
-
-            <select
-              value={cityFilter}
-              onChange={(e) => setCityFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-            >
-              <option value="">{countryFilter ? `All Cities in ${countryFilter}` : 'All Cities'}</option>
-              {filteredCities.map(city => (
-                <option key={city} value={city}>{city}</option>
-              ))}
-            </select>
-
-            <select
-              value={googleTypesFilter}
-              onChange={(e) => setGoogleTypesFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-            >
-              <option value="">All Types</option>
-              {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
-                <option key={category.value} value={category.value}>{category.label}</option>
-              ))}
-            </select>
-
-            <select
-              value={contentStatusFilter}
-              onChange={(e) => setContentStatusFilter(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-            >
-              <option value="all">All Content</option>
-              <option value="missing_description">Missing Desc</option>
-              <option value="missing_audio">Missing Audio</option>
-              <option value="complete">Complete</option>
-            </select>
-
-            <select
-              value={groupStatusFilter}
-              onChange={(e) => setGroupStatusFilter(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-            >
-              <option value="all">All Groups</option>
-              <option value="grouped">Grouped</option>
-              <option value="ungrouped">Ungrouped</option>
-              <option value="group_main">Group Main</option>
-              <option value="group_member">Group Member</option>
-            </select>
-
-            <select
-              value={scoreFilter}
-              onChange={(e) => setScoreFilter(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-            >
-              <option value="all">All Scores</option>
-              <option value="no_score">No Score</option>
-              <option value="rejected">Rejected</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-            </select>
-
-            <select
-              value={triggerPointsFilter}
-              onChange={(e) => setTriggerPointsFilter(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-            >
-              <option value="all">Todos Trigger Points</option>
-              <option value="with_trigger_points">Com Trigger Points</option>
-              <option value="without_trigger_points">Sem Trigger Points</option>
-            </select>
-
-            {(searchTerm || statusFilter !== 'all' || cityFilter || countryFilter || googleTypesFilter || contentStatusFilter !== 'all' || groupStatusFilter !== 'all' || scoreFilter !== 'all' || triggerPointsFilter !== 'all') && (
-              <button
-                onClick={clearAllFilters}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-              >
-                <XCircle className="h-4 w-4 mr-1" />
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Results Info and Bulk Actions */}
-        <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            Showing {filteredPois.length} of {pois.length} POIs
-            {selectedPois.length > 0 && (
-              <span className="ml-2 font-medium text-tuggi-blue">
-                • {selectedPois.length} selected
-              </span>
-            )}
-          </div>
-          
-          {selectedPois.length > 0 && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={bulkApprove}
-                className="inline-flex items-center px-3 py-1.5 text-sm bg-green-100 text-green-800 border border-green-200 rounded-md hover:bg-green-200 transition-colors"
-              >
-                <CheckCircle className="h-4 w-4 mr-1" />
-                Approve Selected
-              </button>
-              <button
-                onClick={bulkReject}
-                className="inline-flex items-center px-3 py-1.5 text-sm bg-red-100 text-red-800 border border-red-200 rounded-md hover:bg-red-200 transition-colors"
-              >
-                <XCircle className="h-4 w-4 mr-1" />
-                Reject Selected
-              </button>
+            {/* Results Info and Bulk Actions */}
+            <div className="flex items-center gap-4">
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                Showing {filteredPois.length} of {pois.length} POIs
+                {selectedPois.length > 0 && (
+                  <span className="ml-2 font-medium text-tuggi-blue">
+                    • {selectedPois.length} selected
+                  </span>
+                )}
+              </div>
+              
+              {selectedPois.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={bulkApprove}
+                    className="inline-flex items-center px-3 py-1.5 text-sm bg-green-100 text-green-800 border border-green-200 rounded-md hover:bg-green-200 transition-colors"
+                  >
+                    <CheckCircle className="h-4 w-4 mr-1" />
+                    Approve Selected
+                  </button>
+                  <button
+                    onClick={bulkReject}
+                    className="inline-flex items-center px-3 py-1.5 text-sm bg-red-100 text-red-800 border border-red-200 rounded-md hover:bg-red-200 transition-colors"
+                  >
+                    <XCircle className="h-4 w-4 mr-1" />
+                    Reject Selected
+                  </button>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-      </div>
 
       {/* Content Area */}
-      {viewMode === 'map' ? (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-4">
+        {viewMode === 'map' ? (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <POIMapVisualization
             searchTerm={searchTerm}
             statusFilter={statusFilter}
@@ -1007,6 +1083,222 @@ function POIListWithSearchParams() {
             initialCenter={{ lat: 39.8283, lng: -98.5795 }}
             initialZoom={4}
           />
+        </div>
+      ) : viewMode === 'list' ? (
+        /* POI List View */
+        <div className="space-y-4">
+          {getPaginatedPois().length === 0 ? (
+            <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <MapPin className="h-12 w-12 mx-auto text-gray-400 dark:text-gray-600 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No POIs found</h3>
+              <p className="text-gray-500 dark:text-gray-400">
+                Try adjusting your filters or search terms
+              </p>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                  <thead className="bg-gray-50 dark:bg-gray-700/50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <input
+                          type="checkbox"
+                          checked={selectedPois.length === getPaginatedPois().length && getPaginatedPois().length > 0}
+                          onChange={toggleAllPOIs}
+                          className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue"
+                        />
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        POI
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Location
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Content
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Score
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {getPaginatedPois().map((poi) => (
+                      <tr key={poi.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <input
+                            type="checkbox"
+                            checked={selectedPois.includes(poi.id)}
+                            onChange={() => togglePOISelection(poi.id)}
+                            className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue"
+                          />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            {(() => {
+                              const thumbnailUrl = getThumbnailUrl(poi)
+                              return thumbnailUrl && (
+                                <div className="relative h-10 w-10 rounded-lg overflow-hidden flex-shrink-0 mr-3">
+                                  <img
+                                    src={thumbnailUrl}
+                                    alt={poi.name}
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                      const target = e.target as HTMLImageElement
+                                      target.style.display = 'none'
+                                    }}
+                                  />
+                                </div>
+                              )
+                            })()}
+                            <div>
+                              <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                {poi.name}
+                              </div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">
+                                {poi.google_types?.join(', ')}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                          {poi.city}, {poi.country}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <button
+                            onClick={() => toggleApproval(poi.id, poi.approved)}
+                            className={cn(
+                              'inline-flex items-center px-2 py-1 text-xs font-medium rounded-full transition-colors',
+                              poi.approved
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300'
+                                : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300'
+                            )}
+                          >
+                            {poi.approved ? (
+                              <>
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Approved
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="h-3 w-3 mr-1" />
+                                Pending
+                              </>
+                            )}
+                          </button>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center space-x-2">
+                            <div className="flex items-center" title={poi.has_description ? `Has ${poi.description_count} description(s)` : 'No description available'}>
+                              {poi.has_description ? (
+                                <CheckCircle className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-red-500" />
+                              )}
+                              <span className="ml-1 text-xs text-gray-600 dark:text-gray-400">Desc</span>
+                            </div>
+                            <div className="flex items-center" title={poi.has_audio ? `Has ${poi.audio_count} audio file(s)` : 'No audio available'}>
+                              {poi.has_audio ? (
+                                <CheckCircle className="h-4 w-4 text-green-500" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-red-500" />
+                              )}
+                              <span className="ml-1 text-xs text-gray-600 dark:text-gray-400">Audio</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <VerificationBadge
+                            attractionId={poi.id}
+                            showScore={true}
+                          />
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => openPOIDetails(poi)}
+                              className="inline-flex items-center px-2 py-1 text-xs bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20 rounded hover:bg-tuggi-blue/20 transition-colors"
+                            >
+                              <Edit className="h-3 w-3 mr-1" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => deletePoi(poi.id)}
+                              className="inline-flex items-center px-2 py-1 text-xs bg-red-100 text-red-800 border border-red-200 rounded hover:bg-red-200 transition-colors"
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" />
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Pagination for List View */}
+          {viewMode === 'list' && totalPages > 1 && (
+            <div className="flex items-center justify-center space-x-2 mt-6">
+              <button
+                onClick={() => goToPage(Math.max(currentPage - 1, 1))}
+                disabled={currentPage === 1}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4 mr-1" />
+                Previous
+              </button>
+              
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                  let page;
+                  if (totalPages <= 7) {
+                    page = i + 1;
+                  } else if (currentPage <= 4) {
+                    page = i + 1;
+                  } else if (currentPage >= totalPages - 3) {
+                    page = totalPages - 6 + i;
+                  } else {
+                    page = currentPage - 3 + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => goToPage(page)}
+                      className={cn(
+                        'inline-flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors',
+                        page === currentPage
+                          ? 'bg-tuggi-blue text-white'
+                          : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600'
+                      )}
+                    >
+                      {page}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              <button
+                onClick={() => goToPage(Math.min(currentPage + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         /* POI Cards Grid */
@@ -1309,6 +1601,7 @@ function POIListWithSearchParams() {
           )}
         </div>
       )}
+      </div>
 
       {/* POI Details Modal */}
       {selectedPoi && (
@@ -1323,6 +1616,7 @@ function POIListWithSearchParams() {
           }}
         />
       )}
+    </div>
     </div>
   )
 }
