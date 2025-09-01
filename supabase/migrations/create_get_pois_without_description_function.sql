@@ -20,6 +20,7 @@ BEGIN
       WHERE ad.attraction_id = a.id 
         AND ad.language = p_language
     )
+    AND a.is_active = false  -- Include only inactive POIs
   ORDER BY a.name
   LIMIT p_limit;
 END;
@@ -31,4 +32,4 @@ GRANT EXECUTE ON FUNCTION core.get_pois_without_description(TEXT, TEXT, INTEGER)
 
 -- Add comment
 COMMENT ON FUNCTION core.get_pois_without_description(TEXT, TEXT, INTEGER) IS 
-'Returns POIs that do not have any description for the specified language';
+'Returns inactive POIs that do not have any description for the specified language';

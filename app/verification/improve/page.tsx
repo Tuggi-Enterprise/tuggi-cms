@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Play, Volume2, Eye, Edit } from 'lucide-react';
@@ -45,9 +45,57 @@ export default function ImprovePage() {
   const [processingQueue, setProcessingQueue] = useState<string[]>([]);
   const [processedCount, setProcessedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [countries, setCountries] = useState<Array<{name: string}>>([]);
+
+  // Fetch countries from database
+  const fetchCountries = async () => {
+    try {
+      const { data, error } = await supabase
+        .schema('core')
+        .from('countries')
+        .select('name')
+        .eq('is_active', true)
+        .order('name');
+
+      if (error) throw error;
+      setCountries(data || []);
+      
+      // Set default country to first available
+      if (data && data.length > 0 && !data.find(c => c.name === country)) {
+        setCountry(data[0].name);
+      }
+    } catch (err: any) {
+      console.error('Error fetching countries:', err);
+    }
+  };
+
+  // Load available countries from database
+  const loadCountries = useCallback(async () => {
+    try {
+      const response = await fetch('/api/locations/countries-cities');
+      const result = await response.json();
+      
+      if (result.success) {
+        setCountries(result.countries.map((c: any) => ({ name: c.country })));
+        // Set first country as default if none selected
+        if (!country && result.countries.length > 0) {
+          setCountry(result.countries[0].country);
+        }
+      } else {
+        console.error('Failed to load countries:', result.error);
+      }
+    } catch (error) {
+      console.error('Error loading countries:', error);
+    }
+  }, [country]);
+
+  // Load countries on component mount
+  useEffect(() => {
+    loadCountries();
+  }, [loadCountries]);
 
   // Fetch POIs based on criteria
-    const fetchPois = async () => {
+  const fetchPois = async () => {
     setIsLoading(true);
     setError(null);
     
@@ -93,6 +141,7 @@ export default function ImprovePage() {
             )
           `)
           .eq('country', country)
+          .eq('is_active', false)  // Include only inactive POIs
           .eq('descriptions.language', language)
           .limit(limit);
 
@@ -245,19 +294,19 @@ export default function ImprovePage() {
 
   return (
     <div className="container mx-auto py-6">
-      <h1 className="text-3xl font-bold mb-6">Improve Descriptions & Generate Audio</h1>
+      <h1 className="text-3xl font-bold mb-6">Improve Inactive POIs - Descriptions & Audio</h1>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Parameters Card */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold mb-4">Search Parameters</h2>
           <p className="text-gray-600 mb-4">
-            Configure the parameters to find POIs that need improvement or initial description generation
+            Configure the parameters to find inactive POIs that need improvement or initial description generation
           </p>
-          {status === 'no_description' && (
+                      {status === 'no_description' && (
             <div className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded mb-4">
               <p className="text-sm">
-                <strong>No Description:</strong> Find POIs without descriptions in the selected language. 
+                <strong>No Description:</strong> Find inactive POIs without descriptions in the selected language. 
                 These will get new descriptions following our established guidelines.
               </p>
             </div>
@@ -292,10 +341,12 @@ export default function ImprovePage() {
                 disabled={isLoading}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
               >
-                <option value="Brazil">Brazil</option>
-                <option value="Spain">Spain</option>
-                <option value="United States">United States</option>
-                <option value="Ireland">Ireland</option>
+                <option value="">Select a country</option>
+                {countries.map((c) => (
+                  <option key={c.name} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
               </select>
             </div>
             
@@ -382,7 +433,7 @@ export default function ImprovePage() {
             
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || !country}
               className="w-full bg-tuggi-blue text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
             >
               {isLoading ? (

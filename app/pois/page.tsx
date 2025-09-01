@@ -1122,10 +1122,10 @@ function POIListWithSearchParams() {
                         Content
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Score
+                        TP&apos;s
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        TP's
+                        Score
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Actions
@@ -1218,16 +1218,14 @@ function POIListWithSearchParams() {
                             </div>
                           </div>
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                          {poi.trigger_points_count || 0}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <VerificationBadge
                             attractionId={poi.id}
                             showScore={true}
                           />
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-gray-900 dark:text-white">
-                            {poi.trigger_points_count || 0}
-                          </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <div className="flex items-center space-x-2">
