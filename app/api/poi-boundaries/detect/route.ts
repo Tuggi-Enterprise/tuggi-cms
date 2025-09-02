@@ -2921,8 +2921,8 @@ async function checkBuildingObstructions(triggerPoint: {lat: number, lng: number
     })
 
     if (!response.ok) {
-      console.log('⚠️ Overpass API error, assuming no obstructions')
-      return false // If API fails, don't block the trigger point
+      console.log('⚠️ Overpass API error, assuming obstructions present for safety')
+      return true // If API fails, assume obstructions to be conservative
     }
 
     const data = await response.json()
@@ -2991,7 +2991,7 @@ async function checkBuildingObstructions(triggerPoint: {lat: number, lng: number
 
   } catch (error) {
     console.error('❌ Error checking building obstructions:', error)
-    return false // If error, don't block the trigger point
+    return true // If error, assume obstructions for safety
   }
 }
 
