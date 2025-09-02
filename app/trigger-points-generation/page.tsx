@@ -192,12 +192,23 @@ export default function TriggerPointsGenerationPage() {
         
         // Create a more descriptive message
         let message = result.results?.[0]?.message || result.message || 'Unknown result';
+        const boundarySource = result.results?.[0]?.boundary_source;
+        
         if (result.success && triggerPointsSaved === 0 && triggerPointsSkipped > 0) {
           message = `Processed successfully - ${triggerPointsSkipped} trigger points already exist (duplicates)`;
         } else if (result.success && triggerPointsSaved > 0) {
           message = `Successfully generated ${triggerPointsSaved} new trigger points`;
           if (triggerPointsSkipped > 0) {
             message += ` (${triggerPointsSkipped} duplicates skipped)`;
+          }
+          
+          // Add context about boundary source
+          if (boundarySource === 'estimated_boundary') {
+            message += ` - Used estimated boundary (POI not found in OpenStreetMap)`;
+          } else if (boundarySource === 'fallback_street_analysis') {
+            message += ` - Used street analysis fallback`;
+          } else if (boundarySource?.startsWith('osm_')) {
+            message += ` - Found in OpenStreetMap`;
           }
         }
 

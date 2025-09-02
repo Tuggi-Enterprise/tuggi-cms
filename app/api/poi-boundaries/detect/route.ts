@@ -256,15 +256,9 @@ export async function POST(request: NextRequest) {
         } as BoundaryResult)
       }
       
-      // If fallback also fails, return error
-      console.log('❌ Both OSM search and fallback street analysis failed')
-      return NextResponse.json({
-        success: false,
-        error: `POI "${poi_name}" not found in OpenStreetMap and no suitable nearby streets found for fallback analysis.`,
-        poi_name: poi_name,
-        coordinates: { lat: poi_lat, lng: poi_lng },
-        suggestion: 'This location may be in a very remote area or have incorrect coordinates.'
-      })
+      // If fallback also fails, continue to estimated boundary (don't return error here)
+      console.log('❌ Both OSM search and fallback street analysis failed - will use estimated boundary')
+      console.log('⚠️ OSM and street fallback failed, using estimated boundary as final fallback')
     }
 
     // Strategy 2: UNIFIED Overpass API (boundaries + streets in ONE call)
@@ -449,9 +443,10 @@ export async function POST(request: NextRequest) {
       } as BoundaryResult)
     }
 
-    // Fallback: Create estimated boundary if OSM fails
-    console.log('⚠️ OSM failed, using estimated boundary')
+    // Final Fallback: Create estimated boundary when all else fails
+    console.log('⚠️ All boundary detection strategies failed - using estimated boundary as final fallback')
     const estimatedBoundary = createEstimatedBoundary(poi_lat, poi_lng, poi_name)
+    
     // MODULAR: Use TriggerPointsService for estimated boundary trigger points
     const tpResult = await TriggerPointsService.generateTriggerPoints(
       estimatedBoundary,
@@ -482,12 +477,15 @@ export async function POST(request: NextRequest) {
     const estimatedSaveResult = await autoSaveTriggerPoints(attraction_id, enhancedEstimatedTPs, 'estimated_boundary')
     console.log(`💾 Estimated boundary auto-save result: ${estimatedSaveResult.saved} saved, ${estimatedSaveResult.skipped} skipped`)
     
+    // Return success with note about using estimated boundary
     return NextResponse.json({
       success: true,
       boundary: estimatedBoundary,
       trigger_points: enhancedEstimatedTPs,
       poi_confidence_score: poiConfidenceScore,
-      auto_save_result: estimatedSaveResult
+      auto_save_result: estimatedSaveResult,
+      boundary_source: 'estimated_boundary',
+      processing_notes: `POI not found in OpenStreetMap - generated ${enhancedEstimatedTPs.length} trigger points using estimated circular boundary (${estimatedBoundary.area_m2}m²)`
     } as BoundaryResult)
 
   } catch (error) {

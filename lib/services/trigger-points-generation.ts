@@ -501,7 +501,7 @@ export class TriggerPointsService {
         lng: offsetPoint.lng,
         type,
         reasoning: `Strategic point ${i + 1} based on boundary geometry (${Math.round(edgeOffset)}m offset)`,
-        confidence: 0.7,
+        confidence: type === 'primary' ? 0.85 : type === 'secondary' ? 0.80 : 0.70, // Higher confidence for estimated boundary
         distance_from_poi: distance,
         expected_bearing: bearing,
         radius_meters: 20,
@@ -991,7 +991,15 @@ export class TriggerPointsService {
   /**
    * Calculate status based on confidence score
    */
-  static calculateTriggerPointStatus(score: number): string {
+  static calculateTriggerPointStatus(score: number, generationMethod?: string, originalStatus?: string): string {
+    // For estimated boundary, be more permissive since it's our final fallback
+    if (generationMethod === 'estimated_boundary') {
+      if (score >= 0.60) return 'approved' // Lower threshold for estimated boundary
+      if (score >= 0.40) return 'review'
+      else return 'rejected'
+    }
+    
+    // Standard thresholds for other methods
     if (score >= 0.75) return 'approved'
     if (score >= 0.50) return 'review'
     else return 'rejected'
@@ -1008,7 +1016,7 @@ export class TriggerPointsService {
   ): TriggerPoint[] {
     return triggerPoints.map(tp => {
       const individualScore = this.calculateTriggerPointScore(tp, boundary, landmarkInfo)
-      const autoStatus = this.calculateTriggerPointStatus(individualScore)
+      const autoStatus = this.calculateTriggerPointStatus(individualScore, generationMethod, tp.auto_status)
       
       return {
         ...tp,
