@@ -15,6 +15,9 @@ const supabase = createClient(
   }
 )
 
+// Simple in-memory lock to prevent concurrent processing of same POI
+const processingLocks = new Map<string, Promise<any>>()
+
 export interface TriggerPointSaveData {
   attraction_id: string
   lat: number
@@ -102,6 +105,36 @@ export class TriggerPointSavingService {
     triggerPoints: any[],
     boundarySource: string
   ): Promise<SaveResult> {
+    // Check for concurrent processing lock
+    if (processingLocks.has(attractionId)) {
+      console.log(`⚠️ POI ${attractionId} is already being processed - waiting for completion`)
+      await processingLocks.get(attractionId)
+      
+      // After waiting, return empty result as the previous process handled it
+      return { saved: 0, skipped: triggerPoints.length, errors: [] }
+    }
+
+    // Create lock promise for this POI
+    const processPromise = this._saveTriggerPointsBatchInternal(attractionId, triggerPoints, boundarySource)
+    processingLocks.set(attractionId, processPromise)
+
+    try {
+      const result = await processPromise
+      return result
+    } finally {
+      // Clean up lock
+      processingLocks.delete(attractionId)
+    }
+  }
+
+  /**
+   * Internal method for saving trigger points (protected by lock)
+   */
+  private static async _saveTriggerPointsBatchInternal(
+    attractionId: string,
+    triggerPoints: any[],
+    boundarySource: string
+  ): Promise<SaveResult> {
     const results: SaveResult = {
       saved: 0,
       skipped: 0,
@@ -149,17 +182,43 @@ export class TriggerPointSavingService {
         final_status: tp.final_status || tp.auto_status
       }))
 
-      // Validate for duplicates using Supabase RPC
-      const { data: validatedTPs, error: validationError } = await supabase
-        .schema('core')
-        .rpc('validate_trigger_points_batch', {
-          p_attraction_id: attractionId,
-          p_trigger_points: tpsForValidation,
-          p_distance_threshold: 20.0
-        })
+      // Validate for duplicates using Supabase RPC with retry mechanism
+      let validatedTPs: any[] = []
+      let validationError: any = null
+      let retries = 3
+      
+      while (retries > 0) {
+        try {
+          const result = await supabase
+            .schema('core')
+            .rpc('validate_trigger_points_batch', {
+              p_attraction_id: attractionId,
+              p_trigger_points: tpsForValidation,
+              p_distance_threshold: 20.0
+            })
+          
+          if (result.error) {
+            throw result.error
+          }
+          
+          validatedTPs = Array.isArray(result.data) ? result.data : []
+          validationError = null
+          break
+          
+        } catch (error: any) {
+          validationError = error
+          retries--
+          
+          if (retries > 0) {
+            console.log(`⚠️ Validation retry ${4 - retries}/3 for ${attractionId}: ${error.message}`)
+            // Wait briefly before retry to avoid race conditions
+            await new Promise(resolve => setTimeout(resolve, 100 * (4 - retries)))
+          }
+        }
+      }
 
       if (validationError) {
-        throw new Error(`Validation failed: ${validationError.message}`)
+        throw new Error(`Validation failed after retries: ${validationError.message}`)
       }
 
       const validatedTPsArray = Array.isArray(validatedTPs) ? validatedTPs : []

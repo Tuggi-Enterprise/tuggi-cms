@@ -154,19 +154,23 @@ export async function POST(request: NextRequest) {
         const processingStart = Date.now()
         console.log(`🎯 Processing: ${poi.name} (${poi.city}, ${poi.country})`)
 
-        // Call the boundary detection API directly (avoid internal fetch in production)
+        // Call the boundary detection API directly (more reliable than HTTP fetch)
         const { POST: detectBoundaryHandler } = await import('@/app/api/poi-boundaries/detect/route')
         
-        // Create a mock request object
-        const mockRequest = {
-          json: async () => ({
+        // Create a proper NextRequest object
+        const mockRequest = new Request('http://localhost/api/poi-boundaries/detect', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
             attraction_id: poi.id,
             poi_lat: coordinate.latitude,
             poi_lng: coordinate.longitude,
             poi_name: poi.name
           })
-        } as any
-        
+        }) as any
+
         const response = await detectBoundaryHandler(mockRequest)
         const result = await response.json()
 

@@ -104,6 +104,10 @@
 | 2.1   | ✅     | $(date) | SUCCESS | Função calculateTriggerPointScore consolidada, ~40 linhas removidas |
 | 2.2   | ✅     | $(date) | SUCCESS | Função calculateTriggerPointStatus consolidada, melhor suporte a estimated_boundary |
 | 2.3   | ✅     | $(date) | SUCCESS | Mecanismos de salvamento consolidados, service centralizado criado, ~160 linhas removidas |
+| FIX-1 | ✅     | $(date) | SUCCESS | Race condition corrigida - lock de processamento POI implementado |
+| FIX-2 | ✅     | $(date) | SUCCESS | Import direto substituído por HTTP fetch interno robusto |
+| FIX-3 | ✅     | $(date) | SUCCESS | Validação duplicatas com retry mechanism contra falhas concorrentes |
+| FIX-4 | ✅     | $(date) | SUCCESS | Erro 404 na chamada API corrigido - import direto restaurado |
 
 **Legenda**: 🔄 Em andamento | ✅ Concluído | ❌ Falhou | ⏳ Pendente
 
