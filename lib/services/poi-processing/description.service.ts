@@ -291,24 +291,14 @@ export class DescriptionService {
         enrichedData
       })
 
-      // Log prompt for analysis
-      console.log('\n' + '='.repeat(80))
-      console.log('📝 PROMPT ENVIADO PARA GEMINI:')
-      console.log('='.repeat(80))
-      console.log(prompt)
-      console.log('='.repeat(80))
-      console.log(`📏 Tamanho do prompt: ${prompt.length} caracteres\n`)
+      // Log prompt summary
+      console.log(`📝 Generated prompt: ${prompt.length} characters`)
 
       // Generate description using Gemini (with intelligent model selection)
       const description = await this.generateWithGemini(prompt, apiKey, sourcesSection, enrichedPOISection, scrapedContentSection, poiData)
       
-      // Log Gemini response for analysis
-      console.log('\n' + '🤖'.repeat(40))
-      console.log('🤖 RESPOSTA DO GEMINI:')
-      console.log('🤖'.repeat(40))
-      console.log(description || 'NULL/EMPTY RESPONSE')
-      console.log('🤖'.repeat(40))
-      console.log(`📏 Tamanho da resposta: ${description?.length || 0} caracteres\n`)
+      // Log Gemini response summary
+      console.log(`🤖 Gemini response: ${description?.length || 0} characters`)
       
       if (!description) {
         return {
@@ -970,7 +960,7 @@ export class DescriptionService {
     let languageQuality = 70 // Base
     
     // Positive indicators
-    if (description.match(/[.!?][\s]*[A-Z]/g)?.length >= 2) languageQuality += 10 // Multiple sentences
+    if ((description.match(/[.!?][\s]*[A-Z]/g)?.length || 0) >= 2) languageQuality += 10 // Multiple sentences
     if (!description.includes('...')) languageQuality += 5
     if (!description.match(/\b(muito|bem|grande|importante)\b.*\b(muito|bem|grande|importante)\b/i)) languageQuality += 10
     
@@ -1030,11 +1020,6 @@ export class DescriptionService {
     }
     
     console.log(`📊 Description Quality Score: ${overallScore}% (${confidenceLevel})`)
-    console.log(`   - Content Quality: ${Math.round(contentQuality)}%`)
-    console.log(`   - Source Reliability: ${Math.round(sourceReliability)}%`)
-    console.log(`   - Factual Accuracy: ${Math.round(factualAccuracy)}%`)
-    console.log(`   - Completeness: ${Math.round(completeness)}%`)
-    console.log(`   - Language Quality: ${Math.round(languageQuality)}%`)
     if (issues.length > 0) {
       console.log(`   - Issues: ${issues.join(', ')}`)
     }
@@ -2221,7 +2206,7 @@ RESPONDA EM JSON:
     language: string
   ): Promise<void> {
     try {
-      console.log(`📊 Saving description quality score: ${qualityAnalysis.overall_score}% (${qualityAnalysis.confidence_level})`)
+      console.log(`📊 Saving quality score: ${qualityAnalysis.overall_score}%`)
       
       const { error } = await supabaseAdmin
         .schema('core')
