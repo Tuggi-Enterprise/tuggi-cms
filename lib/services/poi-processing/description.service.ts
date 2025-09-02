@@ -90,6 +90,21 @@ export interface DescriptionResult {
     fields_updated?: string[]
     error?: string
   }
+  quality_analysis?: {
+    overall_score: number
+    confidence_level: 'high' | 'medium' | 'low'
+    justifications: {
+      content_quality: number
+      source_reliability: number
+      factual_accuracy: number
+      completeness: number
+      language_quality: number
+    }
+    issues_found: string[]
+    recommendations: string[]
+    model_used: 'pro' | 'flash'
+    data_richness: 'rich' | 'limited'
+  }
   error?: string
   processing_time?: number
 }
@@ -172,26 +187,31 @@ export class DescriptionService {
         }
       }
 
-      // Get layered sources
-      const layeredSources = await this.getLayeredSources(
-        poiData.city, 
-        poiData.country, 
-        options.use_dynamic_sources ?? true
-      )
-      
-      console.log(`📚 Found ${layeredSources.length} layered sources for ${poiData.city}, ${poiData.country}`)
-
-      // Check city cache first (FASE 3)
-      const cityCache = await this.getCityRAGCache(poiData.city, poiData.country)
-      let finalSources = layeredSources
+      // Get sources for AI analysis (but skip scraping if disabled)
+      let finalSources: any[] = []
       let scrapedContent: any = null
+      
+      if (options.use_dynamic_sources ?? true) {
+        // Full RAG enabled - get sources and scrape content
+        // Get layered sources
+        const layeredSources = await this.getLayeredSources(
+          poiData.city, 
+          poiData.country, 
+          options.use_dynamic_sources ?? true
+        )
+        
+        console.log(`📚 Found ${layeredSources.length} layered sources for ${poiData.city}, ${poiData.country}`)
 
-      if (cityCache && this.isCacheValid(cityCache)) {
-        console.log(`🚀 Using cached RAG data for ${poiData.city}`)
-        finalSources = cityCache.sources_found?.sources || layeredSources
-        scrapedContent = cityCache.scraped_content
-        await this.updateCacheUsage(cityCache.id)
-      } else {
+        // Check city cache first (FASE 3)
+        const cityCache = await this.getCityRAGCache(poiData.city, poiData.country)
+        finalSources = layeredSources
+
+        if (cityCache && this.isCacheValid(cityCache)) {
+          console.log(`🚀 Using cached RAG data for ${poiData.city}`)
+          finalSources = cityCache.sources_found?.sources || layeredSources
+          scrapedContent = cityCache.scraped_content
+          await this.updateCacheUsage(cityCache.id)
+        } else {
         console.log(`🔍 No valid cache found for ${poiData.city}, processing fresh data`)
         
         // Save RAG sources to database for future use
@@ -210,6 +230,19 @@ export class DescriptionService {
           // Update city cache
           await this.updateCityCache(poiData.city, poiData.country, poiData.state, layeredSources, scrapedContent)
         }
+        }
+      } else {
+        // RAG disabled but provide sources for AI analysis (no scraping)
+        console.log('🔗 RAG scraping disabled - providing sources for AI analysis only')
+        
+        const layeredSources = await this.getLayeredSources(
+          poiData.city, 
+          poiData.country, 
+          false // Don't use dynamic sources for scraping
+        )
+        
+        finalSources = layeredSources
+        console.log(`🔗 Found ${finalSources.length} sources for AI to analyze (no scraping)`)
       }
 
       // Build optimized content section - prioritize processed data over raw URLs
@@ -250,6 +283,7 @@ export class DescriptionService {
         sourcesSection,
         googleData,
         enrichedPOISection,
+        poiData, // Pass POI data for model selection
         scrapedContentSection, // NOVO: Conteúdo real das fontes!
         existingDescription: options.existing_description,
         existingTokens: [], // TODO: Implement token system if needed
@@ -265,8 +299,8 @@ export class DescriptionService {
       console.log('='.repeat(80))
       console.log(`📏 Tamanho do prompt: ${prompt.length} caracteres\n`)
 
-      // Generate description using Gemini
-      const description = await this.generateWithGemini(prompt, apiKey)
+      // Generate description using Gemini (with intelligent model selection)
+      const description = await this.generateWithGemini(prompt, apiKey, sourcesSection, enrichedPOISection, scrapedContentSection, poiData)
       
       // Log Gemini response for analysis
       console.log('\n' + '🤖'.repeat(40))
@@ -282,6 +316,15 @@ export class DescriptionService {
           error: 'Failed to generate description with Gemini API'
         }
       }
+      
+      // Calculate description quality score and justifications
+      const qualityAnalysis = this.calculateDescriptionQualityScore(
+        description, 
+        poiData, 
+        finalSources, 
+        enrichedPOIData, 
+        scrapedContent
+      )
 
       // Verify generated description
       const verification = await this.verifyGeneratedDescription(description, poiData.name, apiKey)
@@ -296,7 +339,8 @@ export class DescriptionService {
           fields_updated: osmEnrichmentResult.fields_updated,
           error: osmEnrichmentResult.success ? undefined : osmEnrichmentResult.error
         } : undefined,
-        processing_time: Date.now() - startTime
+        processing_time: Date.now() - startTime,
+        quality_analysis: qualityAnalysis
       }
 
       // Save description if attraction ID provided
@@ -306,7 +350,8 @@ export class DescriptionService {
           description,
           verification,
           options.language ?? 'pt-br',
-          options.description_id
+          options.description_id,
+          qualityAnalysis
         )
         
         if (saveResult.success) {
@@ -847,23 +892,182 @@ export class DescriptionService {
   }
 
   /**
-   * Create optimized prompt for Gemini
+   * Calculate description quality score and provide detailed justifications
+   */
+  private static calculateDescriptionQualityScore(
+    description: string,
+    poiData: any,
+    sources: any[],
+    enrichedData: any,
+    scrapedContent: any
+  ): any {
+    console.log('📊 Calculating description quality score...')
+    
+    const wordCount = description.split(/\s+/).length
+    const charCount = description.length
+    
+    // 1. Content Quality (0-100)
+    let contentQuality = 50 // Base score
+    
+    // Length appropriateness
+    if (wordCount >= 30 && wordCount <= 150) contentQuality += 20
+    else if (wordCount >= 20 && wordCount <= 200) contentQuality += 10
+    else if (wordCount < 10) contentQuality -= 20
+    
+    // Structure quality
+    if (description.includes('Curiosidade:')) contentQuality += 10
+    if (description.match(/\b(século|fundad|construíd|estabelecid)\b/i)) contentQuality += 10
+    if (description.match(/\b\d{4}\b/)) contentQuality += 10 // Has specific year
+    
+    // Language quality
+    if (!description.includes('importante') || !description.includes('rica história')) contentQuality += 10
+    if (description.match(/\b(convida|oferece|demonstra|reflete)\b/i)) contentQuality += 5
+    
+    // 2. Source Reliability (0-100)
+    let sourceReliability = 30 // Base
+    const sourceCount = sources.length
+    
+    if (sourceCount >= 3) sourceReliability += 30
+    else if (sourceCount >= 2) sourceReliability += 20
+    else if (sourceCount >= 1) sourceReliability += 10
+    
+    // Quality of sources
+    const hasOfficialSources = sources.some(s => 
+      s.source_url?.includes('gov.br') || 
+      s.source_url?.includes('iphan') ||
+      s.source_type === 'official_website'
+    )
+    if (hasOfficialSources) sourceReliability += 20
+    
+    // 3. Factual Accuracy (0-100) - Based on verification
+    let factualAccuracy = 70 // Default assumption
+    
+    // Check for potential invention indicators
+    if (description.toLowerCase().includes('patrimônio histórico') && 
+        !sources.some(s => s.content?.toLowerCase().includes('patrimônio'))) {
+      factualAccuracy -= 30
+    }
+    
+    if (description.toLowerCase().includes('iphan') && 
+        !sources.some(s => s.content?.toLowerCase().includes('iphan'))) {
+      factualAccuracy -= 30
+    }
+    
+    // Positive indicators
+    if (description.match(/\b(século XVIII|século XIX|século XX)\b/i)) factualAccuracy += 10
+    if (enrichedData?.osm_description) factualAccuracy += 10
+    
+    // 4. Completeness (0-100)
+    let completeness = 40 // Base
+    
+    // Essential elements
+    if (description.toLowerCase().startsWith(poiData.name.toLowerCase().split(' ')[0])) completeness += 15
+    if (description.includes(poiData.city)) completeness += 10
+    if (description.match(/\b\d{4}\b|\bséculo\b/i)) completeness += 15 // Has date
+    if (description.includes('Curiosidade:')) completeness += 20
+    
+    // 5. Language Quality (0-100)
+    let languageQuality = 70 // Base
+    
+    // Positive indicators
+    if (description.match(/[.!?][\s]*[A-Z]/g)?.length >= 2) languageQuality += 10 // Multiple sentences
+    if (!description.includes('...')) languageQuality += 5
+    if (!description.match(/\b(muito|bem|grande|importante)\b.*\b(muito|bem|grande|importante)\b/i)) languageQuality += 10
+    
+    // Negative indicators
+    if (description.includes('rica história')) languageQuality -= 10
+    if (description.includes('importante cidade')) languageQuality -= 10
+    
+    // Calculate overall score (weighted average)
+    const overallScore = Math.round(
+      (contentQuality * 0.25) +      // 25% content quality
+      (sourceReliability * 0.20) +   // 20% source reliability  
+      (factualAccuracy * 0.25) +     // 25% factual accuracy
+      (completeness * 0.20) +        // 20% completeness
+      (languageQuality * 0.10)       // 10% language quality
+    )
+    
+    // Determine confidence level
+    const confidenceLevel = 
+      overallScore >= 80 ? 'high' :
+      overallScore >= 60 ? 'medium' : 'low'
+    
+    // Determine model and data richness
+    const poiTypes = poiData?.google_types || []
+    const proTypes = ['tourist_attraction', 'locality', 'political', 'point_of_interest']
+    const modelUsed = poiTypes.some((type: string) => proTypes.includes(type)) ? 'pro' : 'flash'
+    const dataRichness = sourceCount >= 2 || enrichedData?.osm_description ? 'rich' : 'limited'
+    
+    // Identify issues
+    const issues = []
+    if (contentQuality < 60) issues.push('Qualidade de conteúdo baixa')
+    if (sourceReliability < 50) issues.push('Poucas fontes confiáveis')
+    if (factualAccuracy < 70) issues.push('Possível invenção de informações')
+    if (completeness < 60) issues.push('Descrição incompleta')
+    if (languageQuality < 60) issues.push('Qualidade de linguagem baixa')
+    
+    // Generate recommendations
+    const recommendations = []
+    if (wordCount < 30) recommendations.push('Expandir descrição com mais detalhes')
+    if (sourceCount < 2) recommendations.push('Adicionar mais fontes de dados')
+    if (!description.includes('Curiosidade:')) recommendations.push('Incluir fato curioso')
+    if (overallScore < 70) recommendations.push('Revisar e melhorar qualidade geral')
+    
+    const result = {
+      overall_score: overallScore,
+      confidence_level: confidenceLevel,
+      justifications: {
+        content_quality: Math.round(contentQuality),
+        source_reliability: Math.round(sourceReliability),
+        factual_accuracy: Math.round(factualAccuracy),
+        completeness: Math.round(completeness),
+        language_quality: Math.round(languageQuality)
+      },
+      issues_found: issues,
+      recommendations: recommendations,
+      model_used: modelUsed,
+      data_richness: dataRichness
+    }
+    
+    console.log(`📊 Description Quality Score: ${overallScore}% (${confidenceLevel})`)
+    console.log(`   - Content Quality: ${Math.round(contentQuality)}%`)
+    console.log(`   - Source Reliability: ${Math.round(sourceReliability)}%`)
+    console.log(`   - Factual Accuracy: ${Math.round(factualAccuracy)}%`)
+    console.log(`   - Completeness: ${Math.round(completeness)}%`)
+    console.log(`   - Language Quality: ${Math.round(languageQuality)}%`)
+    if (issues.length > 0) {
+      console.log(`   - Issues: ${issues.join(', ')}`)
+    }
+    
+    return result
+  }
+
+  /**
+   * Create optimized prompt for Gemini with model-specific instructions
    */
   private static createOptimizedPrompt({
     name, locationDetails, sourcesSection, googleData, enrichedPOISection, scrapedContentSection,
     existingDescription, existingTokens, optimizationMode = true,
-    enrichedData = null 
+    enrichedData = null, poiData = null 
   }: any): string {
     const hasTokens = existingTokens && existingTokens.length > 0
     const hasExisting = existingDescription && existingDescription.trim()
+    
+    // Determine audio time based on POI types (same logic as model selection)
+    const poiTypes = poiData?.google_types || []
+    const proTypes = ['tourist_attraction', 'locality', 'political', 'point_of_interest']
+    const hasProType = poiTypes.some((type: string) => proTypes.includes(type))
+    const audioTime = hasProType ? '40s' : '20s'
+    const isDataRich = hasProType // PRO types are considered data-rich
 
-    return `You are an expert travel guide writer. Produce a concise, factual description in Brazilian Portuguese.
+    return `You are an expert travel guide writer. Produce a ${isDataRich ? 'detailed, engaging' : 'concise, factual'} description in Brazilian Portuguese.
 
 CRITICAL RULES (BALANCED):
 - Use well-known historical facts and verifiable information about the location
 - PRIORITIZE the sources below when available, but you may supplement with established historical knowledge
 - NEVER INVENT physical features, functions, or services (e.g., "serves as viewpoint", "offers panoramic views")
 - NEVER SPECULATE with words like "aproximadamente", "cerca de", "provavelmente", "pode ter"
+- ABSOLUTELY FORBIDDEN: "patrimônio histórico", "tombado", "IPHAN", "Ministério da Cultura" unless explicitly in sources
 - AVOID unverified claims about current heritage status, specific IPHAN/UNESCO designations, or active government programs
 - SOURCE PRIORITY ORDER:
   1. Official website (if available)
@@ -892,12 +1096,22 @@ ${sourcesSection}
 
 KNOWLEDGE POLICY:
 - You may use established historical knowledge about Brazilian cities, regions, and landmarks.
+- The sources below are trusted references - you may draw reasonable conclusions about the POI based on these source types and contexts.
 - Do NOT name or cite institutions/sources in the output text.
-- Distinguish general historical context (allowed) from specific current claims that require source verification (avoid if not in sources).
+- Use the source context (official websites, government sources, cultural institutions) to inform your description.
+- Distinguish general historical context (allowed) from specific current claims that require source verification.
 
-TASK (90–140 words):
+TASK (${isDataRich ? `PRO - detailed description for ${audioTime} audio` : `FLASH - concise description for ${audioTime} audio`}):
 - Start with: POI name + primary verifiable DATE (year preferred; century/decade if no year).
-- Then 1–2 verified or well-established facts (architect/style/events) if documented; keep it engaging.
+${isDataRich ? 
+  `- Then 2–4 verified or well-established facts (architect/style/events/cultural significance/historical context) if documented; develop engaging narratives.
+- Include rich local context, regional characteristics, cultural elements, and historical significance when accurate.
+- Explore connections between historical periods, architectural styles, and cultural movements.
+- Target length: 80-150 words for ${audioTime} audio coverage.` :
+  `- Then 1–2 verified or well-established facts if documented; keep it simple and direct.
+- Include basic local context when historically accurate.
+- Target length: 30-70 words for ${audioTime} audio.`
+}
 - Optionally current function/significance if officially recorded.
 - Avoid generic fillers (e.g., "importante cidade", "rica história"); prefer concrete facts.
 
@@ -926,17 +1140,54 @@ OUTPUT: Only the final Portuguese text.
   }
 
   /**
-   * Generate description using Gemini API
+   * Determine which Gemini model to use based on specific Google types
+   * PRO: tourist_attraction, locality, political, point_of_interest (40s audio)
+   * FLASH: all others (20s audio)
    */
-  private static async generateWithGemini(prompt: string, apiKey: string): Promise<string | null> {
-    const endpoints = [
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`,
+  private static determineGeminiModel(sourcesSection: string, enrichedPOISection: string, scrapedContentSection?: string, poiData?: any): 'pro' | 'flash' {
+    const poiTypes = poiData?.google_types || []
+    
+    // PRO types: specific important categories
+    const proTypes = ['tourist_attraction', 'locality', 'political', 'point_of_interest']
+    
+    // Check if POI has any PRO type
+    const hasProType = poiTypes.some((type: string) => proTypes.includes(type))
+    
+    const modelChoice = hasProType ? 'pro' : 'flash'
+    const audioTime = hasProType ? '40s' : '20s'
+    
+    // Log reasoning
+    if (hasProType) {
+      const matchedTypes = poiTypes.filter((type: string) => proTypes.includes(type))
+      console.log(`🎯 Model selection: ${matchedTypes.join(', ')} -> PRO (${audioTime} audio)`)
+    } else {
+      console.log(`🎯 Model selection: ${poiTypes.join(', ')} -> FLASH (${audioTime} audio)`)
+    }
+    
+    return modelChoice
+  }
+
+  /**
+   * Generate description using Gemini API with intelligent model selection
+   */
+  private static async generateWithGemini(prompt: string, apiKey: string, sourcesSection: string, enrichedPOISection: string, scrapedContentSection?: string, poiData?: any): Promise<string | null> {
+    const modelType = this.determineGeminiModel(sourcesSection, enrichedPOISection, scrapedContentSection, poiData)
+    
+    const endpoints = modelType === 'pro' ? [
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`
+    ] : [
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}` // Fallback
     ]
+    
+    console.log(`🤖 Using Gemini ${modelType.toUpperCase()} for ${modelType === 'pro' ? 'data-rich' : 'limited-data'} POI`)
 
     for (const endpoint of endpoints) {
       try {
-        console.log(`🤖 Calling Gemini API: ${endpoint.includes('pro-latest') ? 'Pro Latest' : 'Pro'}`)
+        const modelName = endpoint.includes('pro-latest') ? 'Pro Latest' : 
+                         endpoint.includes('flash') ? 'Flash' : 'Pro'
+        console.log(`🤖 Calling Gemini API: ${modelName}`)
         
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -966,12 +1217,8 @@ OUTPUT: Only the final Portuguese text.
 
         const data = await response.json()
         
-        // Log raw Gemini API response for debugging
-        console.log('🔍 Raw Gemini API Response:', JSON.stringify(data, null, 2))
-        
         if (data.candidates && data.candidates[0] && data.candidates[0].content) {
           const description = data.candidates[0].content.parts[0].text.trim()
-          console.log(`✅ Extracted description: ${description.substring(0, 100)}...`)
           return description
         } else {
           console.log('⚠️ No valid content in Gemini response:', data)
@@ -1094,7 +1341,8 @@ RESPONDA EM JSON:
     description: string,
     verification: VerificationResult,
     language: string = 'pt-br',
-    descriptionId?: string
+    descriptionId?: string,
+    qualityAnalysis?: any
   ): Promise<{ success: boolean; description_id?: string; error?: string }> {
     try {
       console.log(`💾 Saving description in ${language} for attraction ${attractionId}`)
@@ -1153,6 +1401,12 @@ RESPONDA EM JSON:
       }
 
       console.log(`✅ Description saved in ${language} with ID:`, savedDescription?.id)
+      
+      // Save quality analysis to attractions table for audit
+      if (qualityAnalysis) {
+        await this.saveDescriptionQualityScore(attractionId, qualityAnalysis, language)
+      }
+      
       return { success: true, description_id: savedDescription?.id }
 
     } catch (error: any) {
@@ -1955,6 +2209,50 @@ RESPONDA EM JSON:
     return {
       success: false,
       error: 'Audio generation not yet implemented in modular architecture'
+    }
+  }
+
+  /**
+   * Save description quality score to attractions table for audit
+   */
+  private static async saveDescriptionQualityScore(
+    attractionId: string, 
+    qualityAnalysis: any, 
+    language: string
+  ): Promise<void> {
+    try {
+      console.log(`📊 Saving description quality score: ${qualityAnalysis.overall_score}% (${qualityAnalysis.confidence_level})`)
+      
+      const { error } = await supabaseAdmin
+        .schema('core')
+        .from('attractions')
+        .update({
+          // Use the existing RAG content quality score field for description quality
+          rag_content_quality_score: qualityAnalysis.overall_score,
+          // Store detailed justifications in processing audit log
+          processing_audit_log: {
+            description_quality: {
+              overall_score: qualityAnalysis.overall_score,
+              confidence_level: qualityAnalysis.confidence_level,
+              justifications: qualityAnalysis.justifications,
+              issues_found: qualityAnalysis.issues_found,
+              recommendations: qualityAnalysis.recommendations,
+              model_used: qualityAnalysis.model_used,
+              data_richness: qualityAnalysis.data_richness,
+              language: language,
+              calculated_at: new Date().toISOString()
+            }
+          }
+        })
+        .eq('id', attractionId)
+
+      if (error) {
+        console.error('❌ Error saving description quality score:', error)
+      } else {
+        console.log('✅ Description quality score saved successfully')
+      }
+    } catch (error) {
+      console.error('❌ Error in saveDescriptionQualityScore:', error)
     }
   }
 }

@@ -181,6 +181,9 @@ export async function POST(request: NextRequest) {
       const saveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedTriggerPoints, 'osm_nominatim')
       console.log(`💾 Auto-save result: ${saveResult.saved} saved, ${saveResult.skipped} skipped`)
       
+      // 📊 AUDIT: Salvar POI confidence score no banco
+      await savePOIConfidenceScore(attraction_id, poiConfidenceScore, 'osm_nominatim')
+      
       return NextResponse.json({
         success: true,
         boundary: nameSearchResult.boundary,
@@ -237,6 +240,9 @@ export async function POST(request: NextRequest) {
         // 💾 AUTO-SAVE: Salvar trigger points de fallback (melhorados)
         const fallbackSaveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedFallbackTPs, 'fallback_street_analysis')
         console.log(`💾 Fallback auto-save result: ${fallbackSaveResult.saved} saved, ${fallbackSaveResult.skipped} skipped`)
+        
+        // 📊 AUDIT: Salvar POI confidence score no banco
+        await savePOIConfidenceScore(attraction_id, poiConfidenceScore, 'fallback_street_analysis')
         
         return NextResponse.json({
           success: true,
@@ -324,6 +330,9 @@ export async function POST(request: NextRequest) {
       // 💾 AUTO-SAVE: Salvar trigger points do Overpass
       const overpassSaveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedOverpassTPs, 'osm_overpass')
       console.log(`💾 Overpass auto-save result: ${overpassSaveResult.saved} saved, ${overpassSaveResult.skipped} skipped`)
+      
+      // 📊 AUDIT: Salvar POI confidence score no banco
+      await savePOIConfidenceScore(attraction_id, poiConfidenceScore, 'osm_overpass')
       
       return NextResponse.json({
         success: true,
@@ -431,6 +440,9 @@ export async function POST(request: NextRequest) {
       const reverseSaveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedReverseTPs, 'osm_coordinates')
       console.log(`💾 Reverse geocoding auto-save result: ${reverseSaveResult.saved} saved, ${reverseSaveResult.skipped} skipped`)
       
+      // 📊 AUDIT: Salvar POI confidence score no banco
+      await savePOIConfidenceScore(attraction_id, poiConfidenceScore, 'osm_reverse_geocoding')
+      
       return NextResponse.json({
         success: true,
         boundary: reverseGeoResult.boundary,
@@ -471,6 +483,9 @@ export async function POST(request: NextRequest) {
     // 💾 AUTO-SAVE: Salvar trigger points estimados (com confiança mínima)
     const estimatedSaveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedEstimatedTPs, 'estimated_boundary')
     console.log(`💾 Estimated boundary auto-save result: ${estimatedSaveResult.saved} saved, ${estimatedSaveResult.skipped} skipped`)
+    
+    // 📊 AUDIT: Salvar POI confidence score no banco
+    await savePOIConfidenceScore(attraction_id, poiConfidenceScore, 'estimated_boundary')
     
     // Return success with note about using estimated boundary
     return NextResponse.json({
@@ -3883,6 +3898,46 @@ async function enrichAttractionWithOSMData(
     
   } catch (error) {
     console.error(`❌ Error enriching attraction ${attractionId}:`, error)
+  }
+}
+
+/**
+ * Save POI confidence score to database for audit purposes
+ */
+async function savePOIConfidenceScore(
+  attractionId: string, 
+  confidenceScore: any, 
+  calculationMethod: string
+): Promise<void> {
+  try {
+    console.log(`📊 Saving POI confidence score: ${(confidenceScore.overall_score * 100).toFixed(1)}%`)
+    
+    const { error } = await supabase
+      .schema('core')
+      .from('attractions')
+      .update({
+        poi_confidence_score: confidenceScore.overall_score,
+        poi_score_justification: {
+          boundary_quality: confidenceScore.boundary_quality,
+          trigger_points_quality: confidenceScore.trigger_points_quality,
+          data_source_reliability: confidenceScore.data_source_reliability,
+          coverage_completeness: confidenceScore.coverage_completeness,
+          factors: confidenceScore.factors,
+          calculation_timestamp: new Date().toISOString(),
+          calculation_method: calculationMethod
+        },
+        poi_score_calculation_method: calculationMethod,
+        // last_score_update_at and poi_score_calculated_at will be set automatically by trigger
+      })
+      .eq('id', attractionId)
+
+    if (error) {
+      console.error('❌ Error saving POI confidence score:', error)
+    } else {
+      console.log('✅ POI confidence score saved successfully')
+    }
+  } catch (error) {
+    console.error('❌ Error in savePOIConfidenceScore:', error)
   }
 }
 
