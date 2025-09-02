@@ -1891,15 +1891,29 @@ async function getOpenElevationAPI(lat: number, lng: number): Promise<number | n
   }
 }
 
+// Cache for city base elevation to avoid redundant calls
+const cityElevationCache = new Map<string, number>()
+
 // Get city base elevation by sampling nearby area
 async function getCityBaseElevation(lat: number, lng: number): Promise<number> {
   try {
+    // Create cache key with rounded coordinates (to group nearby requests)
+    const cacheKey = `${Math.round(lat * 1000) / 1000},${Math.round(lng * 1000) / 1000}`
+    
+    // Check cache first
+    if (cityElevationCache.has(cacheKey)) {
+      const cachedElevation = cityElevationCache.get(cacheKey)!
+      console.log(`🏙️ Using cached city elevation for ${lat}, ${lng}: ${cachedElevation}m`)
+      return cachedElevation
+    }
+    
     console.log(`🏙️ Getting city base elevation for ${lat}, ${lng}`)
     
     // METHOD 1: Try known cities database first (most accurate and fast)
     const knownElevation = await getKnownCityElevation(lat, lng)
     if (knownElevation !== null) {
       console.log(`✅ Using known city elevation: ${knownElevation}m`)
+      cityElevationCache.set(cacheKey, knownElevation)
       return knownElevation
     }
     
@@ -1907,6 +1921,7 @@ async function getCityBaseElevation(lat: number, lng: number): Promise<number> {
     const openElevation = await getOpenElevationAPI(lat, lng)
     if (openElevation !== null && openElevation > 0) {
       console.log(`✅ Using Open Elevation API: ${openElevation}m`)
+      cityElevationCache.set(cacheKey, openElevation)
       return openElevation
     }
     
@@ -1961,28 +1976,41 @@ async function getCityBaseElevation(lat: number, lng: number): Promise<number> {
       elevations.sort((a, b) => a - b)
       const median = elevations[Math.floor(elevations.length / 2)]
       console.log(`🏙️ City base elevation calculated: ${median}m (from ${elevations.length} samples)`)
+      cityElevationCache.set(cacheKey, median)
       return median
     }
 
     // Fallback to regional defaults
+    let defaultElevation: number
     if (lat > -25 && lat < -22 && lng > -47 && lng < -43) {
       console.log('🏙️ Using São Paulo region default: 760m')
-      return 760 // São Paulo region
+      defaultElevation = 760 // São Paulo region
     } else if (lat > -23.5 && lat < -22 && lng > -44 && lng < -43) {
       console.log('🏙️ Using Rio de Janeiro region default: 10m')
-      return 10  // Rio de Janeiro region
+      defaultElevation = 10  // Rio de Janeiro region
+    } else {
+      console.log('🏙️ Using general default: 200m')
+      defaultElevation = 200 // General default
     }
     
-    console.log('🏙️ Using general default: 200m')
-    return 200 // General default
+    cityElevationCache.set(cacheKey, defaultElevation)
+    return defaultElevation
 
   } catch (error) {
     console.error('❌ Error getting city base elevation:', error)
+    // Create cache key for error case too
+    const cacheKey = `${Math.round(lat * 1000) / 1000},${Math.round(lng * 1000) / 1000}`
+    
     // Fallback to regional defaults
+    let errorElevation: number
     if (lat > -25 && lat < -22 && lng > -47 && lng < -43) {
-      return 760 // São Paulo region
+      errorElevation = 760 // São Paulo region
+    } else {
+      errorElevation = 200
     }
-    return 200
+    
+    cityElevationCache.set(cacheKey, errorElevation)
+    return errorElevation
   }
 }
 
@@ -2039,13 +2067,15 @@ async function checkHighVisibilityLandmark(poiLat: number, poiLng: number, curre
       const data = await response.json()
       
       if (data.elements && data.elements.length > 0) {
+        // Get city base elevation once, outside the loop
+        const cityBaseElevation = await getCityBaseElevation(poiLat, poiLng)
+        
         for (const element of data.elements) {
           const tags = element.tags || {}
           
           // Check elevation RELATIVE to city base elevation
           if (tags.ele) {
             const elevation = parseInt(tags.ele)
-            const cityBaseElevation = await getCityBaseElevation(poiLat, poiLng)
             const elevationDiff = elevation - cityBaseElevation
             
             console.log(`📏 Elevation analysis: POI=${elevation}m, CityBase=${cityBaseElevation}m, Diff=${elevationDiff}m`)
