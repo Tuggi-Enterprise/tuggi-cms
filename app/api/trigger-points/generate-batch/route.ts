@@ -151,6 +151,7 @@ export async function POST(request: NextRequest) {
       const coordinate = poi.attraction_coordinate[0]
       
       try {
+        const processingStart = Date.now()
         console.log(`🎯 Processing: ${poi.name} (${poi.city}, ${poi.country})`)
 
         // Call the boundary detection API directly (avoid internal fetch in production)
@@ -170,6 +171,35 @@ export async function POST(request: NextRequest) {
         const result = await response.json()
 
         if (result.success && result.trigger_points && Array.isArray(result.trigger_points) && result.trigger_points.length > 0) {
+          // Check if TPs were already saved by auto-save
+          if (result.auto_save_result && result.auto_save_result.saved > 0) {
+            console.log(`✅ ${poi.name}: Auto-save already processed ${result.auto_save_result.saved} TPs, skipping duplicate save`)
+            
+            // Count the auto-saved TPs in our summary
+            const triggerPointsArray = result.trigger_points
+            const approvedTPs = triggerPointsArray.filter((tp: any) => 
+              tp.auto_status === 'approved' && 
+              (tp.type === 'primary' || tp.type === 'secondary')
+            )
+            
+            results.summary.approved_tps += approvedTPs.length
+            results.successful++
+            
+            results.results.push({
+              poi_id: poi.id,
+              poi_name: poi.name,
+              success: true,
+              trigger_points_generated: triggerPointsArray.length,
+              trigger_points_saved: result.auto_save_result.saved,
+              trigger_points_skipped: result.auto_save_result.skipped,
+              message: `Successfully processed via auto-save: ${result.auto_save_result.saved} TPs saved`,
+              boundary_source: result.boundary_source || 'unknown',
+              processing_time: Date.now() - processingStart
+            })
+            
+            continue
+          }
+          
           // Filter trigger points: only approved primary and secondary types
           const triggerPointsArray = result.trigger_points
           const approvedTPs = triggerPointsArray.filter((tp: any) => 

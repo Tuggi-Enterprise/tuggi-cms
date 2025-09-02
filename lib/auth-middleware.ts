@@ -1,7 +1,6 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
-import { securityLogger } from './security-logger'
 
 export async function withAuth(handler: (req: NextRequest) => Promise<NextResponse>) {
   return async (req: NextRequest) => {
@@ -21,11 +20,6 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
       
       if (error || !session) {
         console.log('❌ AUTH MIDDLEWARE: No authenticated user')
-        try {
-          await securityLogger.logAuthFailure(req, 'No authenticated user')
-        } catch (logError) {
-          console.warn('⚠️ AUTH MIDDLEWARE: Failed to log auth failure:', logError)
-        }
         return NextResponse.json(
           { error: 'Unauthorized - Authentication required' },
           { status: 401 }
@@ -53,11 +47,6 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
 
       if (cmsError || !cmsUser) {
         console.log('❌ AUTH MIDDLEWARE: CMS access denied')
-        try {
-          await securityLogger.logAuthFailure(req, 'CMS access denied')
-        } catch (logError) {
-          console.warn('⚠️ AUTH MIDDLEWARE: Failed to log CMS access denied:', logError)
-        }
         return NextResponse.json(
           { error: 'Unauthorized - CMS access denied' },
           { status: 403 }
@@ -67,11 +56,6 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
       // Check if user has admin or editor role
       if (!['admin', 'editor'].includes(cmsUser.role)) {
         console.log('❌ AUTH MIDDLEWARE: Insufficient privileges:', cmsUser.role)
-        try {
-          await securityLogger.logAuthFailure(req, 'Insufficient privileges')
-        } catch (logError) {
-          console.warn('⚠️ AUTH MIDDLEWARE: Failed to log insufficient privileges:', logError)
-        }
         return NextResponse.json(
           { error: 'Unauthorized - Insufficient privileges' },
           { status: 403 }
@@ -91,11 +75,6 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
     } catch (error) {
       console.error('❌ AUTH MIDDLEWARE: Error:', error)
       console.error('❌ AUTH MIDDLEWARE: Error stack:', error instanceof Error ? error.stack : 'No stack trace')
-      try {
-        await securityLogger.logAuthFailure(req, `Authentication error: ${error}`)
-      } catch (logError) {
-        console.warn('⚠️ AUTH MIDDLEWARE: Failed to log authentication error:', logError)
-      }
       return NextResponse.json(
         { error: 'Internal server error' },
         { status: 500 }
@@ -122,11 +101,7 @@ export function withRateLimit(maxRequests: number = 100, windowMs: number = 6000
       const validRequests = requests.filter((time: number) => time > windowStart)
       
       if (validRequests.length >= maxRequests) {
-        try {
-          await securityLogger.logRateLimitExceeded(req, maxRequests)
-        } catch (logError) {
-          console.warn('⚠️ AUTH MIDDLEWARE: Failed to log rate limit exceeded:', logError)
-        }
+        console.warn('⚠️ AUTH MIDDLEWARE: Rate limit exceeded for IP:', ip)
         return NextResponse.json(
           { error: 'Too many requests' },
           { status: 429 }

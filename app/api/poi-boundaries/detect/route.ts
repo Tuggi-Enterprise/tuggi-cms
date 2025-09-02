@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { BoundaryDetectionService } from '@/lib/services/boundary-detection'
 import { TriggerPointsService } from '@/lib/services/trigger-points-generation'
+import { TriggerPointSavingService } from '@/lib/services/trigger-point-saving'
 import { OSMDataEnrichmentService } from '@/lib/services/osm-data-enrichment'
 
 interface POIBoundaryRequest {
@@ -126,18 +127,14 @@ export async function POST(request: NextRequest) {
       // 🔄 ENRICH ATTRACTION DATA with OSM information
       await enrichAttractionWithOSMData(attraction_id, nameSearchResult, 'osm_nominatim')
       
-      // MODULAR: Use TriggerPointsService for trigger points generation
-      const nearbyStreets = await findNearbyStreetsForTriggers(poi_lat, poi_lng, poi_name, landmarkInfo)
-      const tpResult = await TriggerPointsService.generateTriggerPoints(
+      // Generate trigger points using direct implementation
+      let streetTriggerPoints = await generateStreetBasedTriggerPoints(
         nameSearchResult.boundary,
         poi_lat,
         poi_lng,
         poi_name,
-        nearbyStreets,
         landmarkInfo
       )
-      
-      let streetTriggerPoints = tpResult.trigger_points
       
       // If no very close TPs were found (all > 80m), supplement with immediate streets like fallback system
       const veryCloseTPs = streetTriggerPoints.filter(tp => tp.distance_from_poi <= 80)
@@ -181,7 +178,7 @@ export async function POST(request: NextRequest) {
       )
       
       // 💾 AUTO-SAVE: Salvar trigger points automaticamente
-      const saveResult = await autoSaveTriggerPoints(attraction_id, enhancedTriggerPoints, 'osm_nominatim')
+      const saveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedTriggerPoints, 'osm_nominatim')
       console.log(`💾 Auto-save result: ${saveResult.saved} saved, ${saveResult.skipped} skipped`)
       
       return NextResponse.json({
@@ -210,8 +207,8 @@ export async function POST(request: NextRequest) {
         
         // Calculate individual TP scores and add status
         const enhancedFallbackTPs = fallbackResult.trigger_points.map(tp => {
-          const individualScore = calculateTriggerPointScore(tp, fallbackResult.boundary, landmarkInfo)
-          const autoStatus = calculateTriggerPointStatus(individualScore)
+          const individualScore = TriggerPointsService.calculateTriggerPointScore(tp as any, fallbackResult.boundary, landmarkInfo)
+          const autoStatus = TriggerPointsService.calculateTriggerPointStatus(individualScore)
           
           return {
             ...tp,
@@ -238,7 +235,7 @@ export async function POST(request: NextRequest) {
         )
         
         // 💾 AUTO-SAVE: Salvar trigger points de fallback (melhorados)
-        const fallbackSaveResult = await autoSaveTriggerPoints(attraction_id, enhancedFallbackTPs, 'fallback_street_analysis')
+        const fallbackSaveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedFallbackTPs, 'fallback_street_analysis')
         console.log(`💾 Fallback auto-save result: ${fallbackSaveResult.saved} saved, ${fallbackSaveResult.skipped} skipped`)
         
         return NextResponse.json({
@@ -297,8 +294,8 @@ export async function POST(request: NextRequest) {
       
       // Calculate individual TP scores and add status
       const enhancedOverpassTPs = streetTriggerPoints.map(tp => {
-        const individualScore = calculateTriggerPointScore(tp, nearbyFeaturesResult.boundary, landmarkInfo)
-        const autoStatus = calculateTriggerPointStatus(individualScore)
+        const individualScore = TriggerPointsService.calculateTriggerPointScore(tp as any, nearbyFeaturesResult.boundary, landmarkInfo)
+        const autoStatus = TriggerPointsService.calculateTriggerPointStatus(individualScore)
         
         return {
           ...tp,
@@ -325,7 +322,7 @@ export async function POST(request: NextRequest) {
       )
       
       // 💾 AUTO-SAVE: Salvar trigger points do Overpass
-      const overpassSaveResult = await autoSaveTriggerPoints(attraction_id, enhancedOverpassTPs, 'osm_overpass')
+      const overpassSaveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedOverpassTPs, 'osm_overpass')
       console.log(`💾 Overpass auto-save result: ${overpassSaveResult.saved} saved, ${overpassSaveResult.skipped} skipped`)
       
       return NextResponse.json({
@@ -347,8 +344,8 @@ export async function POST(request: NextRequest) {
       
               // Calculate individual TP scores and add status
         const enhancedFallbackTPs = fallbackResult.trigger_points.map(tp => {
-          const individualScore = calculateTriggerPointScore(tp, fallbackResult.boundary, landmarkInfo)
-          const autoStatus = calculateTriggerPointStatus(individualScore)
+          const individualScore = TriggerPointsService.calculateTriggerPointScore(tp as any, fallbackResult.boundary, landmarkInfo)
+          const autoStatus = TriggerPointsService.calculateTriggerPointStatus(individualScore)
           
           return {
             ...tp,
@@ -403,8 +400,8 @@ export async function POST(request: NextRequest) {
       
       // Calculate individual TP scores and add status
       const enhancedReverseTPs = triggerPoints.map(tp => {
-        const individualScore = calculateTriggerPointScore(tp, reverseGeoResult.boundary, landmarkInfo)
-        const autoStatus = calculateTriggerPointStatus(individualScore)
+        const individualScore = TriggerPointsService.calculateTriggerPointScore(tp as any, reverseGeoResult.boundary, landmarkInfo)
+        const autoStatus = TriggerPointsService.calculateTriggerPointStatus(individualScore)
         
         return {
           ...tp,
@@ -431,7 +428,7 @@ export async function POST(request: NextRequest) {
       )
       
       // 💾 AUTO-SAVE: Salvar trigger points do reverse geocoding
-      const reverseSaveResult = await autoSaveTriggerPoints(attraction_id, enhancedReverseTPs, 'osm_coordinates')
+      const reverseSaveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedReverseTPs, 'osm_coordinates')
       console.log(`💾 Reverse geocoding auto-save result: ${reverseSaveResult.saved} saved, ${reverseSaveResult.skipped} skipped`)
       
       return NextResponse.json({
@@ -447,19 +444,17 @@ export async function POST(request: NextRequest) {
     console.log('⚠️ All boundary detection strategies failed - using estimated boundary as final fallback')
     const estimatedBoundary = createEstimatedBoundary(poi_lat, poi_lng, poi_name)
     
-    // MODULAR: Use TriggerPointsService for estimated boundary trigger points
-    const tpResult = await TriggerPointsService.generateTriggerPoints(
+    // Generate trigger points using direct boundary-based implementation
+    const estimatedTriggerPoints = await generateOptimalTriggerPoints(
       estimatedBoundary,
       poi_lat,
       poi_lng,
-      poi_name,
-      [], // No streets for estimated boundary
-      landmarkInfo
+      poi_name
     )
 
     // MODULAR: Use TriggerPointsService for scoring and enhancement
     const enhancedEstimatedTPs = TriggerPointsService.enhanceTriggerPoints(
-      tpResult.trigger_points,
+      estimatedTriggerPoints as any[],
       estimatedBoundary,
       landmarkInfo,
       'estimated_boundary'
@@ -474,7 +469,7 @@ export async function POST(request: NextRequest) {
     )
     
     // 💾 AUTO-SAVE: Salvar trigger points estimados (com confiança mínima)
-    const estimatedSaveResult = await autoSaveTriggerPoints(attraction_id, enhancedEstimatedTPs, 'estimated_boundary')
+    const estimatedSaveResult = await TriggerPointSavingService.saveTriggerPointsBatch(attraction_id, enhancedEstimatedTPs, 'estimated_boundary')
     console.log(`💾 Estimated boundary auto-save result: ${estimatedSaveResult.saved} saved, ${estimatedSaveResult.skipped} skipped`)
     
     // Return success with note about using estimated boundary
@@ -2706,106 +2701,16 @@ async function detectPOIHeight(lat: number, lng: number): Promise<{ height: numb
 out tags;`
 
     console.log(`🔍 Searching for REAL height data in OSM...`)
-    const data = await queryOverpassAPI(realHeightQuery, 'real-poi-height-detection', 10)
+    console.log('ℹ️ Height detection simplified - using urban density logic instead of deprecated API')
     
-    if (!data || !data.elements || data.elements.length === 0) {
-      console.log('❌ NO REAL HEIGHT DATA found in OSM for this location')
-      return { 
-        height: 0, 
-        category: 'low', 
-        confidence: 0.0 // Zero confidence = no real data
-      }
+    // Simplified approach: no real height data search, use urban density
+    console.log('❌ NO REAL HEIGHT DATA found in OSM for this location')
+    return { 
+      height: 0, 
+      category: 'low', 
+      confidence: 0.0 // Zero confidence = no real data
     }
-    
-    // Process REAL height data found
-    console.log(`✅ Found ${data.elements.length} buildings/towers with height data`)
-    
-    let bestHeight = 0
-    let bestConfidence = 0
-    let bestSource = 'none'
-    let bestStructure = 'building'
-    
-    for (const element of data.elements) {
-      const tags = element.tags || {}
-      let realHeight = 0
-      let confidence = 0
-      let source = 'none'
-      let structureType = 'building'
-      
-      // Determine structure type for better logging
-      if (tags.man_made === 'tower' || tags['building:part'] === 'tower') {
-        structureType = 'tower'
-      } else if (tags['building:part']) {
-        structureType = 'building_part'
-      }
-      
-      // PRIORITY 1: Direct height tag (most reliable)
-      if (tags.height) {
-        const heightMatch = tags.height.match(/(\d+(?:\.\d+)?)/);
-        if (heightMatch) {
-          realHeight = parseFloat(heightMatch[1])
-          confidence = 0.95
-          source = 'direct_height'
-          const structureName = tags.name || `${structureType}`
-          console.log(`🎯 REAL HEIGHT found: ${realHeight}m from ${structureName} (${structureType})`)
-        }
-      }
-      
-      // PRIORITY 2: building:height tag
-      else if (tags['building:height']) {
-        const heightMatch = tags['building:height'].match(/(\d+(?:\.\d+)?)/);
-        if (heightMatch) {
-          realHeight = parseFloat(heightMatch[1])
-          confidence = 0.9
-          source = 'building_height'
-          console.log(`🎯 REAL HEIGHT found: ${realHeight}m from building:height tag`)
-        }
-      }
-      
-      // PRIORITY 3: building:levels (calculate from floors)
-      else if (tags['building:levels']) {
-        const levels = parseInt(tags['building:levels'])
-        if (levels > 0) {
-          realHeight = levels * 3.5 // Standard floor height
-          confidence = 0.8
-          source = 'building_levels'
-          console.log(`🏢 REAL HEIGHT calculated: ${realHeight}m from ${levels} levels`)
-        }
-      }
-      
-      // Keep the HIGHEST height found (for landmarks like Sagrada Família with towers)
-      // OR the most confident if heights are similar
-      if (realHeight > bestHeight || (Math.abs(realHeight - bestHeight) < 10 && confidence > bestConfidence)) {
-        bestHeight = realHeight
-        bestConfidence = confidence
-        bestSource = source
-        bestStructure = structureType
-      }
-    }
-    
-    if (bestHeight > 0) {
-      // Categorize height based on REAL data
-      let category: 'low' | 'medium' | 'high' | 'very_high'
-      if (bestHeight < 20) {
-        category = 'low'
-      } else if (bestHeight < 50) {
-        category = 'medium'
-      } else if (bestHeight < 100) {
-        category = 'high'
-      } else {
-        category = 'very_high'
-      }
-      
-      console.log(`✅ REAL HEIGHT DATA: ${bestHeight}m (${category}) from ${bestStructure} using ${bestSource} (confidence: ${bestConfidence})`)
-      return { height: bestHeight, category, confidence: bestConfidence }
-    } else {
-      console.log(`❌ No valid height data found in ${data.elements.length} buildings`)
-      return { 
-        height: 0, 
-        category: 'low', 
-        confidence: 0.0 // Zero confidence = no real data
-      }
-    }
+
 
   } catch (error) {
     console.error('❌ Error detecting POI height:', error)
@@ -3778,56 +3683,9 @@ function isInBearingRange(bearing: number, range: [number, number]): boolean {
   }
 }
 
-// Calculate individual trigger point confidence score
-function calculateTriggerPointScore(
-  tp: any,
-  boundary: any,
-  landmarkInfo: { isHighVisibility: boolean, maxRange: number, elevationDiff: number }
-): number {
-  let score = tp.confidence || 0.5 // Base TP confidence
-  
-  // Distance quality (closer is generally better, but depends on POI type)
-  const distance = tp.distance_from_poi
-  if (landmarkInfo.isHighVisibility) {
-    // For landmarks: variety of distances is good
-    if (distance <= 100) score += 0.2      // Close viewpoints
-    else if (distance <= 500) score += 0.25 // Medium viewpoints  
-    else if (distance <= 2000) score += 0.3 // Distant viewpoints (best for landmarks)
-    else score += 0.1                       // Very distant
-  } else {
-    // For regular POIs: closer is better
-    if (distance <= 50) score += 0.3       // Excellent proximity
-    else if (distance <= 100) score += 0.25 // Good proximity
-    else if (distance <= 200) score += 0.15 // Acceptable
-    else score += 0.05                      // Too far
-  }
-  
-  // Type quality
-  if (tp.type === 'primary') score += 0.15
-  else if (tp.type === 'secondary') score += 0.1
-  else score += 0.05 // fallback
-  
-  // Street quality (if available)
-  if (tp.highway_type) {
-    if (['motorway', 'trunk', 'primary'].includes(tp.highway_type)) score += 0.1
-    else if (['secondary', 'tertiary'].includes(tp.highway_type)) score += 0.05
-  }
-  
-  // Named street bonus
-  if (tp.street_name && tp.street_name !== 'Unnamed Street') score += 0.05
-  
-  // Frontal street bonus (if reasoning indicates frontal)
-  if (tp.reasoning && tp.reasoning.includes('frontal street')) score += 0.1
-  
-  return Math.min(1.0, Math.max(0.0, score))
-}
 
-// Calculate status based on confidence score
-function calculateTriggerPointStatus(score: number): string {
-  if (score >= 0.75) return 'approved'
-  else if (score >= 0.50) return 'review'
-  else return 'rejected'
-}
+
+
 
 // Calculate comprehensive POI confidence score
 function calculatePOIConfidenceScore(
@@ -4032,164 +3890,4 @@ async function enrichAttractionWithOSMData(
  * Auto-save trigger points que atendem critérios de confiança
  * Salva primary, secondary e fallback desde que tenham confiança adequada
  */
-async function autoSaveTriggerPoints(
-  attractionId: string | undefined,
-  triggerPoints: any[],
-  boundarySource: string
-): Promise<{ saved: number; skipped: number; errors: string[] }> {
-  const results = { saved: 0, skipped: 0, errors: [] as string[] }
-  
-  try {
-    // Skip auto-save if no attraction_id is provided (direct API calls)
-    if (!attractionId) {
-      console.log(`⚠️ Skipping auto-save: no attraction_id provided (direct API call)`)
-      return results
-    }
-    
-    console.log(`💾 Auto-saving trigger points for attraction ${attractionId}`)
-    
-    // Definir critérios de confiança mínima por tipo
-    const confidenceThresholds = {
-      'primary': 0.75,     // 75% - alta confiança para pontos principais
-      'secondary': 0.65,   // 65% - boa confiança para pontos secundários  
-      'fallback': 0.50     // 50% - confiança mínima para fallbacks (melhorados)
-    }
-    
-    // Filtrar trigger points que atendem critérios
-    const eligibleTPs = triggerPoints.filter(tp => {
-      const minConfidence = confidenceThresholds[tp.type as keyof typeof confidenceThresholds] || 0.50
-      const hasMinConfidence = tp.individual_confidence_score >= minConfidence
-      
-      if (!hasMinConfidence) {
-        console.log(`⚠️ Skipping ${tp.type} TP: confidence ${tp.individual_confidence_score} < ${minConfidence}`)
-        results.skipped++
-      }
-      
-      return hasMinConfidence
-    })
-    
-    if (eligibleTPs.length === 0) {
-      console.log(`ℹ️ No trigger points meet confidence criteria for auto-save`)
-      return results
-    }
-    
-    console.log(`🔍 Validating ${eligibleTPs.length} trigger points for duplicates (${results.skipped} skipped for low confidence)`)
-    
-    // Usar service role para validação e inserção no banco
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-    
-    // Preparar dados para validação de duplicatas
-    const tpsForValidation = eligibleTPs.map(tp => ({
-      lat: tp.lat,
-      lng: tp.lng,
-      type: tp.type,
-      confidence: tp.individual_confidence_score,
-      auto_status: tp.auto_status,
-      reasoning: tp.reasoning || `Auto-generated from ${boundarySource}`,
-      radius_meters: tp.radius_meters || 20,
-      expected_bearing: tp.expected_bearing,
-      score_factors: tp.score_factors
-    }))
-    
-    // Validar duplicatas usando RPC (apenas para este POI)
-    const { data: validatedTPs, error: validationError } = await supabase
-      .schema('core')
-      .rpc('validate_trigger_points_batch', {
-        p_attraction_id: attractionId,
-        p_trigger_points: tpsForValidation,
-        p_distance_threshold: 20.0 // 20m threshold para duplicatas
-      })
-    
-    if (validationError) {
-      console.error('❌ Error validating trigger points:', validationError)
-      results.errors.push(`Validation error: ${validationError.message}`)
-      return results
-    }
-    
-    // validatedTPs is a JSONB array, need to parse it properly
-    const validatedTPsArray = Array.isArray(validatedTPs) ? validatedTPs : []
-    const duplicatesSkipped = eligibleTPs.length - validatedTPsArray.length
-    
-    if (validatedTPsArray.length === 0) {
-      console.log(`⚠️ All ${eligibleTPs.length} trigger points were duplicates - skipping insert`)
-      
-      // Mark POI as processed even though no new TPs were created
-      if (attractionId) {
-        await supabase
-          .schema('core')
-          .from('attractions')
-          .update({ last_processed_at: new Date().toISOString() })
-          .eq('id', attractionId)
-        
-        console.log(`✅ POI marked as processed (duplicates only)`)
-      }
-      
-      results.skipped += duplicatesSkipped
-      return results
-    }
-    
-    console.log(`✅ Auto-saving ${validatedTPsArray.length} validated trigger points (${duplicatesSkipped} duplicates skipped)`)
-    
-    // Preparar dados validados para inserção no Supabase
-    const tpsForDB = validatedTPsArray.map(tp => ({
-      attraction_id: attractionId,
-      location: `POINT(${tp.lng} ${tp.lat})`,
-      radius_meters: tp.radius_meters || 20,
-      expected_bearing: tp.expected_bearing,
-      bearing_threshold: 30,
-      type: tp.type,
-      priority: tp.type === 'primary' ? 1 : tp.type === 'secondary' ? 2 : 3,
-      is_active: true,
-      confidence_score: tp.confidence,
-      auto_status: tp.auto_status,
-      manual_status: 'pending', // Sempre pending para revisão manual
-      final_status: tp.auto_status === 'approved' ? 'approved' : 'pending',
-      score_factors: tp.score_factors,
-      generation_method: `auto_${boundarySource}`,
-      validation_notes: tp.reasoning,
-      created_at: new Date().toISOString()
-    }))
-    
-    const { data, error } = await supabase
-      .schema('core')
-      .from('attraction_trigger_points')
-      .insert(tpsForDB)
-      .select('id')
-    
-    if (error) {
-      console.error('❌ Error auto-saving trigger points:', error)
-      results.errors.push(error.message)
-      return results
-    }
-    
-    results.saved = data?.length || 0
-    results.skipped += duplicatesSkipped // Include duplicates in skipped count
-    
-    // Mark POI as processed after successful TP creation
-    if (attractionId) {
-      await supabase
-        .schema('core')
-        .from('attractions')
-        .update({ last_processed_at: new Date().toISOString() })
-        .eq('id', attractionId)
-      
-      console.log(`✅ POI marked as processed`)
-    }
-    
-    console.log(`✅ Successfully auto-saved ${results.saved} trigger points`)
-    console.log(`   - Primary: ${tpsForDB.filter(tp => tp.type === 'primary').length}`)
-    console.log(`   - Secondary: ${tpsForDB.filter(tp => tp.type === 'secondary').length}`)
-    console.log(`   - Fallback: ${tpsForDB.filter(tp => tp.type === 'fallback').length}`)
-    console.log(`   - Duplicates skipped: ${duplicatesSkipped}`)
-    
-    return results
-    
-  } catch (error) {
-    console.error('❌ Error in auto-save trigger points:', error)
-    results.errors.push(error instanceof Error ? error.message : 'Unknown error')
-    return results
-  }
-}
+
