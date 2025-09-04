@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
     
     console.log(`🧪 Testing trigger points generation via Edge Function for: ${name} (${id})`)
     console.log(`📍 Coordinates: (${lat}, ${lng})`)
+    console.log(`🚫 TEST MODE: Trigger points will NOT be saved to database`)
     
     // Call the Edge Function
     console.log('🚀 Calling generate-trigger-points Edge Function...')
@@ -29,7 +30,8 @@ export async function POST(request: NextRequest) {
         poi_id: id,
         lat,
         lng,
-        name
+        name,
+        test_mode: true
       })
     })
     

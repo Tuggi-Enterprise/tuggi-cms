@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     const { data: poiData, error: poiError } = await supabase
       .schema('core')
       .from('attractions')
-      .select('id, name, google_types, created_at, updated_at, status')
+      .select('id, name, city, country, approved, created_at, updated_at')
       .eq('id', poiId)
       .single()
     
@@ -69,8 +69,9 @@ export async function GET(request: NextRequest) {
         name: poiData.name,
         lat: coordData?.latitude || null,
         lng: coordData?.longitude || null,
-        google_types: poiData.google_types,
-        status: poiData.status,
+        city: poiData.city,
+        country: poiData.country,
+        approved: poiData.approved,
         created_at: poiData.created_at,
         updated_at: poiData.updated_at
       }

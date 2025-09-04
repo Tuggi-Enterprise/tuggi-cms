@@ -34,6 +34,23 @@ interface GoogleMapComponentProps {
     center: { lat: number; lng: number }
     radius: number // in meters
   }
+  circles?: Array<{
+    id: string
+    center: { lat: number; lng: number }
+    radius: number // in meters
+    strokeColor?: string
+    strokeOpacity?: number
+    strokeWeight?: number
+    fillColor?: string
+    fillOpacity?: number
+  }>
+  polygonOptions?: {
+    strokeColor?: string
+    strokeOpacity?: number
+    strokeWeight?: number
+    fillColor?: string
+    fillOpacity?: number
+  }
 
 }
 
@@ -49,12 +66,13 @@ function Map({
   onMarkerClick,
   markers = [],
   polygon,
-
   savedPolygons = [],
   cityBoundary,
   cityName,
   enableDrawing = true,
-  circle
+  circle,
+  circles = [],
+  polygonOptions
 }: Omit<GoogleMapComponentProps, 'height' | 'className'>) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
@@ -66,6 +84,7 @@ function Map({
 
   const drawingButtonRef = useRef<HTMLButtonElement | null>(null)
   const circleRef = useRef<google.maps.Circle | null>(null)
+  const circlesRef = useRef<google.maps.Circle[]>([])
 
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
@@ -230,13 +249,14 @@ function Map({
       currentPolygonRef.current.setMap(null)
     }
 
-    // Create new polygon
+    // Create new polygon with custom options
     const polygonShape = new google.maps.Polygon({
       paths: polygon,
-      fillColor: '#00A8E8',
-      fillOpacity: 0.3,
-      strokeColor: '#00A8E8',
-      strokeWeight: 2,
+      fillColor: polygonOptions?.fillColor || '#00A8E8',
+      fillOpacity: polygonOptions?.fillOpacity || 0.3,
+      strokeColor: polygonOptions?.strokeColor || '#00A8E8',
+      strokeWeight: polygonOptions?.strokeWeight || 2,
+      strokeOpacity: polygonOptions?.strokeOpacity || 1.0,
       editable: true,
       draggable: true,
     })
@@ -403,9 +423,34 @@ function Map({
     }
   }, [circle])
 
+  // Effect for multiple circles
+  useEffect(() => {
+    if (!mapInstanceRef.current) return
 
+    // Clear existing circles
+    circlesRef.current.forEach(circle => {
+      circle.setMap(null)
+    })
+    circlesRef.current = []
 
-
+    // Add new circles
+    circles.forEach(circleData => {
+      if (circleData.center && circleData.radius > 0) {
+        const circleOverlay = new google.maps.Circle({
+          center: circleData.center,
+          radius: circleData.radius,
+          fillColor: circleData.fillColor || '#FF6B6B',
+          fillOpacity: circleData.fillOpacity || 0.2,
+          strokeColor: circleData.strokeColor || '#FF6B6B',
+          strokeOpacity: circleData.strokeOpacity || 0.7,
+          strokeWeight: circleData.strokeWeight || 2,
+          clickable: false,
+        })
+        circleOverlay.setMap(mapInstanceRef.current)
+        circlesRef.current.push(circleOverlay)
+      }
+    })
+  }, [circles])
 
   useEffect(() => {
     if (window.google && window.google.maps && window.google.maps.drawing) {
