@@ -15,47 +15,64 @@ export async function GET(request: NextRequest) {
     
     console.log(`🔍 Searching for POI: ${poiId}`)
     
-    // Initialize Supabase client
+    // Initialize Supabase client with service role key for elevated privileges
     const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+          detectSessionInUrl: false
+        }
+      }
     )
     
     // Search POI in database
-    const { data, error } = await supabase
-      .from('core.attractions')
-      .select('id, name, lat, lng, google_types, created_at, updated_at, status')
+    const { data: poiData, error: poiError } = await supabase
+      .schema('core')
+      .from('attractions')
+      .select('id, name, google_types, created_at, updated_at, status')
       .eq('id', poiId)
       .single()
     
-    if (error) {
-      console.error('❌ Database error:', error)
-      return NextResponse.json({
-        success: false,
-        error: `Database error: ${error.message}`
-      }, { status: 500 })
+    if (poiError) {
+      throw poiError
     }
     
-    if (!data) {
+    // Get coordinates separately
+    const { data: coordData, error: coordError } = await supabase
+      .schema('core')
+      .from('attraction_coordinate')
+      .select('latitude, longitude')
+      .eq('attraction_id', poiId)
+      .single()
+    
+    if (coordError && coordError.code !== 'PGRST116') {
+      // PGRST116 is "not found" error, which is expected if no coordinates exist
+      console.warn('Warning: No coordinates found for POI:', coordError.message)
+    }
+    
+    if (!poiData) {
       return NextResponse.json({
         success: false,
         error: 'POI not found'
       }, { status: 404 })
     }
     
-    console.log(`✅ Found POI: ${data.name} (${data.lat}, ${data.lng})`)
+    console.log(`✅ Found POI: ${poiData.name} (${coordData?.latitude || 'no lat'}, ${coordData?.longitude || 'no lng'})`)
     
     return NextResponse.json({
       success: true,
       data: {
-        id: data.id,
-        name: data.name,
-        lat: data.lat,
-        lng: data.lng,
-        google_types: data.google_types,
-        status: data.status,
-        created_at: data.created_at,
-        updated_at: data.updated_at
+        id: poiData.id,
+        name: poiData.name,
+        lat: coordData?.latitude || null,
+        lng: coordData?.longitude || null,
+        google_types: poiData.google_types,
+        status: poiData.status,
+        created_at: poiData.created_at,
+        updated_at: poiData.updated_at
       }
     })
     

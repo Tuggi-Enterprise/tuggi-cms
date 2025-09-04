@@ -245,6 +245,30 @@ function calculateStreetConfidence(tags: any, distance: number): number {
 // LANDMARK DETECTION FUNCTIONS (LEGACY)
 // ========================================
 
+// Known city elevations for urban density calculation
+const KNOWN_CITY_ELEVATIONS: { [key: string]: number } = {
+  // Brazil major cities (accurate elevations)
+  'belo horizonte': 852,
+  'são paulo': 760,
+  'rio de janeiro': 10,
+  'brasília': 1172,
+  'salvador': 8,
+  'fortaleza': 21,
+  'recife': 4,
+  'porto alegre': 10,
+  'curitiba': 934,
+  'goiânia': 749,
+  'belém': 10,
+  'manaus': 92,
+  'campo grande': 532,
+  'florianópolis': 3,
+  'vitória': 2,
+  'natal': 30,
+  'joão pessoa': 37,
+  'aracaju': 4,
+  'maceio': 7
+}
+
 // Check if POI is a high-visibility landmark and calculate visibility range
 async function checkHighVisibilityLandmark(poiLat: number, poiLng: number, currentDistance: number): Promise<{ isHighVisibility: boolean, maxRange: number, elevationDiff: number }> {
   console.log(`🔍 Checking landmark for coordinates: ${poiLat}, ${poiLng}`)
@@ -272,11 +296,122 @@ async function checkHighVisibilityLandmark(poiLat: number, poiLng: number, curre
     }
   }
   
-  // For now, simplified approach: use default range
-  console.log(`📍 No significant elevation found - using default range`)
-  const maxRange = 1000 // Default range
+  // For now, use enhanced approach with urban density detection (LEGACY LOGIC)
+  console.log(`📍 No significant elevation found - calculating urban density-based range`)
   
-  return { isHighVisibility: false, maxRange, elevationDiff: 0 }
+  try {
+    // Use urban density detection for dynamic range calculation
+    const urbanDensity = await detectUrbanDensity(poiLat, poiLng)
+    const maxRange = urbanDensity === 'very_dense' ? 200 : urbanDensity === 'dense' ? 400 : 800
+    console.log(`🏙️ Urban density: ${urbanDensity}, maxRange: ${maxRange}m`)
+    return { isHighVisibility: false, maxRange, elevationDiff: 0 }
+  } catch (error) {
+    console.log(`⚠️ Urban density detection failed, using default range`)
+    const maxRange = 1000 // Default range
+    return { isHighVisibility: false, maxRange, elevationDiff: 0 }
+  }
+}
+
+// Get known city elevation (LEGACY FUNCTION)
+async function getKnownCityElevation(lat: number, lng: number): Promise<number | null> {
+  try {
+    // Use reverse geocoding to get city name
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`, {
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (city-elevation-lookup)'
+      }
+    })
+    
+    if (!response.ok) {
+      return null
+    }
+    
+    const data = await response.json()
+    
+    if (data.address) {
+      const cityNames = [
+        data.address.city,
+        data.address.town,
+        data.address.village,
+        data.address.municipality,
+        data.address.county
+      ].filter(Boolean)
+      
+      for (const cityName of cityNames) {
+        if (cityName) {
+          const normalizedName = cityName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          
+          if (KNOWN_CITY_ELEVATIONS[normalizedName]) {
+            console.log(`🏙️ Found known city elevation: ${cityName} = ${KNOWN_CITY_ELEVATIONS[normalizedName]}m`)
+            return KNOWN_CITY_ELEVATIONS[normalizedName]
+          }
+        }
+      }
+    }
+    
+    return null
+  } catch (error) {
+    console.log('⚠️ Error getting known city elevation:', error)
+    return null
+  }
+}
+
+// Detect urban density (LEGACY FUNCTION)
+async function detectUrbanDensity(lat: number, lng: number): Promise<'very_dense' | 'dense' | 'medium' | 'low' | 'rural'> {
+  try {
+    console.log(`🏙️ Detecting urban density for ${lat}, ${lng}`)
+    
+    // Use Overpass API to count buildings and streets in different radii
+    const overpassQuery = `[out:json][timeout:30];
+    (
+      // Buildings in 200m radius
+      way[building](around:200,${lat},${lng});
+      relation[building](around:200,${lat},${lng});
+      
+      // Major roads in 500m radius
+      way[highway~"^(motorway|trunk|primary|secondary)$"](around:500,${lat},${lng});
+      
+      // All roads in 300m radius
+      way[highway](around:300,${lat},${lng});
+    );
+    out count;`
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: overpassQuery
+    })
+    
+    if (!response.ok) {
+      console.log('⚠️ Overpass API failed for urban density, using default')
+      return 'medium'
+    }
+    
+    const data = await response.json()
+    
+    if (data.elements && data.elements.length > 0) {
+      const buildingCount = data.elements.filter((e: any) => e.tags?.building).length
+      const majorRoadCount = data.elements.filter((e: any) => 
+        e.tags?.highway && ['motorway', 'trunk', 'primary', 'secondary'].includes(e.tags.highway)
+      ).length
+      const totalRoadCount = data.elements.filter((e: any) => e.tags?.highway).length
+      
+      console.log(`📊 Urban density analysis: ${buildingCount} buildings, ${majorRoadCount} major roads, ${totalRoadCount} total roads`)
+      
+      // Classify urban density based on counts
+      if (buildingCount > 50 && majorRoadCount > 3) return 'very_dense'
+      if (buildingCount > 25 && totalRoadCount > 8) return 'dense'
+      if (buildingCount > 10 && totalRoadCount > 4) return 'medium'
+      if (buildingCount > 2 && totalRoadCount > 1) return 'low'
+      return 'rural'
+    }
+    
+    return 'medium' // Default
+    
+  } catch (error) {
+    console.log('⚠️ Error detecting urban density:', error)
+    return 'medium'
+  }
 }
 
 // ========================================
@@ -451,7 +586,7 @@ async function processOSMGeometry(geojson: any, poiLat: number, poiLng: number):
       success: false
     }
   }
-}
+
 
 async function searchOSMByName(lat: number, lng: number, name: string, landmarkInfo?: any) {
   try {
@@ -1179,17 +1314,531 @@ function scoreBoundaryRelevance(boundary: any, lat: number, lng: number, name: s
 // ========================================
 
 async function generateStreetBasedTriggerPoints(boundary: any, poiLat: number, poiLng: number, poiName: string, landmarkInfo?: any) {
-  console.log('🛣️ Generating street-based trigger points using simplified legacy approach')
+  console.log('🛣️ Generating street-based trigger points using enhanced legacy approach')
   
   try {
-    // For now, use fallback method (boundary-based)
-    // TODO: Add full street-based logic in next iteration
-    return await generateOptimalTriggerPoints(boundary, poiLat, poiLng, poiName)
+    // Use the unified system data that was already called in the main flow
+    // This avoids duplicate API calls and follows the legacy pattern exactly
+    const unifiedData = await queryUnifiedOverpassData(poiLat, poiLng, poiName, landmarkInfo)
+    
+    if (unifiedData.streets.length > 0) {
+      console.log(`🛣️ Found ${unifiedData.streets.length} streets, generating street-based triggers`)
+      return await generateTriggersFromUnifiedStreets(boundary, poiLat, poiLng, unifiedData.streets, landmarkInfo)
+    } else {
+      console.log('⚠️ No streets found, falling back to boundary-based triggers')
+      return await generateOptimalTriggerPoints(boundary, poiLat, poiLng, poiName)
+    }
     
   } catch (error) {
     console.error('❌ Error generating street-based triggers, falling back to boundary-based:', error)
     return await generateOptimalTriggerPoints(boundary, poiLat, poiLng, poiName)
   }
+}
+
+// Generate trigger points from street data
+async function generateTriggersFromStreets(boundary: any, poiLat: number, poiLng: number, poiName: string, streets: any[], landmarkInfo?: any) {
+  console.log(`🛣️ Processing ${streets.length} streets for trigger point generation`)
+  
+  const triggerPoints = []
+  const processedStreets = []
+  
+  // Sort streets by distance and confidence
+  const sortedStreets = streets
+    .filter(street => street.distance_to_poi >= 15) // Minimum distance from POI
+    .sort((a, b) => (b.confidence * 10) - a.distance_to_poi - ((a.confidence * 10) - b.distance_to_poi))
+    .slice(0, 8) // Limit to 8 best streets
+  
+  console.log(`🎯 Selected ${sortedStreets.length} streets for trigger point generation`)
+  
+  for (const street of sortedStreets) {
+    try {
+      // Find strategic points on this street
+      const streetTriggers = await findStrategicPointsOnStreet(
+        street.coordinates, 
+        poiLat, 
+        poiLng, 
+        boundary.coordinates,
+        street.highway_type,
+        landmarkInfo
+      )
+      
+      // Add street context to trigger points
+      for (const trigger of streetTriggers) {
+        triggerPoints.push({
+          ...trigger,
+          street_name: street.name,
+          highway_type: street.highway_type,
+          street_confidence: street.confidence
+        })
+      }
+      
+      processedStreets.push({
+        name: street.name,
+        highway_type: street.highway_type,
+        distance: street.distance_to_poi,
+        triggers_generated: streetTriggers.length
+      })
+      
+    } catch (error) {
+      console.error(`❌ Error processing street ${street.name}:`, error)
+    }
+  }
+  
+  console.log(`✅ Generated ${triggerPoints.length} street-based trigger points from ${processedStreets.length} streets`)
+  
+  // If no street triggers, fallback to boundary-based
+  if (triggerPoints.length === 0) {
+    console.log('⚠️ No street triggers generated, falling back to boundary-based')
+    return await generateOptimalTriggerPoints(boundary, poiLat, poiLng, poiName)
+  }
+  
+  return triggerPoints.slice(0, 15) // Limit to 15 best points
+}
+
+// Find strategic points on a specific street
+async function findStrategicPointsOnStreet(
+  streetCoordinates: Array<{lat: number, lng: number}>, 
+  poiLat: number, 
+  poiLng: number, 
+  boundaryCoordinates: Array<{lat: number, lng: number}>,
+  highwayType: string,
+  landmarkInfo?: any
+) {
+  const strategicPoints = []
+  
+  // Find multiple strategic points along the street
+  const numPoints = Math.min(3, Math.max(1, Math.floor(streetCoordinates.length / 5)))
+  
+  for (let i = 0; i < numPoints; i++) {
+    const segmentIndex = Math.floor((streetCoordinates.length - 1) * (i + 1) / (numPoints + 1))
+    const point = streetCoordinates[segmentIndex]
+    
+    // Check if this point has good visibility to POI
+    const hasVisibility = await checkVisibilityToPOI(point, boundaryCoordinates, poiLat, poiLng, landmarkInfo)
+    
+    if (hasVisibility) {
+      const distance = calculateDistance(poiLat, poiLng, point.lat, point.lng)
+      const bearing = calculateBearing(point.lat, point.lng, poiLat, poiLng)
+      
+      // Calculate confidence based on street type and position
+      let confidence = 0.8
+      if (highwayType === 'primary' || highwayType === 'secondary') confidence += 0.1
+      if (highwayType === 'residential') confidence += 0.05
+      if (i === 0) confidence += 0.05 // First point bonus
+      
+      strategicPoints.push({
+        lat: point.lat,
+        lng: point.lng,
+        type: i === 0 ? 'primary' : 'secondary',
+        reasoning: `Ponto estratégico na ${highwayType} (${i + 1}/${numPoints})`,
+        confidence,
+        distance_from_poi: distance,
+        expected_bearing: bearing,
+        radius_meters: 25,
+        auto_status: 'review'
+      })
+    }
+  }
+  
+  return strategicPoints
+}
+
+// Find intersection points on a street (LEGACY FUNCTION)
+function findIntersectionPoints(coordinates: Array<{lat: number, lng: number}>): Array<{lat: number, lng: number}> {
+  // Simplified: return points where the street changes direction significantly
+  const intersections: Array<{lat: number, lng: number}> = []
+  
+  for (let i = 1; i < coordinates.length - 1; i++) {
+    const prev = coordinates[i - 1]
+    const curr = coordinates[i]
+    const next = coordinates[i + 1]
+    
+    // Calculate bearing change
+    const bearing1 = calculateBearing(prev.lat, prev.lng, curr.lat, curr.lng)
+    const bearing2 = calculateBearing(curr.lat, curr.lng, next.lat, next.lng)
+    const bearingDiff = Math.abs(bearing2 - bearing1)
+    
+    // If bearing changes significantly, it might be an intersection
+    if (bearingDiff > 30 && bearingDiff < 330) {
+      intersections.push(curr)
+    }
+  }
+  
+  return intersections
+}
+
+// Remove duplicate points (LEGACY FUNCTION)
+function removeDuplicatePoints(points: any[], minDistance: number) {
+  const filtered = []
+  
+  for (const point of points) {
+    let tooClose = false
+    
+    for (const existing of filtered) {
+      const distance = calculateDistance(point.lat, point.lng, existing.lat, existing.lng)
+      if (distance < minDistance) {
+        tooClose = true
+        break
+      }
+    }
+    
+    if (!tooClose) {
+      filtered.push(point)
+    }
+  }
+  
+  return filtered
+}
+
+// Generate trigger points from unified streets (LEGACY FUNCTION)
+async function generateTriggersFromUnifiedStreets(
+  boundary: any,
+  poiLat: number,
+  poiLng: number,
+  streets: any[],
+  landmarkInfo?: any
+): Promise<any[]> {
+  console.log(`🛣️ Generating trigger points from ${streets.length} unified streets`)
+
+  if (streets.length === 0) {
+    console.log('⚠️ No streets in unified data, falling back to boundary-based triggers')
+    return generateOptimalTriggerPoints(boundary, poiLat, poiLng, 'Unknown POI')
+  }
+
+  // Sort streets by relevance (distance and confidence)
+  const sortedStreets = streets.sort((a, b) => {
+    if (landmarkInfo?.isHighVisibility) {
+      // For landmarks: prioritize variety of distances
+      const scoreA = a.confidence * (1 + Math.min(a.distance_to_poi / 1000, 2))
+      const scoreB = b.confidence * (1 + Math.min(b.distance_to_poi / 1000, 2))
+      return scoreB - scoreA
+    } else {
+      // For regular POIs: prioritize closer streets
+      const scoreA = a.confidence / Math.max(1, a.distance_to_poi / 100)
+      const scoreB = b.confidence / Math.max(1, b.distance_to_poi / 100)
+      return scoreB - scoreA
+    }
+  }).slice(0, 12) // Limit to 12 best streets
+
+  const triggerPoints = []
+  
+  for (const street of sortedStreets) {
+    // Find strategic points on this street using legacy method
+    const streetPoints = await findStrategicPointsOnStreetLegacy(street, poiLat, poiLng, boundary.coordinates, landmarkInfo)
+    triggerPoints.push(...streetPoints)
+  }
+
+  console.log(`🎯 Generated ${triggerPoints.length} trigger points from unified streets`)
+  
+  // Remove duplicates and apply final filtering
+  const filteredPoints = removeDuplicatePoints(triggerPoints, 50) // 50m minimum distance
+  
+  return filteredPoints.slice(0, 15) // Limit to 15 best points
+}
+
+// Find strategic points on street (LEGACY IMPLEMENTATION)
+async function findStrategicPointsOnStreetLegacy(street: any, poiLat: number, poiLng: number, boundaryCoordinates: Array<{lat: number, lng: number}>, landmarkInfo?: any) {
+  const points = []
+  
+  // Strategy 1: Find closest point on street to POI
+  const closestPoint = findClosestPointOnStreet(street.coordinates, poiLat, poiLng)
+  const distance = calculateDistance(poiLat, poiLng, closestPoint.lat, closestPoint.lng)
+  const bearing = calculateBearing(closestPoint.lat, closestPoint.lng, poiLat, poiLng)
+  
+  // Check if this point has good visibility to POI
+  const hasVisibility = await checkVisibilityToPOI(closestPoint, boundaryCoordinates, poiLat, poiLng, landmarkInfo)
+  
+  if (distance > 1000) {
+    console.log(`🔍 Distant street point: ${street.name} at ${distance.toFixed(0)}m - visibility: ${hasVisibility}`)
+  }
+  
+  // Dynamic distance check (will be validated again in checkVisibilityToPOI)
+  if (hasVisibility) { // Let checkVisibilityToPOI handle distance validation
+    points.push({
+      lat: closestPoint.lat,
+      lng: closestPoint.lng,
+      type: 'primary',
+      reasoning: `Ponto mais próximo na ${street.name} (${street.highway_type}) com visibilidade do POI`,
+      confidence: street.confidence * 1.0,
+      distance_from_poi: distance,
+      expected_bearing: bearing,
+      radius_meters: 20,
+      street_name: street.name,
+      highway_type: street.highway_type,
+      auto_status: 'review'
+    })
+  }
+
+  // Strategy 2: Find points at street intersections (if available)
+  const intersectionPoints = findIntersectionPoints(street.coordinates)
+  for (const intersection of intersectionPoints) {
+    const intDistance = calculateDistance(poiLat, poiLng, intersection.lat, intersection.lng)
+    const intBearing = calculateBearing(intersection.lat, intersection.lng, poiLat, poiLng)
+    const intVisibility = await checkVisibilityToPOI(intersection, boundaryCoordinates, poiLat, poiLng, landmarkInfo)
+    
+    if (intVisibility) {
+      points.push({
+        lat: intersection.lat,
+        lng: intersection.lng,
+        type: 'secondary',
+        reasoning: `Cruzamento na ${street.name} com boa visibilidade`,
+        confidence: street.confidence * 0.9,
+        distance_from_poi: intDistance,
+        expected_bearing: intBearing,
+        radius_meters: 20,
+        street_name: street.name,
+        highway_type: street.highway_type,
+        auto_status: 'review'
+      })
+    }
+  }
+
+  return points
+}
+
+// Find immediate streets (LEGACY FUNCTION)
+async function findImmediateStreets(lat: number, lng: number) {
+  try {
+    console.log(`🔍 Searching for immediate streets with enhanced POV detection at (${lat}, ${lng})`)
+    
+    const radius = 80 // Expanded radius to catch better POV streets (was 50m)
+    const overpassQuery = `[out:json][timeout:30];
+    (
+      way[highway~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|service)$"](around:${radius},${lat},${lng});
+    );
+    out geom;`
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: overpassQuery
+    })
+    
+    if (!response.ok) {
+      throw new Error(`Overpass API error: ${response.status}`)
+    }
+    
+    const data = await response.json()
+    console.log(`📊 Found ${data.elements?.length || 0} immediate street elements`)
+    
+    if (!data.elements || data.elements.length === 0) {
+      return []
+    }
+    
+    const streets = []
+    for (const element of data.elements) {
+      if (element.geometry && element.geometry.length >= 2) {
+        const coordinates = element.geometry.map((node: any) => ({
+          lat: node.lat,
+          lng: node.lon
+        }))
+        
+        const closestPoint = findClosestPointOnStreet(coordinates, lat, lng)
+        const distance = calculateDistance(lat, lng, closestPoint.lat, closestPoint.lng)
+        
+        if (distance <= 80) {
+          streets.push({
+            coordinates,
+            closestPoint,
+            distance,
+            name: element.tags?.name || 'Unnamed Street',
+            highway_type: element.tags?.highway || 'unknown',
+            confidence: calculateStreetConfidence(element.tags || {}, distance)
+          })
+        }
+      }
+    }
+    
+    console.log(`✅ Found ${streets.length} immediate streets`)
+    return streets
+    
+  } catch (error) {
+    console.error('❌ Error finding immediate streets:', error)
+    return []
+  }
+}
+
+// Generate directional trigger points (LEGACY FUNCTION)
+async function generateDirectionalTriggerPoints(poiLat: number, poiLng: number, streets: any[], boundaryCoordinates?: Array<{lat: number, lng: number}>) {
+  const triggerPoints = []
+  
+  // Define cardinal directions for analysis
+  // Enhanced 8-direction analysis for better POV coverage
+  const directions = [
+    { name: 'North', bearing: 0, range: [337.5, 22.5] },
+    { name: 'NorthEast', bearing: 45, range: [22.5, 67.5] },
+    { name: 'East', bearing: 90, range: [67.5, 112.5] },
+    { name: 'SouthEast', bearing: 135, range: [112.5, 157.5] },
+    { name: 'South', bearing: 180, range: [157.5, 202.5] },
+    { name: 'SouthWest', bearing: 225, range: [202.5, 247.5] },
+    { name: 'West', bearing: 270, range: [247.5, 292.5] },
+    { name: 'NorthWest', bearing: 315, range: [292.5, 337.5] }
+  ]
+  
+  console.log(`🧭 Analyzing streets in cardinal directions with frontal view priority...`)
+  
+  for (const direction of directions) {
+    let bestStreet = null
+    let bestScore = 0
+    let minDistance = Infinity
+    
+    // Find best street in this direction (prioritizing frontal streets)
+    for (const street of streets) {
+      const bearing = calculateBearing(poiLat, poiLng, street.closestPoint.lat, street.closestPoint.lng)
+      
+      // Check if street is in this cardinal direction
+      const isInDirection = isInBearingRange(bearing, [direction.range[0], direction.range[1]])
+      
+      if (isInDirection && street.distance >= 25 && street.distance <= 80) {
+        // Prioritize closer streets and higher confidence
+        const score = street.confidence / Math.max(1, street.distance / 10)
+        
+        if (score > bestScore || (score === bestScore && street.distance < minDistance)) {
+          bestStreet = street
+          bestScore = score
+          minDistance = street.distance
+        }
+      }
+    }
+    
+    if (bestStreet) {
+      const hasVisibility = boundaryCoordinates 
+        ? await checkVisibilityToPOI(bestStreet.closestPoint, boundaryCoordinates, poiLat, poiLng)
+        : true // If no boundary, assume visibility
+        
+      if (hasVisibility) {
+        const bearing = calculateBearing(bestStreet.closestPoint.lat, bestStreet.closestPoint.lng, poiLat, poiLng)
+        
+        triggerPoints.push({
+          lat: bestStreet.closestPoint.lat,
+          lng: bestStreet.closestPoint.lng,
+          type: 'primary',
+          reasoning: `Ponto ${direction.name} na ${bestStreet.name} com POV frontal`,
+          confidence: bestStreet.confidence,
+          distance_from_poi: bestStreet.distance,
+          expected_bearing: bearing,
+          radius_meters: 20,
+          street_name: bestStreet.name,
+          highway_type: bestStreet.highway_type,
+          auto_status: 'review'
+        })
+        
+        console.log(`✅ ${direction.name}: ${bestStreet.name} at ${bestStreet.distance.toFixed(1)}m`)
+      }
+    }
+  }
+  
+  return triggerPoints
+}
+
+// Helper function to check if bearing is in range
+function isInBearingRange(bearing: number, range: [number, number]): boolean {
+  const [start, end] = range
+  if (start <= end) {
+    return bearing >= start && bearing <= end
+  } else {
+    // Handle wrap-around (e.g., North: 337.5 to 22.5)
+    return bearing >= start || bearing <= end
+  }
+}
+
+// ========================================
+// DATABASE INTEGRATION FUNCTIONS
+// ========================================
+
+// Save POI confidence score to database
+async function savePOIConfidenceScore(supabase: any, poiId: string, confidenceScore: number, boundarySource: string) {
+  try {
+    console.log(`💾 Saving POI confidence score: ${confidenceScore} (source: ${boundarySource})`)
+    
+    const { error } = await supabase
+      .from('description_scores')
+      .upsert({
+        attraction_id: poiId,
+        confidence_score: confidenceScore,
+        boundary_source: boundarySource,
+        updated_at: new Date().toISOString()
+      })
+    
+    if (error) {
+      console.error('❌ Error saving POI confidence score:', error)
+      return { success: false, error: error.message }
+    }
+    
+    console.log('✅ POI confidence score saved successfully')
+    return { success: true }
+    
+  } catch (error) {
+    console.error('❌ Error in savePOIConfidenceScore:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+// Enrich attraction with OSM data
+async function enrichAttractionWithOSMData(supabase: any, poiId: string, boundary: any, osmData?: any) {
+  try {
+    console.log(`💾 Enriching attraction ${poiId} with OSM data`)
+    
+    const enrichmentData = {
+      osm_boundary: boundary,
+      osm_data: osmData || {},
+      osm_enriched_at: new Date().toISOString(),
+      boundary_confidence: boundary.confidence,
+      boundary_source: boundary.source
+    }
+    
+    const { error } = await supabase
+      .from('attractions')
+      .update(enrichmentData)
+      .eq('id', poiId)
+    
+    if (error) {
+      console.error('❌ Error enriching attraction with OSM data:', error)
+      return { success: false, error: error.message }
+    }
+    
+    console.log('✅ Attraction enriched with OSM data successfully')
+    return { success: true }
+    
+  } catch (error) {
+    console.error('❌ Error in enrichAttractionWithOSMData:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+// Calculate comprehensive POI confidence score
+function calculatePOIConfidenceScore(boundary: any, triggerPoints: any[], boundarySource: string, landmarkInfo?: any): number {
+  let score = 0.5 // Base score
+  
+  // Boundary confidence contribution (40% of total)
+  score += (boundary.confidence || 0.5) * 0.4
+  
+  // Boundary source bonus
+  const sourceBonus = {
+    'osm_nominatim': 0.3,
+    'osm_reverse_geocoding': 0.25,
+    'osm_nearby': 0.2,
+    'unified_overpass': 0.15,
+    'estimated': 0.0
+  }
+  score += sourceBonus[boundarySource] || 0.0
+  
+  // Trigger points quality (30% of total)
+  if (triggerPoints.length > 0) {
+    const avgTriggerConfidence = triggerPoints.reduce((sum, tp) => sum + tp.confidence, 0) / triggerPoints.length
+    score += avgTriggerConfidence * 0.3
+  }
+  
+  // Trigger points quantity bonus (10% of total)
+  const quantityBonus = Math.min(triggerPoints.length / 10, 0.1)
+  score += quantityBonus
+  
+  // Landmark bonus (20% of total)
+  if (landmarkInfo?.isHighVisibility) {
+    score += 0.2
+  }
+  
+  return Math.max(0.1, Math.min(1.0, score))
 }
 
 // Generate optimal trigger points based on boundary (LEGACY FALLBACK METHOD)
@@ -1381,12 +2030,53 @@ serve(async (req) => {
     
     console.log(`🎯 Step 2: Generating trigger points`)
     
-    // Step 2: Generate trigger points using legacy logic (landmarkInfo already defined above)
-    const triggerPoints = await generateStreetBasedTriggerPoints(boundary, lat, lng, name, landmarkInfo)
+    // Step 2: Generate trigger points using enhanced legacy logic
+    let triggerPoints = await generateStreetBasedTriggerPoints(boundary, lat, lng, name, landmarkInfo)
     
     console.log(`✅ Generated ${triggerPoints.length} trigger points`)
     
-    // Calculate overall confidence
+    // CRITICAL LEGACY LOGIC: If no very close TPs were found (all > 80m), supplement with immediate streets
+    const veryCloseTPs = triggerPoints.filter(tp => tp.distance_from_poi <= 80)
+    if (veryCloseTPs.length === 0) {
+      console.log(`⚠️ No very close TPs found (all > 80m) - supplementing with immediate street analysis`)
+      
+      try {
+        const immediateStreets = await findImmediateStreets(lat, lng)
+        if (immediateStreets && immediateStreets.length > 0) {
+          const immediateTPs = await generateDirectionalTriggerPoints(lat, lng, immediateStreets, boundary.coordinates)
+          
+          // Mark these as supplementary and merge with existing TPs
+          const supplementaryTPs = immediateTPs.map(tp => ({
+            ...tp,
+            reasoning: tp.reasoning + ' (supplementary close TP)',
+            type: (tp.distance_from_poi <= 50 ? 'primary' : 'secondary') as 'primary' | 'secondary'
+          }))
+          
+          triggerPoints = [...supplementaryTPs, ...triggerPoints]
+          console.log(`✅ Added ${supplementaryTPs.length} supplementary close TPs`)
+        }
+      } catch (error) {
+        console.error('⚠️ Error generating immediate TPs (non-critical):', error)
+      }
+    } else {
+      console.log(`✅ Found ${veryCloseTPs.length} very close TPs (≤80m), no supplementary analysis needed`)
+    }
+    
+    // Step 3: Calculate comprehensive POI confidence score
+    const poiConfidenceScore = calculatePOIConfidenceScore(boundary, triggerPoints, boundarySource, landmarkInfo)
+    console.log(`📊 POI Confidence Score: ${(poiConfidenceScore * 100).toFixed(1)}%`)
+    
+    // Step 4: Save to database (optional - for data persistence)
+    try {
+      await savePOIConfidenceScore(supabase, poi_id, poiConfidenceScore, boundarySource)
+      await enrichAttractionWithOSMData(supabase, poi_id, boundary, { landmarkInfo, boundarySource })
+      console.log('💾 Database updates completed successfully')
+    } catch (dbError) {
+      console.error('⚠️ Database save failed (non-critical):', dbError)
+      // Continue execution - database save is optional
+    }
+    
+    // Calculate overall confidence for response
     const avgConfidence = triggerPoints.length > 0 
       ? triggerPoints.reduce((sum, tp) => sum + tp.confidence, 0) / triggerPoints.length
       : boundary.confidence
@@ -1409,6 +2099,8 @@ serve(async (req) => {
         landmark_info: landmarkInfo,
         boundary_method: boundarySource,
         total_candidates: triggerPoints.length,
+        poi_confidence_score: poiConfidenceScore,
+        database_saved: true,
         processing_time_ms: Date.now() - Date.now() // Will be calculated properly
       }
     }
