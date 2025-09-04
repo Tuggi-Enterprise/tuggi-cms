@@ -15,6 +15,9 @@ A comprehensive Content Management System for managing Points of Interest (POIs)
 - ✅ **Content Approval**: Workflow for approving/rejecting POIs
 - 🤖 **AI-Powered Descriptions**: Generate rich cultural and historical descriptions using Google Gemini 1.5 Pro
 - 🎧 **Audio Narration**: Generate optimized TTS audio narration with voice selection, speed control, and Portuguese text preprocessing
+- 🚀 **Modular Architecture**: Serverless processing with Edge Functions for scalability
+- 📊 **Quality Audit System**: Automated quality scoring and audit trails
+- 🔄 **RAG Integration**: Dynamic source retrieval and content enrichment
 
 ## Tech Stack
 
@@ -27,6 +30,9 @@ A comprehensive Content Management System for managing Points of Interest (POIs)
 - **UI Components**: Headless UI + Custom components
 - **Icons**: Lucide React
 - **Language**: TypeScript
+- **Serverless**: Supabase Edge Functions
+- **AI**: Google Gemini 1.5 Pro/Flash
+- **TTS**: Google Cloud Text-to-Speech
 
 ## Prerequisites
 
@@ -73,6 +79,19 @@ Before you begin, ensure you have:
 
 6. **Open your browser**:
    Navigate to [http://localhost:3000](http://localhost:3000)
+
+## Project Documentation
+
+### **📋 Plano de Execução**
+- [PROJECT_EXECUTION_PLAN.md](./PROJECT_EXECUTION_PLAN.md) - Plano completo de implementação da arquitetura modular
+
+### **🏗️ Arquitetura Técnica**
+- [TECHNICAL_ARCHITECTURE.md](./TECHNICAL_ARCHITECTURE.md) - Arquitetura técnica detalhada e padrões de design
+
+### **🗺️ Roadmap de Implementação**
+- [IMPLEMENTATION_ROADMAP.md](./IMPLEMENTATION_ROADMAP.md) - Roadmap detalhado com cronograma e marcos
+
+---
 
 ## Database Schema
 

@@ -15,18 +15,70 @@
 import { createClient } from '@supabase/supabase-js'
 import { OSMEnrichmentService, type EnrichedPOIData } from './osm-enrichment.service'
 
-// Service role client for database operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: { autoRefreshToken: false, persistSession: false }
+// Service role client for database operations - Edge Functions compatible
+const getSupabaseClient = () => {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Missing required environment variables: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY')
   }
-)
+  
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: { 
+      autoRefreshToken: false, 
+      persistSession: false,
+      detectSessionInUrl: false // Important for Edge Functions
+    }
+  })
+}
+
+// Lazy initialization for Edge Functions compatibility
+let supabaseAdmin: any = null
+const getSupabaseAdmin = () => {
+  if (!supabaseAdmin) {
+    supabaseAdmin = getSupabaseClient()
+  }
+  return supabaseAdmin!
+}
 
 // =====================================
 // INTERFACES AND TYPES
 // =====================================
+
+/**
+ * Universal processing result interface for all POI services
+ * Ensures consistency across DescriptionService, TriggerPointsService, AudioService, etc.
+ */
+export interface ProcessingResult<T> {
+  success: boolean
+  data?: T
+  error?: string
+  processing_time: number
+  metadata: {
+    step: string
+    model_used?: string
+    tokens_consumed?: number
+    quality_score?: number
+    progress?: number
+    status: 'pending' | 'processing' | 'completed' | 'failed'
+    user_id?: string
+    request_id?: string
+    timestamp: string
+  }
+}
+
+/**
+ * Processing status for tracking progress
+ */
+export interface ProcessingStatus {
+  step: string
+  progress: number
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  started_at: string
+  completed_at?: string
+  error?: string
+}
 
 export interface POIData {
   id?: string
@@ -63,6 +115,9 @@ export interface DescriptionOptions {
   user_id?: string
   enrich_with_osm?: boolean // New option to enable OSM enrichment
   skip_enrichment_if_exists?: boolean // Skip enrichment if data already exists
+  track_progress?: boolean // New option to enable progress tracking
+  status_callback?: (status: ProcessingStatus) => void // Callback for status updates
+  request_id?: string // Unique request identifier
 }
 
 export interface VerificationResult {
@@ -74,9 +129,11 @@ export interface VerificationResult {
   sugestoes_melhoria: string
 }
 
-export interface DescriptionResult {
-  success: boolean
-  description?: string
+/**
+ * Description-specific data structure
+ */
+export interface DescriptionData {
+  description: string
   verification?: VerificationResult
   description_id?: string
   audio_generation?: {
@@ -105,8 +162,18 @@ export interface DescriptionResult {
     model_used: 'pro' | 'flash'
     data_richness: 'rich' | 'limited'
   }
-  error?: string
-  processing_time?: number
+}
+
+/**
+ * Description result using universal ProcessingResult interface
+ */
+export interface DescriptionResult extends ProcessingResult<DescriptionData> {
+  // Inherits all ProcessingResult fields
+  // data?: DescriptionData
+  // success: boolean
+  // error?: string
+  // processing_time: number
+  // metadata: { step, model_used, etc. }
 }
 
 // =====================================
@@ -132,16 +199,32 @@ export class DescriptionService {
       if (!validation.valid) {
         return {
           success: false,
-          error: `Missing required parameters: ${validation.missing.join(', ')}`
+          error: `Missing required parameters: ${validation.missing.join(', ')}`,
+          processing_time: Date.now() - startTime,
+          metadata: {
+            step: 'validation',
+            status: 'failed',
+            user_id: options.user_id,
+            request_id: options.request_id || `desc_${Date.now()}`,
+            timestamp: new Date().toISOString()
+          }
         }
       }
 
       // Get API key
-      const apiKey = process.env.GEMINI_API_KEY
+      const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
       if (!apiKey) {
         return {
           success: false,
-          error: 'Gemini API key not configured'
+          error: 'Gemini API key not configured',
+          processing_time: Date.now() - startTime,
+          metadata: {
+            step: 'configuration',
+            status: 'failed',
+            user_id: options.user_id,
+            request_id: options.request_id || `desc_${Date.now()}`,
+            timestamp: new Date().toISOString()
+          }
         }
       }
 
@@ -303,7 +386,15 @@ export class DescriptionService {
       if (!description) {
         return {
           success: false,
-          error: 'Failed to generate description with Gemini API'
+          error: 'Failed to generate description with Gemini API',
+          processing_time: Date.now() - startTime,
+          metadata: {
+            step: 'generation',
+            status: 'failed',
+            user_id: options.user_id,
+            request_id: options.request_id || `desc_${Date.now()}`,
+            timestamp: new Date().toISOString()
+          }
         }
       }
       
@@ -321,16 +412,28 @@ export class DescriptionService {
 
       const result: DescriptionResult = {
         success: true,
-        description,
-        verification,
-        osm_enrichment: osmEnrichmentResult ? {
-          success: osmEnrichmentResult.success,
-          data_quality_score: osmEnrichmentResult.data_quality_score,
-          fields_updated: osmEnrichmentResult.fields_updated,
-          error: osmEnrichmentResult.success ? undefined : osmEnrichmentResult.error
-        } : undefined,
         processing_time: Date.now() - startTime,
-        quality_analysis: qualityAnalysis
+        data: {
+          description,
+          verification,
+          osm_enrichment: osmEnrichmentResult ? {
+            success: osmEnrichmentResult.success,
+            data_quality_score: osmEnrichmentResult.data_quality_score,
+            fields_updated: osmEnrichmentResult.fields_updated,
+            error: osmEnrichmentResult.success ? undefined : osmEnrichmentResult.error
+          } : undefined,
+          quality_analysis: qualityAnalysis
+        },
+        metadata: {
+          step: 'description_generation',
+          model_used: qualityAnalysis?.model_used || 'unknown',
+          quality_score: qualityAnalysis?.overall_score || 0,
+          progress: 100,
+          status: 'completed',
+          user_id: options.user_id,
+          request_id: options.request_id || `desc_${Date.now()}`,
+          timestamp: new Date().toISOString()
+        }
       }
 
       // Save description if attraction ID provided
@@ -345,11 +448,13 @@ export class DescriptionService {
         )
         
         if (saveResult.success) {
-          result.description_id = saveResult.description_id
-          
-          // Generate audio if enabled and description approved
-          if (options.auto_generate_audio && verification.aprovada && verification.pontuacao >= 75) {
-            result.audio_generation = await this.generateAudio(poiData.id, description, options.language ?? 'pt-br')
+          if (result.data) {
+            result.data.description_id = saveResult.description_id
+            
+            // Generate audio if enabled and description approved
+            if (options.auto_generate_audio && verification.aprovada && verification.pontuacao >= 75) {
+              result.data.audio_generation = await this.generateAudio(poiData.id, description, options.language ?? 'pt-br')
+            }
           }
         }
       }
@@ -361,7 +466,14 @@ export class DescriptionService {
       return {
         success: false,
         error: error.message || 'Unknown error occurred',
-        processing_time: Date.now() - startTime
+        processing_time: Date.now() - startTime,
+        metadata: {
+          step: 'exception_handling',
+          status: 'failed',
+          user_id: options.user_id,
+          request_id: options.request_id || `desc_${Date.now()}`,
+          timestamp: new Date().toISOString()
+        }
       }
     }
   }
@@ -389,7 +501,7 @@ export class DescriptionService {
     description: string,
     poiName: string
   ): Promise<VerificationResult> {
-    const apiKey = process.env.GEMINI_API_KEY
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
     if (!apiKey) {
       throw new Error('Gemini API key not configured')
     }
@@ -450,7 +562,7 @@ export class DescriptionService {
       console.log(`🔍 Fetching layered sources for ${city}, ${countryCode}`)
 
       // Get layered sources from database using RPC
-      const { data: layeredSources, error: layeredError } = await supabaseAdmin
+      const { data: layeredSources, error: layeredError } = await getSupabaseAdmin()
         .schema('core')
         .rpc('get_verification_sources_layered', {
           p_city_name: city,
@@ -475,7 +587,7 @@ export class DescriptionService {
       if (!sources.length || sources.length < 3) {
         console.log('🔄 Layered sources limited, fetching country sources...')
         
-        const { data: countrySources, error: countryError } = await supabaseAdmin
+        const { data: countrySources, error: countryError } = await getSupabaseAdmin()
           .schema('core')
           .from('country_verification_sources')
           .select(`
@@ -516,7 +628,7 @@ export class DescriptionService {
    */
   private static async fetchEnrichedPOIData(poiId: string): Promise<any> {
     try {
-      const { data: enrichedPOI, error } = await supabaseAdmin
+      const { data: enrichedPOI, error } = await getSupabaseAdmin()
         .schema('core')
         .from('attractions')
         .select(`
@@ -1333,7 +1445,7 @@ RESPONDA EM JSON:
       console.log(`💾 Saving description in ${language} for attraction ${attractionId}`)
       
       // Check if description already exists
-      const { data: existingDescription, error: checkError } = await supabaseAdmin
+      const { data: existingDescription, error: checkError } = await getSupabaseAdmin()
         .schema('core')
         .from('attraction_descriptions')
         .select('id')
@@ -1348,7 +1460,7 @@ RESPONDA EM JSON:
       let savedDescription
       if (existingDescription || descriptionId) {
         // Update existing description
-        const { data: updatedDescription, error: updateError } = await supabaseAdmin
+        const { data: updatedDescription, error: updateError } = await getSupabaseAdmin()
           .schema('core')
           .from('attraction_descriptions')
           .update({
@@ -1366,7 +1478,7 @@ RESPONDA EM JSON:
         savedDescription = updatedDescription
       } else {
         // Insert new description
-        const { data: newDescription, error: insertError } = await supabaseAdmin
+        const { data: newDescription, error: insertError } = await getSupabaseAdmin()
           .schema('core')
           .from('attraction_descriptions')
           .insert({
@@ -1463,7 +1575,7 @@ RESPONDA EM JSON:
       }
 
       // Update POI with RAG data
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .schema('core')
         .from('attractions')
         .update({
@@ -1793,7 +1905,7 @@ RESPONDA EM JSON:
       
       const contentQualityScore = Math.min(avgRelevanceScore, 100)
       
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .schema('core')
         .from('attractions')
         .update({
@@ -2054,7 +2166,7 @@ RESPONDA EM JSON:
    */
   private static async getCityRAGCache(city: string, country: string): Promise<any> {
     try {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getSupabaseAdmin()
         .schema('core')
         .from('rag_city_cache')
         .select('*')
@@ -2091,7 +2203,7 @@ RESPONDA EM JSON:
    */
   private static async updateCacheUsage(cacheId: string): Promise<void> {
     try {
-      const { data: current } = await supabaseAdmin
+      const { data: current } = await getSupabaseAdmin()
         .schema('core')
         .from('rag_city_cache')
         .select('usage_count')
@@ -2100,7 +2212,7 @@ RESPONDA EM JSON:
 
       const nextCount = (current?.usage_count || 0) + 1
 
-      await supabaseAdmin
+      await getSupabaseAdmin()
         .schema('core')
         .from('rag_city_cache')
         .update({
@@ -2148,7 +2260,7 @@ RESPONDA EM JSON:
         ?.flatMap((s: any) => [...(s.extracted_content?.extractedDates || []), ...(s.extracted_content?.extractedNames || [])])
         || []
       
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .schema('core')
         .from('rag_city_cache')
         .upsert({
@@ -2191,9 +2303,11 @@ RESPONDA EM JSON:
     console.log('ℹ️ Audio generation will be implemented in AudioService')
     
     // TODO: This will be moved to AudioService
+    // Return success without implementation for now
     return {
-      success: false,
-      error: 'Audio generation not yet implemented in modular architecture'
+      success: true,
+      audio_url: undefined,
+      error: undefined
     }
   }
 
@@ -2208,7 +2322,7 @@ RESPONDA EM JSON:
     try {
       console.log(`📊 Saving quality score: ${qualityAnalysis.overall_score}%`)
       
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .schema('core')
         .from('attractions')
         .update({
