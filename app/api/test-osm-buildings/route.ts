@@ -1,5 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+interface OSMElement {
+  type: string;
+  id: number;
+  tags?: {
+    [key: string]: string;
+  };
+  lat?: number;
+  lon?: number;
+  center?: {
+    lat: number;
+    lon: number;
+  };
+  nodes?: Array<{
+    lat: number;
+    lon: number;
+  }>;
+  geometry?: Array<{
+    lat: number;
+    lon: number;
+  }>;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -44,7 +66,7 @@ out geom;`;
     // Analyze structure of first few buildings
     const analysis = {
       totalElements: data.elements?.length || 0,
-      elementTypes: {},
+      elementTypes: {} as { [key: string]: number },
       sampleStructures: [],
       heightAnalysis: {
         withHeight: 0,
@@ -63,7 +85,7 @@ out geom;`;
     };
 
     // Analyze each element
-    data.elements?.forEach((element, index) => {
+    data.elements?.forEach((element: OSMElement, index: number) => {
       // Count element types
       analysis.elementTypes[element.type] = (analysis.elementTypes[element.type] || 0) + 1;
 
@@ -118,7 +140,7 @@ out geom;`;
 
     // Test coordinate extraction for first few buildings
     const coordinateTests = [];
-    data.elements?.slice(0, 3).forEach((element, index) => {
+    data.elements?.slice(0, 3).forEach((element: OSMElement, index: number) => {
       const test = {
         buildingIndex: index + 1,
         type: element.type,
@@ -172,7 +194,7 @@ out geom;`;
       }
     };
 
-    data.elements?.forEach((element) => {
+    data.elements?.forEach((element: OSMElement) => {
       const tags = element.tags || {};
       const heightStr = tags.height || tags['building:height'];
       let height = null;

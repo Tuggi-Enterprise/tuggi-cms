@@ -3912,6 +3912,11 @@ async function savePOIConfidenceScore(
   try {
     console.log(`📊 Saving POI confidence score: ${(confidenceScore.overall_score * 100).toFixed(1)}%`)
     
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+    
     const { error } = await supabase
       .schema('core')
       .from('attractions')
