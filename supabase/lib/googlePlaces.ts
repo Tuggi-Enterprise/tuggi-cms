@@ -9,23 +9,14 @@ interface PlaceSearchResult {
     }
   }
   types: string[]
-  rating?: number
-  user_ratings_total?: number
   photos?: Array<{
     photo_reference: string
     height: number
     width: number
   }>
-  website?: string
-  opening_hours?: {
-    open_now: boolean
-    weekday_text: string[]
-  }
-  price_level?: number
 }
 
 interface PlaceDetailsResult extends PlaceSearchResult {
-  formatted_phone_number?: string
   international_phone_number?: string
   url?: string
   vicinity?: string
@@ -363,8 +354,6 @@ export class MockGooglePlacesService {
           }
         },
         types: [type, 'point_of_interest'],
-        rating: Number((Math.random() * 2 + 3).toFixed(1)), // 3.0 - 5.0
-        user_ratings_total: Math.floor(Math.random() * 500) + 50,
         photos: [{
           photo_reference: `mock_photo_${type}_1`,
           height: 400,
@@ -381,9 +370,7 @@ export class MockGooglePlacesService {
             lng: center.lng + (Math.random() - 0.5) * 0.01
           }
         },
-        types: [type, 'point_of_interest'],
-        rating: Number((Math.random() * 2 + 3).toFixed(1)),
-        user_ratings_total: Math.floor(Math.random() * 300) + 30
+        types: [type, 'point_of_interest']
       },
       {
         place_id: `mock_${type}_3`,
@@ -395,9 +382,7 @@ export class MockGooglePlacesService {
             lng: center.lng + (Math.random() - 0.5) * 0.01
           }
         },
-        types: [type, 'point_of_interest'],
-        rating: Number((Math.random() * 2 + 3).toFixed(1)),
-        user_ratings_total: Math.floor(Math.random() * 200) + 10
+        types: [type, 'point_of_interest']
       }
     ]
   }
@@ -411,11 +396,7 @@ export class MockGooglePlacesService {
       geometry: {
         location: { lat: 40.7128, lng: -74.0060 }
       },
-      types: ['tourist_attraction'],
-      rating: 4.2,
-      user_ratings_total: 150,
-      website: 'https://example.com',
-      formatted_phone_number: '+1 (555) 123-4567'
+      types: ['tourist_attraction']
     }
   }
 

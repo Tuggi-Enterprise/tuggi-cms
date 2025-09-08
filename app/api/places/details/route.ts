@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   try {
     const params = new URLSearchParams({
       place_id,
-      fields: fields || 'place_id,name,formatted_address,geometry,types,rating,user_ratings_total,photos,website,opening_hours,formatted_phone_number,international_phone_number,url,vicinity,business_status,price_level,address_components',
+      fields: fields || 'place_id,name,formatted_address,geometry,types,photos,url,vicinity,business_status,address_components',
       key: apiKey,
     })
 

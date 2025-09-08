@@ -9,23 +9,14 @@ interface PlaceSearchResult {
     }
   }
   types: string[]
-  rating?: number
-  user_ratings_total?: number
   photos?: Array<{
     photo_reference: string
     height: number
     width: number
   }>
-  website?: string
-  opening_hours?: {
-    open_now: boolean
-    weekday_text: string[]
-  }
-  price_level?: number
 }
 
 interface PlaceDetailsResult extends PlaceSearchResult {
-  formatted_phone_number?: string
   international_phone_number?: string
   url?: string
   vicinity?: string
@@ -37,11 +28,6 @@ interface PlaceDetailsResult extends PlaceSearchResult {
   editorial_summary?: {
     overview: string
   }
-  reviews?: Array<{
-    rating: number
-    text: string
-    time: number
-  }>
 }
 
 interface POIEnrichmentData {
@@ -254,7 +240,7 @@ class GooglePlacesService {
   async getPlaceDetails(placeId: string): Promise<PlaceDetailsResult | null> {
     const params = new URLSearchParams({
       place_id: placeId,
-      fields: 'place_id,name,formatted_address,geometry,types,rating,user_ratings_total,photos,website,opening_hours,formatted_phone_number,international_phone_number,url,vicinity,business_status,price_level,address_components',
+      fields: 'place_id,name,formatted_address,geometry,types,photos,international_phone_number,url,vicinity,business_status,address_components',
       language: this.language, // Add language parameter
     })
 
@@ -393,8 +379,6 @@ export class MockGooglePlacesService {
           }
         },
         types: [type, 'point_of_interest'],
-        rating: Number((Math.random() * 2 + 3).toFixed(1)), // 3.0 - 5.0
-        user_ratings_total: Math.floor(Math.random() * 500) + 50,
         photos: [{
           photo_reference: `mock_photo_${type}_1`,
           height: 400,
@@ -411,9 +395,7 @@ export class MockGooglePlacesService {
             lng: center.lng + (Math.random() - 0.5) * 0.01
           }
         },
-        types: [type, 'point_of_interest'],
-        rating: Number((Math.random() * 2 + 3).toFixed(1)),
-        user_ratings_total: Math.floor(Math.random() * 300) + 30
+        types: [type, 'point_of_interest']
       },
       {
         place_id: `mock_${type}_3`,
@@ -425,9 +407,7 @@ export class MockGooglePlacesService {
             lng: center.lng + (Math.random() - 0.5) * 0.01
           }
         },
-        types: [type, 'point_of_interest'],
-        rating: Number((Math.random() * 2 + 3).toFixed(1)),
-        user_ratings_total: Math.floor(Math.random() * 200) + 10
+        types: [type, 'point_of_interest']
       }
     ]
   }
@@ -441,11 +421,7 @@ export class MockGooglePlacesService {
       geometry: {
         location: { lat: 40.7128, lng: -74.0060 }
       },
-      types: ['tourist_attraction'],
-      rating: 4.2,
-      user_ratings_total: 150,
-      website: 'https://example.com',
-      formatted_phone_number: '+1 (555) 123-4567'
+      types: ['tourist_attraction']
     }
   }
 
@@ -506,15 +482,10 @@ export async function enrichPOIData(googlePlaceId: string): Promise<POIEnrichmen
       'formatted_address',
       'vicinity',
       'geometry',
-      'rating',
-      'user_ratings_total',
-      'price_level',
       'business_status',
       'editorial_summary',
       'plus_code',
-      'website',
-      'photos',
-      'reviews'
+      'photos'
     ].join(',')
 
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
@@ -581,9 +552,7 @@ function analyzeAndClassifyPOI(details: PlaceDetailsResult): POIEnrichmentData {
 
   // Classificação de atração turística
   const isTouristAttraction = types.includes('tourist_attraction') ||
-                             types.includes('point_of_interest') ||
-                             (details.rating && details.rating > 4.0) ||
-                             (details.user_ratings_total && details.user_ratings_total > 100)
+                             types.includes('point_of_interest')
 
   // Classificação de característica natural
   const isNaturalFeature = types.some(type => 
@@ -630,15 +599,15 @@ function analyzeAndClassifyPOI(details: PlaceDetailsResult): POIEnrichmentData {
     types: details.types || [],
     formatted_address: details.formatted_address,
     vicinity: details.vicinity,
-    rating: details.rating,
-    user_ratings_total: details.user_ratings_total,
-    price_level: details.price_level,
+    rating: undefined,
+    user_ratings_total: undefined,
+    price_level: undefined,
     business_status: details.business_status,
     editorial_summary: details.editorial_summary?.overview,
     plus_code: details.plus_code?.global_code,
-    website: details.website,
+    website: undefined,
     photos_count: details.photos?.length || 0,
-    reviews_count: details.reviews?.length || 0,
+    reviews_count: 0,
     is_tourist_attraction: Boolean(isTouristAttraction),
     is_natural_feature: isNaturalFeature,
     is_large_area: isLargeArea,
