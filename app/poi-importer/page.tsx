@@ -994,56 +994,13 @@ export default function POIImporterPage() {
           console.log(`Found ${placeData.photos.length} photos for ${placeData.name}, using only the primary image`)
         }
 
-        // Enhanced attraction data with new database fields
-        const attractionData = {
-          name: placeData.name,
-          google_place_id: placeData.place_id, // Updated field name
-          city: city,
-          country: country,
-          approved: false,
-          rating: placeData.rating || null,
-          user_ratings_total: placeData.user_ratings_total || null,
-          image_url: imageUrl,
-          formatted_address: placeData.formatted_address,
-          google_types: placeData.types || [],
-          website: placeData.website || null,
-          opening_hours: placeData.opening_hours || null,
-          // New Google Places API fields
-          price_level: placeData.price_level || null,
-          formatted_phone_number: (placeData as any).formatted_phone_number || null,
-          international_phone_number: (placeData as any).international_phone_number || null,
-          business_status: (placeData as any).business_status || 'OPERATIONAL',
-          vicinity: (placeData as any).vicinity || null,
-          // Import tracking fields
-          import_source: 'poi_importer',
-          import_batch_id: batchId,
-          user_id: user.id // Set the user who imported this place
-        }
-
-        const { data: newAttraction, error: attractionError } = await supabase
-          .schema('core')
-          .from('attractions')
-          .insert(attractionData)
-          .select()
-          .single()
-
-        if (attractionError) throw attractionError
-
-        const { error: coordinateError } = await supabase
-          .schema('core')
-          .from('attraction_coordinate')
-          .insert({
-            attraction_id: newAttraction.id,
-            latitude: placeData.geometry.location.lat,
-            longitude: placeData.geometry.location.lng
-          })
-
-        if (coordinateError) throw coordinateError
-
-                // Use Edge Function to store images in Supabase Storage
+        // Process images first if available
         if (photoReferences.length > 0) {
           try {
             setImportStatus(`Storing images in Supabase for ${placeData.name}...`)
+            
+            // First, store photo references in attraction_image table
+            await storePhotoReferencesOnly(placeData.place_id, photoReferences)
             
             // Call Edge Function to download and store images
             const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/store-poi-images`, {
@@ -1053,7 +1010,7 @@ export default function POIImporterPage() {
                 'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`
               },
               body: JSON.stringify({
-                attractionId: newAttraction.id,
+                attractionId: placeData.place_id, // Use place_id temporarily
                 googlePlaceId: placeData.place_id,
                 photoReferences: photoReferences,
                 attractionName: placeData.name
@@ -1077,11 +1034,68 @@ export default function POIImporterPage() {
           }
         }
 
+        // Enhanced attraction data with new database fields
+        const attractionData = {
+          name: placeData.name,
+          google_place_id: placeData.place_id,
+          city: city,
+          country: country,
+          approved: false,
+          rating: placeData.rating || null,
+          user_ratings_total: placeData.user_ratings_total || null,
+          image_url: imageUrl, // Now we have the Supabase URL
+          formatted_address: placeData.formatted_address,
+          google_types: placeData.types || [],
+          website: placeData.website || null,
+          opening_hours: placeData.opening_hours || null,
+          price_level: placeData.price_level || null,
+          formatted_phone_number: (placeData as any).formatted_phone_number || null,
+          international_phone_number: (placeData as any).international_phone_number || null,
+          business_status: (placeData as any).business_status || 'OPERATIONAL',
+          vicinity: (placeData as any).vicinity || null,
+          import_source: 'poi_importer',
+          import_batch_id: batchId,
+          user_id: user.id
+        }
+
+        const { data: newAttraction, error: attractionError } = await supabase
+          .schema('core')
+          .from('attractions')
+          .insert(attractionData)
+          .select()
+          .single()
+
+        if (attractionError) throw attractionError
+
+        const { error: coordinateError } = await supabase
+          .schema('core')
+          .from('attraction_coordinate')
+          .insert({
+            attraction_id: newAttraction.id,
+            latitude: placeData.geometry.location.lat,
+            longitude: placeData.geometry.location.lng
+          })
+
+        if (coordinateError) throw coordinateError
+
+        // Update attraction_image records with the correct attraction_id
+        if (photoReferences.length > 0) {
+          const { error: updateError } = await supabase
+            .schema('core')
+            .from('attraction_image')
+            .update({ attraction_id: newAttraction.id })
+            .eq('photo_reference', photoReferences[0])
+
+          if (updateError) {
+            console.warn('Failed to update attraction_id in attraction_image:', updateError)
+          }
+        }
+
         // Helper function to store photo references only
-        async function storePhotoReferencesOnly(attractionId: string, photoRefs: string[]) {
+        async function storePhotoReferencesOnly(placeId: string, photoRefs: string[]) {
           const imageReferences = photoRefs.slice(0, 1).map((photoRef, index) => ({
-            attraction_id: attractionId,
-            storage_path: `pending/${placeData.place_id}/${photoRef}`, // Mark as pending
+            attraction_id: placeId, // Temporarily use place_id
+            storage_path: `pending/${placeId}/${photoRef}`, // Mark as pending
             photo_reference: photoRef
           }))
 
