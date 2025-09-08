@@ -252,10 +252,10 @@ async function detectUrbanDensity(lat, lng) {
 }
 // ========================================
 // VISIBILITY CHECK FUNCTIONS (LEGACY)
-// ========================================
-async function checkVisibilityToPOI(point, boundaryCoordinates, poiLat, poiLng, landmarkInfo) {
-  // ENHANCED visibility check with REAL obstruction detection
-  const distance = calculateDistance(poiLat, poiLng, point.lat, point.lng);
+  // ========================================
+  async function checkVisibilityToPOI(point, boundaryCoordinates, poiLat, poiLng, landmarkInfo, regionalHeight = null, buildings = null) {
+    // SMART visibility check with regional height analysis
+    const distance = calculateDistance(poiLat, poiLng, point.lat, point.lng);
   const poiArea = calculatePolygonArea(boundaryCoordinates);
   const landmark = landmarkInfo || { isHighVisibility: false, maxRange: 800, elevationDiff: 0 };
   
@@ -265,10 +265,10 @@ async function checkVisibilityToPOI(point, boundaryCoordinates, poiLat, poiLng, 
   let bufferDistance = 20;
   
   if (landmark.isHighVisibility) {
-    minDistance = 300;
+    minDistance = 15; // FIXED: High visibility landmarks should accept close points too!
     maxDistance = landmark.maxRange;
     bufferDistance = 10;
-    console.log(`🏔️ High-visibility landmark detected - extended range: ${minDistance}m-${maxDistance}m (elevation diff: ${landmark.elevationDiff}m)`);
+    console.log(`🏔️ High-visibility landmark detected - extended range: ${minDistance}m-${maxDistance}m (elevation diff: ${landmark.elevationDiff || 0}m)`);
   } else if (poiArea > 1000000) {
     minDistance = 50;
     maxDistance = 1200;
@@ -298,18 +298,375 @@ async function checkVisibilityToPOI(point, boundaryCoordinates, poiLat, poiLng, 
   const distanceToBoundary = calculateDistanceToPolygon(point, boundaryCoordinates);
   if (distanceToBoundary < bufferDistance) return false;
   
-  // Step 2: ADVANCED OBSTRUCTION DETECTION
-  const hasObstruction = await checkRealObstructions(point, poiLat, poiLng, landmark);
-  if (hasObstruction) {
-    console.log(`❌ Visibility blocked by obstruction at ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`);
+  // Step 2: ADVANCED OBSTRUCTION DETECTION - TEMPORARILY DISABLED FOR PERFORMANCE
+  // Defensive check for valid coordinates
+  if (!point || typeof point.lat !== 'number' || typeof point.lng !== 'number') {
+    console.log(`❌ Invalid point coordinates: ${JSON.stringify(point)}`);
     return false;
   }
   
-  console.log(`✅ Clear line of sight confirmed at ${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`);
+  // Step 2: LEGACY PERFORMANCE MODE - Smart selective obstruction check
+  // ⚡ PERFORMANCE: Only check obstructions for small POIs in dense urban areas
+  // Skip obstruction check for high-visibility landmarks (like Cristo Redentor)
+  if (poiArea < 100000 && !landmark.isHighVisibility) {
+    console.log(`🏢 Small urban POI (${(poiArea/1000).toFixed(1)}k m²) - checking building obstructions`);
+    try {
+      const hasObstruction = await checkLegacyBuildingObstructions(point, poiLat, poiLng, buildings);
+      if (hasObstruction) {
+        console.log(`🚫 Point filtered out due to building obstruction`);
+        return false;
+      }
+    } catch (error) {
+      console.log('⚠️ Obstruction check failed, allowing trigger point (conservative approach)');
+      // If obstruction check fails, allow the trigger point
+    }
+  } else if (landmark.isHighVisibility) {
+    console.log(`🏔️ High-visibility landmark - skipping building obstruction check for performance`);
+  } else {
+    console.log(`🏞️ Large POI (${(poiArea/1000).toFixed(1)}k m²) - skipping obstruction check for performance`);
+  }
+  
+  console.log(`✅ Point accepted at ${distance.toFixed(0)}m`);
   return true;
 }
 
-// NEW: Comprehensive obstruction detection using OSM data
+// LEGACY: Performant building obstruction check (based on original legacy code)
+async function checkLegacyBuildingObstructions(triggerPoint, poiLat, poiLng, buildings = null) {
+  try {
+    console.log(`🔍 Legacy building obstruction check for point at ${triggerPoint.lat.toFixed(4)}, ${triggerPoint.lng.toFixed(4)}`);
+    
+    // Get POI height for height-aware obstruction calculations
+    const poiHeight = await detectPOIHeight(poiLat, poiLng);
+    
+    // If no real height data, use basic obstruction check (without height awareness)
+    if (poiHeight.confidence === 0.0) {
+      console.log(`⚠️ No REAL POI height data - using basic obstruction check (no height awareness)`);
+      return await checkBasicBuildingObstructions(triggerPoint, poiLat, poiLng);
+    }
+    
+    const poiHeightValue = poiHeight.height;
+    console.log(`🏗️ REAL POI height: ${poiHeightValue}m (confidence: ${poiHeight.confidence}) - checking obstacles`);
+    
+    const distance = calculateDistance(triggerPoint.lat, triggerPoint.lng, poiLat, poiLng);
+    
+    // For very close points, assume good visibility
+    if (distance <= 50) {
+      console.log(`✅ Close point (${distance.toFixed(0)}m) - assuming good visibility`);
+      return false; // No obstruction
+    }
+    
+    // For truly high POIs (relative to urban context), assume good visibility
+    if (poiHeightValue > 150) { // Only very tall buildings can see over most obstructions
+      console.log(`✅ Very high POI (${poiHeightValue}m) - can see over most obstructions`);
+      return false; // No obstruction
+    }
+    
+    // 🚀 MEGA-UNIFIED: Use pre-loaded building data instead of API call
+    let buildingElements = [];
+    
+    if (buildings && buildings.length > 0) {
+      // Filter buildings in the line of sight area (optimized search radius)
+      const searchRadius = Math.min(distance / 2, 200); // Search around midpoint
+      const midLat = (triggerPoint.lat + poiLat) / 2;
+      const midLng = (triggerPoint.lng + poiLng) / 2;
+      
+      buildingElements = buildings.filter(building => {
+        if (!building.geometry || building.geometry.length < 3) return false;
+        
+        // Check if building is within search radius of midpoint
+        const buildingCenter = calculatePolygonCenter(building.geometry.map(node => ({
+          lat: node.lat,
+          lng: node.lon
+        })));
+        const distanceToMid = calculateDistance(midLat, midLng, buildingCenter.lat, buildingCenter.lng);
+        return distanceToMid <= searchRadius;
+      });
+      
+      console.log(`🚀 MEGA-UNIFIED: Using pre-loaded building data - found ${buildingElements.length} potential obstructions`);
+    } else {
+      // Fallback to API call if no building data available
+      console.log(`⚠️ No pre-loaded building data, falling back to API call`);
+      const searchRadius = Math.min(distance / 2, 200);
+      const midLat = (triggerPoint.lat + poiLat) / 2;
+      const midLng = (triggerPoint.lng + poiLng) / 2;
+      
+      const buildingQuery = `[out:json][timeout:25];
+      (
+        way[building](around:${searchRadius},${midLat},${midLng});
+        relation[building](around:${searchRadius},${midLat},${midLng});
+      );
+      out geom tags;`;
+      
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: buildingQuery,
+        headers: {
+          'User-Agent': 'TuggiCMS/1.0 (legacy-obstruction-check)',
+          'Content-Type': 'text/plain'
+        }
+      });
+      
+      if (!response.ok) {
+        console.log(`⚠️ Building obstruction check failed: ${response.status}`);
+        return false; // If can't check, assume no obstruction
+      }
+      
+      const data = await response.json();
+      buildingElements = data.elements || [];
+      console.log(`🔍 API fallback: Found ${buildingElements.length} potential obstructions`);
+    }
+    
+    if (buildingElements.length === 0) {
+      console.log(`✅ No buildings found in line of sight`);
+      return false;
+    }
+    
+    // Check if any building intersects the line of sight
+    let obstructionCount = 0;
+    
+    for (const element of buildingElements) {
+      if (element.geometry && element.geometry.length >= 3) {
+        const buildingCoords = element.geometry.map(node => ({
+          lat: node.lat,
+          lng: node.lon
+        }));
+        
+        // Check if building is between trigger point and POI
+        const buildingCenter = calculatePolygonCenter(buildingCoords);
+        const distanceToTrigger = calculateDistance(triggerPoint.lat, triggerPoint.lng, buildingCenter.lat, buildingCenter.lng);
+        const distanceToPOI = calculateDistance(poiLat, poiLng, buildingCenter.lat, buildingCenter.lng);
+        const totalDistance = calculateDistance(triggerPoint.lat, triggerPoint.lng, poiLat, poiLng);
+        
+        // If building is roughly between trigger point and POI (with tolerance)
+        if (distanceToTrigger + distanceToPOI <= totalDistance * 1.2) {
+          // Check if line of sight passes through or very close to building
+          if (lineIntersectsPolygon(triggerPoint, {lat: poiLat, lng: poiLng}, buildingCoords)) {
+            
+            // HEIGHT-AWARE OBSTRUCTION CHECK (using real OSM height data)
+            const obstacleHeight = await getRealBuildingHeight(element.tags || {}, buildingCoords);
+            const canSeeOver = poiHeightValue > obstacleHeight + 15; // POI must be 15m+ higher to see over (safety margin)
+            
+            if (canSeeOver) {
+              console.log(`👁️ POI (${poiHeightValue}m) can see over obstacle (${obstacleHeight}m) - not blocking`);
+            } else {
+              obstructionCount++;
+              
+              // Get building info for logging
+              const buildingType = element.tags?.building || 'unknown';
+              const buildingName = element.tags?.name || `${buildingType} building`;
+              console.log(`🚫 Obstruction detected: ${buildingName} (${obstacleHeight}m high, ${distanceToTrigger.toFixed(0)}m from trigger point)`);
+            }
+          }
+        }
+      }
+    }
+    
+    // If more than 2 significant obstructions, consider it blocked
+    const isBlocked = obstructionCount > 2;
+    
+    if (isBlocked) {
+      console.log(`❌ Line of sight blocked by ${obstructionCount} buildings`);
+    } else {
+      console.log(`✅ Line of sight clear (${obstructionCount} minor obstructions)`);
+    }
+    
+    return isBlocked;
+    
+  } catch (error) {
+    console.error('❌ Error checking legacy building obstructions:', error);
+    return false; // If error, assume no obstructions for safety
+  }
+}
+
+// Get real building height from OSM data (enhanced version)
+async function getRealBuildingHeight(tags, buildingCoords) {
+  try {
+    let height = 0;
+    let confidence = 0.0;
+    
+    // Try direct height first (highest priority)
+    if (tags.height) {
+      height = parseFloat(tags.height.replace(/[^\d.]/g, ''));
+      if (!isNaN(height) && height > 0) {
+        confidence = 1.0;
+        console.log(`🏗️ Real building height from OSM: ${height}m (direct height tag)`);
+        return height;
+      }
+    }
+    
+    // Try building:height
+    if (tags['building:height']) {
+      height = parseFloat(tags['building:height'].replace(/[^\d.]/g, ''));
+      if (!isNaN(height) && height > 0) {
+        confidence = 0.9;
+        console.log(`🏗️ Real building height from OSM: ${height}m (building:height tag)`);
+        return height;
+      }
+    }
+    
+    // Try levels (estimate height)
+    if (tags['building:levels']) {
+      const levels = parseInt(tags['building:levels']);
+      if (!isNaN(levels) && levels > 0) {
+        height = levels * 3.5; // Average 3.5m per level
+        confidence = 0.7;
+        console.log(`🏗️ Estimated building height: ${levels} levels = ${height}m`);
+        return height;
+      }
+    }
+    
+    // If no direct height data, search nearby for similar buildings with height data
+    if (buildingCoords && buildingCoords.length > 0) {
+      const buildingCenter = calculatePolygonCenter(buildingCoords);
+      const nearbyHeight = await searchNearbyBuildingHeights(buildingCenter.lat, buildingCenter.lng, tags.building);
+      
+      if (nearbyHeight > 0) {
+        console.log(`🔍 Using nearby building height estimate: ${nearbyHeight}m`);
+        return nearbyHeight;
+      }
+    }
+    
+    // Fallback to estimated height by building type
+    const estimatedHeight = getEstimatedBuildingHeight(tags);
+    console.log(`📏 Using estimated height by type: ${estimatedHeight}m (${tags.building || 'unknown'})`);
+    return estimatedHeight;
+    
+  } catch (error) {
+    console.error('❌ Error getting real building height:', error);
+    return getEstimatedBuildingHeight(tags); // Fallback
+  }
+}
+
+// Search for nearby buildings with height data to estimate current building
+async function searchNearbyBuildingHeights(lat, lng, buildingType) {
+  try {
+    const searchRadius = 200; // Search within 200m for similar buildings
+    
+    const heightQuery = `[out:json][timeout:15];
+    (
+      way[building="${buildingType || 'apartments'}"][height](around:${searchRadius},${lat},${lng});
+      way[building="${buildingType || 'apartments'}"]["building:height"](around:${searchRadius},${lat},${lng});
+      way[building="${buildingType || 'apartments'}"]["building:levels"](around:${searchRadius},${lat},${lng});
+    );
+    out tags;`;
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: heightQuery,
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (nearby-height-estimation)',
+        'Content-Type': 'text/plain'
+      }
+    });
+    
+    if (!response.ok) {
+      return 0; // No data found
+    }
+    
+    const data = await response.json();
+    if (!data.elements || data.elements.length === 0) {
+      return 0; // No similar buildings found
+    }
+    
+    // Calculate average height of similar buildings
+    const heights = [];
+    
+    for (const element of data.elements) {
+      if (element.tags) {
+        let height = 0;
+        
+        if (element.tags.height) {
+          height = parseFloat(element.tags.height.replace(/[^\d.]/g, ''));
+        } else if (element.tags['building:height']) {
+          height = parseFloat(element.tags['building:height'].replace(/[^\d.]/g, ''));
+        } else if (element.tags['building:levels']) {
+          const levels = parseInt(element.tags['building:levels']);
+          height = levels * 3.5;
+        }
+        
+        if (!isNaN(height) && height > 0 && height < 500) { // Sanity check
+          heights.push(height);
+        }
+      }
+    }
+    
+    if (heights.length > 0) {
+      const averageHeight = heights.reduce((sum, h) => sum + h, 0) / heights.length;
+      console.log(`🔍 Found ${heights.length} similar buildings nearby, average height: ${averageHeight.toFixed(1)}m`);
+      return Math.round(averageHeight);
+    }
+    
+    return 0; // No valid height data found
+    
+  } catch (error) {
+    console.error('❌ Error searching nearby building heights:', error);
+    return 0;
+  }
+}
+
+// LEGACY: Basic building obstruction check (no height awareness needed)
+async function checkBasicBuildingObstructions(triggerPoint, poiLat, poiLng) {
+  try {
+    console.log(`🏢 Basic building obstruction check (no height data needed)`);
+    
+    const distance = calculateDistance(triggerPoint.lat, triggerPoint.lng, poiLat, poiLng);
+    
+    // For very close points, assume good visibility
+    if (distance <= 50) {
+      console.log(`✅ Close point (${distance.toFixed(0)}m) - assuming good visibility`);
+      return false; // No obstruction
+    }
+    
+    // Search for buildings along the line of sight (smaller radius for basic check)
+    const searchRadius = Math.min(distance / 3, 100); // Smaller search area
+    const midLat = (triggerPoint.lat + poiLat) / 2;
+    const midLng = (triggerPoint.lng + poiLng) / 2;
+    
+    const buildingQuery = `[out:json][timeout:15];
+    (
+      way[building](around:${searchRadius},${midLat},${midLng});
+      relation[building](around:${searchRadius},${midLat},${midLng});
+    );
+    out count;`; // Only count, not full geometry for speed
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: buildingQuery,
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (basic-obstruction-check)',
+        'Content-Type': 'text/plain'
+      }
+    });
+    
+    if (!response.ok) {
+      console.log(`⚠️ Basic obstruction check failed: ${response.status}`);
+      return false; // If can't check, assume no obstruction
+    }
+    
+    const data = await response.json();
+    const buildingCount = data.elements?.[0]?.tags?.total || 0;
+    
+    console.log(`🏢 Found ${buildingCount} buildings in line of sight (radius: ${searchRadius}m)`);
+    
+    // Simple density-based obstruction check
+    // More than 8 buildings in a small area likely means obstruction
+    const isBlocked = buildingCount > 8;
+    
+    if (isBlocked) {
+      console.log(`❌ High building density detected (${buildingCount} buildings) - likely obstruction`);
+    } else {
+      console.log(`✅ Low building density (${buildingCount} buildings) - clear line of sight`);
+    }
+    
+    return isBlocked;
+    
+  } catch (error) {
+    console.error('❌ Error in basic building obstruction check:', error);
+    return false; // If error, assume no obstructions for safety
+  }
+}
+
+// NEW: Comprehensive obstruction detection using OSM data (DISABLED FOR PERFORMANCE)
 async function checkRealObstructions(triggerPoint, poiLat, poiLng, landmarkInfo) {
   try {
     const distance = calculateDistance(triggerPoint.lat, triggerPoint.lng, poiLat, poiLng);
@@ -354,27 +711,23 @@ function createLineOfSightSamples(triggerPoint, poiLat, poiLng, numSamples) {
 }
 
 // Check for obstructions at a specific point using OSM data
-async function checkObstructionAtPoint(lat, lng, landmarkInfo) {
+async function checkObstructionAtPoint(lat, lng, landmarkInfo, fastMode = false) {
   try {
     // Reduced search radius for performance
-    const searchRadius = 50; // 50m radius around sample point
+    const searchRadius = fastMode ? 30 : 50; // Even smaller radius for fast mode
     
-    const obstructionQuery = `[out:json][timeout:15];
+    const obstructionQuery = `[out:json][timeout:${fastMode ? 8 : 15}];
     (
       // Buildings that could block view
       way[building](around:${searchRadius},${lat},${lng});
       relation[building](around:${searchRadius},${lat},${lng});
       
-      // Dense vegetation/forests
-      way[landuse~"^(forest)$"](around:${searchRadius},${lat},${lng});
-      way[natural~"^(wood|forest)$"](around:${searchRadius},${lat},${lng});
-      
       // Tunnels and covered ways (trigger point might be inside)
       way[tunnel="yes"](around:${searchRadius},${lat},${lng});
       way[covered="yes"](around:${searchRadius},${lat},${lng});
       
-      // Large barriers
-      way[barrier~"^(wall|fence)$"][height](around:${searchRadius},${lat},${lng});
+      // Large barriers (only very high ones)
+      way[barrier~"^(wall)$"][height~"^[3-9]|[1-9][0-9]"](around:${searchRadius},${lat},${lng});
     );
     out count;`;
     
@@ -391,8 +744,15 @@ async function checkObstructionAtPoint(lat, lng, landmarkInfo) {
     const data = await response.json();
     const obstructionCount = data.elements?.[0]?.tags?.total || 0;
     
-    // Thresholds based on POI type
-    const threshold = landmarkInfo.isHighVisibility ? 3 : 2; // High landmarks can see over more obstacles
+    // Thresholds based on POI type and mode
+    let threshold;
+    if (fastMode) {
+      // More tolerant thresholds for fast mode (single point check)
+      threshold = landmarkInfo.isHighVisibility ? 25 : 15;
+    } else {
+      // Original thresholds for comprehensive mode
+      threshold = landmarkInfo.isHighVisibility ? 15 : 8;
+    }
     
     if (obstructionCount > threshold) {
       console.log(`🚫 ${obstructionCount} obstructions detected at sample point (threshold: ${threshold})`);
@@ -1122,7 +1482,7 @@ function sortStreetsByVisibility(streets, context = 'unknown') {
 // ========================================
 // TRIGGER POINTS GENERATION (LEGACY CORE)
 // ========================================
-async function generateStreetBasedTriggerPoints(boundary, poiLat, poiLng, poiName, landmarkInfo) {
+async function generateStreetBasedTriggerPoints(boundary, poiLat, poiLng, poiName, landmarkInfo, regionalHeight = null) {
   console.log('🛣️ Generating street-based trigger points using Overpass API');
   console.log(`📍 POI Location: ${poiLat}, ${poiLng} | Name: ${poiName}`);
   console.log(`🗺️ Boundary: ${boundary.coordinates?.length || 0} points`);
@@ -1130,7 +1490,7 @@ async function generateStreetBasedTriggerPoints(boundary, poiLat, poiLng, poiNam
   try {
     // Find nearby streets using Overpass API (with landmark info if available) - EXACT LEGACY FLOW
     const nearbyStreets = await findNearbyStreetsForTriggers(poiLat, poiLng, poiName, landmarkInfo);
-    console.log(`🔍 Found ${nearbyStreets.length} nearby streets for trigger points`);
+    console.log(`🔍 Legacy: Found ${nearbyStreets.length} streets`);
     
     // DEBUG: Log street details
     if (nearbyStreets.length > 0) {
@@ -1145,13 +1505,14 @@ async function generateStreetBasedTriggerPoints(boundary, poiLat, poiLng, poiNam
       return generateOptimalTriggerPoints(boundary, poiLat, poiLng, poiName, landmarkInfo);
     }
 
-    // Generate trigger points on strategic street locations - EXACT LEGACY FLOW
+    // Generate trigger points on strategic street locations - OPTIMIZED WITH SAMPLING
     const streetTriggerPoints = await generateTriggersOnStreets(
       poiLat, 
       poiLng, 
       boundary.coordinates, 
       nearbyStreets,
-      landmarkInfo
+      landmarkInfo,
+      regionalHeight
     );
 
     console.log(`✅ Generated ${streetTriggerPoints.length} street-based trigger points`);
@@ -1173,8 +1534,8 @@ async function generateStreetBasedTriggerPoints(boundary, poiLat, poiLng, poiNam
     return generateOptimalTriggerPoints(boundary, poiLat, poiLng, poiName, landmarkInfo);
   }
 }
-// Find strategic points on a specific street (LEGACY EXACT IMPLEMENTATION)
-async function findStrategicPointsOnStreet(street, poiLat, poiLng, boundaryCoordinates, landmarkInfo) {
+// Find strategic points on a specific street (OPTIMIZED WITH REGIONAL ANALYSIS)
+async function findStrategicPointsOnStreet(street, poiLat, poiLng, boundaryCoordinates, landmarkInfo, regionalHeight = null, isFullCheck = false, buildings = null) {
   const points = [];
   
   // Strategy 1: Find closest point on street to POI
@@ -1182,8 +1543,27 @@ async function findStrategicPointsOnStreet(street, poiLat, poiLng, boundaryCoord
   const distance = calculateDistance(poiLat, poiLng, closestPoint.lat, closestPoint.lng);
   const bearing = calculateBearing(closestPoint.lat, closestPoint.lng, poiLat, poiLng);
   
-  // Check if this point has good visibility to POI
-  const hasVisibility = await checkVisibilityToPOI(closestPoint, boundaryCoordinates, poiLat, poiLng, landmarkInfo);
+  // SMART visibility check - use full check only for closest points or when explicitly requested
+  let hasVisibility = false;
+  if (isFullCheck || distance <= 300) {
+    // Full visibility check for close points or explicitly requested
+    hasVisibility = await checkVisibilityToPOI(closestPoint, boundaryCoordinates, poiLat, poiLng, landmarkInfo, regionalHeight, buildings);
+    console.log(`🔍 Full visibility check for ${street.name} at ${distance.toFixed(0)}m: ${hasVisibility ? 'visible' : 'blocked'}`);
+  } else {
+    // Fast approximation for distant points using regional height analysis
+    if (regionalHeight && regionalHeight.confidence > 0.5) {
+      const poiHeight = await detectPOIHeight(poiLat, poiLng);
+      const heightAdvantage = poiHeight.height - regionalHeight.average;
+      
+      // Simple heuristic: good visibility if POI has height advantage or is high visibility landmark
+      hasVisibility = heightAdvantage > 20 || landmarkInfo.isHighVisibility || distance <= 500;
+      console.log(`⚡ Fast visibility estimate for ${street.name}: ${hasVisibility ? 'likely visible' : 'likely blocked'} (height advantage: ${heightAdvantage.toFixed(1)}m)`);
+    } else {
+      // Conservative fallback - assume visible for performance
+      hasVisibility = true;
+      console.log(`⚡ Conservative visibility assumption for ${street.name} (no regional data)`);
+    }
+  }
   
   if (distance > 1000) {
     console.log(`🔍 Distant street point: ${street.name} at ${distance.toFixed(0)}m - visibility: ${hasVisibility}`);
@@ -1210,7 +1590,7 @@ async function findStrategicPointsOnStreet(street, poiLat, poiLng, boundaryCoord
   for (const intersection of intersectionPoints) {
     const intDistance = calculateDistance(poiLat, poiLng, intersection.lat, intersection.lng);
     const intBearing = calculateBearing(intersection.lat, intersection.lng, poiLat, poiLng);
-    const intVisibility = await checkVisibilityToPOI(intersection, boundaryCoordinates, poiLat, poiLng, landmarkInfo);
+    const intVisibility = await checkVisibilityToPOI(intersection, boundaryCoordinates, poiLat, poiLng, landmarkInfo, regionalHeight, buildings);
     
     if (intVisibility) {
       points.push({
@@ -1236,7 +1616,7 @@ async function findStrategicPointsOnStreet(street, poiLat, poiLng, boundaryCoord
       const intermediatePoint = street.coordinates[i];
       const intDistance = calculateDistance(poiLat, poiLng, intermediatePoint.lat, intermediatePoint.lng);
       const intBearing = calculateBearing(intermediatePoint.lat, intermediatePoint.lng, poiLat, poiLng);
-      const intVisibility = await checkVisibilityToPOI(intermediatePoint, boundaryCoordinates, poiLat, poiLng, landmarkInfo);
+      const intVisibility = await checkVisibilityToPOI(intermediatePoint, boundaryCoordinates, poiLat, poiLng, landmarkInfo, regionalHeight, buildings);
       
       if (intVisibility) {
         points.push({
@@ -1325,7 +1705,7 @@ async function findStrategicPointsOnStreetLegacy(street, poiLat, poiLng, boundar
   const distance = calculateDistance(poiLat, poiLng, closestPoint.lat, closestPoint.lng);
   const bearing = calculateBearing(closestPoint.lat, closestPoint.lng, poiLat, poiLng);
   // Check if this point has good visibility to POI
-  const hasVisibility = await checkVisibilityToPOI(closestPoint, boundaryCoordinates, poiLat, poiLng, landmarkInfo);
+  const hasVisibility = await checkVisibilityToPOI(closestPoint, boundaryCoordinates, poiLat, poiLng, landmarkInfo, null, buildings);
   if (distance > 1000) {
     console.log(`🔍 Distant street point: ${street.name} at ${distance.toFixed(0)}m - visibility: ${hasVisibility}`);
   }
@@ -1350,7 +1730,7 @@ async function findStrategicPointsOnStreetLegacy(street, poiLat, poiLng, boundar
   for (const intersection of intersectionPoints){
     const intDistance = calculateDistance(poiLat, poiLng, intersection.lat, intersection.lng);
     const intBearing = calculateBearing(intersection.lat, intersection.lng, poiLat, poiLng);
-    const intVisibility = await checkVisibilityToPOI(intersection, boundaryCoordinates, poiLat, poiLng, landmarkInfo);
+    const intVisibility = await checkVisibilityToPOI(intersection, boundaryCoordinates, poiLat, poiLng, landmarkInfo, regionalHeight, buildings);
     if (intVisibility) {
       points.push({
         lat: intersection.lat,
@@ -1515,7 +1895,7 @@ async function generateDirectionalTriggerPoints(poiLat, poiLng, streets, boundar
       }
     }
     if (bestStreet) {
-      const hasVisibility = boundaryCoordinates ? await checkVisibilityToPOI(bestStreet.closestPoint, boundaryCoordinates, poiLat, poiLng) : true // If no boundary, assume visibility
+      const hasVisibility = boundaryCoordinates ? await checkVisibilityToPOI(bestStreet.closestPoint, boundaryCoordinates, poiLat, poiLng, null, null, buildings) : true // If no boundary, assume visibility
       ;
       if (hasVisibility) {
         const bearing = calculateBearing(bestStreet.closestPoint.lat, bestStreet.closestPoint.lng, poiLat, poiLng);
@@ -1595,21 +1975,1139 @@ function getEstimatedBuildingHeight(tags) {
   }
 }
 
+// Cache for POI height detection (avoid repeated API calls)
+const poiHeightCache = new Map();
+
+// Cache for regional height analysis (avoid repeated sampling)
+const regionalHeightCache = new Map();
+
+// ===================================================================
+// MEGA-UNIFIED SYSTEM - SUBSTITUI 19 CHAMADAS API POR 1
+// ===================================================================
+
+// Cache for mega-unified data (grid-based for maximum reuse)
+const megaUnifiedCache = new Map();
+
+/**
+ * Build the mega-unified Overpass query
+ * Substitui 19 chamadas API por 1 única query otimizada
+ */
+function buildMegaUnifiedQuery(lat, lng, name, landmarkInfo = null) {
+  // Escape name for regex safety
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  
+  // Dynamic radius based on landmark info
+  const majorRadius = landmarkInfo?.isHighVisibility ? 3000 : 2000;
+  const mediumRadius = landmarkInfo?.maxRange || 1000;
+  const buildingRadius = 500;
+  const elevationRadius = 2000;
+  
+  const megaQuery = `[out:json][timeout:120];
+(
+  // ===================================================================
+  // SECTION 1: BOUNDARIES (substitui searchOSMByName, searchOSMNearbyFeatures, etc)
+  // ===================================================================
+  
+  // Strategy 1: Exact name match
+  rel[name~"${escapedName}",i](around:500,${lat},${lng});
+  way[name~"${escapedName}",i][area=yes](around:500,${lat},${lng});
+  
+  // Strategy 2: Fuzzy name match (partial)
+  rel[name~"${escapedName.split(' ')[0]}",i](around:300,${lat},${lng});
+  way[name~"${escapedName.split(' ')[0]}",i][area=yes](around:300,${lat},${lng});
+  
+  // Strategy 3: Nearby amenities and leisure
+  rel[amenity](around:500,${lat},${lng});
+  rel[leisure](around:500,${lat},${lng});
+  rel[building](around:300,${lat},${lng});
+  way[amenity](around:500,${lat},${lng});
+  way[leisure](around:500,${lat},${lng});
+  way[building][area=yes](around:300,${lat},${lng});
+  
+  // Strategy 4: Administrative boundaries (for context)
+  rel[admin_level~"^[4-8]$"][name](around:1000,${lat},${lng});
+  
+  // ===================================================================
+  // SECTION 2: BUILDINGS (substitui detectPOIHeight, getRegionalHeightAverage, etc)
+  // ===================================================================
+  
+  // All buildings with height data (raio unificado de 500m)
+  way[building][height](around:${buildingRadius},${lat},${lng});
+  way[building]["building:height"](around:${buildingRadius},${lat},${lng});
+  way[building]["building:levels"](around:${buildingRadius},${lat},${lng});
+  relation[building][height](around:${buildingRadius},${lat},${lng});
+  relation[building]["building:height"](around:${buildingRadius},${lat},${lng});
+  relation[building]["building:levels"](around:${buildingRadius},${lat},${lng});
+  
+  // All buildings for density and obstruction analysis
+  way[building](around:${buildingRadius},${lat},${lng});
+  relation[building](around:${buildingRadius},${lat},${lng});
+  
+  // ===================================================================
+  // SECTION 3: STREETS (substitui findNearbyStreetsForTriggers, detectUrbanDensity, etc)
+  // ===================================================================
+  
+  // Major highways (long range for landmarks)
+  way[highway~"^(motorway|trunk|primary|secondary)$"](around:${majorRadius},${lat},${lng});
+  
+  // Medium roads (medium range)
+  way[highway~"^(tertiary|residential|living_street)$"](around:${mediumRadius},${lat},${lng});
+  
+  // Local access roads (short range)
+  way[highway~"^(pedestrian|service|footway|path|track)$"](around:${buildingRadius},${lat},${lng});
+  
+  // Named roads (priority for trigger points)
+  way[highway][name](around:${mediumRadius},${lat},${lng});
+  
+  // ===================================================================
+  // SECTION 4: ELEVATION (substitui getCityBaseElevation, detectRelativeElevation, etc)
+  // ===================================================================
+  
+  // Elevation points and ways
+  node[ele](around:${elevationRadius},${lat},${lng});
+  way[ele](around:${elevationRadius},${lat},${lng});
+  relation[ele](around:${elevationRadius},${lat},${lng});
+  
+  // Natural elevation features
+  way[natural~"^(peak|hill|ridge|valley|cliff)$"](around:${elevationRadius},${lat},${lng});
+  relation[natural~"^(peak|hill|ridge|valley|cliff)$"](around:${elevationRadius},${lat},${lng});
+);
+out geom tags;`;
+
+  return megaQuery;
+}
+
+/**
+ * Execute mega-unified query with fallback strategy
+ * SUBSTITUI TODAS AS 19 CHAMADAS API POR 1 SÓ!
+ */
+async function getMegaUnifiedPOIData(lat, lng, name = '', landmarkInfo = null) {
+  const startTime = Date.now();
+  
+  // Check grid-based cache first
+  const gridKey = `${Math.floor(lat*100)},${Math.floor(lng*100)}`;
+  if (megaUnifiedCache.has(gridKey)) {
+    const cached = megaUnifiedCache.get(gridKey);
+    console.log(`🎯 MEGA-UNIFIED: Using cached data for grid ${gridKey} (age: ${((Date.now() - cached.timestamp) / 1000).toFixed(0)}s)`);
+    return recalculateForNewPOI(cached, lat, lng, name);
+  }
+  
+  console.log(`🚀 MEGA-UNIFIED: Collecting data for ${name || 'POI'}`);
+  
+  try {
+    // Build and execute full query
+    const fullQuery = buildMegaUnifiedQuery(lat, lng, name, landmarkInfo);
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: fullQuery,
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (mega-unified-poi-analysis)',
+        'Content-Type': 'text/plain'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Mega query failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    const queryTime = (Date.now() - startTime) / 1000;
+    
+    console.log(`✅ MEGA-UNIFIED: Completed in ${queryTime.toFixed(1)}s - ${data.elements?.length || 0} elements`);
+    
+    // Process and validate results
+    const processedData = await processMegaUnifiedResults(data, lat, lng, name, landmarkInfo);
+    processedData.metadata.queryTime = queryTime;
+    
+    // Cache results for reuse
+    megaUnifiedCache.set(gridKey, {
+      ...processedData,
+      timestamp: Date.now()
+    });
+    
+    return processedData;
+    
+  } catch (error) {
+    const queryTime = (Date.now() - startTime) / 1000;
+    
+    if (error.message.includes('timeout') || queryTime > 110) {
+      console.warn(`⚠️ MEGA-UNIFIED: Timeout after ${queryTime.toFixed(2)}s, falling back to legacy methods...`);
+      // Fallback to existing legacy methods
+      return null; // Will trigger legacy fallback in caller
+    }
+    
+    console.error(`❌ MEGA-UNIFIED: Query failed after ${queryTime.toFixed(2)}s:`, error.message);
+    throw error;
+  }
+}
+
+/**
+ * Process mega-unified results into structured data
+ * Compatible with existing code structure
+ */
+async function processMegaUnifiedResults(data, lat, lng, name, landmarkInfo) {
+  const elements = data.elements || [];
+  
+  // Separate elements by type and purpose
+  const separated = separateElementsByType(elements, lat, lng, name);
+  
+  console.log(`📊 Data: ${separated.boundaries.length} boundaries, ${separated.buildings.length} buildings, ${separated.streets.length} streets, ${separated.elevation.length} elevation`);
+  
+  // Process each data type to match existing format
+  const [
+    boundaryResult,
+    buildingAnalysis,
+    streetAnalysis,
+    elevationAnalysis
+  ] = await Promise.all([
+    processBoundaryDataMega(separated.boundaries, lat, lng, name),
+    processBuildingDataMega(separated.buildings, separated.buildingsWithHeight, lat, lng),
+    processStreetDataMega(separated.streets, lat, lng, landmarkInfo),
+    processElevationDataMega(separated.elevation, lat, lng)
+  ]);
+  
+  // Calculate landmark info if not provided
+  const calculatedLandmark = landmarkInfo || calculateLandmarkInfo(
+    buildingAnalysis.poiHeight,
+    buildingAnalysis.urbanDensity,
+    elevationAnalysis
+  );
+  
+  return {
+    // Core data sections (compatible with existing code)
+    boundary: boundaryResult,
+    buildings: buildingAnalysis,
+    streets: streetAnalysis,
+    elevation: elevationAnalysis,
+    landmark: calculatedLandmark,
+    
+    // Metadata
+    metadata: {
+      timestamp: Date.now(),
+      mode: 'mega-unified',
+      location: { lat, lng },
+      poiName: name,
+      totalElements: elements.length,
+      // queryTime will be added by caller
+    }
+  };
+}
+
+/**
+ * Separate OSM elements by type and purpose
+ */
+function separateElementsByType(elements, lat, lng, name) {
+  const boundaries = [];
+  const buildings = [];
+  const buildingsWithHeight = [];
+  const streets = [];
+  const elevation = [];
+  
+  for (const element of elements) {
+    const tags = element.tags || {};
+    
+    // Boundaries: relations with admin/amenity/leisure, ways with area=yes
+    if (
+      (element.type === 'relation' && (tags.admin_level || tags.amenity || tags.leisure || tags.name)) ||
+      (element.type === 'way' && tags.area === 'yes' && tags.name) ||
+      (element.type === 'way' && tags.building && tags.area === 'yes')
+    ) {
+      boundaries.push(element);
+    }
+    
+    // Buildings: any element with building tag
+    if (tags.building) {
+      buildings.push(element);
+      
+      // Buildings with height: have height, building:height, or building:levels
+      if (tags.height || tags['building:height'] || tags['building:levels']) {
+        buildingsWithHeight.push(element);
+      }
+    }
+    
+    // Streets: ways with highway tag
+    if (element.type === 'way' && tags.highway) {
+      streets.push(element);
+    }
+    
+    // Elevation: elements with ele tag or natural elevation features
+    if (tags.ele || (tags.natural && ['peak', 'hill', 'ridge', 'valley', 'cliff'].includes(tags.natural))) {
+      elevation.push(element);
+    }
+  }
+  
+  return {
+    boundaries,
+    buildings,
+    buildingsWithHeight,
+    streets,
+    elevation
+  };
+}
+
+/**
+ * Recalculate cached data for a new POI location
+ */
+function recalculateForNewPOI(cachedData, newLat, newLng, newName) {
+  // Recalculate distances and relevance for the new POI location
+  // This allows reusing the same OSM data for nearby POIs
+  
+  const recalculated = JSON.parse(JSON.stringify(cachedData)); // Deep clone
+  
+  // Update metadata
+  recalculated.metadata.location = { lat: newLat, lng: newLng };
+  recalculated.metadata.poiName = newName;
+  recalculated.metadata.fromCache = true;
+  
+  // Recalculate building distances and POI height
+  if (recalculated.buildings?.obstructionMap) {
+    recalculated.buildings.obstructionMap.forEach(building => {
+      building.distance = calculateDistance(newLat, newLng, building.lat, building.lng);
+    });
+    recalculated.buildings.obstructionMap.sort((a, b) => a.distance - b.distance);
+  }
+  
+  // Recalculate street distances
+  ['major', 'medium', 'local', 'immediate'].forEach(category => {
+    if (recalculated.streets?.[category]) {
+      recalculated.streets[category].forEach(street => {
+        if (street.coordinates) {
+          const closestPoint = findClosestPointOnStreet(street.coordinates, newLat, newLng);
+          street.distance_to_poi = calculateDistance(newLat, newLng, closestPoint.lat, closestPoint.lng);
+          street.closestPoint = closestPoint;
+        }
+      });
+      recalculated.streets[category].sort((a, b) => a.distance_to_poi - b.distance_to_poi);
+    }
+  });
+  
+  return recalculated;
+}
+
+/**
+ * Process boundary data from mega-unified results (compatible with existing code)
+ */
+async function processBoundaryDataMega(boundaryElements, lat, lng, name) {
+  if (boundaryElements.length === 0) {
+    console.log('⚠️ No boundaries found, using estimated');
+    return createEstimatedBoundary(lat, lng, name);
+  }
+  
+  // Strategy 1: Find exact name matches first
+  const exactMatches = boundaryElements.filter(element => {
+    const elementName = element.tags?.name || '';
+    return elementName.toLowerCase().includes(name.toLowerCase());
+  });
+  
+  if (exactMatches.length > 0) {
+    console.log(`✅ Boundary: exact match found`);
+    return await processBoundaryElement(exactMatches[0], lat, lng);
+  }
+  
+  // Strategy 2: Find closest named feature
+  const namedFeatures = boundaryElements.filter(e => e.tags?.name);
+  if (namedFeatures.length > 0) {
+    const closest = findClosestElementMega(namedFeatures, lat, lng);
+    return await processBoundaryElement(closest, lat, lng);
+  }
+  
+  // Fallback: Create estimated boundary
+  console.log('⚠️ Using estimated boundary');
+  return createEstimatedBoundary(lat, lng, name);
+}
+
+/**
+ * Process building data from mega-unified results (compatible with existing code)
+ */
+async function processBuildingDataMega(allBuildings, buildingsWithHeight, lat, lng) {
+  // Process POI-specific height (replaces detectPOIHeight)
+  const poiHeight = await processPOIHeightMega(buildingsWithHeight, lat, lng);
+  
+  // Process regional height analysis (replaces getRegionalHeightAverage)
+  const regionalAnalysis = await processRegionalHeightsMega(buildingsWithHeight, lat, lng);
+  
+  // Process urban density (replaces detectUrbanDensity)
+  const urbanDensity = calculateUrbanDensityMega(allBuildings, lat, lng);
+  
+  return {
+    poiHeight: poiHeight,
+    regionalAnalysis: regionalAnalysis,
+    urbanDensity: urbanDensity,
+    totalBuildings: allBuildings.length,
+    buildingsWithHeight: buildingsWithHeight.length
+  };
+}
+
+/**
+ * Process street data from mega-unified results (compatible with existing code)
+ */
+async function processStreetDataMega(streetElements, lat, lng, landmarkInfo) {
+  if (streetElements.length === 0) {
+    console.log('⚠️ No streets found');
+    return [];
+  }
+  
+  // Process each street and calculate distance/confidence
+  const processedStreets = streetElements
+    .filter(street => street.geometry && street.geometry.length >= 2) // Valid geometry
+    .map(street => processStreetElementMega(street, lat, lng))
+    .filter(street => street !== null) // Remove invalid streets
+    .sort((a, b) => b.confidence - a.confidence); // Sort by confidence
+  
+  console.log(`🛣️ Streets: ${processedStreets.length} valid from ${streetElements.length} found`);
+  
+  return processedStreets;
+}
+
+/**
+ * Process elevation data from mega-unified results (compatible with existing code)
+ */
+async function processElevationDataMega(elevationElements, lat, lng) {
+  if (elevationElements.length === 0) {
+    return {
+      poiElevation: 0,
+      baseElevation: 0,
+      relativeDiff: 0,
+      confidence: 0.0
+    };
+  }
+  
+  // Extract elevation points with coordinates
+  const elevationPoints = [];
+  
+  for (const element of elevationElements) {
+    const elevation = parseFloat(element.tags?.ele || 0);
+    if (elevation <= 0) continue;
+    
+    let elementLat, elementLng;
+    
+    if (element.type === 'node' && element.lat && element.lon) {
+      elementLat = element.lat;
+      elementLng = element.lon;
+    } else if (element.geometry && element.geometry.length > 0) {
+      // Use center of way/relation
+      const coords = element.geometry;
+      elementLat = coords.reduce((sum, c) => sum + c.lat, 0) / coords.length;
+      elementLng = coords.reduce((sum, c) => sum + c.lon, 0) / coords.length;
+    } else {
+      continue; // Skip elements without coordinates
+    }
+    
+    const distance = calculateDistance(lat, lng, elementLat, elementLng);
+    
+    elevationPoints.push({
+      lat: elementLat,
+      lng: elementLng,
+      elevation: elevation,
+      distance: distance
+    });
+  }
+  
+  if (elevationPoints.length === 0) {
+    return { poiElevation: 0, baseElevation: 0, relativeDiff: 0, confidence: 0.0 };
+  }
+  
+  // Sort by distance and calculate elevation
+  elevationPoints.sort((a, b) => a.distance - b.distance);
+  
+  const closestPoint = elevationPoints[0];
+  const poiElevation = closestPoint.distance < 100 ? closestPoint.elevation : closestPoint.elevation;
+  
+  // Calculate base elevation (average of distant points)
+  const basePoints = elevationPoints.filter(p => p.distance >= 1000 && p.distance <= 2000);
+  const baseElevation = basePoints.length > 0 ?
+    basePoints.reduce((sum, p) => sum + p.elevation, 0) / basePoints.length :
+    closestPoint.elevation;
+  
+  const relativeDiff = poiElevation - baseElevation;
+  const confidence = closestPoint.distance < 100 ? 0.9 : 0.6;
+  
+  return {
+    poiElevation,
+    baseElevation,
+    relativeDiff,
+    confidence
+  };
+}
+
+/**
+ * Helper functions for mega-unified processing
+ */
+async function processPOIHeightMega(buildingsWithHeight, lat, lng) {
+  if (buildingsWithHeight.length === 0) {
+    return { height: 0, category: 'low', confidence: 0.0 };
+  }
+  
+  // Find closest building with height data
+  let closestBuilding = null;
+  let closestDistance = Infinity;
+  
+  for (const building of buildingsWithHeight) {
+    const center = calculateBuildingCenterMega(building);
+    const distance = calculateDistance(lat, lng, center.lat, center.lng);
+    
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestBuilding = building;
+    }
+  }
+  
+  if (!closestBuilding) {
+    return { height: 0, category: 'low', confidence: 0.0 };
+  }
+  
+  const height = extractBuildingHeightMega(closestBuilding.tags);
+  const category = categorizeHeightMega(height);
+  
+  let confidence = closestDistance < 50 ? 1.0 : closestDistance < 100 ? 0.9 : 0.7;
+  confidence = Math.min(1.0, confidence);
+  
+  console.log(`🏗️ POI height: ${height}m (${category}) from ${closestDistance.toFixed(0)}m away`);
+  
+  return { height, category, confidence };
+}
+
+async function processRegionalHeightsMega(buildingsWithHeight, lat, lng) {
+  const regionalBuildings = buildingsWithHeight.filter(building => {
+    const center = calculateBuildingCenterMega(building);
+    const distance = calculateDistance(lat, lng, center.lat, center.lng);
+    return distance <= 300;
+  });
+  
+  if (regionalBuildings.length === 0) {
+    return { average: 25, samples: 0, confidence: 0.0 };
+  }
+  
+  const heights = regionalBuildings
+    .map(building => extractBuildingHeightMega(building.tags))
+    .filter(height => height > 0 && height <= 300);
+  
+  if (heights.length === 0) {
+    return { average: 25, samples: 0, confidence: 0.0 };
+  }
+  
+  const average = heights.reduce((sum, h) => sum + h, 0) / heights.length;
+  const confidence = Math.min(1.0, heights.length / 5);
+  
+  return { average, samples: heights.length, confidence };
+}
+
+function calculateUrbanDensityMega(allBuildings, lat, lng) {
+  const buildingsIn200m = allBuildings.filter(building => {
+    const center = calculateBuildingCenterMega(building);
+    const distance = calculateDistance(lat, lng, center.lat, center.lng);
+    return distance <= 200;
+  }).length;
+  
+  const area = Math.PI * (0.2 ** 2); // km²
+  const density = buildingsIn200m / area;
+  
+  let classification;
+  if (density >= 400) classification = 'very_dense';
+  else if (density >= 200) classification = 'dense';
+  else if (density >= 100) classification = 'medium';
+  else if (density >= 30) classification = 'low';
+  else classification = 'rural';
+  
+  console.log(`🏙️ Urban density: ${classification} (${buildingsIn200m} buildings in 200m)`);
+  
+  return classification;
+}
+
+function processStreetElementMega(streetElement, lat, lng) {
+  try {
+    const tags = streetElement.tags || {};
+    const highway_type = tags.highway;
+    const name = tags.name || 'Unnamed';
+    
+    const coordinates = streetElement.geometry.map(node => [node.lon, node.lat]);
+    const closestPoint = findClosestPointOnStreet(coordinates, lat, lng);
+    const distance = calculateDistance(lat, lng, closestPoint.lat, closestPoint.lng);
+    
+    let confidence = 0.5;
+    const typeScores = {
+      'primary': 1.0, 'secondary': 0.95, 'tertiary': 0.9,
+      'residential': 0.8, 'living_street': 0.75,
+      'pedestrian': 0.85, 'footway': 0.7, 'service': 0.6
+    };
+    confidence *= typeScores[highway_type] || 0.3;
+    
+    if (distance < 150) confidence *= 1.0;
+    else if (distance < 300) confidence *= 0.9;
+    else confidence *= 0.7;
+    
+    if (name !== 'Unnamed') confidence += 0.1;
+    confidence = Math.min(1.0, confidence);
+    
+    return {
+      name,
+      highway_type,
+      coordinates,
+      distance_to_poi: distance,
+      confidence,
+      osm_id: streetElement.id.toString(),
+      tags
+    };
+  } catch (error) {
+    return null;
+  }
+}
+
+function calculateBuildingCenterMega(building) {
+  if (building.lat && building.lon) {
+    return { lat: building.lat, lng: building.lon };
+  }
+  
+  if (building.geometry && building.geometry.length > 0) {
+    const coords = building.geometry;
+    const lat = coords.reduce((sum, c) => sum + c.lat, 0) / coords.length;
+    const lng = coords.reduce((sum, c) => sum + c.lon, 0) / coords.length;
+    return { lat, lng };
+  }
+  
+  return { lat: 0, lng: 0 };
+}
+
+function extractBuildingHeightMega(tags) {
+  if (tags.height) {
+    const height = parseFloat(tags.height.replace(/[^\d.]/g, ''));
+    if (height > 0 && height <= 300) return height;
+  }
+  
+  if (tags['building:height']) {
+    const height = parseFloat(tags['building:height'].replace(/[^\d.]/g, ''));
+    if (height > 0 && height <= 300) return height;
+  }
+  
+  if (tags['building:levels']) {
+    const levels = parseInt(tags['building:levels']);
+    if (levels > 0 && levels <= 100) return levels * 3.5;
+  }
+  
+  return 0;
+}
+
+function categorizeHeightMega(height) {
+  if (height >= 100) return 'very_high';
+  if (height >= 50) return 'high';
+  if (height >= 20) return 'medium';
+  if (height > 0) return 'low';
+  return 'unknown';
+}
+
+function findClosestElementMega(elements, lat, lng) {
+  let closest = null;
+  let closestDistance = Infinity;
+  
+  for (const element of elements) {
+    const center = calculateBuildingCenterMega(element);
+    const distance = calculateDistance(lat, lng, center.lat, center.lng);
+    
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closest = element;
+    }
+  }
+  
+  return closest;
+}
+
+/**
+ * Process a single boundary element into standardized format
+ */
+async function processBoundaryElement(element, poiLat, poiLng) {
+  try {
+    let coordinates = [];
+    let area = 0;
+    
+    if (element.type === 'way' && element.geometry) {
+      // Way with geometry
+      coordinates = element.geometry.map(node => [node.lat, node.lon]);
+      area = calculatePolygonArea(coordinates);
+      
+    } else if (element.type === 'relation') {
+      // Relation - need to process members
+      // For now, create estimated boundary around POI
+      console.log('🔄 Relation boundary detected, using estimated polygon...');
+      return createEstimatedBoundary(poiLat, poiLng, element.tags?.name || 'POI');
+    }
+    
+    // Validate coordinates
+    if (coordinates.length < 3) {
+      console.log('⚠️ Insufficient coordinates, using estimated boundary');
+      return createEstimatedBoundary(poiLat, poiLng, element.tags?.name || 'POI');
+    }
+    
+    // Calculate confidence based on area and proximity
+    const centerDistance = calculateDistanceToPolygon({lat: poiLat, lng: poiLng}, coordinates);
+    let confidence = 0.8;
+    
+    if (centerDistance < 50) confidence += 0.15;  // POI inside or very close
+    if (area > 1000 && area < 100000) confidence += 0.05; // Reasonable size
+    if (element.tags?.name) confidence += 0.1; // Has name
+    
+    confidence = Math.min(0.95, confidence);
+    
+    return {
+      coordinates: coordinates,
+      area_m2: area,
+      confidence: confidence,
+      source: 'osm_processed',
+      osmId: element.id,
+      tags: element.tags || {}
+    };
+    
+  } catch (error) {
+    console.error('❌ Error processing boundary element:', error);
+    return createEstimatedBoundary(poiLat, poiLng, element.tags?.name || 'POI');
+  }
+}
+
+function calculateLandmarkInfo(poiHeight, urbanDensity, elevationAnalysis) {
+  const heightThresholds = {
+    'very_dense': 200,
+    'dense': 120,
+    'medium': 60,
+    'low': 30,
+    'rural': 15
+  };
+  
+  const threshold = heightThresholds[urbanDensity] || 30;
+  const isHighVisibility = poiHeight.height > threshold || elevationAnalysis.relativeDiff > 50;
+  
+  const maxRange = isHighVisibility ? 
+    Math.min(4000, poiHeight.height * 20 + elevationAnalysis.relativeDiff * 50) : 
+    400;
+  
+  return {
+    isHighVisibility,
+    maxRange,
+    elevationDiff: elevationAnalysis.relativeDiff,
+    buildingHeight: poiHeight.height,
+    landmarkType: isHighVisibility ? 'landmark' : 'urban_building'
+  };
+}
+
+/**
+ * Generate trigger points using mega-unified data
+ * Uses all data collected in one API call for optimal performance
+ */
+async function generateTriggerPointsFromMegaData(megaData, boundary, lat, lng, name) {
+  // Extract data from mega-unified result
+  const { streets, buildings, elevation, landmark } = megaData;
+  
+  // Use the processed streets data (already sorted by confidence)
+  const processedStreets = streets || [];
+  
+  if (processedStreets.length === 0) {
+    console.log('⚠️ No streets, using boundary-based triggers');
+    return generateOptimalTriggerPoints(boundary, lat, lng, name, landmark);
+  }
+  
+  // Generate trigger points using the same logic as legacy but with mega-data
+  const streetTriggerPoints = await generateTriggersFromMegaStreets(
+    lat, 
+    lng, 
+    boundary.coordinates, 
+    processedStreets,
+    landmark,
+    buildings.regionalAnalysis, // Use regional height from mega-data
+    buildings.elements // Pass buildings data for obstruction checks
+  );
+  
+  console.log(`✅ MEGA-UNIFIED: Generated ${streetTriggerPoints.length} trigger points`);
+  
+  return streetTriggerPoints;
+}
+
+/**
+ * Generate triggers from mega-unified street data
+ * Optimized version using pre-processed data
+ */
+async function generateTriggersFromMegaStreets(poiLat, poiLng, boundaryCoordinates, streets, landmarkInfo, regionalHeight, buildings = null) {
+  const triggerPoints = [];
+  
+  // Sort streets by confidence (already done in mega-processing, but ensure)
+  const sortedStreets = streets.sort((a, b) => b.confidence - a.confidence);
+  
+  for (let i = 0; i < sortedStreets.length; i++) {
+    const street = sortedStreets[i];
+    const isFullCheck = i < SAMPLING_CONFIG.MAX_FULL_CHECKS; // Full check for closest streets only
+    
+    // Find strategic points on this street with smart sampling
+    const streetPoints = await findStrategicPointsOnStreet(
+      street, 
+      poiLat, 
+      poiLng, 
+      boundaryCoordinates, 
+      landmarkInfo, 
+      regionalHeight, 
+      isFullCheck,
+      buildings // Pass buildings data for obstruction checks
+    );
+    
+    
+    triggerPoints.push(...streetPoints);
+  }
+
+  // Calculate POI area for dynamic filtering
+  const poiArea = calculatePolygonArea(boundaryCoordinates);
+  
+  // Dynamic minimum distance based on LANDMARK INFO FIRST, then POI size
+  let minPointDistance = 50; // Default
+  if (landmarkInfo?.isHighVisibility) {
+    minPointDistance = 100; // High-visibility landmarks: more spread out for better coverage
+  } else if (poiArea > 1000000) {
+    minPointDistance = 30; // Large areas: closer points OK
+  } else if (poiArea > 100000) {
+    minPointDistance = 40; // Medium areas
+  } else if (poiArea > 10000) {
+    minPointDistance = 50; // Small areas: need some spacing
+  } else {
+    minPointDistance = 60; // Very small areas: more spacing
+  }
+
+  // Remove points that are too close to each other (avoid clustering)
+  const filteredPoints = [];
+  for (const point of triggerPoints) {
+    const tooClose = filteredPoints.some(existing => 
+      calculateDistance(point.lat, point.lng, existing.lat, existing.lng) < minPointDistance
+    );
+    
+    if (!tooClose) {
+      filteredPoints.push(point);
+    }
+  }
+
+  // Sort by confidence and distance for final selection
+  const sortedPoints = filteredPoints.sort((a, b) => {
+    // Primary: confidence (higher is better)
+    if (Math.abs(a.confidence - b.confidence) > 0.1) {
+      return b.confidence - a.confidence;
+    }
+    // Secondary: distance (closer is better for same confidence)
+    return a.distance_from_poi - b.distance_from_poi;
+  });
+
+  // Return top points (limit based on POI type)
+  const maxPoints = landmarkInfo?.isHighVisibility ? 25 : 15;
+  const finalPoints = sortedPoints.slice(0, maxPoints);
+  
+  return finalPoints;
+}
+
+// Intelligent sampling configuration
+const SAMPLING_CONFIG = {
+  SAMPLE_SIZE: 5,           // Sample 5 points to get regional average
+  MAX_FULL_CHECKS: 10,      // Only do full visibility check for 10 closest points
+  CACHE_RADIUS: 500,        // Cache regional data within 500m
+  HEIGHT_THRESHOLD: 50      // If regional avg > 50m, assume high density
+};
+
+// Get regional building height average using intelligent sampling
+async function getRegionalHeightAverage(centerLat, centerLng) {
+  const cacheKey = `${centerLat.toFixed(4)},${centerLng.toFixed(4)}`;
+  
+  // Check cache first (broader area cache)
+  if (regionalHeightCache.has(cacheKey)) {
+    const cached = regionalHeightCache.get(cacheKey);
+    console.log(`🎯 Using cached regional height: ${cached.average.toFixed(1)}m (${cached.samples} samples)`);
+    return cached;
+  }
+  
+  try {
+    console.log(`📊 Sampling regional building heights around ${centerLat}, ${centerLng}`);
+    
+    // Sample buildings in a 300m radius around the point
+    const heightQuery = `[out:json][timeout:15];
+    (
+      way[building][height](around:300,${centerLat},${centerLng});
+      way[building]["building:height"](around:300,${centerLat},${centerLng});
+      way[building]["building:levels"](around:300,${centerLat},${centerLng});
+    );
+    out tags;`;
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: heightQuery,
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (regional-height-sampling)',
+        'Content-Type': 'text/plain'
+      }
+    });
+    
+    if (!response.ok) {
+      console.log(`⚠️ Regional height sampling failed: ${response.status}`);
+      return { average: 25, samples: 0, confidence: 0.0 }; // Default urban average
+    }
+    
+    const data = await response.json();
+    const buildings = data.elements || [];
+    
+    let totalHeight = 0;
+    let validSamples = 0;
+    
+    // Process up to SAMPLE_SIZE buildings for performance
+    const sampleBuildings = buildings.slice(0, SAMPLING_CONFIG.SAMPLE_SIZE * 2); // Get more to filter
+    
+    for (const building of sampleBuildings) {
+      if (validSamples >= SAMPLING_CONFIG.SAMPLE_SIZE) break; // Stop at sample size
+      
+      const tags = building.tags || {};
+      let height = 0;
+      
+      // Extract height from various tags
+      if (tags.height) {
+        height = parseFloat(tags.height.replace(/[^\d.]/g, ''));
+      } else if (tags['building:height']) {
+        height = parseFloat(tags['building:height'].replace(/[^\d.]/g, ''));
+      } else if (tags['building:levels']) {
+        const levels = parseInt(tags['building:levels']);
+        height = levels * 3.5; // Estimate 3.5m per level
+      }
+      
+      if (height > 0 && height <= 300) { // Valid height range
+        totalHeight += height;
+        validSamples++;
+      }
+    }
+    
+    const average = validSamples > 0 ? totalHeight / validSamples : 25; // Default 25m
+    const confidence = Math.min(validSamples / SAMPLING_CONFIG.SAMPLE_SIZE, 1.0);
+    
+    const result = { 
+      average: average, 
+      samples: validSamples, 
+      confidence: confidence 
+    };
+    
+    // Cache the result
+    regionalHeightCache.set(cacheKey, result);
+    
+    console.log(`📊 Regional height analysis: ${average.toFixed(1)}m average (${validSamples} samples, confidence: ${confidence.toFixed(2)})`);
+    
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Error in regional height sampling:', error);
+    return { average: 25, samples: 0, confidence: 0.0 };
+  }
+}
+
 // Detect real POI height using OSM data (LEGACY FUNCTION)
 async function detectPOIHeight(lat, lng) {
+  // Create cache key with rounded coordinates (avoid micro-differences)
+  const cacheKey = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+  
+  // Check cache first
+  if (poiHeightCache.has(cacheKey)) {
+    const cached = poiHeightCache.get(cacheKey);
+    console.log(`🎯 Using cached POI height: ${cached.height}m (${cached.category})`);
+    return cached;
+  }
   try {
     console.log(`🏗️ Detecting REAL POI height for ${lat}, ${lng}`);
     
-    // Simplified approach: no real height data search, use urban density
-    console.log('❌ NO REAL HEIGHT DATA found in OSM for this location');
-    return { 
-      height: 0, 
-      category: 'low', 
-      confidence: 0.0 // Zero confidence = no real data
+    // Search for buildings with height data around the POI location
+    const heightQuery = `[out:json][timeout:25];
+    (
+      way[building][height](around:100,${lat},${lng});
+      way[building]["building:height"](around:100,${lat},${lng});
+      way[building]["building:levels"](around:100,${lat},${lng});
+      relation[building][height](around:100,${lat},${lng});
+      relation[building]["building:height"](around:100,${lat},${lng});
+      relation[building]["building:levels"](around:100,${lat},${lng});
+    );
+    out tags;`;
+    
+    const response = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: heightQuery,
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (poi-height-detection)',
+        'Content-Type': 'text/plain'
+      }
+    });
+    
+    if (!response.ok) {
+      console.log(`⚠️ Height detection failed: ${response.status}`);
+      return { height: 0, category: 'low', confidence: 0.0 };
+    }
+    
+    const data = await response.json();
+    if (!data.elements || data.elements.length === 0) {
+      console.log('❌ NO REAL HEIGHT DATA found in OSM for this location');
+      return { height: 0, category: 'low', confidence: 0.0 };
+    }
+    
+    console.log(`🔍 Found ${data.elements.length} buildings with height data`);
+    
+    // Find the building closest to the POI coordinates
+    let bestBuilding = null;
+    let bestDistance = Infinity;
+    
+    for (const element of data.elements) {
+      if (element.tags) {
+        // Calculate approximate distance (using first node if available)
+        let buildingLat = lat, buildingLng = lng; // Default to POI location
+        
+        // Try to get building center from geometry if available
+        if (element.geometry && element.geometry.length > 0) {
+          const coords = element.geometry.map(node => ({ lat: node.lat, lng: node.lon }));
+          buildingLat = coords.reduce((sum, coord) => sum + coord.lat, 0) / coords.length;
+          buildingLng = coords.reduce((sum, coord) => sum + coord.lng, 0) / coords.length;
+        }
+        
+        const distance = calculateDistance(lat, lng, buildingLat, buildingLng);
+        
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestBuilding = element;
+        }
+      }
+    }
+    
+    if (!bestBuilding) {
+      console.log('❌ No building with valid height data found');
+      return { height: 0, category: 'low', confidence: 0.0 };
+    }
+    
+    // Extract height from tags
+    const tags = bestBuilding.tags;
+    let height = 0;
+    let confidence = 0.0;
+    
+    // Try direct height first
+    if (tags.height) {
+      height = parseFloat(tags.height.replace(/[^\d.]/g, ''));
+      if (!isNaN(height)) {
+        confidence = 1.0;
+        console.log(`✅ Found direct height: ${height}m (distance: ${bestDistance.toFixed(1)}m)`);
+      }
+    }
+    
+    // Try building:height
+    if (height === 0 && tags['building:height']) {
+      height = parseFloat(tags['building:height'].replace(/[^\d.]/g, ''));
+      if (!isNaN(height)) {
+        confidence = 0.9;
+        console.log(`✅ Found building:height: ${height}m (distance: ${bestDistance.toFixed(1)}m)`);
+      }
+    }
+    
+    // Try levels (estimate height)
+    if (height === 0 && tags['building:levels']) {
+      const levels = parseInt(tags['building:levels']);
+      if (!isNaN(levels)) {
+        height = levels * 3.5; // Average 3.5m per level
+        confidence = 0.7;
+        console.log(`✅ Found building:levels: ${levels} levels = ${height}m estimated (distance: ${bestDistance.toFixed(1)}m)`);
+      }
+    }
+    
+    if (height === 0) {
+      console.log('❌ Could not extract height from building data');
+      return { height: 0, category: 'low', confidence: 0.0 };
+    }
+    
+    // Adjust confidence based on distance (closer = more confident)
+    if (bestDistance > 50) {
+      confidence *= 0.8; // Reduce confidence if building is far from POI
+    }
+    
+    // Categorize height
+    let category = 'low';
+    if (height >= 100) category = 'very_high';
+    else if (height >= 50) category = 'high';
+    else if (height >= 20) category = 'medium';
+    
+    console.log(`🏗️ REAL POI height detected: ${height}m (${category}, confidence: ${confidence.toFixed(2)})`);
+    
+    const result = { 
+      height: height, 
+      category: category, 
+      confidence: confidence
     };
+    
+    // Cache the result for future use
+    poiHeightCache.set(cacheKey, result);
+    
+    return result;
+    
   } catch (error) {
     console.error('❌ Error detecting POI height:', error);
-    return { height: 15, category: 'medium', confidence: 0.3 };
+    return { height: 0, category: 'low', confidence: 0.0 };
+  }
+}
+
+// Detect relative elevation compared to surrounding area
+async function detectRelativeElevation(lat, lng) {
+  try {
+    console.log(`🏔️ Detecting relative elevation for ${lat}, ${lng}`);
+    
+    // Get elevation for POI location and surrounding area
+    const elevationPromises = [
+      getElevation(lat, lng), // POI location
+      getElevation(lat + 0.01, lng), // ~1km north
+      getElevation(lat - 0.01, lng), // ~1km south  
+      getElevation(lat, lng + 0.01), // ~1km east
+      getElevation(lat, lng - 0.01), // ~1km west
+      getElevation(lat + 0.005, lng + 0.005), // ~500m northeast
+      getElevation(lat - 0.005, lng - 0.005), // ~500m southwest
+      getElevation(lat + 0.005, lng - 0.005), // ~500m northwest
+      getElevation(lat - 0.005, lng + 0.005)  // ~500m southeast
+    ];
+    
+    const elevations = await Promise.all(elevationPromises);
+    const validElevations = elevations.filter(e => e !== null && !isNaN(e));
+    
+    if (validElevations.length < 3) {
+      console.log('❌ Not enough elevation data points');
+      return { poiElevation: 0, averageElevation: 0, elevationDiff: 0, confidence: 0.0 };
+    }
+    
+    const poiElevation = validElevations[0];
+    const surroundingElevations = validElevations.slice(1);
+    const averageElevation = surroundingElevations.reduce((sum, e) => sum + e, 0) / surroundingElevations.length;
+    const elevationDiff = poiElevation - averageElevation;
+    
+    console.log(`🏔️ Elevation analysis: POI=${poiElevation}m, Area avg=${averageElevation.toFixed(1)}m, Diff=${elevationDiff.toFixed(1)}m`);
+    
+    return {
+      poiElevation,
+      averageElevation,
+      elevationDiff,
+      confidence: validElevations.length / elevationPromises.length
+    };
+    
+  } catch (error) {
+    console.error('❌ Error detecting relative elevation:', error);
+    return { poiElevation: 0, averageElevation: 0, elevationDiff: 0, confidence: 0.0 };
+  }
+}
+
+// Get elevation for a specific coordinate using Open Elevation API
+async function getElevation(lat, lng) {
+  try {
+    const response = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`, {
+      headers: {
+        'User-Agent': 'TuggiCMS/1.0 (elevation-detection)'
+      }
+    });
+    
+    if (!response.ok) {
+      return null;
+    }
+    
+    const data = await response.json();
+    if (data.results && data.results.length > 0) {
+      return data.results[0].elevation;
+    }
+    
+    return null;
+  } catch (error) {
+    return null;
   }
 }
 
@@ -2614,12 +4112,30 @@ function processOverpassStreetData(data, lat, lng, poiName, landmark) {
 }
 
 // Generate triggers on streets (LEGACY MAIN FUNCTION)
-async function generateTriggersOnStreets(poiLat, poiLng, boundaryCoordinates, streets, landmarkInfo) {
+async function generateTriggersOnStreets(poiLat, poiLng, boundaryCoordinates, streets, landmarkInfo, regionalHeight = null) {
   const triggerPoints = [];
   
-  for (const street of streets) {
-    // Find strategic points on this street
-    const streetPoints = await findStrategicPointsOnStreet(street, poiLat, poiLng, boundaryCoordinates, landmarkInfo);
+  // INTELLIGENT SAMPLING: Sort streets by distance and process smartly
+  const sortedStreets = streets.sort((a, b) => (a.distance_to_poi || 0) - (b.distance_to_poi || 0));
+  
+  console.log(`📊 Processing ${sortedStreets.length} streets with intelligent sampling:`);
+  console.log(`   - Full checks: ${Math.min(SAMPLING_CONFIG.MAX_FULL_CHECKS, sortedStreets.length)} closest streets`);
+  console.log(`   - Fast estimates: ${Math.max(0, sortedStreets.length - SAMPLING_CONFIG.MAX_FULL_CHECKS)} distant streets`);
+  
+  for (let i = 0; i < sortedStreets.length; i++) {
+    const street = sortedStreets[i];
+    const isFullCheck = i < SAMPLING_CONFIG.MAX_FULL_CHECKS; // Full check for closest streets only
+    
+    // Find strategic points on this street with smart sampling
+    const streetPoints = await findStrategicPointsOnStreet(
+      street, 
+      poiLat, 
+      poiLng, 
+      boundaryCoordinates, 
+      landmarkInfo, 
+      regionalHeight, 
+      isFullCheck
+    );
     
     // Debug: log points generated for distant streets
     if (street.distance_to_poi > 1000) {
@@ -2892,7 +4408,7 @@ async function generateOptimalTriggerPoints(boundary, poiLat, poiLng, poiName, l
     const distance = calculateDistance(poiLat, poiLng, offsetPoint.lat, offsetPoint.lng);
     const bearing = calculateBearing(offsetPoint.lat, offsetPoint.lng, poiLat, poiLng);
     // Check visibility
-    const hasVisibility = await checkVisibilityToPOI(offsetPoint, coordinates, poiLat, poiLng);
+    const hasVisibility = await checkVisibilityToPOI(offsetPoint, coordinates, poiLat, poiLng, null, null, buildings);
     if (hasVisibility) {
       // Determine priority based on position
       const type = i < 4 ? 'primary' : i < 8 ? 'secondary' : 'fallback';
@@ -3028,8 +4544,11 @@ serve(async (req)=>{
     console.log(`🌍 OSM boundary detection for: ${name}`);
     // FIRST: Calculate real POI characteristics based on OSM data and elevation
     console.log(`📊 Analyzing POI characteristics using real data...`);
-    const poiHeightResult = await detectPOIHeight(lat, lng);
-    const urbanDensity = await detectUrbanDensity(lat, lng);
+    const [poiHeightResult, urbanDensity, elevationData] = await Promise.all([
+      detectPOIHeight(lat, lng),
+      detectUrbanDensity(lat, lng),
+      detectRelativeElevation(lat, lng)
+    ]);
     
     // Extract numeric height from result (handle both number and object responses)
     const poiHeight = typeof poiHeightResult === 'number' ? poiHeightResult : (poiHeightResult?.height || 0);
@@ -3069,15 +4588,46 @@ serve(async (req)=>{
     
     console.log(`🔍 DEBUG: urbanDensity=${urbanDensity}, baseRange=${baseRange}, heightBonus=${heightBonus}, elevationBonus=${elevationBonus}, maxRange=${maxRange}`);
     
-    // Determine if POI has high visibility based on HEIGHT ONLY (not urban density)
-    const isHighVisibility = poiHeight > 30 || isIconicLandmark; // Tall POIs or iconic landmarks
+    // Determine if POI has high visibility based on ELEVATION + HEIGHT RELATIVE TO SURROUNDINGS
+    let isHighVisibility = false;
+    
+    if (isIconicLandmark) {
+      // Iconic landmarks are always high visibility
+      isHighVisibility = true;
+      console.log(`🗿 Iconic landmark detected - high visibility confirmed`);
+    } else {
+      // Check elevation advantage first (terrain height difference)
+      const hasElevationAdvantage = elevationData.elevationDiff > 100; // 100m+ higher than surroundings
+      
+      if (hasElevationAdvantage) {
+        isHighVisibility = true;
+        console.log(`🏔️ Elevation advantage: ${elevationData.elevationDiff.toFixed(1)}m above surroundings → High visibility`);
+      } else {
+        // For regular buildings, height visibility depends on urban context
+        const heightThresholds = {
+          'very_dense': 200,  // São Paulo centro - need to be EXTREMELY tall (like Copacabana Palace, Edifício Itália)
+          'dense': 120,       // Dense areas - need to be quite tall  
+          'medium': 60,       // Medium density - moderate height needed
+          'low': 30,          // Low density - lower height threshold
+          'rural': 15         // Rural - even small buildings are visible
+        };
+        
+        const threshold = heightThresholds[urbanDensity] || 40;
+        isHighVisibility = poiHeight > threshold;
+        
+        console.log(`🏙️ No elevation advantage (${elevationData.elevationDiff.toFixed(1)}m)`);
+        console.log(`🏙️ Urban context check: ${urbanDensity} area needs >${threshold}m building height for high visibility`);
+        console.log(`🏗️ POI height: ${poiHeight}m → High visibility: ${isHighVisibility ? 'YES' : 'NO'}`);
+      }
+    }
     
     const landmarkInfo = {
       isHighVisibility,
       maxRange,
-      elevationDiff: poiHeight,
+      elevationDiff: elevationData.elevationDiff, // Real terrain elevation difference
+      buildingHeight: poiHeight, // Actual building height in meters
       urbanDensity,
-      dataSource: 'real_osm_elevation'
+      dataSource: 'real_osm_elevation_and_height'
     };
     
     console.log(`📊 POI Analysis Results:`);
@@ -3146,8 +4696,30 @@ serve(async (req)=>{
       });
     }
     console.log(`🎯 Step 2: Generating trigger points`);
-    // Step 2: Generate trigger points using enhanced legacy logic
-    let triggerPoints = await generateStreetBasedTriggerPoints(boundary, lat, lng, name, landmarkInfo);
+    
+    // Try mega-unified system first (95% faster!)
+    let megaData = null;
+    try {
+      megaData = await getMegaUnifiedPOIData(lat, lng, name, landmarkInfo);
+    } catch (error) {
+      console.warn(`⚠️ MEGA-UNIFIED failed, using legacy:`, error.message);
+    }
+    
+    let triggerPoints;
+    
+    if (megaData) {
+      // Use mega-unified data
+      triggerPoints = await generateTriggerPointsFromMegaData(megaData, boundary, lat, lng, name);
+    } else {
+      // 🚨 TESTE MEGA-UNIFIED: Fallback comentado para teste exclusivo do sistema mega-unificado
+      console.error(`❌ MEGA-UNIFIED falhou e fallback está desabilitado para teste. Abortando.`);
+      throw new Error('MEGA-UNIFIED system failed and fallback is disabled for testing');
+      
+      // console.log(`🔄 Using legacy methods`);
+      // // Fallback to legacy methods
+      // const regionalHeight = await getRegionalHeightAverage(lat, lng);
+      // triggerPoints = await generateStreetBasedTriggerPoints(boundary, lat, lng, name, landmarkInfo, regionalHeight);
+    }
     console.log(`✅ Generated ${triggerPoints.length} trigger points`);
     // CRITICAL LEGACY LOGIC: If no very close TPs were found (all > 80m), supplement with immediate streets
     const veryCloseTPs = triggerPoints.filter((tp)=>tp.distance_from_poi <= 80);

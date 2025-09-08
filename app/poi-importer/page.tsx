@@ -1040,103 +1040,40 @@ export default function POIImporterPage() {
 
         if (coordinateError) throw coordinateError
 
-                // Use direct Google Places API URLs instead of processing in Vercel
+                // Use Edge Function to store images in Supabase Storage
         if (photoReferences.length > 0) {
           try {
-            setImportStatus(`Setting up direct Google image URL for ${placeData.name}...`)
+            setImportStatus(`Storing images in Supabase for ${placeData.name}...`)
             
-            // Generate direct Google Places API URL for the primary image
-            const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-            if (googleApiKey) {
-              // Use 800px width for main images (good quality without being too large)
-              const directImageUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photoReferences[0]}&key=${googleApiKey}`
-              
-              // Update attraction with direct Google image URL
-              await supabase
-                .schema('core')
-                .from('attractions')
-                .update({ image_url: directImageUrl })
-                .eq('id', newAttraction.id)
-              
-              imageUrl = directImageUrl
-              console.log(`✅ Set direct Google image URL for ${placeData.name}: ${directImageUrl}`)
-              
-              // Store photo reference for future use
-              await storePhotoReferencesOnly(newAttraction.id, photoReferences)
-            } else {
-              console.warn('Google API key not available for direct image URLs')
-              // Fallback to old system if no API key
-              const { data: { session } } = await supabase.auth.getSession()
-              const authToken = session?.access_token
-              
-              const imageResponse = await fetch(
-                 `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/store-poi-images`,
-                 {
-                   method: 'POST',
-                   headers: {
-                     'Content-Type': 'application/json',
-                     'Authorization': `Bearer ${authToken}`,
-                     'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-                   },
-                   body: JSON.stringify({
-                     attractionId: newAttraction.id,
-                     googlePlaceId: placeData.place_id,
-                     photoReferences: photoReferences,
-                     attractionName: placeData.name
-                   })
-                 }
-               )
-
-              if (imageResponse.ok) {
-              const imageResult = await imageResponse.json()
-              console.log(`Image processing result for ${placeData.name}:`, imageResult)
-              
-              if (imageResult.processed > 0) {
-                console.log(`✅ Successfully stored ${imageResult.processed} images for ${placeData.name}`)
-                
-                // Update the attraction with the primary image URL if available
-                if (imageResult.images && imageResult.images.length > 0) {
-                  const primaryImage = imageResult.images[0] // First image is primary
-                  imageUrl = primaryImage.url
-                  
-                  await supabase
-                    .schema('core')
-                    .from('attractions')
-                    .update({ image_url: primaryImage.url })
-                    .eq('id', newAttraction.id)
-                    
-                  console.log(`Updated attraction with primary image: ${primaryImage.url}`)
-                }
-              } else {
-                console.warn(`⚠️ No images processed for ${placeData.name}. Errors:`, imageResult.errors)
-                console.log('Falling back to photo references storage...')
-                
-                // Fallback: Store photo references in database for later processing
-                await storePhotoReferencesOnly(newAttraction.id, photoReferences)
-              }
-            } else {
-              const errorData = await imageResponse.text() // Use text() in case it's not JSON
-              console.error('❌ Image storage request failed:', {
-                status: imageResponse.status,
-                statusText: imageResponse.statusText,
-                error: errorData
+            // Call Edge Function to download and store images
+            const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/store-poi-images`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`
+              },
+              body: JSON.stringify({
+                attractionId: newAttraction.id,
+                googlePlaceId: placeData.place_id,
+                photoReferences: photoReferences,
+                attractionName: placeData.name
               })
-              console.log('Falling back to photo references storage...')
-              
-              // Fallback: Store photo references in database for later processing
-              await storePhotoReferencesOnly(newAttraction.id, photoReferences)
+            })
+
+            if (response.ok) {
+              const result = await response.json()
+              if (result.success && result.images && result.images.length > 0) {
+                imageUrl = result.images[0].url
+                console.log(`✅ Stored images in Supabase for ${placeData.name}: ${result.processed} images processed`)
+              } else {
+                console.warn(`⚠️ Edge Function completed but no images were processed for ${placeData.name}`)
               }
+            } else {
+              const errorText = await response.text()
+              console.error(`❌ Edge Function failed for ${placeData.name}:`, errorText)
             }
-          } catch (imageError) {
-            console.error('Error storing images:', imageError)
-            console.log('Falling back to photo references storage...')
-            
-            // Fallback: Store photo references in database for later processing
-            try {
-              await storePhotoReferencesOnly(newAttraction.id, photoReferences)
-            } catch (fallbackError) {
-              console.error('Failed to store photo references:', fallbackError)
-            }
+          } catch (error) {
+            console.error('Error calling store-poi-images Edge Function:', error)
           }
         }
 

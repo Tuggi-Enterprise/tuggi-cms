@@ -101,6 +101,7 @@ const storeImageInBucket = async (
 // Save image reference in attraction_image table using your existing schema
 const saveImageReference = async (
   attractionId: string,
+  publicUrl: string,
   storagePath: string,
   googlePhotoReference: string
 ): Promise<string> => {
@@ -110,8 +111,10 @@ const saveImageReference = async (
     .from('attraction_image')
     .insert({
       attraction_id: attractionId,
+      image_url: publicUrl,
       storage_path: storagePath,
-      photo_reference: googlePhotoReference
+      photo_reference: googlePhotoReference,
+      alt_text: `Image from Google Places for attraction ${attractionId}`
     })
     .select('id')
     .single();
@@ -211,17 +214,18 @@ serve(async (req) => {
         // Store in bucket using your folder structure
         const storagePath = await storeImageInBucket(imageData, googlePlaceId, fileName);
         
-        // Save reference in database
-        const imageId = await saveImageReference(
-          attractionId,
-          storagePath,
-          photoRef
-        );
-
         // Generate public URL using your existing format
         const { data: publicUrlData } = supabaseAdmin.storage
           .from('travel-app-images')
           .getPublicUrl(storagePath);
+        
+        // Save reference in database with public URL
+        const imageId = await saveImageReference(
+          attractionId,
+          publicUrlData.publicUrl,
+          storagePath,
+          photoRef
+        );
 
         storedImages.push({
           id: imageId,

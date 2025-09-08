@@ -17,7 +17,7 @@
 - **JWT authentication**: Working in Edge Function
 
 ### **🎯 IN DEVELOPMENT**
-- **TriggerPointsService**: Next modular service
+- **TriggerPointsService**: Edge Function migration in progress
 - **AudioService**: Modular audio generation
 - **PublicationService**: Publication system
 - **OrchestratorService**: Unified flow
@@ -41,7 +41,7 @@ lib/services/poi-processing/
 ```
 supabase/functions/
 ├── generate-description/      ✅ DEPLOYED
-├── process-trigger-points/    🎯 NEXT
+├── generate-trigger-points/   🎯 MIGRATION IN PROGRESS
 ├── process-audio/            ⏳ PENDING
 ├── process-complete/         ⏳ PENDING
 └── process-batch/            ⏳ PENDING
@@ -81,12 +81,12 @@ curl -X POST 'https://tysnkzmljlmmqpbotkxv.supabase.co/functions/v1/generate-des
 |-----------|--------|----------|
 | **DescriptionService** | ✅ **COMPLETED** | 100% |
 | **Edge Function** | ✅ **DEPLOYED** | 100% |
-| **TriggerPointsService** | 🎯 **NEXT** | 0% |
+| **TriggerPointsService** | 🎯 **MIGRATION** | 25% |
 | **AudioService** | ⏳ **PENDING** | 0% |
 | **PublicationService** | ⏳ **PENDING** | 0% |
 | **OrchestratorService** | ⏳ **PENDING** | 0% |
 
-**Overall Progress**: 31% (6h30min of 21h30min)
+**Overall Progress**: 35% (7h30min of 21h30min)
 
 ---
 
@@ -106,16 +106,18 @@ curl -X POST 'https://tysnkzmljlmmqpbotkxv.supabase.co/functions/v1/generate-des
 - **[📚 Documentation Index](./DOCUMENTATION_INDEX.md)** - Quick navigation
 - **[🏗️ Technical Architecture](./TECHNICAL_ARCHITECTURE.md)** - Detailed architecture
 - **[🗺️ Implementation Roadmap](./IMPLEMENTATION_ROADMAP.md)** - Complete roadmap
+- **[🎯 Trigger Points Migration](./TRIGGER_POINTS_MIGRATION.md)** - Migration guide
 
 ---
 
 ## 🎯 **NEXT STEP**
 
-**Implement modular TriggerPointsService** - Analysis of existing code and creation of reusable service.
+**Complete Trigger Points Edge Function Migration** - Implement modular architecture with MEGA-UNIFIED data fetching.
 
-**Estimated time**: 2h  
+**Estimated time**: 10h  
 **Risk**: Medium  
-**Impact**: High
+**Impact**: High  
+**Documentation**: [TRIGGER_POINTS_MIGRATION.md](./TRIGGER_POINTS_MIGRATION.md)
 
 ---
 

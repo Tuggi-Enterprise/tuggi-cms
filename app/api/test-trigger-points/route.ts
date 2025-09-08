@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
       data: {
         trigger_points: edgeResult.trigger_points || [],
         boundary: edgeResult.boundary || null,
+        buffer: edgeResult.buffer || null,
         confidence: edgeResult.confidence || 0,
         processing_metadata: edgeResult.processing_metadata || {}
       },

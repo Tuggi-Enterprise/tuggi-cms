@@ -191,9 +191,12 @@ export default function TestTriggerPointsPage() {
       
       if (result.success) {
         console.log('✅ Test completed successfully!')
-        console.log(`📊 Generated ${result.data?.processing_metadata.total_points} trigger points`)
-        console.log(`🎯 Boundary confidence: ${result.data?.boundary.confidence}`)
+        console.log(`📊 Generated ${result.data?.trigger_points?.length || 0} trigger points`)
+        console.log(`🎯 Boundary confidence: ${result.data?.boundary?.confidence || 'unknown'}`)
         console.log(`⏱️ Processing time: ${result.processing_time}ms`)
+        
+        // Debug: Log full response structure
+        console.log('🔍 Full response structure:', JSON.stringify(result, null, 2))
       } else {
         console.error('❌ Test failed:', result.error)
       }
@@ -421,29 +424,62 @@ export default function TestTriggerPointsPage() {
                   title: `Trigger Point ${index + 1}`,
                   description: `${tp.type || 'unknown'} - ${(tp.distance_from_poi || 0).toFixed(1)}m - ${((tp.confidence || 0) * 100).toFixed(0)}%`,
                   color: getTriggerPointColor(tp.type)
-                })) || [])
+                })) || []),
+                // Buffer Points are now displayed as connected polygon (see savedPolygons)
               ]}
-              polygon={(() => {
-                // Verificação defensiva - mostra BOUNDARY como polígono principal
-                if (!testResult || !testResult.success || !testResult.data || !testResult.data.boundary) {
-                  console.log('🚫 No boundary data available');
-                  return undefined;
+              savedPolygons={(() => {
+                // Múltiplos polígonos: boundary + buffer
+                if (!testResult || !testResult.success || !testResult.data) {
+                  console.log('🚫 No test result data available');
+                  return [];
                 }
                 
-                const boundary = testResult.data.boundary;
-                const hasCoordinates = boundary.coordinates && boundary.coordinates.length > 3;
+                const polygons = [];
+                const data = testResult.data;
                 
-                console.log('🟢 Boundary polygon check:', {
-                  success: testResult?.success,
-                  hasBoundary: !!boundary,
-                  boundaryType: boundary.type,
-                  hasCoordinates: hasCoordinates,
-                  coordinatesLength: boundary.coordinates?.length,
-                  source: boundary.source
-                });
+                // 1. BOUNDARY (polígono principal - verde)
+                if (data.boundary && data.boundary.coordinates && data.boundary.coordinates.length > 3) {
+                  polygons.push({
+                    id: 'boundary',
+                    name: `Boundary (${data.boundary.source})`,
+                    paths: data.boundary.coordinates
+                  });
+                  console.log('🟢 Added boundary polygon with', data.boundary.coordinates.length, 'points');
+                }
                 
-                // Se tem coordenadas válidas, mostrar boundary como polígono verde
-                return hasCoordinates ? boundary.coordinates : undefined;
+                // 2. BUFFER ZONE - Now displayed as connected polygon
+                if (data.buffer && data.buffer.coordinates && data.buffer.coordinates.length > 3) {
+                  // Sort buffer points by angle from center to create proper polygon
+                  const bufferPoints = [...data.buffer.coordinates];
+                  const center = bufferPoints.reduce(
+                    (acc, point) => ({
+                      lat: acc.lat + point.lat / bufferPoints.length,
+                      lng: acc.lng + point.lng / bufferPoints.length
+                    }),
+                    { lat: 0, lng: 0 }
+                  );
+                  
+                  const sortedBufferPoints = bufferPoints.sort((a, b) => {
+                    const angleA = Math.atan2(a.lat - center.lat, a.lng - center.lng);
+                    const angleB = Math.atan2(b.lat - center.lat, b.lng - center.lng);
+                    return angleA - angleB;
+                  });
+                  
+                  polygons.push({
+                    id: 'buffer-polygon',
+                    name: `Buffer Zone - ${testResult.data.buffer?.radius || 'Dynamic'}m (${sortedBufferPoints.length} pontos)`,
+                    paths: sortedBufferPoints,
+                    strokeColor: '#FF8C00', // Orange for buffer
+                    strokeOpacity: 0.8,
+                    strokeWeight: 3,
+                    fillColor: '#FF8C00',
+                    fillOpacity: 0.15
+                  });
+                  console.log('🟠 Added buffer polygon with', sortedBufferPoints.length, 'interlinked points');
+                }
+                
+                console.log(`📊 Total polygons to display: ${polygons.length}`);
+                return polygons;
               })()}
               polygonOptions={{
                 strokeColor: '#00FF00', // Verde para boundary
@@ -508,19 +544,7 @@ export default function TestTriggerPointsPage() {
                   radius: buffer?.radius
                 });
                 
-                if (shouldShowCircularBuffer && buffer.radius > 0) {
-                  console.log('✅ Adding buffer circle with radius:', buffer.radius);
-                  circles.push({
-                    id: 'buffer-circle',
-                    center: { lat: poiData.lat, lng: poiData.lng },
-                    radius: buffer.radius,
-                    strokeColor: '#FF6B6B',
-                    strokeOpacity: 0.6,
-                    strokeWeight: 2,
-                    fillColor: '#FF6B6B',
-                    fillOpacity: 0.05
-                  });
-                }
+                // Buffer circle DISABLED - now using buffer polygon instead
                 // Buffer/Raio de geração de trigger points
                 const hasBuffer = testResult?.success && (
                   testResult?.data?.debug_report?.trigger_points_generation?.generation_range ||
@@ -539,7 +563,8 @@ export default function TestTriggerPointsPage() {
                   willShowBuffer: hasBuffer
                 });
                 
-                if (hasBuffer) {
+                // TEMPORARILY HIDDEN: Generation buffer circle (replaced by buffer polygon)
+                if (false && hasBuffer) {
                   circles.push({
                     id: 'generation-buffer',
                     center: { lat: poiData.lat, lng: poiData.lng },
@@ -620,11 +645,11 @@ export default function TestTriggerPointsPage() {
                 </div>
                 <div className="bg-white p-2 rounded">
                   <span className="text-gray-600">Confiança:</span>
-                  <span className="ml-2 font-bold text-green-700">{(testResult.data.boundary.confidence * 100).toFixed(0)}%</span>
+                  <span className="ml-2 font-bold text-green-700">{((testResult.data.boundary.confidence || 0) * 100).toFixed(0)}%</span>
                 </div>
                 <div className="bg-white p-2 rounded">
                   <span className="text-gray-600">Área:</span>
-                  <span className="ml-2 font-bold text-green-700">{testResult.data.boundary.area_m2?.toLocaleString()} m²</span>
+                  <span className="ml-2 font-bold text-green-700">{testResult.data.boundary.area_m2?.toLocaleString() || 'N/A'} m²</span>
                 </div>
               </div>
               <div className="mt-3 p-2 bg-white rounded">
@@ -756,10 +781,10 @@ export default function TestTriggerPointsPage() {
                       Fonte: {testResult.data?.boundary.source}
                     </p>
                     <p className="text-sm text-green-600">
-                      Confiança: {(testResult.data?.boundary.confidence! * 100).toFixed(0)}%
+                      Confiança: {((testResult.data?.boundary.confidence || 0) * 100).toFixed(0)}%
                     </p>
                     <p className="text-sm text-green-600">
-                      Área: {testResult.data?.boundary.area_m2.toLocaleString()} m²
+                      Área: {testResult.data?.boundary.area_m2?.toLocaleString() || 'N/A'} m²
                     </p>
                   </div>
                   
@@ -782,7 +807,7 @@ export default function TestTriggerPointsPage() {
                   <div className="bg-purple-50 p-4 rounded-lg">
                     <h3 className="font-semibold text-purple-800">⚡ Performance</h3>
                     <p className="text-sm text-purple-600">
-                      Score: {(testResult.data?.confidence! * 100).toFixed(0)}%
+                      Score: {((testResult.data?.confidence || 0) * 100).toFixed(0)}%
                     </p>
                     <p className="text-sm text-purple-600">
                       Tempo Total: {testResult.processing_time}ms
@@ -851,9 +876,9 @@ export default function TestTriggerPointsPage() {
                       <h4 className="font-medium text-indigo-700 mb-2">🎯 Análise do Boundary</h4>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-indigo-600">
                         <div><span className="font-medium">Método:</span> {testResult.data.debug_report.boundary_analysis.method_used}</div>
-                        <div><span className="font-medium">Área:</span> {testResult.data.debug_report.boundary_analysis.area_m2.toLocaleString()} m²</div>
-                        <div><span className="font-medium">Perímetro:</span> {testResult.data.debug_report.boundary_analysis.perimeter_m.toLocaleString()} m</div>
-                        <div><span className="font-medium">Confiança:</span> {(testResult.data.debug_report.boundary_analysis.confidence * 100).toFixed(0)}%</div>
+                        <div><span className="font-medium">Área:</span> {testResult.data.debug_report.boundary_analysis.area_m2?.toLocaleString() || 'N/A'} m²</div>
+                        <div><span className="font-medium">Perímetro:</span> {testResult.data.debug_report.boundary_analysis.perimeter_m?.toLocaleString() || 'N/A'} m</div>
+                        <div><span className="font-medium">Confiança:</span> {((testResult.data.debug_report.boundary_analysis.confidence || 0) * 100).toFixed(0)}%</div>
                         <div><span className="font-medium">Coordenadas:</span> {testResult.data.debug_report.boundary_analysis.coordinates_count} pontos</div>
                         <div><span className="font-medium">Fonte:</span> {testResult.data.debug_report.boundary_analysis.source}</div>
                       </div>
