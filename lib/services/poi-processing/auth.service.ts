@@ -218,7 +218,7 @@ export class AuthService {
   /**
    * Extract token from Authorization header
    */
-  static extractTokenFromHeader(authHeader?: string): string | null {
+  static extractTokenFromHeader(authHeader?: string | null): string | null {
     if (!authHeader) return null
     
     const match = authHeader.match(/^Bearer\s+(.+)$/i)
