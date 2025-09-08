@@ -3,8 +3,8 @@
 -- e insere fontes confiáveis de verificação para os três estados
 
 -- Inserir Estados Unidos se não existir
-INSERT INTO core.countries (name, code, region, created_at, updated_at)
-SELECT 'United States', 'US', 'North America', NOW(), NOW()
+INSERT INTO core.countries (code, name, name_native, flag_emoji, language_code, is_active, created_at, updated_at)
+SELECT 'US', 'United States', 'United States', '🇺🇸', 'en', true, NOW(), NOW()
 WHERE NOT EXISTS (
     SELECT 1 FROM core.countries WHERE code = 'US'
 );
@@ -16,12 +16,12 @@ WHERE NOT EXISTS (
 -- Inserir fontes de verificação para a Califórnia
 INSERT INTO core.country_verification_sources (
     country_id,
-    name,
-    url,
+    source_name,
+    base_url,
     source_type,
     priority,
     is_active,
-    configuration,
+    config,
     created_at,
     updated_at
 ) VALUES
@@ -304,17 +304,7 @@ INSERT INTO core.country_verification_sources (
     NOW(),
     NOW()
 ),
-(
-    (SELECT id FROM core.countries WHERE code = 'US'),
-    'American Museum of Natural History',
-    'https://www.amnh.org/',
-    'museum',
-    1,
-    true,
-    '{"description": "Official American Museum of Natural History website featuring 45 permanent exhibition halls, planetarium, and scientific research", "focus": ["natural_history", "science", "planetarium", "education"], "state": "New York"}',
-    NOW(),
-    NOW()
-);
+
 
 -- Comentário sobre as fontes inseridas
 /*

@@ -3,8 +3,8 @@
 -- e insere fontes confiáveis de verificação para a Flórida
 
 -- Inserir Estados Unidos se não existir
-INSERT INTO core.countries (name, code, region, created_at, updated_at)
-SELECT 'United States', 'US', 'North America', NOW(), NOW()
+INSERT INTO core.countries (code, name, name_native, flag_emoji, language_code, is_active, created_at, updated_at)
+SELECT 'US', 'United States', 'United States', '🇺🇸', 'en', true, NOW(), NOW()
 WHERE NOT EXISTS (
     SELECT 1 FROM core.countries WHERE code = 'US'
 );
@@ -12,12 +12,12 @@ WHERE NOT EXISTS (
 -- Inserir fontes de verificação para a Flórida
 INSERT INTO core.country_verification_sources (
     country_id,
-    name,
-    url,
+    source_name,
+    base_url,
     source_type,
     priority,
     is_active,
-    configuration,
+    config,
     created_at,
     updated_at
 ) VALUES
@@ -77,7 +77,7 @@ INSERT INTO core.country_verification_sources (
     'museum',
     1,
     true,
-    '{"description": "Official website of Salvador Dalí Museum in St. Petersburg, featuring the world\'s largest collection of Dalí works outside Spain", "focus": ["art", "surrealism", "culture", "exhibitions"]}',
+    '{"description": "Official website of Salvador Dalí Museum in St. Petersburg, featuring the worlds largest collection of Dalí works outside Spain", "focus": ["art", "surrealism", "culture", "exhibitions"]}',
     NOW(),
     NOW()
 ),
@@ -180,12 +180,12 @@ INSERT INTO core.country_verification_sources (
 -- Specialized Museums
 INSERT INTO core.country_verification_sources (
     country_id,
-    name,
-    url,
+    source_name,
+    base_url,
     source_type,
     priority,
     is_active,
-    configuration,
+    config,
     created_at,
     updated_at
 ) VALUES
@@ -251,52 +251,4 @@ INSERT INTO core.country_verification_sources (
     '{"city": "Jacksonville", "focus": "beaches_culture_nature", "official": true, "coverage": "northeast_florida"}',
     NOW(),
     NOW()
-),
-
--- Government Source
-(
-    (SELECT id FROM core.countries WHERE code = 'US'),
-    'Florida Department of State - Tourism',
-    'https://dos.myflorida.com/florida-facts/florida-maps-geography-and-statistics/tourism-and-recreation/',
-    'government',
-    2,
-    true,
-    '{"department": "state", "focus": "tourism_recreation", "official": true}',
-    NOW(),
-    NOW()
-);
-
--- Comentário sobre as fontes inseridas
-/*
-Foram inseridas 19 fontes confiáveis de verificação para a Flórida:
-
-1. Turismo Oficial:
-   - Visit Florida (site oficial)
-   - Visit Florida Regional Guide
-   - Florida Department of State
-
-2. Atrações Principais:
-   - Kennedy Space Center (atração #1 dos EUA)
-   - Visit Orlando (Disney, Universal, etc.)
-
-3. Principais Cidades:
-   - Visit Orlando (turismo oficial de Orlando)
-   - Greater Miami Convention & Visitors Bureau (Miami)
-   - Florida Keys & Key West Tourism Council (Key West)
-   - Visit Jacksonville (Jacksonville)
-
-4. Museus de Arte:
-   - Salvador Dalí Museum (maior coleção mundial fora da Espanha)
-   - The Ringling Museum (museu estadual de arte da Flórida)
-   - Pérez Art Museum Miami (arte contemporânea)
-   - Sarasota Art Museum (arte contemporânea)
-
-5. Museus de Ciência e História:
-   - The Bishop Museum of Science and Nature
-   - American Space Museum & Walk of Fame
-   - National Naval Aviation Museum
-   - Orlando Science Center
-   - Mel Fisher Maritime Heritage Society (Key West)
-
-Todas as fontes são oficiais e confiáveis para coleta de conteúdo sobre a Flórida.
-*/
+)

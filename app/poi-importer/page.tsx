@@ -592,141 +592,73 @@ export default function POIImporterPage() {
 
   const fetchCityBoundary = async (lat: number, lng: number, cityName?: string): Promise<boolean> => {
     try {
-      console.log(`Searching for city boundary at coordinates: ${lat}, ${lng}`)
+      console.log(`🔍 Searching for city boundary using LocationResolver: ${cityName || 'coordinates only'} at (${lat}, ${lng})`)
       
-      // Use spatial query to find all city boundaries that contain the point
-      // Filter for city-level boundaries (admin_level 8 is typically cities/towns)
-      const spatialResult = await supabase
-        .schema('core')
-        .from('city_boundaries')
-        .select('name, name_en, geom, admin_level')
-        .overlaps('geom', `POINT(${lng} ${lat})`)
-        .in('admin_level', [8, 9, 10]) // City/town/village levels
-        .order('admin_level', { ascending: true }) // Prefer smaller admin levels first
-        .limit(5) // Get multiple results to find the best match
-
-      console.log('Spatial query result:', spatialResult.data, spatialResult.error)
-
-      let data = null
-
-      if (spatialResult.data && spatialResult.data.length > 0) {
-        // If we have multiple results, try to find the one that matches our search query
-        if (spatialResult.data.length > 1 && cityName) {
-          const exactMatch = spatialResult.data.find(city => 
-            (city.name && city.name.toLowerCase() === cityName.toLowerCase()) ||
-            (city.name_en && city.name_en.toLowerCase() === cityName.toLowerCase())
-          )
-          
-          if (exactMatch) {
-            data = exactMatch
-            console.log(`Found exact name match: ${data.name_en || data.name} (admin_level: ${data.admin_level})`)
-          } else {
-            // Try partial match
-            const partialMatch = spatialResult.data.find(city => 
-              (city.name && city.name.toLowerCase().includes(cityName.toLowerCase())) ||
-              (city.name_en && city.name_en.toLowerCase().includes(cityName.toLowerCase()))
-            )
-            
-            if (partialMatch) {
-              data = partialMatch
-              console.log(`Found partial name match: ${data.name_en || data.name} (admin_level: ${data.admin_level})`)
-            } else {
-              // Fall back to the first result
-              data = spatialResult.data[0]
-              console.log(`No name match found, using first spatial result: ${data.name_en || data.name} (admin_level: ${data.admin_level})`)
-              console.log(`Available options were: ${spatialResult.data.map(c => c.name_en || c.name).join(', ')}`)
-            }
-          }
-        } else {
-          data = spatialResult.data[0]
-          console.log(`Found city boundary using spatial query: ${data.name_en || data.name} (admin_level: ${data.admin_level})`)
-        }
-              } else {
-          // Fallback: Try broader spatial search with different admin levels
-          const spatialFallbackResult = await supabase
-            .schema('core')
-            .from('es')
-            .select('name, name_en, geom, admin_level')
-            .overlaps('geom', `POINT(${lng} ${lat})`)
-            .lte('admin_level', 10) // Include all city/town/village levels
-            .order('admin_level', { ascending: true })
-            .limit(5)
-
-          if (spatialFallbackResult.data && spatialFallbackResult.data.length > 0) {
-            // Find the smallest administrative unit (highest admin_level number that's still a city)
-            const cityLevel = spatialFallbackResult.data.find(boundary => 
-              boundary.admin_level >= 6 && boundary.admin_level <= 10
-            )
-            if (cityLevel) {
-              data = cityLevel
-              console.log(`Found city boundary using fallback spatial query: ${data.name_en || data.name} (admin_level: ${data.admin_level})`)
-            }
-          } else {
-            // Final fallback: Name-based search with city filter
-            console.log('Spatial queries failed, trying name-based fallback...')
-            
-            if (cityName) {
-              const nameResult = await supabase
-                .schema('core')
-                .from('es')
-                .select('name, name_en, geom, admin_level')
-                .ilike('name', `%${cityName}%`)
-                .in('admin_level', [8, 9, 10])
-                .limit(1)
-
-              if (nameResult.data && nameResult.data.length > 0) {
-                data = nameResult.data[0]
-                console.log(`Found city using name fallback: ${data.name_en || data.name} (admin_level: ${data.admin_level})`)
-              }
-            }
-          }
-        }
-
+      // Use the new LocationResolver API endpoint
+      const response = await fetch('/api/location/resolve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          search_term: cityName || `${lat},${lng}`,
+          lat,
+          lng
+        })
+      })
+      
+      if (!response.ok) {
+        console.error('❌ LocationResolver API error:', response.status, response.statusText)
+        setCityBoundary(null)
+        return false
+      }
+      
+      const result = await response.json()
+      
+      if (!result.success || !result.data) {
+        console.log('❌ LocationResolver returned no data:', result)
+        setCityBoundary(null)
+        return false
+      }
+      
+      const locationData = result.data
+      console.log(`📍 LocationResolver result:`, {
+        status: locationData.status,
+        display_name: locationData.display_name,
+        boundary_type: locationData.boundary_type,
+        message: locationData.message,
+        confidence: locationData.confidence
+      })
+      
+      // Show warning message if using fallback
+      if (locationData.status === 'fallback' && locationData.warning) {
+        console.warn(`⚠️ ${locationData.message}`)
+        // You could show this message to the user in the UI if needed
+      }
+      
+      if (locationData.status === 'not_found') {
+        console.log(`❌ ${locationData.message}`)
+        setCityBoundary(null)
+        return false
+      }
+      
+      const data = locationData.boundary_data
       if (!data) {
-        console.log(`City boundary not found for coordinates: ${lat}, ${lng}${cityName ? ` (${cityName})` : ''}`)
-        
-        // Better debugging - let's see what's actually in the database and any errors
-        const debugResult = await supabase
-          .schema('core')
-          .from('city_boundaries')
-          .select('name, name_en')
-          .limit(5)
-        
-        console.log('Sample cities in database:', debugResult.data)
-        console.log('Query error (if any):', debugResult.error)
-        
-        // This looks like a Row Level Security (RLS) issue
-        // Let's try querying with different methods
-        try {
-          // Try counting all rows (sometimes counts work when selects don't)
-          const countResult = await supabase
-            .schema('core')
-            .from('city_boundaries')
-            .select('*', { count: 'exact', head: true })
-          
-          console.log('Row count result:', countResult.count, 'Error:', countResult.error)
-          
-          // Try a simple query without WHERE clause
-          const simpleResult = await supabase
-            .schema('core') 
-            .from('city_boundaries')
-            .select('name')
-            .range(0, 2)
-            
-          console.log('Simple query result:', simpleResult.data, 'Error:', simpleResult.error)
-          
-        } catch (e) {
-          console.log('RLS/Permission error:', e)
-        }
-        
+        console.log('❌ No boundary data in LocationResolver response')
         setCityBoundary(null)
         return false
       }
 
-      // Parse the PostGIS geometry
+      // Use coordinates from LocationResolver if available, otherwise parse geometry
       let boundary = null
-      if (data.geom && typeof data.geom === 'object' && data.geom.coordinates) {
-        // Handle different geometry types (Polygon, MultiPolygon)
+      
+      if (data.coordinates && Array.isArray(data.coordinates) && data.coordinates.length > 0) {
+        // LocationResolver already parsed the coordinates
+        boundary = data.coordinates
+        console.log(`✅ Using pre-parsed coordinates from LocationResolver: ${boundary.length} points`)
+      } else if (data.geom && typeof data.geom === 'object' && data.geom.coordinates) {
+        // Fallback: Parse the PostGIS geometry manually
+        console.log('📐 Parsing PostGIS geometry manually...')
         let coordinates = data.geom.coordinates
         
         if (data.geom.type === 'MultiPolygon') {
@@ -745,10 +677,24 @@ export default function POIImporterPage() {
 
       if (boundary && boundary.length > 0) {
         setCityBoundary(boundary)
-        setCurrentCityName(data.name_en || data.name)
-        console.log(`Found boundary for ${data.name_en || data.name} with ${boundary.length} points`)
+        setCurrentCityName(locationData.display_name)
+        
+        // Log success with fallback information
+        const statusEmoji = locationData.status === 'success' ? '✅' : 
+                           locationData.status === 'fallback' ? '⚠️' : '❓'
+        const typeLabel = locationData.boundary_type === 'city' ? 'cidade' :
+                         locationData.boundary_type === 'county' ? 'condado' :
+                         locationData.boundary_type === 'state' ? 'estado' : 'região'
+        
+        console.log(`${statusEmoji} Boundary loaded: ${locationData.display_name} (${typeLabel}) - ${boundary.length} pontos`)
+        
+        if (locationData.status === 'fallback') {
+          console.log(`📍 Fallback usado: ${locationData.message}`)
+        }
+        
         return true
       } else {
+        console.log('❌ No valid boundary coordinates found')
         setCityBoundary(null)
         return false
       }
