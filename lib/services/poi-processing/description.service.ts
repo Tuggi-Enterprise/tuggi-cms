@@ -47,6 +47,21 @@ const getSupabaseAdmin = () => {
 // =====================================
 
 /**
+ * Verification source interface
+ */
+interface VerificationSource {
+  id: string;
+  name: string;
+  url: string;
+  source_type: string;
+  country_code?: string;
+  city?: string;
+  priority?: number;
+  is_active?: boolean;
+  [key: string]: any; // For additional properties
+}
+
+/**
  * Universal processing result interface for all POI services
  * Ensures consistency across DescriptionService, TriggerPointsService, AudioService, etc.
  */
@@ -604,7 +619,7 @@ export class DescriptionService {
 
         if (countrySources && countrySources.length > 0) {
           // Add layer info to country sources
-          const sourcesWithLayer = countrySources.map(s => ({ ...s, layer: 'national' }))
+          const sourcesWithLayer = countrySources.map((s: VerificationSource) => ({ ...s, layer: 'national' }))
           sources = [...sources, ...sourcesWithLayer]
         }
       }
@@ -2237,7 +2252,7 @@ RESPONDA EM JSON:
   ): Promise<void> {
     try {
       const sourcesData = {
-        sources: sources.map(s => ({
+        sources: sources.map((s: any) => ({
           name: s.source_name,
           type: s.source_type,
           layer: s.layer,

@@ -481,7 +481,7 @@ export class OSMEnrichmentService {
       }
 
       const fields_updated = Object.keys(updateData).filter(key => 
-        updateData[key] !== null && updateData[key] !== undefined
+        updateData[key as keyof typeof updateData] !== null && updateData[key as keyof typeof updateData] !== undefined
       )
 
       return { success: true, fields_updated }

@@ -253,7 +253,16 @@ export class DataDrivenTriggerPointsService {
       const nominatimResult = await this.searchOSMByName(poiData.lat!, poiData.lng!, poiData.name)
       if (nominatimResult.success) {
         console.log('✅ SUCCESS: Found boundary via Nominatim')
-        return { success: true, data: { ...nominatimResult.boundary!, source: 'osm_nominatim' } }
+        return { 
+          success: true, 
+          data: { ...nominatimResult.boundary!, source: 'osm_nominatim' },
+          processing_time: 0,
+          metadata: { 
+            step: 'boundary_detection',
+            status: 'completed',
+            timestamp: new Date().toISOString()
+          }
+        }
       }
       
       // STRATEGY 2: OSM Reverse Geocoding (confidence: 0.85)
@@ -261,7 +270,16 @@ export class DataDrivenTriggerPointsService {
       const reverseResult = await this.searchOSMByCoordinates(poiData.lat!, poiData.lng!)
       if (reverseResult.success) {
         console.log('✅ SUCCESS: Found boundary via Reverse Geocoding')
-        return { success: true, data: { ...reverseResult.boundary!, source: 'osm_reverse_geocoding' } }
+        return { 
+          success: true, 
+          data: { ...reverseResult.boundary!, source: 'osm_reverse_geocoding' },
+          processing_time: 0,
+          metadata: { 
+            step: 'boundary_detection',
+            status: 'completed',
+            timestamp: new Date().toISOString()
+          }
+        }
       }
       
       // STRATEGY 3: Unified Overpass API (confidence: 0.85)
@@ -269,7 +287,16 @@ export class DataDrivenTriggerPointsService {
       const overpassResult = await this.searchOSMNearbyFeatures(poiData.lat!, poiData.lng!, poiData.name)
       if (overpassResult.success) {
         console.log('✅ SUCCESS: Found boundary via Overpass')
-        return { success: true, data: { ...overpassResult.boundary!, source: 'osm_overpass' } }
+        return { 
+          success: true, 
+          data: { ...overpassResult.boundary!, source: 'osm_overpass' },
+          processing_time: 0,
+          metadata: { 
+            step: 'boundary_detection',
+            status: 'completed',
+            timestamp: new Date().toISOString()
+          }
+        }
       }
       
       // STRATEGY 4: Fallback Street Analysis (confidence: 0.65)
@@ -277,7 +304,16 @@ export class DataDrivenTriggerPointsService {
       const fallbackResult = await this.createFallbackBoundaryFromStreets(poiData.lat!, poiData.lng!, poiData.name)
       if (fallbackResult.success) {
         console.log('✅ SUCCESS: Created boundary via Street Analysis')
-        return { success: true, data: { ...fallbackResult.boundary!, source: 'fallback_street_analysis' } }
+        return { 
+          success: true, 
+          data: { ...fallbackResult.boundary!, source: 'fallback_street_analysis' },
+          processing_time: 0,
+          metadata: { 
+            step: 'boundary_detection',
+            status: 'completed',
+            timestamp: new Date().toISOString()
+          }
+        }
       }
       
       // FINAL FALLBACK: Estimated boundary (per memory requirement - monolith behavior)
@@ -289,12 +325,27 @@ export class DataDrivenTriggerPointsService {
           ...estimatedBoundary, 
           source: 'estimated_boundary',
           confidence: 0.4 // Low confidence for estimated
-        } 
+        },
+        processing_time: 0,
+        metadata: { 
+          step: 'boundary_detection',
+          status: 'completed',
+          timestamp: new Date().toISOString()
+        }
       }
       
     } catch (error) {
       console.error('❌ Boundary detection failed:', error)
-      return { success: false, error: `Boundary detection failed: ${error}` }
+      return { 
+        success: false, 
+        error: `Boundary detection failed: ${error}`,
+        processing_time: 0,
+        metadata: { 
+          step: 'boundary_detection',
+          status: 'failed',
+          timestamp: new Date().toISOString()
+        }
+      }
     }
   }
 
@@ -360,8 +411,8 @@ export class DataDrivenTriggerPointsService {
               validation
             }
           })
-          .filter(item => item.score > 0.3)
-          .sort((a, b) => b.score - a.score)
+          .filter((item: any) => item.score > 0.3)
+          .sort((a: any, b: any) => b.score - a.score)
         
         // Try best matches
         for (const { result, score, distance, isValidDistance } of scoredResults) {
@@ -1235,7 +1286,16 @@ export class DataDrivenTriggerPointsService {
 
   private static async saveTriggerPoints(attractionId: string, triggerPoints: TriggerPoint[], source: string): Promise<ProcessingResult<{ saved: number }>> {
     // TODO: Implement database saving
-    return { success: true, data: { saved: 0 } }
+    return { 
+      success: true, 
+      data: { saved: 0 },
+      processing_time: 0,
+      metadata: { 
+        step: 'trigger_points_save',
+        status: 'completed',
+        timestamp: new Date().toISOString()
+      }
+    }
   }
 
   private static createErrorResult(error: string, startTime: number, options?: TriggerPointOptions): ProcessingResult<any> {
