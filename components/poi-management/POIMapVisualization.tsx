@@ -74,9 +74,11 @@ interface SavedPolygon {
 type POIStatus = 'complete' | 'approved' | 'pending' | 'missing_content'
 
 interface POIMapVisualizationProps {
-  // Filters
+  // Filter props
   searchTerm: string
   statusFilter: 'all' | 'approved' | 'pending'
+  countryFilter: string
+  stateFilter: string
   cityFilter: string
   googleTypesFilter: string
   contentStatusFilter: 'all' | 'missing_description' | 'missing_audio' | 'complete'
@@ -147,6 +149,8 @@ function createMarkerIcon(status: POIStatus, isSelected: boolean = false): googl
 function POIMapContent({
   searchTerm,
   statusFilter,
+  countryFilter,
+  stateFilter,
   cityFilter,
   googleTypesFilter,
   contentStatusFilter,
@@ -288,6 +292,19 @@ function POIMapContent({
           .order('created_at', { ascending: false })
           .range(page * pageSize, (page + 1) * pageSize - 1)
 
+        // Apply hierarchical filters first (country > state > city)
+        if (countryFilter) {
+          query = query.eq('country', countryFilter)
+        }
+        
+        if (stateFilter) {
+          query = query.eq('state', stateFilter)
+        }
+        
+        if (cityFilter) {
+          query = query.eq('city', cityFilter)
+        }
+
         // Apply viewport filtering if bounds provided and map is zoomed in enough
         if (bounds && mapInstanceRef.current && mapInstanceRef.current.getZoom()! > 8) {
           const ne = bounds.getNorthEast()
@@ -365,7 +382,7 @@ function POIMapContent({
     } finally {
       setIsLoading(false)
     }
-  }, [supabase])
+  }, [supabase, countryFilter, stateFilter, cityFilter])
 
   // Fetch saved polygons
   const fetchSavedPolygons = useCallback(async () => {
@@ -403,6 +420,12 @@ function POIMapContent({
         if (statusFilter === 'pending' && poi.approved) return false
       }
 
+      // Country filter
+      if (countryFilter && poi.country !== countryFilter) return false
+
+      // State filter
+      if (stateFilter && poi.state !== stateFilter) return false
+
       // City filter
       if (cityFilter && poi.city !== cityFilter) return false
 
@@ -426,7 +449,7 @@ function POIMapContent({
 
       return true
     })
-  }, [pois, searchTerm, statusFilter, cityFilter, googleTypesFilter, contentStatusFilter, triggerPointsFilter])
+  }, [pois, searchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, triggerPointsFilter])
 
   // Update markers when filtered POIs change
   const updateMarkers = useCallback(() => {

@@ -60,6 +60,7 @@ export interface POI {
     group_role?: 'main' | 'member'
     group_member_count?: number
   }
+  verification_score?: number | null
 }
 
 interface POIDetailsModalProps {
