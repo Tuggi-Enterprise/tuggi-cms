@@ -639,6 +639,43 @@ function POIListWithSearchParams() {
     }
   }
 
+  const handleBulkDelete = async () => {
+    if (selectedPois.length === 0) return
+
+    const confirmMessage = `Tem certeza que deseja excluir ${selectedPois.length} POI${selectedPois.length > 1 ? 's' : ''}? Esta ação não pode ser desfeita.`
+    if (!confirm(confirmMessage)) {
+      return
+    }
+
+    try {
+      const response = await fetch('/api/pois/bulk-delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ poiIds: selectedPois }),
+      })
+
+      const result = await response.json()
+
+      if (!result.success) {
+        throw new Error(result.error || 'Erro ao excluir POIs')
+      }
+
+      // Remove os POIs da lista local
+      setPois(prev => prev.filter(poi => !selectedPois.includes(poi.id)))
+      
+      // Limpa a seleção
+      setSelectedPois([])
+      
+      // Atualiza as estatísticas
+      await loadPois()
+    } catch (error) {
+      console.error('Erro ao excluir POIs:', error)
+      alert('Erro ao excluir POIs. Tente novamente.')
+    }
+  }
+
   const handleFiltersChange = () => {
     // Handle map filters change if needed
   }
@@ -905,6 +942,29 @@ function POIListWithSearchParams() {
             </div>
             
             <div className="flex items-center gap-4">
+              {/* Bulk Actions */}
+              {selectedPois.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {selectedPois.length} selected
+                  </span>
+                  <button
+                    onClick={handleBulkDelete}
+                    className="inline-flex items-center px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Selected
+                  </button>
+                  <button
+                    onClick={clearSelection}
+                    className="inline-flex items-center px-3 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors text-sm"
+                  >
+                    <X className="w-4 h-4 mr-2" />
+                    Clear
+                  </button>
+                </div>
+              )}
+
               {/* View Toggle */}
               <div className="flex border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
                 <button
@@ -986,6 +1046,33 @@ function POIListWithSearchParams() {
                 </div>
               ) : (
                 <>
+                  {/* Selection Controls */}
+                  {pois.length > 0 && (
+                    <div className="flex justify-between items-center mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <button
+                          onClick={selectAllPois}
+                          className="text-sm text-tuggi-blue hover:text-tuggi-blue-dark font-medium"
+                        >
+                          Select All ({pois.length})
+                        </button>
+                        {selectedPois.length > 0 && (
+                          <button
+                            onClick={clearSelection}
+                            className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                          >
+                            Clear Selection
+                          </button>
+                        )}
+                      </div>
+                      {selectedPois.length > 0 && (
+                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                          {selectedPois.length} of {pois.length} selected
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {/* POI List/Cards */}
                   {pois.length === 0 ? (
                     <div className="text-center py-12">
