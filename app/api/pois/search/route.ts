@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
     const all = searchParams.get('all') === 'true' // New parameter for total counts
+    const mapView = searchParams.get('mapView') === 'true' // New parameter for map view (no pagination)
     
     // Calculate pagination
     const startIndex = (page - 1) * limit
@@ -140,9 +141,12 @@ export async function GET(request: NextRequest) {
     // Order by created_at desc for consistent pagination
     query = query.order('created_at', { ascending: false })
     
-    // Apply pagination only if not requesting all counts
-    if (!all) {
+    // Apply pagination only if not requesting all counts and not map view
+    if (!all && !mapView) {
       query = query.range(startIndex, endIndex)
+    } else if (mapView) {
+      // For map view, set a high limit to get all POIs (Supabase default limit is 1000)
+      query = query.limit(50000)
     }
     
     const { data: pois, error, count } = await query

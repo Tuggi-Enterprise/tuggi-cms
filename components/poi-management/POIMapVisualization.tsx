@@ -241,51 +241,78 @@ function POIMapContent({
 
   // Remove viewport-based caching since we're using the search API
 
-  // Fetch POIs using the same API as the list view
+  // Fetch POIs using pagination to overcome Supabase 1000 limit
   const fetchPOIs = useCallback(async () => {
     try {
       setIsLoading(true)
       
-      const params = new URLSearchParams()
+      const baseParams = new URLSearchParams()
       
       // Add all filters to the request (same as list view)
-      if (searchTerm) params.set('search', searchTerm)
-      if (statusFilter !== 'all') params.set('status', statusFilter)
-      if (countryFilter) params.set('country', countryFilter)
-      if (stateFilter) params.set('state', stateFilter)
-      if (cityFilter) params.set('city', cityFilter)
-      if (googleTypesFilter) params.set('googleTypes', googleTypesFilter)
-      if (contentStatusFilter !== 'all') params.set('contentStatus', contentStatusFilter)
-      if (groupStatusFilter !== 'all') params.set('groupStatus', groupStatusFilter)
-      if (triggerPointsFilter !== 'all') params.set('triggerPointsFilter', triggerPointsFilter)
+      if (searchTerm) baseParams.set('search', searchTerm)
+      if (statusFilter !== 'all') baseParams.set('status', statusFilter)
+      if (countryFilter) baseParams.set('country', countryFilter)
+      if (stateFilter) baseParams.set('state', stateFilter)
+      if (cityFilter) baseParams.set('city', cityFilter)
+      if (googleTypesFilter) baseParams.set('googleTypes', googleTypesFilter)
+      if (contentStatusFilter !== 'all') baseParams.set('contentStatus', contentStatusFilter)
+      if (groupStatusFilter !== 'all') baseParams.set('groupStatus', groupStatusFilter)
+      if (triggerPointsFilter !== 'all') baseParams.set('triggerPointsFilter', triggerPointsFilter)
       
-      // Use a higher limit for map view to show more POIs
-      params.set('page', '1')
-      params.set('limit', '5000') // Higher limit for map view
+      // Use mapView parameter to load all POIs without pagination limit
+      baseParams.set('mapView', 'true')
       
-      console.log('🗺️ Loading POIs for map with params:', params.toString())
+      console.log('🗺️ Loading POIs for map with params:', baseParams.toString())
       
-      const response = await fetch(`/api/pois/search?${params.toString()}`)
-      const result = await response.json()
+      // Fetch all POIs with pagination to overcome Supabase 1000 limit
+      let allPoisData: POI[] = []
+      let hasMore = true
+      let page = 1
+      let totalCount = 0
       
-      if (result.success) {
-        const poisData = result.data || []
+      while (hasMore) {
+        const params = new URLSearchParams(baseParams)
+        params.set('page', page.toString())
+        params.set('limit', '1000') // Max per request
         
-        // Filter out POIs without coordinates
-        const validPois = poisData.filter((poi: POI) => poi.coordinates?.latitude && poi.coordinates?.longitude)
+        console.log(`🗺️ Loading page ${page} for map...`)
         
-        setPois(validPois)
-        setPOICount({ 
-          total: result.pagination.totalCount, 
-          visible: validPois.length 
-        })
+        const response = await fetch(`/api/pois/search?${params.toString()}`)
+        const result = await response.json()
         
-        console.log(`✅ POIs loaded for map: ${validPois.length} of ${result.pagination.totalCount}`)
-      } else {
-        console.error('Failed to load POIs for map:', result.error)
-        setPois([])
-        setPOICount({ total: 0, visible: 0 })
+        if (result.success) {
+          const poisData = result.data || []
+          allPoisData = [...allPoisData, ...poisData]
+          totalCount = result.pagination.totalCount
+          
+          // Check if we have more pages
+          hasMore = poisData.length === 1000 && allPoisData.length < totalCount
+          page++
+          
+          console.log(`📄 Page ${page - 1}: ${poisData.length} POIs, Total so far: ${allPoisData.length}/${totalCount}`)
+          
+          // Safety limit to prevent infinite loops
+          if (page > 50) {
+            console.warn('⚠️ Reached maximum page limit (50) for safety')
+            hasMore = false
+          }
+        } else {
+          console.error('Failed to load POIs page:', result.error)
+          hasMore = false
+        }
       }
+      
+      // Filter out POIs without coordinates
+      const validPois = allPoisData.filter((poi: POI) => poi.coordinates?.latitude && poi.coordinates?.longitude)
+      
+      setPois(validPois)
+      setPOICount({ 
+        total: totalCount, 
+        visible: validPois.length 
+      })
+      
+      console.log(`✅ POIs loaded for map: ${validPois.length} of ${totalCount} (${allPoisData.length} total fetched)`)
+      
     } catch (error) {
       console.error('Error loading POIs for map:', error)
       setPois([])
