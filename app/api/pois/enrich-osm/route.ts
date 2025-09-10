@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { invalidatePOICache } from '@/lib/cache/poi-cache-invalidator';
 
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -79,7 +80,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.log(`✅ Successfully enriched POI: ${name} (Quality: ${qualityScore}%)`);
+    console.log(`✅ Successfully enriched POI: ${name} (Quality: ${qualityScore}%)`);    
+    
+    // Invalidar cache de POIs após enriquecimento com dados OSM
+    invalidatePOICache(`POI enriched with OSM data: ${name}`);
 
     return NextResponse.json({
       success: true,

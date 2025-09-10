@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
+import { invalidatePOICache } from '@/lib/cache/poi-cache-invalidator'
 
 export async function POST(request: NextRequest) {
   try {
@@ -116,6 +117,9 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`✅ Successfully updated coordinates for POI: ${attraction.name}`)
+
+    // Invalidar cache de POIs após atualização de coordenadas
+    invalidatePOICache('POI coordinates updated')
 
     return NextResponse.json({
       success: true,
