@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye, Trash2, MapPin, Calendar, Star, Users, Clock, ChevronLeft, ChevronRight, List, Map, Grid, X } from 'lucide-react'
 import Link from 'next/link'
 
@@ -105,9 +106,9 @@ function POIListWithSearchParams() {
   const [stats, setStats] = useState<POIStats | null>(null)
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null)
   const [selectedPoi, setSelectedPoi] = useState<POI | null>(null)
-  const [availableCountries, setAvailableCountries] = useState<Array<{ value: string; label: string; count: number }>>([]) 
-  const [availableCities, setAvailableCities] = useState<Array<{ value: string; label: string; count: number }>>([]) 
-  const [availableStates, setAvailableStates] = useState<Array<{ value: string; label: string; count: number }>>([]) 
+  const [availableCountries, setAvailableCountries] = useState<Array<{ value: string; label: string; count: number }>>([])
+  const [availableCities, setAvailableCities] = useState<Array<{ value: string; label: string; count: number }>>([])
+  const [availableStates, setAvailableStates] = useState<Array<{ value: string; label: string; count: number }>>([])
   const [isLoadingCountries, setIsLoadingCountries] = useState(false)
   const [isLoadingCities, setIsLoadingCities] = useState(false)
   const [isLoadingStates, setIsLoadingStates] = useState(false)
@@ -127,6 +128,7 @@ function POIListWithSearchParams() {
   
   const router = useRouter()
   const searchParams = useSearchParams()
+  const supabase = useSupabaseClient()
 
   // Track if we're initializing from URL to prevent unnecessary updates
   const [isInitializing, setIsInitializing] = useState(true)
@@ -609,6 +611,34 @@ function POIListWithSearchParams() {
     setSelectedPoi(poi)
   }
 
+  const handleDeletePoi = async (poiId: string) => {
+    if (!confirm('Tem certeza que deseja excluir este POI? Esta ação não pode ser desfeita.')) {
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .schema('core')
+        .from('attractions')
+        .delete()
+        .eq('id', poiId)
+
+      if (error) throw error
+
+      // Remove o POI da lista local
+      setPois(prev => prev.filter(poi => poi.id !== poiId))
+      
+      // Remove da seleção se estiver selecionado
+      setSelectedPois(prev => prev.filter(id => id !== poiId))
+      
+      // Atualiza as estatísticas
+      await loadPois()
+    } catch (error) {
+      console.error('Erro ao excluir POI:', error)
+      alert('Erro ao excluir POI. Tente novamente.')
+    }
+  }
+
   const handleFiltersChange = () => {
     // Handle map filters change if needed
   }
@@ -990,6 +1020,7 @@ function POIListWithSearchParams() {
                           isSelected={selectedPois.includes(poi.id)}
                           onToggleSelection={togglePoiSelection}
                           onOpenModal={handlePOIClick}
+                          onDelete={handleDeletePoi}
                         />
                       ))}
                     </div>
@@ -1071,9 +1102,10 @@ interface POICardProps {
   isSelected: boolean
   onToggleSelection: (poiId: string) => void
   onOpenModal: (poi: POI) => void
+  onDelete: (poiId: string) => void
 }
 
-function POICard({ poi, viewMode, isSelected, onToggleSelection, onOpenModal }: POICardProps) {
+function POICard({ poi, viewMode, isSelected, onToggleSelection, onOpenModal, onDelete }: POICardProps) {
   const thumbnailUrl = getThumbnailUrl(poi)
   
   if (viewMode === 'list') {
@@ -1136,6 +1168,14 @@ function POICard({ poi, viewMode, isSelected, onToggleSelection, onOpenModal }: 
             >
               <Edit className="w-4 h-4" />
             </Link>
+            
+            <button
+              onClick={() => onDelete(poi.id)}
+              className="p-2 text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+              title="Excluir POI"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>
@@ -1207,13 +1247,23 @@ function POICard({ poi, viewMode, isSelected, onToggleSelection, onOpenModal }: 
             View
           </button>
           
-          <Link
-            href={`/pois/${poi.id}/edit`}
-            className="flex items-center gap-1 px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:text-tuggi-blue dark:hover:text-tuggi-blue transition-colors"
-          >
-            <Edit className="w-4 h-4" />
-            Edit
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/pois/${poi.id}/edit`}
+              className="flex items-center gap-1 px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:text-tuggi-blue dark:hover:text-tuggi-blue transition-colors"
+            >
+              <Edit className="w-4 h-4" />
+              Edit
+            </Link>
+            
+            <button
+              onClick={() => onDelete(poi.id)}
+              className="flex items-center gap-1 px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+              title="Excluir POI"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
