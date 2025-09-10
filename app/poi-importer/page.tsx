@@ -947,14 +947,14 @@ export default function POIImporterPage() {
           city: city,
           country: country,
           approved: false,
-          rating: placeData.rating || null,
-          user_ratings_total: placeData.user_ratings_total || null,
+          rating: (placeData as any).rating || null,
+          user_ratings_total: (placeData as any).user_ratings_total || null,
           image_url: null, // Will be updated by Edge Function
           formatted_address: placeData.formatted_address,
           google_types: placeData.types || [],
-          website: placeData.website || null,
-          opening_hours: placeData.opening_hours || null,
-          price_level: placeData.price_level || null,
+          website: (placeData as any).website || null,
+          opening_hours: (placeData as any).opening_hours || null,
+          price_level: (placeData as any).price_level || null,
           formatted_phone_number: (placeData as any).formatted_phone_number || null,
           international_phone_number: (placeData as any).international_phone_number || null,
           business_status: (placeData as any).business_status || 'OPERATIONAL',
@@ -1423,7 +1423,7 @@ export default function POIImporterPage() {
               id: place.place_id,
               position: place.geometry.location,
               title: place.name,
-              description: `${place.formatted_address}${place.rating ? ` • ⭐ ${place.rating}` : ''}`,
+              description: `${place.formatted_address}${(place as any).rating ? ` • ⭐ ${(place as any).rating}` : ''}`,
               color: place.alreadyExists ? '#6B7280' : place.isSelected ? '#3B82F6' : '#F59E0B'
             }))}
             polygon={currentPolygonCoords}
@@ -1606,7 +1606,7 @@ export default function POIImporterPage() {
                           Already Imported
                         </div>
                       )}
-                      {place.rating && place.rating >= 4.0 && (
+                      {(place as any).rating && (place as any).rating >= 4.0 && (
                         <div className="absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
                           <Star className="h-3 w-3 fill-current" />
                           Highly Rated
@@ -1637,12 +1637,12 @@ export default function POIImporterPage() {
                       
                       {/* Quick Info Grid */}
                       <div className="grid grid-cols-2 gap-1 mb-2">
-                        {place.rating && (
+                        {(place as any).rating && (
                           <div className="flex items-center gap-1">
                             <Star className="h-3 w-3 text-yellow-400 fill-current" />
-                            <span className="text-xs font-medium">{place.rating}</span>
-                            {place.user_ratings_total && (
-                              <span className="text-xs text-gray-500">({place.user_ratings_total})</span>
+                            <span className="text-xs font-medium">{(place as any).rating}</span>
+                            {(place as any).user_ratings_total && (
+                              <span className="text-xs text-gray-500">({(place as any).user_ratings_total})</span>
                             )}
                           </div>
                         )}

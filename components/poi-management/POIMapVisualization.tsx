@@ -177,14 +177,12 @@ function POIMapContent({
   const [savedPolygons, setSavedPolygons] = useState<SavedPolygon[]>([])
   const [selectedPOI, setSelectedPOI] = useState<POI | null>(null)
   const [showClusters, setShowClusters] = useState(true)
-  const [viewportBounds, setViewportBounds] = useState<google.maps.LatLngBounds | null>(null)
   const [poiCount, setPOICount] = useState({ total: 0, visible: 0 })
   
   // Map state preservation
   const [mapState, setMapState] = useState<{
     center: { lat: number; lng: number }
     zoom: number
-    bounds?: google.maps.LatLngBounds
   }>({
     center: initialCenter,
     zoom: initialZoom
@@ -221,31 +219,6 @@ function POIMapContent({
 
     markerClustererRef.current = clusterer
 
-    // Set up bounds changed listener with debounce
-    map.addListener('bounds_changed', () => {
-      if (boundsChangedTimeoutRef.current) {
-        clearTimeout(boundsChangedTimeoutRef.current)
-      }
-      
-      boundsChangedTimeoutRef.current = setTimeout(() => {
-        const bounds = map.getBounds()
-        if (bounds) {
-          setViewportBounds(bounds)
-          // Save map state
-          const center = map.getCenter()!
-          setMapState(prev => ({
-            ...prev,
-            center: { lat: center.lat(), lng: center.lng() },
-            zoom: map.getZoom()!,
-            bounds: bounds
-          }))
-          if (onFiltersChange) {
-            onFiltersChange(bounds)
-          }
-        }
-      }, 500) // 500ms debounce
-    })
-
     // Set up center and zoom change listeners to save state
     map.addListener('center_changed', () => {
       const center = map.getCenter()!
@@ -256,133 +229,71 @@ function POIMapContent({
     })
 
     map.addListener('zoom_changed', () => {
+      const zoom = map.getZoom()!
       setMapState(prev => ({
         ...prev,
-        zoom: map.getZoom()!
+        zoom: zoom
       }))
     })
 
     setIsLoading(false)
   }, [initialCenter, initialZoom, onFiltersChange])
 
-  // Fetch POIs from database with optional viewport filtering
-  const fetchPOIs = useCallback(async (bounds?: google.maps.LatLngBounds) => {
+  // Remove viewport-based caching since we're using the search API
+
+  // Fetch POIs using the same API as the list view
+  const fetchPOIs = useCallback(async () => {
     try {
-      // Only show loading if this is the initial load (no existing POIs)
-      if (pois.length === 0) {
-        setIsLoading(true)
-      }
+      setIsLoading(true)
       
-      // Fetch all POIs with pagination to overcome the 1000 limit
-      let allPoisData: any[] = []
-      let hasMore = true
-      let page = 0
-      const pageSize = 1000
-
-      while (hasMore) {
-        let query = supabase
-          .schema('core')
-          .from('attractions')
-          .select(`
-            *,
-            coordinates:attraction_coordinate(latitude, longitude),
-            descriptions:attraction_descriptions(id, description, audio_url, language),
-            trigger_points:attraction_trigger_points!left(id, is_active)
-          `)
-          .order('created_at', { ascending: false })
-          .range(page * pageSize, (page + 1) * pageSize - 1)
-
-        // Apply hierarchical filters first (country > state > city)
-        if (countryFilter) {
-          query = query.eq('country', countryFilter)
-        }
-        
-        if (stateFilter) {
-          query = query.eq('state', stateFilter)
-        }
-        
-        if (cityFilter) {
-          query = query.eq('city', cityFilter)
-        }
-
-        // Apply viewport filtering if bounds provided and map is zoomed in enough
-        if (bounds && mapInstanceRef.current && mapInstanceRef.current.getZoom()! > 8) {
-          const ne = bounds.getNorthEast()
-          const sw = bounds.getSouthWest()
-          
-          query = query
-            .gte('attraction_coordinate.latitude', sw.lat())
-            .lte('attraction_coordinate.latitude', ne.lat())
-            .gte('attraction_coordinate.longitude', sw.lng())
-            .lte('attraction_coordinate.longitude', ne.lng())
-        }
-
-        const { data: poisData, error: poisError } = await query
-
-        if (poisError) {
-          console.error('Error fetching POIs page', page, ':', poisError)
-          break
-        }
-
-        if (poisData && poisData.length > 0) {
-          allPoisData = [...allPoisData, ...poisData]
-          
-          // If we got less than pageSize, we've reached the end
-          if (poisData.length < pageSize) {
-            hasMore = false
-          } else {
-            page++
-          }
-        } else {
-          hasMore = false
-        }
-
-        // Safety check to prevent infinite loop
-        if (page > 10) {
-          console.warn('Reached safety limit of 10 pages, stopping pagination')
-          break
-        }
-      }
-
-      // Transform data to include coordinates, content status, and trigger points
-      const poisWithCoords = allPoisData.map(poi => {
-        const descriptions = poi.descriptions || []
-        const triggerPoints = poi.trigger_points || []
-        const hasDescription = descriptions.some((desc: any) => desc.description && desc.description.trim())
-        const hasAudio = descriptions.some((desc: any) => desc.audio_url && desc.audio_url.trim())
-        
-        // Count trigger points
-        const triggerPointsCount = triggerPoints.length
-        const activeTriggerPointsCount = triggerPoints.filter((tp: any) => tp.is_active).length
-        
-        return {
-          ...poi,
-          coordinates: poi.coordinates?.[0] || null,
-          has_description: hasDescription,
-          has_audio: hasAudio,
-          description_count: descriptions.filter((desc: any) => desc.description && desc.description.trim()).length,
-          audio_count: descriptions.filter((desc: any) => desc.audio_url && desc.audio_url.trim()).length,
-          trigger_points_count: triggerPointsCount,
-          active_trigger_points_count: activeTriggerPointsCount,
-          descriptions: undefined, // Remove from final object to keep it clean
-          trigger_points: undefined // Remove from final object to keep it clean
-        }
-      })
-
-      // Filter out POIs without coordinates
-      const validPois = poisWithCoords.filter(poi => poi.coordinates?.latitude && poi.coordinates?.longitude)
+      const params = new URLSearchParams()
       
-      setPois(validPois)
-      setPOICount({ 
-        total: allPoisData.length, 
-        visible: validPois.length 
-      })
+      // Add all filters to the request (same as list view)
+      if (searchTerm) params.set('search', searchTerm)
+      if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (countryFilter) params.set('country', countryFilter)
+      if (stateFilter) params.set('state', stateFilter)
+      if (cityFilter) params.set('city', cityFilter)
+      if (googleTypesFilter) params.set('googleTypes', googleTypesFilter)
+      if (contentStatusFilter !== 'all') params.set('contentStatus', contentStatusFilter)
+      if (groupStatusFilter !== 'all') params.set('groupStatus', groupStatusFilter)
+      if (triggerPointsFilter !== 'all') params.set('triggerPointsFilter', triggerPointsFilter)
+      
+      // Use a higher limit for map view to show more POIs
+      params.set('page', '1')
+      params.set('limit', '5000') // Higher limit for map view
+      
+      console.log('🗺️ Loading POIs for map with params:', params.toString())
+      
+      const response = await fetch(`/api/pois/search?${params.toString()}`)
+      const result = await response.json()
+      
+      if (result.success) {
+        const poisData = result.data || []
+        
+        // Filter out POIs without coordinates
+        const validPois = poisData.filter((poi: POI) => poi.coordinates?.latitude && poi.coordinates?.longitude)
+        
+        setPois(validPois)
+        setPOICount({ 
+          total: result.pagination.totalCount, 
+          visible: validPois.length 
+        })
+        
+        console.log(`✅ POIs loaded for map: ${validPois.length} of ${result.pagination.totalCount}`)
+      } else {
+        console.error('Failed to load POIs for map:', result.error)
+        setPois([])
+        setPOICount({ total: 0, visible: 0 })
+      }
     } catch (error) {
-      console.error('Error fetching POIs:', error)
+      console.error('Error loading POIs for map:', error)
+      setPois([])
+      setPOICount({ total: 0, visible: 0 })
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, countryFilter, stateFilter, cityFilter])
+  }, [searchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, triggerPointsFilter])
 
   // Fetch saved polygons
   const fetchSavedPolygons = useCallback(async () => {
@@ -658,8 +569,7 @@ function POIMapContent({
         setMapState(prev => ({
           ...prev,
           center: { lat: center.lat(), lng: center.lng() },
-          zoom: mapInstanceRef.current!.getZoom()!,
-          bounds: mapInstanceRef.current!.getBounds()!
+          zoom: mapInstanceRef.current!.getZoom()!
         }))
       }
     }, 100)
@@ -680,7 +590,7 @@ function POIMapContent({
       }
       fetchSavedPolygons()
     }
-  }, [fetchPOIs, fetchSavedPolygons, pois.length])
+  }, [fetchPOIs, fetchSavedPolygons, pois.length, countryFilter, stateFilter, cityFilter])
 
   useEffect(() => {
     if (mapInstanceRef.current) {
@@ -694,16 +604,12 @@ function POIMapContent({
     }
   }, [updatePolygons])
 
-  // Fetch POIs when viewport changes (with debounce)
+  // Fetch POIs when filters change
   useEffect(() => {
-    if (viewportBounds && mapInstanceRef.current && mapInstanceRef.current.getZoom()! > 8) {
-      const timeoutId = setTimeout(() => {
-        fetchPOIs(viewportBounds)
-      }, 1000)
-      
-      return () => clearTimeout(timeoutId)
+    if (mapInstanceRef.current) {
+      fetchPOIs()
     }
-  }, [viewportBounds, fetchPOIs])
+  }, [fetchPOIs])
 
   return (
     <div className="relative w-full h-full">

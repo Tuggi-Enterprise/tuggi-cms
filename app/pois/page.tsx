@@ -359,16 +359,61 @@ function POIListWithSearchParams() {
       if (googleTypesFilter) params.set('googleTypes', googleTypesFilter)
       if (categoryFilter) params.set('category', categoryFilter)
       
+      console.log('📊 Loading stats with params:', params.toString())
+      
       const response = await fetch(`/api/pois/stats?${params.toString()}`)
+      
+      if (!response.ok) {
+        console.error('Stats API response not ok:', response.status, response.statusText)
+        const errorText = await response.text()
+        console.error('Stats API error response:', errorText)
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
       const result = await response.json()
       
       if (result.success) {
         setStats(result.data)
+        console.log('✅ Stats loaded successfully')
       } else {
-        console.error('Failed to load stats:', result.error)
+        console.error('Failed to load stats:', result.error || 'Unknown error')
+        throw new Error(result.error || 'Failed to fetch POI statistics')
       }
     } catch (error) {
-      console.error('Error loading stats:', error)
+      console.error('Failed to load stats:', error instanceof Error ? error.message : 'Failed to fetch POI statistics')
+      // Set default stats to prevent UI issues
+      setStats({
+        total: 0,
+        approved: 0,
+        pending: 0,
+        content_stats: {
+          with_description: 0,
+          with_audio: 0,
+          complete: 0,
+          missing_description: 0,
+          missing_audio: 0
+        },
+        group_stats: {
+          grouped: 0,
+          ungrouped: 0,
+          group_main: 0,
+          group_member: 0
+        },
+        trigger_points_stats: {
+          with_trigger_points: 0,
+          without_trigger_points: 0,
+          total_trigger_points: 0,
+          active_trigger_points: 0
+        },
+        verification_stats: {
+          no_score: 0,
+          pending: 0,
+          approved: 0,
+          rejected: 0
+        },
+        countries: [],
+        cities: []
+      })
     }
   }
 

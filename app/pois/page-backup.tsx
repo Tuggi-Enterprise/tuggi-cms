@@ -1071,6 +1071,8 @@ function POIListWithSearchParams() {
           <POIMapVisualization
             searchTerm={searchTerm}
             statusFilter={statusFilter}
+            countryFilter=""
+            stateFilter=""
             cityFilter={cityFilter}
             googleTypesFilter={googleTypesFilter}
             contentStatusFilter={contentStatusFilter}

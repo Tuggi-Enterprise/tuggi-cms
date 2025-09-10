@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
         google_types,
         category,
         rating,
+        image_url,
         approved,
         created_at,
         updated_at,

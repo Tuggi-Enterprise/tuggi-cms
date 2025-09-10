@@ -70,6 +70,7 @@ export async function GET(request: NextRequest) {
           google_types,
           category,
           name,
+          image_url,
           descriptions:attraction_descriptions(
             language,
             description,
