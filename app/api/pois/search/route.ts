@@ -38,18 +38,23 @@ export async function GET(request: NextRequest) {
       search, status, country, state, city, googleTypes, category, contentStatus,
       groupStatus, scoreFilter, triggerPointsFilter, page, limit, all
     })
+    
+    // Check if we have complex filters that require post-processing
+    const hasComplexFilters = contentStatus !== 'all' || groupStatus !== 'all' || 
+                             scoreFilter !== 'all' || triggerPointsFilter !== 'all'
 
+    // Enhanced caching for better performance with large datasets
+    const sortedParams = Object.entries({
+      search, status, country, state, city, googleTypes, category, contentStatus,
+      groupStatus, scoreFilter, triggerPointsFilter, page, limit
+    })
+      .filter(([_, value]) => value !== null && value !== undefined && value !== '' && value !== 'all')
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&')
+    
     // If 'all=true', check cache first for total counts
     if (all) {
-      const sortedParams = Object.entries({
-        search, status, country, state, city, googleTypes, category, contentStatus,
-        groupStatus, scoreFilter, triggerPointsFilter
-      })
-        .filter(([_, value]) => value !== null && value !== undefined && value !== '' && value !== 'all')
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, value]) => `${key}=${value}`)
-        .join('&')
-      
       const cacheKey = `pois-search-all:${sortedParams || 'default'}`
       const cachedCounts = memoryCache.get(cacheKey)
       
@@ -59,6 +64,15 @@ export async function GET(request: NextRequest) {
       }
       
       console.log('🔍 POI Search (all=true): Processing fresh counts...')
+    } else if (!hasComplexFilters && search && search.length >= 3) {
+      // Cache simple search results for better performance
+      const searchCacheKey = `pois-search:${sortedParams}`
+      const cachedResults = memoryCache.get(searchCacheKey)
+      
+      if (cachedResults) {
+        console.log('🔍 POI Search: Returning cached search results')
+        return NextResponse.json(cachedResults)
+      }
     }
     
     // Build base query
@@ -103,9 +117,20 @@ export async function GET(request: NextRequest) {
     
     // Apply filters
     
-    // Search filter
+    // Search filter - optimized for large datasets (30k+ records)
     if (search) {
-      query = query.or(`name.ilike.%${search}%,city.ilike.%${search}%,country.ilike.%${search}%`)
+      const searchTerm = search.trim()
+      if (searchTerm) {
+        // For better performance on large datasets, prioritize exact matches first
+        // then partial matches. This works better with database indexes.
+        if (searchTerm.length >= 3) {
+          // Use ilike for partial matching on longer terms
+          query = query.or(`name.ilike.%${searchTerm}%,city.ilike.%${searchTerm}%,country.ilike.%${searchTerm}%,state.ilike.%${searchTerm}%`)
+        } else {
+          // For short terms, use exact matching to avoid too many results
+          query = query.or(`name.ilike.${searchTerm}%,city.ilike.${searchTerm}%,country.ilike.${searchTerm}%,state.ilike.${searchTerm}%`)
+        }
+      }
     }
     
     // Status filter
@@ -141,13 +166,21 @@ export async function GET(request: NextRequest) {
     // Order by created_at desc for consistent pagination
     query = query.order('created_at', { ascending: false })
     
+    // For large datasets, we need to handle pagination differently
     // Apply pagination only if not requesting all counts and not map view
-    if (!all && !mapView) {
+    // and if we don't have complex filters that require post-processing
+    
+    if (!all && !mapView && !hasComplexFilters) {
       query = query.range(startIndex, endIndex)
     } else if (mapView) {
       // For map view, set a high limit to get all POIs (Supabase default limit is 1000)
       query = query.limit(50000)
-    }
+    } else if (!all && !mapView && hasComplexFilters) {
+       // For complex filters, we need to fetch more data and paginate after filtering
+       // Use a smart limit based on the page number to avoid fetching too much data
+       const smartLimit = Math.min(10000, (page * limit) + (limit * 5)) // Fetch a bit more than needed
+       query = query.limit(smartLimit)
+     }
     
     const { data: pois, error, count } = await query
     
@@ -341,23 +374,44 @@ export async function GET(request: NextRequest) {
     }
 
     // Regular paginated response
-    const totalCount = count || 0
-    const totalPages = Math.ceil(totalCount / limit)
+    // If we have complex filters, we need to paginate the filtered results
+    
+    let finalPois = filteredPois
+    let actualTotalCount = count || 0
+    
+    if (hasComplexFilters) {
+      // For complex filters, the total count is the filtered results count
+      actualTotalCount = filteredPois.length
+      
+      // Apply pagination to filtered results
+      const paginatedStart = (page - 1) * limit
+      const paginatedEnd = paginatedStart + limit
+      finalPois = filteredPois.slice(paginatedStart, paginatedEnd)
+    } else {
+      // For simple filters, use the original count from Supabase
+      actualTotalCount = count || 0
+    }
+    
+    const totalPages = Math.ceil(actualTotalCount / limit)
     const hasNextPage = page < totalPages
     const hasPrevPage = page > 1
+    const actualStartIndex = hasComplexFilters ? (page - 1) * limit : startIndex
+    const actualEndIndex = hasComplexFilters ? 
+      Math.min(actualStartIndex + limit, actualTotalCount) : 
+      Math.min(startIndex + limit, actualTotalCount)
 
-    return NextResponse.json({
+    const response = {
       success: true,
-      data: filteredPois,
+      data: finalPois,
       pagination: {
         page,
         limit,
-        totalCount,
+        totalCount: actualTotalCount,
         totalPages,
         hasNextPage,
         hasPrevPage,
-        startIndex: startIndex + 1,
-        endIndex: Math.min(startIndex + limit, totalCount)
+        startIndex: actualStartIndex + 1,
+        endIndex: actualEndIndex
       },
       filters: {
         search,
@@ -372,7 +426,16 @@ export async function GET(request: NextRequest) {
         scoreFilter,
         triggerPointsFilter
       }
-    })
+    }
+    
+    // Cache simple search results for better performance
+    if (!hasComplexFilters && search && search.length >= 3) {
+      const searchCacheKey = `pois-search:${sortedParams}`
+      memoryCache.set(searchCacheKey, response, 2) // Cache for 2 minutes
+      console.log(`🔍 POI Search: Cached search results for key: ${searchCacheKey}`)
+    }
+
+    return NextResponse.json(response)
     
   } catch (error) {
     console.error('🔍 POI Search API Error:', error)
