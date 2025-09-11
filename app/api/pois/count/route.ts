@@ -48,8 +48,8 @@ export async function GET() {
         total_pois: totalPOIs || 0,
         processed_pois: processedPOIs || 0,
         pending_pois: pendingPOIs || 0,
-        pois_with_coordinates: poisWithCoords,
-        pois_without_coordinates: (pendingPOIs || 0) - poisWithCoords,
+        pois_with_coordinates: poisWithCoords || 0,
+        pois_without_coordinates: (pendingPOIs || 0) - (poisWithCoords || 0),
         manual_review_needed: manualReviewCount || 0,
         corrections_applied: processedPOIs || 0
       }
