@@ -28,14 +28,12 @@ export async function GET() {
       .select('id', { count: 'exact', head: true })
       .is('city_correction_audit', null)
 
-    // Get POIs with coordinates (can be processed)
-    const { data: poisWithCoordsData } = await supabase
+    // Get POIs with coordinates (can be processed) - use count to avoid 1000 limit
+    const { count: poisWithCoords } = await supabase
       .schema('core')
       .from('attractions')
-      .select('id, attraction_coordinate!inner(id)')
+      .select('id, attraction_coordinate!inner(id)', { count: 'exact', head: true })
       .is('city_correction_audit', null)
-
-    const poisWithCoords = poisWithCoordsData?.length || 0
 
     // Get manual review count
     const { count: manualReviewCount } = await supabase
