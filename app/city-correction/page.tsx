@@ -21,9 +21,15 @@ interface ProcessingProgress {
   manual_review_needed: number
   errors: number
   current_poi?: string
-  status: 'starting' | 'processing' | 'completed' | 'failed'
+  status: 'starting' | 'processing' | 'completed' | 'failed' | 'needs_retry' | 'retrying'
   started_at: string
   estimated_completion?: string
+  target_goal?: number
+  total_processed_so_far?: number
+  remaining_pois?: number
+  retry_count?: number
+  completed_at?: string
+  message?: string
 }
 
 interface JobProgress {
@@ -376,6 +382,83 @@ export default function CityCorrectionPage() {
           >
             Limpar Órfãos
           </Button>
+          <Button 
+            onClick={async () => {
+              try {
+                setIsLoading(true)
+                const response = await fetch('/api/city-correction/monitor', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  }
+                })
+
+                const result = await response.json()
+                
+                if (result.success) {
+                  const summary = result.summary
+                  alert(
+                    `🔍 Sistema Monitorado:\n\n` +
+                    `POIs não processados: ${summary.unprocessed_pois}\n` +
+                    `Jobs ativos: ${summary.active_jobs}\n` +
+                    `Jobs órfãos corrigidos: ${summary.stuck_jobs_fixed}\n` +
+                    `Jobs em retry: ${summary.retry_jobs_found}\n\n` +
+                    `O sistema continuará automaticamente até atingir 100% do objetivo.`
+                  )
+                  loadRecentJobs()
+                } else {
+                  alert(`❌ Erro no monitor: ${result.error}`)
+                }
+              } catch (error) {
+                console.error('❌ Error in monitor:', error)
+                alert('Erro ao executar monitor')
+              } finally {
+                setIsLoading(false)
+              }
+            }}
+            variant="outline"
+            size="sm"
+            disabled={isLoading}
+          >
+            🔍 Monitor Sistema
+          </Button>
+          {currentJob && (currentJob.progress_data.status === 'processing' || currentJob.progress_data.status === 'failed') && (
+            <Button 
+              onClick={async () => {
+                try {
+                  setIsLoading(true)
+                  const response = await fetch('/api/city-correction/retry', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      progress_key: currentJob.progress_key
+                    })
+                  })
+
+                  const result = await response.json()
+                  
+                  if (result.success) {
+                    alert(`✅ Retry iniciado: ${result.batch_size} POIs para processar`)
+                    loadRecentJobs()
+                  } else {
+                    alert(`❌ Erro no retry: ${result.error}`)
+                  }
+                } catch (error) {
+                  console.error('❌ Error retrying job:', error)
+                  alert('Erro ao tentar retry')
+                } finally {
+                  setIsLoading(false)
+                }
+              }}
+              variant="outline"
+              size="sm"
+              disabled={isLoading}
+            >
+              🔄 Retry Manual
+            </Button>
+          )}
         </div>
       </div>
 
@@ -440,6 +523,11 @@ export default function CityCorrectionPage() {
                   <Badge className={getStatusColor(currentJob.progress_data.status)}>
                     {currentJob.progress_data.status}
                   </Badge>
+                  {(currentJob.progress_data.retry_count || 0) > 0 && (
+                    <Badge variant="outline">
+                      Retry #{currentJob.progress_data.retry_count}
+                    </Badge>
+                  )}
                 </CardTitle>
                 <CardDescription>
                   Job Key: {currentJob.progress_key}
@@ -451,27 +539,32 @@ export default function CityCorrectionPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {currentJob.progress_data.total_pois > 0 && (
+            {(currentJob.progress_data.target_goal || 0) > 0 && (
               <>
                 <div>
                   <div className="flex justify-between text-sm mb-2">
-                    <span>Progresso</span>
+                    <span>Progresso Total (Objetivo)</span>
                     <span>
-                      {currentJob.progress_data.processed} / {currentJob.progress_data.total_pois}
-                      {currentJob.progress_data.total_pois > 0 && (
-                        <span className="ml-2">
-                          ({Math.round((currentJob.progress_data.processed / currentJob.progress_data.total_pois) * 100)}%)
+                      {currentJob.progress_data.total_processed_so_far || currentJob.progress_data.processed || 0} / {currentJob.progress_data.target_goal || 0}
+                      {(currentJob.progress_data.target_goal || 0) > 0 && (
+                        <span className="ml-2 font-bold text-blue-600">
+                          ({Math.round(((currentJob.progress_data.total_processed_so_far || currentJob.progress_data.processed || 0) / (currentJob.progress_data.target_goal || 1)) * 100)}%)
                         </span>
                       )}
                     </span>
                   </div>
                   <Progress 
-                    value={currentJob.progress_data.total_pois > 0 
-                      ? (currentJob.progress_data.processed / currentJob.progress_data.total_pois) * 100 
+                    value={(currentJob.progress_data.target_goal || 0) > 0 
+                      ? ((currentJob.progress_data.total_processed_so_far || currentJob.progress_data.processed || 0) / (currentJob.progress_data.target_goal || 1)) * 100 
                       : 0
                     } 
                     className="w-full" 
                   />
+                  {currentJob.progress_data.remaining_pois && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Restam: {currentJob.progress_data.remaining_pois} POIs • Batch atual: {currentJob.progress_data.processed}/{currentJob.progress_data.total_pois}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-3 gap-4 text-center">

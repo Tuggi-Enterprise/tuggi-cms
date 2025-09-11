@@ -260,23 +260,33 @@ class EdgeCityCorrectionService {
         started_at: new Date().toISOString()
       })
 
-      // Get POIs that need correction
+      // Get total POIs available for correction (objective)
+      const { count: totalAvailablePOIs } = await this.supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, attraction_coordinate!inner(id)', { count: 'exact', head: true })
+        .is('city_correction_audit', null)
+
+      // Get batch of POIs to process now
       const pois = await this.getPOIsForCorrection(limit, country_filter, state_filter)
       
       if (pois.length === 0) {
         await this.updateProgress({
           total_pois: 0,
+          target_goal: totalAvailablePOIs || 0,
           processed: 0,
           corrections_applied: 0,
           manual_review_needed: 0,
           errors: 0,
           status: 'completed',
-          started_at: new Date().toISOString()
+          started_at: new Date().toISOString(),
+          message: 'No POIs found for this batch'
         })
         
         return {
           success: true,
-          message: 'No POIs found that need city correction',
+          message: 'No POIs found for this batch',
+          target_goal: totalAvailablePOIs,
           total_processed: 0,
           corrections_applied: 0,
           manual_review_needed: 0,
@@ -285,16 +295,17 @@ class EdgeCityCorrectionService {
         }
       }
 
-      // Update progress with total count
+      // Update progress with total count and target goal
       await this.updateProgress({
         total_pois: pois.length,
+        target_goal: totalAvailablePOIs || 0,
         processed: 0,
         corrections_applied: 0,
         manual_review_needed: 0,
         errors: 0,
         status: 'processing',
         started_at: new Date().toISOString(),
-        estimated_completion: new Date(Date.now() + (pois.length * 90000)).toISOString() // ~90s per POI
+        estimated_completion: new Date(Date.now() + (pois.length * 10000)).toISOString() // ~10s per POI
       })
 
       console.log(`📦 Processing ${pois.length} POIs`)
@@ -379,19 +390,60 @@ class EdgeCityCorrectionService {
 
       const processing_time = Date.now() - startTime
       
-      // Final progress update
-      await this.updateProgress({
-        total_pois: pois.length,
-        processed: results.length,
-        corrections_applied,
-        manual_review_needed,
-        errors,
-        status: 'completed',
-        current_poi: undefined
-      })
+      // Check if we've reached the target goal
+      const { count: remainingPOIs } = await this.supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, attraction_coordinate!inner(id)', { count: 'exact', head: true })
+        .is('city_correction_audit', null)
+
+      const targetGoal = totalAvailablePOIs || 0
+      const totalProcessedSoFar = targetGoal - (remainingPOIs || 0)
+      const isGoalCompleted = (remainingPOIs || 0) === 0
+
+      console.log(`📊 Goal Progress: ${totalProcessedSoFar}/${targetGoal} (${Math.round((totalProcessedSoFar / targetGoal) * 100)}%)`)
+      console.log(`📦 Remaining POIs: ${remainingPOIs}`)
+
+      if (isGoalCompleted) {
+        // Goal completed - mark as completed
+        await this.updateProgress({
+          total_pois: pois.length,
+          target_goal: targetGoal,
+          processed: results.length,
+          total_processed_so_far: totalProcessedSoFar,
+          corrections_applied,
+          manual_review_needed,
+          errors,
+          status: 'completed',
+          current_poi: undefined,
+          completed_at: new Date().toISOString(),
+          message: 'All POIs processed successfully!'
+        })
+
+        console.log(`🎉 GOAL COMPLETED! All ${targetGoal} POIs have been processed.`)
+      } else {
+        // Goal not completed - mark as needs_retry for automatic retry
+        await this.updateProgress({
+          total_pois: pois.length,
+          target_goal: targetGoal,
+          processed: results.length,
+          total_processed_so_far: totalProcessedSoFar,
+          remaining_pois: remainingPOIs,
+          corrections_applied,
+          manual_review_needed,
+          errors,
+          status: 'needs_retry',
+          current_poi: undefined,
+          message: `Batch completed. ${remainingPOIs} POIs remaining. Auto-retry scheduled.`
+        })
+
+        console.log(`🔄 Batch completed, but goal not reached. ${remainingPOIs} POIs remaining.`)
+        console.log(`⏰ Auto-retry will be triggered by monitoring system.`)
+      }
 
       console.log(`✅ Batch processing completed:`)
-      console.log(`   Total processed: ${results.length}`)
+      console.log(`   Batch processed: ${results.length}`)
+      console.log(`   Total processed so far: ${totalProcessedSoFar}/${targetGoal}`)
       console.log(`   Corrections applied: ${corrections_applied}`)
       console.log(`   Manual review needed: ${manual_review_needed}`)
       console.log(`   Errors: ${errors}`)
