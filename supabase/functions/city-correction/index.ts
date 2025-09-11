@@ -114,7 +114,7 @@ class EdgeRateLimiter {
 
 // Rate limiters for different services
 const nominatimLimiter = new EdgeRateLimiter(86400, 1100) // 1 req/second with buffer
-const geonamesLimiter = new EdgeRateLimiter(1000, 90000)  // ~1000/day, ~1 per 90s
+const geonamesLimiter = new EdgeRateLimiter(1000, 10000)  // ~1000/day, ~1 per 10s (reduced for Edge Function)
 
 // =====================================
 // GEOCODING SERVICES
@@ -237,11 +237,11 @@ class EdgeCityCorrectionService {
     const {
       confidence_threshold = 85,
       enable_cross_validation = true,
-      batch_size = 50,
+      batch_size = 2, // Reduced to avoid timeout
       dry_run = false,
       country_filter,
       state_filter,
-      limit = 100
+      limit = 5 // Reduced to avoid timeout
     } = options
 
     const startTime = Date.now()
@@ -750,6 +750,9 @@ class EdgeCityCorrectionService {
 // =====================================
 
 Deno.serve(async (req) => {
+  const startTime = Date.now()
+  let progressKey = 'default'
+  
   try {
     // CORS headers
     if (req.method === 'OPTIONS') {
@@ -782,7 +785,8 @@ Deno.serve(async (req) => {
       progress_key = 'default'
     } = body
 
-    console.log(`🚀 Edge Function: ${action}`)
+    progressKey = progress_key
+    console.log(`🚀 Edge Function: ${action} (started at ${new Date().toISOString()})`)
 
     // Initialize service
     const service = new EdgeCityCorrectionService(supabaseClient, progress_key)
@@ -797,11 +801,15 @@ Deno.serve(async (req) => {
         throw new Error(`Unknown action: ${action}`)
     }
 
+    const duration = Date.now() - startTime
+    console.log(`✅ Edge Function completed successfully in ${duration}ms`)
+
     return new Response(
       JSON.stringify({
         success: true,
         data: result,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        duration_ms: duration
       }),
       {
         headers: {
@@ -812,13 +820,45 @@ Deno.serve(async (req) => {
     )
 
   } catch (error) {
-    console.error('💥 Edge Function error:', error)
+    const duration = Date.now() - startTime
+    console.error(`💥 Edge Function error after ${duration}ms:`, error)
+    
+    // Try to mark job as failed if we have a progress_key
+    try {
+      const supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+        {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false,
+          },
+        }
+      )
+      
+      await supabaseClient
+        .schema('core')
+        .from('city_correction_progress')
+        .update({
+          progress_data: {
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Unknown error',
+            failed_at: new Date().toISOString()
+          }
+        })
+        .eq('progress_key', progressKey)
+      
+      console.log(`✅ Marked job ${progressKey} as failed`)
+    } catch (updateError) {
+      console.error('❌ Failed to update job status:', updateError)
+    }
 
     return new Response(
       JSON.stringify({
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        duration_ms: duration
       }),
       {
         status: 500,

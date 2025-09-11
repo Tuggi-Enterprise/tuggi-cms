@@ -79,40 +79,38 @@ export default function CityCorrectionPage() {
 
   const loadSystemStats = useCallback(async () => {
     try {
-      // Get candidates count
-      const { count: candidatesCount } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select('id', { count: 'exact', head: true })
-        .is('city_correction_audit', null)
+      console.log('📊 Loading system stats...')
+      
+      // Use API route to get accurate counts (bypasses RLS)
+      const response = await fetch('/api/pois/count')
+      const result = await response.json()
 
-      // Get manual review count
-      const { count: manualReviewCount } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select('id', { count: 'exact', head: true })
-        .eq('city_correction_audit->needs_manual_review', true)
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to load POI counts')
+      }
 
-      // Get processed count
-      const { count: processedCount } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select('id', { count: 'exact', head: true })
-        .not('city_correction_audit', 'is', null)
+      const data = result.data
+      console.log('✅ POI counts loaded:', data)
 
-      setSystemStats({
-        candidates_remaining: candidatesCount || 0,
-        manual_review_queue: manualReviewCount || 0,
-        total_processed: processedCount || 0,
-        corrections_applied: 0 // TODO: Calculate from audit data
-      })
+      const newStats = {
+        candidates_remaining: data.pois_with_coordinates,
+        manual_review_queue: data.manual_review_needed,
+        total_processed: data.processed_pois,
+        corrections_applied: data.corrections_applied
+      }
+
+      console.log('📊 Setting system stats:', newStats)
+      setSystemStats(newStats)
+      console.log('✅ System stats state updated')
     } catch (err) {
-      console.error('Error loading system stats:', err)
+      console.error('❌ Error loading system stats:', err)
     }
-  }, [supabase])
+  }, [])
 
   const loadRecentJobs = useCallback(async () => {
     try {
+      console.log('📋 Loading recent jobs...')
+      
       const { data, error } = await supabase
         .schema('core')
         .from('city_correction_progress')
@@ -120,11 +118,15 @@ export default function CityCorrectionPage() {
         .order('updated_at', { ascending: false })
         .limit(5)
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Recent jobs error:', error)
+        throw error
+      }
 
+      console.log('✅ Recent jobs loaded:', data?.length || 0, 'jobs')
       setRecentJobs(data || [])
     } catch (err) {
-      console.error('Error loading recent jobs:', err)
+      console.error('❌ Error loading recent jobs:', err)
     }
   }, [supabase])
 
@@ -141,9 +143,69 @@ export default function CityCorrectionPage() {
 
   // Load initial data
   useEffect(() => {
+    console.log('🚀 useEffect triggered - loading initial data')
     loadSystemStats()
     loadRecentJobs()
-  }, [loadSystemStats, loadRecentJobs])
+  }, [])
+
+  // Monitor systemStats changes
+  useEffect(() => {
+    console.log('📊 systemStats changed:', systemStats)
+  }, [systemStats])
+
+  // Auto-load current job if there's a processing job
+  useEffect(() => {
+    if (recentJobs.length > 0) {
+      const processingJob = recentJobs.find(job => job.progress_data.status === 'processing')
+      if (processingJob && (!currentJob || currentJob.progress_key !== processingJob.progress_key)) {
+        console.log('🔄 Auto-loading processing job:', processingJob.progress_key)
+        setCurrentJob(processingJob)
+      }
+    }
+  }, [recentJobs, currentJob])
+
+  // Check for orphaned jobs (processing for too long)
+  useEffect(() => {
+    if (recentJobs.length > 0) {
+      const now = new Date()
+      const orphanedJobs = recentJobs.filter(job => {
+        if (job.progress_data.status !== 'processing') return false
+        
+        const updatedAt = new Date(job.updated_at)
+        const timeDiff = now.getTime() - updatedAt.getTime()
+        const minutesDiff = timeDiff / (1000 * 60)
+        
+        // If job hasn't been updated for more than 10 minutes, consider it orphaned
+        return minutesDiff > 10
+      })
+
+      if (orphanedJobs.length > 0) {
+        console.log('🚨 Found orphaned jobs:', orphanedJobs.map(j => j.progress_key))
+        // Mark orphaned jobs as failed
+        orphanedJobs.forEach(async (job) => {
+          try {
+            await supabase
+              .schema('core')
+              .from('city_correction_progress')
+              .update({
+                progress_data: {
+                  ...job.progress_data,
+                  status: 'failed',
+                  error: 'Job timeout - no updates for more than 10 minutes'
+                }
+              })
+              .eq('progress_key', job.progress_key)
+            
+            console.log('✅ Marked orphaned job as failed:', job.progress_key)
+            // Reload data to reflect the change
+            loadRecentJobs()
+          } catch (error) {
+            console.error('❌ Error marking job as failed:', error)
+          }
+        })
+      }
+    }
+  }, [recentJobs, supabase, loadRecentJobs])
 
   const startCityCorrection = async () => {
     setIsLoading(true)
@@ -245,14 +307,76 @@ export default function CityCorrectionPage() {
             Sistema automático para corrigir cidades incorretas usando geocoding reverso gratuito
           </p>
         </div>
-        <Button 
-          onClick={loadSystemStats}
-          variant="outline"
-          size="sm"
-        >
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Atualizar
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            onClick={() => {
+              loadSystemStats()
+              loadRecentJobs()
+            }}
+            variant="outline"
+            size="sm"
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Atualizar
+          </Button>
+          <Button 
+            onClick={() => {
+              console.log('🔍 Current state:', { currentJob, recentJobs, systemStats })
+            }}
+            variant="outline"
+            size="sm"
+          >
+            Debug
+          </Button>
+          <Button 
+            onClick={async () => {
+              try {
+                const now = new Date()
+                const orphanedJobs = recentJobs.filter(job => {
+                  if (job.progress_data.status !== 'processing') return false
+                  
+                  const updatedAt = new Date(job.updated_at)
+                  const timeDiff = now.getTime() - updatedAt.getTime()
+                  const minutesDiff = timeDiff / (1000 * 60)
+                  
+                  return minutesDiff > 5 // 5 minutes threshold for manual cleanup
+                })
+
+                if (orphanedJobs.length === 0) {
+                  alert('Nenhum job órfão encontrado')
+                  return
+                }
+
+                const confirmed = confirm(`Encontrar ${orphanedJobs.length} job(s) órfão(s). Marcar como failed?`)
+                if (!confirmed) return
+
+                for (const job of orphanedJobs) {
+                  await supabase
+                    .schema('core')
+                    .from('city_correction_progress')
+                    .update({
+                      progress_data: {
+                        ...job.progress_data,
+                        status: 'failed',
+                        error: 'Manually marked as failed - orphaned job'
+                      }
+                    })
+                    .eq('progress_key', job.progress_key)
+                }
+
+                alert(`✅ ${orphanedJobs.length} job(s) marcado(s) como failed`)
+                loadRecentJobs()
+              } catch (error) {
+                console.error('❌ Error cleaning orphaned jobs:', error)
+                alert('Erro ao limpar jobs órfãos')
+              }
+            }}
+            variant="outline"
+            size="sm"
+          >
+            Limpar Órfãos
+          </Button>
+        </div>
       </div>
 
       {/* System Statistics */}

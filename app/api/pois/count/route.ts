@@ -1,64 +1,70 @@
-import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-export async function GET(request: NextRequest) {
+const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+export async function GET() {
   try {
-    console.log('🔍 API: Checking POI counts with service role')
-
-    // Count with service role (bypass RLS)
-    const { count: serviceRoleCount, error: serviceRoleError } = await supabase
+    // Get total POIs count
+    const { count: totalPOIs } = await supabase
       .schema('core')
       .from('attractions')
-      .select('*', { count: 'exact', head: true });
+      .select('id', { count: 'exact', head: true })
 
-    console.log('🔍 API: Service role count:', { count: serviceRoleCount, error: serviceRoleError });
-
-    // Get sample POIs with service role
-    const { data: serviceRolePois, error: serviceRolePoisError } = await supabase
+    // Get processed POIs count
+    const { count: processedPOIs } = await supabase
       .schema('core')
       .from('attractions')
-      .select('id, name, city, country, created_at, user_id')
-      .order('created_at', { ascending: false })
-      .limit(10);
+      .select('id', { count: 'exact', head: true })
+      .not('city_correction_audit', 'is', null)
 
-    console.log('🔍 API: Service role POIs sample:', { dataCount: serviceRolePois?.length, error: serviceRolePoisError });
-
-    // Check distribution by user_id
-    const { data: userDistribution, error: userDistError } = await supabase
+    // Get pending POIs count
+    const { count: pendingPOIs } = await supabase
       .schema('core')
       .from('attractions')
-      .select('user_id')
-      .not('user_id', 'is', null);
+      .select('id', { count: 'exact', head: true })
+      .is('city_correction_audit', null)
 
-    const userCounts = userDistribution?.reduce((acc: any, poi: any) => {
-      acc[poi.user_id] = (acc[poi.user_id] || 0) + 1;
-      return acc;
-    }, {});
+    // Get POIs with coordinates (can be processed)
+    const { data: poisWithCoordsData } = await supabase
+      .schema('core')
+      .from('attractions')
+      .select('id, attraction_coordinate!inner(id)')
+      .is('city_correction_audit', null)
 
-    console.log('🔍 API: User distribution:', userCounts);
+    const poisWithCoords = poisWithCoordsData?.length || 0
 
-    // Get current user info
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    console.log('🔍 API: Current user:', user?.id);
-    console.log('🔍 API: Current user error:', userError);
+    // Get manual review count
+    const { count: manualReviewCount } = await supabase
+      .schema('core')
+      .from('attractions')
+      .select('id', { count: 'exact', head: true })
+      .eq('city_correction_audit->needs_manual_review', true)
 
     return NextResponse.json({
-      serviceRoleCount,
-      serviceRoleError,
-      samplePOIs: serviceRolePois,
-      userDistribution: userCounts,
-      totalUsers: Object.keys(userCounts || {}).length,
-      currentUserId: user?.id,
-      currentUserError: userError
+      success: true,
+      data: {
+        total_pois: totalPOIs || 0,
+        processed_pois: processedPOIs || 0,
+        pending_pois: pendingPOIs || 0,
+        pois_with_coordinates: poisWithCoords,
+        pois_without_coordinates: (pendingPOIs || 0) - poisWithCoords,
+        manual_review_needed: manualReviewCount || 0,
+        corrections_applied: processedPOIs || 0
+      }
     })
 
   } catch (error) {
-    console.error('🔍 API: Error checking POI counts:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Error getting POI counts:', error)
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      },
+      { status: 500 }
+    )
   }
 }
