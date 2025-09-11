@@ -114,7 +114,7 @@ class EdgeRateLimiter {
 
 // Rate limiters for different services
 const nominatimLimiter = new EdgeRateLimiter(86400, 1100) // 1 req/second with buffer
-const geonamesLimiter = new EdgeRateLimiter(1000, 10000)  // ~1000/day, ~1 per 10s (reduced for Edge Function)
+const geonamesLimiter = new EdgeRateLimiter(1000, 3000)  // ~1000/day, ~1 per 3s (further reduced)
 
 // =====================================
 // GEOCODING SERVICES
@@ -241,7 +241,7 @@ class EdgeCityCorrectionService {
       dry_run = false,
       country_filter,
       state_filter,
-      limit = 5 // Reduced to avoid timeout
+      limit = 15 // Process 15 POIs per function call (reduced to avoid timeout at ~19 items)
     } = options
 
     const startTime = Date.now()

@@ -28,7 +28,7 @@ serve(async (req) => {
       .schema('core')
       .from('city_correction_progress')
       .select('*')
-      .ilike('progress_data', '%processing%')
+      .eq('progress_data->>status', 'processing')
       .lt('updated_at', fiveMinutesAgo.toISOString())
 
     if (stuckError) {
@@ -37,9 +37,7 @@ serve(async (req) => {
       console.log(`🚨 Found ${stuckJobs.length} stuck job(s)`)
       
       for (const job of stuckJobs) {
-        const progressData = typeof job.progress_data === 'string' 
-          ? JSON.parse(job.progress_data) 
-          : job.progress_data
+        const progressData = job.progress_data
         console.log(`🔧 Marking stuck job ${job.progress_key} as failed`)
         
         // Mark as failed
@@ -47,12 +45,12 @@ serve(async (req) => {
           .schema('core')
           .from('city_correction_progress')
           .update({
-            progress_data: JSON.stringify({
+            progress_data: {
               ...progressData,
               status: 'failed',
               message: 'Job stuck - marked as failed by monitor',
               completed_at: new Date().toISOString()
-            })
+            }
           })
           .eq('progress_key', job.progress_key)
       }
@@ -63,7 +61,7 @@ serve(async (req) => {
       .schema('core')
       .from('city_correction_progress')
       .select('*')
-      .ilike('progress_data', '%needs_retry%')
+      .eq('progress_data->>status', 'needs_retry')
 
     if (retryError) {
       console.error('❌ Error finding retry jobs:', retryError)
@@ -71,9 +69,7 @@ serve(async (req) => {
       console.log(`🔄 Found ${retryJobs.length} job(s) needing retry`)
       
       for (const job of retryJobs) {
-        const progressData = typeof job.progress_data === 'string' 
-          ? JSON.parse(job.progress_data) 
-          : job.progress_data
+        const progressData = job.progress_data
         const currentRemaining = progressData.remaining_pois || 0
         
         if (currentRemaining > 0) {
@@ -86,12 +82,12 @@ serve(async (req) => {
             .schema('core')
             .from('city_correction_progress')
             .update({
-              progress_data: JSON.stringify({
+              progress_data: {
                 ...progressData,
                 status: 'retrying',
                 retry_count: retryCount,
                 message: `Auto-retry #${retryCount} - processing ${batchSize} POIs`
-              })
+              }
             })
             .eq('progress_key', job.progress_key)
 
@@ -126,12 +122,12 @@ serve(async (req) => {
             .schema('core')
             .from('city_correction_progress')
             .update({
-              progress_data: JSON.stringify({
+              progress_data: {
                 ...progressData,
                 status: 'completed',
                 message: 'All POIs processed successfully!',
                 completed_at: new Date().toISOString()
-              })
+              }
             })
             .eq('progress_key', job.progress_key)
           
@@ -162,7 +158,7 @@ serve(async (req) => {
       .schema('core')
       .from('city_correction_progress')
       .select('progress_key')
-      .or('progress_data.ilike.%processing%, progress_data.ilike.%retrying%, progress_data.ilike.%needs_retry%')
+      .in('progress_data->>status', ['processing', 'retrying', 'needs_retry'])
 
     if ((unprocessedPOIs || 0) > 0 && (!activeJobs || activeJobs.length === 0)) {
       console.log(`🚨 Found ${unprocessedPOIs} unprocessed POIs with no active jobs!`)
@@ -177,14 +173,17 @@ serve(async (req) => {
       .order('created_at', { ascending: false })
       .limit(10)
 
-    const completedJobs = allJobs?.filter(job => {
-      const data = typeof job.progress_data === 'string' ? JSON.parse(job.progress_data) : job.progress_data
-      return data.status === 'completed'
-    }) || []
-    const failedJobs = allJobs?.filter(job => {
-      const data = typeof job.progress_data === 'string' ? JSON.parse(job.progress_data) : job.progress_data
-      return data.status === 'failed'
-    }) || []
+    const { data: completedJobsData } = await supabase
+      .schema('core')
+      .from('city_correction_progress')
+      .select('progress_key', { count: 'exact', head: true })
+      .eq('progress_data->>status', 'completed')
+
+    const { data: failedJobsData } = await supabase
+      .schema('core')
+      .from('city_correction_progress')
+      .select('progress_key', { count: 'exact', head: true })
+      .eq('progress_data->>status', 'failed')
 
     const summary = {
       stuck_jobs_fixed: stuckJobs?.length || 0,
@@ -193,8 +192,8 @@ serve(async (req) => {
       processed_pois: processedPOIs || 0,
       unprocessed_pois: unprocessedPOIs || 0,
       active_jobs: activeJobs?.length || 0,
-      completed_jobs: completedJobs.length,
-      failed_jobs: failedJobs.length
+      completed_jobs: completedJobsData || 0,
+      failed_jobs: failedJobsData || 0
     }
 
     console.log('📊 System Summary:', summary)
