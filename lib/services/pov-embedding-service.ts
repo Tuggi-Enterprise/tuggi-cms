@@ -101,7 +101,7 @@ export class POVEmbeddingService {
     let successCount = 0
     let errorCount = 0
 
-    for (const [index, example] of examples.entries()) {
+    for (const [index, example] of (examples as any[]).entries()) {
       try {
         console.log(`⚙️  Processing ${index + 1}/${examples.length}: ${example.id}`)
 
@@ -109,7 +109,7 @@ export class POVEmbeddingService {
         const embedding = await this.generateEmbedding(String(example.context_text))
 
         // Atualizar no banco
-        const { error: updateError } = await this.supabase
+        const { error: updateError } = await (this.supabase as any)
           .from('pov_training_examples')
           .update({ context_embedding: `[${embedding.join(',')}]` })
           .eq('id', String(example.id))
@@ -149,7 +149,7 @@ export class POVEmbeddingService {
     const queryEmbedding = await this.generateEmbedding(contextText)
 
     // Buscar exemplos similares usando função de similaridade do PostgreSQL
-    const { data: results, error } = await this.supabase
+    const { data: results, error } = await (this.supabase as any)
       .rpc('find_similar_pov_examples', {
         query_embedding: `[${queryEmbedding.join(',')}]`,
         match_threshold: threshold,
@@ -450,7 +450,7 @@ export class POVEmbeddingService {
       $$;
     `
 
-    const { error } = await this.supabase.rpc('exec_sql', { sql: functionSQL })
+    const { error } = await (this.supabase as any).rpc('exec_sql', { sql: functionSQL })
 
     if (error) {
       console.warn('Failed to create similarity function:', error.message)
