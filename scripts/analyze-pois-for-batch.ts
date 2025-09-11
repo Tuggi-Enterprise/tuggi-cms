@@ -124,7 +124,7 @@ async function analyzePOIsForBatch(): Promise<void> {
     console.log(`   Com batches de 500: ${Math.ceil((totalCount || 0) / 500)} batches`);
 
   } catch (error) {
-    console.error('💥 Erro na análise:', error.message);
+    console.error('💥 Erro na análise:', error instanceof Error ? error.message : 'Unknown error');
   }
 }
 

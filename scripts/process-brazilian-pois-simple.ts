@@ -83,7 +83,7 @@ async function processPOIWithUnifiedSystem(poi: BrazilianPOI): Promise<Processin
         success: true,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         newImageSource: data.imageSource,
         newImageUrl: data.imageUrl,
         processingTime: Date.now() - startTime
@@ -93,7 +93,7 @@ async function processPOIWithUnifiedSystem(poi: BrazilianPOI): Promise<Processin
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: data.error || 'No images found',
         processingTime: Date.now() - startTime
       };
@@ -104,8 +104,8 @@ async function processPOIWithUnifiedSystem(poi: BrazilianPOI): Promise<Processin
       success: false,
       attractionId: poi.id,
       attractionName: poi.name,
-      oldImageSource: poi.image_source,
-      error: `Unified system error: ${error.message}`,
+      oldImageSource: poi.image_source || undefined,
+      error: `Unified system error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       processingTime: Date.now() - startTime
     };
   }

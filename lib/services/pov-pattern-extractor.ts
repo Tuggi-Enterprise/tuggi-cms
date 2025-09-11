@@ -212,7 +212,7 @@ export class POVPatternExtractor {
   async updatePatterns(): Promise<void> {
     console.log('🔄 Updating learning patterns...')
 
-    const { error } = await this.supabase
+    const { error } = await (this.supabase as any)
       .rpc('update_learning_patterns', {})
 
     if (error) {

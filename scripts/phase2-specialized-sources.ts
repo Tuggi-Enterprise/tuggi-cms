@@ -166,7 +166,7 @@ async function processGovernmentSources(config: ImageSearchConfig): Promise<Spec
     return {
       success: false,
       source: source.source_name,
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -204,7 +204,7 @@ async function processHeritageSources(config: ImageSearchConfig): Promise<Specia
     return {
       success: false,
       source: source.source_name,
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -234,7 +234,7 @@ async function processAcademicSources(config: ImageSearchConfig): Promise<Specia
     return {
       success: false,
       source: source.source_name,
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -261,7 +261,7 @@ async function processMediaSources(config: ImageSearchConfig): Promise<Specializ
     return {
       success: false,
       source: source.source_name,
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -283,7 +283,7 @@ async function processEncyclopediaSources(config: ImageSearchConfig): Promise<Sp
     return {
       success: false,
       source: source.source_name,
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -304,7 +304,7 @@ async function processEuropeanaImages(config: ImageSearchConfig): Promise<Specia
       thumbnail: 'true',
       rows: '10',
       sort: 'score desc',
-      qf: ['TYPE:IMAGE', 'MIME_TYPE:image/*', 'RIGHTS:http://creativecommons.org/*']
+      qf: 'TYPE:IMAGE MIME_TYPE:image/* RIGHTS:http://creativecommons.org/*'
     });
 
     const response = await fetch(`${apiUrl}?${params}`);
@@ -355,7 +355,7 @@ async function processEuropeanaImages(config: ImageSearchConfig): Promise<Specia
     return { 
       success: false, 
       source: 'Europeana', 
-      error: error.message 
+      error: error instanceof Error ? error.message : 'Unknown error' 
     };
   }
 }
@@ -380,7 +380,7 @@ async function processGovernmentTourismImages(config: ImageSearchConfig): Promis
 
     // Add API key if required
     if (source.api_key_required && source.config.api_key) {
-      params['key'] = source.config.api_key;
+      (params as any)['key'] = source.config.api_key;
     }
 
     const response = await fetch(searchUrl, {
@@ -413,7 +413,7 @@ async function processGovernmentTourismImages(config: ImageSearchConfig): Promis
     return { 
       success: false, 
       source: 'government_tourism', 
-      error: error.message 
+      error: error instanceof Error ? error.message : 'Unknown error' 
     };
   }
 }
@@ -510,7 +510,7 @@ async function processMuseumAPIImages(config: ImageSearchConfig): Promise<Specia
     return {
       success: false,
       source: 'Smithsonian',
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -543,7 +543,7 @@ async function processNationalLibraryImages(config: ImageSearchConfig): Promise<
     return {
       success: false,
       source: source.source_name,
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -610,7 +610,7 @@ async function processLibraryOfCongressImages(config: ImageSearchConfig): Promis
     return {
       success: false,
       source: 'Library of Congress',
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -634,7 +634,7 @@ async function processBibliotecaNacionalDigital(config: ImageSearchConfig): Prom
     return {
       success: false,
       source: 'Biblioteca Nacional Digital',
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -704,7 +704,7 @@ async function processIPHANImages(config: ImageSearchConfig): Promise<Specialize
     return {
       success: false,
       source: 'IPHAN',
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -734,7 +734,7 @@ async function processBibliotecaNacionalImages(config: ImageSearchConfig): Promi
     return {
       success: false,
       source: 'Biblioteca Nacional',
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -790,7 +790,7 @@ async function processMASPImages(config: ImageSearchConfig): Promise<Specialized
     return {
       success: false,
       source: 'MASP',
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -821,7 +821,7 @@ async function processMuseoPradoImages(config: ImageSearchConfig): Promise<Speci
     return {
       success: false,
       source: 'Museo del Prado',
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -877,7 +877,7 @@ async function processAgenciaBrasilImages(config: ImageSearchConfig): Promise<Sp
     return {
       success: false,
       source: 'Agência Brasil',
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -910,7 +910,7 @@ async function processWikipediaSpecialized(config: ImageSearchConfig): Promise<S
     return {
       success: false,
       source: 'Wikipedia PT',
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -979,7 +979,7 @@ async function searchSpecializedSources(
   for (const source of sources) {
     console.log(`🔄 Trying ${source.source_name} (${source.source_type})`);
     
-    const processor = SOURCE_PROCESSORS[source.source_type];
+    const processor = (SOURCE_PROCESSORS as any)[source.source_type];
     if (!processor) {
       console.log(`⚠️  No processor available for ${source.source_type}`);
       continue;
@@ -1008,11 +1008,11 @@ async function searchSpecializedSources(
         console.log(`❌ Failed with ${source.source_name}: ${result.error}`);
       }
     } catch (error) {
-      console.log(`💥 Error with ${source.source_name}: ${error.message}`);
+      console.log(`💥 Error with ${source.source_name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       results.push({
         success: false,
         source: source.source_name,
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   }
@@ -1087,11 +1087,12 @@ async function analyzeCurrentSources() {
 
   console.log(`📋 Found sources for ${Object.keys(sourcesByCountry).length} countries:\n`);
 
-  Object.entries(sourcesByCountry).forEach(([countryCode, countrySources]: [string, any[]]) => {
-    const countryName = countrySources[0].countries.name;
-    console.log(`🏳️  ${countryName} (${countryCode}): ${countrySources.length} sources`);
+  Object.entries(sourcesByCountry).forEach(([countryCode, countrySources]) => {
+    const sources = countrySources as any[];
+    const countryName = sources[0].countries.name;
+    console.log(`🏳️  ${countryName} (${countryCode}): ${sources.length} sources`);
     
-    countrySources.forEach((source, index) => {
+    sources.forEach((source, index) => {
       console.log(`   ${index + 1}. ${source.source_name} (${source.source_type}) - Priority: ${source.priority}`);
       console.log(`      URL: ${source.base_url}`);
       console.log(`      API Key Required: ${source.api_key_required ? 'Yes' : 'No'}`);

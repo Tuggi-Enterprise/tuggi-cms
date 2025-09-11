@@ -66,8 +66,8 @@ async function checkImageSources() {
       throw new Error(`Error querying images: ${imagesError.message}`);
     }
 
-    recentImages?.forEach((image, index) => {
-      console.log(`   ${index + 1}. ${image.attractions.name} (${image.attractions.city}, ${image.attractions.state})`);
+    recentImages?.forEach((image: any, index) => {
+      console.log(`   ${index + 1}. ${image.attractions.name} (${image.attractions.city}, ${image.attractions.state})`);                                                                                                           
       console.log(`      Image Source: ${image.attractions.image_source}`);
       console.log(`      Image ID: ${image.id}`);
       console.log(`      Storage Path: ${image.storage_path}`);

@@ -81,7 +81,7 @@ async function processWikipediaImages(poi: BrazilianPOI): Promise<ProcessingResu
         success: true,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         newImageSource: 'wikipedia',
         newImageUrl: data.imageUrl,
         processingTime: Date.now() - startTime
@@ -91,7 +91,7 @@ async function processWikipediaImages(poi: BrazilianPOI): Promise<ProcessingResu
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: data.message || 'No Wikipedia images found',
         processingTime: Date.now() - startTime
       };
@@ -102,8 +102,8 @@ async function processWikipediaImages(poi: BrazilianPOI): Promise<ProcessingResu
       success: false,
       attractionId: poi.id,
       attractionName: poi.name,
-      oldImageSource: poi.image_source,
-      error: `Wikipedia error: ${error.message}`,
+      oldImageSource: poi.image_source || undefined,
+      error: `Wikipedia error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       processingTime: Date.now() - startTime
     };
   }
@@ -122,7 +122,7 @@ async function processWikidataImages(poi: BrazilianPOI): Promise<ProcessingResul
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: 'No Wikidata ID available',
         processingTime: Date.now() - startTime
       };
@@ -152,7 +152,7 @@ async function processWikidataImages(poi: BrazilianPOI): Promise<ProcessingResul
         success: true,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         newImageSource: 'wikidata',
         newImageUrl: data.imageUrl,
         processingTime: Date.now() - startTime
@@ -162,7 +162,7 @@ async function processWikidataImages(poi: BrazilianPOI): Promise<ProcessingResul
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: data.message || 'No Wikidata images found',
         processingTime: Date.now() - startTime
       };
@@ -173,8 +173,8 @@ async function processWikidataImages(poi: BrazilianPOI): Promise<ProcessingResul
       success: false,
       attractionId: poi.id,
       attractionName: poi.name,
-      oldImageSource: poi.image_source,
-      error: `Wikidata error: ${error.message}`,
+      oldImageSource: poi.image_source || undefined,
+      error: `Wikidata error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       processingTime: Date.now() - startTime
     };
   }
@@ -191,7 +191,7 @@ async function processWebsiteImages(poi: BrazilianPOI): Promise<ProcessingResult
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: 'No website available',
         processingTime: Date.now() - startTime
       };
@@ -221,7 +221,7 @@ async function processWebsiteImages(poi: BrazilianPOI): Promise<ProcessingResult
         success: true,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         newImageSource: 'website',
         newImageUrl: data.imageUrl,
         processingTime: Date.now() - startTime
@@ -231,7 +231,7 @@ async function processWebsiteImages(poi: BrazilianPOI): Promise<ProcessingResult
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: data.message || 'No website images found',
         processingTime: Date.now() - startTime
       };
@@ -242,8 +242,8 @@ async function processWebsiteImages(poi: BrazilianPOI): Promise<ProcessingResult
       success: false,
       attractionId: poi.id,
       attractionName: poi.name,
-      oldImageSource: poi.image_source,
-      error: `Website error: ${error.message}`,
+      oldImageSource: poi.image_source || undefined,
+      error: `Website error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       processingTime: Date.now() - startTime
     };
   }
@@ -277,7 +277,7 @@ async function processPOIWithPriority(poi: BrazilianPOI): Promise<ProcessingResu
       await new Promise(resolve => setTimeout(resolve, 1000));
       
     } catch (error) {
-      console.log(`   💥 Error with ${name}: ${error.message}`);
+      console.log(`   💥 Error with ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
   
@@ -285,7 +285,7 @@ async function processPOIWithPriority(poi: BrazilianPOI): Promise<ProcessingResu
     success: false,
     attractionId: poi.id,
     attractionName: poi.name,
-    oldImageSource: poi.image_source,
+    oldImageSource: poi.image_source || undefined,
     error: 'All sources failed',
     processingTime: 0
   };

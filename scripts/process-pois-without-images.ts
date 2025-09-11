@@ -130,7 +130,7 @@ async function processPOIWithAllSources(poi: POIWithoutImage): Promise<Processin
           console.log(`   ❌ Failed with ${source.name}: ${sourceResult.error}`);
         }
       } catch (error) {
-        console.log(`   💥 Error with ${source.name}: ${error.message}`);
+        console.log(`   💥 Error with ${source.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
   }

@@ -77,7 +77,7 @@ async function getImageQualityMetrics(): Promise<QualityMetrics> {
   attractions.forEach(attraction => {
     if (attraction.image_url) {
       const source = attraction.image_source || 'unknown';
-      const quality = sourceQuality[source] || 'poor';
+      const quality = sourceQuality[source as keyof typeof sourceQuality] || 'poor';
       metrics.qualityDistribution[quality] = (metrics.qualityDistribution[quality] || 0) + 1;
     }
   });

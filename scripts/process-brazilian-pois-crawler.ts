@@ -65,7 +65,7 @@ async function crawlOfficialWebsite(poi: BrazilianPOI): Promise<ProcessingResult
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: 'No website available',
         processingTime: Date.now() - startTime
       };
@@ -100,7 +100,7 @@ async function crawlOfficialWebsite(poi: BrazilianPOI): Promise<ProcessingResult
           success: true,
           attractionId: poi.id,
           attractionName: poi.name,
-          oldImageSource: poi.image_source,
+          oldImageSource: poi.image_source || undefined,
           newImageSource: 'website',
           newImageUrl: data.imageUrl,
           processingTime: Date.now() - startTime,
@@ -111,7 +111,7 @@ async function crawlOfficialWebsite(poi: BrazilianPOI): Promise<ProcessingResult
           success: false,
           attractionId: poi.id,
           attractionName: poi.name,
-          oldImageSource: poi.image_source,
+          oldImageSource: poi.image_source || undefined,
           error: 'Image resolution too low (< 600px)',
           processingTime: Date.now() - startTime
         };
@@ -121,7 +121,7 @@ async function crawlOfficialWebsite(poi: BrazilianPOI): Promise<ProcessingResult
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: data.message || 'No website images found',
         processingTime: Date.now() - startTime
       };
@@ -132,8 +132,8 @@ async function crawlOfficialWebsite(poi: BrazilianPOI): Promise<ProcessingResult
       success: false,
       attractionId: poi.id,
       attractionName: poi.name,
-      oldImageSource: poi.image_source,
-      error: `Website crawler error: ${error.message}`,
+      oldImageSource: poi.image_source || undefined,
+      error: `Website crawler error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       processingTime: Date.now() - startTime
     };
   }
@@ -176,7 +176,7 @@ async function crawlWikipedia(poi: BrazilianPOI): Promise<ProcessingResult> {
           success: true,
           attractionId: poi.id,
           attractionName: poi.name,
-          oldImageSource: poi.image_source,
+          oldImageSource: poi.image_source || undefined,
           newImageSource: 'wikipedia',
           newImageUrl: data.imageUrl,
           processingTime: Date.now() - startTime,
@@ -187,7 +187,7 @@ async function crawlWikipedia(poi: BrazilianPOI): Promise<ProcessingResult> {
           success: false,
           attractionId: poi.id,
           attractionName: poi.name,
-          oldImageSource: poi.image_source,
+          oldImageSource: poi.image_source || undefined,
           error: 'Image resolution too low (< 600px)',
           processingTime: Date.now() - startTime
         };
@@ -197,7 +197,7 @@ async function crawlWikipedia(poi: BrazilianPOI): Promise<ProcessingResult> {
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: data.message || 'No Wikipedia images found',
         processingTime: Date.now() - startTime
       };
@@ -208,8 +208,8 @@ async function crawlWikipedia(poi: BrazilianPOI): Promise<ProcessingResult> {
       success: false,
       attractionId: poi.id,
       attractionName: poi.name,
-      oldImageSource: poi.image_source,
-      error: `Wikipedia crawler error: ${error.message}`,
+      oldImageSource: poi.image_source || undefined,
+      error: `Wikipedia crawler error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       processingTime: Date.now() - startTime
     };
   }
@@ -252,7 +252,7 @@ async function crawlWikimediaCommons(poi: BrazilianPOI): Promise<ProcessingResul
           success: true,
           attractionId: poi.id,
           attractionName: poi.name,
-          oldImageSource: poi.image_source,
+          oldImageSource: poi.image_source || undefined,
           newImageSource: 'wikimedia_commons',
           newImageUrl: data.imageUrl,
           processingTime: Date.now() - startTime,
@@ -263,7 +263,7 @@ async function crawlWikimediaCommons(poi: BrazilianPOI): Promise<ProcessingResul
           success: false,
           attractionId: poi.id,
           attractionName: poi.name,
-          oldImageSource: poi.image_source,
+          oldImageSource: poi.image_source || undefined,
           error: 'Image resolution too low (< 600px)',
           processingTime: Date.now() - startTime
         };
@@ -273,7 +273,7 @@ async function crawlWikimediaCommons(poi: BrazilianPOI): Promise<ProcessingResul
         success: false,
         attractionId: poi.id,
         attractionName: poi.name,
-        oldImageSource: poi.image_source,
+        oldImageSource: poi.image_source || undefined,
         error: data.message || 'No Wikimedia images found',
         processingTime: Date.now() - startTime
       };
@@ -284,8 +284,8 @@ async function crawlWikimediaCommons(poi: BrazilianPOI): Promise<ProcessingResul
       success: false,
       attractionId: poi.id,
       attractionName: poi.name,
-      oldImageSource: poi.image_source,
-      error: `Wikimedia crawler error: ${error.message}`,
+      oldImageSource: poi.image_source || undefined,
+      error: `Wikimedia crawler error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       processingTime: Date.now() - startTime
     };
   }
@@ -339,7 +339,7 @@ async function processPOIWithPriority(poi: BrazilianPOI): Promise<ProcessingResu
       await new Promise(resolve => setTimeout(resolve, 1500));
       
     } catch (error) {
-      console.log(`   💥 Error with ${name}: ${error.message}`);
+      console.log(`   💥 Error with ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
   
@@ -347,7 +347,7 @@ async function processPOIWithPriority(poi: BrazilianPOI): Promise<ProcessingResu
     success: false,
     attractionId: poi.id,
     attractionName: poi.name,
-    oldImageSource: poi.image_source,
+    oldImageSource: poi.image_source || undefined,
     error: 'All sources failed',
     processingTime: 0
   };

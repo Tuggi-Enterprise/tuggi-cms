@@ -101,7 +101,7 @@ export default function TestWikimediaExtraction() {
           <CardHeader>
             <CardTitle>Test Configuration</CardTitle>
             <CardDescription>
-              Configure the test parameters or use the sample data from "Monumento à Mãe Preta"
+              Configure the test parameters or use the sample data from &quot;Monumento à Mãe Preta&quot;
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -271,7 +271,7 @@ export default function TestWikimediaExtraction() {
             <div>
               <h4 className="font-semibold mb-2">4. Database Update</h4>
               <p className="text-sm text-muted-foreground">
-                Creates a record in the attraction_image table and updates the attraction's primary image URL.
+                Creates a record in the attraction_image table and updates the attraction&apos;s primary image URL.
               </p>
             </div>
           </CardContent>

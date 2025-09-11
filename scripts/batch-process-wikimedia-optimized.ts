@@ -74,7 +74,7 @@ async function deleteOldImage(imageUrl: string): Promise<boolean> {
     return true;
 
   } catch (error) {
-    console.log(`   💥 Erro ao processar deleção: ${error.message}`);
+    console.log(`   💥 Erro ao processar deleção: ${error instanceof Error ? error.message : 'Unknown error'}`);
     return false;
   }
 }
@@ -153,12 +153,12 @@ async function processPOI(poi: POI): Promise<BatchResult> {
     }
 
   } catch (error) {
-    console.log(`     💥 Erro: ${error.message}`);
+    console.log(`     💥 Erro: ${error instanceof Error ? error.message : 'Unknown error'}`);
     
     return {
       poi,
       success: false,
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       processingTime: Date.now() - startTime
     };
   }
@@ -358,7 +358,7 @@ async function batchProcessWikimediaOptimized(): Promise<void> {
     }
 
   } catch (error) {
-    console.error('💥 Erro no processamento em lote:', error.message);
+    console.error('💥 Erro no processamento em lote:', error instanceof Error ? error.message : 'Unknown error');
     console.log('💡 Use --resume para continuar de onde parou');
   }
 }
