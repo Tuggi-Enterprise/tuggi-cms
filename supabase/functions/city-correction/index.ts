@@ -775,10 +775,24 @@ class EdgeCityCorrectionService {
    */
   private async updateProgress(progress: Partial<ProcessingProgress>): Promise<void> {
     try {
+      // Get existing progress data to merge
+      const { data: existingData } = await this.supabase
+        .schema('core')
+        .from('city_correction_progress')
+        .select('progress_data')
+        .eq('progress_key', this.progressKey)
+        .single()
+
+      // Merge with existing data
+      const mergedProgress = {
+        ...(existingData?.progress_data || {}),
+        ...progress
+      }
+
       // Store progress in a simple table or use a simple key-value approach
       const progressData = {
         progress_key: this.progressKey,
-        progress_data: progress,
+        progress_data: mergedProgress,
         updated_at: new Date().toISOString()
       }
 
@@ -790,6 +804,8 @@ class EdgeCityCorrectionService {
 
       if (error) {
         console.error('❌ Error updating progress:', error)
+      } else {
+        console.log('✅ Progress updated:', JSON.stringify(mergedProgress))
       }
     } catch (error) {
       console.error('❌ Error in updateProgress:', error)
