@@ -23,7 +23,13 @@
     "test:pov-suggestions-api": "tsx --env-file=.env scripts/test-pov-suggestions-api.ts",
     "test:learning-system": "tsx --env-file=.env scripts/test-learning-system.ts",
     "test:feedback-system": "tsx --env-file=.env scripts/test-feedback-system.ts",
-    "get:sample-pois": "tsx --env-file=.env scripts/get-sample-pois.ts"
+    "get:sample-pois": "tsx --env-file=.env scripts/get-sample-pois.ts",
+    "poi-validation:setup": "tsx --env-file=.env scripts/setup-poi-validation.ts",
+    "poi-validation": "tsx --env-file=.env scripts/poi-name-validation.ts",
+    "poi-validation:test": "tsx --env-file=.env scripts/poi-name-validation.ts -- --dry-run --max-pois=10",
+    "poi-validation:resume": "tsx --env-file=.env scripts/poi-name-validation.ts -- --resume",
+    "poi-validation:high-threshold": "tsx --env-file=.env scripts/poi-name-validation.ts -- --threshold=85",
+    "poi-validation:review": "tsx --env-file=.env scripts/poi-validation-review.ts"
   },
   "dependencies": {
     "@google-cloud/text-to-speech": "^6.1.0",
