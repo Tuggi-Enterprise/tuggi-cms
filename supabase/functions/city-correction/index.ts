@@ -113,8 +113,8 @@ class EdgeRateLimiter {
 }
 
 // Rate limiters for different services
-const nominatimLimiter = new EdgeRateLimiter(86400, 1100) // 1 req/second with buffer
-const geonamesLimiter = new EdgeRateLimiter(1000, 3000)  // ~1000/day, ~1 per 3s (further reduced)
+const nominatimLimiter = new EdgeRateLimiter(86400, 500) // 1 req/0.5s (reduced from 1.1s)
+const geonamesLimiter = new EdgeRateLimiter(1000, 1000)  // ~1000/day, ~1 per 1s (reduced from 3s)
 
 // =====================================
 // GEOCODING SERVICES
@@ -233,6 +233,202 @@ class EdgeCityCorrectionService {
   /**
    * Process batch of POIs for city correction
    */
+  async processContinuous(options: BatchProcessingOptions = {}): Promise<any> {
+    const MAX_EXECUTION_TIME = 20 * 60 * 1000 // 20 minutes
+    const MAX_POIS_PER_RUN = 200 // Maximum POIs to process in one run
+    const startTime = Date.now()
+    
+    let totalProcessed = 0
+    let totalCorrections = 0
+    let totalManualReviews = 0
+    let totalErrors = 0
+    const sampleCorrections: any[] = []
+    
+    console.log(`🚀 Starting continuous processing (max ${MAX_POIS_PER_RUN} POIs or ${MAX_EXECUTION_TIME/60000} minutes)`)
+    
+    try {
+      while (totalProcessed < MAX_POIS_PER_RUN) {
+        // Check execution time
+        if (Date.now() - startTime > MAX_EXECUTION_TIME) {
+          console.log('⏰ Maximum execution time reached, stopping...')
+          break
+        }
+        
+        // Get next POI
+        const pois = await this.getPOIsForCorrection(1, 0, options.country_filter, options.state_filter)
+        
+        if (pois.length === 0) {
+          console.log('✅ No more POIs to process!')
+          break
+        }
+
+        const poi = pois[0]
+        console.log(`🔍 [${totalProcessed + 1}/${MAX_POIS_PER_RUN}] Verifying: ${poi.name} (${poi.city})`)
+
+        try {
+          // Process the POI
+          const result = await this.verifySinglePOI(poi, options.enable_cross_validation || true, options.dry_run || false)
+          
+          if (result.needs_correction && !options.dry_run) {
+            await this.applyCityCorrection(poi.id, result.suggested_city, result.confidence, result.audit_data)
+            console.log(`✅ Applied correction: ${poi.city} → ${result.suggested_city}`)
+            totalCorrections++
+            
+            if (sampleCorrections.length < 5) {
+              sampleCorrections.push({
+                poi_name: poi.name,
+                old_city: poi.city,
+                new_city: result.suggested_city,
+                confidence: result.confidence
+              })
+            }
+          } else if (result.needs_manual_review && !options.dry_run) {
+            await this.createManualReview(poi.id, poi.city, result.suggested_city, result.confidence, result.audit_data)
+            console.log(`📋 Manual review: ${poi.city} → ${result.suggested_city} (${result.confidence}%)`)
+            totalManualReviews++
+          } else {
+            // Even if no correction needed, mark as processed to avoid reprocessing
+            if (!options.dry_run) {
+              console.log(`📝 Marking ${poi.name} as processed...`)
+              await this.markAsProcessed(poi.id, result.audit_data)
+              console.log(`✅ Marked ${poi.name} as processed in database`)
+            }
+            console.log(`✓ No correction needed: ${poi.name}`)
+          }
+          
+          totalProcessed++
+          
+          // Progress update every 10 POIs
+          if (totalProcessed % 10 === 0) {
+            const elapsedMinutes = (Date.now() - startTime) / 60000
+            const rate = totalProcessed / elapsedMinutes
+            console.log(`📊 Progress: ${totalProcessed} POIs processed (${rate.toFixed(1)} POIs/min)`)
+          }
+          
+          // Small delay between POIs to be respectful to APIs
+          await new Promise(resolve => setTimeout(resolve, 500))
+          
+        } catch (error) {
+          console.error(`❌ Error processing ${poi.name}:`, error)
+          totalErrors++
+        }
+      }
+      
+      const processingTime = Date.now() - startTime
+      const rate = totalProcessed / (processingTime / 60000)
+      
+      console.log(`\n📊 Continuous processing completed:`)
+      console.log(`   Processed: ${totalProcessed} POIs`)
+      console.log(`   Corrections: ${totalCorrections}`)
+      console.log(`   Manual reviews: ${totalManualReviews}`)
+      console.log(`   Errors: ${totalErrors}`)
+      console.log(`   Time: ${(processingTime/1000).toFixed(1)}s`)
+      console.log(`   Rate: ${rate.toFixed(1)} POIs/min`)
+
+      return {
+        success: true,
+        total_processed: totalProcessed,
+        corrections_applied: totalCorrections,
+        manual_review_needed: totalManualReviews,
+        errors: totalErrors,
+        processing_time: processingTime,
+        processing_rate: rate,
+        dry_run: options.dry_run || false,
+        rate_limiter_status: {
+          nominatim: nominatimLimiter.getStatus(),
+          geonames: geonamesLimiter.getStatus()
+        },
+        sample_corrections: sampleCorrections
+      }
+
+    } catch (error) {
+      console.error('❌ Error in continuous processing:', error)
+      return {
+        success: false,
+        total_processed: totalProcessed,
+        corrections_applied: totalCorrections,
+        manual_review_needed: totalManualReviews,
+        errors: totalErrors + 1,
+        processing_time: Date.now() - startTime,
+        error: error.message
+      }
+    }
+  }
+
+  async processSinglePOI(options: BatchProcessingOptions = {}): Promise<any> {
+    const startTime = Date.now()
+    
+    try {
+      console.log('🔍 Processing single POI for city correction...')
+      
+      // Get one POI that needs correction
+      const pois = await this.getPOIsForCorrection(1, 0, options.country_filter, options.state_filter)
+      
+      if (pois.length === 0) {
+        return {
+          success: true,
+          total_processed: 0,
+          corrections_applied: 0,
+          manual_review_needed: 0,
+          errors: 0,
+          processing_time: Date.now() - startTime,
+          message: 'No POIs found for correction'
+        }
+      }
+
+      const poi = pois[0]
+      console.log(`🔍 Verifying city for: ${poi.name} (${poi.city})`)
+      console.log(`📋 POI ID: ${poi.id}`)
+
+      // Process the single POI
+      const isDryRun = options.dry_run || false
+      console.log(`🔧 Dry run mode: ${isDryRun}`)
+      const result = await this.verifySinglePOI(poi, options.enable_cross_validation || true, isDryRun)
+      
+      if (result.needs_correction && !options.dry_run) {
+        await this.applyCityCorrection(poi.id, result.suggested_city, result.confidence, result.audit_data)
+        console.log(`✅ Applied city correction: ${poi.city} → ${result.suggested_city}`)
+      } else if (result.needs_manual_review && !options.dry_run) {
+        await this.createManualReview(poi.id, poi.city, result.suggested_city, result.confidence, result.audit_data)
+        console.log(`📋 Created manual review: ${poi.city} → ${result.suggested_city} (${result.confidence}%)`)
+      }
+
+      return {
+        success: true,
+        total_processed: 1,
+        corrections_applied: result.needs_correction ? 1 : 0,
+        manual_review_needed: result.needs_manual_review ? 1 : 0,
+        errors: 0,
+        processing_time: Date.now() - startTime,
+        dry_run: options.dry_run || false,
+        current_poi_name: poi.name,
+        current_poi_city: poi.city,
+        rate_limiter_status: {
+          nominatim: nominatimLimiter.getStatus(),
+          geonames: geonamesLimiter.getStatus()
+        },
+        sample_corrections: result.needs_correction ? [{
+          poi_name: poi.name,
+          old_city: poi.city,
+          new_city: result.suggested_city,
+          confidence: result.confidence
+        }] : []
+      }
+
+    } catch (error) {
+      console.error('❌ Error processing single POI:', error)
+      return {
+        success: false,
+        total_processed: 0,
+        corrections_applied: 0,
+        manual_review_needed: 0,
+        errors: 1,
+        processing_time: Date.now() - startTime,
+        error: error.message
+      }
+    }
+  }
+
   async processBatch(options: BatchProcessingOptions = {}): Promise<any> {
     const {
       confidence_threshold = 85,
@@ -241,7 +437,7 @@ class EdgeCityCorrectionService {
       dry_run = false,
       country_filter,
       state_filter,
-      limit = 15 // Process 15 POIs per function call (reduced to avoid timeout at ~19 items)
+      limit = 30 // Process 30 POIs per function call (increased for better efficiency)
     } = options
 
     const startTime = Date.now()
@@ -516,9 +712,10 @@ class EdgeCityCorrectionService {
       )
       
       // Determine if correction is needed
-      const needs_correction = analysis.confidence >= options.confidence_threshold && 
+      const needs_correction = (analysis.confidence >= options.confidence_threshold && 
                               analysis.verified_city && 
-                              analysis.verified_city.toLowerCase() !== poi.city.toLowerCase()
+                              analysis.verified_city.toLowerCase() !== poi.city.toLowerCase()) ||
+                              this.isInvalidCityName(poi.city)
       
       const needs_manual_review = analysis.confidence >= 60 && 
                                  analysis.confidence < options.confidence_threshold
@@ -670,7 +867,7 @@ class EdgeCityCorrectionService {
       }
     }
     
-    // No data from either source
+    // No data from either source - return default structure
     return {
       verified_city: null,
       verified_state: null,
@@ -678,6 +875,28 @@ class EdgeCityCorrectionService {
       confidence: 0,
       source: 'no_change'
     }
+  }
+
+  /**
+   * Check if a city name is clearly invalid and needs correction
+   */
+  private isInvalidCityName(cityName: string): boolean {
+    if (!cityName) return true
+    
+    const invalidPatterns = [
+      /^locality$/i,
+      /^administrative$/i,
+      /^district$/i,
+      /^region$/i,
+      /^area$/i,
+      /^zone$/i,
+      /^undefined$/i,
+      /^null$/i,
+      /^unknown$/i,
+      /^\s*$/  // empty or whitespace only
+    ]
+    
+    return invalidPatterns.some(pattern => pattern.test(cityName.trim()))
   }
 
   /**
@@ -773,6 +992,33 @@ class EdgeCityCorrectionService {
   /**
    * Update processing progress
    */
+  private async markAsProcessed(poiId: string, auditData: any): Promise<void> {
+    const audit = {
+      processed: true,
+      processed_at: new Date().toISOString(),
+      needs_correction: false,
+      needs_manual_review: false,
+      ...auditData
+    }
+
+    console.log(`🗄️  Updating POI ${poiId} with audit:`, JSON.stringify(audit, null, 2))
+
+    const { data, error } = await this.supabase
+      .schema('core')
+      .from('attractions')
+      .update({
+        city_correction_audit: audit
+      })
+      .eq('id', poiId)
+
+    if (error) {
+      console.error(`❌ Error marking POI ${poiId} as processed:`, error)
+      throw error
+    } else {
+      console.log(`✅ Successfully updated POI ${poiId} in database`)
+    }
+  }
+
   private async updateProgress(progress: Partial<ProcessingProgress>): Promise<void> {
     try {
       // Get existing progress data to merge
@@ -863,6 +1109,14 @@ Deno.serve(async (req) => {
     switch (action) {
       case 'process_batch':
         result = await service.processBatch(options)
+        break
+        
+      case 'process_single':
+        result = await service.processSinglePOI(options)
+        break
+        
+      case 'process_continuous':
+        result = await service.processContinuous(options)
         break
         
       default:
