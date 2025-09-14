@@ -236,16 +236,16 @@ class POIValidationRunner {
         console.log(`📦 Created batch: ${this.progress.batch_id}`)
       }
       
-      let offset = this.progress.processed
+      let lastProcessedId: string | null = this.progress.last_processed_id || null
       const batchSize = this.options.batchSize || DEFAULT_CONFIG.batch_size
       
-      while (offset < this.progress.total_pois) {
+      while (this.progress.processed < this.progress.total_pois) {
         this.progress.current_batch++
-        const batchEnd = Math.min(offset + batchSize, this.progress.total_pois)
+        const batchEnd = Math.min(this.progress.processed + batchSize, this.progress.total_pois)
         
-        console.log(`\n🔄 Processing batch ${this.progress.current_batch} (POIs ${offset + 1}-${batchEnd})`)
+        console.log(`\n🔄 Processing batch ${this.progress.current_batch} (POIs ${this.progress.processed + 1}-${batchEnd})`)
         
-        const pois = await this.validationService.getPOIsToProcess(offset, batchSize)
+        const pois = await this.validationService.getPOIsToProcess(lastProcessedId, batchSize)
         
         if (pois.length === 0) {
           console.log('✅ No more POIs to process')
@@ -304,7 +304,11 @@ class POIValidationRunner {
         // Print progress after each batch
         this.printProgress()
         
-        offset += batchSize
+        // Update last processed ID for cursor-based pagination
+        if (pois.length > 0) {
+          lastProcessedId = pois[pois.length - 1].id
+          this.progress.last_processed_id = lastProcessedId
+        }
         
         // Break if we've reached max POIs limit
         if (this.options.maxPois && this.progress.processed >= this.options.maxPois) {

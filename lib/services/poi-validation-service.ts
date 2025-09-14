@@ -82,6 +82,7 @@ export interface BatchProgress {
   estimated_completion: Date | null
   current_batch_number: number
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
+  last_processed_id?: string
 }
 
 export interface ValidationConfig {
@@ -424,32 +425,55 @@ Respond in JSON:
     }
   }
   
-  async getPOIsToProcess(offset = 0, limit = 50): Promise<POI[]> {
+  async getPOIsToProcess(lastProcessedId: string | null = null, limit = 50): Promise<POI[]> {
     try {
-      const { data, error } = await this.supabase
+      // Strategy: Use SQL to directly find unprocessed POIs
+      // This is much more efficient than filtering in the application
+      const { data: unprocessedPOIs, error } = await this.supabase
         .schema('core')
-        .from('attractions')
-        .select(`
-          id,
-          name,
-          city,
-          state,
-          country,
-          category,
-          formatted_address,
-          osm_tags,
-          attraction_coordinate!inner(latitude, longitude)
-        `)
-        .eq('country', 'BR')
-        .range(offset, offset + limit - 1)
-        .order('created_at', { ascending: true })
+        .rpc('get_unprocessed_pois', {
+          batch_limit: limit,
+          last_id: lastProcessedId
+        })
       
       if (error) {
-        console.error('Failed to fetch POIs:', error)
-        throw error
+        console.error('RPC function failed, falling back to manual filtering:', error)
+        
+        // Fallback: Use the old method but with larger batches
+        return await this.getPOIsManualFilter(lastProcessedId, limit)
       }
       
-      return (data || []).map((poi: any) => ({
+      if (!unprocessedPOIs || unprocessedPOIs.length === 0) {
+        console.log('📊 No more unprocessed POIs found')
+        return []
+      }
+      
+      console.log(`✅ Found ${unprocessedPOIs.length} unprocessed POIs`)
+      
+      // Get coordinates for the unprocessed POIs
+      const poiIds = unprocessedPOIs.map(p => p.id)
+      const { data: coordinates, error: coordError } = await this.supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('attraction_id, latitude, longitude')
+        .in('attraction_id', poiIds)
+      
+      if (coordError) {
+        console.error('Failed to fetch coordinates:', coordError)
+      }
+      
+      // Map coordinates to POIs
+      const coordsMap = new Map()
+      if (coordinates) {
+        coordinates.forEach(coord => {
+          coordsMap.set(coord.attraction_id, {
+            lat: coord.latitude,
+            lng: coord.longitude
+          })
+        })
+      }
+      
+      return unprocessedPOIs.map((poi: any) => ({
         id: poi.id,
         name: poi.name,
         city: poi.city,
@@ -458,31 +482,134 @@ Respond in JSON:
         category: poi.category,
         formatted_address: poi.formatted_address,
         osm_tags: poi.osm_tags,
-        coordinates: {
-          lat: poi.attraction_coordinate?.latitude || 0,
-          lng: poi.attraction_coordinate?.longitude || 0
-        }
+        coordinates: coordsMap.get(poi.id) || { lat: 0, lng: 0 }
       }))
     } catch (error) {
       console.error('Database error fetching POIs:', error)
       return []
     }
   }
+
+  // Fallback method for manual filtering
+  async getPOIsManualFilter(lastProcessedId: string | null = null, limit = 50): Promise<POI[]> {
+    try {
+      const batchSize = limit * 10 // Get 10x more to account for heavy filtering
+      let attempts = 0
+      const maxAttempts = 20 // Increase attempts
+      let currentId = lastProcessedId
+      
+      while (attempts < maxAttempts) {
+        let query = this.supabase
+          .schema('core')
+          .from('attractions')
+          .select(`
+            id,
+            name,
+            city,
+            state,
+            country,
+            category,
+            formatted_address,
+            osm_tags
+          `)
+          .eq('country', 'BR')
+          .order('id', { ascending: true })
+          .limit(batchSize)
+        
+        if (currentId) {
+          query = query.gt('id', currentId)
+        }
+        
+        const { data: attractions, error: error1 } = await query
+        
+        if (error1) {
+          console.error('Failed to fetch attractions:', error1)
+          throw error1
+        }
+        
+        if (!attractions || attractions.length === 0) {
+          console.log('📊 No more POIs found in database')
+          return []
+        }
+        
+        // Check which ones are already processed
+        const attractionIds = attractions.map(a => a.id)
+        const { data: processedValidations, error: error2 } = await this.supabase
+          .schema('core')
+          .from('poi_name_validations')
+          .select('attraction_id')
+          .in('attraction_id', attractionIds)
+        
+        if (error2) {
+          console.error('Failed to check processed validations:', error2)
+        }
+        
+        // Filter out already processed POIs
+        const processedSet = new Set(processedValidations?.map(v => v.attraction_id) || [])
+        const unprocessedAttractions = attractions.filter(a => !processedSet.has(a.id))
+        
+        console.log(`📊 Batch ${attempts + 1}: Found ${unprocessedAttractions.length} unprocessed POIs (filtered ${attractions.length - unprocessedAttractions.length} already processed)`)
+        
+        if (unprocessedAttractions.length > 0) {
+          const result = unprocessedAttractions.slice(0, limit)
+          console.log(`✅ Returning ${result.length} unprocessed POIs`)
+          
+          return result.map((poi: any) => ({
+            id: poi.id,
+            name: poi.name,
+            city: poi.city,
+            state: poi.state,
+            country: poi.country,
+            category: poi.category,
+            formatted_address: poi.formatted_address,
+            osm_tags: poi.osm_tags,
+            coordinates: { lat: 0, lng: 0 } // Will be filled later
+          }))
+        }
+        
+        // Move to next batch
+        currentId = attractions[attractions.length - 1].id
+        attempts++
+        console.log(`🔄 Moving to next batch, starting from ID: ${currentId}`)
+      }
+      
+      console.log(`❌ No unprocessed POIs found after ${maxAttempts} attempts`)
+      return []
+    } catch (error) {
+      console.error('Database error in manual filter:', error)
+      return []
+    }
+  }
   
   async getTotalPOICount(): Promise<number> {
     try {
-      const { count, error } = await this.supabase
+      // Get total Brazilian POIs
+      const { count: totalBR, error: totalError } = await this.supabase
         .schema('core')
         .from('attractions')
         .select('*', { count: 'exact', head: true })
         .eq('country', 'BR')
       
-      if (error) {
-        console.error('Failed to get POI count:', error)
+      if (totalError) {
+        console.error('Failed to get total POI count:', totalError)
         return 0
       }
       
-      return count || 0
+      // Get processed count
+      const { count: processedCount, error: processedError } = await this.supabase
+        .schema('core')
+        .from('poi_name_validations')
+        .select('*', { count: 'exact', head: true })
+      
+      if (processedError) {
+        console.error('Failed to get processed POI count:', processedError)
+        return totalBR || 0  // Return total if can't get processed count
+      }
+      
+      const remaining = (totalBR || 0) - (processedCount || 0)
+      console.log(`📊 POI Count: ${totalBR} total, ${processedCount} processed, ${remaining} remaining`)
+      
+      return remaining
     } catch (error) {
       console.error('Database error getting POI count:', error)
       return 0
