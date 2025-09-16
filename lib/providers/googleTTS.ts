@@ -22,8 +22,8 @@ export async function generateAudioWithGoogleTTS({ text, voice, speed }: GoogleT
     input: { text },
     voice: {
       languageCode: 'pt-BR',
-      name: voice || 'pt-BR-Wavenet-A',
-      ssmlGender: 'FEMALE',
+      name: voice || 'pt-BR-Neural2-B',
+      ssmlGender: 'MALE',
     },
     audioConfig: {
       audioEncoding: 'MP3',

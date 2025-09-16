@@ -34,33 +34,33 @@ const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
   // Simplified voice mapping with more basic voices
   const voiceMap: Record<string, { male: string; female: string; languageCode: string }> = {
     'en': { 
-      male: 'en-US-Standard-B', 
-      female: 'en-US-Standard-F',
+      male: 'en-US-Neural2-J', 
+      female: 'en-US-Neural2-F',
       languageCode: 'en-US'
     },
     'en-us': { 
-      male: 'en-US-Standard-B', 
-      female: 'en-US-Standard-F',
+      male: 'en-US-Neural2-J', 
+      female: 'en-US-Neural2-F',
       languageCode: 'en-US'
     },
     'es': { 
-      male: 'es-ES-Standard-B', 
-      female: 'es-ES-Standard-A',
+      male: 'es-ES-Neural2-B', 
+      female: 'es-ES-Neural2-A',
       languageCode: 'es-ES'
     },
     'es-es': { 
-      male: 'es-ES-Standard-B', 
-      female: 'es-ES-Standard-A',
+      male: 'es-ES-Neural2-B', 
+      female: 'es-ES-Neural2-A',
       languageCode: 'es-ES'
     },
     'pt': { 
-      male: 'pt-BR-Standard-B', 
-      female: 'pt-BR-Standard-A',
+      male: 'pt-BR-Neural2-B', 
+      female: 'pt-BR-Neural2-A',
       languageCode: 'pt-BR'
     },
     'pt-br': { 
-      male: 'pt-BR-Standard-B', 
-      female: 'pt-BR-Standard-A',
+      male: 'pt-BR-Neural2-B', 
+      female: 'pt-BR-Neural2-A',
       languageCode: 'pt-BR'
     },
   };
@@ -69,10 +69,10 @@ const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
   const voices = voiceMap[normalizedLang];
   
   if (!voices) {
-    // Fallback to English Standard voices
+    // Fallback to English Neural voices
     console.log(`[Voice Config] Language ${language} not found, using English fallback`);
     return {
-      name: gender === 'male' ? 'en-US-Standard-B' : 'en-US-Standard-F',
+      name: gender === 'male' ? 'en-US-Neural2-J' : 'en-US-Neural2-F',
       languageCode: 'en-US'
     };
   }

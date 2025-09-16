@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
       formatted_address,
       vicinity,
       google_types,
+      category, // POI category for additional context
       rating,
       user_ratings_total,
       use_dynamic_sources = true, // New flag to enable dynamic sources
@@ -64,6 +65,7 @@ export async function POST(request: NextRequest) {
       lat: providedLat,
       lng: providedLng,
       reference_links,
+      osm_tags, // OpenStreetMap tags for additional context
       description_id, // ID da descrição para persistir verificação
       persist_verification = false, // Flag para persistir resultados da verificação
       auto_generate_audio = false // Flag para gerar áudio automaticamente quando aprovado
@@ -140,7 +142,12 @@ export async function POST(request: NextRequest) {
       existingDescription: existing_description,
       existingTokens,
       optimizationMode: optimization_mode,
-      useDynamicSources: use_dynamic_sources
+      useDynamicSources: use_dynamic_sources,
+      city,
+      state,
+      country,
+      osmTags: osm_tags,
+      category
     })
 
     console.log('📝 Sending optimized prompt to Gemini API')
@@ -312,35 +319,35 @@ export async function POST(request: NextRequest) {
     if (!verificationResult.aprovada && verificationResult.pontuacao < 50 && verificationResult.sugestoes_melhoria) {
       console.log('⚠️ Descrição não aprovada. Tentando aplicar melhorias...')
       
-      // Prompt para melhorar a descrição com base no feedback, considerando limite de 25 segundos
+      // Prompt to improve the description based on feedback, considering 25-second limit
       const improvementPrompt = `
-Você é um especialista em melhorar descrições turísticas CURTAS para áudio de 25 segundos. A descrição abaixo para "${name}" precisa de ajustes:
+You are an expert in improving SHORT tourist descriptions for 25-second audio. The description below for "${name}" needs adjustments:
 
-DESCRIÇÃO ORIGINAL:
+ORIGINAL DESCRIPTION:
 """
 ${finalDescription}
 """
 
-PROBLEMAS IDENTIFICADOS:
-${verificationResult.problemas?.join('\n') || 'Qualidade insuficiente'}
+IDENTIFIED PROBLEMS:
+${verificationResult.problemas?.join('\n') || 'Insufficient quality'}
 
-SUGESTÃO DE MELHORIA:
+IMPROVEMENT SUGGESTION:
 ${verificationResult.sugestoes_melhoria}
 
-IMPORTANTE - LIMITE DE 25 SEGUNDOS:
-- Máximo 300-350 caracteres (aproximadamente 50-60 palavras)
-- Priorize 1-2 fatos verificáveis mais importantes
-- Mantenha qualquer data ou período histórico presente na original
-- Seja conciso, mas mantenha tom amigável
+IMPORTANT - 25 SECOND LIMIT:
+- Maximum 300-350 characters (approximately 50-60 words)
+- Prioritize 1-2 most important verifiable facts
+- Keep any date or historical period present in the original
+- Be concise, but maintain friendly tone
 
-MELHORE A DESCRIÇÃO MANTENDO:
-1. Pelo menos um fato verificável (mesmo que genérico)
-2. Estilo de guia turístico minimamente amigável
-3. Frases curtas e fluidas para TTS
-4. Português brasileiro correto
-5. Dentro do limite de 25 segundos de áudio
+IMPROVE THE DESCRIPTION MAINTAINING:
+1. At least one verifiable fact (even if generic)
+2. Minimally friendly tourist guide style
+3. Short and fluid sentences for TTS
+4. Correct Brazilian Portuguese
+5. Within the 25-second audio limit
 
-RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentários adicionais.
+RESPONSE: Only the improved description in Brazilian Portuguese, without additional comments.
 `
       
       try {
@@ -503,7 +510,7 @@ RESPOSTA: Apenas a descrição melhorada em português brasileiro, sem comentár
                 // Step 1: Generate audio using Google TTS
                 const audioResult = await generateAudioWithGoogleTTS({
                   text: description,
-                  voice: 'pt-BR-Wavenet-A',
+                  voice: 'pt-BR-Neural2-B', // Male voice
                   speed: 1.2
                 })
 
@@ -1110,10 +1117,13 @@ function buildGoogleDataSection({ google_types, rating, user_ratings_total, pric
  */
 function createOptimizedPrompt({ 
   name, locationDetails, sourcesSection, googleData, 
-  existingDescription, existingTokens, optimizationMode = true 
+  existingDescription, existingTokens, optimizationMode = true,
+  city, state, country, osmTags, category
 }: any) {
   const hasTokens = existingTokens && existingTokens.length > 0
   const hasExisting = existingDescription && existingDescription.trim()
+  const hasOsmTags = osmTags && Object.keys(osmTags).length > 0
+  const hasCategory = category && category.trim()
 
   return `You are an expert travel guide writer. Produce a concise, factual description in Brazilian Portuguese.
 
@@ -1135,6 +1145,14 @@ TONE & ENGAGEMENT (GUIDE STYLE):
 - Vivid but neutral language; avoid hype; evoke imagery without exaggeration.
 - Warm tone while strictly factual.
 
+LOCATION CONTEXT:
+- This attraction is located in ${city}${state ? `, ${state}` : ''}, ${country}
+- Use this location context to provide relevant local information when available
+- Consider regional characteristics and cultural context of ${country}
+
+ATTRACTION TYPE CONTEXT:
+${hasCategory ? `- Category: ${category} (use this to understand the type of attraction and provide appropriate context)` : ''}
+
 SOURCES:
 ${sourcesSection}
 
@@ -1151,6 +1169,8 @@ ATTRACTION DATA:
 - Name: ${name}
 - Location: ${locationDetails}
 - Google: ${googleData}
+${hasCategory ? `- Category: ${category}` : ''}
+${hasOsmTags ? `- OSM Tags: ${JSON.stringify(osmTags, null, 2)}` : ''}
 
 ${hasTokens ? `TOKENS:\n${existingTokens.map((t: any) => `- ${t.token} (${t.weight})`).join('\n')}` : ''}
 ${hasExisting ? `EXISTING (for improvement):\n${existingDescription}` : ''}
@@ -1165,42 +1185,42 @@ async function verifyGeneratedDescription(description: string, name: string, api
   console.log('🔍 Verificando qualidade da descrição gerada (critérios brandos)...')
   
   const verificationPrompt = `
-Você é um verificador especializado em qualidade de descrições turísticas curtas (áudio de 25 segundos). Analise a descrição abaixo para o ponto turístico "${name}" e avalie com critérios brandos:
+You are a specialized verifier for short tourist description quality (25-second audio). Analyze the description below for the attraction "${name}" and evaluate with lenient criteria:
 
-DESCRIÇÃO A SER VERIFICADA:
+DESCRIPTION TO BE VERIFIED:
 """
 ${description}
 """
 
-CONTEXTO IMPORTANTE:
-- Esta é uma descrição CURTA para áudio de 25 segundos (máximo 300-350 caracteres)
-- Nem todos os lugares têm informações detalhadas disponíveis
-- O objetivo é fornecer pelo menos 1-2 fatos interessantes, não uma descrição completa
-- Algumas atrações podem ter informações limitadas ou genéricas
+IMPORTANT CONTEXT:
+- This is a SHORT description for 25-second audio (maximum 300-350 characters)
+- Not all places have detailed information available
+- The goal is to provide at least 1-2 interesting facts, not a complete description
+- Some attractions may have limited or generic information
 
-CRITÉRIOS DE VERIFICAÇÃO (BRANDOS):
-1. PRESENÇA DE DATAS: A descrição contém pelo menos uma data OU período histórico? (Não é obrigatório, mas desejável)
-2. FATOS VERIFICÁVEIS: Há pelo menos 1 fato que parece verificável? (Mesmo que genérico)
-3. ESTILO DE GUIA: A descrição tem tom minimamente amigável?
-4. PROIBIÇÕES: Contém endereços, horários, preços ou direções específicas? (Único critério rígido)
-5. ADEQUAÇÃO PARA ÁUDIO: As frases são adequadas para TTS?
-6. PORTUGUÊS BRASILEIRO: O texto está em português brasileiro correto?
+VERIFICATION CRITERIA (LENIENT):
+1. DATE PRESENCE: Does the description contain at least one date OR historical period? (Not mandatory, but desirable)
+2. VERIFIABLE FACTS: Is there at least 1 fact that seems verifiable? (Even if generic)
+3. GUIDE STYLE: Does the description have a minimally friendly tone?
+4. PROHIBITIONS: Does it contain addresses, hours, prices or specific directions? (Only rigid criterion)
+5. AUDIO SUITABILITY: Are the sentences suitable for TTS?
+6. BRAZILIAN PORTUGUESE: Is the text in correct Brazilian Portuguese?
 
-PONTUAÇÃO BRANDA (SEJA VARIADO):
-- Aprove a descrição se tiver pelo menos 1 fato e estiver em português correto
-- Pontuação mínima de 60 se tiver pelo menos um fato verificável
-- Use pontuações variadas: 65, 70, 75, 80, 85, 90, 95 baseado na qualidade real
-- Seja generoso na avaliação, considerando o limite de 25 segundos
-- NÃO use sempre a mesma pontuação - varie baseado na qualidade específica
+LENIENT SCORING (BE VARIED):
+- Approve the description if it has at least 1 fact and is in correct Portuguese
+- Minimum score of 60 if it has at least one verifiable fact
+- Use varied scores: 65, 70, 75, 80, 85, 90, 95 based on real quality
+- Be generous in evaluation, considering the 25-second limit
+- DON'T always use the same score - vary based on specific quality
 
-RESPONDA EM JSON:
+RESPOND IN JSON:
 {
   "aprovada": true/false,
   "pontuacao": 0-100,
-  "datas_detectadas": ["lista", "de", "datas"],
-  "fatos_verificaveis": ["fato 1", "fato 2"],
-  "problemas": ["problema 1", "problema 2"],
-  "sugestoes_melhoria": "sugestão concisa e realista para o limite de 25 segundos"
+  "datas_detectadas": ["list", "of", "dates"],
+  "fatos_verificaveis": ["fact 1", "fact 2"],
+  "problemas": ["problem 1", "problem 2"],
+  "sugestoes_melhoria": "concise and realistic suggestion for the 25-second limit"
 }
 `
 

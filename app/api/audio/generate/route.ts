@@ -39,16 +39,16 @@ function preprocessTextForTTS(text: string): string {
 
 // Voice selection based on content characteristics
 function selectOptimalVoice(text: string): string {
-  // For cultural/historical content, use warm, professional voices
+  // For cultural/historical content, use warm, professional male voices
   const isFormal = text.includes('história') || text.includes('cultural') || text.includes('patrimônio')
   const isMuseum = text.includes('museu') || text.includes('exposição') || text.includes('coleção')
   
   if (isFormal || isMuseum) {
-    return 'nova' // Professional, clear female voice
+    return 'onyx' // Professional, clear male voice
   } else if (text.includes('parque') || text.includes('natureza')) {
-    return 'alloy' // Warm, friendly voice for nature content
+    return 'alloy' // Warm, friendly male voice for nature content
   } else {
-    return 'nova' // Default professional voice
+    return 'onyx' // Default professional male voice
   }
 }
 
