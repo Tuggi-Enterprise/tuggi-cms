@@ -154,7 +154,11 @@ export async function POST(request: NextRequest) {
     console.log('🔍 Prompt preview:', prompt.substring(0, 500) + '...')
 
     // Call Gemini API with optimized configuration
-    const response = await callGeminiAPI(prompt, apiKey)
+    const result = await callGeminiAPI(prompt, apiKey, optimization_mode)
+    const response = result.response
+    const model = result.model
+    
+    console.log(`🎯 Model used for generation: ${model}`)
 
     if (!response.ok) {
       const errorData = await response.json()
@@ -352,7 +356,8 @@ RESPONSE: Only the improved description in Brazilian Portuguese, without additio
       
       try {
         // Tentar melhorar a descrição
-        const improvementResponse = await callGeminiAPI(improvementPrompt, apiKey)
+        const improvementResult = await callGeminiAPI(improvementPrompt, apiKey)
+        const improvementResponse = improvementResult.response
         
         if (improvementResponse.ok) {
           const improvementData = await improvementResponse.json()
@@ -724,6 +729,12 @@ RESPONSE: Only the improved description in Brazilian Portuguese, without additio
         improvement_suggestion: verificationResult.sugestoes_melhoria || '',
         improvement_applied: improvementApplied
       },
+      // Incluir informações sobre o modelo usado
+      model_info: {
+        used_model: model,
+        quality_mode: optimization_mode,
+        generation_config: optimization_mode ? 'high_quality' : 'standard'
+      },
       // Incluir informações sobre geração de áudio
       audio_generation: {
         auto_generated: auto_generate_audio && verificationResult.aprovada && verificationResult.pontuacao >= 75,
@@ -808,6 +819,31 @@ async function getLayeredSources(city: string, country: string, useDynamicSource
     }
 
     let sources = layeredSources || []
+
+    // Always try to fetch city-specific sources first (HIGH PRIORITY)
+    console.log('🏛️ Fetching city-specific verification sources...')
+    const { data: citySources, error: cityError } = await supabaseAdmin
+      .schema('core')
+      .from('city_verification_sources')
+      .select(`
+        source_name,
+        source_type,
+        base_url,
+        search_endpoint,
+        priority,
+        'city' as layer
+      `)
+      .eq('city_name', city)
+      .eq('country_code', countryCode)
+      .eq('is_active', true)
+      .order('priority', { ascending: true })
+      .limit(6)
+
+    if (citySources && citySources.length > 0) {
+      console.log(`✅ Found ${citySources.length} city-specific sources for ${city}`)
+      // Prepend city sources to give them highest priority
+      sources = [...citySources, ...sources]
+    }
 
     // If layered sources are empty or limited, try individual country sources
     if (!sources.length || sources.length < 3) {
@@ -1125,48 +1161,45 @@ function createOptimizedPrompt({
   const hasOsmTags = osmTags && Object.keys(osmTags).length > 0
   const hasCategory = category && category.trim()
 
-  return `You are an expert travel guide writer. Produce a concise, factual description in Brazilian Portuguese.
+  return `You are a knowledgeable local tour guide speaking directly to a tourist. Write one engaging, educational description
 
-CRITICAL RULES (COMPACT):
-- Facts must be verifiable by the sources below. If unsure, OMIT.
-- SOURCE PRIORITY ORDER:
-  1. Official website (if available)
-  2. User-provided references
-  3. City/municipal sources
-  4. National sources
-- PRIORITIZE DATES: construction/inauguration/foundation; include restoration if documented.
-- Prefer short sentences for TTS. No lists.
-- FORBIDDEN: addresses, directions, hours, prices, contacts, superlatives, speculation.
+POLICY (COMPACT):
+- Use only facts present in SOURCES. If unsure, omit.
+- Do not invent or infer relationships/events.
+- Forbidden: addresses, directions, hours, prices, superlatives, speculation.
+- Style: conversational, educational, TTS-friendly sentences.
+- Dates: prefer a verified year; otherwise century/decade.
+- Voice: friendly local expert sharing interesting stories with visitors.
 
-TONE & ENGAGEMENT (GUIDE STYLE):
-- Friendly, inviting tour‑guide voice.
-- Spark curiosity with ONE delightful, verifiable detail or cultural curiosity (only if documented).
-- Include interesting local facts from city sources when available.
-- Vivid but neutral language; avoid hype; evoke imagery without exaggeration.
-- Warm tone while strictly factual.
+SOURCE PRIORITY (STRICT):
+1) INTERNAL (tokens, previous verified text, stored claims)
+2) Official website
+3) City sources (heritage/government/academic/local media)
+4) National sources
+5) User links
+Conflict → prefer INTERNAL.
 
-LOCATION CONTEXT:
-- This attraction is located in ${city}${state ? `, ${state}` : ''}, ${country}
-- Use this location context to provide relevant local information when available
-- Consider regional characteristics and cultural context of ${country}
+LOCATION & DISAMBIGUATION:
+- Validate this POI exists in ${city}${state ? `, ${state}` : ''}, ${country}.
+- Use city sources and nearby landmarks/districts to confirm.
+- Mention people only if their link to THIS POI at THIS LOCATION is explicit.
+- Verify exact full name and historical period; avoid similarly named individuals.
 
-ATTRACTION TYPE CONTEXT:
-${hasCategory ? `- Category: ${category} (use this to understand the type of attraction and provide appropriate context)` : ''}
+TASK (≤150 words):
+- Start with Name + primary verified date (if any).
+- Explain WHY this place matters (historical/cultural significance).
+- Share 1–2 interesting facts that help tourists understand the context.
+- Use conversational tone: "Aqui você encontra...", "Este local representa...", "Uma curiosidade interessante..."
+- End with what makes this place special or worth visiting.
+
+EXAMPLES OF GOOD TOURIST GUIDE STYLE:
+- "Memorial ao Bispo Dom Nery, inaugurado em 2022, homenageia Dom João Batista Corrêa Nery, primeiro bispo de Campinas. Este importante líder religioso foi fundamental na criação da Arquidiocese de Campinas em 1908. Uma curiosidade interessante: Dom Nery nasceu na própria Campinas, tornando-se um símbolo local da fé católica. O memorial preserva sua história e legado, oferecendo aos visitantes uma conexão com as raízes religiosas da cidade."
+- "Aqui você descobre a história de quem moldou a identidade religiosa de Campinas."
 
 SOURCES:
 ${sourcesSection}
 
-TASK (<=150 words):
-- Start with: Name + primary verifiable DATE (year preferred; century/decade if no year).
-- Then 1–2 verified facts (architect/style/events) if documented; keep it engaging.
-- Optionally current function/significance if officially recorded.
-
-DATE POLICY:
-- Include a year only if confirmed. Otherwise use century/decade.
-- Never use "aproximadamente", "cerca de", "provavelmente".
-
-ATTRACTION DATA:
-- Name: ${name}
+CONTEXT:
 - Location: ${locationDetails}
 - Google: ${googleData}
 ${hasCategory ? `- Category: ${category}` : ''}
@@ -1175,7 +1208,7 @@ ${hasOsmTags ? `- OSM Tags: ${JSON.stringify(osmTags, null, 2)}` : ''}
 ${hasTokens ? `TOKENS:\n${existingTokens.map((t: any) => `- ${t.token} (${t.weight})`).join('\n')}` : ''}
 ${hasExisting ? `EXISTING (for improvement):\n${existingDescription}` : ''}
 
-OUTPUT: Only the final Portuguese text.`
+OUTPUT: only the final Portuguese text.`
 }
 
 /**
@@ -1296,15 +1329,22 @@ RESPOND IN JSON:
 /**
  * Call Gemini API with optimized configuration
  */
-async function callGeminiAPI(prompt: string, apiKey: string) {
-  const endpoints = [
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
-  ]
+async function callGeminiAPI(prompt: string, apiKey: string, qualityMode: boolean = false): Promise<{ response: Response; model: string }> {
+  // Strategy: Use 1.5 Pro for description generation, 1.5 Flash as fallback for quality assurance
+  const endpoints = qualityMode 
+    ? [
+        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`, model: 'gemini-1.5-pro' },
+        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, model: 'gemini-1.5-flash' }
+      ]
+    : [
+        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`, model: 'gemini-1.5-pro' },
+        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, model: 'gemini-1.5-flash' }
+      ]
 
   for (const endpoint of endpoints) {
     try {
-      const response = await fetch(endpoint, {
+      console.log(`🤖 Trying model: ${endpoint.model}`)
+      const response = await fetch(endpoint.url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1315,8 +1355,15 @@ async function callGeminiAPI(prompt: string, apiKey: string) {
               text: prompt
             }]
           }],
-          generationConfig: {
-            temperature: 0.1,        // Low temperature for factual accuracy
+          generationConfig: qualityMode ? {
+            temperature: 0.0,        // Maximum factual accuracy for 1.5 Pro
+            topK: 1,                 // Most focused selection
+            topP: 0.5,              // Conservative creativity
+            maxOutputTokens: 500,   // More room for thorough analysis
+            candidateCount: 2,      // Generate multiple candidates
+            stopSequences: ["---", "NOTE:", "ADDITIONAL:"]
+          } : {
+            temperature: 0.1,        // Low temperature for factual accuracy (1.5 Pro optimized)
             topK: 20,               // Focused token selection
             topP: 0.8,              // Balanced creativity/accuracy
             maxOutputTokens: 400,   // Sufficient for 150 words + buffer
@@ -1326,17 +1373,19 @@ async function callGeminiAPI(prompt: string, apiKey: string) {
       })
 
       if (response.ok) {
-        return response
+        console.log(`✅ Successfully used model: ${endpoint.model}`)
+        return { response, model: endpoint.model }
       }
 
-      console.warn(`Failed with endpoint ${endpoint}:`, response.status)
+      console.warn(`Failed with model ${endpoint.model}:`, response.status)
     } catch (error) {
-      console.warn(`Error with endpoint ${endpoint}:`, error)
+      console.warn(`Error with model ${endpoint.model}:`, error)
     }
   }
 
-  // Return the last attempt for error handling
-  return fetch(endpoints[0], {
+  // Return the last attempt for error handling (1.5 Flash as final fallback)
+  console.log(`⚠️ All models failed, using fallback: ${endpoints[0].model}`)
+  const fallbackResponse = await fetch(endpoints[0].url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1344,6 +1393,7 @@ async function callGeminiAPI(prompt: string, apiKey: string) {
       generationConfig: { temperature: 0.1, maxOutputTokens: 400 }
     })
   })
+  return { response: fallbackResponse, model: endpoints[0].model }
 }
 
 /**
