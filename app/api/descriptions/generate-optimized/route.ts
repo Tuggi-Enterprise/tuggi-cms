@@ -139,7 +139,6 @@ export async function POST(request: NextRequest) {
       locationDetails,
       sourcesSection,
       googleData,
-      existingDescription: existing_description,
       existingTokens,
       optimizationMode: optimization_mode,
       useDynamicSources: use_dynamic_sources,
@@ -1153,62 +1152,58 @@ function buildGoogleDataSection({ google_types, rating, user_ratings_total, pric
  */
 function createOptimizedPrompt({ 
   name, locationDetails, sourcesSection, googleData, 
-  existingDescription, existingTokens, optimizationMode = true,
+  existingTokens, optimizationMode = true,
   city, state, country, osmTags, category
 }: any) {
   const hasTokens = existingTokens && existingTokens.length > 0
-  const hasExisting = existingDescription && existingDescription.trim()
   const hasOsmTags = osmTags && Object.keys(osmTags).length > 0
   const hasCategory = category && category.trim()
 
-  return `You are a knowledgeable local tour guide speaking directly to a tourist. Write one engaging, educational description
+  return `You are a local tour guide creating 25-second descriptions for the Tuggi app.
 
-POLICY (COMPACT):
-- Use only facts present in SOURCES. If unsure, omit.
-- Do not invent or infer relationships/events.
-- Forbidden: addresses, directions, hours, prices, superlatives, speculation.
-- Style: conversational, educational, TTS-friendly sentences.
-- Dates: prefer a verified year; otherwise century/decade.
-- Voice: friendly local expert sharing interesting stories with visitors.
+CRITICAL RULES:
+• Use ONLY facts from SOURCES below. If unsure, write less.
+• NEVER invent information about "${name}".
+• CONFIRM you're describing "${name}" in ${city}, ${country}.
+• Forbidden: addresses, hours, prices, directions, speculation.
 
-SOURCE PRIORITY (STRICT):
-1) INTERNAL (tokens, previous verified text, stored claims)
-2) Official website
-3) City sources (heritage/government/academic/local media)
-4) National sources
-5) User links
-Conflict → prefer INTERNAL.
+TASK (max 150 words):
+1. Start smoothly as continuation of directional audio ("à sua direita", "à sua esquerda", "logo à frente")
+2. Begin with POI name + main date (if verified in sources)
+3. WHY it matters (historical/cultural significance)
+4. 1-2 interesting facts (only if in sources)
 
-LOCATION & DISAMBIGUATION:
-- Validate this POI exists in ${city}${state ? `, ${state}` : ''}, ${country}.
-- Use city sources and nearby landmarks/districts to confirm.
-- Mention people only if their link to THIS POI at THIS LOCATION is explicit.
-- Verify exact full name and historical period; avoid similarly named individuals.
+AUDIO FLOW CONTEXT:
+• User will first hear: "À sua direita" OR "À sua esquerda" OR "Logo à frente", but do not include this in your description
+• Your description plays IMMEDIATELY after
+• Start with smooth continuation like: "[Nome do local], [descrição...]"
+• Avoid repetitive phrases like "Aqui você encontra" - flow naturally from direction
 
-TASK (≤150 words):
-- Start with Name + primary verified date (if any).
-- Explain WHY this place matters (historical/cultural significance).
-- Share 1–2 interesting facts that help tourists understand the context.
-- Use conversational tone: "Aqui você encontra...", "Este local representa...", "Uma curiosidade interessante..."
-- End with what makes this place special or worth visiting.
+SOURCE PRIORITY:
+1st Internal verified tokens
+2nd Official website
+3rd City sources
+4th National sources
 
-EXAMPLES OF GOOD TOURIST GUIDE STYLE:
-- "Memorial ao Bispo Dom Nery, inaugurado em 2022, homenageia Dom João Batista Corrêa Nery, primeiro bispo de Campinas. Este importante líder religioso foi fundamental na criação da Arquidiocese de Campinas em 1908. Uma curiosidade interessante: Dom Nery nasceu na própria Campinas, tornando-se um símbolo local da fé católica. O memorial preserva sua história e legado, oferecendo aos visitantes uma conexão com as raízes religiosas da cidade."
-- "Aqui você descobre a história de quem moldou a identidade religiosa de Campinas."
-
-SOURCES:
+${hasTokens ? `VERIFIED TOKENS:\n${existingTokens.map((t: any) => `• ${t.token} (weight: ${t.weight})`).join('\n')}\n` : ''}
+EXTERNAL SOURCES:
 ${sourcesSection}
 
-CONTEXT:
-- Location: ${locationDetails}
-- Google: ${googleData}
-${hasCategory ? `- Category: ${category}` : ''}
-${hasOsmTags ? `- OSM Tags: ${JSON.stringify(osmTags, null, 2)}` : ''}
+DATA:
+• Location: ${locationDetails}
+• Google: ${googleData}
+${hasCategory ? `• Category: ${category}` : ''}
 
-${hasTokens ? `TOKENS:\n${existingTokens.map((t: any) => `- ${t.token} (${t.weight})`).join('\n')}` : ''}
-${hasExisting ? `EXISTING (for improvement):\n${existingDescription}` : ''}
+IMPORTANT: If sources don't confirm specific information about "${name}", keep description generic but factual.
 
-OUTPUT: only the final Portuguese text.`
+AUDIO FLOW EXAMPLES:
+• Direction: "À sua direita" → Description: "Memorial ao Bispo Dom Nery, inaugurado em 2022..."
+• Direction: "À sua esquerda" → Description: "Igreja São Benedito, construída no século XIX..."
+• Direction: "Logo à frente" → Description: "Museu da Cidade, que preserva a história local..."
+
+Notice: NO "Aqui você encontra" or similar - just direct continuation from direction to POI name.
+
+OUTPUT: Only the final text in Brazilian Portuguese.`
 }
 
 /**
