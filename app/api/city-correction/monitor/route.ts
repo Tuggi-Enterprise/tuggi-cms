@@ -150,8 +150,8 @@ async function monitorSystem() {
       .select('progress_key')
       .in('progress_data->status', ['processing', 'retrying', 'needs_retry'])
 
-    if ((unprocessedPOIs || 0) > 0 && (!activeJobs || activeJobs.length === 0)) {
-      console.log(`🚨 Found ${unprocessedPOIs} unprocessed POIs with no active jobs!`)
+    if ((unprocessedPOIs?.length || 0) > 0 && (!activeJobs || activeJobs.length === 0)) {
+      console.log(`🚨 Found ${unprocessedPOIs?.length} unprocessed POIs with no active jobs!`)
       console.log(`💡 Consider starting a new job to process remaining POIs.`)
     }
 

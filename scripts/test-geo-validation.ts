@@ -100,3 +100,4 @@ async function testGeographicValidation() {
 
 // Run the test
 testGeographicValidation().catch(console.error);
+

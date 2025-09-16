@@ -10,6 +10,7 @@ interface POI {
   id: string;
   name: string;
   city: string;
+  state?: string;
   country: string;
   descriptions: Array<{
     id: string;
@@ -34,6 +35,8 @@ export default function ImprovePage() {
   // Form state
   const [language, setLanguage] = useState('pt-br');
   const [country, setCountry] = useState('Brazil');
+  const [state, setState] = useState('');
+  const [city, setCity] = useState('');
   const [status, setStatus] = useState('rejected');
   const [scoreRange, setScoreRange] = useState([0, 60]);
   const [limit, setLimit] = useState(50);
@@ -47,6 +50,8 @@ export default function ImprovePage() {
   const [processedCount, setProcessedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [countries, setCountries] = useState<Array<{name: string}>>([]);
+  const [states, setStates] = useState<Array<{value: string, label: string}>>([]);
+  const [cities, setCities] = useState<Array<{value: string, label: string}>>([]);
 
   // Fetch countries from database
   const fetchCountries = async () => {
@@ -90,10 +95,80 @@ export default function ImprovePage() {
     }
   }, [country]);
 
+  // Fetch states for selected country
+  const fetchStates = async (countryName: string) => {
+    if (!countryName) {
+      setStates([]);
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/states?country=${encodeURIComponent(countryName)}`);
+      const result = await response.json();
+      
+      if (result.success) {
+        setStates(result.data || []);
+      } else {
+        console.error('Failed to load states:', result.error);
+        setStates([]);
+      }
+    } catch (error) {
+      console.error('Error loading states:', error);
+      setStates([]);
+    }
+  };
+
+  // Fetch cities for selected country and state
+  const fetchCities = async (countryName: string, stateName?: string) => {
+    if (!countryName) {
+      setCities([]);
+      return;
+    }
+
+    try {
+      let url = `/api/pois/cities?country=${encodeURIComponent(countryName)}`;
+      if (stateName) {
+        url += `&state=${encodeURIComponent(stateName)}`;
+      }
+      
+      const response = await fetch(url);
+      const result = await response.json();
+      
+      if (result.success) {
+        setCities(result.data || []);
+      } else {
+        console.error('Failed to load cities:', result.error);
+        setCities([]);
+      }
+    } catch (error) {
+      console.error('Error loading cities:', error);
+      setCities([]);
+    }
+  };
+
   // Load countries on component mount
   useEffect(() => {
     loadCountries();
   }, [loadCountries]);
+
+  // Load states when country changes
+  useEffect(() => {
+    if (country) {
+      fetchStates(country);
+      setState(''); // Reset state when country changes
+      setCity(''); // Reset city when country changes
+    }
+  }, [country]);
+
+  // Load cities when country or state changes
+  useEffect(() => {
+    if (country) {
+      fetchCities(country, state);
+      if (state) {
+        setCity(''); // Reset city when state changes
+      }
+    }
+  }, [country, state]);
 
   // Fetch POIs based on criteria
   const fetchPois = async () => {
@@ -105,14 +180,16 @@ export default function ImprovePage() {
 
       if (status === 'no_description') {
         // Use RPC function to find POIs without description
-        console.log(`🔍 Using RPC function to find POIs without ${language} description in ${country}`);
+        console.log(`🔍 Using RPC function to find POIs without ${language} description in ${country}${state ? `, state: ${state}` : ''}${city ? `, city: ${city}` : ''}`);
         
         const { data: rpcData, error: rpcError } = await supabase
           .schema('core')
           .rpc('get_pois_without_description', {
             p_country: country,
             p_language: language,
-            p_limit: limit
+            p_limit: limit,
+            p_state: state || null,
+            p_city: city || null
           });
 
         if (rpcError) {
@@ -125,7 +202,7 @@ export default function ImprovePage() {
 
       } else {
         // Use normal query for other statuses
-        console.log(`🔍 Querying POIs with status: ${status}, country: ${country}, language: ${language}`);
+        console.log(`🔍 Querying POIs with status: ${status}, country: ${country}${state ? `, state: ${state}` : ''}${city ? `, city: ${city}` : ''}, language: ${language}`);
         
         let query = supabase
           .schema('core')
@@ -134,6 +211,7 @@ export default function ImprovePage() {
             id,
             name,
             city,
+            state,
             country,
             approved,
             descriptions:attraction_descriptions!left(
@@ -146,6 +224,16 @@ export default function ImprovePage() {
           `)
           .eq('country', country)
           .limit(limit);
+
+        // Add state filter if provided
+        if (state) {
+          query = query.eq('state', state);
+        }
+
+        // Add city filter if provided
+        if (city) {
+          query = query.eq('city', city);
+        }
 
         // Only filter by approved status if not including approved POIs
         if (!includeApproved) {
@@ -357,6 +445,46 @@ export default function ImprovePage() {
                 {countries.map((c) => (
                   <option key={c.name} value={c.name}>
                     {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="state" className="block text-sm font-medium text-gray-700">
+                State
+              </label>
+              <select
+                id="state"
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                disabled={isLoading || !country}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
+              >
+                <option value="">All states</option>
+                {states.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="city" className="block text-sm font-medium text-gray-700">
+                City
+              </label>
+              <select
+                id="city"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                disabled={isLoading || !country}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-tuggi-blue focus:border-tuggi-blue"
+              >
+                <option value="">All cities</option>
+                {cities.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
                   </option>
                 ))}
               </select>
@@ -590,7 +718,9 @@ export default function ImprovePage() {
                     
                     <div className="flex-1 min-w-0">
                       <h3 className="font-medium text-gray-900 truncate">{poi.name}</h3>
-                      <p className="text-sm text-gray-500">{poi.city}, {poi.country}</p>
+                      <p className="text-sm text-gray-500">
+                        {poi.city}{poi.state ? `, ${poi.state}` : ''}, {poi.country}
+                      </p>
                       {ptBrDescription ? (
                         <p className="text-xs text-gray-400 mt-1 truncate">
                           {ptBrDescription.description.substring(0, 100)}...

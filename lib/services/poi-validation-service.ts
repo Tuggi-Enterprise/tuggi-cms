@@ -451,7 +451,7 @@ Respond in JSON:
       console.log(`✅ Found ${unprocessedPOIs.length} unprocessed POIs`)
       
       // Get coordinates for the unprocessed POIs
-      const poiIds = unprocessedPOIs.map(p => p.id)
+      const poiIds = unprocessedPOIs.map((p: any) => p.id)
       const { data: coordinates, error: coordError } = await this.supabase
         .schema('core')
         .from('attraction_coordinate')
@@ -465,7 +465,7 @@ Respond in JSON:
       // Map coordinates to POIs
       const coordsMap = new Map()
       if (coordinates) {
-        coordinates.forEach(coord => {
+        coordinates.forEach((coord: any) => {
           coordsMap.set(coord.attraction_id, {
             lat: coord.latitude,
             lng: coord.longitude
@@ -533,7 +533,7 @@ Respond in JSON:
         }
         
         // Check which ones are already processed
-        const attractionIds = attractions.map(a => a.id)
+        const attractionIds = attractions.map((a: any) => a.id)
         const { data: processedValidations, error: error2 } = await this.supabase
           .schema('core')
           .from('poi_name_validations')
@@ -545,8 +545,8 @@ Respond in JSON:
         }
         
         // Filter out already processed POIs
-        const processedSet = new Set(processedValidations?.map(v => v.attraction_id) || [])
-        const unprocessedAttractions = attractions.filter(a => !processedSet.has(a.id))
+        const processedSet = new Set(processedValidations?.map((v: any) => v.attraction_id) || [])
+        const unprocessedAttractions = attractions.filter((a: any) => !processedSet.has(a.id))
         
         console.log(`📊 Batch ${attempts + 1}: Found ${unprocessedAttractions.length} unprocessed POIs (filtered ${attractions.length - unprocessedAttractions.length} already processed)`)
         
