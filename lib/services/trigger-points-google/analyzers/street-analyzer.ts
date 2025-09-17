@@ -12,7 +12,7 @@ export class StreetAnalyzer {
   }
   
   /**
-   * Encontra ruas acessíveis ao redor do POI
+   * Encontra ruas acessíveis ao redor do POI e retorna junto com metadados do raio
    */
   async findAccessibleStreets(
     poiData: POIData, 
@@ -43,12 +43,93 @@ export class StreetAnalyzer {
       return [];
     }
   }
+
+  /**
+   * Encontra ruas acessíveis ao redor do POI e retorna junto com metadados do raio
+   * Versão que retorna metadados para visualização no frontend
+   */
+  async findAccessibleStreetsWithMetadata(
+    poiData: POIData, 
+    boundary: BoundaryData, 
+    context: GeographicContext
+  ): Promise<{ streets: StreetData[]; searchRadius: number; elevationAnalysis?: any }> {
+    console.log(`🛣️ Finding accessible streets for: ${poiData.name} (with metadata)`);
+    
+    try {
+      const searchRadius = this.calculateIntelligentRadius(boundary, context);
+      const roads = await this.getRoadsAroundBoundary(boundary, searchRadius);
+      
+      // Filtrar ruas acessíveis
+      const accessibleStreets = roads.filter(road => 
+        this.isStreetAccessible(road, context)
+      );
+      
+      // Calcular pontos mais próximos ao boundary
+      const streetPoints = accessibleStreets.map(street => 
+        this.findClosestPointToBoundary(street, boundary)
+      );
+
+      // Coletar dados de elevação para o frontend
+      let elevationAnalysis;
+      if (boundary.elevation) {
+        const baseElevation = this.estimateRegionalBaseElevation(boundary.center, context);
+        elevationAnalysis = {
+          poiElevation: boundary.elevation.center,
+          baseElevation,
+          elevationDiff: boundary.elevation.center - baseElevation,
+          isHighVisibility: (boundary.elevation.center - baseElevation) > 200
+        };
+      }
+      
+      console.log(`✅ Found ${streetPoints.length} accessible street points (radius: ${searchRadius}m)`);
+      return { 
+        streets: streetPoints, 
+        searchRadius,
+        elevationAnalysis
+      };
+      
+    } catch (error) {
+      console.error('Error finding accessible streets:', error);
+      return { streets: [], searchRadius: 300 };
+    }
+  }
   
   /**
    * Calcula raio de busca inteligente baseado em elevação, altura e contexto
+   * Implementa a lógica DINÂMICA do sistema legado usando dados reais de elevação
    */
   private calculateIntelligentRadius(boundary: BoundaryData, context: GeographicContext): number {
-    console.log(`🧮 Calculating intelligent search radius...`);
+    console.log(`🧮 Calculating intelligent search radius (LEGACY FORMULA)...`);
+    
+    // 🏔️ STEP 1: Check if this is a high-visibility POI using REAL elevation data (DYNAMIC LOGIC)
+    if (boundary.elevation && boundary.elevation.center > 0) {
+      const poiElevation = boundary.elevation.center;
+      const baseElevation = this.estimateRegionalBaseElevation(boundary.center, context);
+      const elevationDiff = poiElevation - baseElevation;
+      
+      console.log(`📏 DYNAMIC elevation analysis:`);
+      console.log(`  📍 POI elevation: ${poiElevation.toFixed(1)}m (from real data)`);
+      console.log(`  🏞️ Estimated base elevation: ${baseElevation.toFixed(1)}m`);
+      console.log(`  📈 Relative difference: ${elevationDiff.toFixed(1)}m`);
+      
+      // Apply LEGACY FORMULA for high-visibility landmarks (>200m difference)
+      if (elevationDiff > 200) {
+        const theoreticalRange = Math.sqrt(elevationDiff) * 200; // EXACT LEGACY FORMULA
+        const maxRange = Math.min(Math.max(theoreticalRange, 2000), 8000); // Between 2km-8km
+        
+        console.log(`🏔️ HIGH-VISIBILITY LANDMARK DETECTED (dynamic)`);
+        console.log(`  📏 Theoretical range: ${theoreticalRange.toFixed(0)}m`);
+        console.log(`  🎯 DYNAMIC LEGACY range: ${maxRange.toFixed(0)}m`);
+        
+        return Math.round(maxRange);
+      }
+      // Moderate elevation bonus for smaller differences
+      else if (elevationDiff > 50) {
+        const elevationBonus = elevationDiff * 8; // 8m radius per meter of elevation
+        console.log(`⛰️ Moderate elevation bonus: +${elevationBonus.toFixed(0)}m (${elevationDiff.toFixed(1)}m above base)`);
+        // Continue with normal calculation but add elevation bonus later
+      }
+    }
     
     let baseRadius = 300; // Base reduzida (era 500m)
     
@@ -71,25 +152,46 @@ export class StreetAnalyzer {
         break;
     }
     
-    // 2. NOVO: Ajuste por elevação relativa do POI
+    // 2. NOVO: Ajuste por elevação absoluta e relativa do POI
     if (boundary.elevation) {
+      const poiElevation = boundary.elevation.center;
       const elevationDiff = boundary.elevation.center - boundary.elevation.average;
       
+      // Para POIs EXTREMAMENTE altos (>1000m), usar fórmula agressiva para picos/montanhas
+      if (poiElevation > 1000) {
+        const extremeAltitudeBonus = Math.min((poiElevation - 1000) * 10 + 2000, 4000); // 10m raio por metro acima de 1000m + 2000m base, max 4000m
+        baseRadius += extremeAltitudeBonus;
+        console.log(`🗻 EXTREME altitude bonus: ${poiElevation.toFixed(0)}m elevation → +${extremeAltitudeBonus.toFixed(0)}m radius`);
+      }
+      // Para POIs muito altos (>800m), usar elevação absoluta (picos, montanhas)
+      else if (poiElevation > 800) {
+        const highAltitudeBonus = Math.min((poiElevation - 800) * 6 + 1200, 2500); // 6m raio por metro acima de 800m + 1200m base, max 2500m
+        baseRadius += highAltitudeBonus;
+        console.log(`🏔️ High altitude bonus: ${poiElevation.toFixed(0)}m elevation → +${highAltitudeBonus.toFixed(0)}m radius`);
+      }
+      // Para POIs moderadamente altos (>400m), usar elevação absoluta moderada
+      else if (poiElevation > 400) {
+        const moderateAltitudeBonus = Math.min((poiElevation - 400) * 2, 800);
+        baseRadius += moderateAltitudeBonus;
+        console.log(`⛰️ Moderate altitude bonus: ${poiElevation.toFixed(0)}m elevation → +${moderateAltitudeBonus.toFixed(0)}m radius`);
+      }
+      
+      // Ajuste adicional por elevação relativa (diferença interna do POI)
       if (elevationDiff > 50) {
-        // POI muito acima da média - visível de longe
+        // POI muito acima da média interna - visível de longe
         const elevationBonus = Math.min(elevationDiff * 8, 400); // Max 400m bonus
         baseRadius += elevationBonus;
-        console.log(`⛰️ High elevation bonus: POI is ${elevationDiff.toFixed(1)}m above average → +${elevationBonus}m radius`);
+        console.log(`🏗️ Internal elevation bonus: POI is ${elevationDiff.toFixed(1)}m above internal average → +${elevationBonus.toFixed(0)}m radius`);
       } else if (elevationDiff > 20) {
-        // POI moderadamente acima da média
+        // POI moderadamente acima da média interna
         const elevationBonus = elevationDiff * 5;
         baseRadius += elevationBonus;
-        console.log(`🏔️ Moderate elevation bonus: +${elevationBonus.toFixed(0)}m radius`);
+        console.log(`🏢 Moderate internal elevation bonus: +${elevationBonus.toFixed(0)}m radius`);
       } else if (elevationDiff < -20) {
-        // POI abaixo da média - menos visível
+        // POI abaixo da média interna - menos visível
         const elevationPenalty = Math.abs(elevationDiff) * 3;
         baseRadius = Math.max(baseRadius - elevationPenalty, 150); // Mínimo 150m
-        console.log(`🕳️ Low elevation penalty: POI is ${Math.abs(elevationDiff).toFixed(1)}m below average → -${elevationPenalty.toFixed(0)}m radius`);
+        console.log(`🕳️ Low elevation penalty: POI is ${Math.abs(elevationDiff).toFixed(1)}m below internal average → -${elevationPenalty.toFixed(0)}m radius`);
       }
       
       // Terreno muito variado = maior raio (melhor visibilidade de pontos altos)
@@ -119,12 +221,82 @@ export class StreetAnalyzer {
     
     // 5. Limites de segurança
     const minRadius = 150; // Mínimo absoluto
-    const maxRadius = 1200; // Máximo absoluto
+    const maxRadius = 5000; // Máximo absoluto aumentado para picos/montanhas
     const finalRadius = Math.max(minRadius, Math.min(baseRadius, maxRadius));
     
     console.log(`✅ Intelligent radius calculated: ${finalRadius.toFixed(0)}m (base: ${baseRadius.toFixed(0)}m)`);
     
     return Math.round(finalRadius);
+  }
+
+  /**
+   * Estima a elevação base da região usando dados de contexto e heurísticas
+   * Substitui a lista hardcoded de landmarks por lógica dinâmica
+   */
+  private estimateRegionalBaseElevation(location: { lat: number; lng: number }, context: GeographicContext): number {
+    console.log(`🏞️ Estimating regional base elevation for (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)})`);
+    
+    let baseElevation = 500; // Default global average
+    
+    // 1. Usar dados de elevação do boundary se disponível (média das elevações ao redor)
+    if (context.elevationContext && context.elevationContext.variance) {
+      // Se a variância é baixa, usar a elevação mínima como base
+      // Se a variância é alta, usar uma estimativa mais conservadora
+      if (context.elevationContext.variance < 50) {
+        baseElevation = 400; // Área relativamente plana
+        console.log(`📊 Low elevation variance (${context.elevationContext.variance.toFixed(1)}m) → flat area base: ${baseElevation}m`);
+      } else if (context.elevationContext.variance > 200) {
+        baseElevation = 600; // Área montanhosa
+        console.log(`📊 High elevation variance (${context.elevationContext.variance.toFixed(1)}m) → mountainous area base: ${baseElevation}m`);
+      }
+    }
+    
+    // 2. Ajustar por densidade urbana (cidades tendem a estar em elevações específicas)
+    switch (context.urbanDensity.level) {
+      case 'very_dense':
+      case 'dense':
+        // Grandes cidades costeiras tendem a ser baixas, interiores mais altas
+        if (location.lat > -25 && location.lat < -20) { // Região RJ/SP
+          baseElevation = location.lng > -45 ? 600 : 50; // Interior vs Costa
+        }
+        console.log(`🏙️ Dense urban area adjustment → base: ${baseElevation}m`);
+        break;
+      case 'rural':
+        // Áreas rurais: usar elevação base mais conservadora
+        baseElevation += 100;
+        console.log(`🌾 Rural area adjustment → base: ${baseElevation}m`);
+        break;
+    }
+    
+    // 3. Coordenadas geográficas heurísticas (Brasil)
+    if (location.lat > -30 && location.lat < -10 && location.lng > -75 && location.lng < -30) {
+      // Brasil - usar conhecimento geográfico geral
+      if (location.lng > -50) { // Costa leste (mais baixa)
+        baseElevation = Math.min(baseElevation, 200);
+        console.log(`🏖️ Brazilian coast region → base: ${baseElevation}m`);
+      } else if (location.lat > -25 && location.lat < -20) { // Região SP
+        baseElevation = Math.max(baseElevation, 700);
+        console.log(`🏔️ São Paulo region → base: ${baseElevation}m`);
+      }
+    }
+    
+    console.log(`✅ Estimated regional base elevation: ${baseElevation}m`);
+    return baseElevation;
+  }
+
+  /**
+   * Calcula distância entre dois pontos (Haversine)
+   */
+  private calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
   }
   
   /**
@@ -171,12 +343,12 @@ export class StreetAnalyzer {
     try {
       console.log(`🚀 Optimized OSM query for streets around boundary...`);
       
-      // Selecionar pontos estratégicos do boundary com cobertura 360° (máximo 12 pontos)
-      const strategicPoints = this.selectStrategicBoundaryPoints(boundary.coordinates, 12);
+      // Selecionar pontos estratégicos do boundary com cobertura 360° (AUMENTADO para melhor cobertura)
+      const strategicPoints = this.selectStrategicBoundaryPoints(boundary.coordinates, 16);
       
-      // Criar query OSM combinada e otimizada
+      // Criar query OSM combinada e otimizada (MELHORADA para incluir avenidas)
       const pointQueries = strategicPoints.map(point => 
-        `way["highway"]["access"!="private"]["highway"!="footway"]["highway"!="cycleway"]["highway"!="path"](around:${searchRadius},${point.lat},${point.lng})`
+        `way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"]["access"!~"^(private|no)$"](around:${searchRadius},${point.lat},${point.lng})`
       ).join(';\n  ');
       
       // Query simplificada para evitar erro 400 (validação será feita no código)
@@ -226,8 +398,8 @@ out geom meta;
             !isPointInPolygon(coord, boundary.coordinates)
           );
           
-          // Se mais de 50% dos pontos da rua estão fora do boundary, incluir
-          if (validCoordinates.length > streetCoordinates.length * 0.5) {
+          // RELAXADO: Se mais de 30% dos pontos da rua estão fora do boundary, incluir (para avenidas importantes)
+          if (validCoordinates.length > streetCoordinates.length * 0.3) {
             const street: StreetData = {
               id: `osm_way_${element.id}`,
               type: this.classifyOSMHighway(element.tags?.highway || 'unknown'),
@@ -238,7 +410,7 @@ out geom meta;
             
             streets.push(street);
           } else {
-            console.log(`🚫 Street mostly inside boundary filtered out: ${element.id}`);
+            // console.log(`🚫 Street mostly inside boundary filtered out: ${element.id}`);
           }
         }
       }
@@ -264,17 +436,17 @@ out geom meta;
    */
   private classifyOSMHighway(highway: string): string {
     const highwayMap: Record<string, string> = {
-      'motorway': 'highway',
-      'trunk': 'highway', 
-      'primary': 'arterial',
-      'secondary': 'arterial',
-      'tertiary': 'collector',
+      'motorway': 'primary',     // Rodovias → Primary (alta prioridade)
+      'trunk': 'primary',        // Vias expressas → Primary  
+      'primary': 'primary',      // Avenidas principais → Primary
+      'secondary': 'secondary',  // Avenidas secundárias → Secondary
+      'tertiary': 'tertiary',    // Ruas coletoras → Tertiary
       'residential': 'residential',
       'service': 'service',
-      'unclassified': 'local'
+      'unclassified': 'residential' // Ruas sem classificação → Residential
     };
     
-    return highwayMap[highway] || 'road';
+    return highwayMap[highway] || 'residential';
   }
   
   /**
@@ -554,10 +726,21 @@ out geom meta;
    * Verifica se uma rua é acessível
    */
   private isStreetAccessible(road: StreetData, context: GeographicContext): boolean {
-    // Verificar se a rua é acessível
-    const accessibleRoadTypes = ['primary', 'secondary', 'tertiary', 'residential', 'living_street'];
+    // Verificar se a rua é acessível - INCLUINDO RODOVIAS PARA POIs DE ALTA ELEVAÇÃO
+    const accessibleRoadTypes = [
+      'motorway',        // 🛣️ Rodovias (ex: Rodoanel)
+      'trunk',           // 🛣️ Vias Expressas (ex: Anhanguera) 
+      'primary',         // 🛤️ Vias Principais
+      'secondary',       // 🛤️ Vias Secundárias
+      'tertiary',        // 🛤️ Vias Terciárias
+      'residential',     // 🏘️ Ruas Residenciais
+      'living_street',   // 🏘️ Ruas de Convivência
+      'motorway_link',   // 🔗 Acessos às Rodovias
+      'trunk_link'       // 🔗 Acessos às Vias Expressas
+    ];
     
     if (!accessibleRoadTypes.includes(road.type)) {
+      console.log(`🚫 Road type '${road.type}' not in accessible types: [${accessibleRoadTypes.join(', ')}]`);
       return false;
     }
     

@@ -27,6 +27,19 @@ interface TriggerPointResult {
   generatedAt: string
   processingTime: number
   statistics: any
+  metadata?: {
+    boundarySource: string
+    boundaryConfidence: number
+    streetCount: number
+    searchRadius: number
+    elevationAnalysis?: {
+      poiElevation: number
+      baseElevation: number
+      elevationDiff: number
+      isHighVisibility: boolean
+    } | null
+    fallbackUsed: boolean
+  }
 }
 
 export default function TestTriggerPointsGooglePage() {
@@ -44,8 +57,10 @@ export default function TestTriggerPointsGooglePage() {
   // UI State
   const [showBoundary, setShowBoundary] = useState(true)
   const [showTriggerPoints, setShowTriggerPoints] = useState(true)
+  const [showSearchRadius, setShowSearchRadius] = useState(true)
   const [showStatistics, setShowStatistics] = useState(false)
   const [statistics, setStatistics] = useState<any>(null)
+  const [metadata, setMetadata] = useState<any>(null)
   
   // Options
   const [options, setOptions] = useState({
@@ -163,12 +178,24 @@ export default function TestTriggerPointsGooglePage() {
       
       setTriggerPoints(triggerPointResult.triggerPoints)
       setStatistics(triggerPointResult.statistics)
+      setMetadata(triggerPointResult.metadata)
       setSuccess(`Gerados ${triggerPointResult.count} trigger points em ${triggerPointResult.processingTime}ms`)
       
       // Extrair boundary se disponível
       if (result.boundary) {
         setBoundary(result.boundary)
         console.log(`📐 Boundary extracted: ${result.boundary.coordinates.length} points, confidence: ${result.boundary.confidence}`)
+      }
+      
+      // Log metadados para debugging
+      if (triggerPointResult.metadata) {
+        console.log(`📊 Metadata:`, triggerPointResult.metadata)
+        if (triggerPointResult.metadata.searchRadius) {
+          console.log(`🎯 Search radius: ${triggerPointResult.metadata.searchRadius}m`)
+        }
+        if (triggerPointResult.metadata.elevationAnalysis) {
+          console.log(`🏔️ Elevation analysis:`, triggerPointResult.metadata.elevationAnalysis)
+        }
       }
       
       console.log(`✅ Generated ${triggerPointResult.count} trigger points`)
@@ -236,16 +263,30 @@ export default function TestTriggerPointsGooglePage() {
     color: '#FF0000'
   }] : []
 
-  const mapCircles = showTriggerPoints ? triggerPoints.map(tp => ({
-    id: tp.id,
-    center: tp.location,
-    radius: tp.radius,
-    strokeColor: getTriggerPointColor(tp.type),
-    strokeOpacity: 0.8,
-    strokeWeight: 2,
-    fillColor: getTriggerPointColor(tp.type),
-    fillOpacity: 0.2
-  })) : []
+  const mapCircles = [
+    // Trigger points circles
+    ...(showTriggerPoints ? triggerPoints.map(tp => ({
+      id: tp.id,
+      center: tp.location,
+      radius: tp.radius,
+      strokeColor: getTriggerPointColor(tp.type),
+      strokeOpacity: 0.8,
+      strokeWeight: 2,
+      fillColor: getTriggerPointColor(tp.type),
+      fillOpacity: 0.2
+    })) : []),
+    // Search radius circle
+    ...(showSearchRadius && poiInfo && metadata?.searchRadius ? [{
+      id: 'search-radius',
+      center: poiInfo.location,
+      radius: metadata.searchRadius,
+      strokeColor: '#8B5CF6', // Purple
+      strokeOpacity: 0.6,
+      strokeWeight: 3,
+      fillColor: '#8B5CF6',
+      fillOpacity: 0.1
+    }] : [])
+  ]
 
   const mapPolygon = showBoundary && boundary ? boundary.coordinates : null
 
@@ -424,6 +465,18 @@ export default function TestTriggerPointsGooglePage() {
                 <label className="flex items-center gap-3">
                   <input
                     type="checkbox"
+                    checked={showSearchRadius}
+                    onChange={(e) => setShowSearchRadius(e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    Mostrar Raio de Busca
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
                     checked={showStatistics}
                     onChange={(e) => setShowStatistics(e.target.checked)}
                     className="rounded"
@@ -455,6 +508,83 @@ export default function TestTriggerPointsGooglePage() {
                 />
               </div>
             </div>
+
+            {/* Informações de Elevação e Raio */}
+            {metadata && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                  Análise de Raio de Busca
+                </h2>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Raio de Busca */}
+                  <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                    <h3 className="font-semibold text-purple-800 dark:text-purple-200 mb-2">
+                      Raio Calculado
+                    </h3>
+                    <div className="text-2xl font-bold text-purple-600">
+                      {metadata.searchRadius ? `${metadata.searchRadius}m` : 'N/A'}
+                    </div>
+                    <div className="text-sm text-purple-700 dark:text-purple-300 mt-1">
+                      {metadata.searchRadius > 2000 ? 'Landmark de Alta Elevação' : 
+                       metadata.searchRadius > 1000 ? 'POI Elevado' : 
+                       'POI Padrão'}
+                    </div>
+                  </div>
+
+                  {/* Informações do Boundary */}
+                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">
+                      Boundary
+                    </h3>
+                    <div className="text-lg font-bold text-blue-600">
+                      {metadata.boundarySource}
+                    </div>
+                    <div className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                      Confiança: {(metadata.boundaryConfidence * 100).toFixed(1)}%
+                    </div>
+                    <div className="text-sm text-blue-700 dark:text-blue-300">
+                      {metadata.streetCount} ruas encontradas
+                    </div>
+                  </div>
+                </div>
+
+                {/* Análise de Elevação */}
+                {metadata.elevationAnalysis && (
+                  <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <h3 className="font-semibold text-green-800 dark:text-green-200 mb-3">
+                      Análise de Elevação
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-green-600">
+                          {metadata.elevationAnalysis.poiElevation.toFixed(0)}m
+                        </div>
+                        <div className="text-sm text-green-700 dark:text-green-300">POI</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-green-600">
+                          {metadata.elevationAnalysis.baseElevation.toFixed(0)}m
+                        </div>
+                        <div className="text-sm text-green-700 dark:text-green-300">Base Regional</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-green-600">
+                          +{metadata.elevationAnalysis.elevationDiff.toFixed(0)}m
+                        </div>
+                        <div className="text-sm text-green-700 dark:text-green-300">Diferença</div>
+                      </div>
+                      <div className="text-center">
+                        <div className={`text-lg font-bold ${metadata.elevationAnalysis.isHighVisibility ? 'text-orange-600' : 'text-green-600'}`}>
+                          {metadata.elevationAnalysis.isHighVisibility ? 'ALTA' : 'Normal'}
+                        </div>
+                        <div className="text-sm text-green-700 dark:text-green-300">Visibilidade</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Estatísticas */}
             {showStatistics && statistics && (

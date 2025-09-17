@@ -55,7 +55,14 @@ export class ElevationService {
         }
       }
 
-      // Estratégia 2: Google Elevation API com análise de vizinhança (fallback confiável)
+      // Estratégia 2: Open Elevation API (gratuita, igual ao sistema legado)
+      const openElevation = await this.getElevationFromOpenElevationAPI(location);
+      if (openElevation.confidence > 0.5) {
+        console.log(`✅ Elevation from Open Elevation API: ${openElevation.total}m (free, like legacy system)`);
+        return openElevation;
+      }
+
+      // Estratégia 3: Google Elevation API com análise de vizinhança (fallback se Open Elevation falhar)
       const googleElevation = await this.getIntelligentElevationFromGoogle(location, boundary, context);
       if (googleElevation.confidence > 0.5) {
         console.log(`✅ Intelligent elevation from Google API: ${googleElevation.total}m (${googleElevation.relative.aboveNeighborhood > 0 ? '+' : ''}${googleElevation.relative.aboveNeighborhood}m relative)`);
@@ -69,6 +76,62 @@ export class ElevationService {
     } catch (error) {
       console.error('Error getting elevation:', error);
       return this.getDefaultElevation(location);
+    }
+  }
+
+  /**
+   * Estratégia 2: Open Elevation API (gratuita, SRTM data, igual ao sistema legado)
+   */
+  private async getElevationFromOpenElevationAPI(
+    location: { lat: number; lng: number }
+  ): Promise<ElevationData> {
+    console.log(`🌍 Using Open Elevation API (free, like legacy system)...`);
+    
+    try {
+      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'TuggiCMS/1.0 (trigger-points-elevation)'
+        },
+        body: JSON.stringify({
+          locations: [{ latitude: location.lat, longitude: location.lng }]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Open Elevation API failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!data.results || data.results.length === 0) {
+        throw new Error('No elevation data from Open Elevation API');
+      }
+
+      const elevation = data.results[0].elevation;
+      console.log(`✅ Open Elevation API: ${elevation}m (SRTM data)`);
+
+      return {
+        ground: elevation,
+        total: elevation,
+        relative: {
+          aboveNeighborhood: 0, // Will be calculated if needed
+          neighborhoodAverage: elevation,
+          prominence: 0.5,
+          isElevated: elevation > 500
+        },
+        confidence: 0.9, // High confidence for Open Elevation
+        source: 'open_elevation' as any,
+        details: {
+          groundSource: 'open_elevation_api',
+          method: 'srtm_data'
+        }
+      };
+
+    } catch (error) {
+      console.error('Open Elevation API error:', error);
+      throw error;
     }
   }
 

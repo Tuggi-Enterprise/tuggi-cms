@@ -42,26 +42,11 @@ export class BoundaryDetector {
         };
       }
       
-      // Estratégia 2: Google Places API (Fallback apenas se OSM falhou)
-      console.log('🔄 OSM failed, trying Google Places as fallback...');
-      const googleResult = await this.detectGoogleBoundary(poiData);
-      if (googleResult.success && googleResult.data && googleResult.data.confidence > 0.4) {
-        console.log('✅ Found boundary via Google Places (fallback)');
-        return {
-          success: true,
-          data: { ...googleResult.data, source: 'google_places' },
-          processingTime: Date.now() - startTime,
-          metadata: {
-            step: 'boundary_detection',
-            status: 'completed',
-            timestamp: new Date().toISOString(),
-            strategy: 'google_fallback'
-          }
-        };
-      }
+      // Estratégia 2: REMOVIDO - Google Places fallback (boundaries ruins)
+      console.log('⚠️ OSM failed - skipping Google Places (unreliable boundaries)');
       
-      // Estratégia 3: Estimated Boundary (Fallback final)
-      console.log('⚠️ Both OSM and Google failed, using estimated boundary');
+      // Estratégia 2: Smart Fallback - POI pequeno baseado em lat/lng
+      console.log('🎯 Using smart fallback for small POI (lat/lng based)');
       const estimatedResult = await this.createEstimatedBoundary(poiData, context);
       return {
         success: true,
@@ -237,19 +222,12 @@ export class BoundaryDetector {
       confidence += 0.1;
     }
     
-    // Tentar obter elevação via Google (não-bloqueante)
+    // Tentar obter elevação via Google (não-bloqueante - DESABILITADO temporariamente)
     let elevationData;
     try {
-      const elevation = await this.elevationService.getElevation(center, { coordinates, center, area, confidence, source: 'google_places' });
-      if (elevation.confidence > 0.3) {
-        elevationData = {
-          min: elevation.ground,
-          max: elevation.total,
-          average: elevation.ground,
-          center: elevation.total
-        };
-        console.log(`📏 Google elevation added: ${elevation.total}m (${elevation.source}, confidence: ${elevation.confidence.toFixed(2)})`);
-      }
+      // TEMPORARIAMENTE DESABILITADO para não quebrar o boundary
+      // const elevation = await this.elevationService.getElevation(center, { coordinates, center, area, confidence, source: 'google_places' });
+      console.log(`⚠️ Elevation extraction temporarily disabled for boundary stability`);
     } catch (error) {
       console.warn('⚠️ Google elevation extraction failed (non-blocking):', error);
     }
@@ -259,9 +237,7 @@ export class BoundaryDetector {
       center,
       area,
       confidence: Math.min(confidence, 0.9),
-      source: 'google_places' as const,
-      elevation: elevationData,
-      height: elevationData ? (elevationData.max - elevationData.min) : undefined
+      source: 'google_places' as const
     };
   }
   
@@ -386,17 +362,110 @@ export class BoundaryDetector {
    * Query OSM por nome exato (simplificada para evitar timeout)
    */
   private async queryOSMByName(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
-    const query = `
-[out:json][timeout:30];
-(
-  relation["name"="${poiData.name}"]["type"="multipolygon"];
-  way["name"="${poiData.name}"]["leisure"];
-  way["name"="${poiData.name}"]["amenity"];
-);
-out geom;
-`;
+    console.log(`🔍 OSM name search for: "${poiData.name}" using Nominatim API (LEGACY APPROACH)`);
     
-    return await this.executeOSMQuery(query, 'name search');
+    try {
+      // USAR NOMINATIM API (igual ao sistema legado que funciona)
+      const encodedName = encodeURIComponent(poiData.name);
+      const lat = poiData.location.lat;
+      const lng = poiData.location.lng;
+      
+      const nominatimUrl = `https://nominatim.openstreetmap.org/search?` +
+        `q=${encodedName}&` +
+        `lat=${lat}&lon=${lng}&` +
+        `bounded=1&viewbox=${lng-0.01},${lat+0.01},${lng+0.01},${lat-0.01}&` +
+        `format=json&polygon_geojson=1&addressdetails=1&limit=5`;
+
+      console.log(`🌐 Nominatim URL: ${nominatimUrl}`);
+      
+      const response = await fetch(nominatimUrl, {
+        headers: {
+          'User-Agent': 'TuggiCMS/1.0 (boundary-detection)'
+        }
+      });
+
+      if (!response.ok) {
+        console.error(`❌ Nominatim API error: ${response.status}`);
+        return { success: false, error: `Nominatim API error: ${response.status}`, processingTime: 0 };
+      }
+
+      const results = await response.json();
+      console.log(`📍 Nominatim found ${results.length} results`);
+
+      if (results.length === 0) {
+        return { success: false, error: 'No results found in Nominatim', processingTime: 0 };
+      }
+
+      // Processar resultados do Nominatim
+      for (const result of results) {
+        if (result.geojson && result.geojson.coordinates) {
+          console.log(`🔍 Processing Nominatim result: ${result.display_name} (type: ${result.geojson.type})`);
+          
+          const processed = await this.processNominatimGeometry(result.geojson, lat, lng);
+          if (processed.success && processed.coordinates.length > 2) {
+            const center = this.calculatePolygonCenter(processed.coordinates);
+            const area = this.calculatePolygonArea(processed.coordinates);
+            
+            console.log(`✅ Nominatim boundary: ${processed.coordinates.length} points, area: ${area.toFixed(0)}m²`);
+            
+            // NOVA LÓGICA: Extrair elevação também para resultados do Nominatim
+            let elevationData;
+            let poiHeight;
+            try {
+              console.log(`🏗️ Extracting POI elevation for Nominatim result...`);
+              console.log(`📍 POI center: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`);
+              console.log(`🏷️ Nominatim result type: ${result.geojson.type}, osm_type: ${result.osm_type}`);
+              
+              // Para Nominatim, não temos tags OSM, então pular direto para Google Elevation
+              console.log(`🌍 Calling ElevationService.getElevation for Nominatim result...`);
+              const elevation = await this.elevationService.getElevation(center, undefined, result);
+              console.log(`📊 Elevation service returned:`, { 
+                elevation: elevation ? elevation.total : null, 
+                confidence: elevation?.confidence,
+                source: elevation?.source 
+              });
+              
+              if (elevation && elevation.confidence > 0.5) {
+                elevationData = {
+                  min: elevation.ground - 10,
+                  max: elevation.ground + 10,
+                  average: elevation.ground,
+                  center: elevation.total
+                };
+                console.log(`⛰️ POI elevation: ${elevation.total.toFixed(1)}m (ground: ${elevation.ground.toFixed(1)}m)`);
+              } else {
+                console.log(`⚠️ Low confidence elevation or no data: confidence=${elevation?.confidence}`);
+              }
+            } catch (error) {
+              console.warn('⚠️ Elevation extraction failed for Nominatim (non-blocking):', error);
+              if (error instanceof Error) {
+                console.warn('⚠️ Error details:', error.message);
+              }
+            }
+            
+            return {
+              success: true,
+              data: {
+                coordinates: processed.coordinates,
+                center,
+                area,
+                confidence: 0.9, // Alta confiança para Nominatim
+                source: 'osm' as const,
+                elevation: elevationData,
+                height: poiHeight || undefined
+              },
+              processingTime: 0
+            };
+          }
+        }
+      }
+
+      return { success: false, error: 'No valid boundaries found in Nominatim results', processingTime: 0 };
+
+    } catch (error) {
+      console.error('❌ Error in Nominatim search:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error', processingTime: 0 };
+    }
   }
   
   /**
@@ -404,9 +473,10 @@ out geom;
    */
   private async queryOSMByProximity(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
     const query = `
-[out:json][timeout:30];
+[out:json][timeout:15];
 (
   relation["type"="multipolygon"](around:100,${poiData.location.lat},${poiData.location.lng});
+  way["building"](around:50,${poiData.location.lat},${poiData.location.lng});
   way["leisure"](around:100,${poiData.location.lat},${poiData.location.lng});
   way["amenity"](around:100,${poiData.location.lat},${poiData.location.lng});
 );
@@ -434,7 +504,7 @@ out geom;
     const osmCategory = categoryMap[poiData.type] || 'tourism=attraction';
     
     const query = `
-[out:json][timeout:30];
+[out:json][timeout:15];
 (
   relation[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
   way[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
@@ -459,12 +529,20 @@ out geom;
       });
       
       if (!response.ok) {
+        console.error(`🚨 OSM API error ${response.status} for ${searchType}`);
         throw new Error(`OSM API error: ${response.status}`);
       }
       
       const data = await response.json();
       
+      console.log(`🔍 DEBUG: OSM ${searchType} response:`, {
+        elementsFound: data.elements?.length || 0,
+        hasElements: !!data.elements,
+        status: response.status
+      });
+      
       if (!data.elements || data.elements.length === 0) {
+        console.warn(`⚠️ No OSM elements found for ${searchType}`);
         return { success: false, error: `No OSM data found for ${searchType}`, processingTime: 0 };
       }
       
@@ -482,23 +560,55 @@ out geom;
       const area = calculatePolygonArea(coordinates);
       const confidence = this.calculateOSMConfidence(bestElement, searchType);
       
+      // VALIDAÇÃO: Rejeitar boundaries com área inválida
+      if (area < 100) { // Área mínima de 100m²
+        console.warn(`⚠️ OSM boundary rejected: area too small (${area.toFixed(0)}m²)`);
+        return { success: false, error: `Boundary area too small: ${area.toFixed(0)}m²`, processingTime: 0 };
+      }
+      
       console.log(`✅ OSM boundary extracted: ${coordinates.length} points, area: ${area.toFixed(0)}m², confidence: ${confidence.toFixed(2)}`);
       
-      // Tentar obter elevação (não-bloqueante - se falhar, não quebra o boundary)
+      // Tentar obter elevação e altura do POI (REABILITADO para análise de visibilidade)
       let elevationData;
+      let poiHeight;
       try {
+        console.log(`🏗️ Extracting POI elevation and height for visibility analysis...`);
+        console.log(`📍 POI center: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`);
+        console.log(`🏷️ OSM element type: ${bestElement?.type}, id: ${bestElement?.id}`);
+        
+        // Extrair altura do POI dos tags OSM
+        poiHeight = this.extractOSMHeight(bestElement);
+        if (poiHeight) {
+          console.log(`🏢 POI height from OSM: ${poiHeight}m`);
+        } else {
+          console.log(`⚠️ No height found in OSM tags`);
+        }
+        
+        // Tentar obter elevação (opcional, não bloquear se falhar)
+        console.log(`🌍 Calling ElevationService.getElevation...`);
         const elevation = await this.elevationService.getElevation(center, undefined, bestElement);
-        if (elevation.confidence > 0.3) {
+        console.log(`📊 Elevation service returned:`, { 
+          elevation: elevation ? elevation.total : null, 
+          confidence: elevation?.confidence,
+          source: elevation?.source 
+        });
+        
+        if (elevation && elevation.confidence > 0.5) {
           elevationData = {
-            min: elevation.ground,
-            max: elevation.total,
+            min: elevation.ground - 10,
+            max: elevation.ground + 10,
             average: elevation.ground,
             center: elevation.total
           };
-          console.log(`📏 Elevation added: ${elevation.total}m (${elevation.source}, confidence: ${elevation.confidence.toFixed(2)})`);
+          console.log(`⛰️ POI elevation: ${elevation.total.toFixed(1)}m (ground: ${elevation.ground.toFixed(1)}m)`);
+        } else {
+          console.log(`⚠️ Low confidence elevation or no data: confidence=${elevation?.confidence}`);
         }
       } catch (error) {
         console.warn('⚠️ Elevation extraction failed (non-blocking):', error);
+        if (error instanceof Error) {
+          console.warn('⚠️ Error details:', error.message);
+        }
       }
       
       return {
@@ -510,7 +620,7 @@ out geom;
           confidence,
           source: 'osm' as const,
           elevation: elevationData,
-          height: elevationData ? (elevationData.max - elevationData.min) : undefined
+          height: poiHeight || undefined
         },
         processingTime: 0
       };
@@ -767,54 +877,49 @@ out geom;
    * Calcula raio estimado baseado no tipo de POI e contexto
    */
   private calculateEstimatedRadius(poiType: string, context: GeographicContext): number {
-    // Raio base por tipo de POI
+    console.log(`🎯 Calculating small radius for unfound POI (likely small/irrelevant)`);
+    
+    // Raios MUITO MENORES para POIs não encontrados (provavelmente irrelevantes)
     const baseRadii: Record<string, number> = {
-      'park': 200,
-      'museum': 50,
-      'monument': 30,
-      'restaurant': 25,
-      'hotel': 40,
-      'shopping_mall': 150,
-      'tourist_attraction': 100,
-      'natural_feature': 300,
-      'building': 30
+      'park': 50,           // Parques pequenos
+      'museum': 20,         // Museus pequenos
+      'monument': 15,       // Monumentos pontuais
+      'restaurant': 10,     // Restaurantes
+      'hotel': 15,          // Hotéis pequenos
+      'shopping_mall': 30,  // Shopping pequeno
+      'tourist_attraction': 25,
+      'natural_feature': 40,
+      'building': 15,       // Prédios pequenos
+      'establishment': 10,  // Estabelecimentos gerais
+      'point_of_interest': 15
     };
     
-    let baseRadius = baseRadii[poiType] || 50;
+    let baseRadius = baseRadii[poiType] || 15; // Default muito pequeno
     
-    // Ajustar baseado na densidade urbana
+    // Ajustar baseado na densidade urbana (POIs pequenos em zonas densas)
     switch (context.urbanDensity.level) {
       case 'very_dense':
-        baseRadius *= 0.7;
+        baseRadius *= 0.8;  // Ainda menores em zonas densas
         break;
       case 'dense':
-        baseRadius *= 0.8;
+        baseRadius *= 0.9;
         break;
       case 'medium':
         baseRadius *= 1.0;
         break;
       case 'low':
-        baseRadius *= 1.2;
-        break;
-      case 'rural':
-        baseRadius *= 1.5;
-        break;
-    }
-    
-    // Ajustar baseado na elevação
-    switch (context.elevationContext.type) {
-      case 'mountainous':
-        baseRadius *= 1.3;
-        break;
-      case 'hilly':
         baseRadius *= 1.1;
         break;
-      case 'flat':
-        baseRadius *= 1.0;
+      case 'rural':
+        baseRadius *= 1.2;
         break;
     }
     
-    return Math.max(baseRadius, 20); // Mínimo de 20 metros
+    // Limites muito conservadores para POIs não encontrados
+    const finalRadius = Math.max(10, Math.min(baseRadius, 50)); // Entre 10m e 50m apenas
+    
+    console.log(`📏 Small POI estimated radius: ${finalRadius}m (conservative for unfound POI)`);
+    return finalRadius;
   }
   
   /**
@@ -835,5 +940,130 @@ out geom;
     coordinates.push(coordinates[0]);
     
     return coordinates;
+  }
+  
+  /**
+   * Extrai palavras-chave do nome para busca flexível no OSM
+   */
+  private extractNameKeywords(name: string): string[] {
+    // Remover acentos e caracteres especiais
+    const normalized = name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+    
+    // Dividir em palavras e filtrar palavras relevantes
+    const words = normalized
+      .split(/\s+/)
+      .filter(word => word.length > 2) // Palavras com mais de 2 caracteres
+      .filter(word => !['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'na', 'no', 'para'].includes(word)); // Remover preposições
+    
+    // Adicionar variações comuns
+    const keywords = [...words];
+    
+    // Para "Edifício", adicionar variações
+    if (name.toLowerCase().includes('edifício') || name.toLowerCase().includes('edificio')) {
+      keywords.push('building', 'edifício', 'edificio');
+    }
+    
+    // Para "Copan", pode ser "Copacabana"
+    if (name.toLowerCase().includes('copan')) {
+      keywords.push('copan', 'copacabana');
+    }
+    
+    console.log(`📝 Name keywords extracted from "${name}": ${keywords.join(', ')}`);
+    return keywords;
+  }
+  
+  /**
+   * Processa geometria do Nominatim (GeoJSON)
+   */
+  private async processNominatimGeometry(
+    geojson: any, 
+    lat: number, 
+    lng: number
+  ): Promise<{ success: boolean; coordinates: Array<{lat: number, lng: number}> }> {
+    try {
+      let coordinates: Array<{lat: number, lng: number}> = [];
+      
+      if (geojson.type === 'Polygon' && geojson.coordinates && geojson.coordinates[0]) {
+        // Converter coordenadas [lng, lat] para {lat, lng}
+        coordinates = geojson.coordinates[0].map((coord: number[]) => ({
+          lat: coord[1],
+          lng: coord[0]
+        }));
+      } else if (geojson.type === 'MultiPolygon' && geojson.coordinates && geojson.coordinates[0]) {
+        // Pegar o primeiro polígono do MultiPolygon
+        coordinates = geojson.coordinates[0][0].map((coord: number[]) => ({
+          lat: coord[1],
+          lng: coord[0]
+        }));
+      } else if (geojson.type === 'Point') {
+        // Se for apenas um ponto, criar um pequeno polígono ao redor
+        const radius = 50; // 50 metros
+        coordinates = this.createCircularBoundary({ lat, lng }, radius);
+      }
+      
+      // Validar se temos coordenadas suficientes
+      if (coordinates.length < 3) {
+        console.warn(`⚠️ Insufficient coordinates: ${coordinates.length}`);
+        return { success: false, coordinates: [] };
+      }
+      
+      // Fechar o polígono se necessário
+      const first = coordinates[0];
+      const last = coordinates[coordinates.length - 1];
+      if (first.lat !== last.lat || first.lng !== last.lng) {
+        coordinates.push(first);
+      }
+      
+      console.log(`✅ Processed ${coordinates.length} coordinates from Nominatim`);
+      return { success: true, coordinates };
+      
+    } catch (error) {
+      console.error('Error processing Nominatim geometry:', error);
+      return { success: false, coordinates: [] };
+    }
+  }
+  
+  /**
+   * Calcula centro de um polígono
+   */
+  private calculatePolygonCenter(coordinates: Array<{lat: number, lng: number}>): {lat: number, lng: number} {
+    let totalLat = 0;
+    let totalLng = 0;
+    const count = coordinates.length;
+    
+    for (const coord of coordinates) {
+      totalLat += coord.lat;
+      totalLng += coord.lng;
+    }
+    
+    return {
+      lat: totalLat / count,
+      lng: totalLng / count
+    };
+  }
+  
+  /**
+   * Calcula área de um polígono (aproximação simples)
+   */
+  private calculatePolygonArea(coordinates: Array<{lat: number, lng: number}>): number {
+    if (coordinates.length < 3) return 0;
+    
+    let area = 0;
+    const n = coordinates.length;
+    
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      area += coordinates[i].lat * coordinates[j].lng;
+      area -= coordinates[j].lat * coordinates[i].lng;
+    }
+    
+    area = Math.abs(area) / 2;
+    
+    // Converter para metros quadrados (aproximação)
+    const metersPerDegree = 111320;
+    return area * metersPerDegree * metersPerDegree;
   }
 }

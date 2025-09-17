@@ -43,15 +43,39 @@ export class OptimalPointCalculator {
     context: GeographicContext
   ): Promise<TriggerPointCandidate | null> {
     try {
-      // Calcular distância ótima baseada no contexto
-      const optimalDistance = this.calculateOptimalDistance(poiData, context);
+      // Calcular múltiplas distâncias ótimas baseadas no contexto (CIRCULAR STRATEGY)
+      const optimalDistances = this.calculateOptimalDistances(poiData, context, boundary);
       
-      // CORREÇÃO: Encontrar ponto na rua com distância ótima DO BOUNDARY
-      const pointOnStreet = this.findPointAtDistanceFromBoundary(street, boundary, optimalDistance);
+      console.log(`🎯 Testing ${optimalDistances.length} distance ranges for street ${street.id}`);
       
-      if (!pointOnStreet) {
+      // Tentar encontrar ponto em qualquer uma das distâncias ótimas
+      let bestPoint = null;
+      let bestDistance = 0;
+      let bestDistanceDiff = Infinity;
+      
+      for (const targetDistance of optimalDistances) {
+        const pointOnStreet = this.findPointAtDistanceFromBoundary(street, boundary, targetDistance);
+        
+        if (pointOnStreet) {
+          const actualDistance = calculateDistanceToBoundary(pointOnStreet, boundary.coordinates);
+          const distanceDiff = Math.abs(actualDistance - targetDistance);
+          
+          // Escolher o ponto com menor diferença da distância alvo
+          if (distanceDiff < bestDistanceDiff) {
+            bestPoint = pointOnStreet;
+            bestDistance = actualDistance;
+            bestDistanceDiff = distanceDiff;
+          }
+        }
+      }
+      
+      if (!bestPoint) {
+        console.warn(`⚠️ No suitable point found on street ${street.id} at any target distances: [${optimalDistances.join('m, ')}m]`);
         return null;
       }
+      
+      console.log(`✅ Best point found at ${bestDistance.toFixed(0)}m (target ranges: [${optimalDistances.join('m, ')}m])`);
+      const pointOnStreet = bestPoint;
       
       // VALIDAÇÃO: Garantir que o ponto está FORA do boundary
       if (isPointInPolygon(pointOnStreet, boundary.coordinates)) {
@@ -65,8 +89,8 @@ export class OptimalPointCalculator {
       // Calcular bearing esperado (do ponto para o centro do POI)
       const expectedBearing = calculateBearing(pointOnStreet, boundary.center);
       
-      // Calcular distância real do boundary
-      const actualDistance = calculateDistanceToBoundary(pointOnStreet, boundary.coordinates);
+      // Usar a distância já calculada
+      const actualDistance = bestDistance;
       
       return {
         location: pointOnStreet,
@@ -86,49 +110,95 @@ export class OptimalPointCalculator {
   /**
    * Calcula distância ótima baseada no contexto
    */
-  private calculateOptimalDistance(poiData: POIData, context: GeographicContext): number {
-    const baseDistance = 100; // metros
+  private calculateOptimalDistances(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): number[] {
+    console.log(`🎯 Calculating optimal TP distances from boundary for ${poiData.name}...`);
     
-    // Ajustar baseado na densidade urbana
-    let densityMultiplier = 1.0;
+    // 🏔️ ESTRATÉGIA CIRCULAR PARA ALTA ELEVAÇÃO (baseada no sistema legado)
+    if (boundary?.elevation && boundary.elevation.center > 1000) {
+      const poiElevation = boundary.elevation.center;
+      const baseElevation = this.estimateRegionalBaseElevation(boundary.center, context);
+      const elevationDiff = poiElevation - baseElevation;
+      
+      console.log(`🏔️ HIGH ELEVATION LANDMARK DETECTED: ${poiElevation.toFixed(0)}m (diff: ${elevationDiff.toFixed(0)}m)`);
+      console.log(`🎯 Using CIRCULAR DISTRIBUTION strategy (legacy system)`);
+      
+      // LEGACY FORMULA: Math.sqrt(elevationDiff) * 200
+      const maxRange = Math.min(Math.max(Math.sqrt(elevationDiff) * 200, 2000), 8000);
+      
+      // DISTRIBUIÇÃO CIRCULAR EM MÚLTIPLAS FAIXAS (como sistema legado)
+      const distances = [
+        300,  // Círculo interno - próximo
+        800,  // Círculo próximo-médio  
+        1500, // Círculo médio
+        2500, // Círculo médio-distante
+        Math.min(maxRange * 0.7, 4000), // Círculo distante
+        Math.min(maxRange, 6000)        // Círculo máximo
+      ];
+      
+      console.log(`🗻 CIRCULAR DISTANCES: [${distances.map(d => d.toFixed(0)).join('m, ')}m]`);
+      console.log(`📏 Max theoretical range: ${maxRange.toFixed(0)}m`);
+      
+      return distances;
+    }
+    
+    // 🏙️ ESTRATÉGIA PADRÃO PARA BAIXA ELEVAÇÃO
+    let baseDistance = 100;
+    
+    if (boundary?.elevation) {
+      const poiElevation = boundary.elevation.center;
+      console.log(`📏 POI elevation: ${poiElevation.toFixed(1)}m`);
+      
+      if (poiElevation > 800) {
+        // Montanhas altas: múltiplas distâncias
+        return [200, 600, 1200, 2000];
+      }
+      else if (poiElevation > 400) {
+        // Colinas: duas distâncias
+        return [150, 400];
+      }
+      else {
+        console.log(`🏞️ LOW elevation: ${poiElevation.toFixed(0)}m → single distance`);
+      }
+    }
+    
+    // Ajustes para POIs de baixa elevação
     switch (context.urbanDensity.level) {
-      case 'very_dense':
-        densityMultiplier = 0.7; // Mais próximo em áreas densas
-        break;
-      case 'dense':
-        densityMultiplier = 0.8;
-        break;
-      case 'medium':
-        densityMultiplier = 1.0;
-        break;
-      case 'low':
-        densityMultiplier = 1.2;
-        break;
-      case 'rural':
-        densityMultiplier = 1.5; // Mais distante em áreas rurais
-        break;
+      case 'very_dense': baseDistance = 80; break;
+      case 'dense': baseDistance = 100; break;
+      case 'medium': baseDistance = 120; break;
+      case 'low': baseDistance = 150; break;
+      case 'rural': baseDistance = 180; break;
     }
     
-    // Ajustar baseado no tipo de POI
-    let poiMultiplier = 1.0;
+    // Ajuste por tipo de POI
     switch (poiData.type) {
-      case 'park':
-        poiMultiplier = 1.3; // Parques precisam de mais distância
-        break;
-      case 'monument':
-        poiMultiplier = 1.2; // Monumentos precisam de distância para apreciação
-        break;
-      case 'restaurant':
-        poiMultiplier = 0.8; // Restaurantes podem ser mais próximos
-        break;
-      case 'shopping_mall':
-        poiMultiplier = 1.1; // Shoppings precisam de distância
-        break;
-      default:
-        poiMultiplier = 1.0;
+      case 'natural_feature': baseDistance *= 1.5; break;
+      case 'park': baseDistance *= 1.3; break;
+      case 'monument': baseDistance *= 1.2; break;
+      case 'restaurant': baseDistance *= 0.8; break;
+      case 'shopping_mall': baseDistance *= 1.1; break;
     }
     
-    return Math.round(baseDistance * densityMultiplier * poiMultiplier);
+    console.log(`✅ Standard TP distance: ${Math.round(baseDistance)}m`);
+    return [Math.round(baseDistance)];
+  }
+
+  // Função auxiliar para estimar elevação base regional
+  private estimateRegionalBaseElevation(location: { lat: number; lng: number }, context: GeographicContext): number {
+    // Lógica simplificada - poderia ser mais sofisticada
+    let baseElevation = 500; // Default global average
+    
+    // Ajustes regionais básicos
+    if (location.lat > -30 && location.lat < -10 && location.lng > -75 && location.lng < -30) {
+      // Brasil
+      if (location.lng > -50) {
+        baseElevation = 200; // Costa brasileira
+      } else if (location.lat > -25 && location.lat < -20) {
+        baseElevation = 700; // Região de São Paulo
+      }
+    }
+    
+    return baseElevation;
   }
   
   /**
@@ -253,11 +323,12 @@ export class OptimalPointCalculator {
    * Calcula score baseado na distância
    */
   private calculateDistanceScore(distance: number, context: GeographicContext): number {
-    const optimalDistance = this.calculateOptimalDistance({} as POIData, context);
-    const distanceDiff = Math.abs(distance - optimalDistance);
+    // Para a nova estratégia circular, usar distância base simples
+    const baseDistance = context.urbanDensity.level === 'rural' ? 200 : 150;
+    const distanceDiff = Math.abs(distance - baseDistance);
     
     // Score diminui conforme a distância se afasta do ótimo
-    const maxDeviation = optimalDistance * 0.5; // 50% de tolerância
+    const maxDeviation = baseDistance * 0.5; // 50% de tolerância
     const score = Math.max(0, 1 - (distanceDiff / maxDeviation));
     
     return score;

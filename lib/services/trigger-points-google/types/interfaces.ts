@@ -179,5 +179,12 @@ export interface TriggerPointPredictionResult {
     validatedPoints: number;
     finalPoints: number;
     fallbackUsed: boolean;
+    searchRadius: number;
+    elevationAnalysis?: {
+      poiElevation: number;
+      baseElevation: number;
+      elevationDiff: number;
+      isHighVisibility: boolean;
+    } | null;
   };
 }

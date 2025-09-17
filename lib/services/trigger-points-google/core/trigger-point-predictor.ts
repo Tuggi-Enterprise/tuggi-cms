@@ -65,9 +65,38 @@ export class CoreTriggerPointPredictor {
       }
       const boundary = boundaryResult.data;
       
-      // 3. Análise de ruas acessíveis
+      // NOVA LÓGICA: Se boundary é estimado (POI não encontrado), usar fallback SUPER SIMPLES
+      if (boundary.source === 'estimated') {
+        console.log('🎯 POI NOT FOUND (estimated boundary) - using SUPER SIMPLE fallback');
+        console.log(`📏 Estimated boundary: ${boundary.area.toFixed(0)}m² - POI likely small/irrelevant`);
+        console.log('🚀 Skipping complex street analysis - using direct lat/lng approach');
+        
+        const simpleFallbackPoints = await this.generateSuperSimpleFallbackTriggerPoints(poiData, context);
+        const processingTime = Date.now() - startTime;
+        
+        return {
+          triggerPoints: simpleFallbackPoints,
+          boundary,
+          context,
+          processingTime,
+          metadata: {
+            boundarySource: boundary.source,
+            boundaryConfidence: boundary.confidence,
+            streetCount: 0,
+            optimalPointsFound: 0,
+            validatedPoints: simpleFallbackPoints.length,
+            finalPoints: simpleFallbackPoints.length,
+            fallbackUsed: true,
+            searchRadius: 300, // Default fallback radius
+            elevationAnalysis: null
+          }
+        };
+      }
+
+      // 3. Análise de ruas acessíveis (apenas para POIs com boundary real)
       console.log('🛣️ Step 3: Finding accessible streets...');
-      const accessibleStreets = await this.streetAnalyzer.findAccessibleStreets(poiData, boundary, context);
+      const streetAnalysisResult = await this.streetAnalyzer.findAccessibleStreetsWithMetadata(poiData, boundary, context);
+      const accessibleStreets = streetAnalysisResult.streets;
       
       if (accessibleStreets.length === 0) {
         console.warn('⚠️ No accessible streets found, using fallback strategy');
@@ -86,7 +115,9 @@ export class CoreTriggerPointPredictor {
             optimalPointsFound: 0,
             validatedPoints: fallbackPoints.length,
             finalPoints: fallbackPoints.length,
-            fallbackUsed: true
+            fallbackUsed: true,
+            searchRadius: 300, // Default fallback radius
+            elevationAnalysis: null
           }
         };
       }
@@ -112,7 +143,9 @@ export class CoreTriggerPointPredictor {
             optimalPointsFound: 0,
             validatedPoints: fallbackPoints.length,
             finalPoints: fallbackPoints.length,
-            fallbackUsed: true
+            fallbackUsed: true,
+            searchRadius: streetAnalysisResult.searchRadius,
+            elevationAnalysis: streetAnalysisResult.elevationAnalysis
           }
         };
       }
@@ -152,7 +185,9 @@ export class CoreTriggerPointPredictor {
           optimalPointsFound: optimalPoints.length,
           validatedPoints: validatedPoints.length,
           finalPoints: optimizedPoints.length,
-          fallbackUsed: false
+          fallbackUsed: false,
+          searchRadius: streetAnalysisResult.searchRadius,
+          elevationAnalysis: streetAnalysisResult.elevationAnalysis
         }
       };
       
@@ -163,52 +198,287 @@ export class CoreTriggerPointPredictor {
   }
   
   /**
-   * Gera trigger points de fallback quando não há ruas acessíveis
+   * NOVO: Gera trigger points de fallback SUPER SIMPLES - apenas 1 TP na rua mais próxima
+   */
+  private async generateSuperSimpleFallbackTriggerPoints(
+    poiData: POIData,
+    context: GeographicContext
+  ): Promise<TriggerPoint[]> {
+    console.log('🎯 SUPER SIMPLE fallback for unfound POI - no complex validations');
+    console.log(`📍 POI: ${poiData.name} at ${poiData.location.lat.toFixed(6)}, ${poiData.location.lng.toFixed(6)}`);
+    
+    try {
+      // Estratégia ÚNICA: Encontrar rua mais próxima via Google Roads
+      console.log('🔍 Finding nearest street using Google Roads API (simple approach)...');
+      
+      const roadsResponse = await this.googleAPIs.getNearestRoads([poiData.location]);
+      
+      if (roadsResponse.success && roadsResponse.data?.snappedPoints && roadsResponse.data.snappedPoints.length > 0) {
+        const snappedPoint = roadsResponse.data.snappedPoints[0];
+        const streetLocation = {
+          lat: snappedPoint.location.latitude,
+          lng: snappedPoint.location.longitude
+        };
+        
+        const distance = this.calculateDistance(poiData.location, streetLocation);
+        console.log(`✅ Found nearest street at ${distance.toFixed(0)}m from POI`);
+        
+        // Criar APENAS 1 TP simples
+        const triggerPoint: TriggerPoint = {
+          id: 'simple_fallback_1',
+          location: streetLocation,
+          radius: 30, // Raio generoso para compensar imprecisão
+          expectedBearing: this.calculateBearing(streetLocation, poiData.location),
+          bearingThreshold: 90, // Muito tolerante
+          type: 'primary',
+          priority: 1,
+          confidence: 0.7, // Boa confiança - Google Roads é preciso
+          quality: 0.7,
+          street: {
+            id: snappedPoint.placeId || 'google_road',
+            type: 'primary',
+            coordinates: [streetLocation],
+            accessibility: 'public',
+            confidence: 0.8
+          },
+          distance,
+          generationMethod: 'google_apis',
+          contextData: context,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        
+        console.log(`✅ Created 1 SIMPLE TP at ${streetLocation.lat.toFixed(6)}, ${streetLocation.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
+        return [triggerPoint];
+        
+      } else {
+        console.warn('⚠️ Google Roads failed, creating minimal directional TP');
+        return this.createMinimalDirectionalTP(poiData, context);
+      }
+      
+    } catch (error) {
+      console.warn('Super simple fallback failed:', error);
+      return this.createMinimalDirectionalTP(poiData, context);
+    }
+  }
+
+  /**
+   * Cria 1 TP mínimo quando nem Google Roads funciona
+   */
+  private createMinimalDirectionalTP(poiData: POIData, context: GeographicContext): TriggerPoint[] {
+    console.log('🎯 Creating minimal directional TP (last resort)');
+    
+    const direction = 180; // Sul (direção comum de aproximação)
+    const distance = 30; // Muito próximo
+    const point = this.calculatePointAtDistance(poiData.location, distance, direction);
+    
+    const triggerPoint: TriggerPoint = {
+      id: 'minimal_fallback_1',
+      location: point,
+      radius: 35,
+      expectedBearing: 0, // Norte (olhando para o POI)
+      bearingThreshold: 120, // Muito tolerante
+      type: 'fallback',
+      priority: 1,
+      confidence: 0.5,
+      quality: 0.5,
+      street: {
+        id: 'estimated_access',
+        type: 'estimated',
+        coordinates: [point],
+        accessibility: 'public',
+        confidence: 0.4
+      },
+      distance,
+      generationMethod: 'google_apis',
+      contextData: context,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log(`✅ Created 1 minimal TP at ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)} (${distance}m south of POI)`);
+    return [triggerPoint];
+  }
+
+  /**
+   * Gera trigger points de fallback INTELIGENTE - apenas 1-2 TPs na rua mais próxima (LEGACY)
    */
   private async generateFallbackTriggerPoints(
     poiData: POIData, 
     boundary: any, 
     context: any
   ): Promise<TriggerPoint[]> {
-    console.log('🔄 Generating fallback trigger points...');
+    console.log('🎯 Generating SMART fallback trigger points for small/unfound POI...');
+    console.log(`📍 POI location: ${poiData.name} at ${poiData.location.lat.toFixed(6)}, ${poiData.location.lng.toFixed(6)}`);
     
-    // Criar trigger points básicos ao redor do POI
-    const fallbackPoints: TriggerPoint[] = [];
-    const baseRadius = 100; // metros
-    const directions = [0, 90, 180, 270]; // Norte, Leste, Sul, Oeste
-    
-    for (let i = 0; i < directions.length; i++) {
-      const direction = directions[i];
-      const point = this.calculatePointAtDistance(poiData.location, baseRadius, direction);
+    try {
+      // Estratégia 1: Encontrar a rua mais próxima do POI
+      const nearestStreet = await this.findNearestStreetToPOI(poiData.location);
       
-      const triggerPoint: TriggerPoint = {
-        id: `fallback_${i + 1}`,
-        location: point,
-        radius: 50,
-        expectedBearing: direction,
-        bearingThreshold: 45,
-        type: 'fallback',
-        priority: i + 1,
-        confidence: 0.3,
-        quality: 0.3,
-        street: {
-          id: `fallback_street_${i + 1}`,
-          type: 'fallback',
-          coordinates: [point],
-          accessibility: 'public',
-          confidence: 0.3
-        },
-        distance: baseRadius,
-        generationMethod: 'google_apis',
-        contextData: context,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
+      if (nearestStreet && nearestStreet.coordinates.length > 0) {
+        console.log(`🛣️ Found nearest street: ${nearestStreet.id || 'unnamed'}`);
+        return this.createMinimalStreetTriggerPoints(poiData, nearestStreet, context);
+      }
       
-      fallbackPoints.push(triggerPoint);
+      // Estratégia 2: Se não encontrou rua, criar apenas 1 TP na direção da rua principal
+      console.log('⚠️ No nearby street found, creating single directional TP');
+      return this.createSingleDirectionalTP(poiData, context);
+      
+    } catch (error) {
+      console.warn('Smart fallback failed, using minimal fallback:', error);
+      return this.createSingleDirectionalTP(poiData, context);
     }
+  }
+
+  /**
+   * NOVA: Encontrar a rua mais próxima do POI usando Google Roads API
+   */
+  private async findNearestStreetToPOI(poiLocation: { lat: number; lng: number }): Promise<any | null> {
+    try {
+      console.log('🔍 Searching for nearest street using Google Roads API...');
+      
+      const roadsResponse = await this.googleAPIs.getNearestRoads([poiLocation]);
+      
+      if (roadsResponse.success && roadsResponse.data?.snappedPoints && roadsResponse.data.snappedPoints.length > 0) {
+        const snappedPoint = roadsResponse.data.snappedPoints[0];
+        
+        console.log(`✅ Found nearest road point: ${snappedPoint.location.latitude.toFixed(6)}, ${snappedPoint.location.longitude.toFixed(6)}`);
+        
+        return {
+          id: snappedPoint.placeId || 'google_road',
+          type: 'primary',
+          coordinates: [{
+            lat: snappedPoint.location.latitude,
+            lng: snappedPoint.location.longitude
+          }],
+          accessibility: 'public',
+          confidence: 0.8
+        };
+      }
+      
+      console.warn('No roads found near POI');
+      return null;
+      
+    } catch (error) {
+      console.warn('Error finding nearest street:', error);
+      return null;
+    }
+  }
+
+  /**
+   * NOVA: Criar apenas 1-2 TPs na rua encontrada
+   */
+  private createMinimalStreetTriggerPoints(
+    poiData: POIData,
+    street: any,
+    context: any
+  ): TriggerPoint[] {
+    console.log('🎯 Creating 1-2 minimal trigger points on nearest street');
     
-    return fallbackPoints;
+    const streetPoint = street.coordinates[0];
+    const distanceToPOI = this.calculateDistance(poiData.location, streetPoint);
+    
+    console.log(`📏 Distance from POI to street: ${distanceToPOI.toFixed(0)}m`);
+    
+    // Criar apenas 1 TP principal na rua mais próxima
+    const triggerPoint: TriggerPoint = {
+      id: 'smart_fallback_1',
+      location: streetPoint,
+      radius: 25, // Raio pequeno para POI pequeno
+      expectedBearing: this.calculateBearing(streetPoint, poiData.location),
+      bearingThreshold: 60, // Mais tolerante
+      type: 'primary',
+      priority: 1,
+      confidence: 0.6, // Melhor confiança que fallback básico
+      quality: 0.6,
+      street: {
+        id: street.id,
+        type: street.type,
+        coordinates: street.coordinates,
+        accessibility: street.accessibility,
+        confidence: street.confidence
+      },
+      distance: distanceToPOI,
+        generationMethod: 'google_apis',
+      contextData: context,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log(`✅ Created 1 smart fallback TP at ${streetPoint.lat.toFixed(6)}, ${streetPoint.lng.toFixed(6)}`);
+    return [triggerPoint];
+  }
+
+  /**
+   * NOVA: Criar apenas 1 TP direcional quando não há rua próxima
+   */
+  private createSingleDirectionalTP(poiData: POIData, context: any): TriggerPoint[] {
+    console.log('🎯 Creating single directional TP for isolated POI');
+    
+    // Criar 1 TP a 50m na direção mais provável (sul - direção de aproximação comum)
+    const direction = 180; // Sul
+    const distance = 50; // metros
+    const point = this.calculatePointAtDistance(poiData.location, distance, direction);
+    
+    const triggerPoint: TriggerPoint = {
+      id: 'minimal_fallback_1',
+      location: point,
+      radius: 30,
+      expectedBearing: 0, // Norte (olhando para o POI)
+      bearingThreshold: 90, // Muito tolerante
+      type: 'fallback',
+      priority: 1,
+      confidence: 0.4,
+      quality: 0.4,
+      street: {
+        id: 'estimated_access',
+        type: 'estimated',
+        coordinates: [point],
+        accessibility: 'public',
+        confidence: 0.3
+      },
+      distance,
+      generationMethod: 'google_apis',
+      contextData: context,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log(`✅ Created 1 minimal TP at ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)} (${distance}m south of POI)`);
+    return [triggerPoint];
+  }
+
+  /**
+   * Calcula distância entre dois pontos
+   */
+  private calculateDistance(point1: { lat: number; lng: number }, point2: { lat: number; lng: number }): number {
+    const R = 6371e3; // Raio da Terra em metros
+    const φ1 = point1.lat * Math.PI / 180;
+    const φ2 = point2.lat * Math.PI / 180;
+    const Δφ = (point2.lat - point1.lat) * Math.PI / 180;
+    const Δλ = (point2.lng - point1.lng) * Math.PI / 180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+              Math.cos(φ1) * Math.cos(φ2) *
+              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+    return R * c;
+  }
+
+  /**
+   * Calcula bearing entre dois pontos
+   */
+  private calculateBearing(from: { lat: number; lng: number }, to: { lat: number; lng: number }): number {
+    const φ1 = from.lat * Math.PI / 180;
+    const φ2 = to.lat * Math.PI / 180;
+    const Δλ = (to.lng - from.lng) * Math.PI / 180;
+
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+
+    const θ = Math.atan2(y, x);
+    return (θ * 180 / Math.PI + 360) % 360;
   }
   
   /**
