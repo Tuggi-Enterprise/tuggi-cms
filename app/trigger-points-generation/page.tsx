@@ -10,6 +10,7 @@ interface POI {
   id: string;
   name: string;
   city: string;
+  state?: string;
   country: string;
   google_place_id?: string;
   osm_category?: string;
@@ -48,6 +49,7 @@ export default function TriggerPointsGenerationPage() {
   
   // Form state
   const [country, setCountry] = useState('');
+  const [state, setState] = useState('');
   const [city, setCity] = useState('');
   const [processingType, setProcessingType] = useState('without_trigger_points');
   const [limit, setLimit] = useState(50);
@@ -55,8 +57,10 @@ export default function TriggerPointsGenerationPage() {
   
   // Filter states
   const [availableCountries, setAvailableCountries] = useState<Array<{country: string, cityCount: number, totalPOIs: number}>>([]);
+  const [availableStates, setAvailableStates] = useState<Array<{value: string, label: string}>>([]);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
   const [isLoadingCountries, setIsLoadingCountries] = useState(false);
+  const [isLoadingStates, setIsLoadingStates] = useState(false);
   const [isLoadingCities, setIsLoadingCities] = useState(false);
   
   // Data state
@@ -90,8 +94,34 @@ export default function TriggerPointsGenerationPage() {
     }
   }, [country]);
 
-  // Load available cities for selected country
-  const loadCities = async (selectedCountry: string) => {
+  // Load available states for selected country
+  const loadStates = async (selectedCountry: string) => {
+    if (!selectedCountry) {
+      setAvailableStates([]);
+      return;
+    }
+
+    setIsLoadingStates(true);
+    try {
+      const response = await fetch(`/api/states?country=${encodeURIComponent(selectedCountry)}`);
+      const result = await response.json();
+      
+      if (result.success) {
+        setAvailableStates(result.data || []);
+      } else {
+        console.error('Failed to load states:', result.error);
+        setAvailableStates([]);
+      }
+    } catch (error) {
+      console.error('Error loading states:', error);
+      setAvailableStates([]);
+    } finally {
+      setIsLoadingStates(false);
+    }
+  };
+
+  // Load available cities for selected country and state
+  const loadCities = async (selectedCountry: string, selectedState?: string) => {
     if (!selectedCountry) {
       setAvailableCities([]);
       return;
@@ -99,7 +129,12 @@ export default function TriggerPointsGenerationPage() {
 
     setIsLoadingCities(true);
     try {
-      const response = await fetch(`/api/locations/countries-cities?country=${encodeURIComponent(selectedCountry)}`);
+      let url = `/api/locations/countries-cities?country=${encodeURIComponent(selectedCountry)}`;
+      if (selectedState) {
+        url += `&state=${encodeURIComponent(selectedState)}`;
+      }
+      
+      const response = await fetch(url);
       const result = await response.json();
       
       if (result.success) {
@@ -124,6 +159,7 @@ export default function TriggerPointsGenerationPage() {
         limit: limit.toString(),
         processing_type: processingType,
         ...(country && { country }),
+        ...(state && { state }),
         ...(city && { city })
       });
 
@@ -295,20 +331,31 @@ export default function TriggerPointsGenerationPage() {
     loadCountries();
   }, [loadCountries]);
 
-  // Load cities when country changes
+  // Load states when country changes
   useEffect(() => {
     if (country) {
-      loadCities(country);
+      loadStates(country);
+      setState(''); // Reset state when country changes
       setCity(''); // Reset city when country changes
     }
   }, [country]);
+
+  // Load cities when country or state changes
+  useEffect(() => {
+    if (country) {
+      loadCities(country, state);
+      if (state) {
+        setCity(''); // Reset city when state changes
+      }
+    }
+  }, [country, state]);
 
   // Auto-load POIs when filters change
   useEffect(() => {
     if (country) {
       loadPOIs();
     }
-  }, [country, city, processingType, limit]);
+  }, [country, state, city, processingType, limit]);
 
   return (
     <div className="p-6">
@@ -359,6 +406,26 @@ export default function TriggerPointsGenerationPage() {
                     {availableCountries.map(({country: countryName, totalPOIs}) => (
                       <option key={countryName} value={countryName}>
                         {countryName} ({totalPOIs} POIs)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* State Filter */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    State
+                  </label>
+                  <select
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                    disabled={isLoadingStates || !country}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
+                  >
+                    <option value="">All States</option>
+                    {availableStates.map(({value, label}) => (
+                      <option key={value} value={value}>
+                        {label}
                       </option>
                     ))}
                   </select>
@@ -620,7 +687,7 @@ export default function TriggerPointsGenerationPage() {
                                 </div>
                                 <div className="flex items-center text-xs text-gray-500 dark:text-gray-400 mt-1">
                                   <MapPin className="h-3 w-3 mr-1" />
-                                  <span>{poi.city}, {poi.country}</span>
+                                  <span>{poi.city}{poi.state ? `, ${poi.state}` : ''}, {poi.country}</span>
                                   {poi.trigger_points_count !== undefined && (
                                     <span className="ml-2 px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded">
                                       {poi.trigger_points_count} TPs

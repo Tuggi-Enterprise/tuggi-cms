@@ -718,7 +718,7 @@ export class TriggerPointsService {
         auto_status: tp.auto_status || 'review',
         manual_status: 'pending',
         final_status: tp.auto_status || 'pending',
-        score_factors: tp.score_factors || {},
+        score_factors: tp.score_factors || null,
         generation_method: 'osm_enhanced',
         boundary_source: boundarySource,
         created_at: new Date().toISOString()

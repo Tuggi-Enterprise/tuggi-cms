@@ -15,6 +15,7 @@ A comprehensive Content Management System for managing Points of Interest (POIs)
 - ✅ **Content Approval**: Workflow for approving/rejecting POIs
 - 🤖 **AI-Powered Descriptions**: Generate rich cultural and historical descriptions using Google Gemini 1.5 Pro
 - 🎧 **Audio Narration**: Generate optimized TTS audio narration with voice selection, speed control, and Portuguese text preprocessing
+- 🎯 **Trigger Points System**: Intelligent geolocation-based audio activation points with boundary detection and street analysis
 - 🚀 **Modular Architecture**: Serverless processing with Edge Functions for scalability
 - 📊 **Quality Audit System**: Automated quality scoring and audit trails
 - 🔄 **RAG Integration**: Dynamic source retrieval and content enrichment

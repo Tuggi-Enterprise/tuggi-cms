@@ -233,7 +233,7 @@ export async function POST(request: NextRequest) {
               reasoning: tp.reasoning,
               radius_meters: tp.radius_meters || 20,
               expected_bearing: tp.expected_bearing,
-              score_factors: tp.score_factors,
+              score_factors: tp.score_factors || null,
               generation_method: tp.generation_method,
               final_status: tp.final_status
             }))
@@ -298,9 +298,13 @@ export async function POST(request: NextRequest) {
               auto_status: tp.auto_status,
               manual_status: 'pending',
               final_status: tp.final_status,
-              score_factors: tp.score_factors,
+              score_factors: tp.score_factors || null,
               generation_method: tp.generation_method,
-              validation_notes: tp.reasoning
+              validation_notes: tp.reasoning,
+              access: 'both', // Default access type
+              name: tp.name || null,
+              description: tp.description || tp.reasoning || null,
+              direction: tp.direction || null
             }))
 
             const { error: insertError } = await supabase

@@ -12,16 +12,24 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const country = searchParams.get('country');
+    const state = searchParams.get('state');
 
     if (country) {
-      // Get cities for a specific country
-      const { data: cities, error } = await supabase
+      // Get cities for a specific country and optionally state
+      let query = supabase
         .schema('core')
         .from('attractions')
         .select('city')
         .eq('country', country)
         .not('city', 'is', null)
         .order('city');
+
+      // Add state filter if provided
+      if (state) {
+        query = query.eq('state', state);
+      }
+
+      const { data: cities, error } = await query;
 
       if (error) {
         console.error('Error fetching cities:', error);

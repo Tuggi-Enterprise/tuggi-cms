@@ -37,6 +37,10 @@ export interface TriggerPointSaveData {
   validation_notes?: string
   created_by?: string
   updated_by?: string
+  access?: 'walk' | 'car' | 'both'
+  name?: string
+  description?: string
+  direction?: 'front' | 'right' | 'left' | 'back'
 }
 
 export interface SaveResult {
@@ -64,12 +68,17 @@ export class TriggerPointSavingService {
       auto_status: tp.auto_status,
       manual_status: tp.manual_status || 'pending',
       final_status: tp.final_status || this.calculateFinalStatus(tp.auto_status, tp.manual_status),
-      score_factors: tp.score_factors,
+      score_factors: tp.score_factors || null,
       generation_method: tp.generation_method,
       validation_notes: tp.validation_notes,
-      created_by: tp.created_by,
-      updated_by: tp.updated_by,
-      created_at: new Date().toISOString()
+      access: tp.access || 'both',
+      name: tp.name || null,
+      description: tp.description || null,
+      direction: tp.direction || null,
+      created_at: new Date().toISOString(),
+      // Only include user tracking fields if they exist
+      ...(tp.created_by && { created_by: tp.created_by }),
+      ...(tp.updated_by && { updated_by: tp.updated_by })
     }
   }
 
@@ -177,7 +186,7 @@ export class TriggerPointSavingService {
         reasoning: tp.reasoning || tp.validation_notes,
         radius_meters: tp.radius_meters || 20,
         expected_bearing: tp.expected_bearing,
-        score_factors: tp.score_factors,
+        score_factors: tp.score_factors || null,
         generation_method: tp.generation_method || `auto_${boundarySource}`,
         final_status: tp.final_status || tp.auto_status
       }))
@@ -247,7 +256,7 @@ export class TriggerPointSavingService {
         confidence: tp.confidence,
         auto_status: tp.auto_status,
         final_status: tp.final_status,
-        score_factors: tp.score_factors,
+        score_factors: tp.score_factors || null,
         generation_method: tp.generation_method,
         validation_notes: tp.reasoning
       }))

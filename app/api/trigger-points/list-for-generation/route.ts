@@ -12,12 +12,14 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const country = searchParams.get('country')
+    const state = searchParams.get('state')
     const city = searchParams.get('city')
     const processingType = searchParams.get('processing_type') || 'without_trigger_points'
     const limit = parseInt(searchParams.get('limit') || '50')
 
     console.log('🔍 Loading POIs for trigger point generation:', {
       country,
+      state,
       city,
       processingType,
       limit
@@ -31,6 +33,7 @@ export async function GET(request: NextRequest) {
         id,
         name,
         city,
+        state,
         country,
         google_place_id,
         osm_category,
@@ -48,6 +51,11 @@ export async function GET(request: NextRequest) {
     // Apply country filter
     if (country) {
       query = query.eq('country', country)
+    }
+
+    // Apply state filter
+    if (state) {
+      query = query.eq('state', state)
     }
 
     // Apply city filter
@@ -95,6 +103,7 @@ export async function GET(request: NextRequest) {
       id: poi.id,
       name: poi.name,
       city: poi.city,
+      state: poi.state,
       country: poi.country,
       google_place_id: poi.google_place_id,
       osm_category: poi.osm_category,
@@ -153,6 +162,7 @@ export async function GET(request: NextRequest) {
       total: processedPois.length,
       filters: {
         country,
+        state,
         city,
         processing_type: processingType,
         limit
