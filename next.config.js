@@ -1,14 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   swcMinify: false,
-  // Disable SWC completely to avoid platform issues
-  experimental: {
-    forceSwcTransforms: false,
-  },
-  // Use Babel instead of SWC
-  compiler: {
-    removeConsole: false,
-  },
   images: {
     remotePatterns: [
       {

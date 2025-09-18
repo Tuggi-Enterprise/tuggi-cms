@@ -146,7 +146,7 @@ export const POST = async function(request: NextRequest) {
           voice: selectedVoice,
           speed: selectedSpeed
         })
-        audioBuffer = googleResult.audioBuffer
+        audioBuffer = googleResult.audioBuffer as unknown as ArrayBuffer
         mimeType = googleResult.mimeType || 'audio/mpeg'
       } catch (err) {
         // Fallback to OpenAI if Google fails
