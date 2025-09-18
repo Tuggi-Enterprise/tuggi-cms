@@ -2,6 +2,7 @@
 
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
 import { calculateDistance, calculateBearing, calculateOptimalRadius, calculateDistanceToBoundary, isPointInPolygon } from '../utils/calculations';
+import { ElevationAnalysisService } from '../services/elevation-service';
 
 export class OptimalPointCalculator {
   
@@ -44,7 +45,7 @@ export class OptimalPointCalculator {
   ): Promise<TriggerPointCandidate | null> {
     try {
       // Calcular múltiplas distâncias ótimas baseadas no contexto (CIRCULAR STRATEGY)
-      const optimalDistances = this.calculateOptimalDistances(poiData, context, boundary);
+        const optimalDistances = await this.calculateOptimalDistances(poiData, context, boundary);
       
       console.log(`🎯 Testing ${optimalDistances.length} distance ranges for street ${street.id}`);
       
@@ -110,13 +111,13 @@ export class OptimalPointCalculator {
   /**
    * Calcula distância ótima baseada no contexto
    */
-  private calculateOptimalDistances(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): number[] {
+  private async calculateOptimalDistances(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): Promise<number[]> {
     console.log(`🎯 Calculating optimal TP distances from boundary for ${poiData.name}...`);
     
     // 🏔️ ESTRATÉGIA CIRCULAR PARA ALTA ELEVAÇÃO (baseada no sistema legado)
     if (boundary?.elevation && boundary.elevation.center > 1000) {
       const poiElevation = boundary.elevation.center;
-      const baseElevation = this.estimateRegionalBaseElevation(boundary.center, context);
+      const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
       const elevationDiff = poiElevation - baseElevation;
       
       console.log(`🏔️ HIGH ELEVATION LANDMARK DETECTED: ${poiElevation.toFixed(0)}m (diff: ${elevationDiff.toFixed(0)}m)`);
@@ -184,22 +185,6 @@ export class OptimalPointCalculator {
   }
 
   // Função auxiliar para estimar elevação base regional
-  private estimateRegionalBaseElevation(location: { lat: number; lng: number }, context: GeographicContext): number {
-    // Lógica simplificada - poderia ser mais sofisticada
-    let baseElevation = 500; // Default global average
-    
-    // Ajustes regionais básicos
-    if (location.lat > -30 && location.lat < -10 && location.lng > -75 && location.lng < -30) {
-      // Brasil
-      if (location.lng > -50) {
-        baseElevation = 200; // Costa brasileira
-      } else if (location.lat > -25 && location.lat < -20) {
-        baseElevation = 700; // Região de São Paulo
-      }
-    }
-    
-    return baseElevation;
-  }
   
   /**
    * NOVO: Encontra ponto na rua com distância específica DO BOUNDARY

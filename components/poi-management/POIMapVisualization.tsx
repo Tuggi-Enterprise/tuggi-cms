@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import { MarkerClusterer } from '@googlemaps/markerclusterer'
 import { 
@@ -61,13 +60,17 @@ interface POI {
   active_trigger_points_count: number
 }
 
-// Saved Polygon interface
-interface SavedPolygon {
-  id: string
+// City Boundary interface
+interface CityBoundary {
+  osm_id: number
   name: string
-  paths: any // GeoJSON data
-  country_name?: string
-  created_at: string
+  name_en: string | null
+  boundary: string | null
+  admin_level: number | null
+  geojson: any // GeoJSON object
+  coordinates?: Array<{lat: number, lng: number}> // Parsed coordinates
+  validation_status?: 'validated' | 'unvalidated' | 'fallback' | 'failed'
+  validation_message?: string
 }
 
 // POI status for color coding
@@ -88,11 +91,12 @@ interface POIMapVisualizationProps {
   // Callbacks
   onPOIClick: (poi: POI) => void
   onFiltersChange?: (bounds: google.maps.LatLngBounds) => void
+  onPOIUpdated?: (updatedPOI: POI) => void
+  onPOIDeleted?: (poiId: string) => void
   
   // Map settings
   height?: string
   className?: string
-  showPolygons?: boolean
   initialCenter?: { lat: number; lng: number }
   initialZoom?: number
 }
@@ -158,7 +162,8 @@ function POIMapContent({
   triggerPointsFilter = 'all',
   onPOIClick,
   onFiltersChange,
-  showPolygons = true,
+  onPOIUpdated,
+  onPOIDeleted,
   initialCenter = { lat: 39.8283, lng: -98.5795 }, // Center of USA
   initialZoom = 4
 }: POIMapVisualizationProps) {
@@ -166,18 +171,18 @@ function POIMapContent({
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const markerClustererRef = useRef<MarkerClusterer | null>(null)
   const markersRef = useRef<Map<string, google.maps.Marker>>(new Map())
-  const polygonsRef = useRef<google.maps.Polygon[]>([])
+  const boundariesRef = useRef<google.maps.Polygon[]>([])
   const boundsChangedTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  
-  const supabase = useSupabaseClient()
   
   // State
   const [isLoading, setIsLoading] = useState(true)
   const [pois, setPois] = useState<POI[]>([])
-  const [savedPolygons, setSavedPolygons] = useState<SavedPolygon[]>([])
   const [selectedPOI, setSelectedPOI] = useState<POI | null>(null)
   const [showClusters, setShowClusters] = useState(true)
   const [poiCount, setPOICount] = useState({ total: 0, visible: 0 })
+  const [cityBoundaries, setCityBoundaries] = useState<CityBoundary[]>([])
+  const [isLoadingBoundaries, setIsLoadingBoundaries] = useState(false)
+  const [isAutoFitting, setIsAutoFitting] = useState(false)
   
   // Map state preservation
   const [mapState, setMapState] = useState<{
@@ -200,6 +205,8 @@ function POIMapContent({
       fullscreenControl: true,
       zoomControl: true,
       mapTypeId: google.maps.MapTypeId.ROADMAP,
+      // Disable automatic map updates that could reset position
+      gestureHandling: 'greedy',
       styles: [
         {
           featureType: 'poi',
@@ -244,7 +251,10 @@ function POIMapContent({
   // Fetch POIs using pagination to overcome Supabase 1000 limit
   const fetchPOIs = useCallback(async () => {
     try {
-      setIsLoading(true)
+      // Only show loading if we don't have any POIs yet
+      if (pois.length === 0) {
+        setIsLoading(true)
+      }
       
       const baseParams = new URLSearchParams()
       
@@ -318,29 +328,50 @@ function POIMapContent({
       setPois([])
       setPOICount({ total: 0, visible: 0 })
     } finally {
-      setIsLoading(false)
+      // Only hide loading if we were showing it
+      if (pois.length === 0) {
+        setIsLoading(false)
+      }
     }
-  }, [searchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, triggerPointsFilter])
+  }, [searchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, triggerPointsFilter, pois.length])
 
-  // Fetch saved polygons
-  const fetchSavedPolygons = useCallback(async () => {
+  // Fetch city boundaries
+  const fetchCityBoundaries = useCallback(async () => {
+    if (!cityFilter) {
+      setCityBoundaries([])
+      return
+    }
+
+    setIsLoadingBoundaries(true)
     try {
-      const { data, error } = await supabase
-        .schema('core')
-        .from('saved_polygons')
-        .select('*')
-        .order('created_at', { ascending: false })
-
-      if (error) {
-        console.error('Error fetching saved polygons:', error)
-        return
+      const params = new URLSearchParams()
+      params.set('city', cityFilter)
+      if (countryFilter) {
+        params.set('country', countryFilter)
+      }
+      if (stateFilter) {
+        params.set('state', stateFilter)
       }
 
-      setSavedPolygons(data || [])
+      console.log('🏙️ Loading city boundaries for:', cityFilter)
+      
+      const response = await fetch(`/api/city-boundaries?${params.toString()}`)
+      const result = await response.json()
+      
+      if (result.success) {
+        setCityBoundaries(result.data || [])
+        console.log(`✅ City boundaries loaded: ${result.data?.length || 0} boundaries`)
+      } else {
+        console.error('Failed to load city boundaries:', result.error)
+        setCityBoundaries([])
+      }
     } catch (error) {
-      console.error('Error fetching saved polygons:', error)
+      console.error('Error loading city boundaries:', error)
+      setCityBoundaries([])
+    } finally {
+      setIsLoadingBoundaries(false)
     }
-  }, [supabase])
+  }, [cityFilter, countryFilter, stateFilter])
 
   // Filter POIs based on current filters
   const filteredPOIs = useMemo(() => {
@@ -512,71 +543,114 @@ function POIMapContent({
 
   }, [filteredPOIs, selectedPOI, showClusters, onPOIClick])
 
-  // Update polygons
-  const updatePolygons = useCallback(() => {
-    if (!mapInstanceRef.current || !showPolygons) return
+  // Update city boundaries on map
+  const updateCityBoundaries = useCallback(() => {
+    if (!mapInstanceRef.current) return
 
-    // Clear existing polygons
-    polygonsRef.current.forEach(polygon => polygon.setMap(null))
-    polygonsRef.current = []
+    // Clear existing boundaries
+    boundariesRef.current.forEach(boundary => boundary.setMap(null))
+    boundariesRef.current = []
 
-    // Add saved polygons
-    savedPolygons.forEach((savedPolygon, index) => {
+    // Add new boundaries
+    cityBoundaries.forEach((boundary, index) => {
       try {
-        const geojson = savedPolygon.paths
-        if (geojson && geojson.type === 'Polygon' && geojson.coordinates && geojson.coordinates[0]) {
-          const path = geojson.coordinates[0].map((coord: number[]) => ({
-            lat: coord[1],
-            lng: coord[0]
-          }))
+        let paths: google.maps.LatLng[] = []
 
-          const colors = ['#8B5CF6', '#F59E0B', '#EF4444', '#10B981', '#3B82F6', '#F97316']
-          const color = colors[index % colors.length]
-
-          const polygon = new google.maps.Polygon({
-            paths: path,
-            fillColor: color,
-            fillOpacity: 0.1,
-            strokeColor: color,
-            strokeWeight: 2,
-            strokeOpacity: 0.5
-          })
-
-          polygon.setMap(mapInstanceRef.current!)
-          polygonsRef.current.push(polygon)
-
-          // Add info window for polygon
-          const bounds = new google.maps.LatLngBounds()
-          path.forEach((point: { lat: number; lng: number }) => bounds.extend(point))
-          const center = bounds.getCenter()
-
-          const infoWindow = new google.maps.InfoWindow({
-            content: `
-              <div class="p-2">
-                <h4 class="font-semibold" style="color: ${color};">📍 ${savedPolygon.name}</h4>
-                ${savedPolygon.country_name ? `<p class="text-sm text-gray-600">${savedPolygon.country_name}</p>` : ''}
-                <p class="text-xs text-gray-500">Created: ${new Date(savedPolygon.created_at).toLocaleDateString()}</p>
-              </div>
-            `,
-            position: center
-          })
-
-          polygon.addListener('click', () => {
-            infoWindow.open(mapInstanceRef.current!)
-          })
+        // Use pre-parsed coordinates if available (from LocationResolver)
+        if (boundary.coordinates && boundary.coordinates.length > 0) {
+          paths = boundary.coordinates.map(coord => 
+            new google.maps.LatLng(coord.lat, coord.lng)
+          )
+        } else if (boundary.geojson && boundary.geojson.coordinates) {
+          // Fallback to parsing GeoJSON geometry
+          if (boundary.geojson.type === 'Polygon') {
+            // For Polygon, use the first ring (exterior ring)
+            paths = boundary.geojson.coordinates[0].map((coord: number[]) => 
+              new google.maps.LatLng(coord[1], coord[0])
+            )
+          } else if (boundary.geojson.type === 'MultiPolygon') {
+            // For MultiPolygon, use the first polygon's first ring
+            paths = boundary.geojson.coordinates[0][0].map((coord: number[]) => 
+              new google.maps.LatLng(coord[1], coord[0])
+            )
+          }
         }
+
+        if (paths.length === 0) return
+
+        // Create polygon with city boundary styling
+        const polygon = new google.maps.Polygon({
+          paths: paths,
+          fillColor: '#3B82F6', // Blue color
+          fillOpacity: 0.1,
+          strokeColor: '#1E40AF', // Darker blue for border
+          strokeWeight: 2,
+          strokeOpacity: 0.8,
+          clickable: true
+        })
+
+        polygon.setMap(mapInstanceRef.current!)
+        boundariesRef.current.push(polygon)
+
+        // Add info window for boundary
+        const bounds = new google.maps.LatLngBounds()
+        paths.forEach(point => bounds.extend(point))
+        const center = bounds.getCenter()
+
+        const validationIcon = boundary.validation_status === 'validated' ? '✅' : 
+                               boundary.validation_status === 'fallback' ? '⚠️' : 
+                               boundary.validation_status === 'failed' ? '❌' : '🏙️'
+        
+        const validationColor = boundary.validation_status === 'validated' ? 'text-green-600' : 
+                               boundary.validation_status === 'fallback' ? 'text-yellow-600' : 
+                               boundary.validation_status === 'failed' ? 'text-red-600' : 'text-blue-600'
+
+        const infoWindow = new google.maps.InfoWindow({
+          content: `
+            <div class="p-3">
+              <h4 class="font-semibold ${validationColor} mb-1">${validationIcon} ${boundary.name}</h4>
+              ${boundary.name_en ? `<p class="text-sm text-gray-600 mb-1">${boundary.name_en}</p>` : ''}
+              <p class="text-xs text-gray-500">Admin Level: ${boundary.admin_level || 'N/A'}</p>
+              <p class="text-xs text-gray-500">OSM ID: ${boundary.osm_id}</p>
+              ${boundary.validation_message ? `<p class="text-xs ${validationColor} mt-2">${boundary.validation_message}</p>` : ''}
+            </div>
+          `,
+          position: center
+        })
+
+        polygon.addListener('click', () => {
+          infoWindow.open(mapInstanceRef.current!)
+        })
+
       } catch (error) {
-        console.error('Error rendering polygon:', savedPolygon.name, error)
+        console.error('Error rendering city boundary:', boundary.name, error)
       }
     })
-  }, [savedPolygons, showPolygons])
+
+    console.log(`✅ Rendered ${boundariesRef.current.length} city boundaries`)
+  }, [cityBoundaries])
 
   // Toggle clustering
   const toggleClustering = useCallback(() => {
     setShowClusters(prev => !prev)
   }, [])
 
-  // Fit map to show all POIs
+  // Update POI in local state
+  const updatePOIInState = useCallback((updatedPOI: POI) => {
+    setPois(prevPois => 
+      prevPois.map(poi => 
+        poi.id === updatedPOI.id ? updatedPOI : poi
+      )
+    )
+  }, [])
+
+  // Remove POI from local state
+  const removePOIFromState = useCallback((poiId: string) => {
+    setPois(prevPois => prevPois.filter(poi => poi.id !== poiId))
+    setSelectedPOI(prev => prev?.id === poiId ? null : prev)
+  }, [])
+
+  // Fit map to show all POIs (only when explicitly requested)
   const fitMapToPOIs = useCallback(() => {
     if (!mapInstanceRef.current || filteredPOIs.length === 0) return
 
@@ -602,6 +676,59 @@ function POIMapContent({
     }, 100)
   }, [filteredPOIs])
 
+  // Auto fit map when POIs change (after filter changes)
+  const autoFitMapToPOIs = useCallback(() => {
+    if (!mapInstanceRef.current) return
+
+    setIsAutoFitting(true)
+    
+    const bounds = new google.maps.LatLngBounds()
+    let hasBounds = false
+
+    // Priority 1: Use city boundaries if available
+    if (cityBoundaries.length > 0) {
+      cityBoundaries.forEach(boundary => {
+        if (boundary.coordinates && boundary.coordinates.length > 0) {
+          boundary.coordinates.forEach(coord => {
+            bounds.extend(new google.maps.LatLng(coord.lat, coord.lng))
+            hasBounds = true
+          })
+        }
+      })
+    }
+
+    // Priority 2: Fallback to POIs if no boundaries or boundaries don't have coordinates
+    if (!hasBounds && filteredPOIs.length > 0) {
+      filteredPOIs.forEach(poi => {
+        if (poi.coordinates?.latitude && poi.coordinates?.longitude) {
+          bounds.extend(new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude))
+          hasBounds = true
+        }
+      })
+    }
+
+    // Only fit bounds if we have something to show
+    if (hasBounds) {
+      // Add some padding for better visualization
+      mapInstanceRef.current.fitBounds(bounds, { left: 50, top: 50, right: 50, bottom: 50 })
+      
+      // Save the new state after fitting bounds
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          const center = mapInstanceRef.current!.getCenter()!
+          setMapState(prev => ({
+            ...prev,
+            center: { lat: center.lat(), lng: center.lng() },
+            zoom: mapInstanceRef.current!.getZoom()!
+          }))
+        }
+        setIsAutoFitting(false)
+      }, 100)
+    } else {
+      setIsAutoFitting(false)
+    }
+  }, [filteredPOIs, cityBoundaries])
+
   // Initialize map and fetch data
   useEffect(() => {
     if (window.google && window.google.maps && !mapInstanceRef.current) {
@@ -611,13 +738,10 @@ function POIMapContent({
 
   useEffect(() => {
     if (mapInstanceRef.current) {
-      // Only fetch POIs if we don't have any yet
-      if (pois.length === 0) {
-        fetchPOIs()
-      }
-      fetchSavedPolygons()
+      // Always fetch POIs when filters change, but don't reinitialize map
+      fetchPOIs()
     }
-  }, [fetchPOIs, fetchSavedPolygons, pois.length, countryFilter, stateFilter, cityFilter])
+  }, [fetchPOIs])
 
   useEffect(() => {
     if (mapInstanceRef.current) {
@@ -625,18 +749,40 @@ function POIMapContent({
     }
   }, [updateMarkers])
 
+  // Auto fit map when filtered POIs or city boundaries change (after filter changes)
   useEffect(() => {
-    if (mapInstanceRef.current) {
-      updatePolygons()
+    if (mapInstanceRef.current && (filteredPOIs.length > 0 || cityBoundaries.length > 0)) {
+      // Small delay to ensure markers and boundaries are updated first
+      const timer = setTimeout(() => {
+        autoFitMapToPOIs()
+      }, 200) // Increased delay to ensure boundaries are rendered
+      
+      return () => clearTimeout(timer)
     }
-  }, [updatePolygons])
+  }, [filteredPOIs, cityBoundaries, autoFitMapToPOIs])
 
-  // Fetch POIs when filters change
   useEffect(() => {
     if (mapInstanceRef.current) {
-      fetchPOIs()
+      updateCityBoundaries()
     }
-  }, [fetchPOIs])
+  }, [updateCityBoundaries])
+
+  // Fetch city boundaries when city filter changes
+  useEffect(() => {
+    if (mapInstanceRef.current) {
+      fetchCityBoundaries()
+    }
+  }, [fetchCityBoundaries])
+
+  // Handle POI updates from parent component
+  const handlePOIUpdate = useCallback((updatedPOI: POI) => {
+    updatePOIInState(updatedPOI)
+  }, [updatePOIInState])
+
+  // Handle POI deletions from parent component
+  const handlePOIDelete = useCallback((poiId: string) => {
+    removePOIFromState(poiId)
+  }, [removePOIFromState])
 
   return (
     <div className="relative w-full h-full">
@@ -652,6 +798,29 @@ function POIMapContent({
           </div>
         </div>
       )}
+
+      {/* City Boundaries Loading Indicator */}
+      {isLoadingBoundaries && cityFilter && (
+        <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg p-3 z-10">
+          <div className="flex items-center space-x-2">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            <span className="text-sm font-medium text-gray-700">Loading city boundaries...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Auto Fit Indicator */}
+      {isAutoFitting && (
+        <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg shadow-lg p-3 z-10">
+          <div className="flex items-center space-x-2">
+            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-sm font-medium text-gray-700">
+              {cityBoundaries.length > 0 ? 'Fitting to city boundaries...' : 'Adjusting map view...'}
+            </span>
+          </div>
+        </div>
+      )}
+
 
       {/* Map Controls */}
       <div className="absolute top-4 right-4 flex flex-col space-y-2 z-10">
@@ -691,6 +860,24 @@ function POIMapContent({
           <div className="text-gray-500">
             {poiCount.total} total
           </div>
+          {cityBoundaries.length > 0 && (
+            <>
+              <div className="h-4 w-px bg-gray-300" />
+              <div className="flex items-center text-blue-600">
+                {cityBoundaries[0]?.validation_status === 'validated' && (
+                  <span className="text-green-600 mr-1">✅</span>
+                )}
+                {cityBoundaries[0]?.validation_status === 'fallback' && (
+                  <span className="text-yellow-600 mr-1">⚠️</span>
+                )}
+                {cityBoundaries[0]?.validation_status === 'failed' && (
+                  <span className="text-red-600 mr-1">❌</span>
+                )}
+                <span className="font-medium">{cityBoundaries.length}</span>
+                <span className="text-gray-500 ml-1">boundaries</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

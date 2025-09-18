@@ -3,6 +3,7 @@
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/interfaces';
 import { calculateDistance, isPointInPolygon } from '../utils/calculations';
+import { ElevationAnalysisService } from '../services/elevation-service';
 
 export class StreetAnalyzer {
   private googleAPIs: GoogleAPIsService;
@@ -22,7 +23,7 @@ export class StreetAnalyzer {
     console.log(`🛣️ Finding accessible streets for: ${poiData.name}`);
     
     try {
-      const searchRadius = this.calculateIntelligentRadius(boundary, context);
+      const searchRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
       const roads = await this.getRoadsAroundBoundary(boundary, searchRadius);
       
       // Filtrar ruas acessíveis
@@ -56,7 +57,7 @@ export class StreetAnalyzer {
     console.log(`🛣️ Finding accessible streets for: ${poiData.name} (with metadata)`);
     
     try {
-      const searchRadius = this.calculateIntelligentRadius(boundary, context);
+      const searchRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
       const roads = await this.getRoadsAroundBoundary(boundary, searchRadius);
       
       // Filtrar ruas acessíveis
@@ -72,13 +73,12 @@ export class StreetAnalyzer {
       // Coletar dados de elevação para o frontend
       let elevationAnalysis;
       if (boundary.elevation) {
-        const baseElevation = this.estimateRegionalBaseElevation(boundary.center, context);
-        elevationAnalysis = {
-          poiElevation: boundary.elevation.center,
-          baseElevation,
-          elevationDiff: boundary.elevation.center - baseElevation,
-          isHighVisibility: (boundary.elevation.center - baseElevation) > 200
-        };
+        elevationAnalysis = await ElevationAnalysisService.analyzeElevationDifference(
+          boundary.elevation.center,
+          boundary.center,
+          context,
+          poiData
+        );
       }
       
       console.log(`✅ Found ${streetPoints.length} accessible street points (radius: ${searchRadius}m)`);
@@ -98,13 +98,13 @@ export class StreetAnalyzer {
    * Calcula raio de busca inteligente baseado em elevação, altura e contexto
    * Implementa a lógica DINÂMICA do sistema legado usando dados reais de elevação
    */
-  private calculateIntelligentRadius(boundary: BoundaryData, context: GeographicContext): number {
+  private async calculateIntelligentRadius(boundary: BoundaryData, context: GeographicContext, poiData: POIData): Promise<number> {
     console.log(`🧮 Calculating intelligent search radius (LEGACY FORMULA)...`);
     
     // 🏔️ STEP 1: Check if this is a high-visibility POI using REAL elevation data (DYNAMIC LOGIC)
     if (boundary.elevation && boundary.elevation.center > 0) {
       const poiElevation = boundary.elevation.center;
-      const baseElevation = this.estimateRegionalBaseElevation(boundary.center, context);
+      const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
       const elevationDiff = poiElevation - baseElevation;
       
       console.log(`📏 DYNAMIC elevation analysis:`);
@@ -112,10 +112,10 @@ export class StreetAnalyzer {
       console.log(`  🏞️ Estimated base elevation: ${baseElevation.toFixed(1)}m`);
       console.log(`  📈 Relative difference: ${elevationDiff.toFixed(1)}m`);
       
-      // Apply LEGACY FORMULA for high-visibility landmarks (>200m difference)
-      if (elevationDiff > 200) {
+      // Apply LEGACY FORMULA for high-visibility landmarks (>150m difference - more sensitive)
+      if (elevationDiff > 150) {
         const theoreticalRange = Math.sqrt(elevationDiff) * 200; // EXACT LEGACY FORMULA
-        const maxRange = Math.min(Math.max(theoreticalRange, 2000), 8000); // Between 2km-8km
+        const maxRange = Math.min(Math.max(theoreticalRange, 3000), 15000); // Between 3km-15km (Cristo até Copacabana ~8km)
         
         console.log(`🏔️ HIGH-VISIBILITY LANDMARK DETECTED (dynamic)`);
         console.log(`  📏 Theoretical range: ${theoreticalRange.toFixed(0)}m`);
@@ -233,56 +233,6 @@ export class StreetAnalyzer {
    * Estima a elevação base da região usando dados de contexto e heurísticas
    * Substitui a lista hardcoded de landmarks por lógica dinâmica
    */
-  private estimateRegionalBaseElevation(location: { lat: number; lng: number }, context: GeographicContext): number {
-    console.log(`🏞️ Estimating regional base elevation for (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)})`);
-    
-    let baseElevation = 500; // Default global average
-    
-    // 1. Usar dados de elevação do boundary se disponível (média das elevações ao redor)
-    if (context.elevationContext && context.elevationContext.variance) {
-      // Se a variância é baixa, usar a elevação mínima como base
-      // Se a variância é alta, usar uma estimativa mais conservadora
-      if (context.elevationContext.variance < 50) {
-        baseElevation = 400; // Área relativamente plana
-        console.log(`📊 Low elevation variance (${context.elevationContext.variance.toFixed(1)}m) → flat area base: ${baseElevation}m`);
-      } else if (context.elevationContext.variance > 200) {
-        baseElevation = 600; // Área montanhosa
-        console.log(`📊 High elevation variance (${context.elevationContext.variance.toFixed(1)}m) → mountainous area base: ${baseElevation}m`);
-      }
-    }
-    
-    // 2. Ajustar por densidade urbana (cidades tendem a estar em elevações específicas)
-    switch (context.urbanDensity.level) {
-      case 'very_dense':
-      case 'dense':
-        // Grandes cidades costeiras tendem a ser baixas, interiores mais altas
-        if (location.lat > -25 && location.lat < -20) { // Região RJ/SP
-          baseElevation = location.lng > -45 ? 600 : 50; // Interior vs Costa
-        }
-        console.log(`🏙️ Dense urban area adjustment → base: ${baseElevation}m`);
-        break;
-      case 'rural':
-        // Áreas rurais: usar elevação base mais conservadora
-        baseElevation += 100;
-        console.log(`🌾 Rural area adjustment → base: ${baseElevation}m`);
-        break;
-    }
-    
-    // 3. Coordenadas geográficas heurísticas (Brasil)
-    if (location.lat > -30 && location.lat < -10 && location.lng > -75 && location.lng < -30) {
-      // Brasil - usar conhecimento geográfico geral
-      if (location.lng > -50) { // Costa leste (mais baixa)
-        baseElevation = Math.min(baseElevation, 200);
-        console.log(`🏖️ Brazilian coast region → base: ${baseElevation}m`);
-      } else if (location.lat > -25 && location.lat < -20) { // Região SP
-        baseElevation = Math.max(baseElevation, 700);
-        console.log(`🏔️ São Paulo region → base: ${baseElevation}m`);
-      }
-    }
-    
-    console.log(`✅ Estimated regional base elevation: ${baseElevation}m`);
-    return baseElevation;
-  }
 
   /**
    * Calcula distância entre dois pontos (Haversine)

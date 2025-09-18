@@ -1081,7 +1081,6 @@ function POIListWithSearchParams() {
             onPOIClick={openPOIDetails}
             height="600px"
             className="w-full"
-            showPolygons={true}
             initialCenter={{ lat: 39.8283, lng: -98.5795 }}
             initialZoom={4}
           />

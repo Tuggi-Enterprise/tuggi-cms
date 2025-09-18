@@ -611,6 +611,27 @@ function POIListWithSearchParams() {
     setSelectedPoi(poi)
   }
 
+  const handlePOIUpdated = (updatedPOI: POI) => {
+    // Update POI in local state without reloading
+    setPois(prev => prev.map(poi => poi.id === updatedPOI.id ? updatedPOI : poi))
+    
+    // Update selected POI if it's the one being edited
+    if (selectedPoi && selectedPoi.id === updatedPOI.id) {
+      setSelectedPoi(updatedPOI)
+    }
+  }
+
+  const handlePOIDeleted = (poiId: string) => {
+    // Remove POI from local state without reloading
+    setPois(prev => prev.filter(poi => poi.id !== poiId))
+    setSelectedPois(prev => prev.filter(id => id !== poiId))
+    
+    // Clear selected POI if it's the one being deleted
+    if (selectedPoi && selectedPoi.id === poiId) {
+      setSelectedPoi(null)
+    }
+  }
+
   const handleDeletePoi = async (poiId: string) => {
     if (!confirm('Tem certeza que deseja excluir este POI? Esta ação não pode ser desfeita.')) {
       return
@@ -1040,6 +1061,8 @@ function POIListWithSearchParams() {
                     triggerPointsFilter={triggerPointsFilter}
                     onPOIClick={handlePOIClick}
                     onFiltersChange={handleFiltersChange}
+                    onPOIUpdated={handlePOIUpdated}
+                    onPOIDeleted={handlePOIDeleted}
                     height="600px"
                     className="rounded-lg border"
                   />
@@ -1177,6 +1200,8 @@ function POIListWithSearchParams() {
           isOpen={!!selectedPoi}
           onClose={() => setSelectedPoi(null)}
           onUpdate={loadPois}
+          onPOIUpdated={handlePOIUpdated}
+          onPOIDeleted={handlePOIDeleted}
         />
       )}
     </div>

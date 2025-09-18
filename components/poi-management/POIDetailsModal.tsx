@@ -68,9 +68,11 @@ interface POIDetailsModalProps {
   isOpen: boolean
   onClose: () => void
   onUpdate: () => void
+  onPOIUpdated?: (updatedPOI: POI) => void
+  onPOIDeleted?: (poiId: string) => void
 }
 
-export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsModalProps) {
+export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, onPOIDeleted }: POIDetailsModalProps) {
   const [editedPoi, setEditedPoi] = useState<POI>(poi)
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -659,7 +661,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
 
       if (error) throw error
 
-      await onUpdate()
+      // Update local state instead of reloading all data
+      const updatedPOI = { ...editedPoi, updated_at: new Date().toISOString() }
+      if (onPOIUpdated) {
+        onPOIUpdated(updatedPOI)
+      } else {
+        await onUpdate()
+      }
       onClose()
     } catch (error) {
       console.error('Error saving POI:', error)
@@ -697,7 +705,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
       }
 
       console.log('✅ POI approved successfully')
-      await onUpdate()
+      
+      // Update local state instead of reloading all data
+      const updatedPOI = { 
+        ...editedPoi, 
+        approved: true, 
+        approved_by: user?.id || null, 
+        approved_at: new Date().toISOString() 
+      }
+      if (onPOIUpdated) {
+        onPOIUpdated(updatedPOI)
+      } else {
+        await onUpdate()
+      }
       onClose()
     } catch (error) {
       console.error('Error approving POI:', error)
@@ -723,7 +743,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate }: POIDetailsMo
 
       if (error) throw error
 
-      await onUpdate()
+      // Notify parent component about deletion instead of reloading all data
+      if (onPOIDeleted) {
+        onPOIDeleted(poi.id)
+      } else {
+        await onUpdate()
+      }
       onClose()
     } catch (error) {
       console.error('Error deleting POI:', error)
