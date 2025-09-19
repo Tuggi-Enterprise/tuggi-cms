@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from "../_shared/cors.ts";
+import { resizeImage, createThumbnail, getImageMetadata, needsResize, formatBytes } from "../lib/imageResizer.ts";
 
 const GOOGLE_API_KEY = Deno.env.get('VITE_GOOGLE_MAPS_API_KEY') || '';
 const PROJECT_URL = Deno.env.get('PROJECT_URL') || '';
@@ -84,8 +85,8 @@ const getFileExtension = (imageTitle: string): string => {
   return '.jpg'; // Default fallback
 };
 
-// Download image from Google Places API
-const downloadGooglePhoto = async (photoReference: string, maxWidth: string = '1600'): Promise<ArrayBuffer> => {
+// Download image from Google Places API with optimized size
+const downloadGooglePhoto = async (photoReference: string, maxWidth: string = '1024'): Promise<ArrayBuffer> => {
   const cleanRef = cleanPhotoReference(photoReference);
   const googleUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=${maxWidth}&photoreference=${cleanRef}&key=${GOOGLE_API_KEY}`;
   
@@ -185,6 +186,9 @@ const extractImageFromUrl = async (url: string): Promise<{success: boolean, imag
       return await getImagesFromCategory(url);
     } else if (url.includes('/wiki/File:')) {
       return await getImageFromFile(url);
+    } else if (url.includes('upload.wikimedia.org/wikipedia/commons/')) {
+      // Handle direct Wikimedia Commons URLs
+      return await getImageFromDirectUrl(url);
     } else {
       return {
         success: false,
@@ -349,12 +353,64 @@ const extractFileName = (url: string): string | null => {
   return match ? decodeURIComponent(match[1]) : null;
 };
 
-// Create thumbnail from image data
-const createThumbnail = async (imageData: ArrayBuffer): Promise<ArrayBuffer> => {
-  // For now, we'll use the same image as thumbnail
-  // In a production environment, you might want to use an image processing library
-  // to actually resize the image to create a proper thumbnail
-  return imageData;
+// Process and optimize image data
+const processImageData = async (imageData: ArrayBuffer): Promise<{
+  optimizedData: ArrayBuffer;
+  thumbnailData: ArrayBuffer;
+  metadata: any;
+}> => {
+  console.log(`📊 Processing image data: ${formatBytes(imageData.byteLength)}`);
+  
+  // Get image metadata
+  const metadata = await getImageMetadata(imageData);
+  console.log(`📏 Image dimensions: ${metadata.width}x${metadata.height}, format: ${metadata.format}`);
+  
+  // Check if image needs resizing
+  const shouldResize = metadata.width && metadata.height && 
+    needsResize(metadata.width, metadata.height, 1024, 1024);
+  
+  let optimizedData = imageData;
+  if (shouldResize) {
+    console.log(`🔄 Resizing image from ${metadata.width}x${metadata.height} to max 1024x1024`);
+    const resizeResult = await resizeImage(imageData, {
+      maxWidth: 1024,
+      maxHeight: 1024,
+      quality: 85,
+      format: 'jpeg'
+    });
+    
+    if (resizeResult.success && resizeResult.data) {
+      optimizedData = resizeResult.data.buffer;
+      console.log(`✅ Image resized: ${formatBytes(imageData.byteLength)} → ${formatBytes(optimizedData.byteLength)}`);
+    } else {
+      console.warn(`⚠️ Failed to resize image: ${resizeResult.error}`);
+    }
+  } else {
+    console.log(`✅ Image size is already optimal`);
+  }
+  
+  // Create thumbnail
+  console.log(`🖼️ Creating thumbnail (300x300)`);
+  const thumbnailResult = await createThumbnail(optimizedData, 300);
+  let thumbnailData = optimizedData; // Fallback to optimized data
+  
+  if (thumbnailResult.success && thumbnailResult.data) {
+    thumbnailData = thumbnailResult.data.buffer;
+    console.log(`✅ Thumbnail created: ${formatBytes(thumbnailData.byteLength)}`);
+  } else {
+    console.warn(`⚠️ Failed to create thumbnail: ${thumbnailResult.error}`);
+  }
+  
+  return {
+    optimizedData,
+    thumbnailData,
+    metadata: {
+      ...metadata,
+      originalSize: imageData.byteLength,
+      optimizedSize: optimizedData.byteLength,
+      thumbnailSize: thumbnailData.byteLength
+    }
+  };
 };
 
 // Store image in Supabase Storage using your existing organization
@@ -549,7 +605,7 @@ serve(async (req) => {
         const photoRef = photoReferences[0]; // Only process first image
         console.log(`[${requestId}] Processing Google Places photo: ${photoRef}`);
 
-        imageData = await downloadGooglePhoto(photoRef, '1600');
+        imageData = await downloadGooglePhoto(photoRef, '1024');
         fileName = generateFilename(googlePlaceId, 1);
         folderId = googlePlaceId;
         reference = photoRef;
@@ -575,13 +631,25 @@ serve(async (req) => {
         throw new Error(`Unsupported image source: ${imageSource}`);
       }
 
-      // Store in bucket using your folder structure
-      const storagePath = await storeImageInBucket(imageData, folderId, fileName, contentType);
+      // Process and optimize image data
+      console.log(`[${requestId}] Processing and optimizing image...`);
+      const { optimizedData, thumbnailData, metadata } = await processImageData(imageData);
       
-      // Generate public URL using your existing format
+      // Store optimized image in bucket
+      const storagePath = await storeImageInBucket(optimizedData, folderId, fileName, contentType);
+      
+      // Store thumbnail in bucket
+      const thumbnailFileName = fileName.replace(/\.(jpg|jpeg|png|webp)$/i, '_thumb.jpg');
+      const thumbnailPath = await storeImageInBucket(thumbnailData, folderId, thumbnailFileName, 'image/jpeg');
+      
+      // Generate public URLs
       const { data: publicUrlData } = supabaseAdmin.storage
         .from('travel-app-images')
         .getPublicUrl(storagePath);
+      
+      const { data: thumbnailUrlData } = supabaseAdmin.storage
+        .from('travel-app-images')
+        .getPublicUrl(thumbnailPath);
       
       // Save reference in database with public URL
       const imageId = await saveImageReference(
@@ -592,6 +660,13 @@ serve(async (req) => {
         reference,
         altText
       );
+      
+      console.log(`[${requestId}] Image optimization complete:`, {
+        originalSize: formatBytes(metadata.originalSize),
+        optimizedSize: formatBytes(metadata.optimizedSize),
+        thumbnailSize: formatBytes(metadata.thumbnailSize),
+        spaceSaved: formatBytes(metadata.originalSize - metadata.optimizedSize)
+      });
 
       storedImages.push({
         id: imageId,
