@@ -5,7 +5,7 @@
  * Handles city → county fallback when specific city boundaries are not available
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../core/supabase-client'
 
 // Types
 export interface LocationSearchResult {

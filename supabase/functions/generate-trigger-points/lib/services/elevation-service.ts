@@ -1,3 +1,4 @@
+import { api, apiManager } from '../lib/core/api-manager'
 // ========================================
 // ELEVATION ANALYSIS SERVICE
 // ========================================
@@ -81,13 +82,13 @@ const cityElevationCache = new Map<string, number>();
  */
 export async function getOpenElevationAPI(lat: number, lng: number): Promise<number | null> {
   try {
-    const response = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`);
+    const response = await apiManager.request('open-elevation', 'lookup?locations=${lat},${lng}', {);
     
     if (!response.ok) {
       return null;
     }
     
-    const data = await response.json();
+    const data = response.data;
     
     if (data.results && data.results.length > 0) {
       const elevation = data.results[0].elevation;
@@ -119,7 +120,7 @@ export async function getKnownCityElevation(lat: number, lng: number): Promise<n
 
     if (!response.ok) return null;
 
-    const data = await response.json();
+    const data = response.data;
     const address = data.address;
 
     if (!address) return null;

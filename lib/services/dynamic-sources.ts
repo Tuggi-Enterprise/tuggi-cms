@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from '../core/supabase-client';
 
 // =========================================
 // TIPOS E INTERFACES
@@ -85,10 +85,7 @@ export class DynamicSourceService {
   private cache = new Map<string, { data: any; expires: number }>();
 
   constructor() {
-    this.supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+    this.supabase = getSupabase('service');
   }
 
   // =========================================

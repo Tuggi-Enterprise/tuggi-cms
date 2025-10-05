@@ -9,7 +9,7 @@
  * ATENÇÃO: Este script modifica dados em produção. Use com cuidado!
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../lib/core/supabase-client'
 import { config } from 'dotenv'
 
 // Carregar variáveis de ambiente
@@ -18,7 +18,7 @@ config()
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+const supabase = getSupabase('server')
 
 interface DuplicateCoordinate {
   attraction_id: string

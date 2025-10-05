@@ -7,15 +7,12 @@
  * without complex queries that might cause connection issues.
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../lib/core/supabase-client'
 import { config } from 'dotenv'
 
 config()
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = getSupabase('service')
 
 async function checkAttractionsTable(): Promise<void> {
   console.log('🔍 Checking attractions table...')

@@ -1,12 +1,9 @@
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../lib/core/supabase-client'
 import dotenv from 'dotenv'
 
 dotenv.config()
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const supabase = getSupabase('server')
 
 async function checkOtherUrls() {
   console.log('🔍 Checking other URLs in attractions table...')

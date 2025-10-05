@@ -5,15 +5,9 @@
  * Consolidates duplicate saving logic from multiple routes
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../core/supabase-client'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: { autoRefreshToken: false, persistSession: false }
-  }
-)
+const supabase = getSupabase('service')
 
 // Simple in-memory lock to prevent concurrent processing of same POI
 const processingLocks = new Map<string, Promise<any>>()

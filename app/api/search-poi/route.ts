@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../../../lib/core/supabase-client'
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,17 +16,7 @@ export async function GET(request: NextRequest) {
     console.log(`🔍 Searching for POI: ${poiId}`)
     
     // Initialize Supabase client with service role key for elevated privileges
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-          detectSessionInUrl: false
-        }
-      }
-    )
+    const supabase = getSupabase('server')
     
     // Search POI in database
     const { data: poiData, error: poiError } = await supabase

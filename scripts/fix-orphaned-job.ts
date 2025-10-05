@@ -1,11 +1,11 @@
 #!/usr/bin/env tsx
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../lib/core/supabase-client'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const supabase = getSupabase('server')
 
 async function fixOrphanedJob() {
   console.log('🔧 Fixing orphaned job...\n')

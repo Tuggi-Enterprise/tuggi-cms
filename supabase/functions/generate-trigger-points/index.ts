@@ -1,3 +1,4 @@
+import { api, apiManager } from '../lib/core/api-manager'
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 // Helper function to safely format numbers (prevents undefined.toFixed() errors)
@@ -333,7 +334,7 @@ async function searchNearbyBuildingHeights(lat, lng, buildingType) {
     if (!response.ok) {
       return 0; // No data found
     }
-    const data = await response.json();
+    const data = response.data;
     if (!data.elements || data.elements.length === 0) {
       return 0; // No similar buildings found
     }
@@ -398,7 +399,7 @@ async function checkBasicBuildingObstructions(triggerPoint, poiLat, poiLng) {
       console.log(`⚠️ Basic obstruction check failed: ${response.status}`);
       return false; // If can't check, assume no obstruction
     }
-    const data = await response.json();
+    const data = response.data;
     const buildingCount = data.elements?.[0]?.tags?.total || 0;
     console.log(`🏢 Found ${buildingCount} buildings in line of sight (radius: ${searchRadius}m)`);
     // Simple density-based obstruction check
@@ -470,7 +471,7 @@ async function checkObstructionAtPoint(lat, lng, landmarkInfo, fastMode = false)
     if (!response.ok) {
       return false; // Default to no obstruction on API error
     }
-    const data = await response.json();
+    const data = response.data;
     const obstructionCount = data.elements?.[0]?.tags?.total || 0;
     // Thresholds based on POI type and mode
     let threshold;
@@ -627,7 +628,7 @@ async function searchOSMByName(lat, lng, name, landmarkInfo) {
         console.log(`⚠️ Search failed for "${searchTerm}": ${response.status}`);
         continue;
       }
-      const data = await response.json();
+      const data = response.data;
       if (data && data.length > 0) {
         console.log(`✅ Found ${data.length} results for "${searchTerm}"`);
         // Score and rank results for best match using new validation function
@@ -688,7 +689,7 @@ async function searchOSMByCoordinates(lat, lng) {
     if (!response.ok) {
       throw new Error(`OSM API error: ${response.status}`);
     }
-    const data = await response.json();
+    const data = response.data;
     if (data && data.geojson && data.geojson.type === 'Polygon') {
       const coordinates = convertOSMPolygon(data.geojson.coordinates[0]);
       const area_m2 = calculatePolygonArea(coordinates);
@@ -745,7 +746,7 @@ async function searchOSMNearbyFeatures(lat, lng, name) {
     if (!response.ok) {
       throw new Error(`Overpass API error: ${response.status}`);
     }
-    const data = await response.json();
+    const data = response.data;
     console.log(`🔍 Overpass found ${data.elements?.length || 0} nearby features`);
     if (!data.elements || data.elements.length === 0) {
       return {
@@ -985,7 +986,7 @@ async function queryUnifiedOverpassData(lat, lng, name, landmarkInfo) {
       }
       throw new Error(`Unified Overpass API error: ${response.status}`);
     }
-    const data = await response.json();
+    const data = response.data;
     console.log(`📊 Unified Overpass found ${data.elements?.length || 0} total elements`);
     return processUnifiedOverpassData(data, lat, lng, name, landmark);
   } catch (error) {
@@ -1561,7 +1562,7 @@ async function findImmediateStreets(lat, lng) {
     if (!response.ok) {
       throw new Error(`Overpass API error: ${response.status}`);
     }
-    const data = await response.json();
+    const data = response.data;
     console.log(`📊 Found ${data.elements?.length || 0} immediate street elements`);
     if (!data.elements || data.elements.length === 0) {
       return [];
@@ -1894,7 +1895,7 @@ out geom tags;`;
     if (!response.ok) {
       throw new Error(`Mega query failed: ${response.status} ${response.statusText}`);
     }
-    const data = await response.json();
+    const data = response.data;
     const queryTime = (Date.now() - startTime) / 1000;
     console.log(`✅ MEGA-UNIFIED: Completed in ${queryTime.toFixed(1)}s - ${data.elements?.length || 0} elements`);
     // Process and validate results
@@ -2928,7 +2929,7 @@ async function checkBuildingObstructions(triggerPoint, poiLat, poiLng, poiHeight
       console.log('⚠️ Building obstruction check failed, assuming no obstruction');
       return false;
     }
-    const data = await response.json();
+    const data = response.data;
     const buildings = data.elements || [];
     console.log(`🏢 Found ${buildings.length} buildings to check for obstruction`);
     // Simple obstruction check: if there are many buildings in the line of sight
@@ -3081,7 +3082,7 @@ async function validateDirectLineOfSight(triggerPoint, poiLat, poiLng) {
         reasoning: `Distance ${distance.toFixed(0)}m - obstruction check failed, assuming partial view`
       };
     }
-    const data = await response.json();
+    const data = response.data;
     const obstructionCount = data.elements?.length || 0;
     // Score based on obstruction density
     let viewScore = 1.0;
@@ -3342,11 +3343,11 @@ const cityElevationCache = new Map();
 // Get elevation from Open Elevation API (LEGACY FUNCTION)
 async function getOpenElevationAPI(lat, lng) {
   try {
-    const response = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`);
+    const response = await apiManager.request('open-elevation', 'lookup?locations=${lat},${lng}', {);
     if (!response.ok) {
       return null;
     }
-    const data = await response.json();
+    const data = response.data;
     if (data.results && data.results.length > 0) {
       const elevation = data.results[0].elevation;
       console.log(`🌍 Open Elevation API: ${elevation}m`);
@@ -3407,7 +3408,7 @@ async function getCityBaseElevation(lat, lng) {
       cityElevationCache.set(cacheKey, defaultElevation);
       return defaultElevation;
     }
-    const data = await response.json();
+    const data = response.data;
     const elevations = [];
     if (data.elements && data.elements.length > 0) {
       for (const element of data.elements){

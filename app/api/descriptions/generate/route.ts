@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../../../../lib/core/supabase-client'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 
 // Use service role key for database access (bypasses RLS)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = getSupabase('service')
 
 console.log('🔧 DEBUG: Supabase URL configured:', !!process.env.NEXT_PUBLIC_SUPABASE_URL)
 console.log('🔧 DEBUG: Supabase Service Role Key configured:', !!process.env.SUPABASE_SERVICE_ROLE_KEY)

@@ -6,7 +6,7 @@
  * Estados: SP, RJ, MG
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../lib/core/supabase-client'
 import fs from 'fs'
 import path from 'path'
 
@@ -19,7 +19,7 @@ if (!supabaseUrl || !supabaseKey) {
   process.exit(1)
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey)
+const supabase = getSupabase('server')
 
 interface DuplicatePOI {
   nome_normalizado: string

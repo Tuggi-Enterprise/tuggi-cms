@@ -26,6 +26,7 @@
 import { config } from 'dotenv'
 import { writeFileSync, readFileSync, existsSync } from 'fs'
 import { POIValidationService, ValidationConfig, POI, ValidationResult } from '../lib/services/poi-validation-service'
+import { getSupabase } from '../lib/core/supabase-client'
 
 // Load environment variables
 config({ path: '.env' })
@@ -78,14 +79,17 @@ class POIValidationRunner {
       auto_approval_threshold: options.threshold || DEFAULT_CONFIG.auto_approval_threshold
     }
     
-    // Initialize service
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    // Initialize service with centralized Supabase client
     const geminiApiKey = process.env.GEMINI_API_KEY!
     
-    if (!supabaseUrl || !supabaseKey || !geminiApiKey) {
-      throw new Error('Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GEMINI_API_KEY')
+    if (!geminiApiKey) {
+      throw new Error('Missing required environment variable: GEMINI_API_KEY')
     }
+    
+    // Get centralized Supabase client
+    const supabase = getSupabase('service')
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
     
     this.validationService = new POIValidationService(
       supabaseUrl,

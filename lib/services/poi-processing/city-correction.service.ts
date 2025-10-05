@@ -13,7 +13,7 @@
  * - Manual review system for edge cases
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../../core/supabase-client'
 
 // Service role client for database operations
 const getSupabaseClient = () => {
@@ -24,13 +24,7 @@ const getSupabaseClient = () => {
     throw new Error('Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY')
   }
   
-  return createClient(supabaseUrl, supabaseKey, {
-    auth: { 
-      autoRefreshToken: false, 
-      persistSession: false,
-      detectSessionInUrl: false
-    }
-  })
+  return getSupabase('service')
 }
 
 // Lazy initialization

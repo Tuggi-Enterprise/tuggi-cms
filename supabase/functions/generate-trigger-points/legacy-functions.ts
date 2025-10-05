@@ -1,3 +1,4 @@
+import { api, apiManager } from '../lib/core/api-manager'
 /**
  * LEGACY FUNCTIONS - Sistema Antigo de Trigger Points
  * 
@@ -69,7 +70,7 @@ async function detectPOIHeight(lat, lng) {
       return { height: 0, category: 'low', confidence: 0.0 };
     }
     
-    const data = await response.json();
+    const data = response.data;
     if (!data.elements || data.elements.length === 0) {
       console.log('❌ NO REAL HEIGHT DATA found in OSM for this location');
       return { height: 0, category: 'low', confidence: 0.0 };
@@ -210,7 +211,7 @@ async function detectUrbanDensity(lat, lng) {
       console.log('⚠️ Overpass API failed for urban density, using default');
       return 'urban'; // Changed default to urban for better results
     }
-    const data = await response.json();
+    const data = response.data;
     if (data.elements && data.elements.length > 0) {
       const buildingCount = data.elements.filter((e)=>e.tags?.building).length;
       const majorRoadCount = data.elements.filter((e)=>e.tags?.highway && [
@@ -277,7 +278,7 @@ async function getRegionalHeightAverage(centerLat, centerLng) {
       return { average: 25, samples: 0, confidence: 0.0 }; // Default urban average
     }
     
-    const data = await response.json();
+    const data = response.data;
     const buildings = data.elements || [];
     
     let totalHeight = 0;
@@ -426,7 +427,7 @@ async function findNearbyStreetsForTriggers(lat, lng, poiName, landmarkInfo, cus
       throw new Error(`Overpass API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = response.data;
     return processOverpassStreetDataLegacy(data, lat, lng, poiName, landmark);
     
   } catch (error) {
@@ -577,7 +578,7 @@ async function getKnownCityElevation(lat, lng) {
   
   try {
     // Use reverse geocoding to get city name
-    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`, {
+    const response = await api.osm.nominatim('reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1', {, {
       headers: {
         'User-Agent': 'TuggiCMS/1.0 (city-elevation-lookup)'
       }
@@ -585,7 +586,7 @@ async function getKnownCityElevation(lat, lng) {
     if (!response.ok) {
       return null;
     }
-    const data = await response.json();
+    const data = response.data;
     if (data.address) {
       const cityNames = [
         data.address.city,
@@ -1035,7 +1036,7 @@ async function detectRelativeElevation(lat, lng) {
  */
 async function getElevation(lat, lng) {
   try {
-    const response = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`, {
+    const response = await apiManager.request('open-elevation', 'lookup?locations=${lat},${lng}', {, {
       headers: {
         'User-Agent': 'TuggiCMS/1.0 (elevation-detection)'
       }
@@ -1045,7 +1046,7 @@ async function getElevation(lat, lng) {
       return null;
     }
     
-    const data = await response.json();
+    const data = response.data;
     if (data.results && data.results.length > 0) {
       return data.results[0].elevation;
     }

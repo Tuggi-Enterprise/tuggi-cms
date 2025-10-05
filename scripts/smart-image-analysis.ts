@@ -11,13 +11,13 @@
  * 5. Permite parar e continuar
  */
 
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from '../lib/core/supabase-client';
 import sharp from 'sharp';
 
 // Configuração
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = getSupabase('server');
 
 interface POIImage {
   id: string;

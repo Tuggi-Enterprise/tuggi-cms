@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../core/supabase-client'
 
 interface TrainingExample {
   id: string
@@ -31,11 +31,11 @@ interface EmbeddingSearchResult {
  * Utiliza OpenAI embeddings para encontrar exemplos similares
  */
 export class POVEmbeddingService {
-  private supabase: ReturnType<typeof createClient>
+  private supabase: any
   private openaiApiKey: string
 
   constructor(supabaseUrl: string, supabaseKey: string, openaiApiKey: string) {
-    this.supabase = createClient(supabaseUrl, supabaseKey)
+    this.supabase = getSupabase('service')
     this.openaiApiKey = openaiApiKey
   }
 

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from '../lib/core/supabase-client';
 import dotenv from 'dotenv';
 
 // Load environment variables
@@ -7,7 +7,7 @@ dotenv.config();
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = getSupabase('server');
 
 async function analyzePOIsForBatch(): Promise<void> {
   console.log('📊 Analisando POIs para processamento em lote...\n');

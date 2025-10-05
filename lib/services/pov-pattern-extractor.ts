@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../core/supabase-client'
 
 interface TrainingExample {
   id: string
@@ -39,10 +39,10 @@ interface PatternInsights {
  * Serviço para extrair e analisar padrões de trigger points bem-sucedidos
  */
 export class POVPatternExtractor {
-  private supabase: ReturnType<typeof createClient>
+  private supabase: any
 
   constructor(supabaseUrl: string, supabaseKey: string) {
-    this.supabase = createClient(supabaseUrl, supabaseKey)
+    this.supabase = getSupabase('service')
   }
 
   /**

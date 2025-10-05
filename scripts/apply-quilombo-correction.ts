@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../lib/core/supabase-client'
 import * as dotenv from 'dotenv'
 
 // Load environment variables
@@ -10,7 +10,7 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 async function applyQuilomboCorrection() {
   console.log('🔧 Aplicando correção no Quilombo dos Palmares...\n')
   
-  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+  const supabase = getSupabase('server')
   
   // Buscar o POI específico
   const { data: poi, error: fetchError } = await supabase

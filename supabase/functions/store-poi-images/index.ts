@@ -1,3 +1,4 @@
+import { api, apiManager } from '../lib/core/api-manager'
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from "../_shared/cors.ts";
@@ -227,12 +228,12 @@ const getImagesFromCategory = async (categoryUrl: string): Promise<{success: boo
       cmnamespace: '6' // File namespace
     });
 
-    const response = await fetch(`https://commons.wikimedia.org/w/api.php?${params}`);
+    const response = await api.wiki.media({);
     if (!response.ok) {
       throw new Error(`Wikimedia API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = response.data;
     const files = data.query?.categorymembers || [];
 
     if (files.length === 0) {
@@ -311,12 +312,12 @@ const getImageInfo = async (fileName: string): Promise<any | null> => {
     iiurlwidth: '1600' // High resolution
   });
 
-  const response = await fetch(`https://commons.wikimedia.org/w/api.php?${params}`);
+  const response = await api.wiki.media({);
   if (!response.ok) {
     throw new Error(`Wikimedia API error: ${response.status}`);
   }
 
-  const data = await response.json();
+  const data = response.data;
   const pages = data.query?.pages;
   const pageId = Object.keys(pages)[0];
   const page = pages[pageId];

@@ -11,16 +11,10 @@
  * - Save enriched data to database
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../../core/supabase-client'
 
 // Service role client for database operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  {
-    auth: { autoRefreshToken: false, persistSession: false }
-  }
-)
+const supabaseAdmin = getSupabase('service')
 
 // =====================================
 // INTERFACES AND TYPES

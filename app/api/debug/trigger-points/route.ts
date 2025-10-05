@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../../../../lib/core/supabase-client'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = getSupabase('service')
 
 export const dynamic = 'force-dynamic'
 
@@ -47,10 +44,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Test the same query as the frontend (with anon key)
-    const frontendSupabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const frontendSupabase = getSupabase('server')
 
     const { data: frontendQuery, error: frontendError } = await frontendSupabase
       .schema('core')

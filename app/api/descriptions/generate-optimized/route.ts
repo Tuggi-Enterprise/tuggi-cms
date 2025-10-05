@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../../../../lib/core/supabase-client'
 import { cookies } from 'next/headers'
 
 
 // Service role client for database operations
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabaseAdmin = getSupabase('service')
 
 /**
  * OPTIMIZED DESCRIPTION GENERATION API

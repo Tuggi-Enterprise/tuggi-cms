@@ -5,7 +5,7 @@
  * Compatible with Supabase Edge Functions
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../../core/supabase-client'
 
 // =====================================
 // INTERFACES AND TYPES
@@ -42,13 +42,7 @@ export class AuthService {
       throw new Error('Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY')
     }
     
-    return createClient(supabaseUrl, supabaseAnonKey, {
-      auth: { 
-        autoRefreshToken: false, 
-        persistSession: false,
-        detectSessionInUrl: false // Important for Edge Functions
-      }
-    })
+    return getSupabase('server')
   }
 
   /**

@@ -1,3 +1,4 @@
+import { api, apiManager } from '../lib/core/api-manager'
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -163,7 +164,7 @@ const KNOWN_CITY_ELEVATIONS = {
 async function getKnownCityElevation(lat, lng) {
   try {
     // Use reverse geocoding to get city name
-    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`, {
+    const response = await api.osm.nominatim('reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1', {, {
       headers: {
         'User-Agent': 'TuggiCMS/1.0 (city-elevation-lookup)'
       }
@@ -171,7 +172,7 @@ async function getKnownCityElevation(lat, lng) {
     if (!response.ok) {
       return null;
     }
-    const data = await response.json();
+    const data = response.data;
     if (data.address) {
       const cityNames = [
         data.address.city,
@@ -225,7 +226,7 @@ async function detectUrbanDensity(lat, lng) {
       console.log('⚠️ Overpass API failed for urban density, using default');
       return 'urban'; // Changed default to urban for better results
     }
-    const data = await response.json();
+    const data = response.data;
     if (data.elements && data.elements.length > 0) {
       const buildingCount = data.elements.filter((e)=>e.tags?.building).length;
       const majorRoadCount = data.elements.filter((e)=>e.tags?.highway && [
@@ -411,7 +412,7 @@ async function checkLegacyBuildingObstructions(triggerPoint, poiLat, poiLng, bui
         return false; // If can't check, assume no obstruction
       }
       
-      const data = await response.json();
+      const data = response.data;
       buildingElements = data.elements || [];
       console.log(`🔍 API fallback: Found ${buildingElements.length} potential obstructions`);
     }
@@ -563,7 +564,7 @@ async function searchNearbyBuildingHeights(lat, lng, buildingType) {
       return 0; // No data found
     }
     
-    const data = await response.json();
+    const data = response.data;
     if (!data.elements || data.elements.length === 0) {
       return 0; // No similar buildings found
     }
@@ -643,7 +644,7 @@ async function checkBasicBuildingObstructions(triggerPoint, poiLat, poiLng) {
       return false; // If can't check, assume no obstruction
     }
     
-    const data = await response.json();
+    const data = response.data;
     const buildingCount = data.elements?.[0]?.tags?.total || 0;
     
     console.log(`🏢 Found ${buildingCount} buildings in line of sight (radius: ${searchRadius}m)`);
@@ -741,7 +742,7 @@ async function checkObstructionAtPoint(lat, lng, landmarkInfo, fastMode = false)
       return false; // Default to no obstruction on API error
     }
     
-    const data = await response.json();
+    const data = response.data;
     const obstructionCount = data.elements?.[0]?.tags?.total || 0;
     
     // Thresholds based on POI type and mode
@@ -906,7 +907,7 @@ async function searchOSMByName(lat, lng, name, landmarkInfo) {
         console.log(`⚠️ Search failed for "${searchTerm}": ${response.status}`);
         continue;
       }
-      const data = await response.json();
+      const data = response.data;
       if (data && data.length > 0) {
         console.log(`✅ Found ${data.length} results for "${searchTerm}"`);
         // Score and rank results for best match using new validation function
@@ -967,7 +968,7 @@ async function searchOSMByCoordinates(lat, lng) {
     if (!response.ok) {
       throw new Error(`OSM API error: ${response.status}`);
     }
-    const data = await response.json();
+    const data = response.data;
     if (data && data.geojson && data.geojson.type === 'Polygon') {
       const coordinates = convertOSMPolygon(data.geojson.coordinates[0]);
       const area_m2 = calculatePolygonArea(coordinates);
@@ -1024,7 +1025,7 @@ async function searchOSMNearbyFeatures(lat, lng, name) {
     if (!response.ok) {
       throw new Error(`Overpass API error: ${response.status}`);
     }
-    const data = await response.json();
+    const data = response.data;
     console.log(`🔍 Overpass found ${data.elements?.length || 0} nearby features`);
     if (!data.elements || data.elements.length === 0) {
       return {
@@ -1261,7 +1262,7 @@ async function queryUnifiedOverpassData(lat, lng, name, landmarkInfo) {
       }
       throw new Error(`Unified Overpass API error: ${response.status}`);
     }
-    const data = await response.json();
+    const data = response.data;
     console.log(`📊 Unified Overpass found ${data.elements?.length || 0} total elements`);
     return processUnifiedOverpassData(data, lat, lng, name, landmark);
   } catch (error) {
@@ -1770,7 +1771,7 @@ async function findImmediateStreets(lat, lng) {
     if (!response.ok) {
       throw new Error(`Overpass API error: ${response.status}`);
     }
-    const data = await response.json();
+    const data = response.data;
     console.log(`📊 Found ${data.elements?.length || 0} immediate street elements`);
     if (!data.elements || data.elements.length === 0) {
       return [];
@@ -2111,7 +2112,7 @@ async function getMegaUnifiedPOIData(lat, lng, name = '', landmarkInfo = null) {
       throw new Error(`Mega query failed: ${response.status} ${response.statusText}`);
     }
     
-    const data = await response.json();
+    const data = response.data;
     const queryTime = (Date.now() - startTime) / 1000;
     
     console.log(`✅ MEGA-UNIFIED: Completed in ${queryTime.toFixed(1)}s - ${data.elements?.length || 0} elements`);
@@ -2842,7 +2843,7 @@ async function getRegionalHeightAverage(centerLat, centerLng) {
       return { average: 25, samples: 0, confidence: 0.0 }; // Default urban average
     }
     
-    const data = await response.json();
+    const data = response.data;
     const buildings = data.elements || [];
     
     let totalHeight = 0;
@@ -2935,7 +2936,7 @@ async function detectPOIHeight(lat, lng) {
       return { height: 0, category: 'low', confidence: 0.0 };
     }
     
-    const data = await response.json();
+    const data = response.data;
     if (!data.elements || data.elements.length === 0) {
       console.log('❌ NO REAL HEIGHT DATA found in OSM for this location');
       return { height: 0, category: 'low', confidence: 0.0 };
@@ -3090,7 +3091,7 @@ async function detectRelativeElevation(lat, lng) {
 // Get elevation for a specific coordinate using Open Elevation API
 async function getElevation(lat, lng) {
   try {
-    const response = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`, {
+    const response = await apiManager.request('open-elevation', 'lookup?locations=${lat},${lng}', {, {
       headers: {
         'User-Agent': 'TuggiCMS/1.0 (elevation-detection)'
       }
@@ -3100,7 +3101,7 @@ async function getElevation(lat, lng) {
       return null;
     }
     
-    const data = await response.json();
+    const data = response.data;
     if (data.results && data.results.length > 0) {
       return data.results[0].elevation;
     }
@@ -3215,7 +3216,7 @@ async function checkBuildingObstructions(triggerPoint, poiLat, poiLng, poiHeight
       return false;
     }
     
-    const data = await response.json();
+    const data = response.data;
     const buildings = data.elements || [];
     
     console.log(`🏢 Found ${buildings.length} buildings to check for obstruction`);
@@ -3403,7 +3404,7 @@ async function validateDirectLineOfSight(triggerPoint, poiLat, poiLng) {
       };
     }
     
-    const data = await response.json();
+    const data = response.data;
     const obstructionCount = data.elements?.length || 0;
     
     // Score based on obstruction density
@@ -3644,13 +3645,13 @@ const cityElevationCache = new Map();
 // Get elevation from Open Elevation API (LEGACY FUNCTION)
 async function getOpenElevationAPI(lat, lng) {
   try {
-    const response = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lng}`);
+    const response = await apiManager.request('open-elevation', 'lookup?locations=${lat},${lng}', {);
     
     if (!response.ok) {
       return null;
     }
     
-    const data = await response.json();
+    const data = response.data;
     
     if (data.results && data.results.length > 0) {
       const elevation = data.results[0].elevation;
@@ -3723,7 +3724,7 @@ async function getCityBaseElevation(lat, lng) {
       return defaultElevation;
     }
 
-    const data = await response.json();
+    const data = response.data;
     const elevations = [];
 
     if (data.elements && data.elements.length > 0) {
@@ -3864,7 +3865,7 @@ async function findNearbyStreetsForTriggers(lat, lng, poiName, landmarkInfo, cus
       throw new Error(`Overpass API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = response.data;
     return processOverpassStreetData(data, lat, lng, poiName, landmark);
     
   } catch (error) {

@@ -1,15 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabase } from '../../lib/core/supabase-client';
 import { VerificationDrawer } from '@/components/verification/VerificationDrawer';
 import { BatchProgressBar } from '@/components/verification/BatchProgressBar';
 import { getScoreDescription, getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+const supabase = getSupabase('server');
 
 interface DescriptionWithScore {
   description_id: string;

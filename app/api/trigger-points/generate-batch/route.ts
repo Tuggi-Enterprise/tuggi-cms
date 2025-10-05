@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../../../../lib/core/supabase-client'
 
 // Use service role for database operations (has full access)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = getSupabase('service')
 
 // No longer need direct service imports - using the same API endpoint as /test-poi-boundaries
 

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../core/supabase-client'
 import 'dotenv/config'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -8,7 +8,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase environment variables')
 }
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+const supabase = getSupabase('service')
 
 export interface POI {
   id: string

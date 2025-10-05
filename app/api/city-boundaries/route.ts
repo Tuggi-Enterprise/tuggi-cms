@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabase } from '../../../lib/core/supabase-client'
 import { LocationResolver } from '@/lib/services/location-resolver'
 
 // Initialize Supabase client with service role key for server-side operations
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = getSupabase('service')
 
 // Simple in-memory cache for city boundaries (5 minute TTL)
 const cityBoundariesCache = new Map<string, { data: any, timestamp: number }>()
