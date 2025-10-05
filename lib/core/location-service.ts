@@ -89,56 +89,24 @@ class LocationService {
         }
       }
       
-      console.log('🌍 Loading countries from database...')
+      console.log('🌍 Loading countries from RPC...')
       
-      // Try API first (faster)
-      try {
-        const response = await fetch('/api/locations/countries-cities')
-        const result = await response.json()
-        
-        if (result.success && result.countries) {
-          const countries = result.countries.map((country: any) => ({
-            name: country.country,
-            code: country.country,
-            cityCount: country.cityCount || 0,
-            totalPOIs: country.totalPOIs || 0
-          }))
-          
-          // Update cache
-          this.cache.countries = { data: countries, timestamp: startTime }
-          
-          return {
-            success: true,
-            data: countries,
-            metadata: {
-              source: 'api',
-              timestamp: startTime,
-              filters: {}
-            }
-          }
-        }
-      } catch (apiError) {
-        console.warn('API failed, falling back to database:', apiError)
-      }
-      
-      // Fallback to direct database query
+      // Use RPC for optimized performance
       const supabase = getSupabase('server')
       
       const { data, error } = await supabase
         .schema('core')
-        .from('countries')
-        .select('name')
-        .order('name')
+        .rpc('cms_get_countries')
       
       if (error) {
-        throw new Error(`Database error: ${error.message}`)
+        throw new Error(`RPC error: ${error.message}`)
       }
       
-      const countries = (data || []).map(country => ({
-        name: country.name,
-        code: country.name,
-        cityCount: 0,
-        totalPOIs: 0
+      const countries = (data || []).map((country: any) => ({
+        name: country.value || country.label,
+        code: country.value || country.label,
+        cityCount: 0, // Not available in this RPC
+        totalPOIs: country.count || 0
       }))
       
       // Update cache
@@ -189,73 +157,32 @@ class LocationService {
         }
       }
       
-      console.log(`🏛️ Loading states for ${country}...`)
+      console.log(`🏛️ Loading states for ${country} from RPC...`)
       
-      // Try API first
-      try {
-        const response = await fetch(`/api/states?country=${encodeURIComponent(country)}`)
-        const result = await response.json()
-        
-        console.log(`🏛️ States API response for ${country}:`, result)
-        
-        if (result.success && result.data) {
-          const states = result.data.map((state: any) => ({
-            value: state.value || state.name,
-            label: state.label || state.name,
-            cityCount: state.cityCount || 0,
-            totalPOIs: state.totalPOIs || 0
-          }))
-          
-          // Update cache
-          this.cache.states[cacheKey] = { data: states, timestamp: startTime }
-          
-          return {
-            success: true,
-            data: states,
-            metadata: {
-              source: 'api',
-              timestamp: startTime,
-              filters: { country }
-            }
-          }
-        }
-      } catch (apiError) {
-        console.warn('API failed, falling back to database:', apiError)
-      }
-      
-      // Fallback to direct database query
+      // Use RPC for optimized performance
       const supabase = getSupabase('server')
       
       const { data, error } = await supabase
         .schema('core')
-        .from('attractions')
-        .select('state')
-        .eq('country', country)
-        .not('state', 'is', null)
-        .order('state')
+        .rpc('cms_get_states', { country_name: country })
       
       if (error) {
-        throw new Error(`Database error: ${error.message}`)
+        throw new Error(`RPC error: ${error.message}`)
       }
       
-      // Get unique states
-      const uniqueStates = Array.from(new Set(
-        (data || [])
-          .map(item => item.state)
-          .filter(Boolean)
-      )).map(state => ({
-        value: state,
-        label: state,
-        cityCount: 0,
-        totalPOIs: 0
+      const states = (data || []).map((state: any) => ({
+        value: state.value || state.label,
+        label: state.label || state.value,
+        cityCount: 0, // Not available in this RPC
+        totalPOIs: state.count || 0
       }))
       
       // Update cache
-      this.cache.states[cacheKey] = { data: uniqueStates, timestamp: startTime }
+      this.cache.states[cacheKey] = { data: states, timestamp: startTime }
       
       return {
         success: true,
-        data: uniqueStates,
+        data: states,
         metadata: {
           source: 'database',
           timestamp: startTime,
@@ -298,80 +225,34 @@ class LocationService {
         }
       }
       
-      console.log(`🏙️ Loading cities for ${country}${state ? `, ${state}` : ''}...`)
+      console.log(`🏙️ Loading cities for ${country}${state ? `, ${state}` : ''} from RPC...`)
       
-      // Try API first
-      try {
-        let url = `/api/locations/countries-cities?country=${encodeURIComponent(country)}`
-        if (state) {
-          url += `&state=${encodeURIComponent(state)}`
-        }
-        
-        const response = await fetch(url)
-        const result = await response.json()
-        
-        if (result.success && result.cities) {
-          const cities = result.cities.map((city: any) => ({
-            name: city,
-            cityCount: 0,
-            totalPOIs: 0
-          }))
-          
-          // Update cache
-          this.cache.cities[cacheKey] = { data: cities, timestamp: startTime }
-          
-          return {
-            success: true,
-            data: cities,
-            metadata: {
-              source: 'api',
-              timestamp: startTime,
-              filters: { country, state }
-            }
-          }
-        }
-      } catch (apiError) {
-        console.warn('API failed, falling back to database:', apiError)
-      }
-      
-      // Fallback to direct database query
+      // Use RPC for optimized performance
       const supabase = getSupabase('server')
       
-      let query = supabase
+      const { data, error } = await supabase
         .schema('core')
-        .from('attractions')
-        .select('city')
-        .eq('country', country)
-        .not('city', 'is', null)
-        .order('city')
-      
-      if (state) {
-        query = query.eq('state', state)
-      }
-      
-      const { data, error } = await query
+        .rpc('cms_get_cities', { 
+          country_name: country, 
+          state_name: state || null 
+        })
       
       if (error) {
-        throw new Error(`Database error: ${error.message}`)
+        throw new Error(`RPC error: ${error.message}`)
       }
       
-      // Get unique cities
-      const uniqueCities = Array.from(new Set(
-        (data || [])
-          .map(item => item.city)
-          .filter(Boolean)
-      )).map(city => ({
-        name: city,
-        cityCount: 0,
-        totalPOIs: 0
+      const cities = (data || []).map((city: any) => ({
+        name: city.value || city.label,
+        cityCount: 0, // Not available in this RPC
+        totalPOIs: city.count || 0
       }))
       
       // Update cache
-      this.cache.cities[cacheKey] = { data: uniqueCities, timestamp: startTime }
+      this.cache.cities[cacheKey] = { data: cities, timestamp: startTime }
       
       return {
         success: true,
-        data: uniqueCities,
+        data: cities,
         metadata: {
           source: 'database',
           timestamp: startTime,

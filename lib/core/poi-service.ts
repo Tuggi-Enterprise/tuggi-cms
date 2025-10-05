@@ -181,7 +181,7 @@ class POIService {
       const supabase = getSupabase('server')
       
       // Use the new RPC function for efficient search
-      const { data, error } = await supabase.schema('core').rpc('cms_search_pois', {
+      const rpcParams = {
         search_term: filters.search || null,
         status_filter: filters.status || 'all',
         country_filter: filters.country || null,
@@ -196,12 +196,15 @@ class POIService {
         limit_count: filters.limit || 1000,
         offset_count: ((filters.page || 1) - 1) * (filters.limit || 1000),
         fetch_all: false
-      })
+      }
+      
+      const { data, error } = await supabase.schema('core').rpc('cms_search_pois', rpcParams)
       
       if (error) {
         console.error('❌ POI Search RPC failed:', error)
         throw new Error(`RPC error: ${error.message}`)
       }
+      
       
       if (data && data.length > 0) {
         // Extract statistics from the first row (they're the same for all rows)
@@ -217,8 +220,8 @@ class POIService {
         
         // Transform the data to match our POI interface
         const pois = data.map((row: any) => ({
-          id: row.id,
-          name: row.name,
+            id: row.id,
+            name: row.name,
           city: row.city,
           state: row.state,
           country: row.country,

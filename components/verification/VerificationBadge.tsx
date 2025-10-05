@@ -33,18 +33,32 @@ export function VerificationBadge({
   showVerifyButton = false,
   onVerificationComplete 
 }: VerificationBadgeProps) {
+  const [isClient, setIsClient] = useState(false);
   const [verificationData, setVerificationData] = useState<VerificationData | null>(
     data || preloadedData || null
   );
-  const [isLoading, setIsLoading] = useState(!data && !preloadedData);
+  const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+
+  // Only render on client side
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  // Update verification data when preloaded data changes
+  useEffect(() => {
+    if (preloadedData) {
+      setVerificationData(preloadedData);
+      setIsLoading(false);
+    }
+  }, [preloadedData]);
 
   // Fetch verification data if not provided and no preloaded data
   useEffect(() => {
-    if (!data && !preloadedData && (descriptionId || attractionId)) {
+    if (isClient && !data && !preloadedData && (descriptionId || attractionId)) {
       fetchVerificationData();
     }
-  }, [descriptionId, attractionId, data, preloadedData]);
+  }, [isClient, descriptionId, attractionId, data, preloadedData]);
 
   const fetchVerificationData = async () => {
     if (!descriptionId && !attractionId) return;
@@ -165,6 +179,11 @@ export function VerificationBadge({
         };
     }
   };
+
+  // Don't render on server side
+  if (!isClient) {
+    return null;
+  }
 
   const config = getStatusConfig(verificationData.verification_status, verificationData.score);
   const Icon = config.icon;

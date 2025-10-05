@@ -1028,7 +1028,7 @@ function POIListWithSearchParams() {
       </div>
 
         {/* POI Details Modal */}
-      {selectedPoi && (
+      {selectedPoi && isModalOpen && (
           <POIDetailsModal
           poi={transformPOIForModal(selectedPoi)}
           isOpen={isModalOpen}
