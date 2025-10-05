@@ -85,7 +85,7 @@ export class DynamicSourceService {
   private cache = new Map<string, { data: any; expires: number }>();
 
   constructor() {
-    this.supabase = getSupabase('service');
+    this.supabase = getSupabase('server');
   }
 
   // =========================================

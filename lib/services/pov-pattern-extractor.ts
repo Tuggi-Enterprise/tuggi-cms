@@ -42,7 +42,7 @@ export class POVPatternExtractor {
   private supabase: any
 
   constructor(supabaseUrl: string, supabaseKey: string) {
-    this.supabase = getSupabase('service')
+    this.supabase = getSupabase('server')
   }
 
   /**

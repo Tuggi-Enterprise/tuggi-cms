@@ -36,27 +36,50 @@ export async function GET(request: NextRequest) {
 
     console.log(`🏛️ States API: Processing fresh data for ${country}...`)
     
-    // Fetch states for the specific country
-    const { data: statesData, error: statesError } = await supabase
-      .schema('core')
-      .from('attractions')
-      .select('state')
-      .eq('country', country)
-      .not('state', 'is', null)
-      .not('state', 'eq', '')
+    // Fetch ALL states for the specific country using pagination to overcome Supabase 1000 limit
+    let allStatesData: any[] = []
+    let hasMoreStates = true
+    let statesPage = 0
+    const pageSize = 1000
     
-    if (statesError) {
-      console.error('Error fetching states:', statesError)
-      return NextResponse.json(
-        { error: 'Failed to fetch states' },
-        { status: 500 }
-      )
+    while (hasMoreStates) {
+      const { data: pageData, error: pageError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('state')
+        .eq('country', country)
+        .not('state', 'is', null)
+        .not('state', 'eq', '')
+        .range(statesPage * pageSize, (statesPage + 1) * pageSize - 1)
+      
+      if (pageError) {
+        console.error('Error fetching states page:', pageError)
+        return NextResponse.json(
+          { error: 'Failed to fetch states' },
+          { status: 500 }
+        )
+      }
+      
+      if (!pageData || pageData.length === 0) {
+        hasMoreStates = false
+      } else {
+        allStatesData = [...allStatesData, ...pageData]
+        statesPage++
+        
+        // Safety check to prevent infinite loops
+        if (statesPage > 50) { // Max 50,000 states
+          console.warn('🏛️ States: Reached safety limit of 50,000 states')
+          break
+        }
+      }
     }
+    
+    console.log(`🏛️ States: Fetched ${allStatesData.length} total states for ${country}`)
     
     // Process states and count POIs
     const stateMap = new Map<string, number>()
     
-    statesData?.forEach(item => {
+    allStatesData?.forEach(item => {
       if (item.state) {
         const count = stateMap.get(item.state) || 0
         stateMap.set(item.state, count + 1)

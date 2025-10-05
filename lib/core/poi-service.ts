@@ -64,6 +64,17 @@ export interface POI {
     group_member_count?: number
   }
   verification_score?: number
+  // Verification data
+  verification_data?: {
+    verification_status: 'pending' | 'approved' | 'needs_review' | 'rejected' | null
+    score: number | null
+    last_verified_at: string | null
+    is_original: boolean
+    language: string
+    subscores?: any
+    flags?: any
+    description_id?: string
+  }
   // Processing status
   processing_status?: 'pending' | 'processing' | 'completed' | 'failed'
   last_processed?: string
@@ -146,7 +157,7 @@ class POIService {
   private static cache: Map<string, { data: any; timestamp: number }> = new Map()
   
   /**
-   * Search POIs with filters
+   * Search POIs with filters using RPC
    */
   static async search(filters: POISearchFilters): Promise<POISearchResult> {
     const startTime = Date.now()
@@ -165,139 +176,140 @@ class POIService {
         }
       }
       
-      console.log('🔍 Searching POIs with filters:', filters)
+      console.log('🔍 Searching POIs with RPC:', filters)
       
-      // Try API first (preferred for complex searches)
-      try {
-        const params = new URLSearchParams()
-        
-        // Add all filters to the request
-        if (filters.search) params.set('search', filters.search)
-        if (filters.status && filters.status !== 'all') params.set('status', filters.status)
-        if (filters.country) params.set('country', filters.country)
-        if (filters.state) params.set('state', filters.state)
-        if (filters.city) params.set('city', filters.city)
-        if (filters.googleTypes) params.set('googleTypes', filters.googleTypes)
-        if (filters.category) params.set('category', filters.category)
-        if (filters.contentStatus && filters.contentStatus !== 'all') params.set('contentStatus', filters.contentStatus)
-        if (filters.groupStatus && filters.groupStatus !== 'all') params.set('groupStatus', filters.groupStatus)
-        if (filters.scoreFilter && filters.scoreFilter !== 'all') params.set('scoreFilter', filters.scoreFilter)
-        if (filters.triggerPointsFilter && filters.triggerPointsFilter !== 'all') params.set('triggerPointsFilter', filters.triggerPointsFilter)
-        if (filters.page) params.set('page', filters.page.toString())
-        if (filters.limit) params.set('limit', filters.limit.toString())
-        
-        const response = await fetch(`/api/pois/search?${params.toString()}`)
-        const result = await response.json()
-        
-        if (result.success) {
-          const searchResult: POISearchResult = {
-            success: true,
-            data: result.data || [],
-            pagination: result.pagination || {
-              totalCount: 0,
-              totalPages: 0,
-              currentPage: filters.page || 1,
-              hasNextPage: false,
-              hasPrevPage: false
-            },
-            filters,
-            metadata: {
-              source: 'api',
-              timestamp: startTime,
-              processing_time: Date.now() - startTime
-            }
-          }
-          
-          // Cache the result
-          this.cache.set(cacheKey, { data: searchResult, timestamp: startTime })
-          
-          return searchResult
-        }
-      } catch (apiError) {
-        console.warn('POI search API failed, falling back to database:', apiError)
-      }
+      const supabase = getSupabase('server')
       
-      // Fallback to direct database query
-      const supabase = getSupabase('service')
-      
-      let query = supabase
-        .schema('core')
-        .from('attractions')
-        .select(`
-          *,
-          attraction_descriptions(id, language, description),
-          attraction_groups(id, name, role),
-          attraction_trigger_points(id, is_active)
-        `)
-      
-      // Apply filters
-      if (filters.search) {
-        query = query.ilike('name', `%${filters.search}%`)
-      }
-      if (filters.status === 'approved') {
-        query = query.eq('approved', true)
-      } else if (filters.status === 'pending') {
-        query = query.eq('approved', false)
-      }
-      if (filters.country) {
-        query = query.eq('country', filters.country)
-      }
-      if (filters.state) {
-        query = query.eq('state', filters.state)
-      }
-      if (filters.city) {
-        query = query.eq('city', filters.city)
-      }
-      if (filters.googleTypes) {
-        query = query.contains('google_types', [filters.googleTypes])
-      }
-      
-      // Apply pagination
-      const page = filters.page || 1
-      const limit = filters.limit || 50
-      const offset = (page - 1) * limit
-      
-      query = query
-        .range(offset, offset + limit - 1)
-        .order('created_at', { ascending: false })
-      
-      const { data, error, count } = await query
+      // Use the new RPC function for efficient search
+      const { data, error } = await supabase.schema('core').rpc('cms_search_pois', {
+        search_term: filters.search || null,
+        status_filter: filters.status || 'all',
+        country_filter: filters.country || null,
+        state_filter: filters.state || null,
+        city_filter: filters.city || null,
+        google_types_filter: filters.googleTypes || null,
+        category_filter: filters.category || null,
+        content_status_filter: filters.contentStatus || null,
+        group_status_filter: filters.groupStatus || null,
+        score_filter: filters.scoreFilter || null,
+        trigger_points_filter: filters.triggerPointsFilter || null,
+        limit_count: filters.limit || 1000,
+        offset_count: ((filters.page || 1) - 1) * (filters.limit || 1000),
+        fetch_all: false
+      })
       
       if (error) {
-        throw new Error(`Database error: ${error.message}`)
+        console.error('❌ POI Search RPC failed:', error)
+        throw new Error(`RPC error: ${error.message}`)
       }
       
-      // Transform data to POI format
-      const pois = (data || []).map(this.transformToPOI)
-      
-      const totalCount = count || 0
-      const totalPages = Math.ceil(totalCount / limit)
-      
-      const searchResult: POISearchResult = {
-        success: true,
-        data: pois,
-        pagination: {
-          totalCount,
-          totalPages,
-          currentPage: page,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1
-        },
-        filters,
-        metadata: {
-          source: 'database',
-          timestamp: startTime,
-          processing_time: Date.now() - startTime
+      if (data && data.length > 0) {
+        // Extract statistics from the first row (they're the same for all rows)
+        const stats = {
+          total: data[0].total_count || 0,
+          approved: data[0].approved_count || 0,
+          pending: data[0].pending_count || 0,
+          withDescription: data[0].with_description_count || 0,
+          withAudio: data[0].with_audio_count || 0,
+          withTriggerPoints: data[0].with_trigger_points_count || 0,
+          complete: data[0].complete_count || 0
+        }
+        
+        // Transform the data to match our POI interface
+        const pois = data.map((row: any) => ({
+          id: row.id,
+          name: row.name,
+          city: row.city,
+          state: row.state,
+          country: row.country,
+          google_place_id: row.google_place_id,
+          google_types: row.google_types,
+          category: row.category,
+          rating: row.rating,
+          image_url: row.image_url,
+          approved: row.approved,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          user_id: row.user_id,
+          business_status: row.business_status,
+          formatted_phone_number: row.formatted_phone_number,
+          coordinates: row.latitude && row.longitude ? {
+            latitude: row.latitude,
+            longitude: row.longitude
+          } : undefined,
+          descriptions: row.descriptions || [],
+          trigger_points: row.trigger_points || [],
+          group_membership: row.group_membership || [],
+          verification_data: row.verification_data,
+          // Content status indicators
+          has_description: (row.descriptions?.length || 0) > 0,
+          has_audio: (row.descriptions?.filter((d: any) => d.audio_url)?.length || 0) > 0,
+          description_count: row.descriptions?.length || 0,
+          audio_count: row.descriptions?.filter((d: any) => d.audio_url)?.length || 0,
+          available_languages: row.descriptions?.map((d: any) => d.language) || [],
+          trigger_points_count: row.trigger_points?.length || 0,
+          active_trigger_points_count: row.trigger_points?.filter((tp: any) => tp.is_active)?.length || 0,
+          // Group status
+          group_status: row.group_membership?.[0] ? {
+            is_in_group: true,
+            group_id: row.group_membership[0].group_id,
+            group_name: row.group_membership[0].group_name,
+            group_role: row.group_membership[0].group_role || 'main',
+            group_member_count: row.group_membership.length
+          } : undefined
+        }))
+        
+        const totalCount = stats.total
+        const page = filters.page || 1
+        const limit = filters.limit || 1000
+        const totalPages = Math.ceil(totalCount / limit)
+        
+        const searchResult: POISearchResult = {
+          success: true,
+          data: pois,
+          pagination: {
+            totalCount,
+            totalPages,
+            currentPage: page,
+            hasNextPage: page < totalPages,
+            hasPrevPage: page > 1
+          },
+          filters,
+          metadata: {
+            source: 'database',
+            timestamp: startTime,
+            processing_time: Date.now() - startTime
+          }
+        }
+        
+        // Cache the result
+        this.cache.set(cacheKey, { data: searchResult, timestamp: startTime })
+        
+        console.log(`✅ POI Search RPC completed in ${Date.now() - startTime}ms - Found ${pois.length} POIs`)
+        return searchResult
+      } else {
+        console.log('✅ POI Search RPC completed - No POIs found')
+        return {
+          success: true,
+          data: [],
+          pagination: {
+            totalCount: 0,
+            totalPages: 0,
+            currentPage: filters.page || 1,
+            hasNextPage: false,
+            hasPrevPage: false
+          },
+          filters,
+          metadata: {
+            source: 'database',
+            timestamp: startTime,
+            processing_time: Date.now() - startTime
+          }
         }
       }
       
-      // Cache the result
-      this.cache.set(cacheKey, { data: searchResult, timestamp: startTime })
-      
-      return searchResult
-      
     } catch (error) {
-      console.error('Error searching POIs:', error)
+      console.error('Error searching POIs with RPC:', error)
       return {
         success: false,
         data: [],
@@ -409,7 +421,7 @@ class POIService {
       
       console.log(`🔍 Loading POI: ${id}`)
       
-      const supabase = getSupabase('service')
+      const supabase = getSupabase('server')
       
       const { data, error } = await supabase
         .schema('core')
@@ -454,40 +466,124 @@ class POIService {
   }
   
   /**
-   * Get POI statistics
+   * Get POI statistics using RPC
    */
-  static async getStats(filters?: {
-    country?: string
-    state?: string
-    city?: string
-  }): Promise<{ success: boolean; data?: POIStats; error?: string }> {
+  static async getStats(filters?: POISearchFilters): Promise<{ success: boolean; data?: POIStats; error?: string }> {
     const startTime = Date.now()
     
     try {
-      console.log('📊 Loading POI statistics:', filters)
+      console.log('📊 Loading POI statistics with RPC:', filters)
       
-      const response = await fetch('/api/pois/stats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(filters || {})
+      const supabase = getSupabase('server')
+      
+      // Use the RPC function with fetch_all=true to get complete statistics
+      const { data, error } = await supabase.schema('core').rpc('cms_search_pois', {
+        search_term: filters?.search || null,
+        status_filter: filters?.status || 'all',
+        country_filter: filters?.country || null,
+        state_filter: filters?.state || null,
+        city_filter: filters?.city || null,
+        google_types_filter: filters?.googleTypes || null,
+        category_filter: filters?.category || null,
+        content_status_filter: filters?.contentStatus || null,
+        group_status_filter: filters?.groupStatus || null,
+        score_filter: filters?.scoreFilter || null,
+        trigger_points_filter: filters?.triggerPointsFilter || null,
+        limit_count: 1, // We only need one row to get the statistics
+        offset_count: 0,
+        fetch_all: true // This ensures we get statistics for ALL matching records
       })
       
-      const result = await response.json()
-      
-      if (result.success) {
-        return {
-          success: true,
-          data: result.data
-        }
-      } else {
+      if (error) {
+        console.error('❌ POI Statistics RPC failed:', error)
         return {
           success: false,
-          error: result.error || 'Failed to load statistics'
+          error: error.message || 'Failed to load statistics'
+        }
+      }
+      
+      if (data && data.length > 0) {
+        // Extract statistics from the first row
+        const row = data[0]
+        const stats: POIStats = {
+          total: row.total_count || 0,
+          approved: row.approved_count || 0,
+          pending: row.pending_count || 0,
+          content_stats: {
+            with_description: row.with_description_count || 0,
+            with_audio: row.with_audio_count || 0,
+            complete: row.complete_count || 0,
+            missing_description: (row.total_count || 0) - (row.with_description_count || 0),
+            missing_audio: (row.total_count || 0) - (row.with_audio_count || 0)
+          },
+          group_stats: {
+            grouped: 0, // Not available in current RPC
+            ungrouped: 0,
+            group_main: 0,
+            group_member: 0
+          },
+          trigger_points_stats: {
+            with_trigger_points: row.with_trigger_points_count || 0,
+            without_trigger_points: (row.total_count || 0) - (row.with_trigger_points_count || 0),
+            total_trigger_points: 0, // Not available in current RPC
+            active_trigger_points: 0
+          },
+          verification_stats: {
+            no_score: 0, // Not available in current RPC
+            pending: 0,
+            approved: 0,
+            rejected: 0
+          },
+          countries: [], // Not available in current RPC
+          cities: []
+        }
+        
+        console.log(`✅ POI Statistics RPC completed in ${Date.now() - startTime}ms`)
+        return {
+          success: true,
+          data: stats
+        }
+      } else {
+        console.log('✅ POI Statistics RPC completed - No data found')
+        return {
+          success: true,
+          data: {
+            total: 0,
+            approved: 0,
+            pending: 0,
+            content_stats: {
+              with_description: 0,
+              with_audio: 0,
+              complete: 0,
+              missing_description: 0,
+              missing_audio: 0
+            },
+            group_stats: {
+              grouped: 0,
+              ungrouped: 0,
+              group_main: 0,
+              group_member: 0
+            },
+            trigger_points_stats: {
+              with_trigger_points: 0,
+              without_trigger_points: 0,
+              total_trigger_points: 0,
+              active_trigger_points: 0
+            },
+            verification_stats: {
+              no_score: 0,
+              pending: 0,
+              approved: 0,
+              rejected: 0
+            },
+            countries: [],
+            cities: []
+          }
         }
       }
       
     } catch (error) {
-      console.error('Error loading POI statistics:', error)
+      console.error('Error loading POI statistics with RPC:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'

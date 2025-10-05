@@ -16,6 +16,7 @@ interface VerificationBadgeProps {
   descriptionId?: string;
   attractionId?: string;
   data?: VerificationData;
+  verificationData?: VerificationData; // New prop for pre-loaded data
   size?: 'sm' | 'md' | 'lg';
   showScore?: boolean;
   showVerifyButton?: boolean;
@@ -26,21 +27,24 @@ export function VerificationBadge({
   descriptionId, 
   attractionId, 
   data, 
+  verificationData: preloadedData,
   size = 'sm', 
   showScore = true,
   showVerifyButton = false,
   onVerificationComplete 
 }: VerificationBadgeProps) {
-  const [verificationData, setVerificationData] = useState<VerificationData | null>(data || null);
-  const [isLoading, setIsLoading] = useState(!data);
+  const [verificationData, setVerificationData] = useState<VerificationData | null>(
+    data || preloadedData || null
+  );
+  const [isLoading, setIsLoading] = useState(!data && !preloadedData);
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // Fetch verification data if not provided
+  // Fetch verification data if not provided and no preloaded data
   useEffect(() => {
-    if (!data && (descriptionId || attractionId)) {
+    if (!data && !preloadedData && (descriptionId || attractionId)) {
       fetchVerificationData();
     }
-  }, [descriptionId, attractionId, data]);
+  }, [descriptionId, attractionId, data, preloadedData]);
 
   const fetchVerificationData = async () => {
     if (!descriptionId && !attractionId) return;

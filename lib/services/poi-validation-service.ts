@@ -164,7 +164,7 @@ export class POIValidationService {
     geminiApiKey: string,
     config: Partial<ValidationConfig> = {}
   ) {
-    this.supabase = getSupabase('service')
+    this.supabase = getSupabase('server')
     this.genAI = new GoogleGenerativeAI(geminiApiKey)
     this.config = { ...DEFAULT_CONFIG, ...config }
     this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })

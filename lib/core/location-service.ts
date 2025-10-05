@@ -122,7 +122,7 @@ class LocationService {
       }
       
       // Fallback to direct database query
-      const supabase = getSupabase('service')
+      const supabase = getSupabase('server')
       
       const { data, error } = await supabase
         .schema('core')
@@ -196,8 +196,10 @@ class LocationService {
         const response = await fetch(`/api/states?country=${encodeURIComponent(country)}`)
         const result = await response.json()
         
-        if (result.success && result.states) {
-          const states = result.states.map((state: any) => ({
+        console.log(`🏛️ States API response for ${country}:`, result)
+        
+        if (result.success && result.data) {
+          const states = result.data.map((state: any) => ({
             value: state.value || state.name,
             label: state.label || state.name,
             cityCount: state.cityCount || 0,
@@ -222,7 +224,7 @@ class LocationService {
       }
       
       // Fallback to direct database query
-      const supabase = getSupabase('service')
+      const supabase = getSupabase('server')
       
       const { data, error } = await supabase
         .schema('core')
@@ -333,7 +335,7 @@ class LocationService {
       }
       
       // Fallback to direct database query
-      const supabase = getSupabase('service')
+      const supabase = getSupabase('server')
       
       let query = supabase
         .schema('core')

@@ -20,26 +20,49 @@ export async function GET(request: NextRequest) {
 
     console.log('🌍 POI Countries API: Processing fresh data...')
     
-    // Fetch unique countries with POI counts using aggregation
-    const { data: countriesData, error: countriesError } = await supabase
-      .schema('core')
-      .from('attractions')
-      .select('country')
-      .not('country', 'is', null)
-      .not('country', 'eq', '')
+    // Fetch ALL countries using pagination to overcome Supabase 1000 limit
+    let allCountriesData: any[] = []
+    let hasMoreCountries = true
+    let countriesPage = 0
+    const pageSize = 1000
     
-    if (countriesError) {
-      console.error('Error fetching countries:', countriesError)
-      return NextResponse.json(
-        { error: 'Failed to fetch countries' },
-        { status: 500 }
-      )
+    while (hasMoreCountries) {
+      const { data: pageData, error: pageError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('country')
+        .not('country', 'is', null)
+        .not('country', 'eq', '')
+        .range(countriesPage * pageSize, (countriesPage + 1) * pageSize - 1)
+      
+      if (pageError) {
+        console.error('Error fetching countries page:', pageError)
+        return NextResponse.json(
+          { error: 'Failed to fetch countries' },
+          { status: 500 }
+        )
+      }
+      
+      if (!pageData || pageData.length === 0) {
+        hasMoreCountries = false
+      } else {
+        allCountriesData = [...allCountriesData, ...pageData]
+        countriesPage++
+        
+        // Safety check to prevent infinite loops
+        if (countriesPage > 50) { // Max 50,000 countries
+          console.warn('🌍 Countries: Reached safety limit of 50,000 countries')
+          break
+        }
+      }
     }
+    
+    console.log(`🌍 Countries: Fetched ${allCountriesData.length} total countries`)
     
     // Process countries and count POIs
     const countryMap = new Map<string, number>()
     
-    countriesData?.forEach(item => {
+    allCountriesData?.forEach(item => {
       if (item.country) {
         const count = countryMap.get(item.country) || 0
         countryMap.set(item.country, count + 1)

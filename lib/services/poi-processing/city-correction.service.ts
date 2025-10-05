@@ -24,7 +24,7 @@ const getSupabaseClient = () => {
     throw new Error('Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY')
   }
   
-  return getSupabase('service')
+  return getSupabase('server')
 }
 
 // Lazy initialization

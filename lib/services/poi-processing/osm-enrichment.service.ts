@@ -14,7 +14,7 @@
 import { getSupabase } from '../../core/supabase-client'
 
 // Service role client for database operations
-const supabaseAdmin = getSupabase('service')
+const supabaseAdmin = getSupabase('server')
 
 // =====================================
 // INTERFACES AND TYPES

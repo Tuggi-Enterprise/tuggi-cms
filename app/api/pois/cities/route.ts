@@ -31,29 +31,54 @@ export async function GET(request: NextRequest) {
 
     console.log(`🏙️ POI Cities API: Processing fresh data for ${country}${state ? ` in ${state}` : ''}...`)
     
-    // Build query for cities with optional state filter
-    let query = supabase
-      .schema('core')
-      .from('attractions')
-      .select('city')
-      .eq('country', country)
-      .not('city', 'is', null)
-      .not('city', 'eq', '')
+    // Fetch ALL cities using pagination to overcome Supabase 1000 limit
+    let allCitiesData: any[] = []
+    let hasMoreCities = true
+    let citiesPage = 0
+    const pageSize = 1000
     
-    // Add state filter if provided
-    if (state) {
-      query = query.eq('state', state)
+    while (hasMoreCities) {
+      let query = supabase
+        .schema('core')
+        .from('attractions')
+        .select('city')
+        .eq('country', country)
+        .not('city', 'is', null)
+        .not('city', 'eq', '')
+        .range(citiesPage * pageSize, (citiesPage + 1) * pageSize - 1)
+      
+      // Add state filter if provided
+      if (state) {
+        query = query.eq('state', state)
+      }
+      
+      const { data: pageData, error: pageError } = await query
+      
+      if (pageError) {
+        console.error('Error fetching cities page:', pageError)
+        return NextResponse.json(
+          { error: 'Failed to fetch cities' },
+          { status: 500 }
+        )
+      }
+      
+      if (!pageData || pageData.length === 0) {
+        hasMoreCities = false
+      } else {
+        allCitiesData = [...allCitiesData, ...pageData]
+        citiesPage++
+        
+        // Safety check to prevent infinite loops
+        if (citiesPage > 50) { // Max 50,000 cities
+          console.warn('🏙️ Cities: Reached safety limit of 50,000 cities')
+          break
+        }
+      }
     }
     
-    const { data: citiesData, error: citiesError } = await query
+    console.log(`🏙️ Cities: Fetched ${allCitiesData.length} total cities for ${country}${state ? ` in ${state}` : ''}`)
     
-    if (citiesError) {
-      console.error('Error fetching cities:', citiesError)
-      return NextResponse.json(
-        { error: 'Failed to fetch cities' },
-        { status: 500 }
-      )
-    }
+    const citiesData = allCitiesData
     
     // Process cities and count POIs
     const cityMap = new Map<string, number>()

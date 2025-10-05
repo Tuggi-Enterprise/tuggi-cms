@@ -8,7 +8,7 @@ if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('Missing Supabase environment variables')
 }
 
-const supabase = getSupabase('service')
+const supabase = getSupabase('server')
 
 export interface POI {
   id: string

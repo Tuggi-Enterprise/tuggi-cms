@@ -72,6 +72,11 @@ export async function GET(request: NextRequest) {
       }
     }
     
+    // Declare variables for all code paths
+    let pois: any[] = []
+    let error: any = null
+    let count: any = null
+    
     // Build base query
     let query = supabase
       .schema('core')
@@ -99,7 +104,15 @@ export async function GET(request: NextRequest) {
           language,
           description,
           audio_url,
-          verification_status
+          verification_status,
+          last_verified_at,
+          is_original,
+          description_scores(
+            score_overall,
+            subscores,
+            flags,
+            created_at
+          )
         ),
         trigger_points:attraction_trigger_points(
           id,
@@ -167,19 +180,137 @@ export async function GET(request: NextRequest) {
     // Apply pagination only if not requesting all counts and not map view
     // and if we don't have complex filters that require post-processing
     
-    if (!all && !mapView && !hasComplexFilters) {
-      query = query.range(startIndex, endIndex)
-    } else if (mapView) {
-      // For map view, set a high limit to get all POIs (Supabase default limit is 1000)
-      query = query.limit(50000)
-    } else if (!all && !mapView && hasComplexFilters) {
-       // For complex filters, we need to fetch more data and paginate after filtering
-       // Use a smart limit based on the page number to avoid fetching too much data
-       const smartLimit = Math.min(10000, (page * limit) + (limit * 5)) // Fetch a bit more than needed
-       query = query.limit(smartLimit)
-     }
-    
-    const { data: pois, error, count } = await query
+    if (all) {
+      // For all=true, we need to fetch ALL POIs using pagination to overcome Supabase 1000 limit
+      console.log('🔍 POI Search (all=true): Fetching ALL POIs with pagination...')
+      
+      let allPoisData: any[] = []
+      let hasMorePois = true
+      let poisPage = 0
+      const pageSize = 1000
+      
+      while (hasMorePois) {
+        const { data: pageData, error: pageError } = await supabase
+          .schema('core')
+          .from('attractions')
+          .select(`
+            id,
+            name,
+            city,
+            state,
+            country,
+            google_place_id,
+            google_types,
+            category,
+            rating,
+            image_url,
+            approved,
+            created_at,
+            updated_at,
+            user_id,
+            business_status,
+            formatted_phone_number,
+            coordinates:attraction_coordinate(latitude, longitude),
+            descriptions:attraction_descriptions(
+              id,
+              language,
+              description,
+              audio_url,
+              verification_status
+            ),
+            trigger_points:attraction_trigger_points(
+              id,
+              is_active
+            ),
+            group_membership:attraction_group_members(
+              group_id,
+              group_role,
+              attraction_groups(id, name)
+            )
+          `)
+          .range(poisPage * pageSize, (poisPage + 1) * pageSize - 1)
+        
+        if (pageError) {
+          console.error('Error fetching POIs page:', pageError)
+          break
+        }
+        
+        if (!pageData || pageData.length === 0) {
+          hasMorePois = false
+        } else {
+          allPoisData = [...allPoisData, ...pageData]
+          poisPage++
+          
+          // Safety check to prevent infinite loops
+          if (poisPage > 50) { // Max 50,000 POIs
+            console.warn('🔍 POI Search (all=true): Reached safety limit of 50,000 POIs')
+            break
+          }
+        }
+      }
+      
+      console.log(`🔍 POI Search (all=true): Fetched ${allPoisData.length} POIs total`)
+      
+      // Apply filters to the paginated data
+      let filteredData = allPoisData
+      
+      if (search) {
+        filteredData = filteredData.filter(poi => 
+          poi.name?.toLowerCase().includes(search.toLowerCase()) ||
+          poi.city?.toLowerCase().includes(search.toLowerCase()) ||
+          poi.country?.toLowerCase().includes(search.toLowerCase())
+        )
+      }
+      
+      if (status !== 'all') {
+        filteredData = filteredData.filter(poi => 
+          status === 'approved' ? poi.approved : !poi.approved
+        )
+      }
+      
+      if (country) {
+        filteredData = filteredData.filter(poi => poi.country === country)
+      }
+      
+      if (state) {
+        filteredData = filteredData.filter(poi => poi.state === state)
+      }
+      
+      if (city) {
+        filteredData = filteredData.filter(poi => poi.city === city)
+      }
+      
+      if (googleTypes) {
+        filteredData = filteredData.filter(poi => 
+          poi.google_types?.includes(googleTypes)
+        )
+      }
+      
+      if (category) {
+        filteredData = filteredData.filter(poi => poi.category === category)
+      }
+      
+      console.log(`🔍 POI Search (all=true): After filtering: ${filteredData.length} POIs`)
+      pois = filteredData
+    } else {
+      // For regular queries, use the original logic
+      if (!all && !mapView && !hasComplexFilters) {
+        query = query.range(startIndex, endIndex)
+      } else if (mapView) {
+        // For map view, set a high limit to get all POIs (Supabase default limit is 1000)
+        query = query.limit(50000)
+      } else if (!all && !mapView && hasComplexFilters) {
+         // For complex filters, we need to fetch more data and paginate after filtering
+         // Use a smart limit based on the page number to avoid fetching too much data
+         const smartLimit = Math.min(10000, (page * limit) + (limit * 5)) // Fetch a bit more than needed
+         query = query.limit(smartLimit)
+       }
+      
+      const { data: queryPois, error: queryError, count: queryCount } = await query
+      pois = queryPois || []
+      error = queryError
+      count = queryCount
+    }
     
     if (error) {
       console.error('Error fetching POIs:', error)
@@ -207,6 +338,28 @@ export async function GET(request: NextRequest) {
       const availableLanguages = descriptions
         .filter((desc: any) => desc.description && desc.description.trim())
         .map((desc: any) => desc.language)
+      
+      // Process verification data for original pt-br description
+      const originalDescription = descriptions.find((desc: any) => 
+        desc.is_original && desc.language === 'pt-br'
+      )
+      
+      let verificationData = null
+      if (originalDescription) {
+        const latestScore = originalDescription.description_scores
+          ?.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+        
+        verificationData = {
+          verification_status: originalDescription.verification_status,
+          score: latestScore?.score_overall || null,
+          last_verified_at: originalDescription.last_verified_at,
+          is_original: originalDescription.is_original,
+          language: originalDescription.language,
+          subscores: latestScore?.subscores,
+          flags: latestScore?.flags,
+          description_id: originalDescription.id
+        }
+      }
       
       // Calculate trigger points counts
       const triggerPointsCount = triggerPoints.length
@@ -236,6 +389,7 @@ export async function GET(request: NextRequest) {
         trigger_points_count: triggerPointsCount,
         active_trigger_points_count: activeTriggerPointsCount,
         group_status: processedGroupStatus,
+        verification_data: verificationData,
         groups: processedGroupStatus.group_name,
         group_count: processedGroupStatus.is_in_group ? 1 : 0,
         // Keep descriptions for frontend filtering if needed

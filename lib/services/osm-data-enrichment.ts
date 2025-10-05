@@ -1,7 +1,7 @@
 import { getSupabase } from '../core/supabase-client'
 
 // Use service role for database operations (has full access)
-const supabase = getSupabase('service')
+const supabase = getSupabase('server')
 
 export interface OSMEnrichmentData {
   // Basic OSM data

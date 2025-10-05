@@ -3,7 +3,7 @@ import { POIInput, POVItem, GeminiPOVResponse } from '@/types/pov-types'
 import { POVSuggestionsService } from './pov-suggestions-service'
 import { callGeminiAPI } from '@/lib/utils/rate-limiter'
 
-const supabase = getSupabase('service')
+const supabase = getSupabase('server')
 
 export interface POIGeometry {
   bounds?: {

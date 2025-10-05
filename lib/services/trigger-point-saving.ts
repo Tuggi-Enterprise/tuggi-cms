@@ -7,7 +7,7 @@
 
 import { getSupabase } from '../core/supabase-client'
 
-const supabase = getSupabase('service')
+const supabase = getSupabase('server')
 
 // Simple in-memory lock to prevent concurrent processing of same POI
 const processingLocks = new Map<string, Promise<any>>()

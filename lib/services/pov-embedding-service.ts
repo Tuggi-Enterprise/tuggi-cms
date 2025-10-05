@@ -35,7 +35,7 @@ export class POVEmbeddingService {
   private openaiApiKey: string
 
   constructor(supabaseUrl: string, supabaseKey: string, openaiApiKey: string) {
-    this.supabase = getSupabase('service')
+    this.supabase = getSupabase('server')
     this.openaiApiKey = openaiApiKey
   }
 
