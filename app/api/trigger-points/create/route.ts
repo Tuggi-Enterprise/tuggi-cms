@@ -87,7 +87,8 @@ export async function POST(request: NextRequest) {
     // Prepare insert data with user tracking
     const insertData: any = {
       attraction_id,
-      location: `POINT(${lng} ${lat})`,
+      // Use EWKT with SRID for PostGIS geography
+      location: `SRID=4326;POINT(${lng} ${lat})`,
       radius_meters,
       expected_bearing,
       bearing_threshold,

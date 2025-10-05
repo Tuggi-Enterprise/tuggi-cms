@@ -103,7 +103,7 @@ async function resizeWithCanvas(
   const { maxWidth, maxHeight, quality, format, maintainAspectRatio } = options;
 
   // Criar blob a partir dos dados da imagem
-  const blob = new Blob([imageData]);
+  const blob = new Blob([imageData as BlobPart], { type: 'image/jpeg' });
   const imageUrl = URL.createObjectURL(blob);
 
   try {
