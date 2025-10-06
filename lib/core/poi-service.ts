@@ -177,6 +177,8 @@ class POIService {
       }
       
       console.log('🔍 Searching POIs with RPC:', filters)
+      console.log('🔍 Country filter value:', filters.country)
+      console.log('🔍 Country filter type:', typeof filters.country)
       
       const supabase = getSupabase('server')
       
@@ -198,13 +200,24 @@ class POIService {
         fetch_all: false
       }
       
+      console.log('🔍 RPC Parameters:', rpcParams)
+      console.log('🔍 Country filter in RPC:', rpcParams.country_filter)
+      
+      console.log('🔍 Calling RPC with params:', JSON.stringify(rpcParams, null, 2))
+      
       const { data, error } = await supabase.schema('core').rpc('cms_search_pois', rpcParams)
+      
+      console.log('🔍 RPC Error:', error)
+      console.log('🔍 RPC Data:', data)
       
       if (error) {
         console.error('❌ POI Search RPC failed:', error)
         throw new Error(`RPC error: ${error.message}`)
       }
       
+      
+      console.log('🔍 RPC Response data length:', data?.length)
+      console.log('🔍 RPC Response first item:', data?.[0])
       
       if (data && data.length > 0) {
         // Extract statistics from the first row (they're the same for all rows)
@@ -217,6 +230,8 @@ class POIService {
           withTriggerPoints: data[0].with_trigger_points_count || 0,
           complete: data[0].complete_count || 0
         }
+        
+        console.log('🔍 Extracted stats:', stats)
         
         // Transform the data to match our POI interface
         const pois = data.map((row: any) => ({
