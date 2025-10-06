@@ -77,7 +77,11 @@ interface CityBoundary {
 type POIStatus = 'complete' | 'approved' | 'pending' | 'missing_content'
 
 interface POIMapVisualizationProps {
-  // Filter props
+  // Data props - if provided, use these instead of fetching
+  pois?: POI[]
+  totalCount?: number
+  
+  // Filter props (used for city boundaries and initial filtering)
   searchTerm: string
   statusFilter: 'all' | 'approved' | 'pending'
   countryFilter: string
@@ -151,6 +155,8 @@ function createMarkerIcon(status: POIStatus, isSelected: boolean = false): googl
 
 // Map component with clustering
 function POIMapContent({
+  pois: providedPois,
+  totalCount: providedTotalCount,
   searchTerm,
   statusFilter,
   countryFilter,
@@ -183,6 +189,17 @@ function POIMapContent({
   const [cityBoundaries, setCityBoundaries] = useState<CityBoundary[]>([])
   const [isLoadingBoundaries, setIsLoadingBoundaries] = useState(false)
   const [isAutoFitting, setIsAutoFitting] = useState(false)
+  
+  // Use provided POIs if available, otherwise use local state
+  const currentPois = providedPois || pois
+  const currentTotalCount = providedTotalCount || poiCount.total
+  
+  // Log when using provided POIs
+  useEffect(() => {
+    if (providedPois) {
+      console.log(`🗺️ Using ${providedPois.length} provided POIs for map visualization`)
+    }
+  }, [providedPois])
   
   // Map state preservation
   const [mapState, setMapState] = useState<{
@@ -250,6 +267,13 @@ function POIMapContent({
 
   // Fetch POIs using pagination to overcome Supabase 1000 limit
   const fetchPOIs = useCallback(async () => {
+    // Skip fetching if POIs are provided as props
+    if (providedPois) {
+      console.log('🗺️ Using provided POIs, skipping fetch')
+      setIsLoading(false)
+      return
+    }
+    
     try {
       // Only show loading if we don't have any POIs yet
       if (pois.length === 0) {
@@ -333,7 +357,7 @@ function POIMapContent({
         setIsLoading(false)
       }
     }
-  }, [searchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, triggerPointsFilter, pois.length])
+  }, [providedPois, searchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, triggerPointsFilter, pois.length])
 
   // Fetch city boundaries
   const fetchCityBoundaries = useCallback(async () => {
@@ -375,7 +399,7 @@ function POIMapContent({
 
   // Filter POIs based on current filters
   const filteredPOIs = useMemo(() => {
-    return pois.filter(poi => {
+    return currentPois.filter(poi => {
       // Search term filter
       if (searchTerm && !poi.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
           !poi.city.toLowerCase().includes(searchTerm.toLowerCase()) &&
@@ -418,7 +442,7 @@ function POIMapContent({
 
       return true
     })
-  }, [pois, searchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, triggerPointsFilter])
+  }, [currentPois, searchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, triggerPointsFilter])
 
   // Update markers when filtered POIs change
   const updateMarkers = useCallback(() => {
@@ -858,7 +882,7 @@ function POIMapContent({
           </div>
           <div className="h-4 w-px bg-gray-300" />
           <div className="text-gray-500">
-            {poiCount.total} total
+            {currentTotalCount} total
           </div>
           {cityBoundaries.length > 0 && (
             <>

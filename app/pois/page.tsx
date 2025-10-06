@@ -301,9 +301,68 @@ function POIListWithSearchParams() {
     verification_score: poi.verification_score || null
   })
 
+  // Transform POI from service to map format
+  const transformPOIForMap = (poi: POIType) => ({
+    ...poi,
+    state: poi.state || null,
+    approved_by: poi.approved_by || null,
+    approved_at: poi.approved_at || null,
+    rating: poi.rating || null,
+    image_url: poi.image_url || null,
+    formatted_address: poi.formatted_address || null,
+    vicinity: poi.vicinity || null,
+    website: poi.website || null,
+    formatted_phone_number: poi.formatted_phone_number || null,
+    business_status: poi.business_status || null,
+    price_level: poi.price_level || null,
+    opening_hours: poi.opening_hours || null,
+    google_types: poi.google_types || [],
+    photos_references: poi.photos_references || [],
+    google_place_id: poi.google_place_id || null,
+    user_id: poi.user_id || null,
+    user_ratings_total: poi.user_ratings_total || null,
+    coordinates: poi.coordinates || undefined,
+    reference_links: poi.reference_links || [],
+    descriptions: poi.descriptions || [],
+    group_status: poi.group_status || undefined,
+    verification_score: poi.verification_score || null
+  })
+
   // Handle POI selection
   const handleSelectPoi = (poi: POIType) => {
     setSelectedPoi(poi)
+    setIsModalOpen(true)
+  }
+
+  // Handle POI selection for map (with transformation)
+  const handleSelectPoiForMap = (poi: any) => {
+    // Transform the POI back to POIType format
+    const transformedPoi: POIType = {
+      ...poi,
+      state: poi.state || undefined,
+      approved_by: poi.approved_by || undefined,
+      approved_at: poi.approved_at || undefined,
+      rating: poi.rating || undefined,
+      image_url: poi.image_url || undefined,
+      formatted_address: poi.formatted_address || undefined,
+      vicinity: poi.vicinity || undefined,
+      website: poi.website || undefined,
+      formatted_phone_number: poi.formatted_phone_number || undefined,
+      business_status: poi.business_status || undefined,
+      price_level: poi.price_level || undefined,
+      opening_hours: poi.opening_hours || undefined,
+      google_types: poi.google_types || [],
+      photos_references: poi.photos_references || [],
+      google_place_id: poi.google_place_id || undefined,
+      user_id: poi.user_id || undefined,
+      user_ratings_total: poi.user_ratings_total || undefined,
+      coordinates: poi.coordinates || undefined,
+      reference_links: poi.reference_links || [],
+      descriptions: poi.descriptions || [],
+      group_status: poi.group_status || undefined,
+      verification_score: poi.verification_score || undefined
+    }
+    setSelectedPoi(transformedPoi)
     setIsModalOpen(true)
   }
 
@@ -778,10 +837,23 @@ function POIListWithSearchParams() {
 
         {/* Content */}
         {viewMode === 'map' ? (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
-              <Map className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Map View</h3>
-              <p className="text-gray-500 dark:text-gray-400">Map visualization will be available soon.</p>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+              <POIMapVisualization
+                pois={filteredPois.map(transformPOIForMap)}
+                totalCount={totalCount}
+                searchTerm={searchTerm}
+                statusFilter={statusFilter}
+                countryFilter={countryFilter}
+                stateFilter={stateFilter}
+                cityFilter={cityFilter}
+                googleTypesFilter={googleTypesFilter}
+                contentStatusFilter={contentStatusFilter}
+                groupStatusFilter={groupStatusFilter}
+                triggerPointsFilter={triggerPointsFilter}
+                onPOIClick={handleSelectPoiForMap}
+                height="600px"
+                className="w-full rounded-lg"
+              />
             </div>
           ) : (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">

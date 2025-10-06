@@ -72,522 +72,250 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    // Declare variables for all code paths
-    let pois: any[] = []
-    let error: any = null
-    let count: any = null
+    // Use RPC function for efficient search
+    console.log('🔍 Using RPC cms_search_pois for POI search')
     
-    // Build base query
-    let query = supabase
+    const rpcParams = {
+      search_term: search || null,
+      status_filter: status,
+      country_filter: country || null,
+      state_filter: state || null,
+      city_filter: city || null,
+      google_types_filter: googleTypes || null,
+      category_filter: category || null,
+      content_status_filter: contentStatus,
+      group_status_filter: groupStatus,
+      score_filter: scoreFilter,
+      trigger_points_filter: triggerPointsFilter,
+      limit_count: mapView ? 10000 : limit, // Higher limit for map view
+      offset_count: mapView ? 0 : startIndex,
+      fetch_all: mapView || all || false
+    }
+    
+    console.log('🔍 RPC Parameters:', rpcParams)
+    
+    const { data: rpcData, error: rpcError } = await supabase
       .schema('core')
-      .from('attractions')
-      .select(`
-        id,
-        name,
-        city,
-        state,
-        country,
-        google_place_id,
-        google_types,
-        category,
-        rating,
-        image_url,
-        approved,
-        created_at,
-        updated_at,
-        user_id,
-        business_status,
-        formatted_phone_number,
-        coordinates:attraction_coordinate(latitude, longitude),
-        descriptions:attraction_descriptions(
-          id,
-          language,
-          description,
-          audio_url,
-          verification_status,
-          last_verified_at,
-          is_original,
-          description_scores(
-            score_overall,
-            subscores,
-            flags,
-            created_at
-          )
-        ),
-        trigger_points:attraction_trigger_points(
-          id,
-          is_active
-        ),
-        group_membership:attraction_group_members(
-          group_id,
-          group_role,
-          attraction_groups(id, name)
-        )
-      `, { count: 'exact' })
+      .rpc('cms_search_pois', rpcParams)
     
-    // Apply filters
-    
-    // Search filter - optimized for large datasets (30k+ records)
-    if (search) {
-      const searchTerm = search.trim()
-      if (searchTerm) {
-        // For better performance on large datasets, prioritize exact matches first
-        // then partial matches. This works better with database indexes.
-        if (searchTerm.length >= 3) {
-          // Use ilike for partial matching on longer terms
-          query = query.or(`name.ilike.%${searchTerm}%,city.ilike.%${searchTerm}%,country.ilike.%${searchTerm}%,state.ilike.%${searchTerm}%`)
-        } else {
-          // For short terms, use exact matching to avoid too many results
-          query = query.or(`name.ilike.${searchTerm}%,city.ilike.${searchTerm}%,country.ilike.${searchTerm}%,state.ilike.${searchTerm}%`)
+    if (rpcError) {
+      console.error('❌ RPC Error:', rpcError)
+      return NextResponse.json({
+        success: false,
+        error: `RPC error: ${rpcError.message}`,
+        data: [],
+        pagination: {
+          totalCount: 0,
+          totalPages: 0,
+          currentPage: page,
+          hasNextPage: false,
+          hasPrevPage: false
         }
-      }
+      }, { status: 500 })
     }
     
-    // Status filter
-    if (status !== 'all') {
-      query = query.eq('approved', status === 'approved')
-    }
+    console.log('🔍 RPC Response data length:', rpcData?.length)
     
-    // Country filter
-    if (country) {
-      query = query.eq('country', country)
-    }
-    
-    // State filter
-    if (state) {
-      query = query.eq('state', state)
-    }
-    
-    // City filter
-    if (city) {
-      query = query.eq('city', city)
-    }
-    
-    // Google Types filter
-    if (googleTypes) {
-      query = query.contains('google_types', [googleTypes])
-    }
-    
-    // Category filter
-    if (category) {
-      query = query.eq('category', category)
-    }
-    
-    // Order by created_at desc for consistent pagination
-    query = query.order('created_at', { ascending: false })
-    
-    // For large datasets, we need to handle pagination differently
-    // Apply pagination only if not requesting all counts and not map view
-    // and if we don't have complex filters that require post-processing
-    
-    if (all) {
-      // For all=true, we need to fetch ALL POIs using pagination to overcome Supabase 1000 limit
-      console.log('🔍 POI Search (all=true): Fetching ALL POIs with pagination...')
-      
-      let allPoisData: any[] = []
-      let hasMorePois = true
-      let poisPage = 0
-      const pageSize = 1000
-      
-      while (hasMorePois) {
-        const { data: pageData, error: pageError } = await supabase
-          .schema('core')
-          .from('attractions')
-          .select(`
-            id,
-            name,
-            city,
-            state,
-            country,
-            google_place_id,
-            google_types,
-            category,
-            rating,
-            image_url,
-            approved,
-            created_at,
-            updated_at,
-            user_id,
-            business_status,
-            formatted_phone_number,
-            coordinates:attraction_coordinate(latitude, longitude),
-            descriptions:attraction_descriptions(
-              id,
-              language,
-              description,
-              audio_url,
-              verification_status
-            ),
-            trigger_points:attraction_trigger_points(
-              id,
-              is_active
-            ),
-            group_membership:attraction_group_members(
-              group_id,
-              group_role,
-              attraction_groups(id, name)
-            )
-          `)
-          .range(poisPage * pageSize, (poisPage + 1) * pageSize - 1)
-        
-        if (pageError) {
-          console.error('Error fetching POIs page:', pageError)
-          break
+    if (!rpcData || rpcData.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+        pagination: {
+          totalCount: 0,
+          totalPages: 0,
+          currentPage: page,
+          hasNextPage: false,
+          hasPrevPage: false
         }
-        
-        if (!pageData || pageData.length === 0) {
-          hasMorePois = false
-        } else {
-          allPoisData = [...allPoisData, ...pageData]
-          poisPage++
-          
-          // Safety check to prevent infinite loops
-          if (poisPage > 50) { // Max 50,000 POIs
-            console.warn('🔍 POI Search (all=true): Reached safety limit of 50,000 POIs')
-            break
-          }
-        }
-      }
-      
-      console.log(`🔍 POI Search (all=true): Fetched ${allPoisData.length} POIs total`)
-      
-      // Apply filters to the paginated data
-      let filteredData = allPoisData
-      
-      if (search) {
-        filteredData = filteredData.filter(poi => 
-          poi.name?.toLowerCase().includes(search.toLowerCase()) ||
-          poi.city?.toLowerCase().includes(search.toLowerCase()) ||
-          poi.country?.toLowerCase().includes(search.toLowerCase())
-        )
-      }
-      
-      if (status !== 'all') {
-        filteredData = filteredData.filter(poi => 
-          status === 'approved' ? poi.approved : !poi.approved
-        )
-      }
-      
-      if (country) {
-        filteredData = filteredData.filter(poi => poi.country === country)
-      }
-      
-      if (state) {
-        filteredData = filteredData.filter(poi => poi.state === state)
-      }
-      
-      if (city) {
-        filteredData = filteredData.filter(poi => poi.city === city)
-      }
-      
-      if (googleTypes) {
-        filteredData = filteredData.filter(poi => 
-          poi.google_types?.includes(googleTypes)
-        )
-      }
-      
-      if (category) {
-        filteredData = filteredData.filter(poi => poi.category === category)
-      }
-      
-      console.log(`🔍 POI Search (all=true): After filtering: ${filteredData.length} POIs`)
-      pois = filteredData
-    } else {
-      // For regular queries, use the original logic
-      if (!all && !mapView && !hasComplexFilters) {
-        query = query.range(startIndex, endIndex)
-      } else if (mapView) {
-        // For map view, set a high limit to get all POIs (Supabase default limit is 1000)
-        query = query.limit(50000)
-      } else if (!all && !mapView && hasComplexFilters) {
-         // For complex filters, we need to fetch more data and paginate after filtering
-         // Use a smart limit based on the page number to avoid fetching too much data
-         const smartLimit = Math.min(10000, (page * limit) + (limit * 5)) // Fetch a bit more than needed
-         query = query.limit(smartLimit)
-       }
-      
-      const { data: queryPois, error: queryError, count: queryCount } = await query
-      pois = queryPois || []
-      error = queryError
-      count = queryCount
+      })
     }
     
-    if (error) {
-      console.error('Error fetching POIs:', error)
-      return NextResponse.json(
-        { error: 'Failed to fetch POIs' },
-        { status: 500 }
-      )
+    // Extract statistics from the first row
+    const stats = {
+      total: rpcData[0].total_count || 0,
+      approved: rpcData[0].approved_count || 0,
+      pending: rpcData[0].pending_count || 0,
+      withDescription: rpcData[0].with_description_count || 0,
+      withAudio: rpcData[0].with_audio_count || 0,
+      withTriggerPoints: rpcData[0].with_trigger_points_count || 0,
+      complete: rpcData[0].complete_count || 0
     }
     
-    // Process POIs to add computed fields
-    const processedPois = pois?.map(poi => {
-      const descriptions = poi.descriptions || []
-      const triggerPoints = poi.trigger_points || []
-      const groupMembership = poi.group_membership?.[0]
-      
-      // Calculate content status
-      const hasDescription = descriptions.some((desc: any) => 
-        desc.description && desc.description.trim()
-      )
-      const hasAudio = descriptions.some((desc: any) => 
-        desc.audio_url && desc.audio_url.trim()
-      )
-      
-      // Calculate available languages
-      const availableLanguages = descriptions
-        .filter((desc: any) => desc.description && desc.description.trim())
-        .map((desc: any) => desc.language)
-      
-      // Process verification data for original pt-br description
-      const originalDescription = descriptions.find((desc: any) => 
-        desc.is_original && desc.language === 'pt-br'
-      )
-      
-      let verificationData = null
-      if (originalDescription) {
-        const latestScore = originalDescription.description_scores
-          ?.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
-        
-        verificationData = {
-          verification_status: originalDescription.verification_status,
-          score: latestScore?.score_overall || null,
-          last_verified_at: originalDescription.last_verified_at,
-          is_original: originalDescription.is_original,
-          language: originalDescription.language,
-          subscores: latestScore?.subscores,
-          flags: latestScore?.flags,
-          description_id: originalDescription.id
-        }
-      }
-      
-      // Calculate trigger points counts
-      const triggerPointsCount = triggerPoints.length
-      const activeTriggerPointsCount = triggerPoints.filter((tp: any) => tp.is_active).length
-      
-      // Process group status
-      const processedGroupStatus = groupMembership ? {
+    // Transform RPC data to match expected format
+    const pois = rpcData.map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      city: row.city,
+      state: row.state,
+      country: row.country,
+      google_place_id: row.google_place_id,
+      google_types: row.google_types,
+      category: row.category,
+      rating: row.rating,
+      image_url: row.image_url,
+      approved: row.approved,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      user_id: row.user_id,
+      business_status: row.business_status,
+      formatted_phone_number: row.formatted_phone_number,
+      coordinates: row.latitude && row.longitude ? {
+        latitude: row.latitude,
+        longitude: row.longitude
+      } : null,
+      descriptions: row.descriptions || [],
+      trigger_points: row.trigger_points || [],
+      group_membership: row.group_membership || [],
+      verification_data: row.verification_data,
+      // Content status indicators
+      has_description: (row.descriptions?.length || 0) > 0,
+      has_audio: (row.descriptions?.filter((d: any) => d.audio_url)?.length || 0) > 0,
+      description_count: row.descriptions?.length || 0,
+      audio_count: row.descriptions?.filter((d: any) => d.audio_url)?.length || 0,
+      available_languages: row.descriptions?.map((d: any) => d.language) || [],
+      trigger_points_count: row.trigger_points?.length || 0,
+      active_trigger_points_count: row.trigger_points?.filter((tp: any) => tp.is_active)?.length || 0,
+      // Group status
+      group_status: row.group_membership?.[0] ? {
         is_in_group: true,
-        group_id: groupMembership.group_id,
-        group_name: groupMembership.attraction_groups?.[0]?.name || null,
-        group_role: groupMembership.group_role
-      } : {
-        is_in_group: false,
-        group_id: null,
-        group_name: null,
-        group_role: null
+        group_id: row.group_membership[0].group_id,
+        group_name: row.group_membership[0].group_name,
+        group_role: row.group_membership[0].group_role || 'main',
+        group_member_count: row.group_membership.length
+      } : undefined
+    }))
+    
+    const totalCount = stats.total
+    const totalPages = Math.ceil(totalCount / limit)
+    
+    // Apply post-processing filters if needed (for complex filters not handled by RPC)
+    let filteredPois = pois
+    
+    if (hasComplexFilters) {
+      console.log('🔍 Applying post-processing filters for complex filters')
+      
+      // Content Status filter
+      if (contentStatus !== 'all') {
+        filteredPois = filteredPois.filter((poi: any) => {
+          switch (contentStatus) {
+            case 'missing_description':
+              return !poi.has_description
+            case 'missing_audio':
+              return !poi.has_audio
+            case 'complete':
+              return poi.has_description && poi.has_audio
+            default:
+              return true
+          }
+        })
       }
       
-      return {
-        ...poi,
-        coordinates: poi.coordinates?.[0] || null,
-        has_description: hasDescription,
-        has_audio: hasAudio,
-        description_count: descriptions.filter((desc: any) => desc.description && desc.description.trim()).length,
-        audio_count: descriptions.filter((desc: any) => desc.audio_url && desc.audio_url.trim()).length,
-        available_languages: availableLanguages,
-        trigger_points_count: triggerPointsCount,
-        active_trigger_points_count: activeTriggerPointsCount,
-        group_status: processedGroupStatus,
-        verification_data: verificationData,
-        groups: processedGroupStatus.group_name,
-        group_count: processedGroupStatus.is_in_group ? 1 : 0,
-        // Keep descriptions for frontend filtering if needed
-        descriptions: descriptions.map((desc: any) => ({
-          language: desc.language,
-          verification_status: desc.verification_status
-        }))
+      // Group Status filter
+      if (groupStatus !== 'all') {
+        filteredPois = filteredPois.filter((poi: any) => {
+          switch (groupStatus) {
+            case 'grouped':
+              return poi.group_status?.is_in_group === true
+            case 'ungrouped':
+              return poi.group_status?.is_in_group === false
+            case 'group_main':
+              return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'main'
+            case 'group_member':
+              return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'member'
+            default:
+              return true
+          }
+        })
       }
-    }) || []
-    
-    // Apply additional filters that require processed data
-    let filteredPois = processedPois
-    
-    // Content Status filter
-    if (contentStatus !== 'all') {
-      filteredPois = filteredPois.filter(poi => {
-        switch (contentStatus) {
-          case 'missing_description':
-            return !poi.has_description
-          case 'missing_audio':
-            return !poi.has_audio
-          case 'complete':
-            return poi.has_description && poi.has_audio
-          default:
-            return true
-        }
-      })
-    }
-    
-    // Group Status filter
-    if (groupStatus !== 'all') {
-      filteredPois = filteredPois.filter(poi => {
-        switch (groupStatus) {
-          case 'grouped':
-            return poi.group_status?.is_in_group === true
-          case 'ungrouped':
-            return poi.group_status?.is_in_group === false
-          case 'group_main':
-            return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'main'
-          case 'group_member':
-            return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'member'
-          default:
-            return true
-        }
-      })
-    }
-    
-    // Score filter
-    if (scoreFilter !== 'all') {
-      filteredPois = filteredPois.filter(poi => {
-        const ptBrDescription = poi.descriptions?.find((desc: any) => 
-          desc.language === 'pt-br'
-        )
-        
-        if (!ptBrDescription) {
-          return scoreFilter === 'no_score'
-        }
-        
-        const verificationStatus = ptBrDescription.verification_status
-        
-        switch (scoreFilter) {
-          case 'no_score':
-            return !verificationStatus
-          case 'rejected':
-            return verificationStatus === 'rejected'
-          case 'pending':
-            return verificationStatus === 'pending'
-          case 'approved':
-            return verificationStatus === 'approved'
-          default:
-            return true
-        }
-      })
-    }
-    
-    // Trigger Points filter
-    if (triggerPointsFilter !== 'all') {
-      filteredPois = filteredPois.filter(poi => {
-        switch (triggerPointsFilter) {
-          case 'with_trigger_points':
-            return poi.trigger_points_count > 0
-          case 'without_trigger_points':
-            return poi.trigger_points_count === 0
-          default:
-            return true
-        }
-      })
+      
+      // Score filter
+      if (scoreFilter !== 'all') {
+        filteredPois = filteredPois.filter((poi: any) => {
+          const ptBrDescription = poi.descriptions?.find((desc: any) => 
+            desc.language === 'pt-br'
+          )
+          
+          if (!ptBrDescription) {
+            return scoreFilter === 'no_score'
+          }
+          
+          const verificationStatus = ptBrDescription.verification_status
+          
+          switch (scoreFilter) {
+            case 'no_score':
+              return !verificationStatus
+            case 'rejected':
+              return verificationStatus === 'rejected'
+            case 'pending':
+              return verificationStatus === 'pending'
+            case 'approved':
+              return verificationStatus === 'approved'
+            default:
+              return true
+          }
+        })
+      }
+      
+      // Trigger Points filter
+      if (triggerPointsFilter !== 'all') {
+        filteredPois = filteredPois.filter((poi: any) => {
+          switch (triggerPointsFilter) {
+            case 'with_trigger_points':
+              return poi.trigger_points_count > 0
+            case 'without_trigger_points':
+              return poi.trigger_points_count === 0
+            default:
+              return true
+          }
+        })
+      }
     }
     
     // If 'all=true', return only counts and cache the result
     if (all) {
-      const totalCount = filteredPois.length
-      const approvedCount = filteredPois.filter(poi => poi.approved).length
-      const pendingCount = filteredPois.filter(poi => !poi.approved).length
-      const withDescriptionCount = filteredPois.filter(poi => poi.has_description).length
-      const withAudioCount = filteredPois.filter(poi => poi.has_audio).length
-      const completeCount = filteredPois.filter(poi => poi.has_description && poi.has_audio).length
-      const withTriggerPointsCount = filteredPois.filter(poi => poi.trigger_points_count > 0).length
-      
       const countsResult = {
         success: true,
-        totalCount,
-        counts: {
+        data: {
           total: totalCount,
-          approved: approvedCount,
-          pending: pendingCount,
-          withDescription: withDescriptionCount,
-          withAudio: withAudioCount,
-          complete: completeCount,
-          withTriggerPoints: withTriggerPointsCount
-        },
-        filters: {
-          search, status, country, state, city, googleTypes, category,
-          contentStatus, groupStatus, scoreFilter, triggerPointsFilter
+          approved: stats.approved,
+          pending: stats.pending,
+          withDescription: stats.withDescription,
+          withAudio: stats.withAudio,
+          withTriggerPoints: stats.withTriggerPoints,
+          complete: stats.complete
         }
       }
       
-      // Cache the counts for 5 minutes
-      const sortedParams = Object.entries({
-        search, status, country, city, googleTypes, category, contentStatus,
-        groupStatus, scoreFilter, triggerPointsFilter
-      })
-        .filter(([_, value]) => value !== null && value !== undefined && value !== '' && value !== 'all')
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, value]) => `${key}=${value}`)
-        .join('&')
-      
+      // Cache the result for 5 minutes
       const cacheKey = `pois-search-all:${sortedParams || 'default'}`
       memoryCache.set(cacheKey, countsResult, 5)
-      console.log(`🔍 POI Search (all=true): Cached counts for key: ${cacheKey}`)
+      console.log(`🔍 POI Search (all=true): Cached result for key: ${cacheKey}`)
       
       return NextResponse.json(countsResult)
     }
-
-    // Regular paginated response
-    // If we have complex filters, we need to paginate the filtered results
     
-    let finalPois = filteredPois
-    let actualTotalCount = count || 0
-    
-    if (hasComplexFilters) {
-      // For complex filters, the total count is the filtered results count
-      actualTotalCount = filteredPois.length
-      
-      // Apply pagination to filtered results
-      const paginatedStart = (page - 1) * limit
-      const paginatedEnd = paginatedStart + limit
-      finalPois = filteredPois.slice(paginatedStart, paginatedEnd)
-    } else {
-      // For simple filters, use the original count from Supabase
-      actualTotalCount = count || 0
-    }
-    
-    const totalPages = Math.ceil(actualTotalCount / limit)
-    const hasNextPage = page < totalPages
-    const hasPrevPage = page > 1
-    const actualStartIndex = hasComplexFilters ? (page - 1) * limit : startIndex
-    const actualEndIndex = hasComplexFilters ? 
-      Math.min(actualStartIndex + limit, actualTotalCount) : 
-      Math.min(startIndex + limit, actualTotalCount)
-
-    const response = {
+    // Return the filtered results
+    const result = {
       success: true,
-      data: finalPois,
+      data: filteredPois,
       pagination: {
-        page,
-        limit,
-        totalCount: actualTotalCount,
+        totalCount,
         totalPages,
-        hasNextPage,
-        hasPrevPage,
-        startIndex: actualStartIndex + 1,
-        endIndex: actualEndIndex
-      },
-      filters: {
-        search,
-        status,
-        country,
-        state,
-        city,
-        googleTypes,
-        category,
-        contentStatus,
-        groupStatus,
-        scoreFilter,
-        triggerPointsFilter
+        currentPage: page,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
       }
     }
     
     // Cache simple search results for better performance
     if (!hasComplexFilters && search && search.length >= 3) {
       const searchCacheKey = `pois-search:${sortedParams}`
-      memoryCache.set(searchCacheKey, response, 2) // Cache for 2 minutes
-      console.log(`🔍 POI Search: Cached search results for key: ${searchCacheKey}`)
+      memoryCache.set(searchCacheKey, result, 2) // Cache for 2 minutes
+      console.log(`🔍 POI Search: Cached result for key: ${searchCacheKey}`)
     }
-
-    return NextResponse.json(response)
     
+    console.log(`✅ POI Search completed: ${filteredPois.length} POIs returned`)
+    return NextResponse.json(result)
   } catch (error) {
     console.error('🔍 POI Search API Error:', error)
     return NextResponse.json(
