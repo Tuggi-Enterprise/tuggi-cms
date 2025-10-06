@@ -10,6 +10,7 @@ import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
 import { POIMapVisualization } from '@/components/poi-management/POIMapVisualization'
+import { OptimizedPOIMap } from '@/components/poi-management/OptimizedPOIMap'
 import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getThumbnailUrl } from '@/lib/imageUtils'
 import { useLocationData } from '@/lib/hooks/use-location-data'
@@ -161,12 +162,70 @@ function POIListWithSearchParams() {
     setViewMode(view)
   }, [searchParams])
 
+  // Determine map loading strategy based on geographic context
+  const getMapLoadingStrategy = useCallback((filters: POISearchFilters) => {
+    console.log('🗺️ Current viewMode:', viewMode)
+    
+    // For map view, use intelligent loading strategy
+    if (viewMode === 'map') {
+      // Case 1: No country filter = show country aggregation
+      if (!filters.country) {
+        return {
+          fetch_all: true,
+          limit: 0, // No pagination for map
+          page: 1,
+          map_view: true,
+          strategy: 'country_aggregation'
+        }
+      }
+      // Case 2: Country but no state = show all POIs in country
+      else if (!filters.state) {
+        return {
+          fetch_all: true,
+          limit: 0,
+          page: 1,
+          map_view: true,
+          strategy: 'country_all'
+        }
+      }
+      // Case 3: Country + state but no city = show all POIs in state
+      else if (!filters.city) {
+        return {
+          fetch_all: true,
+          limit: 0,
+          page: 1,
+          map_view: true,
+          strategy: 'state_all'
+        }
+      }
+      // Case 4: Country + state + city = show all POIs in city
+      else {
+        return {
+          fetch_all: true,
+          limit: 0,
+          page: 1,
+          map_view: true,
+          strategy: 'city_all'
+        }
+      }
+    }
+    
+    // For list/cards view, use normal pagination
+    return {
+      fetch_all: false,
+      limit: itemsPerPage,
+      page: currentPage,
+      map_view: false,
+      strategy: 'paginated'
+    }
+  }, [viewMode, itemsPerPage, currentPage])
+
   // Load POIs using centralized service
   const fetchPois = useCallback(async () => {
     setIsLoading(true)
 
     try {
-      const filters: POISearchFilters = {
+      const baseFilters: POISearchFilters = {
         search: debouncedSearchTerm,
         status: statusFilter,
         country: countryFilter,
@@ -176,10 +235,19 @@ function POIListWithSearchParams() {
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
-        triggerPointsFilter: triggerPointsFilter,
-        limit: itemsPerPage,
-        page: currentPage
+        triggerPointsFilter: triggerPointsFilter
       }
+
+      // Get intelligent loading strategy
+      const mapStrategy = getMapLoadingStrategy(baseFilters)
+      
+      const filters: POISearchFilters = {
+        ...baseFilters,
+        ...mapStrategy
+      }
+
+      console.log('🗺️ Map Loading Strategy:', mapStrategy.strategy)
+      console.log('🗺️ Filters for search:', filters)
 
       const result = await poiService.search(filters)
       
@@ -196,7 +264,7 @@ function POIListWithSearchParams() {
     } finally {
       setIsLoading(false)
     }
-  }, [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, itemsPerPage, currentPage])
+  }, [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, itemsPerPage, currentPage, getMapLoadingStrategy])
 
 
   // Stable references to prevent infinite loops
@@ -838,9 +906,7 @@ function POIListWithSearchParams() {
         {/* Content */}
         {viewMode === 'map' ? (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-              <POIMapVisualization
-                pois={filteredPois.map(transformPOIForMap)}
-                totalCount={totalCount}
+              <OptimizedPOIMap
                 searchTerm={searchTerm}
                 statusFilter={statusFilter}
                 countryFilter={countryFilter}
@@ -855,7 +921,7 @@ function POIListWithSearchParams() {
                 className="w-full rounded-lg"
               />
             </div>
-          ) : (
+        ) : (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
             {isLoading ? (
               <div className="p-8 text-center">

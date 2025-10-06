@@ -169,7 +169,7 @@ BEGIN
   -- Build the main query with a much simpler approach
   base_query := '
     SELECT 
-      a.id,
+      a.id::TEXT,
       a.name,
       a.city,
       a.state,
@@ -182,11 +182,11 @@ BEGIN
       a.approved,
       a.created_at,
       a.updated_at,
-      a.user_id,
+      a.user_id::TEXT,
       a.business_status,
       a.formatted_phone_number,
-      ac.latitude,
-      ac.longitude,
+      ac.latitude::NUMERIC,
+      ac.longitude::NUMERIC,
       
       -- Descriptions with verification data
       COALESCE(

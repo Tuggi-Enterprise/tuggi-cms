@@ -105,15 +105,15 @@ class DashboardService {
       console.log('🔍 City distribution processed:', cityDistribution.length, 'cities')
       
       // Calculate approval rate
-      const approvalRate = poiStatsResult.data.total > 0 
+      const approvalRate = poiStatsResult.data && poiStatsResult.data.total > 0 
         ? Math.round((poiStatsResult.data.approved / poiStatsResult.data.total) * 100)
         : 0
       
       const dashboardData: DashboardStats = {
         // POI Statistics
-        totalPOIs: poiStatsResult.data.total,
-        approvedPOIs: poiStatsResult.data.approved,
-        totalDescriptions: poiStatsResult.data.content_stats.with_description,
+        totalPOIs: poiStatsResult.data?.total || 0,
+        approvedPOIs: poiStatsResult.data?.approved || 0,
+        totalDescriptions: poiStatsResult.data?.content_stats?.with_description || 0,
         approvalRate,
         
         // City Distribution

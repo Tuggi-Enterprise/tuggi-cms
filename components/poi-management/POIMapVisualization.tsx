@@ -194,12 +194,28 @@ function POIMapContent({
   const currentPois = providedPois || pois
   const currentTotalCount = providedTotalCount || poiCount.total
   
+  // Detect geographic context for intelligent rendering
+  const getGeographicContext = useCallback(() => {
+    if (!countryFilter) {
+      return 'global' // No country = global view (country aggregation)
+    } else if (!stateFilter) {
+      return 'country' // Country but no state = country view
+    } else if (!cityFilter) {
+      return 'state' // Country + state but no city = state view
+    } else {
+      return 'city' // Country + state + city = city view
+    }
+  }, [countryFilter, stateFilter, cityFilter])
+  
+  const geographicContext = getGeographicContext()
+  
   // Log when using provided POIs
   useEffect(() => {
     if (providedPois) {
       console.log(`🗺️ Using ${providedPois.length} provided POIs for map visualization`)
+      console.log(`🗺️ Geographic context: ${geographicContext}`)
     }
-  }, [providedPois])
+  }, [providedPois, geographicContext])
   
   // Map state preservation
   const [mapState, setMapState] = useState<{
@@ -397,6 +413,44 @@ function POIMapContent({
     }
   }, [cityFilter, countryFilter, stateFilter])
 
+  // Group POIs by country for global view
+  const countryGroups = useMemo(() => {
+    if (geographicContext !== 'global') return null
+    
+    const groups = currentPois.reduce((acc, poi) => {
+      const country = poi.country
+      if (!acc[country]) {
+        acc[country] = {
+          country,
+          pois: [],
+          count: 0,
+          center: { lat: 0, lng: 0 },
+          bounds: null
+        }
+      }
+      acc[country].pois.push(poi)
+      acc[country].count++
+      
+      // Calculate center (simple average for now)
+      if (poi.coordinates) {
+        acc[country].center.lat += poi.coordinates.latitude
+        acc[country].center.lng += poi.coordinates.longitude
+      }
+      
+      return acc
+    }, {} as Record<string, { country: string; pois: POI[]; count: number; center: { lat: number; lng: number }; bounds: any }>)
+    
+    // Calculate final centers
+    Object.values(groups).forEach(group => {
+      if (group.count > 0) {
+        group.center.lat /= group.count
+        group.center.lng /= group.count
+      }
+    })
+    
+    return groups
+  }, [currentPois, geographicContext])
+
   // Filter POIs based on current filters
   const filteredPOIs = useMemo(() => {
     return currentPois.filter(poi => {
@@ -456,7 +510,43 @@ function POIMapContent({
     // Create new markers for filtered POIs
     const newMarkers: google.maps.Marker[] = []
 
-    filteredPOIs.forEach(poi => {
+    // Render based on geographic context
+    if (geographicContext === 'global' && countryGroups) {
+      // Render country markers for global view
+      Object.values(countryGroups).forEach(group => {
+        if (group.count === 0) return
+
+        const marker = new google.maps.Marker({
+          position: group.center,
+          title: `${group.country}: ${group.count} POIs`,
+          icon: {
+            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+              <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="20" cy="20" r="18" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+                <text x="20" y="26" text-anchor="middle" fill="white" font-size="12" font-weight="bold">
+                  ${group.count > 999 ? Math.floor(group.count/1000) + 'k' : group.count}
+                </text>
+              </svg>
+            `),
+            scaledSize: new google.maps.Size(40, 40),
+            anchor: new google.maps.Point(20, 20)
+          },
+          map: mapInstanceRef.current!,
+          optimized: false
+        })
+
+        // Add click listener for country marker
+        marker.addListener('click', () => {
+          console.log(`🗺️ Country marker clicked: ${group.country} (${group.count} POIs)`)
+          // Could implement country drill-down here
+        })
+
+        markersRef.current.set(`country-${group.country}`, marker)
+        newMarkers.push(marker)
+      })
+    } else {
+      // Render individual POI markers for specific contexts
+      filteredPOIs.forEach(poi => {
       if (!poi.coordinates?.latitude || !poi.coordinates?.longitude) return
 
       const position = new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude)
@@ -557,15 +647,22 @@ function POIMapContent({
       ;(marker as any).infoWindow = infoWindow
 
       markersRef.current.set(poi.id, marker)
-      newMarkers.push(marker)
-    })
+        newMarkers.push(marker)
+      })
+    }
 
-    // Add markers to clusterer if clustering is enabled
-    if (showClusters) {
+    // Add markers to clusterer if clustering is enabled (only for non-global contexts)
+    if (showClusters && geographicContext !== 'global') {
       markerClustererRef.current.addMarkers(newMarkers)
     }
 
-  }, [filteredPOIs, selectedPOI, showClusters, onPOIClick])
+    // Update POI count based on context
+    setPOICount(prev => ({
+      ...prev,
+      visible: geographicContext === 'global' ? Object.keys(countryGroups || {}).length : filteredPOIs.length
+    }))
+
+  }, [filteredPOIs, selectedPOI, showClusters, onPOIClick, geographicContext, countryGroups])
 
   // Update city boundaries on map
   const updateCityBoundaries = useCallback(() => {
@@ -877,12 +974,16 @@ function POIMapContent({
         <div className="flex items-center space-x-4 text-sm">
           <div className="flex items-center">
             <MapPin className="h-4 w-4 text-tuggi-blue mr-1" />
-            <span className="font-medium">{filteredPOIs.length}</span>
-            <span className="text-gray-500 ml-1">visible</span>
+            <span className="font-medium">
+              {geographicContext === 'global' ? Object.keys(countryGroups || {}).length : filteredPOIs.length}
+            </span>
+            <span className="text-gray-500 ml-1">
+              {geographicContext === 'global' ? 'countries' : 'visible'}
+            </span>
           </div>
           <div className="h-4 w-px bg-gray-300" />
           <div className="text-gray-500">
-            {currentTotalCount} total
+            {geographicContext === 'global' ? `${currentTotalCount} POIs` : `${currentTotalCount} total`}
           </div>
           {cityBoundaries.length > 0 && (
             <>

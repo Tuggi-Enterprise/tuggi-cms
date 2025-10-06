@@ -98,7 +98,8 @@ export interface POISearchFilters {
   language?: string
   limit?: number
   page?: number
-  fetch_all?: boolean
+  fetch_all?: boolean  // New parameter for map view
+  map_view?: boolean   // New parameter to indicate map context
 }
 
 export interface POISearchResult {
@@ -196,8 +197,8 @@ class POIService {
         group_status_filter: filters.groupStatus || null,
         score_filter: filters.scoreFilter || null,
         trigger_points_filter: filters.triggerPointsFilter || null,
-        limit_count: filters.limit || 1000,
-        offset_count: ((filters.page || 1) - 1) * (filters.limit || 1000),
+        limit_count: filters.fetch_all ? 0 : (filters.limit || 1000),
+        offset_count: filters.fetch_all ? 0 : ((filters.page || 1) - 1) * (filters.limit || 1000),
         fetch_all: filters.fetch_all || false
       }
       
@@ -206,19 +207,78 @@ class POIService {
       
       console.log('🔍 Calling RPC with params:', JSON.stringify(rpcParams, null, 2))
       
-      const { data, error } = await supabase.schema('core').rpc('cms_search_pois', rpcParams)
+      let data: any[] = []
+      let error: any = null
+      
+      // For fetch_all, we need to paginate in chunks to bypass Supabase's 1000 limit
+      if (rpcParams.fetch_all) {
+        console.log('🔍 Fetching ALL POIs with pagination...')
+        
+        let allData: any[] = []
+        let currentOffset = 0
+        const chunkSize = 1000
+        let hasMore = true
+        
+        while (hasMore) {
+          const chunkParams = {
+            ...rpcParams,
+            fetch_all: false, // Use pagination for chunks
+            limit_count: chunkSize,
+            offset_count: currentOffset
+          }
+          
+          console.log(`🔍 Fetching chunk at offset ${currentOffset}...`)
+          
+          const { data: chunkData, error: chunkError } = await supabase
+            .schema('core')
+            .rpc('cms_search_pois', chunkParams)
+          
+          if (chunkError) {
+            console.error('❌ POI Search RPC chunk failed:', chunkError)
+            throw new Error(`RPC error: ${chunkError.message}`)
+          }
+          
+          if (!chunkData || chunkData.length === 0) {
+            hasMore = false
+          } else {
+            allData = [...allData, ...chunkData]
+            currentOffset += chunkSize
+            
+            console.log(`✅ Fetched chunk: ${chunkData.length} POIs (total so far: ${allData.length})`)
+            
+            // If we got less than chunkSize, we've reached the end
+            if (chunkData.length < chunkSize) {
+              hasMore = false
+            }
+            
+            // Safety check to prevent infinite loops
+            if (currentOffset > 100000) {
+              console.warn('⚠️ Reached safety limit of 100k POIs')
+              hasMore = false
+            }
+          }
+        }
+        
+        console.log(`🎉 Total POIs fetched: ${allData.length}`)
+        
+        data = allData
+        error = null
+      } else {
+        // Normal single call (not fetch_all)
+        const result = await supabase.schema('core').rpc('cms_search_pois', rpcParams)
+        data = result.data || []
+        error = result.error
+      }
       
       console.log('🔍 RPC Error:', error)
       console.log('🔍 RPC Data:', data)
+      console.log('🔍 RPC Response data length:', data?.length)
+      console.log('🔍 RPC Response first item:', data?.[0])
       
       if (error) {
         console.error('❌ POI Search RPC failed:', error)
         throw new Error(`RPC error: ${error.message}`)
       }
-      
-      
-      console.log('🔍 RPC Response data length:', data?.length)
-      console.log('🔍 RPC Response first item:', data?.[0])
       
       if (data && data.length > 0) {
         // Extract statistics from the first row (they're the same for all rows)
