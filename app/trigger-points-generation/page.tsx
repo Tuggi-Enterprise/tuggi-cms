@@ -144,7 +144,7 @@ export default function TriggerPointsGenerationPage() {
         }
       });
 
-    } catch (error) {
+      } catch (error) {
       console.error('Error in trigger points generation:', error);
       setError(error instanceof Error ? error.message : 'Unknown error');
     }
@@ -178,15 +178,15 @@ export default function TriggerPointsGenerationPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between">
+          <div>
               <h1 className="text-3xl font-bold text-gray-900">Trigger Points Generation</h1>
               <p className="mt-2 text-gray-600">
                 Generate trigger points for POIs using the new data-driven approach
-              </p>
-            </div>
+            </p>
+          </div>
             <button
               onClick={() => router.back()}
               className="px-4 py-2 text-gray-600 hover:text-gray-900 transition-colors"
@@ -245,13 +245,13 @@ export default function TriggerPointsGenerationPage() {
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Country */}
-            <div>
+                <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Country
-              </label>
-              <select
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
+                    Country
+                  </label>
+                  <select
+                    value={country}
+                    onChange={(e) => setCountry(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={locationData.countriesLoading}
               >
@@ -259,25 +259,25 @@ export default function TriggerPointsGenerationPage() {
                 {locationData.countries.map((country) => (
                   <option key={country.name} value={country.name}>
                     {country.name} ({country.totalPOIs} POIs)
-                  </option>
-                ))}
-              </select>
+                      </option>
+                    ))}
+                  </select>
               {locationData.countriesLoading && (
                 <div className="flex items-center mt-1 text-sm text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                   Loading countries...
                 </div>
               )}
-            </div>
+                </div>
 
             {/* State */}
-            <div>
+                <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                State
-              </label>
-              <select
-                value={state}
-                onChange={(e) => setState(e.target.value)}
+                    State
+                  </label>
+                  <select
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={!country || locationData.statesLoading}
               >
@@ -285,25 +285,25 @@ export default function TriggerPointsGenerationPage() {
                 {locationData.states.map((state) => (
                   <option key={state.value} value={state.value}>
                     {state.label}
-                  </option>
-                ))}
-              </select>
+                      </option>
+                    ))}
+                  </select>
               {locationData.statesLoading && (
                 <div className="flex items-center mt-1 text-sm text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                   Loading states...
                 </div>
               )}
-            </div>
+                </div>
 
             {/* City */}
-            <div>
+                <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                City
-              </label>
-              <select
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
+                    City
+                  </label>
+                  <select
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={!country || locationData.citiesLoading}
               >
@@ -311,88 +311,88 @@ export default function TriggerPointsGenerationPage() {
                 {locationData.cities.map((city) => (
                   <option key={city.name} value={city.name}>
                     {city.name}
-                  </option>
-                ))}
-              </select>
+                      </option>
+                    ))}
+                  </select>
               {locationData.citiesLoading && (
                 <div className="flex items-center mt-1 text-sm text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                   Loading cities...
                 </div>
               )}
-            </div>
+                </div>
 
-            {/* Processing Type */}
-            <div>
+                {/* Processing Type */}
+                <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Processing Type
-              </label>
-              <select
-                value={processingType}
-                onChange={(e) => setProcessingType(e.target.value)}
+                    Processing Type
+                  </label>
+                  <select
+                    value={processingType}
+                    onChange={(e) => setProcessingType(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="without_trigger_points">Without Trigger Points</option>
                 <option value="with_trigger_points">With Trigger Points</option>
                 <option value="all">All POIs</option>
-              </select>
-            </div>
+                  </select>
+                </div>
 
-            {/* Limit */}
-            <div>
+                {/* Limit */}
+                <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Limit
-              </label>
+                    Limit
+                  </label>
               <input
                 type="number"
-                value={limit}
+                    value={limit}
                 onChange={(e) => setLimit(parseInt(e.target.value) || 50)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 min="1"
                 max="1000"
               />
-            </div>
+                </div>
 
             {/* Delay */}
-            <div>
+                  <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Delay Between Calls (ms)
-              </label>
+                      Delay Between Calls (ms)
+                    </label>
               <input
                 type="number"
-                value={delayBetweenCalls}
+                      value={delayBetweenCalls}
                 onChange={(e) => setDelayBetweenCalls(parseInt(e.target.value) || 3000)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 min="1000"
                 max="10000"
               />
             </div>
-          </div>
-
+                  </div>
+                  
           <div className="mt-4 flex gap-3">
-            <button
-              onClick={loadPOIs}
-              disabled={isLoading || !country}
+                    <button
+                      onClick={loadPOIs}
+                      disabled={isLoading || !country}
               className={cn(
                 "px-4 py-2 rounded-md font-medium transition-colors",
                 isLoading || !country
                   ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                   : "bg-blue-600 text-white hover:bg-blue-700"
               )}
-            >
-              {isLoading ? (
-                <>
+                    >
+                      {isLoading ? (
+                        <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2 inline" />
                   Loading POIs...
-                </>
-              ) : (
-                <>
+                        </>
+                      ) : (
+                        <>
                   <Database className="h-4 w-4 mr-2 inline" />
                   Load POIs
-                </>
-              )}
-            </button>
-          </div>
+                        </>
+                      )}
+                    </button>
+                  </div>
         </div>
 
         {/* POIs List */}
@@ -452,9 +452,9 @@ export default function TriggerPointsGenerationPage() {
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
+                </div>
+              </div>
+            )}
 
         {/* Processing Controls */}
         {selectedPois.length > 0 && (
@@ -465,8 +465,8 @@ export default function TriggerPointsGenerationPage() {
             </h2>
             
             <div className="flex gap-3">
-              <button
-                onClick={generateTriggerPoints}
+                      <button
+                        onClick={generateTriggerPoints}
                 disabled={poiProcessing.isProcessing}
                 className={cn(
                   "px-6 py-3 rounded-md font-medium transition-colors flex items-center",
@@ -479,14 +479,14 @@ export default function TriggerPointsGenerationPage() {
                   <>
                     <Loader2 className="h-5 w-5 animate-spin mr-2" />
                     Processing...
-                  </>
-                ) : (
-                  <>
+                          </>
+                        ) : (
+                          <>
                     <Play className="h-5 w-5 mr-2" />
-                    Generate Trigger Points
-                  </>
-                )}
-              </button>
+                            Generate Trigger Points
+                          </>
+                        )}
+                      </button>
 
               {poiProcessing.isProcessing && (
                 <button
@@ -496,7 +496,7 @@ export default function TriggerPointsGenerationPage() {
                   Cancel Processing
                 </button>
               )}
-            </div>
+                    </div>
 
             {/* Progress */}
             {poiProcessing.progress && (
@@ -515,10 +515,10 @@ export default function TriggerPointsGenerationPage() {
                   <p className="text-xs text-gray-500 mt-1">
                     Estimated time remaining: {Math.round(poiProcessing.progress.estimatedTimeRemaining / 1000)}s
                   </p>
-                )}
-              </div>
-            )}
-          </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
         )}
 
         {/* Results */}
@@ -526,7 +526,7 @@ export default function TriggerPointsGenerationPage() {
           <div className="bg-white rounded-lg shadow mt-6">
             <div className="px-6 py-4 border-b border-gray-200">
               <h2 className="text-lg font-semibold text-gray-900">Results</h2>
-            </div>
+                                </div>
             <div className="divide-y divide-gray-200">
               {generationResults.map((result, index) => (
                 <div key={index} className="px-6 py-4">
@@ -536,8 +536,8 @@ export default function TriggerPointsGenerationPage() {
                       <p className="text-sm text-gray-500">{result.message}</p>
                       {result.boundary_source && (
                         <p className="text-xs text-gray-400">Boundary: {result.boundary_source}</p>
-                      )}
-                    </div>
+                                      )}
+                                    </div>
                     <div className="flex items-center gap-2">
                       {result.success ? (
                         <CheckCircle2 className="h-5 w-5 text-green-500" />
@@ -547,14 +547,14 @@ export default function TriggerPointsGenerationPage() {
                       <span className="text-sm text-gray-500">
                         {result.trigger_points_saved || 0} saved
                       </span>
-                    </div>
+                        </div>
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-      </div>
+                </div>
+              </div>
+            )}
+        </div>
     </div>
   );
 }

@@ -1,14 +1,28 @@
 # 🧹 **RESUMO DA LIMPEZA - DOCUMENTAÇÃO E MIGRATIONS**
 
-## **📅 Data da Limpeza:** Janeiro 2025
+## **📅 Data da Limpeza:** Janeiro 2025 (Atualizada)
 
 ---
 
 ## **🗑️ ARQUIVOS REMOVIDOS**
 
-### **📚 Documentação Obsoleta (12 arquivos)**
+### **📚 Documentação Obsoleta (19 arquivos)**
 
 #### **Fases Concluídas/Obsoletas:**
+- ✅ `ai-suggestions-flow.md` - Sistema de sugestões já implementado
+- ✅ `database-improvements.md` - Melhorias já aplicadas
+- ✅ `duplicate-pois-detection.md` - Sistema já implementado
+- ✅ `existing-apis-and-data-sources.md` - Análise já concluída
+- ✅ `geometric-pov-improvements.md` - Melhorias já implementadas
+- ✅ `image-optimization-system.md` - Sistema já implementado
+- ✅ `poi-importer-database-integration.md` - Integração já concluída
+- ✅ `poi-importer-image-storage.md` - Sistema já implementado
+- ✅ `poi-importer-refactoring.md` - Refatoração já concluída
+- ✅ `poi-importer.md` - Documentação já desatualizada
+- ✅ `poi-multiple-locations-solution.md` - Solução já implementada
+- ✅ `pov-generation-testing.md` - Testes já concluídos
+
+#### **Análises/Planejamentos Antigos:**
 - ✅ `REFACTORING_PLAN.md` - Plano de refatoração já executado
 - ✅ `MEGA_FUNCTIONS_ANALYSIS.md` - Análise de funções já implementada
 - ✅ `phase2-specialized-sources-summary.md` - Fase 2 já concluída
@@ -17,18 +31,46 @@
 - ✅ `production-ready-summary.md` - Sistema já em produção
 - ✅ `IMAGE_MIGRATION_SUMMARY.md` - Migração de imagens já concluída
 
-#### **Análises/Planejamentos Antigos:**
-- ✅ `API_MAPPING_ANALYSIS.md` - Análise de APIs já implementada
-- ✅ `API_RETURN_FORMATS.md` - Formatos já definidos
-- ✅ `CACHE_INVALIDATION_SOLUTION.md` - Solução já implementada
-- ✅ `CONSOLE_LOGS_OPTIMIZATION.md` - Otimização já feita
-- ✅ `GEMINI_FLASH_ONLY_UPDATE.md` - Atualização já aplicada
-- ✅ `MEGA_UNIFIED_QUERY_DESIGN.md` - Design já implementado
-- ✅ `MEGA_UNIFIED_VERIFICATION.md` - Verificação já concluída
+### **🗄️ Migrations de Debug/Teste (20+ arquivos)**
 
-### **🗄️ Migrations de Debug/Teste (13 arquivos)**
+#### **Migrations de Debug/Teste do CMS Search (10 arquivos):**
+- ✅ `20250116_debug_cms_search_pois.sql`
+- ✅ `20250116_fix_cms_search_pois_function.sql`
+- ✅ `20250116_fixed_cms_search_pois.sql`
+- ✅ `20250116_minimal_cms_search_pois_function.sql`
+- ✅ `20250116_simple_test_cms_search_pois.sql`
+- ✅ `20250116_simple_working_cms_search_pois_function.sql`
+- ✅ `20250116_test_ar_direct.sql`
+- ✅ `20250116_test_country_filter.sql`
+- ✅ `20250116_ultra_simple_cms_search_pois.sql`
+- ✅ `20250116_ultra_simple_test.sql`
+- ✅ `20250116_working_cms_search_pois_function.sql`
+- ✅ `20250116_working_cms_search_pois_with_filters.sql`
+- ✅ `20250116_create_cms_search_pois_function.sql`
+- ✅ `20250116_cms_filter_rpcs.sql`
 
-#### **Migrations de Debug/Check:**
+#### **Migrations de Debug/Análise:**
+- ✅ `verify-constraints-status.sql`
+- ✅ `find-trigger-validation.sql`
+- ✅ `find-training-trigger.sql`
+- ✅ `attractions_schema.md`
+- ✅ `config.toml`
+
+#### **Migrations de Setup/Configuração (já aplicadas):**
+- ✅ `recreate-database-rules.sql`
+- ✅ `setup-trigger-points-remaining.sql`
+- ✅ `20250111_setup_cron_monitor_simple.sql`
+- ✅ `disable-learning-trigger.sql`
+
+#### **Migrations de Dados Específicos (já aplicadas):**
+- ✅ `update_sao_paulo_state.sql`
+- ✅ `update_attraction_osm_geometry.sql`
+- ✅ `insert-california-georgia-newyork-verification-sources.sql`
+- ✅ `insert-campinas-verification-sources.sql`
+- ✅ `insert-florida-verification-sources.sql`
+- ✅ `insert-mexico-verification-sources.sql`
+
+#### **Migrations de Debug/Check (anteriores):**
 - ✅ `check-all-triggers-direct.sql`
 - ✅ `check-duplicate-trigger-points.sql`
 - ✅ `check-poi-exists.sql`
@@ -61,13 +103,13 @@
 
 ## **📊 ESTATÍSTICAS DA LIMPEZA**
 
-### **Total de Arquivos Removidos:** 32 arquivos
-- **Documentação:** 12 arquivos
-- **Migrations:** 20 arquivos
+### **Total de Arquivos Removidos:** 60+ arquivos
+- **Documentação:** 19 arquivos
+- **Migrations:** 40+ arquivos
 
 ### **Redução de Tamanho:**
-- **Documentação:** ~50% de redução (de 24 para 12 arquivos ativos)
-- **Migrations:** ~25% de redução (de 78 para 58 arquivos ativos)
+- **Documentação:** ~60% de redução (de 31 para 12 arquivos ativos)
+- **Migrations:** ~50% de redução (de 78 para 38 arquivos ativos)
 
 ---
 
@@ -83,13 +125,8 @@
 - ✅ `vision-analysis-system.md` - Sistema ativo
 
 #### **Documentação de Referência:**
-- ✅ `ai-suggestions-flow.md`
 - ✅ `city-correction-system.md`
-- ✅ `database-improvements.md`
-- ✅ `duplicate-pois-detection.md`
-- ✅ `existing-apis-and-data-sources.md`
 - ✅ `generate-translated-audio-implementation.md`
-- ✅ `geometric-pov-improvements.md`
 - ✅ `intelligent-trigger-points-algorithm.md`
 - ✅ `osm-enrichment-production-summary.md`
 - ✅ `osm-enrichment-recommendations.md`
@@ -97,15 +134,10 @@
 - ✅ `POI_VALIDATION_IMPLEMENTATION_SUMMARY.md`
 - ✅ `POI_VALIDATION_README.md`
 - ✅ `poi-boundaries-testing.md`
-- ✅ `poi-importer-database-integration.md`
-- ✅ `poi-importer-image-storage.md`
-- ✅ `poi-importer-refactoring.md`
-- ✅ `poi-importer.md`
-- ✅ `pov-generation-testing.md`
 - ✅ `trigger-points-management.md`
 - ✅ `wikimedia-commons-integration.md`
 
-### **🗄️ Migrations Ativas (58 arquivos)**
+### **🗄️ Migrations Ativas (38 arquivos)**
 
 #### **Migrations Estruturadas (com timestamp):**
 - ✅ `20241215000001_create_poi_name_validation_tables.sql`
@@ -121,6 +153,8 @@
 - ✅ `20250111_setup_cron_monitor.sql`
 - ✅ `20250111_update_cron_interval.sql`
 - ✅ `20250115_update_get_pois_without_description_function.sql`
+- ✅ `20250116_final_cms_search_pois_function.sql`
+- ✅ `20250116_final_cms_search_pois.sql`
 
 #### **Migrations Funcionais:**
 - ✅ Todas as migrations `add-*` (campos, tabelas, funções)

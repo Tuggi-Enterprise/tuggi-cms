@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Plus, Search, Filter, Edit, CheckCircle, XCircle, Eye, Trash2, MapPin, Calendar, Star, Users, Clock, ChevronLeft, ChevronRight, List, Map, Grid, X } from 'lucide-react'
+import { Plus, Search, Filter, Edit, XCircle, Eye, Trash2, Calendar, Users, ChevronLeft, ChevronRight, List, Map, Grid, X, MapPin } from 'lucide-react'
 import Link from 'next/link'
 
 import { cn } from '@/lib/utils'
@@ -13,7 +13,7 @@ import { POIMapVisualization } from '@/components/poi-management/POIMapVisualiza
 import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getThumbnailUrl } from '@/lib/imageUtils'
 import { useLocationData } from '@/lib/hooks/use-location-data'
-import { poiService, POI as POIType, POISearchFilters, POIStats } from '@/lib/core/poi-service'
+import { poiService, POI as POIType, POISearchFilters } from '@/lib/core/poi-service'
 
 // Custom hook for debouncing
 function useDebounce<T>(value: T, delay: number): T {
@@ -48,7 +48,6 @@ function POIListWithSearchParams() {
   const [selectedPois, setSelectedPois] = useState<string[]>([])  
   const [countryFilter, setCountryFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
-  const [stats, setStats] = useState<POIStats | null>(null)
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   
@@ -199,30 +198,6 @@ function POIListWithSearchParams() {
     }
   }, [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, itemsPerPage, currentPage])
 
-  // Load stats using centralized service
-  const calculateStats = useCallback(async () => {
-    try {
-      const result = await poiService.getStats({
-        search: debouncedSearchTerm,
-        status: statusFilter,
-        country: countryFilter,
-        state: stateFilter,
-        city: cityFilter,
-        googleTypes: googleTypesFilter,
-        category: '',
-        contentStatus: contentStatusFilter,
-        groupStatus: groupStatusFilter,
-        scoreFilter: scoreFilter,
-        triggerPointsFilter: triggerPointsFilter
-      })
-      
-      if (result.success && result.data) {
-        setStats(result.data)
-      }
-    } catch (error) {
-      console.error('Error loading stats:', error)
-    }
-  }, [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter])
 
   // Stable references to prevent infinite loops
   const loadStatesForCountry = useCallback((country: string) => {
@@ -270,9 +245,8 @@ function POIListWithSearchParams() {
   useEffect(() => {
     if (!isInitializing) {
       fetchPois()
-      calculateStats()
     }
-  }, [fetchPois, calculateStats, isInitializing])
+  }, [fetchPois, isInitializing])
 
   // Read filters from URL on mount
   useEffect(() => {
@@ -345,7 +319,6 @@ function POIListWithSearchParams() {
       if (response.ok) {
         // Reload POIs
         fetchPois()
-        calculateStats()
       } else {
         alert('Failed to delete POI')
       }
@@ -371,7 +344,6 @@ function POIListWithSearchParams() {
       if (response.ok) {
         setSelectedPois([])
         fetchPois()
-        calculateStats()
       } else {
         alert('Failed to delete POIs')
       }
@@ -513,55 +485,6 @@ function POIListWithSearchParams() {
           </div>
         </div>
 
-      {/* Stats Cards */}
-        {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
-                <MapPin className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-                </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total POIs</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.total}</p>
-                </div>
-              </div>
-            </div>
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center">
-              <div className="p-2 bg-green-100 dark:bg-green-900/20 rounded-lg">
-                <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400" />
-                </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Approved</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.approved}</p>
-                </div>
-              </div>
-            </div>
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center">
-              <div className="p-2 bg-yellow-100 dark:bg-yellow-900/20 rounded-lg">
-                <Clock className="h-6 w-6 text-yellow-600 dark:text-yellow-400" />
-                </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Pending</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.pending}</p>
-                </div>
-              </div>
-            </div>
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center">
-              <div className="p-2 bg-purple-100 dark:bg-purple-900/20 rounded-lg">
-                <Star className="h-6 w-6 text-purple-600 dark:text-purple-400" />
-                </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">With Trigger Points</p>
-                <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.trigger_points_stats.with_trigger_points}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
 
       <div className="flex gap-6">
         {/* Left Column - Filters */}
@@ -1038,7 +961,6 @@ function POIListWithSearchParams() {
           }}
             onUpdate={() => {
             fetchPois()
-            calculateStats()
             }}
           />
         )}
