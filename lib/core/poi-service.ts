@@ -98,6 +98,7 @@ export interface POISearchFilters {
   language?: string
   limit?: number
   page?: number
+  fetch_all?: boolean
 }
 
 export interface POISearchResult {
@@ -197,7 +198,7 @@ class POIService {
         trigger_points_filter: filters.triggerPointsFilter || null,
         limit_count: filters.limit || 1000,
         offset_count: ((filters.page || 1) - 1) * (filters.limit || 1000),
-        fetch_all: false
+        fetch_all: filters.fetch_all || false
       }
       
       console.log('🔍 RPC Parameters:', rpcParams)

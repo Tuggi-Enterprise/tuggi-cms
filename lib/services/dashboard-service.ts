@@ -70,25 +70,39 @@ class DashboardService {
       
       console.log('📊 Loading dashboard data with RPCs...')
       
-      // FASE 1: Get POI data using existing poiService
-      const [poiStatsResult, cityDistributionResult] = await Promise.all([
+      // Clear cache to ensure fresh data
+      poiService.clearCache()
+      console.log('🧹 Cache cleared, forcing fresh data fetch')
+      
+      // FASE 1: Get POI data using existing poiService and city stats RPC
+      const supabase = getSupabase('server')
+      
+      const [poiStatsResult, cityStatsResult] = await Promise.all([
         poiService.getStats(),
-        poiService.search({ limit: 1000 }) // Get all POIs for city distribution
+        supabase.schema('core').rpc('dashboard_city_stats') // Get city statistics directly
       ])
       
       if (!poiStatsResult.success) {
         throw new Error(`POI stats failed: ${poiStatsResult.error}`)
       }
       
-      if (!cityDistributionResult.success) {
-        throw new Error(`City distribution failed: ${cityDistributionResult.error}`)
+      if (cityStatsResult.error) {
+        throw new Error(`City stats failed: ${cityStatsResult.error.message}`)
       }
       
-      // FASE 2: Get user analytics (will be implemented in next phase)
+      // FASE 2: Get user analytics
       const userAnalytics = await this.getUserAnalytics()
       
-      // Process city distribution
-      const cityDistribution = this.processCityDistribution(cityDistributionResult.data)
+      // Process city distribution from RPC results
+      console.log('🔍 City stats data length:', cityStatsResult.data?.length)
+      console.log('🔍 First few cities:', cityStatsResult.data?.slice(0, 5))
+      
+      const cityDistribution = cityStatsResult.data?.map((row: any) => ({
+        city: row.city,
+        count: Number(row.poi_count)
+      })) || []
+      
+      console.log('🔍 City distribution processed:', cityDistribution.length, 'cities')
       
       // Calculate approval rate
       const approvalRate = poiStatsResult.data.total > 0 
@@ -137,72 +151,50 @@ class DashboardService {
   }
   
   /**
-   * Get user analytics (temporary implementation with direct queries)
-   * TODO: Replace with RPC in FASE 2
+   * Get user analytics using optimized RPC
    */
   private static async getUserAnalytics(): Promise<UserAnalyticsResult> {
     try {
+      console.log('📊 Loading user analytics with RPC...')
+      
       const supabase = getSupabase('server')
       
-      // Get user count
-      const { count: totalUsers } = await supabase
-        .schema('drive')
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
+      // Use the new RPC function
+      const { data, error } = await supabase
+        .schema('core')
+        .rpc('dashboard_user_analytics')
       
-      // Get trip data
-      const { data: tripsData } = await supabase
-        .schema('drive')
-        .from('trip_sessions')
-        .select('distance_km, platform, start_time, end_time')
-        .not('end_time', 'is', null)
-      
-      // Get POI plays data
-      const { data: poiPlaysData } = await supabase
-        .schema('drive')
-        .from('trip_session_attractions')
-        .select('attraction_id')
-        .gte('played_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-      
-      // Process data
-      const totalTrips = tripsData?.length || 0
-      const totalKmDriven = tripsData?.reduce((sum, trip) => sum + (trip.distance_km || 0), 0) || 0
-      const totalPOIsPlayed = poiPlaysData?.length || 0
-      
-      // Calculate average trip duration
-      let avgTripDuration = 0
-      if (tripsData && tripsData.length > 0) {
-        const totalMinutes = tripsData.reduce((acc, trip) => {
-          if (trip.start_time && trip.end_time) {
-            const start = new Date(trip.start_time)
-            const end = new Date(trip.end_time)
-            return acc + (end.getTime() - start.getTime()) / (1000 * 60)
-          }
-          return acc
-        }, 0)
-        avgTripDuration = totalMinutes / tripsData.length
+      if (error) {
+        console.error('❌ User Analytics RPC failed:', error)
+        throw new Error(`RPC error: ${error.message}`)
       }
       
-      // Process platform data
-      const platformCounts = tripsData?.reduce((acc: Record<string, number>, trip) => {
-        acc[trip.platform] = (acc[trip.platform] || 0) + 1
-        return acc
-      }, {}) || {}
-      
-      const tripsByPlatform = Object.entries(platformCounts)
-        .map(([platform, trips]) => ({ platform: platform || 'Unknown', trips: trips as number }))
-      
-      return {
-        total_users: totalUsers || 0,
-        total_trips: totalTrips,
-        total_km_driven: totalKmDriven,
-        total_pois_played: totalPOIsPlayed,
-        avg_trip_duration: `${Math.round(avgTripDuration)} minutes`,
-        trips_by_platform: tripsByPlatform
+      if (data && data.length > 0) {
+        const result = data[0]
+        console.log('✅ User Analytics RPC completed:', result)
+        
+        return {
+          total_users: result.total_users || 0,
+          total_trips: result.total_trips || 0,
+          total_km_driven: result.total_km_driven || 0,
+          total_pois_played: result.total_pois_played || 0,
+          avg_trip_duration: result.avg_trip_duration || '0 minutes',
+          trips_by_platform: result.trips_by_platform || []
+        }
+      } else {
+        console.log('✅ User Analytics RPC completed - No data found')
+        return {
+          total_users: 0,
+          total_trips: 0,
+          total_km_driven: 0,
+          total_pois_played: 0,
+          avg_trip_duration: '0 minutes',
+          trips_by_platform: []
+        }
       }
       
     } catch (error) {
-      console.error('Error loading user analytics:', error)
+      console.error('Error loading user analytics with RPC:', error)
       return {
         total_users: 0,
         total_trips: 0,
@@ -216,8 +208,10 @@ class DashboardService {
   
   /**
    * Process city distribution from POI search results
+   * @deprecated Use dashboard_city_stats RPC instead
    */
   private static processCityDistribution(pois: any[]): Array<{ city: string; count: number }> {
+    // This method is deprecated - use dashboard_city_stats RPC for better performance
     const cityCounts = pois.reduce((acc: Record<string, number>, poi) => {
       if (poi.city) {
         acc[poi.city] = (acc[poi.city] || 0) + 1
@@ -228,7 +222,7 @@ class DashboardService {
     return Object.entries(cityCounts)
       .map(([city, count]) => ({ city, count: count as number }))
       .sort((a, b) => b.count - a.count)
-      .slice(0, 10) // Top 10 cities
+      .slice(0, 20)
   }
   
   /**
