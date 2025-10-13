@@ -2,7 +2,7 @@
 
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, GeographicContext } from '../types/interfaces';
-import { calculateVariance, generateCircleSamplePoints } from '../utils/calculations';
+import { calculateVariance, generateCircleSamplePoints, calculateBearing, calculateDistance } from '../utils/calculations';
 
 export class GeographicContextAnalyzer {
   private googleAPIs: GoogleAPIsService;
@@ -265,8 +265,8 @@ export class GeographicContextAnalyzer {
       const next = points[i + 1].location;
       
       // Calcular bearing entre pontos
-      const bearing1 = this.calculateBearing(prev, curr);
-      const bearing2 = this.calculateBearing(curr, next);
+      const bearing1 = calculateBearing(prev, curr);
+      const bearing2 = calculateBearing(curr, next);
       
       // Calcular diferença de ângulo
       let angleDiff = Math.abs(bearing2 - bearing1);
@@ -287,49 +287,16 @@ export class GeographicContextAnalyzer {
     const distances: number[] = [];
     
     for (let i = 0; i < points.length - 1; i++) {
-      const distance = this.calculateDistance(points[i].location, points[i + 1].location);
+      const distance = calculateDistance(points[i].location, points[i + 1].location);
       distances.push(distance);
     }
     
     return distances;
   }
   
-  /**
-   * Calcula bearing entre dois pontos
-   */
-  private calculateBearing(
-    from: { lat: number; lng: number },
-    to: { lat: number; lng: number }
-  ): number {
-    const dLng = (to.lng - from.lng) * Math.PI / 180;
-    const lat1 = from.lat * Math.PI / 180;
-    const lat2 = to.lat * Math.PI / 180;
-    
-    const y = Math.sin(dLng) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-    
-    let bearing = Math.atan2(y, x) * 180 / Math.PI;
-    return (bearing + 360) % 360;
-  }
+  // Usar função existente do utils/calculations.ts (DRY)
   
-  /**
-   * Calcula distância entre dois pontos
-   */
-  private calculateDistance(
-    point1: { lat: number; lng: number },
-    point2: { lat: number; lng: number }
-  ): number {
-    const R = 6371000; // Raio da Terra em metros
-    const dLat = (point2.lat - point1.lat) * Math.PI / 180;
-    const dLng = (point2.lng - point1.lng) * Math.PI / 180;
-    
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(point1.lat * Math.PI / 180) * Math.cos(point2.lat * Math.PI / 180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    
-    return R * c;
-  }
+  // Usar função existente do utils/calculations.ts (DRY)
   
   /**
    * Retorna contexto padrão em caso de erro

@@ -47,16 +47,43 @@ export interface BoundaryData {
     center: number;
   };
   height?: number; // altura do POI (ex: prédio)
+  surroundingHeight?: { // NOVO: altura dos prédios vizinhos
+    average: number;
+    max: number;
+    buildingCount: number;
+  };
+  address?: { // NOVO: informações de endereço do POI
+    street?: string;
+    number?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+  };
 }
 
 export interface StreetData {
   id: string;
   type: string;
+  name?: string; // NOVO: nome da rua
   coordinates: Array<{lat: number, lng: number}>;
   accessibility: string;
   width?: number;
   confidence: number;
   distance?: number;
+  tags?: { // NOVO: Tags OSM para validação de túneis, pontes, etc
+    tunnel?: string;
+    bridge?: string;
+    layer?: string;
+    covered?: string;
+    surface?: string;
+    lit?: string;
+    width?: string;
+    lanes?: string;
+    sidewalk?: string;
+    access?: string;
+    oneway?: string;
+    maxspeed?: string;
+  };
 }
 
 export interface TriggerPointCandidate {
@@ -66,6 +93,8 @@ export interface TriggerPointCandidate {
   street: StreetData;
   expectedBearing: number;
   confidence: number;
+  streetName?: string; // NOVO: nome da rua
+  streetDirection?: { lat: number; lng: number }; // NOVO: direção da rua
 }
 
 export interface TriggerPoint {
@@ -102,7 +131,7 @@ export interface ProcessingResult<T> {
 export interface TriggerPointGenerationOptions {
   maxSearchRadius?: number;
   minQuality?: number;
-  maxTriggerPoints?: number;
+  maxTriggerPoints?: number; // Se não fornecido, será calculado dinamicamente baseado em área, elevação e altura do POI (10-150 TPs)
   maxConcurrent?: number;
 }
 

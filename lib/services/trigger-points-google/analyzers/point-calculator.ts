@@ -171,14 +171,11 @@ export class OptimalPointCalculator {
       case 'rural': baseDistance = 180; break;
     }
     
-    // Ajuste por tipo de POI
-    switch (poiData.type) {
-      case 'natural_feature': baseDistance *= 1.5; break;
-      case 'park': baseDistance *= 1.3; break;
-      case 'monument': baseDistance *= 1.2; break;
-      case 'restaurant': baseDistance *= 0.8; break;
-      case 'shopping_mall': baseDistance *= 1.1; break;
-    }
+    // REMOVIDO: Switch case de tipos de POI (agora usa apenas variáveis matemáticas: área, elevação, altura)
+    // As características de cada tipo já são capturadas implicitamente:
+    // - natural_feature/park → área grande detectada
+    // - monument → altura detectada
+    // - restaurant → área pequena + altura baixa
     
     console.log(`✅ Standard TP distance: ${Math.round(baseDistance)}m`);
     return [Math.round(baseDistance)];

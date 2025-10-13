@@ -480,7 +480,7 @@ export class BoundaryDetector {
   way["leisure"](around:100,${poiData.location.lat},${poiData.location.lng});
   way["amenity"](around:100,${poiData.location.lat},${poiData.location.lng});
 );
-out geom;
+out geom tags;
 `;
     
     return await this.executeOSMQuery(query, 'proximity search');
@@ -509,7 +509,7 @@ out geom;
   relation[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
   way[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
 );
-out geom;
+out geom tags;
 `;
     
     return await this.executeOSMQuery(query, 'category search');
@@ -577,11 +577,19 @@ out geom;
         console.log(`🏷️ OSM element type: ${bestElement?.type}, id: ${bestElement?.id}`);
         
         // Extrair altura do POI dos tags OSM
+        console.log(`🔍 DEBUG: bestElement tags:`, bestElement?.tags);
         poiHeight = this.extractOSMHeight(bestElement);
         if (poiHeight) {
           console.log(`🏢 POI height from OSM: ${poiHeight}m`);
         } else {
           console.log(`⚠️ No height found in OSM tags`);
+          console.log(`🔍 DEBUG: Available tags:`, Object.keys(bestElement?.tags || {}));
+        }
+        
+        // Extrair informações de endereço do POI (usando dados do Nominatim já disponíveis)
+        const address = this.extractAddressFromNominatimResult(bestElement);
+        if (address) {
+          console.log(`🏠 POI address from OSM: ${address.street || 'unknown street'}, ${address.number || 'no number'}`);
         }
         
         // Tentar obter elevação (opcional, não bloquear se falhar)
@@ -823,6 +831,24 @@ out geom;
     return points;
   }
   
+  /**
+   * Extrai informações de endereço do resultado do Nominatim (já disponível)
+   */
+  private extractAddressFromNominatimResult(element: any): { street?: string; number?: string; city?: string; state?: string; country?: string } | null {
+    if (!element.tags) return null;
+    
+    const tags = element.tags;
+    
+    // O Nominatim já retorna informações de endereço quando addressdetails=1
+    return {
+      street: tags['addr:street'] || tags['addr:road'] || tags['addr:pedestrian'],
+      number: tags['addr:housenumber'],
+      city: tags['addr:city'] || tags['addr:town'] || tags['addr:village'],
+      state: tags['addr:state'],
+      country: tags['addr:country']
+    };
+  }
+
   /**
    * Extrai altura do POI das tags OSM
    */

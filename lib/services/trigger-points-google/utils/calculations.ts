@@ -59,6 +59,33 @@ export function isInBearingRange(
 }
 
 /**
+ * Extrai altura de prédio de tags OSM (função centralizada - DRY)
+ */
+export function extractBuildingHeight(tags: any): number {
+  if (!tags) return 0;
+  
+  // 1. Tag height direta
+  if (tags.height) {
+    const match = tags.height.match(/(\d+\.?\d*)/);
+    if (match) return parseFloat(match[1]);
+  }
+  
+  // 2. Tag building:height
+  if (tags['building:height']) {
+    const match = tags['building:height'].match(/(\d+\.?\d*)/);
+    if (match) return parseFloat(match[1]);
+  }
+  
+  // 3. Converter building:levels em altura (3m por andar)
+  if (tags['building:levels']) {
+    const levels = parseInt(tags['building:levels']);
+    if (!isNaN(levels)) return levels * 3;
+  }
+  
+  return 0;
+}
+
+/**
  * Calcula a área de um polígono usando a fórmula de Shoelace
  */
 export function calculatePolygonArea(coordinates: Array<{lat: number, lng: number}>): number {

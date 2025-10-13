@@ -2,11 +2,18 @@
 
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/interfaces';
-import { calculateDistance, isPointInPolygon } from '../utils/calculations';
+import { calculateDistance, isPointInPolygon, extractBuildingHeight } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 
 export class StreetAnalyzer {
   private googleAPIs: GoogleAPIsService;
+  
+  // Cache para altura de prédios vizinhos (QUALIDADE > PERFORMANCE)
+  private static surroundingHeightCache = new Map<string, { 
+    data: { averageHeight: number; maxHeight: number; buildingCount: number }, 
+    timestamp: number 
+  }>();
+  private static CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
   
   constructor() {
     this.googleAPIs = new GoogleAPIsService();
@@ -133,13 +140,17 @@ export class StreetAnalyzer {
     
     let baseRadius = 300; // Base reduzida (era 500m)
     
-    // 1. Ajuste por densidade urbana (básico)
+    // 1. Ajuste por densidade urbana (LÓGICA MATEMÁTICA PURA - SEM HARDCODING)
+    // Em áreas densas, o raio será calculado dinamicamente baseado na altura relativa
+    // Não há limite fixo - tudo baseado em matemática
     switch (context.urbanDensity.level) {
       case 'very_dense':
-        baseRadius *= 0.7; // Ruas mais próximas
+        console.log(`🏙️ VERY DENSE urban area: radius will be calculated based on relative height`);
+        // Não aplicar multiplicador fixo - será calculado dinamicamente abaixo
         break;
       case 'dense':
-        baseRadius *= 0.8;
+        console.log(`🏢 DENSE urban area: radius will be calculated based on relative height`);
+        // Não aplicar multiplicador fixo - será calculado dinamicamente abaixo
         break;
       case 'medium':
         baseRadius *= 1.0;
@@ -208,6 +219,86 @@ export class StreetAnalyzer {
       const heightBonus = Math.min(boundary.height * 6, 300); // 6m raio por metro de altura, max 300m
       baseRadius += heightBonus;
       console.log(`🏢 Height bonus: ${boundary.height}m tall → +${heightBonus.toFixed(0)}m radius`);
+    }
+
+    // 3.5. NOVO: Ajuste por altura RELATIVA aos prédios vizinhos (LÓGICA MATEMÁTICA PURA)
+    // Em áreas densas, SEMPRE analisar altura relativa, independente da altura do POI
+    const isDenseArea = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
+    const shouldAnalyzeRelativeHeight = isDenseArea || (boundary.height && boundary.height > 10);
+    
+    if (shouldAnalyzeRelativeHeight) {
+      try {
+        console.log(`🏙️ Analyzing relative height: ${isDenseArea ? 'dense area' : 'tall POI'} (${boundary.height || 'no height'}m)`);
+        
+        // Buscar altura dos prédios ao redor (cache de 500m) com timeout generoso
+        const surroundingHeights = await Promise.race([
+          this.calculateSurroundingBuildingsHeight(boundary.center, 500),
+          new Promise<{ averageHeight: number; maxHeight: number; buildingCount: number }>((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout')), 30000) // 30s timeout (QUALIDADE > PERFORMANCE)
+          )
+        ]);
+        
+        if (surroundingHeights.buildingCount > 5) {
+          // Calcular diferença relativa
+          const poiHeight = boundary.height || 0; // Se não tem altura, considerar 0
+          const heightDifference = poiHeight - surroundingHeights.averageHeight;
+          
+          if (isDenseArea) {
+            // EM ÁREAS DENSAS: Lógica MUITO restritiva baseada em altura relativa
+            if (heightDifference > 50) {
+              // POI MUITO mais alto que vizinhos → raio baseado na diferença (MUITO REDUZIDO)
+              const relativeRadius = Math.min(heightDifference * 2, 150); // 2m raio por metro de diferença, max 150m
+              baseRadius = Math.max(relativeRadius, 50); // Mínimo 50m
+              console.log(`🏢 DENSE AREA: POI VERY tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.averageHeight}m → radius ${baseRadius}m`);
+            } else if (heightDifference > 20) {
+              // POI moderadamente mais alto → raio MUITO pequeno
+              const relativeRadius = Math.min(heightDifference * 1.5, 100); // 1.5m raio por metro de diferença, max 100m
+              baseRadius = Math.max(relativeRadius, 40); // Mínimo 40m
+              console.log(`🏗️ DENSE AREA: POI tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.averageHeight}m → radius ${baseRadius}m`);
+            } else if (heightDifference > 0) {
+              // POI ligeiramente mais alto → raio MÍNIMO
+              const relativeRadius = Math.min(heightDifference * 1, 60); // 1m raio por metro de diferença, max 60m
+              baseRadius = Math.max(relativeRadius, 30); // Mínimo 30m
+              console.log(`🏙️ DENSE AREA: POI slightly tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.averageHeight}m → radius ${baseRadius}m`);
+            } else {
+              // POI igual ou menor que vizinhos → raio EXTREMAMENTE pequeno
+              baseRadius = Math.max(20, 15 + Math.abs(heightDifference) * 0.5); // 15-20m base + 0.5m por metro de diferença
+              console.log(`🏘️ DENSE AREA: POI lower than surroundings: ${poiHeight}m vs avg ${surroundingHeights.averageHeight}m → radius ${baseRadius}m`);
+            }
+          } else {
+            // EM ÁREAS NÃO DENSAS: Lógica original (bonus/penalty)
+            if (heightDifference > 50) {
+              const relativeBonus = Math.min(heightDifference * 4, 600);
+              baseRadius += relativeBonus;
+              console.log(`🏢 POI VERY tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.averageHeight}m → +${relativeBonus}m radius`);
+            } else if (heightDifference > 20) {
+              const relativeBonus = heightDifference * 2;
+              baseRadius += relativeBonus;
+              console.log(`🏗️ POI tall relative to surroundings: ${poiHeight}m vs avg ${surroundingHeights.averageHeight}m → +${relativeBonus}m radius`);
+            } else if (heightDifference < -20) {
+              const penalty = Math.abs(heightDifference) * 2;
+              baseRadius = Math.max(baseRadius - penalty, 150);
+              console.log(`🏘️ POI lower than surroundings: ${poiHeight}m vs avg ${surroundingHeights.averageHeight}m → -${penalty}m radius`);
+            } else {
+              console.log(`🏙️ POI similar height to surroundings: ${poiHeight}m vs avg ${surroundingHeights.averageHeight}m → no adjustment`);
+            }
+          }
+        } else {
+          console.log(`⚠️ Insufficient surrounding height data (${surroundingHeights.buildingCount} buildings), using fallback`);
+          if (isDenseArea) {
+            // Em áreas densas, usar raio conservador se não tem dados de altura
+            baseRadius = Math.min(baseRadius, 150);
+            console.log(`🏙️ DENSE AREA: No height data, using conservative radius: ${baseRadius}m`);
+          }
+        }
+      } catch (error) {
+        console.warn(`⚠️ Failed to analyze surrounding buildings height: ${error instanceof Error ? error.message : String(error)}, using fallback`);
+        if (isDenseArea) {
+          // Em áreas densas, usar raio conservador se falhar
+          baseRadius = Math.min(baseRadius, 150);
+          console.log(`🏙️ DENSE AREA: Analysis failed, using conservative radius: ${baseRadius}m`);
+        }
+      }
     }
     
     // 4. Ajuste por tipo de terreno (elevação)
@@ -307,7 +398,7 @@ export class StreetAnalyzer {
 (
   ${pointQueries};
 );
-out geom meta;
+out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
 `;
       
       console.log(`📝 OSM Query: ${strategicPoints.length} strategic points, ${searchRadius}m radius`);
@@ -353,9 +444,24 @@ out geom meta;
             const street: StreetData = {
               id: `osm_way_${element.id}`,
               type: this.classifyOSMHighway(element.tags?.highway || 'unknown'),
+              name: element.tags?.name || element.tags?.ref || 'Unnamed Street', // NOVO: nome da rua
               coordinates: validCoordinates, // Usar apenas pontos válidos
               accessibility: this.determineAccessibility(element.tags),
-              confidence: 0.9 // Alta confidence para OSM
+              confidence: 0.9, // Alta confidence para OSM
+              tags: { // NOVO: armazenar tags relevantes para validação
+                tunnel: element.tags?.tunnel,
+                bridge: element.tags?.bridge,
+                layer: element.tags?.layer,
+                covered: element.tags?.covered,
+                surface: element.tags?.surface,
+                lit: element.tags?.lit,
+                width: element.tags?.width,
+                lanes: element.tags?.lanes,
+                sidewalk: element.tags?.sidewalk,
+                access: element.tags?.access,
+                oneway: element.tags?.oneway,
+                maxspeed: element.tags?.maxspeed
+              }
             };
             
             streets.push(street);
@@ -699,6 +805,19 @@ out geom meta;
       return false;
     }
     
+    // NOVO: Rejeitar ruas em túneis (sem visibilidade do céu/POI)
+    if (road.tags?.tunnel === 'yes' || road.tags?.covered === 'yes') {
+      console.log(`🚫 Street ${road.id} rejected: tunnel/covered (no sky visibility)`);
+      return false;
+    }
+    
+    // NOVO: Penalizar viadutos elevados (layer > 0) se POI está no nível do solo
+    if (road.tags?.bridge === 'yes' || (road.tags?.layer && parseInt(road.tags.layer) > 0)) {
+      console.log(`⚠️ Street ${road.id} on elevated structure (bridge/layer=${road.tags.layer})`);
+      // Permitir apenas se POI também está elevado
+      // Por ora, aceitar mas logar para análise
+    }
+    
     // Ajustar critérios baseado no contexto
     if (context.urbanDensity.level === 'very_dense') {
       // Em áreas muito densas, aceitar mais tipos de ruas
@@ -850,4 +969,90 @@ out geom;
     
     return Math.max(0, Math.min(1, confidence));
   }
+
+  /**
+   * NOVO: Calcula altura média dos prédios vizinhos para ajustar raio de visibilidade
+   * COM CACHE para evitar re-queries (QUALIDADE > PERFORMANCE)
+   */
+  private async calculateSurroundingBuildingsHeight(
+    poiLocation: { lat: number; lng: number },
+    radius: number = 500
+  ): Promise<{ averageHeight: number; maxHeight: number; buildingCount: number }> {
+    // Verificar cache primeiro
+    const cacheKey = `${poiLocation.lat.toFixed(4)},${poiLocation.lng.toFixed(4)},${radius}`;
+    const cached = StreetAnalyzer.surroundingHeightCache.get(cacheKey);
+    
+    if (cached && (Date.now() - cached.timestamp) < StreetAnalyzer.CACHE_DURATION) {
+      console.log(`🏙️ Using cached surrounding buildings data (${cached.data.buildingCount} buildings, avg: ${cached.data.averageHeight}m)`);
+      return cached.data;
+    }
+    
+    const query = `
+[out:json][timeout:60];
+(
+  way["building"](around:${radius},${poiLocation.lat},${poiLocation.lng});
+);
+out tags;
+`;
+
+    try {
+      console.log(`🏙️ Fetching surrounding buildings height data (${radius}m radius)...`);
+      
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: query
+      });
+      
+      if (!response.ok) {
+        console.warn(`OSM surrounding buildings query failed: ${response.status}`);
+        return { averageHeight: 0, maxHeight: 0, buildingCount: 0 };
+      }
+      
+      const data = await response.json();
+      
+      if (!data.elements || data.elements.length === 0) {
+        console.log('⚠️ No surrounding buildings found in OSM');
+        return { averageHeight: 0, maxHeight: 0, buildingCount: 0 };
+      }
+      
+      const heights: number[] = [];
+      
+      for (const element of data.elements || []) {
+        const height = extractBuildingHeight(element.tags);
+        if (height > 0) {
+          heights.push(height);
+        }
+      }
+      
+      if (heights.length === 0) {
+        console.log('⚠️ No surrounding buildings with height data found');
+        return { averageHeight: 0, maxHeight: 0, buildingCount: 0 };
+      }
+      
+      const averageHeight = heights.reduce((sum, h) => sum + h, 0) / heights.length;
+      const maxHeight = Math.max(...heights);
+      
+      const result = {
+        averageHeight: Math.round(averageHeight),
+        maxHeight: Math.round(maxHeight),
+        buildingCount: heights.length
+      };
+      
+      // Armazenar no cache
+      StreetAnalyzer.surroundingHeightCache.set(cacheKey, {
+        data: result,
+        timestamp: Date.now()
+      });
+      
+      console.log(`🏙️ Surrounding buildings: ${heights.length} analyzed, avg height: ${averageHeight.toFixed(1)}m, max: ${maxHeight.toFixed(1)}m (cached)`);
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to fetch surrounding buildings height:', error);
+      return { averageHeight: 0, maxHeight: 0, buildingCount: 0 };
+    }
+  }
+
+  // Usar função centralizada do utils/calculations.ts (DRY)
 }

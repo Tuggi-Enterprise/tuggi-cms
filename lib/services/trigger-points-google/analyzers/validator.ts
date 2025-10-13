@@ -1,13 +1,20 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
-import { calculateOptimalRadius, calculateDistance } from '../utils/calculations';
+import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight } from '../utils/calculations';
 import { VisibilityValidator } from './visibility-validator';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { GoogleAPIsService } from '../services/google-apis.service';
 
 export class TriggerPointValidator {
   private visibilityValidator: VisibilityValidator;
+  
+  // Cache para obstruções (QUALIDADE > PERFORMANCE)
+  private static obstructionsCache = new Map<string, { 
+    data: { buildings: any[]; vegetation: any[]; barriers: any[] }, 
+    timestamp: number 
+  }>();
+  private static CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
   
   constructor(googleAPIs: GoogleAPIsService) {
     this.visibilityValidator = new VisibilityValidator(googleAPIs);
@@ -58,7 +65,7 @@ export class TriggerPointValidator {
       
       // ✅ FILTRO DE DISTÂNCIA MÍNIMA COMPLETO
       console.log(`🔍 Step 3: Distance filtering (min ${minDistanceBetweenTPs}m between TPs)`);
-      const selectedTriggerPoints = this.selectTriggerPointsWithMinDistance(rankedCandidates, maxTriggerPoints, minDistanceBetweenTPs, context);
+      const selectedTriggerPoints = this.selectTriggerPointsWithMinDistance(rankedCandidates, maxTriggerPoints, minDistanceBetweenTPs, boundary, context);
       console.log(`📏 ${selectedTriggerPoints.length} trigger points selected after all filtering`);
       
       console.log(`✅ VALIDATION COMPLETE: ${selectedTriggerPoints.length} high-quality trigger points selected`);
@@ -78,6 +85,7 @@ export class TriggerPointValidator {
     rankedCandidates: TriggerPointCandidate[],
     maxTriggerPoints: number,
     minDistance: number,
+    boundary: BoundaryData,
     context: GeographicContext
   ): TriggerPoint[] {
     const selectedTPs: TriggerPoint[] = [];
@@ -105,7 +113,7 @@ export class TriggerPointValidator {
       }
       
       // Candidato aprovado - converter para TriggerPoint
-      const triggerPoint = this.convertToTriggerPoint(candidate, selectedTPs.length, context);
+      const triggerPoint = this.convertToTriggerPoint(candidate, selectedTPs.length, boundary, context);
       selectedTPs.push(triggerPoint);
       
       // console.log(`✅ TP selected: ${triggerPoint.location.lat.toFixed(6)}, ${triggerPoint.location.lng.toFixed(6)} - Quality: ${triggerPoint.quality.toFixed(3)}`);
@@ -202,23 +210,32 @@ export class TriggerPointValidator {
     let visibilityFailed = 0;
 
     console.log(`🚀 SUPER OPTIMIZED visibility check for ${candidates.length} candidates...`);
-    console.log(`🏗️ Step 1: Fetching ALL buildings in region with SINGLE OSM call...`);
+    console.log(`🏗️ Step 1: Fetching ALL obstructions in region with SINGLE OSM call...`);
 
-    // 🚀 OTIMIZAÇÃO: Buscar todos os buildings da região em UMA ÚNICA chamada
-    const regionBuildings = await this.getAllBuildingsInRegion(candidates, boundary, context);
-    console.log(`🏢 Found ${regionBuildings.length} buildings in region (1 API call instead of ${candidates.length})`);
+    // 🚀 OTIMIZAÇÃO: Buscar todas as obstruções da região em UMA ÚNICA chamada
+    let obstructions;
+    try {
+      obstructions = await this.getAllObstructionsInRegion(candidates, boundary, context);
+      console.log(`🌳 Found ${obstructions.buildings.length} buildings, ${obstructions.vegetation.length} vegetation, ${obstructions.barriers.length} barriers in region (1 API call instead of ${candidates.length})`);
+    } catch (error) {
+      console.warn(`⚠️ Failed to fetch obstructions, using buildings-only fallback: ${(error as Error).message}`);
+      // Fallback: buscar apenas buildings (método original)
+      const buildings = await this.getAllBuildingsInRegionFallback(candidates, boundary, context);
+      obstructions = { buildings, vegetation: [], barriers: [] };
+      console.log(`🏢 Fallback: Found ${buildings.length} buildings only`);
+    }
 
-    console.log(`🏗️ Step 2: Processing visibility for each TP using cached buildings...`);
+    console.log(`🏗️ Step 2: Processing visibility for each TP using cached obstructions...`);
     
-    // Processar cada candidato usando os buildings já carregados
+    // Processar cada candidato usando as obstruções já carregadas
     for (const candidate of candidates) {
       try {
-        // Usar validação com buildings já carregados (SEM chamadas API)
-        const hasGoodVisibility = await this.checkVisibilityWithCachedBuildings(
+        // Usar validação com obstruções já carregadas (SEM chamadas API)
+        const hasGoodVisibility = await this.checkVisibilityWithCachedObstructions(
           candidate, 
           boundary, 
           context, 
-          regionBuildings
+          obstructions
         );
         
         if (hasGoodVisibility) {
@@ -249,19 +266,33 @@ export class TriggerPointValidator {
   }
   
   /**
-   * 🚀 NOVO: Busca todos os buildings da região em UMA ÚNICA chamada OSM
+   * 🚀 EXPANDIDO: Busca todas as obstruções (buildings, vegetação, muros) em uma região
    * Usa o raio de busca de TPs para determinar a área relevante
+   * COM CACHE para evitar re-queries (QUALIDADE > PERFORMANCE)
    */
-  private async getAllBuildingsInRegion(
+  private async getAllObstructionsInRegion(
     candidates: TriggerPointCandidate[],
     boundary: BoundaryData,
     context: GeographicContext
-  ): Promise<any[]> {
-    if (candidates.length === 0) return [];
+  ): Promise<{
+    buildings: any[];
+    vegetation: any[];
+    barriers: any[];
+  }> {
+    if (candidates.length === 0) return { buildings: [], vegetation: [], barriers: [] };
 
     // 🎯 USAR O RAIO DE BUSCA DE TPs para determinar a área
     const searchRadius = this.calculateSearchRadiusForRegion(boundary, context);
-    console.log(`🎯 Using TP search radius: ${searchRadius}m for buildings region`);
+    console.log(`🎯 Using TP search radius: ${searchRadius}m for obstructions region`);
+
+    // Verificar cache primeiro
+    const cacheKey = `${boundary.center.lat.toFixed(4)},${boundary.center.lng.toFixed(4)},${searchRadius}`;
+    const cached = TriggerPointValidator.obstructionsCache.get(cacheKey);
+    
+    if (cached && (Date.now() - cached.timestamp) < TriggerPointValidator.CACHE_DURATION) {
+      console.log(`🌳 Using cached obstructions data (${cached.data.buildings.length} buildings, ${cached.data.vegetation.length} vegetation, ${cached.data.barriers.length} barriers)`);
+      return cached.data;
+    }
 
     // Calcular bounding box baseado no centro do boundary + raio de busca
     const boundaryCenter = this.calculateBoundaryCenter(boundary.coordinates);
@@ -274,40 +305,62 @@ export class TriggerPointValidator {
     const minLng = boundaryCenter.lng - radiusInDegrees;
     const maxLng = boundaryCenter.lng + radiusInDegrees;
 
-    console.log(`📦 Buildings search area: ${searchRadius}m radius around POI`);
+    console.log(`📦 Obstructions search area: ${searchRadius}m radius around POI`);
     console.log(`📦 Bounding box: ${minLat.toFixed(6)}, ${minLng.toFixed(6)} → ${maxLat.toFixed(6)}, ${maxLng.toFixed(6)}`);
 
-    const buildingsQuery = `
-[out:json][timeout:30];
+    // Query simplificada para evitar erro 400
+    const obstructionsQuery = `
+[out:json][timeout:60];
 (
-  way["building"](${minLat},${minLng},${maxLat},${maxLng});
-  relation["building"](${minLat},${minLng},${maxLat},${maxLng});
+  way["building"](around:${searchRadius},${boundaryCenter.lat},${boundaryCenter.lng});
 );
-out geom meta;
+out geom tags;
 `;
 
     try {
-      console.log(`🌐 Fetching ALL buildings in region with single OSM call...`);
+      console.log(`🌐 Fetching ALL obstructions in region with single OSM call...`);
+      
+      // Adicionar timeout de 100s para a requisição (QUALIDADE > PERFORMANCE)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 100000);
+      
       const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
-        body: buildingsQuery
+        body: obstructionsQuery,
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
-        console.warn(`OSM region buildings query failed: ${response.status}`);
-        return [];
+        console.warn(`OSM region obstructions query failed: ${response.status}`);
+        return { buildings: [], vegetation: [], barriers: [] };
       }
 
       const osmData = await response.json();
-      const buildings = osmData.elements || [];
+      const elements = osmData.elements || [];
 
-      console.log(`🏢 Successfully fetched ${buildings.length} buildings from OSM in single call`);
-      return buildings;
+      // Query simplificada retorna apenas buildings
+      const buildings: any[] = elements || [];
+      const vegetation: any[] = []; // Simplificado - sem vegetação por ora
+      const barriers: any[] = []; // Simplificado - sem barreiras por ora
+      
+      const result = { buildings, vegetation, barriers };
+      
+      // Armazenar no cache
+      TriggerPointValidator.obstructionsCache.set(cacheKey, {
+        data: result,
+        timestamp: Date.now()
+      });
+      
+      console.log(`🌳 Obstructions found: ${buildings.length} buildings, ${vegetation.length} vegetation, ${barriers.length} barriers (cached)`);
+      
+      return result;
 
     } catch (error) {
-      console.error('Failed to fetch region buildings:', error);
-      return [];
+      console.error('Failed to fetch region obstructions:', error);
+      return { buildings: [], vegetation: [], barriers: [] };
     }
   }
 
@@ -332,12 +385,14 @@ out geom meta;
     }
 
     // Ajustar baseado na densidade urbana
+    // IMPORTANTE: Para obstruções, usar raio maior que para TPs
+    // TPs ficam próximos, mas obstruções podem estar mais longe
     switch (context.urbanDensity.level) {
-      case 'very_dense': baseRadius = Math.min(baseRadius, 500); break;
-      case 'dense': baseRadius = Math.min(baseRadius, 1000); break;
-      case 'medium': baseRadius = Math.min(baseRadius, 2000); break;
-      case 'low': baseRadius = Math.min(baseRadius, 4000); break;
-      case 'rural': baseRadius = Math.min(baseRadius, 8000); break;
+      case 'very_dense': baseRadius = Math.min(baseRadius, 1000); break; // Era 500m, agora 1000m
+      case 'dense': baseRadius = Math.min(baseRadius, 1500); break; // Era 1000m, agora 1500m
+      case 'medium': baseRadius = Math.min(baseRadius, 2500); break; // Era 2000m, agora 2500m
+      case 'low': baseRadius = Math.min(baseRadius, 5000); break; // Era 4000m, agora 5000m
+      case 'rural': baseRadius = Math.min(baseRadius, 10000); break; // Era 8000m, agora 10000m
     }
 
     return Math.round(baseRadius);
@@ -364,53 +419,104 @@ out geom meta;
   }
 
   /**
-   * 🚀 NOVO: Verifica visibilidade usando buildings já carregados em memória (SEM API calls)
+   * 🚀 EXPANDIDO: Verifica visibilidade usando obstruções já carregadas em memória (SEM API calls)
    */
-  private async checkVisibilityWithCachedBuildings(
+  private async checkVisibilityWithCachedObstructions(
     candidate: TriggerPointCandidate,
     boundary: BoundaryData,
     context: GeographicContext,
-    regionBuildings: any[]
+    obstructions: { buildings: any[]; vegetation: any[]; barriers: any[] }
   ): Promise<boolean> {
     try {
       // Encontrar ponto mais próximo do boundary
       const nearestBoundaryPoint = this.findNearestBoundaryPoint(candidate.location, boundary.coordinates);
       const distance = calculateDistance(candidate.location, nearestBoundaryPoint);
 
-      // Filtrar apenas buildings relevantes para esta linha de visão (mais eficiente)
+      // ✅ REGRA CRÍTICA: TPs na rua da frente do POI são SEMPRE aprovados
+      const isFrontStreet = this.isTPOnFrontStreet(candidate, boundary);
+      if (isFrontStreet) {
+        console.log(`🏠 TP on FRONT STREET of POI (${distance.toFixed(0)}m) - AUTO APPROVED (guaranteed visibility)`);
+        return true;
+      }
+      
+      // ✅ REGRA AJUSTADA: TPs muito próximos do boundary são automaticamente aprovados
+      // EXCETO em canyon urbano onde mesmo próximos podem ter obstruções
+      const isUrbanCanyon = this.isPOIInUrbanCanyon(boundary, context);
+      
+      if (distance < 75 && !isUrbanCanyon) {
+        console.log(`✅ TP very close to boundary (${distance.toFixed(0)}m < 75m) - AUTO APPROVED (street in front)`);
+        return true;
+      }
+      
+      if (distance < 75 && isUrbanCanyon) {
+        console.log(`🏙️ TP close to boundary in URBAN CANYON (${distance.toFixed(0)}m) - checking obstructions despite proximity`);
+        // Continuar com validação completa mesmo próximo
+      }
+
+      // 1. Verificar obstrução por buildings (já existente)
       const relevantBuildings = this.filterBuildingsAlongLineOfSight(
         candidate.location,
         nearestBoundaryPoint,
-        regionBuildings,
+        obstructions.buildings,
         distance
       );
-
-      console.log(`🎯 Analyzing ${relevantBuildings.length} relevant buildings for TP (${distance.toFixed(0)}m line)`);
-
-      // ✅ REGRA AJUSTADA: TPs muito próximos do boundary são automaticamente aprovados
-      if (distance < 75) {
-        console.log(`✅ TP very close to boundary (${distance.toFixed(0)}m < 60m) - AUTO APPROVED (street in front)`);
-        return true;
-      }
-
-      // 🔥 USAR VALIDAÇÃO ORIGINAL (que funcionava) com buildings já carregados
-      const hasBlockingBuilding = this.checkCachedBuildingsBlocking(
+      
+      const blockedByBuildings = this.checkCachedBuildingsBlocking(
         candidate.location,
         nearestBoundaryPoint,
         relevantBuildings,
         context
       );
       
-      if (!hasBlockingBuilding) {
+      if (!blockedByBuildings) {
         console.log(`🚫 BLOCKED: Buildings block line of sight (${relevantBuildings.length} buildings analyzed)`);
         return false;
       }
+      
+      // NOVO: Validação extra rigorosa para canyon urbano
+      if (isUrbanCanyon) {
+        const canyonValidation = this.validateCanyonVisibility(
+          candidate.location,
+          nearestBoundaryPoint,
+          relevantBuildings,
+          distance
+        );
+        
+        if (!canyonValidation.isVisible) {
+          console.log(`🏙️ CANYON BLOCKED: ${canyonValidation.reason} (${relevantBuildings.length} buildings, ${canyonValidation.obstructionDensity.toFixed(1)}% density)`);
+          return false;
+        }
+      }
 
-      console.log(`✅ Clear line of sight confirmed (${relevantBuildings.length} buildings checked)`);
+      // 2. NOVO: Verificar obstrução por vegetação densa
+      const blockedByVegetation = this.checkVegetationBlocking(
+        candidate.location,
+        boundary.center,
+        obstructions.vegetation
+      );
+      
+      if (blockedByVegetation) {
+        console.log(`🚫 BLOCKED: Dense vegetation blocks line of sight`);
+        return false;
+      }
+
+      // 3. NOVO: Verificar obstrução por muros/barreiras
+      const blockedByBarriers = this.checkBarriersBlocking(
+        candidate.location,
+        boundary.center,
+        obstructions.barriers
+      );
+      
+      if (blockedByBarriers) {
+        console.log(`🚫 BLOCKED: Barriers block line of sight`);
+        return false;
+      }
+
+      console.log(`✅ Clear line of sight confirmed (${relevantBuildings.length} buildings, ${obstructions.vegetation.length} vegetation, ${obstructions.barriers.length} barriers checked)`);
       return true;
 
     } catch (error) {
-      console.warn('Cached visibility check failed:', error);
+      console.warn('Cached obstructions visibility check failed:', error);
       return true; // Fail-safe
     }
   }
@@ -507,7 +613,7 @@ out geom meta;
       console.log(`🏗️ Checking ${buildings.length} cached buildings for blocking (distance: ${distance.toFixed(0)}m, dense: ${isDenseZone})`);
       
       for (const building of buildings) {
-        const buildingHeight = this.extractBuildingHeight(building);
+        const buildingHeight = extractBuildingHeight(building);
         
         if (!buildingHeight || buildingHeight <= 0) continue; // Ignorar buildings sem altura
         
@@ -890,7 +996,7 @@ out geom meta;
           }));
 
           if (this.lineIntersectsPolygon(tpLocation, boundaryPoint, buildingCoords)) {
-            const buildingHeight = this.extractBuildingHeight(building);
+            const buildingHeight = extractBuildingHeight(building);
             console.log(`🚫 Building blocks line of sight (height: ${buildingHeight || 'unknown'}m)`);
             return false; // Bloqueado por building
           }
@@ -945,7 +1051,7 @@ out geom meta;
           blockingBuildings++;
           
           // Analisar altura do building
-          const buildingHeight = this.extractBuildingHeight(building);
+          const buildingHeight = extractBuildingHeight(building);
           if (buildingHeight && buildingHeight > 0) {
             totalBuildingHeight += buildingHeight;
             buildingsWithHeight++;
@@ -1172,10 +1278,11 @@ out geom meta;
   private convertToTriggerPoint(
     candidate: TriggerPointCandidate, 
     index: number, 
+    boundary: BoundaryData,
     context: GeographicContext
   ): TriggerPoint {
     const id = this.generateTriggerPointId();
-    const type = this.determineTriggerType(index, candidate.quality);
+    const type = this.determineTriggerType(index, candidate.quality, candidate, boundary, context);
     const priority = index + 1;
     const radius = this.calculateRadius(candidate, context);
     
@@ -1199,22 +1306,209 @@ out geom meta;
   }
   
   /**
-   * Determina o tipo de trigger point baseado na posição e qualidade
+   * Determina o tipo de trigger point baseado na posição, qualidade e contexto urbano
    */
-  private determineTriggerType(index: number, quality: number): 'primary' | 'secondary' | 'fallback' {
-    // Os primeiros 3 candidatos com alta qualidade são primários
+  private determineTriggerType(
+    index: number, 
+    quality: number, 
+    candidate: TriggerPointCandidate,
+    boundary: BoundaryData,
+    context: GeographicContext
+  ): 'primary' | 'secondary' | 'fallback' {
+    
+    // NOVO: Verificar se POI está em canyon urbano (cercado por prédios)
+    const isUrbanCanyon = this.isPOIInUrbanCanyon(boundary, context);
+    
+    if (isUrbanCanyon) {
+      console.log(`🏙️ URBAN CANYON DETECTED: POI surrounded by tall buildings`);
+      
+      // Em canyon urbano, critérios mais rigorosos
+      if (index < 2 && quality > 0.8) {
+        return 'primary'; // Apenas 2 primários, qualidade muito alta
+      }
+      
+      if (quality > 0.7) {
+        return 'secondary'; // Qualidade alta para secundários
+      }
+      
+      // Qualidade baixa em canyon = fallback
+      return 'fallback';
+    }
+    
+    // Lógica original para áreas não-canyon
     if (index < 3 && quality > 0.7) {
       return 'primary';
     }
     
-    // Candidatos com qualidade média são secundários
     if (quality > 0.5) {
       return 'secondary';
     }
     
-    // Resto são fallback
     return 'fallback';
   }
+  
+  /**
+   * Verifica se o TP está na rua da frente do POI (visibilidade garantida)
+   */
+  private isTPOnFrontStreet(candidate: TriggerPointCandidate, boundary: BoundaryData): boolean {
+    // 1. Verificar se o POI tem informações de endereço (addr:street)
+    if (boundary.address?.street) {
+      const frontStreetName = boundary.address.street.toLowerCase();
+      const candidateStreetName = candidate.street.name?.toLowerCase();
+      
+      if (candidateStreetName && frontStreetName.includes(candidateStreetName)) {
+        console.log(`🏠 Front street match: "${candidateStreetName}" matches POI address "${frontStreetName}"`);
+        return true;
+      }
+    }
+    
+    // 2. Verificar se TP está muito próximo (menos de 30m) - provavelmente na frente
+    const nearestBoundaryPoint = this.findNearestBoundaryPoint(candidate.location, boundary.coordinates);
+    const distance = calculateDistance(candidate.location, nearestBoundaryPoint);
+    
+    if (distance < 30) {
+      console.log(`🏠 Very close to POI (${distance.toFixed(0)}m) - likely front street`);
+      return true;
+    }
+    
+    // 3. Verificar ângulo de aproximação - TPs frontais têm ângulo < 45°
+    if (candidate.street.coordinates.length >= 2 && boundary.center) {
+      // Calcular direção da rua usando primeiro e último ponto
+      const streetStart = candidate.street.coordinates[0];
+      const streetEnd = candidate.street.coordinates[candidate.street.coordinates.length - 1];
+      
+      const approachAngle = this.calculateApproachAngle(
+        candidate.location,
+        boundary.center,
+        streetEnd // Usar ponto final da rua como direção
+      );
+      
+      if (approachAngle < 45) {
+        console.log(`🏠 Frontal approach angle (${approachAngle.toFixed(0)}°) - likely front street`);
+        return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Calcula ângulo de aproximação entre TP e POI
+   */
+  private calculateApproachAngle(
+    tpLocation: { lat: number; lng: number },
+    poiLocation: { lat: number; lng: number },
+    streetDirection: { lat: number; lng: number }
+  ): number {
+    // Calcular bearing da rua (usando função existente)
+    const streetBearing = calculateBearing(tpLocation, streetDirection);
+    
+    // Calcular bearing do TP para o POI (usando função existente)
+    const viewBearing = calculateBearing(tpLocation, poiLocation);
+    
+    // Calcular diferença angular (0-180°)
+    let angleDiff = Math.abs(streetBearing - viewBearing);
+    if (angleDiff > 180) angleDiff = 360 - angleDiff;
+    
+    return angleDiff;
+  }
+  
+  // Usar função existente do utils/calculations.ts (SSOT)
+
+  /**
+   * Verifica se o POI está em um canyon urbano (cercado por prédios altos)
+   */
+  private isPOIInUrbanCanyon(boundary: BoundaryData, context: GeographicContext): boolean {
+    // 1. Verificar densidade urbana
+    if (context.urbanDensity.level !== 'very_dense' && context.urbanDensity.level !== 'dense') {
+      return false; // Não é área densa
+    }
+    
+    // 2. Em áreas muito densas, SEMPRE considerar canyon urbano
+    if (context.urbanDensity.level === 'very_dense') {
+      console.log(`🏙️ CANYON: Very dense urban area - treating as canyon regardless of POI height`);
+      return true;
+    }
+    
+    // 3. Verificar se POI tem altura (prédio) - apenas para áreas densas
+    if (context.urbanDensity.level === 'dense' && (!boundary.height || boundary.height < 20)) {
+      return false; // POI não é um prédio alto em área densa
+    }
+    
+    // 3. Verificar altura relativa aos vizinhos (se disponível)
+    if (boundary.surroundingHeight) {
+      const heightDifference = (boundary.height || 0) - boundary.surroundingHeight.average;
+      
+      // Se POI não é significativamente mais alto que vizinhos = canyon
+      if (heightDifference < 30) {
+        console.log(`🏙️ CANYON: POI height ${boundary.height}m vs avg ${boundary.surroundingHeight.average}m (diff: ${heightDifference}m < 30m)`);
+        return true;
+      }
+    }
+    
+    // 4. Verificar densidade de prédios ao redor (se disponível)
+    if (boundary.surroundingHeight && boundary.surroundingHeight.buildingCount > 10) {
+      console.log(`🏙️ CANYON: High building density (${boundary.surroundingHeight.buildingCount} buildings)`);
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Validação rigorosa de visibilidade para canyon urbano
+   */
+  private validateCanyonVisibility(
+    tpLocation: { lat: number; lng: number },
+    poiLocation: { lat: number; lng: number },
+    buildings: any[],
+    distance: number
+  ): { isVisible: boolean; reason: string; obstructionDensity: number } {
+    
+    if (buildings.length === 0) {
+      return { isVisible: true, reason: 'No buildings in line of sight', obstructionDensity: 0 };
+    }
+    
+    // 1. Calcular densidade de obstruções ao longo da linha de visão
+    const lineOfSightLength = distance;
+    const obstructionDensity = (buildings.length / lineOfSightLength) * 1000; // obstruções por km
+    
+    // 2. Em canyon urbano, tolerância EXTREMAMENTE baixa para obstruções
+    if (obstructionDensity > 1) { // Mais de 1 prédio por km de linha de visão (era 2)
+      return { 
+        isVisible: false, 
+        reason: 'Too many buildings in line of sight', 
+        obstructionDensity 
+      };
+    }
+    
+    // 3. Verificar se há prédios bloqueando (qualquer altura em canyon urbano)
+    const blockingBuildings = buildings.filter(building => {
+      const height = extractBuildingHeight(building.tags);
+      return height > 20; // Qualquer prédio >20m bloqueia em canyon urbano
+    });
+    
+    if (blockingBuildings.length > 0) {
+      return { 
+        isVisible: false, 
+        reason: `Buildings blocking (${blockingBuildings.length} buildings >20m)`, 
+        obstructionDensity 
+      };
+    }
+    
+    // 4. Verificar distância - em canyon, TPs muito distantes são problemáticos
+    if (distance > 100) { // Reduzido de 200m para 100m
+      return { 
+        isVisible: false, 
+        reason: 'Too far in urban canyon (distance > 100m)', 
+        obstructionDensity 
+      };
+    }
+    
+    return { isVisible: true, reason: 'Canyon validation passed', obstructionDensity };
+  }
+  
+  // Usar função centralizada do utils/calculations.ts (DRY)
   
   /**
    * Calcula raio do trigger point
@@ -1443,5 +1737,134 @@ out geom meta;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     
     return R * c;
+  }
+
+  /**
+   * NOVO: Verifica se vegetação densa bloqueia linha de visão
+   */
+  private checkVegetationBlocking(
+    tpLocation: { lat: number; lng: number },
+    poiLocation: { lat: number; lng: number },
+    vegetation: any[]
+  ): boolean {
+    // Filtrar vegetação ao longo da linha TP → POI
+    const relevantVegetation = this.filterBuildingsAlongLineOfSight(
+      tpLocation,
+      poiLocation,
+      vegetation,
+      calculateDistance(tpLocation, poiLocation)
+    );
+    
+    if (relevantVegetation.length === 0) return false;
+    
+    // Vegetação densa (forest/wood) sempre bloqueia se estiver no caminho
+    for (const veg of relevantVegetation) {
+      if (veg.tags?.natural === 'wood' || veg.tags?.landuse === 'forest') {
+        console.log(`🌲 Dense vegetation blocking line of sight: ${veg.tags?.name || 'unnamed'}`);
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * NOVO: Verifica se muros/barreiras bloqueiam linha de visão
+   */
+  private checkBarriersBlocking(
+    tpLocation: { lat: number; lng: number },
+    poiLocation: { lat: number; lng: number },
+    barriers: any[]
+  ): boolean {
+    const relevantBarriers = this.filterBuildingsAlongLineOfSight(
+      tpLocation,
+      poiLocation,
+      barriers,
+      calculateDistance(tpLocation, poiLocation)
+    );
+    
+    if (relevantBarriers.length === 0) return false;
+    
+    // Muros altos (>2m) e city_walls bloqueiam
+    for (const barrier of relevantBarriers) {
+      const height = this.extractBarrierHeight(barrier.tags);
+      if (height > 2 || barrier.tags?.barrier === 'city_wall') {
+        console.log(`🧱 Barrier blocking line of sight: ${barrier.tags?.barrier} (${height}m high)`);
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * NOVO: Extrai altura de barreira de tags OSM
+   */
+  private extractBarrierHeight(tags: any): number {
+    if (tags?.height) {
+      const heightMatch = tags.height.match(/(\d+\.?\d*)/);
+      if (heightMatch) return parseFloat(heightMatch[1]);
+    }
+    
+    // Alturas padrão por tipo
+    const defaultHeights: Record<string, number> = {
+      'wall': 2.5,
+      'city_wall': 8,
+      'fence': 1.8,
+      'hedge': 2.0
+    };
+    
+    return defaultHeights[tags?.barrier] || 0;
+  }
+
+  /**
+   * FALLBACK: Busca apenas buildings (método original simplificado)
+   */
+  private async getAllBuildingsInRegionFallback(
+    candidates: TriggerPointCandidate[],
+    boundary: BoundaryData,
+    context: GeographicContext
+  ): Promise<any[]> {
+    if (candidates.length === 0) return [];
+
+    const searchRadius = this.calculateSearchRadiusForRegion(boundary, context);
+    const boundaryCenter = this.calculateBoundaryCenter(boundary.coordinates);
+    const radiusInDegrees = searchRadius / 111000;
+    
+    const minLat = boundaryCenter.lat - radiusInDegrees;
+    const maxLat = boundaryCenter.lat + radiusInDegrees;
+    const minLng = boundaryCenter.lng - radiusInDegrees;
+    const maxLng = boundaryCenter.lng + radiusInDegrees;
+
+    const buildingsQuery = `
+[out:json][timeout:60];
+(
+  way["building"](${minLat},${minLng},${maxLat},${maxLng});
+);
+out geom meta;
+`;
+
+    try {
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: buildingsQuery
+      });
+
+      if (!response.ok) {
+        console.warn(`OSM buildings fallback query failed: ${response.status}`);
+        return [];
+      }
+
+      const osmData = await response.json();
+      const buildings = osmData.elements || [];
+
+      console.log(`🏢 Fallback: Successfully fetched ${buildings.length} buildings from OSM`);
+      return buildings;
+
+    } catch (error) {
+      console.error('Failed to fetch buildings fallback:', error);
+      return [];
+    }
   }
 }
