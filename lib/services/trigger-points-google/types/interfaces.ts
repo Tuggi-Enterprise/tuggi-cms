@@ -34,6 +34,36 @@ export interface GeographicContext {
   region: 'auto_detected';
 }
 
+// NOVO: Análise direcional
+export interface DirectionalAnalysis {
+  direction: string;
+  angle: number;
+  range: [number, number];
+  streets: {
+    total: number;
+    withOpenSpaces: number;
+    accessible: number;
+  };
+  openSpaces: {
+    count: number;
+    percentage: number;
+    types: string[];
+  };
+  buildings: {
+    count: number;
+    avgHeight: number;
+    maxHeight: number;
+    density: number; // buildings/km²
+  };
+  visibility: {
+    score: number; // 0-1
+    hasObstructions: boolean;
+    maxObstructionHeight: number;
+  };
+  allowTPs: boolean;
+  reason: string;
+}
+
 export interface BoundaryData {
   coordinates: Array<{lat: number, lng: number}>;
   center: {lat: number, lng: number};

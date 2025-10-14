@@ -8,6 +8,7 @@ import { TriggerPointValidator } from '../analyzers/validator';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext } from '../types/interfaces';
 import { calculateBearing, calculateDistance } from '../utils/calculations';
+import { loadTriggerPointsConfig, TriggerPointsConfig } from '../config/trigger-points-config';
 
 export class CoreTriggerPointPredictor {
   private geographicAnalyzer: GeographicContextAnalyzer;
@@ -65,6 +66,10 @@ export class CoreTriggerPointPredictor {
         throw new Error(`Boundary detection failed: ${boundaryResult.error}`);
       }
       const boundary = boundaryResult.data;
+      
+      // 2.1. Re-analisar contexto geográfico com boundary (para usar boundary.center)
+      console.log('📊 Step 2.1: Re-analyzing geographic context with boundary...');
+      const contextWithBoundary = await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary);
       
       // NOVA LÓGICA: Se boundary é estimado (POI não encontrado), usar fallback SUPER SIMPLES
       if (boundary.source === 'estimated') {
@@ -159,7 +164,7 @@ export class CoreTriggerPointPredictor {
       const validatedPoints = await this.validator.validateAndRankPoints(
         optimalPoints, 
         poiData, 
-        context,
+        contextWithBoundary,
         boundary,
         maxTPs,
         minDistance
@@ -199,23 +204,128 @@ export class CoreTriggerPointPredictor {
   }
   
   /**
-   * NOVO: Gera trigger points de fallback SUPER SIMPLES - apenas 1 TP na rua mais próxima
+   * NOVO: Gera trigger points de fallback INTELIGENTE - usa dados reais do OSM
    */
   private async generateSuperSimpleFallbackTriggerPoints(
     poiData: POIData,
     context: GeographicContext,
     boundary?: BoundaryData
   ): Promise<TriggerPoint[]> {
-    console.log('🎯 SUPER SIMPLE fallback for unfound POI - no complex validations');
+    console.log('🎯 INTELLIGENT fallback for unfound POI - using real OSM data');
     
     // USAR BOUNDARY.CENTER em vez de poiData.location
     const centerPoint = boundary?.center || poiData.location;
     console.log(`📍 POI: ${poiData.name} at ${centerPoint.lat.toFixed(6)}, ${centerPoint.lng.toFixed(6)} (${boundary ? 'boundary.center' : 'poiData.location'})`);
     
     try {
-      // Estratégia ÚNICA: Encontrar rua mais próxima via Google Roads
-      console.log('🔍 Finding nearest street using Google Roads API (simple approach)...');
+      // ESTRATÉGIA INTELIGENTE: Usar funções existentes para buscar ruas reais no OSM
+      console.log('🔍 Finding real streets using OSM data (intelligent approach)...');
       
+      // 1. USAR função existente para buscar ruas no OSM (50m radius para fallback)
+      const streets = await this.streetAnalyzer.getStreetsFromOSMOptimized(centerPoint, 50);
+      
+      if (streets && streets.length > 0) {
+        // 2. USAR função existente para filtrar ruas acessíveis
+        const accessibleStreets = streets.filter(street => 
+          this.streetAnalyzer.isStreetAccessiblePublic(street, context)
+        );
+        
+        if (accessibleStreets.length > 0) {
+          // 3. Encontrar a melhor rua (mais próxima e com melhor direção)
+          const bestStreet = this.findBestStreetForFallback(accessibleStreets, centerPoint);
+          
+          if (bestStreet) {
+            const streetPoint = bestStreet.coordinates[0];
+            const distance = calculateDistance(centerPoint, streetPoint);
+            
+            console.log(`✅ Found best street: ${bestStreet.name || bestStreet.id} at ${distance.toFixed(0)}m from POI`);
+            
+            // 4. Criar TP na rua real com direção assertiva
+            const triggerPoint: TriggerPoint = {
+              id: 'intelligent_fallback_1',
+              location: streetPoint,
+              radius: 25, // Raio otimizado para rua real
+              expectedBearing: calculateBearing(streetPoint, centerPoint),
+              bearingThreshold: 60, // Mais assertivo para rua real
+              type: 'primary',
+              priority: 1,
+              confidence: 0.8, // Alta confiança - rua real do OSM
+              quality: 0.8,
+              street: {
+                id: bestStreet.id,
+                type: bestStreet.type,
+                coordinates: bestStreet.coordinates,
+                accessibility: bestStreet.accessibility,
+                confidence: bestStreet.confidence
+              },
+              distance,
+              generationMethod: 'google_apis',
+              contextData: context,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+            
+            console.log(`✅ Created 1 INTELLIGENT TP at ${streetPoint.lat.toFixed(6)}, ${streetPoint.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
+            return [triggerPoint];
+          }
+        }
+      }
+      
+      // Fallback: Google Roads se OSM não encontrar ruas
+      console.log('🔄 OSM found no streets, trying Google Roads fallback...');
+      return this.createGoogleRoadsFallback(poiData, context, boundary);
+      
+    } catch (error) {
+      console.warn('Intelligent fallback failed:', error);
+      return this.createGoogleRoadsFallback(poiData, context, boundary);
+    }
+  }
+
+  /**
+   * NOVO: Encontra a melhor rua para fallback baseada em proximidade e direção
+   */
+  private findBestStreetForFallback(streets: any[], centerPoint: { lat: number; lng: number }): any | null {
+    if (streets.length === 0) return null;
+    
+    let bestStreet = streets[0];
+    let bestScore = -1;
+    
+    for (const street of streets) {
+      if (street.coordinates.length === 0) continue;
+      
+      const streetPoint = street.coordinates[0];
+      const distance = calculateDistance(centerPoint, streetPoint);
+      
+      // Score baseado em: proximidade (menor = melhor) + tipo de rua (primary = melhor)
+      let score = 1000 / (distance + 1); // Inverter distância (mais próximo = score maior)
+      
+      // Bonus por tipo de rua
+      if (street.type === 'primary') score *= 1.5;
+      else if (street.type === 'secondary') score *= 1.2;
+      else if (street.type === 'tertiary') score *= 1.0;
+      else score *= 0.8;
+      
+      // Bonus por confiança
+      score *= (street.confidence || 0.5);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestStreet = street;
+      }
+    }
+    
+    return bestStreet;
+  }
+  
+  /**
+   * NOVO: Fallback usando Google Roads quando OSM falha
+   */
+  private async createGoogleRoadsFallback(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): Promise<TriggerPoint[]> {
+    console.log('🔍 Finding nearest street using Google Roads API (fallback approach)...');
+    
+    const centerPoint = boundary?.center || poiData.location;
+    
+    try {
       const roadsResponse = await this.googleAPIs.getNearestRoads([centerPoint]);
       
       if (roadsResponse.success && roadsResponse.data?.snappedPoints && roadsResponse.data.snappedPoints.length > 0) {
@@ -225,12 +335,12 @@ export class CoreTriggerPointPredictor {
           lng: snappedPoint.location.longitude
         };
         
-        const distance = this.calculateDistance(centerPoint, streetLocation);
+        const distance = calculateDistance(centerPoint, streetLocation);
         console.log(`✅ Found nearest street at ${distance.toFixed(0)}m from POI (using ${boundary ? 'boundary.center' : 'poiData.location'})`);
         
         // Criar APENAS 1 TP simples
         const triggerPoint: TriggerPoint = {
-          id: 'simple_fallback_1',
+          id: 'google_fallback_1',
           location: streetLocation,
           radius: 30, // Raio generoso para compensar imprecisão
           expectedBearing: calculateBearing(streetLocation, centerPoint),
@@ -253,7 +363,7 @@ export class CoreTriggerPointPredictor {
           updatedAt: new Date().toISOString()
         };
         
-        console.log(`✅ Created 1 SIMPLE TP at ${streetLocation.lat.toFixed(6)}, ${streetLocation.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
+        console.log(`✅ Created 1 GOOGLE FALLBACK TP at ${streetLocation.lat.toFixed(6)}, ${streetLocation.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
         return [triggerPoint];
         
       } else {
@@ -262,7 +372,7 @@ export class CoreTriggerPointPredictor {
       }
       
     } catch (error) {
-      console.warn('Super simple fallback failed:', error);
+      console.warn('Google Roads fallback failed:', error);
       return this.createMinimalDirectionalTP(poiData, context, boundary);
     }
   }
@@ -367,6 +477,15 @@ export class CoreTriggerPointPredictor {
       priority: 1,
       confidence: 0.5,
       quality: 0.5,
+      street: {
+        id: 'estimated_directional',
+        type: 'estimated',
+        coordinates: [point],
+        accessibility: 'public',
+        confidence: 0.3
+      },
+      distance: distance,
+      generationMethod: 'google_apis',
       contextData: context,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -634,118 +753,57 @@ export class CoreTriggerPointPredictor {
    * Substitui o limite fixo de 50 por cálculo baseado em área, elevação e altura
    */
   private calculateDynamicTPLimit(boundary: BoundaryData, context: GeographicContext): number {
-    let baseLimit = 20; // Base mínima para qualquer POI
-    
     console.log(`🎯 Calculating dynamic TP limit for POI...`);
     
-    // 1. Ajuste por área (1 TP a cada 10.000m²)
-    const areaBonus = Math.min(Math.floor(boundary.area / 10000), 30);
-    baseLimit += areaBonus;
-    if (areaBonus > 0) {
-      console.log(`📐 Area bonus: ${boundary.area.toFixed(0)}m² → +${areaBonus} TPs`);
-    }
+    // Esta função será chamada ANTES de ter os candidatos, então usamos estimativa baseada em área
+    // A lógica real será aplicada no validator quando tivermos os candidatos reais
     
-    // 2. Ajuste por elevação (Cristo Redentor 710m, Pico Jaraguá 1135m)
-    if (boundary.elevation && boundary.elevation.center > 400) {
-      const elevation = boundary.elevation.center;
-      let elevationBonus = 0;
-      
-      if (elevation > 1000) {
-        // Picos altos: 1 TP a cada 50m acima de 1000m (cap: +60)
-        elevationBonus = Math.min(Math.floor((elevation - 1000) / 50), 60);
-      } else if (elevation > 700) {
-        // Montanhas médias: 1 TP a cada 100m entre 700-1000m
-        elevationBonus = 15 + Math.min(Math.floor((elevation - 700) / 100), 15);
-      } else if (elevation > 400) {
-        // Colinas altas: 1 TP a cada 100m entre 400-700m
-        elevationBonus = Math.min(Math.floor((elevation - 400) / 100), 15);
-      }
-      
-      baseLimit += elevationBonus;
-      console.log(`⛰️ Elevation bonus: ${elevation.toFixed(0)}m → +${elevationBonus} TPs`);
-    }
+    // Estimativa baseada em área (fallback para quando não temos candidatos ainda)
+    const areaBasedEstimate = Math.min(Math.max(Math.floor(boundary.area / 5000), 10), 100);
     
-    // 3. Ajuste por altura da estrutura
-    if (boundary.height && boundary.height > 50) {
-      const heightBonus = Math.min(Math.floor(boundary.height / 20), 15);
-      baseLimit += heightBonus;
-      console.log(`🏢 Height bonus: ${boundary.height}m → +${heightBonus} TPs`);
-    }
+    console.log(`📐 Area-based estimate: ${boundary.area.toFixed(0)}m² → ${areaBasedEstimate} TPs`);
+    console.log(`🎯 Dynamic TP limit calculated: ${areaBasedEstimate} (area-based estimate)`);
     
-    // 4. Ajuste por densidade urbana (mais denso = mais ruas = mais TPs)
-    let densityMultiplier = 1.0;
-    switch (context.urbanDensity.level) {
-      case 'very_dense': densityMultiplier = 1.3; break;
-      case 'dense': densityMultiplier = 1.2; break;
-      case 'rural': densityMultiplier = 0.8; break;
-    }
-    baseLimit *= densityMultiplier;
-    
-    if (densityMultiplier !== 1.0) {
-      console.log(`🏙️ Urban density multiplier: ${densityMultiplier}x (${context.urbanDensity.level})`);
-    }
-    
-    // Limites de segurança: 10 (mínimo) até 150 (máximo)
-    const finalLimit = Math.max(10, Math.min(Math.round(baseLimit), 150));
-    
-    console.log(`🎯 Dynamic TP limit calculated: ${finalLimit} (base: ${baseLimit.toFixed(1)})`);
-    
-    return finalLimit;
+    return Math.max(3, areaBasedEstimate); // Mínimo garantido de 3 TPs
   }
   
   /**
    * Calcula distância mínima entre TPs baseado no contexto e tamanho do POI
    */
-  private calculateMinDistance(context: GeographicContext, boundary: BoundaryData): number {
-    let baseDistance = 50; // Base: 50m (otimizado para range de 20m por TP)
+  private calculateMinDistance(context: GeographicContext, boundary: BoundaryData, config?: TriggerPointsConfig): number {
+    // Carregar configuração
+    const cfg = config || loadTriggerPointsConfig();
+    
+    let baseDistance = cfg.minDistance.baseDistance[context.urbanDensity.level];
     
     console.log(`📏 Calculating minimum distance between TPs (20m range each)...`);
     
-    // Ajustar baseado na densidade urbana
-    switch (context.urbanDensity.level) {
-      case 'very_dense':
-        baseDistance = 40; // Mais próximos em áreas muito densas
-        break;
-      case 'dense':
-        baseDistance = 45;
-        break;
-      case 'medium':
-        baseDistance = 50;
-        break;
-      case 'low':
-        baseDistance = 60;
-        break;
-      case 'rural':
-        baseDistance = 70; // Mais distantes em áreas rurais
-        break;
-    }
-    
     // Ajustar baseado no tamanho do POI
     if (boundary.area > 500000) { // POIs muito grandes (>50 hectares)
-      baseDistance *= 1.3; // Reduzido de 1.5 para 1.3
-      console.log(`🏞️ Large POI adjustment: +30% distance`);
+      baseDistance *= cfg.minDistance.areaMultipliers.very_large;
+      console.log(`🏞️ Large POI adjustment: +${((cfg.minDistance.areaMultipliers.very_large - 1) * 100).toFixed(0)}% distance`);
     } else if (boundary.area > 100000) { // POIs grandes (>10 hectares)
-      baseDistance *= 1.1; // Reduzido de 1.2 para 1.1
-      console.log(`🏛️ Medium POI adjustment: +10% distance`);
+      baseDistance *= cfg.minDistance.areaMultipliers.large;
+      console.log(`🏛️ Medium POI adjustment: +${((cfg.minDistance.areaMultipliers.large - 1) * 100).toFixed(0)}% distance`);
     }
     
     // Ajustar baseado na elevação (POIs altos = TPs mais distantes)
     if (boundary.elevation) {
       const elevationDiff = boundary.elevation.center - boundary.elevation.average;
       if (elevationDiff > 50) {
-        baseDistance *= 1.2; // Reduzido de 1.3 para 1.2
-        console.log(`⛰️ High elevation adjustment: +20% distance`);
+        baseDistance *= cfg.minDistance.elevationMultipliers.high;
+        console.log(`⛰️ High elevation adjustment: +${((cfg.minDistance.elevationMultipliers.high - 1) * 100).toFixed(0)}% distance`);
       }
     }
     
     // Ajustar baseado na altura do POI
     if (boundary.height && boundary.height > 50) {
-      baseDistance *= 1.1; // Reduzido de 1.2 para 1.1
-      console.log(`🏢 Tall POI adjustment: +10% distance`);
+      baseDistance *= cfg.minDistance.heightMultipliers.tall;
+      console.log(`🏢 Tall POI adjustment: +${((cfg.minDistance.heightMultipliers.tall - 1) * 100).toFixed(0)}% distance`);
     }
     
     // Limites de segurança otimizados para range de 20m
-    const minDistance = Math.max(30, Math.min(baseDistance, 100)); // 30m - 100m
+    const minDistance = Math.max(cfg.minDistance.limits.min, Math.min(baseDistance, cfg.minDistance.limits.max));
     
     console.log(`✅ Minimum distance calculated: ${minDistance}m (base: ${baseDistance.toFixed(0)}m) - TP range: 20m`);
     return Math.round(minDistance);

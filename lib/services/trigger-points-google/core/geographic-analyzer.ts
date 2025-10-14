@@ -1,7 +1,7 @@
 // Analisador de contexto geográfico automático
 
 import { GoogleAPIsService } from '../services/google-apis.service';
-import { POIData, GeographicContext } from '../types/interfaces';
+import { POIData, GeographicContext, BoundaryData } from '../types/interfaces';
 import { calculateVariance, generateCircleSamplePoints, calculateBearing, calculateDistance } from '../utils/calculations';
 
 export class GeographicContextAnalyzer {
@@ -14,16 +14,20 @@ export class GeographicContextAnalyzer {
   /**
    * Analisa o contexto geográfico de um POI automaticamente
    */
-  async analyzeGeographicContext(poiData: POIData): Promise<GeographicContext> {
+  async analyzeGeographicContext(poiData: POIData, boundary?: BoundaryData): Promise<GeographicContext> {
     console.log(`🌍 Analyzing geographic context for: ${poiData.name}`);
+    
+    // USAR BOUNDARY.CENTER em vez de poiData.location
+    const centerPoint = boundary?.center || poiData.location;
+    console.log(`📍 Using ${boundary ? 'boundary.center' : 'poiData.location'} for geographic analysis`);
     
     try {
       // Análise paralela de diferentes aspectos
       const [urbanDensity, elevationContext, streetPattern, infrastructure] = await Promise.all([
-        this.calculateUrbanDensity(poiData.location),
-        this.analyzeElevation(poiData.location),
-        this.analyzeStreetPattern(poiData.location),
-        this.analyzeInfrastructure(poiData.location)
+        this.calculateUrbanDensity(centerPoint),
+        this.analyzeElevation(centerPoint),
+        this.analyzeStreetPattern(centerPoint),
+        this.analyzeInfrastructure(centerPoint)
       ]);
       
       const context: GeographicContext = {

@@ -408,13 +408,60 @@ export class BoundaryDetector {
             
             console.log(`✅ Nominatim boundary: ${processed.coordinates.length} points, area: ${area.toFixed(0)}m²`);
             
-            // NOVA LÓGICA: Extrair elevação também para resultados do Nominatim
+            // NOVA LÓGICA: Extrair elevação e altura para resultados do Nominatim
             let elevationData;
             let poiHeight;
             try {
-              console.log(`🏗️ Extracting POI elevation for Nominatim result...`);
+              console.log(`🏗️ Extracting POI elevation and height for Nominatim result...`);
               console.log(`📍 POI center: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`);
               console.log(`🏷️ Nominatim result type: ${result.geojson.type}, osm_type: ${result.osm_type}`);
+              
+              // SISTEMA ESCALÁVEL: Buscar elementos arquitetônicos diretamente
+              console.log(`🔄 Searching for related architectural elements around Nominatim result...`);
+              
+              // SOLUÇÃO SIMPLES: Buscar apenas elementos dentro do boundary
+              const boundaryPolygon = processed.coordinates.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
+              const architecturalQuery = `
+[out:json][timeout:15];
+(
+  way["building:part"~"^(tower|spire|dome|cupola|minaret)$"](poly:"${boundaryPolygon}");
+  way["man_made"~"^(tower|monument|obelisk|spire)$"](poly:"${boundaryPolygon}");
+  way["tower:type"~".*"](poly:"${boundaryPolygon}");
+  way["height"~".*"](poly:"${boundaryPolygon}");
+  way["building:height"~".*"](poly:"${boundaryPolygon}");
+);
+out tags;
+`;
+              
+              try {
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                  method: 'POST',
+                  body: architecturalQuery,
+                  headers: { 'Content-Type': 'text/plain' }
+                });
+                
+                if (response.ok) {
+                  const data = await response.json();
+                  if (data.elements && data.elements.length > 0) {
+                    console.log(`🏗️ Found ${data.elements.length} architectural elements, analyzing for height...`);
+                    // Criar boundary temporário para verificação
+                    const tempBoundary: BoundaryData = {
+                      coordinates: processed.coordinates,
+                      center,
+                      area,
+                      confidence: 0.8,
+                      source: 'osm'
+                    };
+                    poiHeight = this.extractHeightFromMultipleElements(data.elements, center, tempBoundary);
+                  } else {
+                    console.log(`⚠️ No architectural elements found around Nominatim result`);
+                  }
+                } else {
+                  console.warn(`⚠️ Architectural elements search failed: ${response.status}`);
+                }
+              } catch (error) {
+                console.warn('⚠️ Architectural elements search failed (non-blocking):', error);
+              }
               
               // Para Nominatim, não temos tags OSM, então pular direto para Google Elevation
               console.log(`🌍 Calling ElevationService.getElevation for Nominatim result...`);
@@ -437,7 +484,7 @@ export class BoundaryDetector {
                 console.log(`⚠️ Low confidence elevation or no data: confidence=${elevation?.confidence}`);
               }
             } catch (error) {
-              console.warn('⚠️ Elevation extraction failed for Nominatim (non-blocking):', error);
+              console.warn('⚠️ Elevation/height extraction failed for Nominatim (non-blocking):', error);
               if (error instanceof Error) {
                 console.warn('⚠️ Error details:', error.message);
               }
@@ -479,6 +526,9 @@ export class BoundaryDetector {
   way["building"](around:50,${poiData.location.lat},${poiData.location.lng});
   way["leisure"](around:100,${poiData.location.lat},${poiData.location.lng});
   way["amenity"](around:100,${poiData.location.lat},${poiData.location.lng});
+  way["building:part"~"^(tower|spire|dome|cupola|minaret)$"](around:200,${poiData.location.lat},${poiData.location.lng});
+  way["man_made"~"^(tower|monument|obelisk|spire)$"](around:200,${poiData.location.lat},${poiData.location.lng});
+  way["tower:type"~".*"](around:200,${poiData.location.lat},${poiData.location.lng});
 );
 out geom tags;
 `;
@@ -508,6 +558,9 @@ out geom tags;
 (
   relation[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
   way[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
+  way["building:part"~"^(tower|spire|dome|cupola|minaret)$"](around:200,${poiData.location.lat},${poiData.location.lng});
+  way["man_made"~"^(tower|monument|obelisk|spire)$"](around:200,${poiData.location.lat},${poiData.location.lng});
+  way["tower:type"~".*"](around:200,${poiData.location.lat},${poiData.location.lng});
 );
 out geom tags;
 `;
@@ -576,13 +629,28 @@ out geom tags;
         console.log(`📍 POI center: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`);
         console.log(`🏷️ OSM element type: ${bestElement?.type}, id: ${bestElement?.id}`);
         
-        // Extrair altura do POI dos tags OSM
+        // Extrair altura do POI dos tags OSM (sistema escalável)
         console.log(`🔍 DEBUG: bestElement tags:`, bestElement?.tags);
         poiHeight = this.extractOSMHeight(bestElement);
+        
+        // Se não encontrou altura no elemento principal, buscar em elementos relacionados
+        if (!poiHeight && data.elements && data.elements.length > 0) {
+          console.log(`🔄 No height in main element, searching related architectural elements...`);
+          // Criar boundary temporário para verificação
+          const tempBoundary: BoundaryData = {
+            coordinates,
+            center,
+            area,
+            confidence,
+            source: 'osm'
+          };
+          poiHeight = this.extractHeightFromMultipleElements(data.elements, center, tempBoundary);
+        }
+        
         if (poiHeight) {
           console.log(`🏢 POI height from OSM: ${poiHeight}m`);
         } else {
-          console.log(`⚠️ No height found in OSM tags`);
+          console.log(`⚠️ No height found in OSM tags or related elements`);
           console.log(`🔍 DEBUG: Available tags:`, Object.keys(bestElement?.tags || {}));
         }
         
@@ -850,12 +918,12 @@ out geom tags;
   }
 
   /**
-   * Extrai altura do POI das tags OSM
+   * Extrai altura do POI das tags OSM (versão escalável para múltiplos elementos)
    */
   private extractOSMHeight(element: any): number | null {
     if (!element.tags) return null;
     
-    // Tags de altura de construções
+    // Tags de altura de construções (ordenadas por prioridade)
     const heightTags = ['height', 'building:height', 'building:levels'];
     
     for (const tag of heightTags) {
@@ -877,6 +945,251 @@ out geom tags;
     
     return null;
   }
+
+  /**
+   * Extrai altura de múltiplos elementos OSM (sistema escalável)
+   * Busca por elementos arquitetônicos relacionados ao POI principal
+   */
+  private extractHeightFromMultipleElements(elements: any[], poiCenter: { lat: number; lng: number }, boundary?: BoundaryData): number | null {
+    if (!elements || elements.length === 0) return null;
+    
+    console.log(`🏗️ Analyzing ${elements.length} OSM elements INSIDE boundary for height extraction...`);
+    
+    const heightData: Array<{ height: number; element: any; distance: number; type: string }> = [];
+    
+    // Analisar cada elemento (todos já estão dentro do boundary)
+    for (const element of elements) {
+      const height = this.extractOSMHeight(element);
+      if (height && height > 0) {
+        // Calcular distância do elemento ao centro do POI
+        const elementCenter = this.calculateElementCenter(element);
+        const distance = elementCenter ? this.calculateDistance(poiCenter, elementCenter) : 0;
+        
+        // Classificar tipo de elemento
+        const elementType = this.classifyElementType(element);
+        
+        heightData.push({
+          height,
+          element,
+          distance,
+          type: elementType
+        });
+        
+        console.log(`🏗️ Found ${elementType}: ${height}m (distance: ${distance.toFixed(0)}m) - ✅ INSIDE BOUNDARY`);
+      }
+    }
+    
+    if (heightData.length === 0) {
+      console.log(`⚠️ No height data found in any OSM elements inside boundary`);
+      return null;
+    }
+    
+    console.log(`🏗️ Found ${heightData.length} elements inside boundary`);
+    
+    // Aplicar lógica de agregação inteligente
+    const finalHeight = this.aggregateHeightsFromSameStructure(heightData);
+    
+    console.log(`🏗️ Height aggregation result: ${finalHeight}m from ${heightData.length} boundary elements`);
+    return finalHeight;
+  }
+
+  /**
+   * Classifica o tipo de elemento arquitetônico
+   */
+  private classifyElementType(element: any): string {
+    const tags = element.tags || {};
+    
+    // Prioridade: elementos mais altos e significativos
+    if (tags['building:part'] === 'tower' || tags['tower:type']) {
+      return 'tower';
+    }
+    if (tags['building:part'] === 'spire') {
+      return 'spire';
+    }
+    if (tags['building:part'] === 'dome' || tags['building:part'] === 'cupola') {
+      return 'dome';
+    }
+    if (tags['man_made'] === 'tower') {
+      return 'man_made_tower';
+    }
+    if (tags['man_made'] === 'monument') {
+      return 'monument';
+    }
+    if (tags['building:part']) {
+      return 'building_part';
+    }
+    if (tags['building']) {
+      return 'building';
+    }
+    
+    return 'other';
+  }
+
+  /**
+   * Calcula o centro de um elemento OSM
+   */
+  private calculateElementCenter(element: any): { lat: number; lng: number } | null {
+    if (element.geometry && element.geometry.coordinates) {
+      // Para ways (linhas/polígonos)
+      if (Array.isArray(element.geometry.coordinates[0])) {
+        const coords = element.geometry.coordinates[0];
+        if (coords.length > 0) {
+          const lng = coords.reduce((sum: number, coord: number[]) => sum + coord[0], 0) / coords.length;
+          const lat = coords.reduce((sum: number, coord: number[]) => sum + coord[1], 0) / coords.length;
+          return { lat, lng };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Verifica se um elemento faz parte da mesma estrutura do POI
+   */
+  private isElementPartOfPOIStructure(element: any, poiCenter: { lat: number; lng: number }, boundary?: BoundaryData): boolean {
+    const tags = element.tags || {};
+    const elementCenter = this.calculateElementCenter(element);
+    
+    if (!elementCenter) {
+      console.log(`⚠️ Cannot determine element center - assuming external`);
+      return false;
+    }
+    
+    // 1. VERIFICAÇÃO DE DISTÂNCIA: Elemento muito distante?
+    const distance = this.calculateDistance(poiCenter, elementCenter);
+    if (distance > 100) { // Máximo 100m para ser parte da mesma estrutura
+      console.log(`❌ Element too far (${distance.toFixed(0)}m > 100m) - external`);
+      return false;
+    }
+    
+    // 2. VERIFICAÇÃO DE BOUNDARY: Elemento dentro do boundary do POI?
+    if (boundary && boundary.coordinates) {
+      const isInsideBoundary = this.isPointInsidePolygon(elementCenter, boundary.coordinates);
+      if (isInsideBoundary) {
+        console.log(`✅ Element inside POI boundary - same structure`);
+        return true;
+      }
+    }
+    
+    // 3. VERIFICAÇÃO DE TAGS: Elemento tem tags que indicam relação?
+    const hasStructuralRelation = this.hasStructuralRelationTags(tags);
+    if (hasStructuralRelation) {
+      console.log(`✅ Element has structural relation tags - same structure`);
+      return true;
+    }
+    
+    // 4. VERIFICAÇÃO DE PROXIMIDADE: Elemento muito próximo (<30m)?
+    if (distance <= 30) {
+      console.log(`✅ Element very close (${distance.toFixed(0)}m ≤ 30m) - likely same structure`);
+      return true;
+    }
+    
+    console.log(`❌ Element external (${distance.toFixed(0)}m, no relation tags) - external`);
+    return false;
+  }
+  
+  /**
+   * Verifica se as tags indicam relação estrutural
+   */
+  private hasStructuralRelationTags(tags: any): boolean {
+    // Tags que indicam que é parte de uma estrutura maior
+    const structuralTags = [
+      'building:part', 'part_of', 'building:use', 'building:levels',
+      'amenity', 'tourism', 'historic', 'religion'
+    ];
+    
+    // Se tem building:part, provavelmente é parte da mesma estrutura
+    if (tags['building:part']) {
+      return true;
+    }
+    
+    // Se tem tags de amenity/tourism similares, pode ser parte do complexo
+    if (tags['amenity'] || tags['tourism'] || tags['historic'] || tags['religion']) {
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Verifica se um ponto está dentro de um polígono
+   */
+  private isPointInsidePolygon(point: { lat: number; lng: number }, polygon: Array<{ lat: number; lng: number }>): boolean {
+    // Implementação simples do ray casting algorithm
+    let inside = false;
+    const { lat, lng } = point;
+    
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const { lat: latI, lng: lngI } = polygon[i];
+      const { lat: latJ, lng: lngJ } = polygon[j];
+      
+      if (((latI > lat) !== (latJ > lat)) && 
+          (lng < (lngJ - lngI) * (lat - latI) / (latJ - latI) + lngI)) {
+        inside = !inside;
+      }
+    }
+    
+    return inside;
+  }
+  
+  /**
+   * Agrega alturas de elementos da mesma estrutura
+   */
+  private aggregateHeightsFromSameStructure(heightData: Array<{ height: number; element: any; distance: number; type: string }>): number {
+    if (heightData.length === 1) {
+      return heightData[0].height;
+    }
+    
+    // Priorizar elementos arquitetônicos significativos
+    const significantElements = heightData.filter(item => 
+      ['tower', 'spire', 'man_made_tower', 'monument'].includes(item.type)
+    );
+    
+    if (significantElements.length > 0) {
+      // Usar altura máxima dos elementos significativos
+      const maxHeight = Math.max(...significantElements.map(item => item.height));
+      console.log(`🏗️ Using max height from significant elements: ${maxHeight}m`);
+      return maxHeight;
+    }
+    
+    // Fallback: usar altura máxima de todos os elementos da mesma estrutura
+    const maxHeight = Math.max(...heightData.map(item => item.height));
+    console.log(`🏗️ Using max height from same-structure elements: ${maxHeight}m`);
+    return maxHeight;
+  }
+  
+  /**
+   * Agrega alturas de múltiplos elementos usando lógica inteligente (LEGACY - mantido para compatibilidade)
+   */
+  private aggregateHeights(heightData: Array<{ height: number; element: any; distance: number; type: string }>): number {
+    if (heightData.length === 1) {
+      return heightData[0].height;
+    }
+    
+    // Filtrar elementos muito distantes (>300m)
+    const nearbyElements = heightData.filter(item => item.distance <= 300);
+    if (nearbyElements.length === 0) {
+      return heightData[0].height; // Fallback para o primeiro
+    }
+    
+    // Priorizar elementos arquitetônicos significativos
+    const significantElements = nearbyElements.filter(item => 
+      ['tower', 'spire', 'man_made_tower', 'monument'].includes(item.type)
+    );
+    
+    if (significantElements.length > 0) {
+      // Usar altura máxima dos elementos significativos
+      const maxHeight = Math.max(...significantElements.map(item => item.height));
+      console.log(`🏗️ Using max height from significant elements: ${maxHeight}m`);
+      return maxHeight;
+    }
+    
+    // Fallback: usar altura máxima de todos os elementos próximos
+    const maxHeight = Math.max(...nearbyElements.map(item => item.height));
+    console.log(`🏗️ Using max height from all nearby elements: ${maxHeight}m`);
+    return maxHeight;
+  }
+
   
   /**
    * Cria boundary estimado baseado no contexto

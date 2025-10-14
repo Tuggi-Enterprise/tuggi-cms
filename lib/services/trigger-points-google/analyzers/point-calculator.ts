@@ -3,6 +3,7 @@
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
 import { calculateDistance, calculateBearing, calculateOptimalRadius, calculateDistanceToBoundary, isPointInPolygon } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
+import { loadTriggerPointsConfig, TriggerPointsConfig } from '../config/trigger-points-config';
 
 export class OptimalPointCalculator {
   
@@ -111,8 +112,11 @@ export class OptimalPointCalculator {
   /**
    * Calcula distância ótima baseada no contexto
    */
-  private async calculateOptimalDistances(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): Promise<number[]> {
+  private async calculateOptimalDistances(poiData: POIData, context: GeographicContext, boundary?: BoundaryData, config?: TriggerPointsConfig): Promise<number[]> {
     console.log(`🎯 Calculating optimal TP distances from boundary for ${poiData.name}...`);
+    
+    // Carregar configuração
+    const cfg = config || loadTriggerPointsConfig();
     
     // 🏔️ ESTRATÉGIA CIRCULAR PARA ALTA ELEVAÇÃO (baseada no sistema legado)
     if (boundary?.elevation && boundary.elevation.center > 1000) {
@@ -128,12 +132,12 @@ export class OptimalPointCalculator {
       
       // DISTRIBUIÇÃO CIRCULAR EM MÚLTIPLAS FAIXAS (como sistema legado)
       const distances = [
-        300,  // Círculo interno - próximo
-        800,  // Círculo próximo-médio  
-        1500, // Círculo médio
-        2500, // Círculo médio-distante
-        Math.min(maxRange * 0.7, 4000), // Círculo distante
-        Math.min(maxRange, 6000)        // Círculo máximo
+        cfg.distanceDistribution.circular.inner,      // Círculo interno - próximo
+        cfg.distanceDistribution.circular.near_medium, // Círculo próximo-médio  
+        cfg.distanceDistribution.circular.medium,      // Círculo médio
+        cfg.distanceDistribution.circular.medium_far,  // Círculo médio-distante
+        Math.min(maxRange * 0.7, cfg.distanceDistribution.circular.far), // Círculo distante
+        Math.min(maxRange, cfg.distanceDistribution.circular.max)        // Círculo máximo
       ];
       
       console.log(`🗻 CIRCULAR DISTANCES: [${distances.map(d => d.toFixed(0)).join('m, ')}m]`);
@@ -143,7 +147,7 @@ export class OptimalPointCalculator {
     }
     
     // 🏙️ ESTRATÉGIA PADRÃO PARA BAIXA ELEVAÇÃO
-    let baseDistance = 100;
+    let baseDistance = cfg.distanceDistribution.standard.baseDistance;
     
     if (boundary?.elevation) {
       const poiElevation = boundary.elevation.center;
@@ -151,11 +155,19 @@ export class OptimalPointCalculator {
       
       if (poiElevation > 800) {
         // Montanhas altas: múltiplas distâncias
-        return [200, 600, 1200, 2000];
+        return [
+          cfg.distanceDistribution.standard.mountainHigh.distances[0],
+          cfg.distanceDistribution.standard.mountainHigh.distances[1],
+          cfg.distanceDistribution.standard.mountainHigh.distances[2],
+          cfg.distanceDistribution.standard.mountainHigh.distances[3]
+        ];
       }
       else if (poiElevation > 400) {
         // Colinas: duas distâncias
-        return [150, 400];
+        return [
+          cfg.distanceDistribution.standard.mountainMedium.distances[0],
+          cfg.distanceDistribution.standard.mountainMedium.distances[1]
+        ];
       }
       else {
         console.log(`🏞️ LOW elevation: ${poiElevation.toFixed(0)}m → single distance`);
@@ -163,13 +175,7 @@ export class OptimalPointCalculator {
     }
     
     // Ajustes para POIs de baixa elevação
-    switch (context.urbanDensity.level) {
-      case 'very_dense': baseDistance = 80; break;
-      case 'dense': baseDistance = 100; break;
-      case 'medium': baseDistance = 120; break;
-      case 'low': baseDistance = 150; break;
-      case 'rural': baseDistance = 180; break;
-    }
+    baseDistance = cfg.distanceDistribution.standard.urbanDensityLimits[context.urbanDensity.level];
     
     // REMOVIDO: Switch case de tipos de POI (agora usa apenas variáveis matemáticas: área, elevação, altura)
     // As características de cada tipo já são capturadas implicitamente:

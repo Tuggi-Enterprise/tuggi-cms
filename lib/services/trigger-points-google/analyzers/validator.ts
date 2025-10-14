@@ -1,13 +1,16 @@
 // Validador e ranker de trigger points
 
-import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
+import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData, DirectionalAnalysis } from '../types/interfaces';
 import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight } from '../utils/calculations';
 import { VisibilityValidator } from './visibility-validator';
 import { ElevationAnalysisService } from '../services/elevation-service';
+import { loadTriggerPointsConfig, TriggerPointsConfig } from '../config/trigger-points-config';
 import { GoogleAPIsService } from '../services/google-apis.service';
+import { DirectionalAnalyzer } from './directional-analyzer';
 
 export class TriggerPointValidator {
   private visibilityValidator: VisibilityValidator;
+  private directionalAnalyzer: DirectionalAnalyzer;
   
   // Cache para obstruções (QUALIDADE > PERFORMANCE)
   private static obstructionsCache = new Map<string, { 
@@ -18,8 +21,133 @@ export class TriggerPointValidator {
   
   constructor(googleAPIs: GoogleAPIsService) {
     this.visibilityValidator = new VisibilityValidator(googleAPIs);
+    this.directionalAnalyzer = new DirectionalAnalyzer();
   }
   
+  /**
+   * NOVO: Análise direcional para determinar onde permitir TPs
+   */
+  async analyzeDirectionalVisibility(
+    poiData: POIData,
+    boundary: BoundaryData,
+    context: GeographicContext,
+    existingStreets?: any[], // NOVO: ruas já encontradas
+    existingBuildings?: any[] // NOVO: construções já encontradas
+  ): Promise<DirectionalAnalysis[]> {
+    console.log(`🧭 Starting directional visibility analysis for ${poiData.name}...`);
+    
+    try {
+      const directionalAnalysis = await this.directionalAnalyzer.analyzeAllDirections(
+        poiData, 
+        boundary, 
+        context,
+        existingStreets,
+        existingBuildings
+      );
+      
+      // Log resumo
+      const allowedDirections = directionalAnalysis.filter(d => d.allowTPs);
+      const blockedDirections = directionalAnalysis.filter(d => !d.allowTPs);
+      
+      console.log(`🎯 Directional analysis results:`);
+      console.log(`✅ ALLOWED directions (${allowedDirections.length}): ${allowedDirections.map(d => d.direction).join(', ')}`);
+      console.log(`❌ BLOCKED directions (${blockedDirections.length}): ${blockedDirections.map(d => d.direction).join(', ')}`);
+      
+      return directionalAnalysis;
+    } catch (error) {
+      console.error('Error in directional analysis:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Calcula limite dinâmico de TPs baseado nos candidatos reais
+   * NOVA FÓRMULA: Mais permissiva para itens altos e grandes
+   */
+  private calculateDynamicTPLimit(candidates: TriggerPointCandidate[], fallbackLimit: number, boundary?: BoundaryData, context?: GeographicContext, config?: TriggerPointsConfig): number {
+    if (candidates.length === 0) {
+      return Math.max(3, fallbackLimit);
+    }
+    
+    // Carregar configuração
+    const cfg = config || loadTriggerPointsConfig();
+    
+    // 🎯 NOVA LÓGICA: Base mais permissiva baseada em características do POI
+    let basePercentage = cfg.maxTriggerPoints.basePercentage;
+    let maxLimit = cfg.maxTriggerPoints.limits.max;
+    
+    // 🏢 AJUSTE POR ALTURA DO POI
+    if (boundary?.height) {
+      const poiHeight = boundary.height;
+      if (poiHeight > 100) {
+        // POIs muito altos (>100m) - muito mais permissivo
+        basePercentage = cfg.maxTriggerPoints.heightAdjustments.extremely_tall.percentage;
+        maxLimit = cfg.maxTriggerPoints.heightAdjustments.extremely_tall.maxLimit;
+        console.log(`🏗️ VERY TALL POI (${poiHeight}m): Using ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
+      } else if (poiHeight > 50) {
+        // POIs altos (50-100m) - mais permissivo
+        basePercentage = cfg.maxTriggerPoints.heightAdjustments.very_tall.percentage;
+        maxLimit = cfg.maxTriggerPoints.heightAdjustments.very_tall.maxLimit;
+        console.log(`🏢 TALL POI (${poiHeight}m): Using ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
+      } else if (poiHeight > 20) {
+        // POIs médios (20-50m) - moderadamente permissivo
+        basePercentage = cfg.maxTriggerPoints.heightAdjustments.tall.percentage;
+        maxLimit = cfg.maxTriggerPoints.heightAdjustments.tall.maxLimit;
+        console.log(`🏢 MEDIUM POI (${poiHeight}m): Using ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
+      }
+    }
+    
+    // 🏞️ AJUSTE POR ÁREA DO POI
+    if (boundary?.area) {
+      const area = boundary.area;
+      if (area > 1000000) { // >1km²
+        basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.areaAdjustments.very_large.percentage);
+        maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.areaAdjustments.very_large.maxLimit);
+        console.log(`🏞️ VERY LARGE POI (${(area/1000000).toFixed(1)}km²): Increased to ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
+      } else if (area > 500000) { // >0.5km²
+        basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.areaAdjustments.large.percentage);
+        maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.areaAdjustments.large.maxLimit);
+        console.log(`🏛️ LARGE POI (${(area/10000).toFixed(0)} hectares): Increased to ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
+      }
+    }
+    
+    // 🏔️ AJUSTE POR ELEVAÇÃO (landmarks em montanhas)
+    if (boundary?.elevation && context) {
+      const elevationDiff = boundary.elevation.center - boundary.elevation.average;
+      if (elevationDiff > 100) {
+        basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.elevationAdjustments.high_landmark.percentage);
+        maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.elevationAdjustments.high_landmark.maxLimit);
+        console.log(`🏔️ HIGH ELEVATION LANDMARK (+${elevationDiff.toFixed(0)}m): Increased to ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
+      }
+    }
+    
+    // Calcular limite base
+    const baseLimit = Math.min(Math.floor(candidates.length * basePercentage), maxLimit);
+    
+    // Estimar taxa de sucesso de visibilidade
+    const estimatedVisibilityRate = cfg.visibility.multipliers.estimatedVisibilityRate;
+    const visibilityMultiplier = estimatedVisibilityRate / 100;
+    
+    // Penalty por obstruções
+    const estimatedObstructionDensity = cfg.visibility.multipliers.obstructionPenalty.baseDensity;
+    const obstructionPenalty = Math.max(0.2, 1 - (estimatedObstructionDensity / cfg.visibility.multipliers.obstructionPenalty.maxDensity));
+    
+    // Limite final dinâmico
+    const dynamicLimit = Math.round(baseLimit * visibilityMultiplier * obstructionPenalty);
+    
+    // Garantir mínimo de TPs
+    const finalLimit = Math.max(cfg.maxTriggerPoints.limits.min, dynamicLimit);
+    
+    console.log(`🎯 IMPROVED Dynamic TP limit calculation:`);
+    console.log(`   📊 Candidates: ${candidates.length}`);
+    console.log(`   📐 Base (${(basePercentage*100).toFixed(1)}%): ${baseLimit}`);
+    console.log(`   👁️ Visibility multiplier: ${visibilityMultiplier.toFixed(2)}x`);
+    console.log(`   🏢 Obstruction penalty: ${obstructionPenalty.toFixed(2)}x`);
+    console.log(`   🎯 Final dynamic limit: ${finalLimit} (was: ${fallbackLimit})`);
+    
+    return finalLimit;
+  }
+
   /**
    * Valida e rankeia candidatos a trigger points (NOVO: distância mínima + visibilidade)
    */
@@ -29,7 +157,8 @@ export class TriggerPointValidator {
     context: GeographicContext,
     boundary: BoundaryData,
     maxTriggerPoints: number = 50,
-    minDistanceBetweenTPs: number = 50 // metros (otimizado para range 20m)
+    minDistanceBetweenTPs: number = 50, // metros (otimizado para range 20m)
+    directionalAnalysis: DirectionalAnalysis[] = [] // NOVO: análise direcional
   ): Promise<TriggerPoint[]> {
     // 🚀 OTIMIZAÇÃO: Calcular elevação base UMA ÚNICA VEZ para evitar centenas de chamadas de API
     let baseElevation: number | null = null;
@@ -38,8 +167,12 @@ export class TriggerPointValidator {
       baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
       console.log(`✅ [CACHE] Base elevation cached: ${baseElevation}m`);
     }
+    
+    // 🎯 NOVO: Calcular limite dinâmico baseado nos candidatos reais
+    const dynamicMaxTPs = this.calculateDynamicTPLimit(candidates, maxTriggerPoints, boundary, context);
+    
     console.log(`🎯 Validating ${candidates.length} trigger point candidates with full validation system`);
-    console.log(`🎯 Max TPs: ${maxTriggerPoints}, Min distance: ${minDistanceBetweenTPs}m`);
+    console.log(`🎯 Max TPs: ${dynamicMaxTPs} (dynamic, was: ${maxTriggerPoints}), Min distance: ${minDistanceBetweenTPs}m`);
     
     try {
       // ✅ VALIDAÇÃO BÁSICA COMPLETA
@@ -54,22 +187,38 @@ export class TriggerPointValidator {
       
       console.log(`📊 ${basicValidCandidates.length}/${candidates.length} candidates passed basic validation`);
       
-      // ✅ VALIDAÇÃO DE VISIBILIDADE COMPLETA
+      // ✅ VALIDAÇÃO DE VISIBILIDADE COMPLETA (já inclui auto-aprovação de ruas da frente)
       console.log(`🔍 Step 2: Visibility validation (line of sight)`);
       const visibilityValidCandidates = await this.filterByVisibilityOptimized(basicValidCandidates, boundary, context);
       
       console.log(`👁️ ${visibilityValidCandidates.length} candidates have clear line of sight`);
       
-      // Ordenar por qualidade (melhores primeiro)
-      const rankedCandidates = visibilityValidCandidates.sort((a, b) => b.quality - a.quality);
+      // Ordenar por prioridade: FRONT STREETS primeiro, depois por qualidade
+      const rankedCandidates = visibilityValidCandidates.sort((a, b) => {
+        const aIsFrontStreet = this.isTPOnFrontStreet(a, boundary);
+        const bIsFrontStreet = this.isTPOnFrontStreet(b, boundary);
+        
+        // Front streets têm prioridade máxima
+        if (aIsFrontStreet && !bIsFrontStreet) return -1;
+        if (!aIsFrontStreet && bIsFrontStreet) return 1;
+        
+        // Se ambos são front streets ou nenhum é, ordenar por qualidade
+        return b.quality - a.quality;
+      });
       
       // ✅ FILTRO DE DISTÂNCIA MÍNIMA COMPLETO
       console.log(`🔍 Step 3: Distance filtering (min ${minDistanceBetweenTPs}m between TPs)`);
-      const selectedTriggerPoints = this.selectTriggerPointsWithMinDistance(rankedCandidates, maxTriggerPoints, minDistanceBetweenTPs, boundary, context);
+      const selectedTriggerPoints = this.selectTriggerPointsWithMinDistance(rankedCandidates, dynamicMaxTPs, minDistanceBetweenTPs, boundary, context);
       console.log(`📏 ${selectedTriggerPoints.length} trigger points selected after all filtering`);
       
-      console.log(`✅ VALIDATION COMPLETE: ${selectedTriggerPoints.length} high-quality trigger points selected`);
-      return selectedTriggerPoints;
+      // ✅ REMOVER DUPLICATAS FINAIS
+      const finalTriggerPoints = this.removeDuplicateTriggerPoints(selectedTriggerPoints);
+      if (finalTriggerPoints.length !== selectedTriggerPoints.length) {
+        console.log(`🚫 Removed ${selectedTriggerPoints.length - finalTriggerPoints.length} duplicate trigger points`);
+      }
+      
+      console.log(`✅ VALIDATION COMPLETE: ${finalTriggerPoints.length} high-quality trigger points selected`);
+      return finalTriggerPoints;
       
     } catch (error) {
       console.error('Error validating and ranking points:', error);
@@ -101,13 +250,28 @@ export class TriggerPointValidator {
       }
       
       // Verificar distância mínima com TPs já selecionados
+      // KISS: Distância mínima muito reduzida para ruas da frente (TPs muito próximos = OK)
+      const isFrontStreet = this.isTPOnFrontStreet(candidate, boundary);
+      const effectiveMinDistance = isFrontStreet ? 5 : minDistance; // 5m para ruas da frente (muito reduzido)
+      
+      let closestDistance = Infinity;
+      let closestTP: any = null;
       const isTooClose = selectedTPs.some(existingTP => {
         const distance = calculateDistance(candidate.location, existingTP.location);
-        return distance < minDistance;
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestTP = existingTP;
+        }
+        return distance < effectiveMinDistance;
       });
       
       if (isTooClose) {
         rejectedCount++;
+        if (isFrontStreet) {
+          console.log(`🏠 Front street TP rejected (too close): ${candidate.location.lat.toFixed(6)}, ${candidate.location.lng.toFixed(6)}`);
+          console.log(`   📏 Closest TP distance: ${closestDistance.toFixed(1)}m < effective min: ${effectiveMinDistance}m`);
+          console.log(`   📍 Closest TP coords: ${closestTP?.location.lat.toFixed(6)}, ${closestTP?.location.lng.toFixed(6)}`);
+        }
         // console.log(`🚫 TP rejected (too close): ${candidate.location.lat.toFixed(6)}, ${candidate.location.lng.toFixed(6)} - Quality: ${candidate.quality.toFixed(3)}`);
         continue;
       }
@@ -116,7 +280,7 @@ export class TriggerPointValidator {
       const triggerPoint = this.convertToTriggerPoint(candidate, selectedTPs.length, boundary, context);
       selectedTPs.push(triggerPoint);
       
-      // console.log(`✅ TP selected: ${triggerPoint.location.lat.toFixed(6)}, ${triggerPoint.location.lng.toFixed(6)} - Quality: ${triggerPoint.quality.toFixed(3)}`);
+      console.log(`✅ TP #${selectedTPs.length} selected: ${triggerPoint.location.lat.toFixed(6)}, ${triggerPoint.location.lng.toFixed(6)} - Quality: ${triggerPoint.quality.toFixed(3)} - Front street: ${isFrontStreet}`);
     }
     
     console.log(`📊 Final selection: ${selectedTPs.length} TPs selected, ${rejectedCount} rejected for proximity`);
@@ -445,6 +609,12 @@ out geom tags;
       
       if (distance < 75 && !isUrbanCanyon) {
         console.log(`✅ TP very close to boundary (${distance.toFixed(0)}m < 75m) - AUTO APPROVED (street in front)`);
+        return true;
+      }
+      
+      // 🏙️ RELAXADO: Em canyon urbano, permitir TPs muito próximos (≤10m) - visibilidade garantida
+      if (distance <= 10 && isUrbanCanyon) {
+        console.log(`🏠 TP VERY CLOSE to boundary in URBAN CANYON (${distance.toFixed(0)}m ≤ 10m) - AUTO APPROVED (guaranteed visibility)`);
         return true;
       }
       
@@ -1419,39 +1589,83 @@ out geom meta;
    * Verifica se o POI está em um canyon urbano (cercado por prédios altos)
    */
   private isPOIInUrbanCanyon(boundary: BoundaryData, context: GeographicContext): boolean {
+    console.log(`🔍 CANYON CHECK: Analyzing POI...`);
+    console.log(`   Urban density: ${context.urbanDensity.level}`);
+    console.log(`   POI height: ${boundary.height || 0}m`);
+    console.log(`   Surrounding: ${boundary.surroundingHeight ? `${boundary.surroundingHeight.buildingCount} buildings, avg ${boundary.surroundingHeight.average}m` : 'NO DATA'}`);
+    
     // 1. Verificar densidade urbana
     if (context.urbanDensity.level !== 'very_dense' && context.urbanDensity.level !== 'dense') {
-      return false; // Não é área densa
+      console.log(`✅ NOT CANYON: Not a dense area (${context.urbanDensity.level})`);
+      return false;
     }
     
-    // 2. Em áreas muito densas, SEMPRE considerar canyon urbano
-    if (context.urbanDensity.level === 'very_dense') {
-      console.log(`🏙️ CANYON: Very dense urban area - treating as canyon regardless of POI height`);
+    // 2. Verificar se há dados de altura dos vizinhos
+    if (!boundary.surroundingHeight) {
+      console.log(`✅ NOT CANYON: No surrounding height data available`);
+      return false;
+    }
+    
+    const poiHeight = boundary.height || 0;
+    const avgSurroundingHeight = boundary.surroundingHeight.average;
+    const maxSurroundingHeight = boundary.surroundingHeight.max;
+    const buildingCount = boundary.surroundingHeight.buildingCount;
+    const heightDifference = poiHeight - avgSurroundingHeight;
+    
+    console.log(`   Height diff: ${heightDifference.toFixed(1)}m (POI ${poiHeight}m - avg ${avgSurroundingHeight}m)`);
+    console.log(`   Max surrounding: ${maxSurroundingHeight}m`);
+    console.log(`   Building count: ${buildingCount}`);
+    
+    // 3. Se POI é MUITO MAIS ALTO que vizinhos = NÃO é canyon (visível de longe)
+    // SOMENTE se a altura do POI é real (não 0)
+    if (poiHeight > 0 && heightDifference > 50) {
+      console.log(`✅ NOT CANYON: POI much taller than surroundings (+${heightDifference.toFixed(1)}m)`);
+      return false;
+    }
+    
+    // 4. Se POI é moderadamente mais alto = NÃO é canyon se área não tiver muitos prédios
+    // SOMENTE se a altura do POI é real (não 0)
+    if (poiHeight > 0 && heightDifference > 20 && buildingCount < 50) {
+      console.log(`✅ NOT CANYON: POI taller with low building density (+${heightDifference.toFixed(1)}m, ${buildingCount} buildings)`);
+      return false;
+    }
+    
+    // 5. REGRA PRINCIPAL: Densidade ULTRA ALTA de prédios altos = CANYON
+    // Copan: 1424 prédios, avg 26m
+    if (buildingCount > 1000 && avgSurroundingHeight > 20) {
+      console.log(`🏙️ CANYON: Ultra high building density with tall buildings (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
       return true;
     }
     
-    // 3. Verificar se POI tem altura (prédio) - apenas para áreas densas
-    if (context.urbanDensity.level === 'dense' && (!boundary.height || boundary.height < 20)) {
-      return false; // POI não é um prédio alto em área densa
-    }
-    
-    // 3. Verificar altura relativa aos vizinhos (se disponível)
-    if (boundary.surroundingHeight) {
-      const heightDifference = (boundary.height || 0) - boundary.surroundingHeight.average;
-      
-      // Se POI não é significativamente mais alto que vizinhos = canyon
-      if (heightDifference < 30) {
-        console.log(`🏙️ CANYON: POI height ${boundary.height}m vs avg ${boundary.surroundingHeight.average}m (diff: ${heightDifference}m < 30m)`);
-        return true;
-      }
-    }
-    
-    // 4. Verificar densidade de prédios ao redor (se disponível)
-    if (boundary.surroundingHeight && boundary.surroundingHeight.buildingCount > 10) {
-      console.log(`🏙️ CANYON: High building density (${boundary.surroundingHeight.buildingCount} buildings)`);
+    // 6. Densidade MUITO ALTA + prédios muito altos = CANYON
+    // Para áreas com muitos prédios E prédios muito altos
+    if (buildingCount > 500 && avgSurroundingHeight > 25) {
+      console.log(`🏙️ CANYON: Very high building density with very tall buildings (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
       return true;
     }
     
+    // 7. NOVO: Densidade ALTA + prédios moderados = CANYON (para áreas densas)
+    // Museu Municipal: 18 prédios, avg 14m em área very_dense
+    if (context.urbanDensity.level === 'very_dense' && buildingCount > 15 && avgSurroundingHeight > 10) {
+      console.log(`🏙️ CANYON: High building density in very dense area (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
+      return true;
+    }
+    
+    // 8. NOVO: Densidade MÉDIA + prédios moderados = CANYON (para áreas densas)
+    if (context.urbanDensity.level === 'dense' && buildingCount > 30 && avgSurroundingHeight > 12) {
+      console.log(`🏙️ CANYON: Medium building density in dense area (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
+      return true;
+    }
+    
+    // 9. Se POI tem altura E não é significativamente mais alto + densidade alta = canyon
+    // SOMENTE se POI tem altura conhecida (não fallback para 0)
+    if (poiHeight > 0 && heightDifference < 10 && buildingCount > 300) {
+      console.log(`🏙️ CANYON: POI not taller than surroundings in dense area (${poiHeight}m vs avg ${avgSurroundingHeight}m, ${buildingCount} buildings)`);
+      return true;
+    }
+    
+    // 10. Padrão: NÃO é canyon (dar chance de validar visibilidade)
+    console.log(`✅ NOT CANYON: Insufficient evidence (diff: ${heightDifference.toFixed(1)}m, ${buildingCount} buildings)`);
     return false;
   }
   
