@@ -59,3 +59,8 @@ next-env.d.ts
 
 # OS
 Thumbs.db
+
+# OSM Data files (large files)
+omsData/
+*.osm.pbf
+*.osm
