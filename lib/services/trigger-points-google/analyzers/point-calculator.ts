@@ -1,11 +1,17 @@
 // Calculador de pontos ótimos para trigger points
 
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
-import { calculateDistance, calculateBearing, calculateOptimalRadius, calculateDistanceToBoundary, isPointInPolygon } from '../utils/calculations';
+import { calculateDistance, calculateBearing, calculateOptimalRadius, calculateDistanceToBoundary, isPointInPolygon, calculateMinDistanceToCenter } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig } from '../config/trigger-points-config';
+import { POIClassifierService } from '../services/poi-classifier.service';
 
 export class OptimalPointCalculator {
+  private poiClassifier: POIClassifierService;
+  
+  constructor() {
+    this.poiClassifier = new POIClassifierService();
+  }
   
   /**
    * Calcula pontos ótimos nas ruas para trigger points
@@ -18,20 +24,56 @@ export class OptimalPointCalculator {
   ): Promise<TriggerPointCandidate[]> {
     console.log(`🎯 Calculating optimal points for: ${poiData.name}`);
     
+    // 🎯 USAR CLASSIFICAÇÃO DO BOUNDARY (já calculada no boundary-detector)
+    const classification = boundary.classification;
+    
+    if (!classification) {
+      console.warn(`⚠️ No classification found in boundary, using fallback`);
+      // Fallback: criar classificação padrão
+      const fallbackClassification = await this.poiClassifier.classifyPOI(
+        poiData,
+        boundary.height,
+        boundary.elevation ? { center: boundary.elevation.center } : undefined,
+        boundary.area,
+        context,
+        boundary.osmTags
+      );
+      boundary.classification = fallbackClassification;
+    }
+    
+    const group = classification.group;
+    const strategy = classification.strategy;
+    
+    console.log(`🎯 Using ${group.toUpperCase()} strategy: ${strategy}`);
+    
     const candidates: TriggerPointCandidate[] = [];
     
-    for (const street of streets) {
-      const optimalPoint = await this.calculateOptimalPointOnStreet(street, poiData, boundary, context);
-      
-      if (optimalPoint) {
-        candidates.push(optimalPoint);
+    // 🏔️ ESTRATÉGIA CIRCULAR: Para HIGH e MEDIUM (múltiplas ruas, múltiplas distâncias)
+    if (strategy === 'circular') {
+      console.log(`🔄 CIRCULAR STRATEGY: Using multiple streets with multiple distances`);
+      candidates.push(...await this.calculateMultipleStreetsStrategy(streets, poiData, boundary, context, classification));
+    } 
+    // 🏙️ ESTRATÉGIA LINEAR: Para CANYON (front street priority, single distance)
+    else if (strategy === 'linear') {
+      console.log(`📍 LINEAR STRATEGY: Prioritizing front street`);
+      candidates.push(...await this.calculateCanyonStrategy(streets, poiData, boundary, context, classification));
+    }
+    // 🏞️ ESTRATÉGIA PADRÃO: Para FLAT (standard approach)
+    else {
+      console.log(`🌟 STANDARD STRATEGY: One point per street`);
+      for (const street of streets) {
+        const optimalPoint = await this.calculateOptimalPointOnStreet(street, poiData, boundary, context);
+        
+        if (optimalPoint) {
+          candidates.push(optimalPoint);
+        }
       }
     }
     
     // Ordenar candidatos por qualidade
     candidates.sort((a, b) => b.quality - a.quality);
     
-    console.log(`✅ Generated ${candidates.length} optimal point candidates`);
+    console.log(`✅ Generated ${candidates.length} optimal point candidates (Group: ${group.toUpperCase()})`);
     return candidates;
   }
   
@@ -118,16 +160,34 @@ export class OptimalPointCalculator {
     // Carregar configuração
     const cfg = config || loadTriggerPointsConfig();
     
-    // 🏔️ ESTRATÉGIA CIRCULAR PARA ALTA ELEVAÇÃO (baseada no sistema legado)
-    if (boundary?.elevation && boundary.elevation.center > 1000) {
-      const poiElevation = boundary.elevation.center;
-      const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
+    // 🎯 USAR CLASSIFICAÇÃO DO BOUNDARY (já calculada)
+    if (boundary && boundary.classification) {
+      const classification = boundary.classification;
+      
+      // Usar estratégia baseada na classificação
+      switch (classification.strategy) {
+        case 'circular':
+          // Para HIGH e MEDIUM, usar distâncias circulares
+          if (classification.group === 'high') {
+            return this.calculateElevationStrategy(poiData, context, boundary, cfg, classification);
+          } else {
+            return this.calculateHeightStrategy(poiData, context, boundary, cfg, classification);
+          }
+        case 'standard':
+          return this.calculateStandardStrategy(poiData, context, boundary, cfg, classification);
+      }
+    }
+    
+    // 🏔️ FALLBACK: ESTRATÉGIA CIRCULAR PARA ALTA ELEVAÇÃO (sistema legado - mantido para compatibilidade)
+    if (boundary && (boundary as any).elevation && (boundary as any).elevation.center > 1000) {
+      const poiElevation = (boundary as any).elevation.center;
+      const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation((boundary as any).center, context, poiData);
       const elevationDiff = poiElevation - baseElevation;
       
       console.log(`🏔️ HIGH ELEVATION LANDMARK DETECTED: ${poiElevation.toFixed(0)}m (diff: ${elevationDiff.toFixed(0)}m)`);
       console.log(`🎯 Using CIRCULAR DISTRIBUTION strategy (legacy system)`);
       
-      // LEGACY FORMULA: Math.sqrt(elevationDiff) * 200
+      // Fórmula dinâmica: Math.sqrt(elevationDiff) * 200
       const maxRange = Math.min(Math.max(Math.sqrt(elevationDiff) * 200, 2000), 8000);
       
       // DISTRIBUIÇÃO CIRCULAR EM MÚLTIPLAS FAIXAS (como sistema legado)
@@ -149,8 +209,8 @@ export class OptimalPointCalculator {
     // 🏙️ ESTRATÉGIA PADRÃO PARA BAIXA ELEVAÇÃO
     let baseDistance = cfg.distanceDistribution.standard.baseDistance;
     
-    if (boundary?.elevation) {
-      const poiElevation = boundary.elevation.center;
+    if (boundary && (boundary as any).elevation) {
+      const poiElevation = (boundary as any).elevation.center;
       console.log(`📏 POI elevation: ${poiElevation.toFixed(1)}m`);
       
       if (poiElevation > 800) {
@@ -238,39 +298,6 @@ export class OptimalPointCalculator {
     return bestPoint;
   }
   
-  /**
-   * LEGACY: Encontra ponto na rua com distância específica (mantido para compatibilidade)
-   */
-  private findPointAtDistance(
-    street: StreetData, 
-    poiLocation: { lat: number; lng: number }, 
-    targetDistance: number
-  ): { lat: number; lng: number } | null {
-    if (street.coordinates.length === 0) {
-      return null;
-    }
-    
-    // Se a rua tem apenas um ponto, usar esse ponto
-    if (street.coordinates.length === 1) {
-      return street.coordinates[0];
-    }
-    
-    // Encontrar ponto mais próximo à distância alvo
-    let bestPoint = street.coordinates[0];
-    let bestDistanceDiff = Infinity;
-    
-    for (const point of street.coordinates) {
-      const distance = calculateDistance(point, poiLocation);
-      const distanceDiff = Math.abs(distance - targetDistance);
-      
-      if (distanceDiff < bestDistanceDiff) {
-        bestDistanceDiff = distanceDiff;
-        bestPoint = point;
-      }
-    }
-    
-    return bestPoint;
-  }
   
   /**
    * Calcula qualidade de um ponto candidato
@@ -485,4 +512,373 @@ export class OptimalPointCalculator {
   limitCandidates(candidates: TriggerPointCandidate[], maxCount: number = 10): TriggerPointCandidate[] {
     return candidates.slice(0, maxCount);
   }
+  
+  /**
+   * 🏗️ ESTRATÉGIA PARA POIs COM ALTURA (torres, monumentos)
+   */
+  private calculateHeightStrategy(
+    poiData: POIData, 
+    context: GeographicContext, 
+    boundary: BoundaryData, 
+    cfg: TriggerPointsConfig,
+    classification: any
+  ): number[] {
+    console.log(`🏗️ HEIGHT STRATEGY: ${classification.metadata?.reasoning || 'Height-based POI'}`);
+    
+    const height = classification.metadata?.height || 0;
+    
+    // Para torres/monumentos, usar distâncias baseadas na altura
+    const baseDistance = Math.min(height * 2, 1000); // 2m por metro de altura, max 1km
+    
+    return [
+      Math.round(baseDistance * 0.3),  // Próximo
+      Math.round(baseDistance * 0.6),  // Médio
+      Math.round(baseDistance * 1.0),  // Distante
+      Math.round(baseDistance * 1.5)   // Muito distante
+    ];
+  }
+  
+  /**
+   * 🏔️ ESTRATÉGIA PARA POIs COM ELEVAÇÃO (picos, montanhas)
+   */
+  private calculateElevationStrategy(
+    poiData: POIData, 
+    context: GeographicContext, 
+    boundary: BoundaryData, 
+    cfg: TriggerPointsConfig,
+    classification: any
+  ): number[] {
+    console.log(`🏔️ ELEVATION STRATEGY: ${classification.metadata?.reasoning || 'Elevation-based POI'}`);
+    
+    const elevation = classification.metadata?.elevation || 0;
+    
+    // Para picos/montanhas, usar estratégia circular com múltiplas distâncias
+    if (elevation > 1000) {
+      // Picos muito altos: usar configuração circular
+      return [
+        cfg.distanceDistribution.circular.inner,
+        cfg.distanceDistribution.circular.near_medium,
+        cfg.distanceDistribution.circular.medium,
+        cfg.distanceDistribution.circular.medium_far,
+        cfg.distanceDistribution.circular.far,
+        cfg.distanceDistribution.circular.max
+      ];
+    } else {
+      // Picos médios: distâncias intermediárias
+      return [
+        Math.round(elevation * 0.5),  // 0.5x elevação
+        Math.round(elevation * 1.0),  // 1x elevação
+        Math.round(elevation * 2.0),  // 2x elevação
+        Math.round(elevation * 3.0)   // 3x elevação
+      ];
+    }
+  }
+  
+  /**
+   * 🏗️🏔️ ESTRATÉGIA PARA POIs HÍBRIDOS (altura + elevação)
+   */
+  private calculateHybridStrategy(
+    poiData: POIData, 
+    context: GeographicContext, 
+    boundary: BoundaryData, 
+    cfg: TriggerPointsConfig,
+    classification: any
+  ): number[] {
+    console.log(`🏗️🏔️ HYBRID STRATEGY: ${classification.metadata?.reasoning || 'Hybrid POI'}`);
+    
+    const height = classification.metadata?.height || 0;
+    const elevation = classification.metadata?.elevation || 0;
+    
+    // Para híbridos, combinar estratégias de altura e elevação
+    const heightBased = height * 1.5; // 1.5m por metro de altura
+    const elevationBased = elevation * 0.8; // 0.8x elevação
+    
+    const baseDistance = Math.max(heightBased, elevationBased);
+    
+    return [
+      Math.round(baseDistance * 0.4),  // Próximo
+      Math.round(baseDistance * 0.7),  // Médio-próximo
+      Math.round(baseDistance * 1.0),  // Médio
+      Math.round(baseDistance * 1.5),  // Distante
+      Math.round(baseDistance * 2.0)   // Muito distante
+    ];
+  }
+  
+  /**
+   * 🏙️ ESTRATÉGIA PADRÃO (mantém lógica existente)
+   */
+  private calculateStandardStrategy(
+    poiData: POIData, 
+    context: GeographicContext, 
+    boundary: BoundaryData, 
+    cfg: TriggerPointsConfig,
+    classification: any
+  ): number[] {
+    console.log(`🏙️ STANDARD STRATEGY: ${classification.reason}`);
+    
+    // Usar lógica existente para POIs padrão
+    let baseDistance = cfg.distanceDistribution.standard.baseDistance;
+    
+    if (boundary && (boundary as any).elevation) {
+      const poiElevation = (boundary as any).elevation.center;
+      console.log(`📏 POI elevation: ${poiElevation.toFixed(1)}m`);
+      
+      if (poiElevation > 800) {
+        // Montanhas altas: múltiplas distâncias
+        return [
+          cfg.distanceDistribution.standard.mountainHigh.distances[0],
+          cfg.distanceDistribution.standard.mountainHigh.distances[1],
+          cfg.distanceDistribution.standard.mountainHigh.distances[2],
+          cfg.distanceDistribution.standard.mountainHigh.distances[3]
+        ];
+      }
+      else if (poiElevation > 400) {
+        // Colinas: duas distâncias
+        return [
+          cfg.distanceDistribution.standard.mountainMedium.distances[0],
+          cfg.distanceDistribution.standard.mountainMedium.distances[1]
+        ];
+      }
+      else {
+        console.log(`🏞️ LOW elevation: ${poiElevation.toFixed(0)}m → single distance`);
+      }
+    }
+    
+    // Ajustes para POIs de baixa elevação
+    baseDistance = cfg.distanceDistribution.standard.urbanDensityLimits[context.urbanDensity.level];
+    
+    console.log(`✅ Standard TP distance: ${Math.round(baseDistance)}m`);
+    return [Math.round(baseDistance)];
+  }
+  
+  /**
+   * 🏔️ ESTRATÉGIA PARA MÚLTIPLAS RUAS (POIs de alta elevação)
+   */
+  private async calculateMultipleStreetsStrategy(
+    streets: StreetData[],
+    poiData: POIData,
+    boundary: BoundaryData,
+    context: GeographicContext,
+    classification: any
+  ): Promise<TriggerPointCandidate[]> {
+    console.log(`🏔️ MULTIPLE STREETS STRATEGY: Using ${streets.length} streets for high elevation POI`);
+    
+    const candidates: TriggerPointCandidate[] = [];
+    const elevation = classification.metadata?.elevation || 0;
+    
+    // Para POIs de alta elevação, usar múltiplas distâncias em cada rua
+    const distances = this.calculateElevationStrategy(poiData, context, boundary, loadTriggerPointsConfig(), classification);
+    
+    console.log(`🎯 Using ${distances.length} distance ranges: [${distances.map(d => d.toFixed(0)).join('m, ')}m]`);
+    
+    for (const street of streets) {
+      console.log(`🛣️ Processing street: ${street.name || street.id}`);
+      
+      // Para cada rua, tentar encontrar pontos em diferentes distâncias
+      for (const targetDistance of distances) {
+        const point = this.findPointAtDistanceFromBoundary(street, boundary, targetDistance);
+        
+        if (point) {
+          const distanceToBoundary = calculateDistanceToBoundary(point, boundary.coordinates);
+          
+          // Calcular qualidade baseada na distância e tipo de rua
+          const quality = this.calculateMultipleStreetsPointQuality(point, street, boundary, distanceToBoundary, targetDistance, poiData);
+          
+          if (quality > 0.3) { // Qualidade mínima
+            candidates.push({
+              location: point,
+              quality,
+              distance: distanceToBoundary,
+              street: street,
+              expectedBearing: 0, // Será calculado posteriormente
+              confidence: quality,
+              metadata: {
+                targetDistance,
+                actualDistance: distanceToBoundary,
+                streetType: street.type,
+                streetName: street.name
+              }
+            });
+            
+            console.log(`✅ Added candidate at ${distanceToBoundary.toFixed(0)}m (target: ${targetDistance}m) - Quality: ${quality.toFixed(2)}`);
+          }
+        }
+      }
+    }
+    
+    console.log(`🏔️ Generated ${candidates.length} candidates from ${streets.length} streets`);
+    return candidates;
+  }
+  
+  /**
+   * Calcula qualidade de um ponto baseado em vários fatores (para múltiplas ruas)
+   * 🏔️ NOVO: Prioriza highways e rodovias de grande fluxo para POIs de alta elevação
+   */
+  private calculateMultipleStreetsPointQuality(
+    point: { lat: number; lng: number },
+    street: StreetData,
+    boundary: BoundaryData,
+    actualDistance: number,
+    targetDistance: number,
+    poiData?: POIData
+  ): number {
+    let quality = 0.5; // Base quality
+    
+    // 🏔️ NOVO: Detectar se é POI de alta elevação baseado em dados reais (elevação)
+    const isHighElevationPOI = boundary.elevation && boundary.elevation.center > 800;
+    
+    // 🚫 NOVO: BLOQUEIO para POIs de alta elevação - apenas highways e rodovias principais
+    if (isHighElevationPOI) {
+      const blockedStreetTypes = ['residential', 'unclassified', 'tertiary', 'secondary'];
+      if (blockedStreetTypes.includes(street.type)) {
+        console.log(`🚫 BLOCKED: ${street.type} street for high elevation POI (${boundary.elevation?.center.toFixed(0)}m elevation)`);
+        return 0.0; // Qualidade zero = rejeitado
+      }
+    }
+    
+    // Bonus por tipo de rua - PRIORIZA HIGHWAYS para POIs altos
+    let streetTypeBonus;
+    if (isHighElevationPOI) {
+      // 🚗 PRIORIZAÇÃO PARA POIs DE ALTA ELEVAÇÃO: Apenas highways e rodovias principais
+      streetTypeBonus = {
+        'motorway': 0.5,    // +50% - Autoestradas (máxima prioridade)
+        'trunk': 0.45,      // +45% - Vias principais de grande fluxo
+        'primary': 0.35,    // +35% - Rodovias principais
+        'secondary': 0.0,   // 0% - BLOQUEADAS para POIs altos
+        'tertiary': 0.0,    // 0% - BLOQUEADAS para POIs altos
+        'residential': 0.0, // 0% - BLOQUEADAS para POIs altos
+        'unclassified': 0.0 // 0% - BLOQUEADAS para POIs altos
+      };
+    } else {
+      // 🏙️ CONFIGURAÇÃO PADRÃO para POIs normais
+      streetTypeBonus = {
+        'motorway': 0.3,
+        'trunk': 0.25,
+        'primary': 0.2,
+        'secondary': 0.15,
+        'tertiary': 0.1,
+        'residential': 0.05,
+        'unclassified': 0.0
+      };
+    }
+    
+    quality += streetTypeBonus[street.type as keyof typeof streetTypeBonus] || 0;
+    
+    // 🏔️ BONUS ADICIONAL para highways em POIs de alta elevação
+    if (isHighElevationPOI && (street.type === 'motorway' || street.type === 'trunk')) {
+      quality += 0.15; // +15% bonus extra para highways em picos/monumentos
+    }
+    
+    // Bonus por proximidade ao target distance
+    const distanceDiff = Math.abs(actualDistance - targetDistance);
+    const distanceAccuracy = Math.max(0, 1 - (distanceDiff / targetDistance));
+    quality += distanceAccuracy * 0.3;
+    
+    // Bonus por distância mínima do boundary
+    if (actualDistance > 50) {
+      quality += 0.1; // Bonus por não estar muito próximo
+    }
+    
+    return Math.min(1.0, quality);
+  }
+  
+  /**
+   * 🏙️ ESTRATÉGIA PARA CANYON URBANO
+   * Prioriza front street e usa validação rigorosa de visibilidade
+   */
+  private async calculateCanyonStrategy(
+    streets: StreetData[],
+    poiData: POIData,
+    boundary: BoundaryData,
+    context: GeographicContext,
+    classification: any
+  ): Promise<TriggerPointCandidate[]> {
+    console.log(`🏙️ CANYON STRATEGY: Prioritizing front street with limited radius`);
+    
+    const candidates: TriggerPointCandidate[] = [];
+    const maxDistance = classification.searchRadius || 300; // Limitado a 300m
+    
+    // Ordenar ruas por proximidade ao boundary (front street first)
+    const sortedStreets = [...streets].sort((a, b) => {
+      const distA = this.calculateStreetDistanceToCenter(a, boundary.center);
+      const distB = this.calculateStreetDistanceToCenter(b, boundary.center);
+      return distA - distB;
+    });
+    
+    console.log(`🎯 Processing ${sortedStreets.length} streets, prioritizing front street`);
+    
+    // Para canyon, usar distâncias curtas (50m, 100m, 150m, 200m, 300m)
+    const distances = [50, 100, 150, 200, maxDistance];
+    
+    for (const street of sortedStreets) {
+      const isFrontStreet = sortedStreets.indexOf(street) === 0;
+      console.log(`🛣️ Processing street: ${street.name || street.id}${isFrontStreet ? ' (FRONT STREET)' : ''}`);
+      
+      for (const targetDistance of distances) {
+        const point = this.findPointAtDistanceFromBoundary(street, boundary, targetDistance);
+        
+        if (point) {
+          const distanceToBoundary = calculateDistanceToBoundary(point, boundary.coordinates);
+          
+          // Calcular qualidade com bonus para front street
+          let quality = 0.5;
+          
+          // Bonus por proximidade
+          if (distanceToBoundary < 100) {
+            quality += 0.2;
+          }
+          
+          // GRANDE BONUS para front street
+          if (isFrontStreet) {
+            quality += 0.3;
+            console.log(`🏠 FRONT STREET BONUS: +0.3 quality`);
+          }
+          
+          // Bonus por tipo de rua (preferir ruas locais em canyons)
+          const streetTypeBonus = {
+            'primary': 0.2,
+            'secondary': 0.15,
+            'tertiary': 0.1,
+            'residential': 0.05,
+            'motorway': 0.05,
+            'trunk': 0.05,
+            'unclassified': 0.0
+          };
+          quality += streetTypeBonus[street.type as keyof typeof streetTypeBonus] || 0;
+          
+          if (quality > 0.4) { // Qualidade mínima
+            candidates.push({
+              location: point,
+              quality,
+              distance: distanceToBoundary,
+              street: street,
+              expectedBearing: 0,
+              confidence: quality,
+              metadata: {
+                targetDistance,
+                actualDistance: distanceToBoundary,
+                streetType: street.type,
+                streetName: street.name,
+                isFrontStreet
+              }
+            });
+            
+            console.log(`✅ Added candidate at ${distanceToBoundary.toFixed(0)}m - Quality: ${quality.toFixed(2)}${isFrontStreet ? ' (FRONT STREET)' : ''}`);
+          }
+        }
+      }
+    }
+    
+    console.log(`🏙️ Generated ${candidates.length} canyon candidates from ${streets.length} streets`);
+    return candidates;
+  }
+  
+  /**
+   * Calcula distância de uma rua até o centro do boundary
+   * DRY: Usa função utilitária centralizada
+   */
+  private calculateStreetDistanceToCenter(street: StreetData, center: { lat: number; lng: number }): number {
+    return calculateMinDistanceToCenter(street.coordinates || [], center);
+  }
+  
 }

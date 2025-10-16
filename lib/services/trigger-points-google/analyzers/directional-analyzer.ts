@@ -139,10 +139,6 @@ export class DirectionalAnalyzer {
       };
       
       console.log(`✅ Direction ${direction.name}: ${allowTPs ? 'ALLOW' : 'BLOCK'} TPs - ${analysis.reason}`);
-      console.log(`   📊 Streets: ${streetAnalysis.total} total, ${streetAnalysis.withOpenSpaces} with open spaces, ${streetAnalysis.accessible} accessible`);
-      console.log(`   🌳 Open spaces: ${openSpaceAnalysis.count} (${openSpaceAnalysis.percentage.toFixed(1)}%)`);
-      console.log(`   🏢 Buildings: ${buildingAnalysis.count} (avg: ${buildingAnalysis.avgHeight.toFixed(1)}m, density: ${buildingAnalysis.density.toFixed(1)}/km²)`);
-      console.log(`   👁️ Visibility: ${(visibilityAnalysis.score * 100).toFixed(1)}% (obstructions: ${visibilityAnalysis.hasObstructions})`);
       
       return analysis;
       
@@ -164,87 +160,6 @@ export class DirectionalAnalyzer {
     }
   }
 
-  /**
-   * Analisa uma direção específica (MÉTODO LEGACY - não usado mais)
-   */
-  private async analyzeDirection(
-    direction: { name: string; angle: number; range: [number, number] },
-    poiData: POIData,
-    boundary: BoundaryData,
-    context: GeographicContext
-  ): Promise<DirectionalAnalysis> {
-    console.log(`🧭 Analyzing direction ${direction.name} (${direction.angle}°)...`);
-    
-    try {
-      // 1. Buscar dados OSM para esta direção
-      const osmData = await this.fetchOSMDataForDirection(boundary.center, direction, boundary);
-      
-      // 2. Filtrar elementos por direção (usando boundary completo)
-      const directionalElements = this.filterElementsByDirection(osmData.elements, boundary, direction);
-      
-      // 3. Analisar ruas
-      const streetAnalysis = this.analyzeStreets(directionalElements);
-      
-      // 4. Analisar espaços abertos
-      const openSpaceAnalysis = this.analyzeOpenSpaces(directionalElements);
-      
-      // 5. Analisar construções
-      const buildingAnalysis = this.analyzeBuildings(directionalElements);
-      
-      // 6. Calcular visibilidade
-      const visibilityAnalysis = this.calculateVisibility(
-        streetAnalysis, 
-        openSpaceAnalysis, 
-        buildingAnalysis, 
-        boundary
-      );
-      
-      // 7. Decidir se permite TPs
-      const allowTPs = this.decideAllowTPs(
-        streetAnalysis, 
-        openSpaceAnalysis, 
-        buildingAnalysis, 
-        visibilityAnalysis,
-        boundary
-      );
-      
-      const analysis: DirectionalAnalysis = {
-        direction: direction.name,
-        angle: direction.angle,
-        range: direction.range,
-        streets: streetAnalysis,
-        openSpaces: openSpaceAnalysis,
-        buildings: buildingAnalysis,
-        visibility: visibilityAnalysis,
-        allowTPs,
-        reason: this.generateReason(allowTPs, streetAnalysis, openSpaceAnalysis, buildingAnalysis)
-      };
-      
-      console.log(`✅ Direction ${direction.name}: ${allowTPs ? 'ALLOW' : 'BLOCK'} TPs - ${analysis.reason}`);
-      console.log(`   📊 Streets: ${streetAnalysis.total} total, ${streetAnalysis.withOpenSpaces} with open spaces, ${streetAnalysis.accessible} accessible`);
-      console.log(`   🌳 Open spaces: ${openSpaceAnalysis.count} (${openSpaceAnalysis.percentage.toFixed(1)}%)`);
-      console.log(`   🏢 Buildings: ${buildingAnalysis.count} (avg: ${buildingAnalysis.avgHeight.toFixed(1)}m, density: ${buildingAnalysis.density.toFixed(1)}/km²)`);
-      console.log(`   👁️ Visibility: ${(visibilityAnalysis.score * 100).toFixed(1)}% (obstructions: ${visibilityAnalysis.hasObstructions})`);
-      
-      return analysis;
-      
-    } catch (error) {
-      console.error(`Error analyzing direction ${direction.name}:`, error);
-      
-      // Retornar análise de fallback
-      return {
-        direction: direction.name,
-        angle: direction.angle,
-        range: direction.range,
-        streets: { total: 0, withOpenSpaces: 0, accessible: 0 },
-        openSpaces: { count: 0, percentage: 0, types: [] },
-        buildings: { count: 0, avgHeight: 0, maxHeight: 0, density: 0 },
-        visibility: { score: 0, hasObstructions: true, maxObstructionHeight: 0 },
-        allowTPs: false,
-        reason: 'Analysis failed - blocking TPs for safety'
-      };
-    }
-  }
 
   /**
    * Busca dados OSM para uma direção específica
@@ -469,7 +384,7 @@ out geom tags;
   }
 
   /**
-   * Analisa espaços abertos na direção (MÉTODO LEGACY)
+   * Analisa espaços abertos na direção
    */
   private analyzeOpenSpaces(elements: any[]): { count: number; percentage: number; types: string[] } {
     const openSpaces = elements.filter(e => 

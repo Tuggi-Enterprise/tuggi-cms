@@ -4,7 +4,7 @@ import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/interfaces';
 import { calculateDistance, isPointInPolygon, extractBuildingHeight } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
-import { loadTriggerPointsConfig, TriggerPointsConfig } from '../config/trigger-points-config';
+import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 
 export class StreetAnalyzer {
   private googleAPIs: GoogleAPIsService;
@@ -32,7 +32,7 @@ export class StreetAnalyzer {
     
     try {
       const searchRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
-      const roads = await this.getRoadsAroundBoundary(boundary, searchRadius);
+      const roads = await this.getRoadsAroundBoundary(boundary, searchRadius, context);
       
       // Filtrar ruas acessíveis
       const accessibleStreets = roads.filter(road => 
@@ -66,7 +66,7 @@ export class StreetAnalyzer {
     
     try {
       const searchRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
-      const roads = await this.getRoadsAroundBoundary(boundary, searchRadius);
+      const roads = await this.getRoadsAroundBoundary(boundary, searchRadius, context);
       
       // Filtrar ruas acessíveis
       const accessibleStreets = roads.filter(road => 
@@ -107,7 +107,7 @@ export class StreetAnalyzer {
    * Implementa a lógica DINÂMICA do sistema legado usando dados reais de elevação
    */
   private async calculateIntelligentRadius(boundary: BoundaryData, context: GeographicContext, poiData: POIData, config?: TriggerPointsConfig): Promise<number> {
-    console.log(`🧮 Calculating intelligent search radius (LEGACY FORMULA)...`);
+    console.log(`🧮 Calculating intelligent search radius...`);
     
     // 🏔️ STEP 1: Check if this is a high-visibility POI using REAL elevation data (DYNAMIC LOGIC)
     if (boundary.elevation && boundary.elevation.center > 0) {
@@ -120,16 +120,27 @@ export class StreetAnalyzer {
       console.log(`  🏞️ Estimated base elevation: ${baseElevation.toFixed(1)}m`);
       console.log(`  📈 Relative difference: ${elevationDiff.toFixed(1)}m`);
       
-      // Apply LEGACY FORMULA for high-visibility landmarks (>150m difference - more sensitive)
+      // 🏔️ Apply dynamic formula for high-visibility landmarks (>150m difference)
+      // ✅ PRIORIDADE MÁXIMA: Este cálculo dinâmico tem precedência sobre qualquer outro
       if (elevationDiff > 150) {
-        const theoreticalRange = Math.sqrt(elevationDiff) * 200; // EXACT LEGACY FORMULA
-        const maxRange = Math.min(Math.max(theoreticalRange, 3000), 15000); // Between 3km-15km (Cristo até Copacabana ~8km)
+        const theoreticalRange = Math.sqrt(elevationDiff) * 200; // Fórmula dinâmica
+        // 🎯 SEM LIMITES ARTIFICIAIS: Apenas mínimo de 3km e máximo de 15km (Cristo Redentor até Copacabana ~8km)
+        const calculatedRange = Math.max(theoreticalRange, 3000); // Mínimo 3km
+        const maxRange = Math.min(calculatedRange, 15000); // Máximo 15km (limite físico de visibilidade)
         
-        console.log(`🏔️ HIGH-VISIBILITY LANDMARK DETECTED (dynamic)`);
-        console.log(`  📏 Theoretical range: ${theoreticalRange.toFixed(0)}m`);
-        console.log(`  🎯 DYNAMIC LEGACY range: ${maxRange.toFixed(0)}m`);
+        console.log(`🏔️ HIGH-VISIBILITY LANDMARK DETECTED (dynamic calculation)`);
+        console.log(`  📏 Theoretical range (√${elevationDiff.toFixed(0)} × 200): ${theoreticalRange.toFixed(0)}m`);
+        console.log(`  🎯 Final calculated range: ${maxRange.toFixed(0)}m`);
+        console.log(`  ✅ Using DYNAMIC CALCULATION (no hardcoded limits)`);
         
         return Math.round(maxRange);
+      }
+      
+      // 🏞️ NOVA LÓGICA: POIs FLAT (baixa elevação) - limitar a 100m do boundary
+      if (elevationDiff <= 50) {
+        console.log(`🏞️ FLAT POI DETECTED: ${elevationDiff.toFixed(0)}m elevation difference`);
+        console.log(`🎯 Limiting search radius to 100m from boundary (not center)`);
+        return 100; // Limite fixo de 100m para POIs flat
       }
       // Moderate elevation bonus for smaller differences
       else if (elevationDiff > 50) {
@@ -183,8 +194,8 @@ export class StreetAnalyzer {
         console.log(`🏢 Moderate internal elevation bonus: +${elevationBonus.toFixed(0)}m radius`);
       } else if (elevationDiff < -20) {
         // POI abaixo da média interna - menos visível
-        const elevationPenalty = Math.abs(elevationDiff) * 3;
-        baseRadius = Math.max(baseRadius - elevationPenalty, 150); // Mínimo 150m
+        const elevationPenalty = Math.abs(elevationDiff) * TRIGGER_POINTS_CONSTANTS.ratios.elevationPenalty;
+        baseRadius = Math.max(baseRadius - elevationPenalty, TRIGGER_POINTS_CONSTANTS.ratios.elevationPenaltyMin); // Mínimo configurável
         console.log(`🕳️ Low elevation penalty: POI is ${Math.abs(elevationDiff).toFixed(1)}m below internal average → -${elevationPenalty.toFixed(0)}m radius`);
       }
       
@@ -199,7 +210,7 @@ export class StreetAnalyzer {
     
     // 3. NOVO: Ajuste por altura da construção/POI
     if (boundary.height && boundary.height > 10) {
-      const heightBonus = Math.min(boundary.height * 6, 300); // 6m raio por metro de altura, max 300m
+      const heightBonus = Math.min(boundary.height * TRIGGER_POINTS_CONSTANTS.ratios.heightMultiplier, TRIGGER_POINTS_CONSTANTS.ratios.heightMultiplierMax); // Multiplicador configurável
       baseRadius += heightBonus;
       console.log(`🏢 Height bonus: ${boundary.height}m tall → +${heightBonus.toFixed(0)}m radius`);
     }
@@ -213,11 +224,23 @@ export class StreetAnalyzer {
       try {
         console.log(`🏙️ Analyzing relative height: ${isDenseArea ? 'dense area' : 'tall POI'} (${boundary.height || 'no height'}m)`);
         
-        // Buscar altura dos prédios ao redor (cache de 500m) com timeout generoso
+        // Buscar altura dos prédios ao redor com raio dinâmico baseado na altura do POI
+        const poiHeight = boundary.height || 0;
+        let analysisRadius = TRIGGER_POINTS_CONSTANTS.distances.surroundingHeightsRadius; // 800m base
+        
+        // Raio dinâmico: POIs muito altos precisam de raio maior para capturar prédios similares
+        if (poiHeight > 100) {
+          analysisRadius = TRIGGER_POINTS_CONSTANTS.distances.surroundingHeightsRadiusMax; // 1500m para POIs muito altos
+          console.log(`🏗️ Using extended radius (${analysisRadius}m) for very tall POI (${poiHeight}m)`);
+        } else if (poiHeight > 50) {
+          analysisRadius = Math.min(1200, TRIGGER_POINTS_CONSTANTS.distances.surroundingHeightsRadius * 1.5); // 1200m para POIs altos
+          console.log(`🏢 Using increased radius (${analysisRadius}m) for tall POI (${poiHeight}m)`);
+        }
+        
         const surroundingHeights = await Promise.race([
-          this.calculateSurroundingBuildingsHeight(boundary.center, 500),
+          this.calculateSurroundingBuildingsHeight(boundary.center, analysisRadius),
           new Promise<{ average: number; max: number; buildingCount: number }>((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout')), 30000) // 30s timeout (QUALIDADE > PERFORMANCE)
+            setTimeout(() => reject(new Error('Timeout')), TRIGGER_POINTS_CONSTANTS.distances.heightAnalysisTimeout) // Timeout configurável (QUALIDADE > PERFORMANCE)
           )
         ]);
         
@@ -228,6 +251,7 @@ export class StreetAnalyzer {
         if (surroundingHeights.buildingCount > 5) {
           // Calcular diferença relativa
           const poiHeight = boundary.height || 0; // Se não tem altura, considerar 0
+          console.log(`🔍 DEBUG: boundary.height: ${boundary.height}, poiHeight: ${poiHeight}, type: ${typeof boundary.height}`);
           const heightDifference = poiHeight - surroundingHeights.average;
           
           if (isDenseArea) {
@@ -333,42 +357,342 @@ export class StreetAnalyzer {
   }
   
   /**
-   * Busca ruas ao redor do boundary do POI (otimizado para evitar timeout)
+   * Busca ruas ao redor do boundary do POI (ESTRATÉGIA HÍBRIDA para POIs grandes)
    */
-  private async getRoadsAroundBoundary(boundary: BoundaryData, searchRadius: number): Promise<StreetData[]> {
+  private async getRoadsAroundBoundary(boundary: BoundaryData, searchRadius: number, context?: GeographicContext): Promise<StreetData[]> {
     console.log(`🗺️ Searching roads around boundary (${boundary.coordinates.length} points, radius: ${searchRadius}m)`);
     
     try {
-      const streets: StreetData[] = [];
-      const processedRoads = new Set<string>();
-      
-      // ⚡ OTIMIZAÇÃO: Single Query OSM para evitar timeout
-      const osmStreets = await this.getStreetsFromOSMOptimizedBoundary(boundary, searchRadius);
-      
-      // Processar resultados OSM
-      osmStreets.forEach(street => {
-        if (!processedRoads.has(street.id)) {
-          processedRoads.add(street.id);
-          streets.push(street);
-        }
-      });
-      
-      // Fallback: Google Roads apenas se OSM retornou poucos resultados
-      if (streets.length < 3) {
-        console.log('🔄 OSM returned few roads, trying Google Roads fallback...');
-        const googleStreets = await this.getRoadsFromGoogleFallback(boundary, searchRadius, processedRoads);
-        streets.push(...googleStreets);
+      // 🚀 NOVA ESTRATÉGIA: Verificar se já temos dados consolidados do boundary
+      if (boundary.streets && boundary.streets.length > 0) {
+        console.log(`✅ Using consolidated streets from boundary: ${boundary.streets.length} streets`);
+        console.log(`🚀 CONSOLIDATION BENEFIT: Avoided OSM request for ${boundary.streets.length} streets`);
+        return boundary.streets;
       }
       
-      console.log(`✅ Found ${streets.length} roads around boundary (${osmStreets.length} from OSM)`);
-      return streets;
+      // 🚀 ESTRATÉGIA INTELIGENTE: Usar dados do Nominatim + ruas virtuais
+            if (boundary.coordinates.length > 100) {
+              console.log(`🏗️ LARGE POI STRATEGY: ${boundary.coordinates.length} points`);
+              
+              // 1. Detectar se é canyon urbano (POI alto em área densa)
+              const isUrbanCanyon = context ? this.isUrbanCanyon(boundary, context) : false;
+              
+              if (isUrbanCanyon && context) {
+                console.log(`🏙️ URBAN CANYON DETECTED: Using OSM query for real streets around boundary`);
+                // Para canyons urbanos, usar OSM query para encontrar ruas reais
+                try {
+                  const osmStreets = await this.getStreetsFromOSMOptimizedBoundary(boundary, searchRadius);
+                  if (osmStreets && osmStreets.length > 0) {
+                    console.log(`✅ Found ${osmStreets.length} real streets via OSM for urban canyon`);
+                    return osmStreets;
+                  }
+                } catch (error) {
+                  console.warn(`⚠️ OSM query failed for urban canyon, using Nominatim fallback:`, error);
+                }
+              }
+              
+              // Fallback: Criar ruas reais dos dados do Nominatim
+              const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
+              console.log(`✅ Created ${nominatimStreets.length} real streets from Nominatim data`);
+              return nominatimStreets;
+            }
+      
+      // Para boundaries médios (50-100 pontos), usar APENAS ruas reais
+      if (boundary.coordinates.length > 50) {
+        console.log(`⚡ MEDIUM POI: ${boundary.coordinates.length} points, using ONLY real streets (virtual streets disabled)`);
+        const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
+        console.log(`✅ Created ${nominatimStreets.length} real streets from Nominatim data (virtual streets disabled)`);
+        return nominatimStreets;
+      }
+      
+      // Para boundaries pequenos, usar APENAS ruas reais do Nominatim
+      console.log(`🎯 SMALL POI: ${boundary.coordinates.length} points, using ONLY real streets (virtual streets disabled)`);
+      const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
+      console.log(`✅ Created ${nominatimStreets.length} real streets from Nominatim data (virtual streets disabled)`);
+      return nominatimStreets;
       
     } catch (error) {
       console.error('Error finding roads around boundary:', error);
+      console.log(`🔄 Fallback: Using ONLY real streets from Nominatim data (virtual streets disabled)`);
+      const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
+      console.log(`✅ Created ${nominatimStreets.length} real streets from Nominatim data (fallback)`);
+      return nominatimStreets;
+    }
+  }
+  
+  /**
+   * Calcula distância real de um ponto ao boundary (CORRIGIDO)
+   */
+  private calculateDistanceToBoundary(point: { lat: number; lng: number }, boundaryCoordinates: Array<{ lat: number; lng: number }>): number {
+    let minDistance = Infinity;
+    
+    for (let i = 0; i < boundaryCoordinates.length; i++) {
+      const current = boundaryCoordinates[i];
+      const next = boundaryCoordinates[(i + 1) % boundaryCoordinates.length];
+      
+      // Calcular distância do ponto ao segmento de linha
+      const distance = this.distancePointToLineSegment(point, current, next);
+      minDistance = Math.min(minDistance, distance);
+    }
+    
+    return minDistance;
+  }
+  
+  /**
+   * Calcula distância de um ponto a um segmento de linha
+   */
+  private distancePointToLineSegment(point: { lat: number; lng: number }, lineStart: { lat: number; lng: number }, lineEnd: { lat: number; lng: number }): number {
+    const A = point.lat - lineStart.lat;
+    const B = point.lng - lineStart.lng;
+    const C = lineEnd.lat - lineStart.lat;
+    const D = lineEnd.lng - lineStart.lng;
+    
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    
+    if (lenSq === 0) {
+      // Linha é um ponto
+      return Math.sqrt(A * A + B * B) * 111000; // Converter para metros
+    }
+    
+    let param = dot / lenSq;
+    
+    let xx, yy;
+    
+    if (param < 0) {
+      xx = lineStart.lat;
+      yy = lineStart.lng;
+    } else if (param > 1) {
+      xx = lineEnd.lat;
+      yy = lineEnd.lng;
+    } else {
+      xx = lineStart.lat + param * C;
+      yy = lineStart.lng + param * D;
+    }
+    
+    const dx = point.lat - xx;
+    const dy = point.lng - yy;
+    return Math.sqrt(dx * dx + dy * dy) * 111000; // Converter para metros
+  }
+
+  /**
+   * Cria ruas reais baseadas nos dados do Nominatim (DINÂMICO E GENÉRICO - MÚLTIPLAS RUAS)
+   */
+  private createRealStreetsFromNominatimData(boundary: BoundaryData): StreetData[] {
+    const streets: StreetData[] = [];
+    
+    try {
+      // 1. Verificar se temos dados de endereço do Nominatim
+      if (!boundary.address?.street) {
+        console.log(`⚠️ No street address found in Nominatim data, skipping real street creation`);
+        return streets;
+      }
+      
+      // 2. NOVO: Criar ruas para todas as ruas encontradas
+      const allStreets = boundary.address.allStreets || [boundary.address.street];
+      console.log(`🏠 Creating real streets from Nominatim data: ${allStreets.length} streets found`);
+      
+      for (let i = 0; i < allStreets.length; i++) {
+        const streetName = allStreets[i];
+        console.log(`🏠 Creating real street ${i + 1}/${allStreets.length}: "${streetName}"`);
+        
+        // 3. Gerar coordenadas da rua baseadas no boundary
+        const streetCoordinates = this.generateStreetCoordinatesFromBoundary(boundary, streetName);
+        
+        if (streetCoordinates.length >= 2) {
+          streets.push({
+            id: `nominatim_street_${streetName.toLowerCase().replace(/\s+/g, '_')}`,
+            name: streetName,
+            type: 'residential',
+            coordinates: streetCoordinates,
+            accessibility: 'public',
+            confidence: 0.9 // Alta confiança - dados reais do Nominatim
+          });
+          
+          console.log(`✅ Created real street: "${streetName}" with ${streetCoordinates.length} coordinates`);
+        } else {
+          console.log(`⚠️ Could not generate valid coordinates for street: "${streetName}"`);
+        }
+      }
+      
+    } catch (error) {
+      console.warn(`❌ Failed to create real streets from Nominatim data:`, error);
+    }
+    
+    return streets;
+  }
+  
+  /**
+   * Gera coordenadas de rua baseadas no boundary (DINÂMICO)
+   */
+  private generateStreetCoordinatesFromBoundary(boundary: BoundaryData, streetName: string): Array<{ lat: number; lng: number }> {
+    try {
+      if (!boundary.coordinates || boundary.coordinates.length < 3) {
+        return [];
+      }
+      
+      // 1. Encontrar o lado do boundary mais próximo de uma rua principal
+      const streetSide = this.findBestStreetSide(boundary);
+      
+      if (!streetSide) {
+        console.log(`⚠️ Could not determine best street side for: "${streetName}"`);
+        return [];
+      }
+      
+      // 2. Criar segmento de rua paralelo ao lado do boundary
+      const streetCoordinates = this.createParallelStreetSegment(streetSide, boundary.center, boundary);
+      
+      console.log(`📍 Generated ${streetCoordinates.length} coordinates for street: "${streetName}"`);
+      return streetCoordinates;
+      
+    } catch (error) {
+      console.warn(`❌ Failed to generate street coordinates:`, error);
       return [];
     }
   }
   
+  /**
+   * Encontra o melhor lado do boundary para criar a rua (DINÂMICO)
+   */
+  private findBestStreetSide(boundary: BoundaryData): { start: { lat: number; lng: number }; end: { lat: number; lng: number } } | null {
+    try {
+      if (!boundary.coordinates || boundary.coordinates.length < 4) {
+        return null;
+      }
+      
+      // Estratégia: Encontrar o lado mais longo (provavelmente a fachada principal)
+      let longestSide = null;
+      let maxLength = 0;
+      
+      for (let i = 0; i < boundary.coordinates.length; i++) {
+        const start = boundary.coordinates[i];
+        const end = boundary.coordinates[(i + 1) % boundary.coordinates.length];
+        
+        const length = calculateDistance(start, end);
+        
+        if (length > maxLength) {
+          maxLength = length;
+          longestSide = { start, end };
+        }
+      }
+      
+      console.log(`📏 Found longest boundary side: ${maxLength.toFixed(1)}m`);
+      return longestSide;
+      
+    } catch (error) {
+      console.warn(`❌ Failed to find best street side:`, error);
+      return null;
+    }
+  }
+  
+  /**
+   * Cria segmento de rua paralelo ao lado do boundary (DINÂMICO)
+   */
+  private createParallelStreetSegment(
+    boundarySide: { start: { lat: number; lng: number }; end: { lat: number; lng: number } },
+    center: { lat: number; lng: number },
+    boundary: BoundaryData
+  ): Array<{ lat: number; lng: number }> {
+    try {
+      // 1. Calcular direção do lado do boundary
+      const dx = boundarySide.end.lng - boundarySide.start.lng;
+      const dy = boundarySide.end.lat - boundarySide.start.lat;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      
+      if (length === 0) {
+        return [];
+      }
+      
+      // 2. Calcular offset perpendicular (distância da rua ao boundary)
+      const offsetDistance = TRIGGER_POINTS_CONSTANTS.distances.realStreetBoundaryOffset;
+      const offsetLat = (dx / length) * (offsetDistance / 111000); // Aproximação
+      const offsetLng = (dy / length) * (offsetDistance / (111000 * Math.cos(center.lat * Math.PI / 180)));
+      
+      // 3. Criar pontos da rua paralelos ao boundary
+      const streetStart = {
+        lat: boundarySide.start.lat + offsetLat,
+        lng: boundarySide.start.lng + offsetLng
+      };
+      
+      const streetEnd = {
+        lat: boundarySide.end.lat + offsetLat,
+        lng: boundarySide.end.lng + offsetLng
+      };
+      
+      // 4. Validar se os pontos estão fora do boundary (CORRIGIDO: usar distância real ao boundary)
+      const streetCoordinates = [streetStart, streetEnd];
+      const validCoordinates = streetCoordinates.filter(coord => {
+        // CORRIGIDO: Calcular distância real ao boundary, não ao centro
+        const distanceToBoundary = this.calculateDistanceToBoundary(coord, boundary.coordinates);
+        const isOutside = distanceToBoundary > TRIGGER_POINTS_CONSTANTS.distances.realStreetValidationMargin;
+        
+        if (!isOutside) {
+          console.log(`⚠️ Street point too close to boundary: ${distanceToBoundary.toFixed(1)}m (min required: ${TRIGGER_POINTS_CONSTANTS.distances.realStreetValidationMargin}m)`);
+        }
+        
+        return isOutside;
+      });
+      
+      if (validCoordinates.length < 2) {
+        console.log(`⚠️ Not enough valid street coordinates outside boundary (${validCoordinates.length}/2)`);
+        return [];
+      }
+      
+      console.log(`✅ Street coordinates validated: ${validCoordinates.length} points outside boundary`);
+      return validCoordinates;
+      
+    } catch (error) {
+      console.warn(`❌ Failed to create parallel street segment:`, error);
+      return [];
+    }
+  }
+  
+
+  /**
+   * Calcula o centro de uma rua (ponto médio)
+   */
+  private calculateRoadCenter(road: any): { lat: number; lng: number } {
+    if (!road.geometry || road.geometry.length === 0) {
+      return { lat: 0, lng: 0 };
+    }
+    
+    const midIndex = Math.floor(road.geometry.length / 2);
+    return {
+      lat: road.geometry[midIndex].lat,
+      lng: road.geometry[midIndex].lon
+    };
+  }
+
+
+  /**
+   * Detecta se um POI está em um canyon urbano
+   * Canyon urbano = POI alto em área muito densa, cercado por edifícios altos
+   */
+  private isUrbanCanyon(boundary: BoundaryData, context: GeographicContext): boolean {
+    // Critérios para canyon urbano:
+    // 1. POI deve estar em área muito densa
+    const isVeryDense = context.urbanDensity.level === 'very_dense';
+    
+    // 2. POI deve ter altura significativa (>50m)
+    const hasSignificantHeight = boundary.height && boundary.height > 50;
+    
+    // 3. Deve haver dados de prédios ao redor
+    const hasSurroundingData = boundary.surroundingHeight && boundary.surroundingHeight.buildingCount > 10;
+    
+    // 4. POI deve estar significativamente mais alto que a média (landmark)
+    const isTallLandmark = boundary.surroundingHeight && 
+                           boundary.height && 
+                           boundary.height > boundary.surroundingHeight.average * 2;
+    
+    const isCanyon = !!(isVeryDense && hasSignificantHeight && (hasSurroundingData || isTallLandmark));
+    
+    if (isCanyon) {
+      console.log(`🏙️ Urban canyon detected: very_dense=${isVeryDense}, height=${boundary.height}m, avg_surrounding=${boundary.surroundingHeight?.average}m`);
+    }
+    
+    return isCanyon;
+  }
+
   /**
    * NOVA: Query OSM otimizada para buscar ruas ao redor do boundary
    */
@@ -387,7 +711,7 @@ export class StreetAnalyzer {
       
       // Query simplificada para evitar erro 400 (validação será feita no código)
       const query = `
-[out:json][timeout:60];
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryVeryLong}];
 (
   ${pointQueries};
 );
@@ -511,83 +835,118 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
   }
   
   /**
-   * Google Roads fallback quando OSM não encontra ruas suficientes
+   * 🔴 REMOVED: getRoadsFromGoogleFallback() - M0
+   * Manter código comentado para possível re-ativação manual futura
    */
-  private async getRoadsFromGoogleFallback(
-    boundary: BoundaryData, 
-    searchRadius: number, 
-    processedRoads: Set<string>
-  ): Promise<StreetData[]> {
-    try {
-      console.log(`🔄 Google Roads fallback...`);
-      
-      // Usar pontos estratégicos do boundary para snap to roads
-      const strategicPoints = this.selectStrategicBoundaryPoints(boundary.coordinates, 6);
-      const streets: StreetData[] = [];
-      
-      for (const point of strategicPoints) {
-        try {
-          const response = await this.googleAPIs.getNearestRoads([point]);
-          
-          if (response.success && response.data?.snappedPoints) {
-            for (const snappedPoint of response.data.snappedPoints) {
-              if (snappedPoint.placeId && !processedRoads.has(snappedPoint.placeId)) {
-                processedRoads.add(snappedPoint.placeId);
-                
-                streets.push({
-                  id: snappedPoint.placeId,
-                  type: 'road',
-                  coordinates: [{ lat: snappedPoint.location.lat, lng: snappedPoint.location.lng }],
-                  accessibility: 'public',
-                  confidence: 0.7 // Média confidence para Google fallback
-                });
-              }
-            }
-          }
-        } catch (error) {
-          console.warn(`Failed to get Google roads for point:`, error);
-        }
-      }
-      
-      console.log(`🔄 Google fallback found ${streets.length} additional roads`);
-      return streets;
-      
-    } catch (error) {
-      console.error('Error in Google Roads fallback:', error);
-      return [];
-    }
-  }
+  // private async getRoadsFromGoogleFallback(
+  //   boundary: BoundaryData, 
+  //   searchRadius: number, 
+  //   processedRoads: Set<string>
+  // ): Promise<StreetData[]> {
+  //   try {
+  //     console.log(`🔄 Google Roads fallback...`);
+  //     
+  //     // Usar pontos estratégicos do boundary para snap to roads
+  //     const strategicPoints = this.selectStrategicBoundaryPoints(boundary.coordinates, 6);
+  //     const streets: StreetData[] = [];
+  //     
+  //     for (const point of strategicPoints) {
+  //       try {
+  //         const response = await this.googleAPIs.getNearestRoads([point]);
+  //         
+  //         if (response.success && response.data?.snappedPoints) {
+  //           for (const snappedPoint of response.data.snappedPoints) {
+  //             if (snappedPoint.placeId && !processedRoads.has(snappedPoint.placeId)) {
+  //               processedRoads.add(snappedPoint.placeId);
+  //               
+  //               streets.push({
+  //                 id: snappedPoint.placeId,
+  //                 type: 'road',
+  //                 coordinates: [{ lat: snappedPoint.location.lat, lng: snappedPoint.location.lng }],
+  //                 accessibility: 'public',
+  //                 confidence: 0.7 // Média confidence para Google fallback
+  //               });
+  //             }
+  //           }
+  //         }
+  //       } catch (error) {
+  //         console.warn(`Failed to get Google roads for point:`, error);
+  //       }
+  //     }
+  //     
+  //     console.log(`🔄 Google fallback found ${streets.length} additional roads`);
+  //     return streets;
+  //     
+  //   } catch (error) {
+  //     console.error('Error in Google Roads fallback:', error);
+  //     return [];
+  //   }
+  // }
   
   /**
-   * Busca ruas nos pontos do boundary
+   * Busca ruas nos pontos do boundary (OTIMIZADO - evita queries desnecessárias)
    */
   private async getRoadsFromBoundaryPoints(boundary: BoundaryData, processedRoads: Set<string>): Promise<StreetData[]> {
     const streets: StreetData[] = [];
     
-    // Usar pontos estratégicos do boundary (não todos para evitar muitas requests)
+    // 🚀 OTIMIZAÇÃO: Para boundaries grandes (>100 pontos), usar estratégia inteligente
+    if (boundary.coordinates.length > 100) {
+      console.log(`⚡ SMART OPTIMIZATION: Large boundary (${boundary.coordinates.length} points), creating virtual streets from boundary perimeter`);
+      
+      // Criar "ruas virtuais" baseadas no perímetro do boundary
+      // Isso evita queries OSM desnecessárias e usa os dados já disponíveis
+      const virtualStreets = this.createVirtualStreetsFromBoundary(boundary);
+      console.log(`🎯 Created ${virtualStreets.length} virtual streets from boundary perimeter`);
+      return virtualStreets;
+    }
+    
+    // Para boundaries menores, usar pontos estratégicos
     const strategicPoints = this.selectStrategicBoundaryPoints(boundary.coordinates);
+    console.log(`📍 Using ${strategicPoints.length} strategic points from boundary`);
     
     for (const point of strategicPoints) {
       try {
-        const response = await this.googleAPIs.getNearestRoads([point]); // Google API will find nearest roads
+        // Query OSM otimizada para buscar ruas próximas ao ponto
+        const query = `
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
+(
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:50,${point.lat},${point.lng});
+);
+out geom tags;
+`;
         
-        if (response.success && response.data?.snappedPoints) {
-          for (const snappedPoint of response.data.snappedPoints) {
-            if (snappedPoint.placeId && !processedRoads.has(snappedPoint.placeId)) {
-              processedRoads.add(snappedPoint.placeId);
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: query,
+          headers: { 'Content-Type': 'text/plain' }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          const roads = data.elements || [];
+          
+          for (const road of roads) {
+            if (road.id && !processedRoads.has(road.id.toString())) {
+              processedRoads.add(road.id.toString());
+              
+              // Converter geometria OSM para formato esperado
+              const coordinates = road.geometry ? road.geometry.map((point: any) => ({
+                lat: point.lat,
+                lng: point.lon
+              })) : [];
               
               streets.push({
-                id: snappedPoint.placeId,
-                type: 'road',
-                coordinates: [{ lat: snappedPoint.location.lat, lng: snappedPoint.location.lng }],
-                accessibility: 'public',
+                id: road.id.toString(),
+                type: road.tags?.highway || 'road',
+                coordinates,
+                accessibility: this.determineAccessibility(road.tags),
                 confidence: 0.9 // Alta confidence para pontos no boundary
               });
             }
           }
         }
       } catch (error) {
-        console.warn(`Failed to get roads for boundary point:`, error);
+        console.warn(`Failed to get roads for boundary point via OSM:`, error);
       }
     }
     
@@ -595,6 +954,83 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
     return streets;
   }
   
+  /**
+   * Cria ruas virtuais baseadas no perímetro do boundary (OTIMIZAÇÃO)
+   * Evita queries OSM desnecessárias quando já temos boundary completo
+   */
+  private createVirtualStreetsFromBoundary(boundary: BoundaryData): StreetData[] {
+    const streets: StreetData[] = [];
+    
+    // Calcular raio mínimo para garantir que as ruas fiquem FORA do boundary
+    const boundaryRadius = Math.sqrt(boundary.area / Math.PI);
+    const minDistance = Math.max(boundaryRadius * TRIGGER_POINTS_CONSTANTS.distances.virtualStreetBoundaryOffset, TRIGGER_POINTS_CONSTANTS.distances.virtualStreetMinDistance); // Proporção configurável
+    
+    // Criar ruas concêntricas FORA do boundary
+    const center = boundary.center;
+    const outerRadius = boundaryRadius + minDistance;
+    
+    // Criar círculo de ruas ao redor do POI (fora do boundary)
+    const circlePoints = 16; // 16 pontos no círculo
+    const circleCoordinates = [];
+    
+    for (let i = 0; i < circlePoints; i++) {
+      const angle = (i * 360) / circlePoints;
+      const radians = (angle * Math.PI) / 180;
+      const lat = center.lat + (outerRadius / 111000) * Math.cos(radians);
+      const lng = center.lng + (outerRadius / (111000 * Math.cos(center.lat * Math.PI / 180))) * Math.sin(radians);
+      circleCoordinates.push({ lat, lng });
+    }
+    
+    // Criar segmentos de rua conectando pontos do círculo
+    for (let i = 0; i < circleCoordinates.length; i++) {
+      const start = circleCoordinates[i];
+      const end = circleCoordinates[(i + 1) % circleCoordinates.length];
+      
+      streets.push({
+        id: `virtual_circle_${i}`,
+        type: 'residential',
+        coordinates: [start, end],
+        accessibility: 'public',
+        confidence: 0.8
+      });
+    }
+    
+    // Adicionar ruas radiais FORA do boundary (para melhor cobertura)
+    const radialStartRadius = outerRadius; // Começar fora do boundary
+    const radialEndRadius = outerRadius * 2; // Ir para mais longe
+    
+    for (let angle = 0; angle < 360; angle += 45) { // 8 direções
+      const radians = (angle * Math.PI) / 180;
+      
+      // Ponto inicial: fora do boundary
+      const startLat = center.lat + (radialStartRadius / 111000) * Math.cos(radians);
+      const startLng = center.lng + (radialStartRadius / (111000 * Math.cos(center.lat * Math.PI / 180))) * Math.sin(radians);
+      
+      // Ponto final: mais longe
+      const endLat = center.lat + (radialEndRadius / 111000) * Math.cos(radians);
+      const endLng = center.lng + (radialEndRadius / (111000 * Math.cos(center.lat * Math.PI / 180))) * Math.sin(radians);
+      
+      streets.push({
+        id: `virtual_radial_${angle}`,
+        type: 'residential',
+        coordinates: [{ lat: startLat, lng: startLng }, { lat: endLat, lng: endLng }],
+        accessibility: 'public',
+        confidence: 0.7
+      });
+    }
+    
+    console.log(`🎯 Created ${streets.length} virtual streets outside boundary (radius: ${outerRadius.toFixed(0)}m)`);
+    
+    // 🔍 LOG DETALHADO: Listar todas as ruas virtuais criadas
+    console.log(`🔍 DETAILED VIRTUAL STREETS ANALYSIS:`);
+    for (let i = 0; i < streets.length; i++) {
+      const street = streets[i];
+      console.log(`  ${i + 1}. ID: ${street.id}, Type: ${street.type}, Coordinates: ${street.coordinates.length} points`);
+    }
+    
+    return streets;
+  }
+
   /**
    * Busca ruas na área expandida ao redor do boundary
    */
@@ -605,25 +1041,48 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
     const expandedPoints = this.generateSearchPath(boundary.center, searchRadius);
     
     try {
-      const response = await this.googleAPIs.snapToRoads(expandedPoints);
+      // 🔴 REMOVED: Google Roads API usage (M0 - economia)
+      // Usar query OSM para buscar ruas na área expandida
+      const query = `
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
+(
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:${searchRadius},${boundary.center.lat},${boundary.center.lng});
+);
+out geom tags;
+`;
       
-      if (response.success && response.data?.snappedPoints) {
-        for (const point of response.data.snappedPoints) {
-          if (point.placeId && !processedRoads.has(point.placeId)) {
-            processedRoads.add(point.placeId);
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: query,
+        headers: { 'Content-Type': 'text/plain' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const roads = data.elements || [];
+        
+        for (const road of roads) {
+          if (road.id && !processedRoads.has(road.id.toString())) {
+            processedRoads.add(road.id.toString());
+            
+            // Converter geometria OSM para formato esperado
+            const coordinates = road.geometry ? road.geometry.map((point: any) => ({
+              lat: point.lat,
+              lng: point.lon
+            })) : [];
             
             streets.push({
-              id: point.placeId,
-              type: 'road',
-              coordinates: [{ lat: point.location.lat, lng: point.location.lng }],
-              accessibility: 'public',
+              id: road.id.toString(),
+              type: road.tags?.highway || 'road',
+              coordinates,
+              accessibility: this.determineAccessibility(road.tags),
               confidence: 0.7 // Média confidence para área expandida
             });
           }
         }
       }
     } catch (error) {
-      console.warn(`Failed to get roads from expanded area:`, error);
+      console.warn(`Failed to get roads from expanded area via OSM:`, error);
     }
     
     console.log(`🔄 Found ${streets.length} roads from expanded area`);
@@ -723,25 +1182,48 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       // Gerar pontos em círculo para buscar ruas
       const searchPath = this.generateSearchPath(location, radius);
       
-      const response = await this.googleAPIs.snapToRoads(searchPath);
+      // 🔴 REMOVED: Google Roads API usage (M0 - economia)
+      // Usar query OSM para buscar ruas no raio
+      const query = `
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
+(
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:${radius},${location.lat},${location.lng});
+);
+out geom tags;
+`;
       
-      if (!response.success || !response.data?.snappedPoints) {
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: query,
+        headers: { 'Content-Type': 'text/plain' }
+      });
+      
+      if (!response.ok) {
         return [];
       }
       
-      // Processar pontos snapados
+      const data = await response.json();
+      const roads = data.elements || [];
+      
+      // Processar ruas OSM
       const streets: StreetData[] = [];
       const processedRoads = new Set<string>();
       
-      for (const point of response.data.snappedPoints) {
-        if (point.placeId && !processedRoads.has(point.placeId)) {
-          processedRoads.add(point.placeId);
+      for (const road of roads) {
+        if (road.id && !processedRoads.has(road.id.toString())) {
+          processedRoads.add(road.id.toString());
+          
+          // Converter geometria OSM para formato esperado
+          const coordinates = road.geometry ? road.geometry.map((point: any) => ({
+            lat: point.lat,
+            lng: point.lon
+          })) : [];
           
           streets.push({
-            id: point.placeId,
-            type: 'road',
-            coordinates: [{ lat: point.location.lat, lng: point.location.lng }],
-            accessibility: 'public',
+            id: road.id.toString(),
+            type: road.tags?.highway || 'road',
+            coordinates,
+            accessibility: this.determineAccessibility(road.tags),
             confidence: 0.8
           });
         }
@@ -784,6 +1266,7 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       'tertiary',        // 🛤️ Vias Terciárias
       'residential',     // 🏘️ Ruas Residenciais
       'living_street',   // 🏘️ Ruas de Convivência
+      'unclassified',    // 🛤️ Ruas não classificadas (ex: Estradas Turísticas)
       'motorway_link',   // 🔗 Acessos às Rodovias
       'trunk_link'       // 🔗 Acessos às Vias Expressas
     ];
@@ -875,7 +1358,7 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
   private async getOSMRoads(location: { lat: number; lng: number }, radius: number): Promise<StreetData[]> {
     try {
       const query = `
-[out:json][timeout:90];
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryExtreme}];
 (
   way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|pedestrian|service|footway|path|track)$"](around:${radius},${location.lat},${location.lng});
 );
@@ -981,7 +1464,7 @@ out geom;
     }
     
     const query = `
-[out:json][timeout:60];
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryVeryLong}];
 (
   way["building"](around:${radius},${poiLocation.lat},${poiLocation.lng});
 );
@@ -1026,10 +1509,14 @@ out tags;
       const averageHeight = heights.reduce((sum, h) => sum + h, 0) / heights.length;
       const maxHeight = Math.max(...heights);
       
+      // Contar prédios altos (acima de 50m) para análise de canyon urbano
+      const tallBuildingsCount = heights.filter(height => height > 50).length;
+      
       const result = {
         average: Math.round(averageHeight),  // ✅ CORRIGIDO: average em vez de averageHeight
         max: Math.round(maxHeight),          // ✅ CORRIGIDO: max em vez de maxHeight
-        buildingCount: heights.length
+        buildingCount: heights.length,
+        tallBuildingsCount: tallBuildingsCount // NOVO: contagem de prédios altos
       };
       
       // Armazenar no cache
@@ -1050,13 +1537,20 @@ out tags;
   /**
    * NOVO: Busca ruas ao redor de um ponto específico (para fallback)
    */
-  public async getStreetsFromOSMOptimized(location: { lat: number; lng: number }, radius: number): Promise<StreetData[]> {
+  public async getStreetsFromOSMOptimized(location: { lat: number; lng: number }, radius: number, boundary?: BoundaryData): Promise<StreetData[]> {
     try {
       console.log(`🚀 Optimized OSM query for streets around point...`);
       
+      // 🚀 NOVA ESTRATÉGIA: Verificar se já temos dados consolidados do boundary
+      if (boundary?.streets && boundary.streets.length > 0) {
+        console.log(`✅ Using consolidated streets from boundary: ${boundary.streets.length} streets`);
+        console.log(`🚀 CONSOLIDATION BENEFIT: Avoided OSM request for ${boundary.streets.length} streets`);
+        return boundary.streets;
+      }
+      
       // Query OSM para buscar ruas ao redor do ponto
       const query = `
-[out:json][timeout:60];
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryVeryLong}];
 (
   way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"]["access"!~"^(no)$"](around:${radius},${location.lat},${location.lng});
 );

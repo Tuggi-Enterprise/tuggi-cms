@@ -517,7 +517,7 @@ export class ElevationService {
     const points: Array<{ lat: number; lng: number }> = [];
     
     // Converter raio para graus (aproximação)
-    const radiusInDegrees = radius / 111320; // ~111.32km por grau
+    const radiusInDegrees = radius / TRIGGER_POINTS_CONSTANTS.geographic.metersPerDegree;
     
     for (let i = 0; i < numPoints; i++) {
       const angle = (i * 360 / numPoints) * (Math.PI / 180); // Converter para radianos

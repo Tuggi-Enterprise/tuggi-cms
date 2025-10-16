@@ -506,3 +506,34 @@ export function calculateElevationBasedRadius(
   
   return calculatedRadius;
 }
+
+/**
+ * 🎯 NOVO: Calcula a distância mínima de uma rua até um ponto central
+ * DRY: Evita duplicação de lógica em point-calculator.ts e street-analyzer.ts
+ */
+export function calculateMinDistanceToCenter(
+  streetCoordinates: Array<{ lat: number; lng: number }>,
+  center: { lat: number; lng: number }
+): number {
+  if (!streetCoordinates || streetCoordinates.length === 0) {
+    return Infinity;
+  }
+  
+  let minDistance = Infinity;
+  for (const coord of streetCoordinates) {
+    const distance = calculateDistance(coord, center);
+    if (distance < minDistance) {
+      minDistance = distance;
+    }
+  }
+  
+  return minDistance;
+}
+
+/**
+ * 🎯 NOVO: Calcula o comprimento de um vetor 2D
+ * DRY: Evita duplicação de Math.sqrt(lat² + lng²)
+ */
+export function calculateVectorLength(vector: { lat: number; lng: number }): number {
+  return Math.sqrt(vector.lat * vector.lat + vector.lng * vector.lng);
+}

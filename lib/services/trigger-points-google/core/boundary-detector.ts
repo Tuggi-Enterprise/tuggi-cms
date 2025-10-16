@@ -4,6 +4,7 @@ import { GoogleAPIsService } from '../services/google-apis.service';
 import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonCenter } from '../utils/calculations';
+import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 
 export class BoundaryDetector {
   private googleAPIs: GoogleAPIsService;
@@ -26,7 +27,7 @@ export class BoundaryDetector {
       
       // Estratégia 1: OSM (Primary - mais preciso)
       console.log('🗺️ Trying OSM first (more precise)...');
-      const osmResult = await this.detectOSMBoundary(poiData);
+      const osmResult = await this.detectOSMBoundary(poiData, context);
       if (osmResult.success && osmResult.data && osmResult.data.confidence > 0.5) {
         console.log('✅ Found boundary via OSM (primary)');
         return {
@@ -227,7 +228,6 @@ export class BoundaryDetector {
     try {
       // TEMPORARIAMENTE DESABILITADO para não quebrar o boundary
       // const elevation = await this.elevationService.getElevation(center, { coordinates, center, area, confidence, source: 'google_places' });
-      console.log(`⚠️ Elevation extraction temporarily disabled for boundary stability`);
     } catch (error) {
       console.warn('⚠️ Google elevation extraction failed (non-blocking):', error);
     }
@@ -320,14 +320,145 @@ export class BoundaryDetector {
   }
   
   /**
+   * Calcula raio de busca baseado na área do POI
+   */
+  private calculateSearchRadiusFromArea(area: number): number {
+    // Fórmula baseada na área: raio = sqrt(área / π) * 2
+    // Isso garante que cobrimos uma área 4x maior que o POI
+    const baseRadius = Math.sqrt(area / Math.PI) * 2;
+    
+    // Limitar entre 200m e 2000m
+    const minRadius = 200;
+    const maxRadius = 2000;
+    
+    const radius = Math.max(minRadius, Math.min(maxRadius, baseRadius));
+    
+    console.log(`📏 Calculated search radius: ${radius.toFixed(0)}m (from area: ${area.toFixed(0)}m²)`);
+    return Math.round(radius);
+  }
+
+  /**
+   * Processa elementos OSM de ruas em StreetData
+   */
+  private processOSMStreets(streetElements: any[], boundaryCoordinates: Array<{lat: number, lng: number}>): any[] {
+    const streets: any[] = [];
+    
+    for (const element of streetElements) {
+      if (element.geometry && element.geometry.length > 1) {
+        const streetCoordinates = element.geometry.map((point: any) => ({
+          lat: point.lat,
+          lng: point.lon
+        }));
+        
+        // Filtrar coordenadas que estão fora do boundary
+        const validCoordinates = streetCoordinates.filter((coord: {lat: number, lng: number}) => 
+          !this.isPointInsidePolygon(coord, boundaryCoordinates)
+        );
+        
+        // Se mais de 30% dos pontos estão fora do boundary, incluir
+        if (validCoordinates.length > streetCoordinates.length * 0.3) {
+          streets.push({
+            id: `osm_way_${element.id}`,
+            type: this.classifyOSMHighway(element.tags?.highway || 'unknown'),
+            name: element.tags?.name || element.tags?.ref || 'Unnamed Street',
+            coordinates: validCoordinates,
+            accessibility: this.determineAccessibility(element.tags),
+            confidence: 0.9,
+            tags: element.tags
+          });
+        }
+      }
+    }
+    
+    return streets;
+  }
+
+  /**
+   * Processa elementos OSM de buildings
+   */
+  private processOSMBuildings(buildingElements: any[]): any[] {
+    return buildingElements.map(element => ({
+      id: element.id,
+      type: element.tags?.building || 'building',
+      coordinates: element.geometry || [],
+      tags: element.tags,
+      height: this.extractOSMHeight(element)
+    }));
+  }
+
+  /**
+   * Processa elementos de vegetação do OSM
+   */
+  private processOSMVegetation(vegetationElements: any[]): any[] {
+    return vegetationElements.map((element: any) => ({
+      id: `osm_vegetation_${element.id}`,
+      type: 'vegetation',
+      coordinates: element.geometry?.map((point: any) => ({
+        lat: point.lat,
+        lng: point.lon
+      })) || [],
+      tags: element.tags || {},
+      naturalType: element.tags?.natural || 'unknown'
+    }));
+  }
+
+  /**
+   * Processa elementos de barreiras do OSM
+   */
+  private processOSMBarriers(barrierElements: any[]): any[] {
+    return barrierElements.map((element: any) => ({
+      id: `osm_barrier_${element.id}`,
+      type: 'barrier',
+      coordinates: element.geometry?.map((point: any) => ({
+        lat: point.lat,
+        lng: point.lon
+      })) || [],
+      tags: element.tags || {},
+      barrierType: element.tags?.barrier || 'unknown'
+    }));
+  }
+
+  /**
+   * Classifica tipo de rua baseado na tag highway do OSM
+   */
+  private classifyOSMHighway(highway: string): string {
+    const highwayMap: {[key: string]: string} = {
+      'motorway': 'motorway',
+      'trunk': 'trunk',
+      'primary': 'primary',
+      'secondary': 'secondary',
+      'tertiary': 'tertiary',
+      'residential': 'residential',
+      'unclassified': 'unclassified',
+      'living_street': 'residential',
+      'pedestrian': 'pedestrian',
+      'service': 'service'
+    };
+    
+    return highwayMap[highway] || 'unclassified';
+  }
+
+  /**
+   * Determina acessibilidade baseado nas tags OSM
+   */
+  private determineAccessibility(tags: any): 'public' | 'restricted' | 'private' {
+    if (!tags) return 'public';
+    
+    if (tags.access === 'private' || tags.access === 'no') return 'private';
+    if (tags.access === 'permissive' || tags.access === 'destination') return 'restricted';
+    
+    return 'public';
+  }
+
+  /**
    * Detecta boundary usando OSM com múltiplas estratégias (estratégia principal)
    */
-  private async detectOSMBoundary(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
+  private async detectOSMBoundary(poiData: POIData, context: GeographicContext): Promise<ProcessingResult<BoundaryData>> {
     try {
       console.log(`🗺️ OSM boundary detection (primary) for: ${poiData.name}`);
       
       // Estratégia 1: Busca por nome exato (mais provável de funcionar)
-      let result = await this.queryOSMByName(poiData);
+      let result = await this.queryOSMByName(poiData, context);
       if (result.success) {
         console.log('✅ OSM found via exact name match');
         return result;
@@ -361,8 +492,8 @@ export class BoundaryDetector {
   /**
    * Query OSM por nome exato (simplificada para evitar timeout)
    */
-  private async queryOSMByName(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
-    console.log(`🔍 OSM name search for: "${poiData.name}" using Nominatim API (LEGACY APPROACH)`);
+  private async queryOSMByName(poiData: POIData, context: GeographicContext): Promise<ProcessingResult<BoundaryData>> {
+    console.log(`🔍 OSM name search for: "${poiData.name}" using Nominatim API`);
     
     try {
       // USAR NOMINATIM API (igual ao sistema legado que funciona)
@@ -374,7 +505,7 @@ export class BoundaryDetector {
         `q=${encodedName}&` +
         `lat=${lat}&lon=${lng}&` +
         `bounded=1&viewbox=${lng-0.01},${lat+0.01},${lng+0.01},${lat-0.01}&` +
-        `format=json&polygon_geojson=1&addressdetails=1&limit=5`;
+        `format=json&polygon_geojson=1&addressdetails=1&extratags=1&limit=5`;
 
       console.log(`🌐 Nominatim URL: ${nominatimUrl}`);
       
@@ -411,18 +542,221 @@ export class BoundaryDetector {
             // NOVA LÓGICA: Extrair elevação e altura para resultados do Nominatim
             let elevationData;
             let poiHeight;
+            let consolidatedStreets: any[] = [];
+            let consolidatedBuildings: any[] = [];
+            let consolidatedVegetation: any[] = [];
+            let consolidatedBarriers: any[] = [];
+            let poiClassification: any = undefined;
+            
             try {
               console.log(`🏗️ Extracting POI elevation and height for Nominatim result...`);
               console.log(`📍 POI center: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`);
-              console.log(`🏷️ Nominatim result type: ${result.geojson.type}, osm_type: ${result.osm_type}`);
+              console.log(`🏷️ Nominatim result type: ${result.geojson.type}, osm_type: ${result.osm_type}, osm_id: ${result.osm_id}`);
               
-              // SISTEMA ESCALÁVEL: Buscar elementos arquitetônicos diretamente
-              console.log(`🔄 Searching for related architectural elements around Nominatim result...`);
+              // 🎯 NOVA ESTRATÉGIA: Classificar POI ANTES de buscar ruas
+              // PASSO 1: Buscar tags do POI (query pequena)
+              // PASSO 2: Extrair altura e elevação
+              // PASSO 3: Classificar POI
+              // PASSO 4: Query consolidada COM RAIO CORRETO
+              if (result.osm_id && result.osm_type) {
+                console.log(`🔍 Step 1: Getting POI tags from OSM ID: ${result.osm_type}(${result.osm_id})`);
+                try {
+                  // ===============================================
+                  // STEP 1: Query PEQUENA apenas para tags do POI
+                  // ===============================================
+                  const poiTagsQuery = `
+[out:json][timeout:30];
+${result.osm_type}(${result.osm_id});
+out tags;
+`;
+                  
+                  const poiTagsResponse = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: poiTagsQuery,
+                    headers: { 'Content-Type': 'text/plain' },
+                    signal: AbortSignal.timeout(40000)
+                  });
+                  
+                  let poiTags: any = {};
+                  if (poiTagsResponse.ok) {
+                    const poiTagsData = await poiTagsResponse.json();
+                    const poiElement = poiTagsData.elements[0];
+                    if (poiElement && poiElement.tags) {
+                      poiTags = poiElement.tags;
+                      console.log(`✅ Retrieved POI tags from OSM`);
+                    }
+                  }
+                  
+                  // ===============================================
+                  // STEP 2: Extrair altura e elevação
+                  // ===============================================
+                  console.log(`🔍 Step 2: Extracting height and elevation...`);
+                  
+                  // Extrair altura dos tags
+                  poiHeight = this.extractOSMHeight({ tags: poiTags });
+                  if (poiHeight) {
+                    console.log(`📏 POI height from tags: ${poiHeight}m`);
+                  } else {
+                    console.log(`⚠️ No height found in tags`);
+                  }
+                  
+                  // Buscar elevação
+                  const elevation = await this.elevationService.getElevation(center, undefined, { tags: poiTags });
+                  if (elevation && elevation.confidence > 0.5) {
+                    elevationData = {
+                      min: elevation.ground - 10,
+                      max: elevation.ground + 10,
+                      average: elevation.ground,
+                      center: elevation.total
+                    };
+                    console.log(`⛰️ POI elevation: ${elevation.total.toFixed(1)}m (ground: ${elevation.ground.toFixed(1)}m)`);
+                  } else {
+                    console.log(`⚠️ Low confidence elevation or no data`);
+                  }
+                  
+                  // ===============================================
+                  // STEP 3: CLASSIFICAR POI (NOVO!)
+                  // ===============================================
+                  console.log(`🔍 Step 3: Classifying POI to determine search strategy...`);
+                  
+                  const POIClassifierService = (await import('../services/poi-classifier.service')).POIClassifierService;
+                  const classifier = new POIClassifierService();
+                  
+                  const classification = await classifier.classifyPOI(
+                    poiData,
+                    poiHeight || undefined,
+                    elevationData ? { center: elevationData.center } : undefined,
+                    area,
+                    context,
+                    poiTags
+                  );
+                  
+                  console.log(`✅ POI Classification: ${classification.group.toUpperCase()}`);
+                  console.log(`📏 Search radius: ${classification.searchRadius}m (${classification.metadata.reasoning})`);
+                  
+                  // Armazenar classificação para retorno
+                  poiClassification = classification;
+                  
+                  // ===============================================
+                  // STEP 4: Query consolidada COM RAIO CORRETO
+                  // ===============================================
+                  const searchRadius = classification.searchRadius;
+                  
+                  console.log(`🔍 Step 4: Fetching consolidated data with optimized radius: ${searchRadius}m`);
+                  
+                  // 🎯 NOVO: Calcular boundary expandido (raio para FORA do boundary)
+                  const expandedBoundary = this.expandBoundary(processed.coordinates, searchRadius);
+                  const expandedPolygon = expandedBoundary.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
+                  
+                  console.log(`🎯 Using expanded boundary polygon (${searchRadius}m outside boundary): ${expandedBoundary.length} points`);
+                  
+                  const consolidatedQuery = `
+[out:json][timeout:180];
+(
+  ${result.osm_type}(${result.osm_id});
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"]["access"!~"^(no)$"](poly:"${expandedPolygon}");
+  way["building"](poly:"${expandedPolygon}");
+  way["building"~"^(stadium|arena|sports_centre|leisure)$"](poly:"${expandedPolygon}");
+  way["natural"~"^(tree|wood|forest)$"](poly:"${expandedPolygon}");
+  way["barrier"~"^(wall|fence|hedge)$"](poly:"${expandedPolygon}");
+);
+out geom tags;
+`;
+                  
+                  //console.log(`🔍 DEBUG: OSM Consolidated Query:`, consolidatedQuery);
+                  
+                  const osmTagsResponse = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: consolidatedQuery,
+                    headers: { 'Content-Type': 'text/plain' },
+                    signal: AbortSignal.timeout(200000) // 200 segundos timeout
+                  });
+                  
+                  // console.log(`🔍 DEBUG: OSM Tags Response status:`, osmTagsResponse.status);
+                  
+                  if (osmTagsResponse.ok) {
+                    const consolidatedData = await osmTagsResponse.json();
+                    // console.log(`🔍 DEBUG: OSM Consolidated Data:`, JSON.stringify(consolidatedData, null, 2));
+                    
+                    if (consolidatedData.elements && consolidatedData.elements.length > 0) {
+                      // Separar elementos por tipo
+                      const poiElement = consolidatedData.elements.find((el: any) => el.id === result.osm_id);
+                      const streetElements = consolidatedData.elements.filter((el: any) => 
+                        el.tags?.highway && el.geometry && el.geometry.length > 1
+                      );
+                      const buildingElements = consolidatedData.elements.filter((el: any) => 
+                        el.tags?.building && el.geometry
+                      );
+                      const vegetationElements = consolidatedData.elements.filter((el: any) => 
+                        el.tags?.natural && el.geometry
+                      );
+                      const barrierElements = consolidatedData.elements.filter((el: any) => 
+                        el.tags?.barrier && el.geometry
+                      );
+                      
+                      console.log(`🚀 CONSOLIDATION SUCCESS: ${streetElements.length} streets, ${buildingElements.length} buildings, ${vegetationElements.length} vegetation, ${barrierElements.length} barriers`);
+                      
+                      // Extrair altura do POI
+                      if (poiElement) {
+                        poiHeight = this.extractOSMHeight(poiElement);
+                        if (poiHeight) {
+                          console.log(`✅ Found height from OSM ID: ${poiHeight}m`);
+                        } else {
+                          console.log(`⚠️ No height found in OSM ID tags`);
+                        }
+                      }
+                      
+                      // Processar ruas encontradas
+                      const streets = this.processOSMStreets(streetElements, processed.coordinates);
+                      // Processar buildings encontrados
+                      const buildings = this.processOSMBuildings(buildingElements);
+
+                      // Processar vegetação encontrada
+                      const vegetation = this.processOSMVegetation(vegetationElements);
+
+                      // Processar barreiras encontradas
+                      const barriers = this.processOSMBarriers(barrierElements);
+                      
+                      console.log(`🛣️ Processed ${streets.length} streets, ${buildings.length} buildings, ${vegetation.length} vegetation, ${barriers.length} barriers`);
+
+                      // Armazenar dados consolidados para uso posterior
+                      consolidatedStreets = streets;
+                      consolidatedBuildings = buildings;
+                      consolidatedVegetation = vegetation;
+                      consolidatedBarriers = barriers;
+                    } else {
+                      console.log(`⚠️ No elements found in OSM consolidated response`);
+                    }
+                  } else {
+                    console.log(`⚠️ OSM Consolidated Response not OK: ${osmTagsResponse.status}`);
+                  }
+                } catch (error) {
+                  console.warn(`⚠️ Failed to get tags from OSM ID:`, error);
+                }
+              }
+              
+              // SISTEMA ESCALÁVEL: Se não encontrou altura via OSM ID, usar dados consolidados primeiro
+              if (!poiHeight) {
+                // 🚀 NOVA LÓGICA: Usar dados consolidados se disponíveis
+                if (consolidatedBuildings && consolidatedBuildings.length > 0) {
+                  console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated buildings data for height analysis (${consolidatedBuildings.length} buildings)`);
+                  poiHeight = this.extractHeightFromMultipleElements(consolidatedBuildings, center, {
+                    coordinates: processed.coordinates,
+                    center,
+                    area,
+                    confidence: 0.8,
+                    source: 'osm'
+                  });
+                }
+                
+                // Se ainda não encontrou altura, buscar elementos arquitetônicos dentro do boundary
+                if (!poiHeight) {
+                  console.log(`🔄 No height from consolidated data, searching for related architectural elements around Nominatim result...`);
               
               // SOLUÇÃO SIMPLES: Buscar apenas elementos dentro do boundary
               const boundaryPolygon = processed.coordinates.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
               const architecturalQuery = `
-[out:json][timeout:15];
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
 (
   way["building:part"~"^(tower|spire|dome|cupola|minaret)$"](poly:"${boundaryPolygon}");
   way["man_made"~"^(tower|monument|obelisk|spire)$"](poly:"${boundaryPolygon}");
@@ -443,7 +777,7 @@ out tags;
                 if (response.ok) {
                   const data = await response.json();
                   if (data.elements && data.elements.length > 0) {
-                    console.log(`🏗️ Found ${data.elements.length} architectural elements, analyzing for height...`);
+                    // console.log(`🏗️ Found ${data.elements.length} architectural elements, analyzing for height...`);
                     // Criar boundary temporário para verificação
                     const tempBoundary: BoundaryData = {
                       coordinates: processed.coordinates,
@@ -462,9 +796,10 @@ out tags;
               } catch (error) {
                 console.warn('⚠️ Architectural elements search failed (non-blocking):', error);
               }
+                } // Fechamento do bloco if (!poiHeight) - busca arquitetônica
+              } // Fechamento do bloco if (!poiHeight) - principal
               
               // Para Nominatim, não temos tags OSM, então pular direto para Google Elevation
-              console.log(`🌍 Calling ElevationService.getElevation for Nominatim result...`);
               const elevation = await this.elevationService.getElevation(center, undefined, result);
               console.log(`📊 Elevation service returned:`, { 
                 elevation: elevation ? elevation.total : null, 
@@ -490,6 +825,18 @@ out tags;
               }
             }
             
+            // Extrair informações de endereço do POI (usando dados do Nominatim já disponíveis)
+            const address = this.extractAddressFromNominatimResult(result); // Passar resultado completo do Nominatim
+            if (address) {
+              console.log(`🏠 POI address from OSM: ${address.street || 'unknown street'}, ${address.number || 'no number'}`);
+            }
+            
+            // NOVO: Verificar entradas usando lógica existente (DRY)
+            const entranceData = this.determineAccessPointsFromTags(result);
+            if (entranceData && entranceData.length > 0) {
+              console.log(`🚪 Found access points: ${entranceData.join(', ')}`);
+            }
+            
             return {
               success: true,
               data: {
@@ -499,7 +846,14 @@ out tags;
                 confidence: 0.9, // Alta confiança para Nominatim
                 source: 'osm' as const,
                 elevation: elevationData,
-                height: poiHeight || undefined
+                height: poiHeight || undefined,
+                address: address || undefined, // Adicionar endereço ao boundary
+                streets: consolidatedStreets.length > 0 ? consolidatedStreets : undefined, // NOVO: ruas consolidadas
+                buildings: consolidatedBuildings.length > 0 ? consolidatedBuildings : undefined, // NOVO: buildings consolidados
+                vegetation: consolidatedVegetation.length > 0 ? consolidatedVegetation : undefined, // NOVO: vegetação consolidada
+                barriers: consolidatedBarriers.length > 0 ? consolidatedBarriers : undefined, // NOVO: barreiras consolidadas
+                classification: poiClassification || undefined, // NOVO: classificação do POI
+                osmTags: undefined // NOVO: tags OSM para classificação (será preenchido se disponível)
               },
               processingTime: 0
             };
@@ -520,7 +874,7 @@ out tags;
    */
   private async queryOSMByProximity(poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
     const query = `
-[out:json][timeout:15];
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
 (
   relation["type"="multipolygon"](around:100,${poiData.location.lat},${poiData.location.lng});
   way["building"](around:50,${poiData.location.lat},${poiData.location.lng});
@@ -533,7 +887,7 @@ out tags;
 out geom tags;
 `;
     
-    return await this.executeOSMQuery(query, 'proximity search');
+    return await this.executeOSMQuery(query, 'proximity search', poiData);
   }
   
   /**
@@ -554,7 +908,7 @@ out geom tags;
     const osmCategory = categoryMap[poiData.type] || 'tourism=attraction';
     
     const query = `
-[out:json][timeout:15];
+[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
 (
   relation[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
   way[${osmCategory}](around:200,${poiData.location.lat},${poiData.location.lng});
@@ -565,13 +919,13 @@ out geom tags;
 out geom tags;
 `;
     
-    return await this.executeOSMQuery(query, 'category search');
+    return await this.executeOSMQuery(query, 'category search', poiData);
   }
   
   /**
    * Executa query OSM e processa resultado
    */
-  private async executeOSMQuery(query: string, searchType: string): Promise<ProcessingResult<BoundaryData>> {
+  private async executeOSMQuery(query: string, searchType: string, poiData?: POIData): Promise<ProcessingResult<BoundaryData>> {
     try {
       const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
@@ -588,18 +942,12 @@ out geom tags;
       
       const data = await response.json();
       
-      console.log(`🔍 DEBUG: OSM ${searchType} response:`, {
-        elementsFound: data.elements?.length || 0,
-        hasElements: !!data.elements,
-        status: response.status
-      });
       
       if (!data.elements || data.elements.length === 0) {
         console.warn(`⚠️ No OSM elements found for ${searchType}`);
         return { success: false, error: `No OSM data found for ${searchType}`, processingTime: 0 };
       }
       
-      console.log(`📍 Found ${data.elements.length} OSM elements via ${searchType}`);
       
       // Encontrar melhor elemento
       const bestElement = this.findBestOSMElement(data.elements);
@@ -614,12 +962,12 @@ out geom tags;
       const confidence = this.calculateOSMConfidence(bestElement, searchType);
       
       // VALIDAÇÃO: Rejeitar boundaries com área inválida
-      if (area < 100) { // Área mínima de 100m²
+      if (area < TRIGGER_POINTS_CONSTANTS.distances.minArea) { // Área mínima configurável
         console.warn(`⚠️ OSM boundary rejected: area too small (${area.toFixed(0)}m²)`);
         return { success: false, error: `Boundary area too small: ${area.toFixed(0)}m²`, processingTime: 0 };
       }
       
-      console.log(`✅ OSM boundary extracted: ${coordinates.length} points, area: ${area.toFixed(0)}m², confidence: ${confidence.toFixed(2)}`);
+      console.log(`✅ OSM boundary extracted: ${coordinates.length} points, area: ${area.toFixed(0)}m²`);
       
       // Tentar obter elevação e altura do POI (REABILITADO para análise de visibilidade)
       let elevationData;
@@ -630,12 +978,12 @@ out geom tags;
         console.log(`🏷️ OSM element type: ${bestElement?.type}, id: ${bestElement?.id}`);
         
         // Extrair altura do POI dos tags OSM (sistema escalável)
-        console.log(`🔍 DEBUG: bestElement tags:`, bestElement?.tags);
+        // console.log(`🔍 DEBUG: bestElement tags:`, bestElement?.tags);
         poiHeight = this.extractOSMHeight(bestElement);
         
         // Se não encontrou altura no elemento principal, buscar em elementos relacionados
         if (!poiHeight && data.elements && data.elements.length > 0) {
-          console.log(`🔄 No height in main element, searching related architectural elements...`);
+          // console.log(`🔄 No height in main element, searching related architectural elements...`);
           // Criar boundary temporário para verificação
           const tempBoundary: BoundaryData = {
             coordinates,
@@ -651,14 +999,11 @@ out geom tags;
           console.log(`🏢 POI height from OSM: ${poiHeight}m`);
         } else {
           console.log(`⚠️ No height found in OSM tags or related elements`);
-          console.log(`🔍 DEBUG: Available tags:`, Object.keys(bestElement?.tags || {}));
+          // console.log(`🔍 DEBUG: Available tags:`, Object.keys(bestElement?.tags || {}));
         }
         
-        // Extrair informações de endereço do POI (usando dados do Nominatim já disponíveis)
-        const address = this.extractAddressFromNominatimResult(bestElement);
-        if (address) {
-          console.log(`🏠 POI address from OSM: ${address.street || 'unknown street'}, ${address.number || 'no number'}`);
-        }
+        // DEBUG: Verificar se altura está sendo salva corretamente
+        // console.log(`🔍 DEBUG: poiHeight value: ${poiHeight}, type: ${typeof poiHeight}`);
         
         // Tentar obter elevação (opcional, não bloquear se falhar)
         console.log(`🌍 Calling ElevationService.getElevation...`);
@@ -686,6 +1031,9 @@ out geom tags;
           console.warn('⚠️ Error details:', error.message);
         }
       }
+      
+      // DEBUG: Verificar altura final antes de retornar
+      console.log(`🔍 DEBUG: Final boundary height: ${poiHeight}, type: ${typeof poiHeight}`);
       
       return {
         success: true,
@@ -901,20 +1249,110 @@ out geom tags;
   
   /**
    * Extrai informações de endereço do resultado do Nominatim (já disponível)
+   * MELHORIA INCREMENTAL: Adiciona extração do display_name sem remover lógica existente
    */
-  private extractAddressFromNominatimResult(element: any): { street?: string; number?: string; city?: string; state?: string; country?: string } | null {
-    if (!element.tags) return null;
+  private extractAddressFromNominatimResult(element: any): { street?: string; number?: string; city?: string; state?: string; country?: string; allStreets?: string[] } | null {
+    // Se é resultado do Nominatim, usar tags do Overpass se disponível, senão usar tags do Nominatim
+    const tags = element.tags || {};
     
-    const tags = element.tags;
-    
-    // O Nominatim já retorna informações de endereço quando addressdetails=1
-    return {
+    // MÉTODO 1: O Nominatim já retorna informações de endereço quando addressdetails=1 (MANTIDO)
+    const addressFromTags = {
       street: tags['addr:street'] || tags['addr:road'] || tags['addr:pedestrian'],
       number: tags['addr:housenumber'],
       city: tags['addr:city'] || tags['addr:town'] || tags['addr:village'],
       state: tags['addr:state'],
       country: tags['addr:country']
     };
+    
+    // MÉTODO 2: NOVO - Extrair endereço do display_name se tags não tiverem street
+    if (!addressFromTags.street && element.display_name) {
+      console.log(`🔍 Trying to extract street from display_name: "${element.display_name}"`);
+      
+      // Parse do display_name: "Edifício Copan, Rua Araújo, Vila Buarque, República, São Paulo..."
+      const displayParts = element.display_name.split(',').map((part: string) => part.trim());
+      
+      // Procurar por TODAS as ruas no display_name (múltiplas ruas)
+      // Prioridade: Rua > Travessa > Alameda > Praça > Avenida > Estrada
+      const streetPatterns = [
+        { pattern: /^rua\s+/i, priority: 1, prefix: 'Rua' },
+        { pattern: /^travessa\s+/i, priority: 2, prefix: 'Travessa' },
+        { pattern: /^alameda\s+/i, priority: 3, prefix: 'Alameda' },
+        { pattern: /^praça\s+/i, priority: 4, prefix: 'Praça' },
+        { pattern: /^avenida\s+/i, priority: 5, prefix: 'Avenida' },
+        { pattern: /^estrada\s+/i, priority: 6, prefix: 'Estrada' }
+      ];
+      
+      const foundStreets: Array<{ name: string; priority: number; prefix: string }> = [];
+      
+      for (const part of displayParts) {
+        const lowerPart = part.toLowerCase();
+        
+        for (const { pattern, priority, prefix } of streetPatterns) {
+          if (pattern.test(lowerPart)) {
+            const streetName = part.replace(pattern, '');
+            console.log(`🔍 Found street: "${prefix} ${streetName}" (priority: ${priority})`);
+            foundStreets.push({ name: streetName, priority, prefix });
+            break; // Sair do loop de patterns para esta parte
+          }
+        }
+      }
+      
+      if (foundStreets.length > 0) {
+        // Ordenar por prioridade (menor número = maior prioridade)
+        foundStreets.sort((a, b) => a.priority - b.priority);
+        
+        // Usar a rua com maior prioridade como principal
+        const primaryStreet = foundStreets[0];
+        console.log(`✅ Extracted primary street: "${primaryStreet.name}" (priority: ${primaryStreet.priority})`);
+        
+        // Log todas as ruas encontradas
+        if (foundStreets.length > 1) {
+          console.log(`📍 All streets found: ${foundStreets.map(s => `${s.prefix} ${s.name}`).join(', ')}`);
+        }
+        
+        return {
+          ...addressFromTags,
+          street: primaryStreet.name,
+          // NOVO: Adicionar todas as ruas encontradas para uso posterior
+          allStreets: foundStreets.map(s => s.name)
+        };
+      }
+    }
+    
+    // MÉTODO 3: NOVO - Verificar tags de entrada e orientação
+    if (tags.entrance === 'main' || tags.orientation === 'front') {
+      console.log(`🏠 Found entrance/orientation tags: entrance=${tags.entrance}, orientation=${tags.orientation}`);
+      // Se tem tags de entrada, a rua do endereço é provavelmente a fachada principal
+      if (addressFromTags.street) {
+        console.log(`✅ Using address street as front facade: "${addressFromTags.street}"`);
+      }
+    }
+    
+    // Retornar resultado original (tags) se não encontrou no display_name
+    return addressFromTags;
+  }
+
+  /**
+   * M1: Compara cidades normalizando acentos e case
+   */
+  private compareCities(osmCity: string | undefined, poiCity: string): boolean {
+    if (!osmCity) return true; // Se OSM não tem cidade, não rejeita
+    const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return normalize(osmCity) === normalize(poiCity);
+  }
+
+  /**
+   * NOVO: Determina pontos de acesso usando lógica existente (DRY - reutiliza determineAccessPoints)
+   */
+  private determineAccessPointsFromTags(nominatimResult: any): string[] | null {
+    // Reutilizar lógica existente de app/api/pois/enrich-osm/route.ts
+    const tags = nominatimResult?.extratags || {};
+    
+    const accessPoints: string[] = [];
+    if (tags.entrance) accessPoints.push('main_entrance');
+    if (tags['entrance:secondary']) accessPoints.push('secondary_entrance');
+    
+    return accessPoints.length > 0 ? accessPoints : null;
   }
 
   /**
@@ -953,7 +1391,6 @@ out geom tags;
   private extractHeightFromMultipleElements(elements: any[], poiCenter: { lat: number; lng: number }, boundary?: BoundaryData): number | null {
     if (!elements || elements.length === 0) return null;
     
-    console.log(`🏗️ Analyzing ${elements.length} OSM elements INSIDE boundary for height extraction...`);
     
     const heightData: Array<{ height: number; element: any; distance: number; type: string }> = [];
     
@@ -975,7 +1412,6 @@ out geom tags;
           type: elementType
         });
         
-        console.log(`🏗️ Found ${elementType}: ${height}m (distance: ${distance.toFixed(0)}m) - ✅ INSIDE BOUNDARY`);
       }
     }
     
@@ -984,12 +1420,11 @@ out geom tags;
       return null;
     }
     
-    console.log(`🏗️ Found ${heightData.length} elements inside boundary`);
     
     // Aplicar lógica de agregação inteligente
     const finalHeight = this.aggregateHeightsFromSameStructure(heightData);
     
-    console.log(`🏗️ Height aggregation result: ${finalHeight}m from ${heightData.length} boundary elements`);
+    // console.log(`🏗️ Height aggregation result: ${finalHeight}m from ${heightData.length} boundary elements`);
     return finalHeight;
   }
 
@@ -1057,7 +1492,7 @@ out geom tags;
     
     // 1. VERIFICAÇÃO DE DISTÂNCIA: Elemento muito distante?
     const distance = this.calculateDistance(poiCenter, elementCenter);
-    if (distance > 100) { // Máximo 100m para ser parte da mesma estrutura
+    if (distance > TRIGGER_POINTS_CONSTANTS.distances.maxElementDistance) { // Distância máxima configurável
       console.log(`❌ Element too far (${distance.toFixed(0)}m > 100m) - external`);
       return false;
     }
@@ -1079,8 +1514,8 @@ out geom tags;
     }
     
     // 4. VERIFICAÇÃO DE PROXIMIDADE: Elemento muito próximo (<30m)?
-    if (distance <= 30) {
-      console.log(`✅ Element very close (${distance.toFixed(0)}m ≤ 30m) - likely same structure`);
+    if (distance <= TRIGGER_POINTS_CONSTANTS.distances.veryCloseDistance) {
+      console.log(`✅ Element very close (${distance.toFixed(0)}m ≤ ${TRIGGER_POINTS_CONSTANTS.distances.veryCloseDistance}m) - likely same structure`);
       return true;
     }
     
@@ -1148,18 +1583,18 @@ out geom tags;
     if (significantElements.length > 0) {
       // Usar altura máxima dos elementos significativos
       const maxHeight = Math.max(...significantElements.map(item => item.height));
-      console.log(`🏗️ Using max height from significant elements: ${maxHeight}m`);
+      // console.log(`🏗️ Using max height from significant elements: ${maxHeight}m`);
       return maxHeight;
     }
     
     // Fallback: usar altura máxima de todos os elementos da mesma estrutura
     const maxHeight = Math.max(...heightData.map(item => item.height));
-    console.log(`🏗️ Using max height from same-structure elements: ${maxHeight}m`);
+    // console.log(`🏗️ Using max height from same-structure elements: ${maxHeight}m`);
     return maxHeight;
   }
   
   /**
-   * Agrega alturas de múltiplos elementos usando lógica inteligente (LEGACY - mantido para compatibilidade)
+   * Agrega alturas de múltiplos elementos usando lógica inteligente
    */
   private aggregateHeights(heightData: Array<{ height: number; element: any; distance: number; type: string }>): number {
     if (heightData.length === 1) {
@@ -1180,13 +1615,13 @@ out geom tags;
     if (significantElements.length > 0) {
       // Usar altura máxima dos elementos significativos
       const maxHeight = Math.max(...significantElements.map(item => item.height));
-      console.log(`🏗️ Using max height from significant elements: ${maxHeight}m`);
+      // console.log(`🏗️ Using max height from significant elements: ${maxHeight}m`);
       return maxHeight;
     }
     
     // Fallback: usar altura máxima de todos os elementos próximos
     const maxHeight = Math.max(...nearbyElements.map(item => item.height));
-    console.log(`🏗️ Using max height from all nearby elements: ${maxHeight}m`);
+    // console.log(`🏗️ Using max height from all nearby elements: ${maxHeight}m`);
     return maxHeight;
   }
 
@@ -1255,7 +1690,7 @@ out geom tags;
     }
     
     // Limites muito conservadores para POIs não encontrados
-    const finalRadius = Math.max(10, Math.min(baseRadius, 50)); // Entre 10m e 50m apenas
+    const finalRadius = Math.max(TRIGGER_POINTS_CONSTANTS.distances.minBoundaryRadius, Math.min(baseRadius, TRIGGER_POINTS_CONSTANTS.distances.maxBoundaryRadius)); // Limites configuráveis
     
     console.log(`📏 Small POI estimated radius: ${finalRadius}m (conservative for unfound POI)`);
     return finalRadius;
@@ -1402,7 +1837,91 @@ out geom tags;
     area = Math.abs(area) / 2;
     
     // Converter para metros quadrados (aproximação)
-    const metersPerDegree = 111320;
+    const metersPerDegree = TRIGGER_POINTS_CONSTANTS.geographic.metersPerDegree;
     return area * metersPerDegree * metersPerDegree;
+  }
+  
+  /**
+   * 🎯 NOVO: Expande o boundary para fora por uma distância específica
+   * Usado para buscar ruas FORA do boundary, não dentro dele
+   */
+  private expandBoundary(coordinates: Array<{lat: number, lng: number}>, distanceMeters: number): Array<{lat: number, lng: number}> {
+    if (coordinates.length < 3) {
+      console.warn(`⚠️ Cannot expand boundary: insufficient coordinates (${coordinates.length})`);
+      return coordinates;
+    }
+    
+    console.log(`🎯 Expanding boundary by ${distanceMeters}m outward (${coordinates.length} points)`);
+    
+    const expandedCoordinates: Array<{lat: number, lng: number}> = [];
+    
+    for (let i = 0; i < coordinates.length; i++) {
+      const current = coordinates[i];
+      const next = coordinates[(i + 1) % coordinates.length];
+      const prev = coordinates[(i - 1 + coordinates.length) % coordinates.length];
+      
+      // Calcular vetores para os pontos adjacentes
+      const toNext = {
+        lat: next.lat - current.lat,
+        lng: next.lng - current.lng
+      };
+      const toPrev = {
+        lat: current.lat - prev.lat,
+        lng: current.lng - prev.lng
+      };
+      
+      // Normalizar vetores (DRY: usar função utilitária)
+      const lengthNext = this.calculateVectorLength(toNext);
+      const lengthPrev = this.calculateVectorLength(toPrev);
+      
+      if (lengthNext > 0 && lengthPrev > 0) {
+        const normalizedNext = {
+          lat: toNext.lat / lengthNext,
+          lng: toNext.lng / lengthNext
+        };
+        const normalizedPrev = {
+          lat: toPrev.lat / lengthPrev,
+          lng: toPrev.lng / lengthPrev
+        };
+        
+        // Calcular vetor normal (perpendicular) apontando para fora
+        const normal = {
+          lat: (normalizedNext.lat + normalizedPrev.lat) / 2,
+          lng: (normalizedNext.lng + normalizedPrev.lng) / 2
+        };
+        
+        // Normalizar o vetor normal (DRY: usar função utilitária)
+        const normalLength = this.calculateVectorLength(normal);
+        if (normalLength > 0) {
+          normal.lat /= normalLength;
+          normal.lng /= normalLength;
+        }
+        
+        // Converter distância em metros para graus (aproximação)
+        const distanceDegrees = distanceMeters / TRIGGER_POINTS_CONSTANTS.geographic.metersPerDegree;
+        
+        // Expandir o ponto para fora
+        const expandedPoint = {
+          lat: current.lat + normal.lat * distanceDegrees,
+          lng: current.lng + normal.lng * distanceDegrees
+        };
+        
+        expandedCoordinates.push(expandedPoint);
+      } else {
+        // Fallback: usar o ponto original se não conseguir calcular normal
+        expandedCoordinates.push(current);
+      }
+    }
+    
+    console.log(`✅ Expanded boundary: ${coordinates.length} → ${expandedCoordinates.length} points`);
+    return expandedCoordinates;
+  }
+  
+  /**
+   * 🎯 NOVO: Calcula o comprimento de um vetor 2D
+   * DRY: Evita duplicação de Math.sqrt(lat² + lng²)
+   */
+  private calculateVectorLength(vector: { lat: number; lng: number }): number {
+    return Math.sqrt(vector.lat * vector.lat + vector.lng * vector.lng);
   }
 }

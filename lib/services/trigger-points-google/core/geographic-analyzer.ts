@@ -17,17 +17,17 @@ export class GeographicContextAnalyzer {
   async analyzeGeographicContext(poiData: POIData, boundary?: BoundaryData): Promise<GeographicContext> {
     console.log(`🌍 Analyzing geographic context for: ${poiData.name}`);
     
-    // USAR BOUNDARY.CENTER em vez de poiData.location
-    const centerPoint = boundary?.center || poiData.location;
-    console.log(`📍 Using ${boundary ? 'boundary.center' : 'poiData.location'} for geographic analysis`);
+    // USAR BOUNDARY COMPLETO quando disponível, senão usar center ou poiData.location
+    const analysisPoint = boundary?.center || poiData.location;
+    console.log(`📍 Using ${boundary ? 'boundary.center (from full boundary)' : 'poiData.location'} for geographic analysis`);
     
     try {
       // Análise paralela de diferentes aspectos
       const [urbanDensity, elevationContext, streetPattern, infrastructure] = await Promise.all([
-        this.calculateUrbanDensity(centerPoint),
-        this.analyzeElevation(centerPoint),
-        this.analyzeStreetPattern(centerPoint),
-        this.analyzeInfrastructure(centerPoint)
+        this.calculateUrbanDensity(analysisPoint),
+        this.analyzeElevation(analysisPoint),
+        this.analyzeStreetPattern(analysisPoint),
+        this.analyzeInfrastructure(analysisPoint)
       ]);
       
       const context: GeographicContext = {
@@ -153,32 +153,46 @@ export class GeographicContextAnalyzer {
   }
   
   /**
-   * Analisa o padrão de ruas
+   * Analisa o padrão de ruas usando OSM (sem Google Roads API)
    */
   private async analyzeStreetPattern(location: { lat: number; lng: number }) {
     try {
-      // Gerar pontos em círculo para analisar padrão de ruas
-      const searchPoints = generateCircleSamplePoints(location, 2000, 16);
+      // 🔴 REMOVED: Google Roads API usage (M0 - economia)
+      // Usar análise OSM para determinar padrão de ruas
       
-      const roadsResponse = await this.googleAPIs.snapToRoads(searchPoints);
+      // Query OSM para buscar ruas na área
+      const query = `
+[out:json][timeout:15];
+(
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:2000,${location.lat},${location.lng});
+);
+out geom;
+`;
       
-      if (!roadsResponse.success || !roadsResponse.data) {
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: query,
+        headers: { 'Content-Type': 'text/plain' }
+      });
+      
+      if (!response.ok) {
         return { type: 'mixed' as const, confidence: 0.5 };
       }
       
-      const snappedPoints = roadsResponse.data.snappedPoints || [];
+      const data = await response.json();
+      const roads = data.elements || [];
       
-      if (snappedPoints.length < 3) {
+      if (roads.length < 3) {
         return { type: 'mixed' as const, confidence: 0.3 };
       }
       
-      // Analisar ângulos das ruas
-      const angles = this.calculateStreetAngles(snappedPoints);
+      // Analisar ângulos das ruas usando dados OSM
+      const angles = this.calculateStreetAnglesFromOSM(roads);
       const angleVariance = calculateVariance(angles);
       
-      // Analisar tamanho dos blocos (distância entre pontos)
-      const distances = this.calculateBlockSizes(snappedPoints);
-      const averageBlockSize = distances.reduce((sum, dist) => sum + dist, 0) / distances.length;
+      // Analisar tamanho dos blocos usando dados OSM
+      const distances = this.calculateBlockSizesFromOSM(roads);
+      const averageBlockSize = distances.length > 0 ? distances.reduce((sum, dist) => sum + dist, 0) / distances.length : 100;
       
       // Classificar padrão baseado na análise
       if (angleVariance < 10 && averageBlockSize > 150) {
@@ -293,6 +307,52 @@ export class GeographicContextAnalyzer {
     for (let i = 0; i < points.length - 1; i++) {
       const distance = calculateDistance(points[i].location, points[i + 1].location);
       distances.push(distance);
+    }
+    
+    return distances;
+  }
+
+  /**
+   * Calcula ângulos das ruas usando dados OSM
+   */
+  private calculateStreetAnglesFromOSM(roads: any[]): number[] {
+    const angles: number[] = [];
+    
+    for (const road of roads) {
+      if (road.geometry && road.geometry.length >= 2) {
+        // Calcular bearing da rua (direção geral)
+        const start = road.geometry[0];
+        const end = road.geometry[road.geometry.length - 1];
+        const bearing = calculateBearing(
+          { lat: start.lat, lng: start.lon },
+          { lat: end.lat, lng: end.lon }
+        );
+        angles.push(bearing);
+      }
+    }
+    
+    return angles;
+  }
+
+  /**
+   * Calcula tamanhos de blocos usando dados OSM
+   */
+  private calculateBlockSizesFromOSM(roads: any[]): number[] {
+    const distances: number[] = [];
+    
+    for (const road of roads) {
+      if (road.geometry && road.geometry.length >= 2) {
+        // Calcular comprimento da rua
+        let totalLength = 0;
+        for (let i = 0; i < road.geometry.length - 1; i++) {
+          const distance = calculateDistance(
+            { lat: road.geometry[i].lat, lng: road.geometry[i].lon },
+            { lat: road.geometry[i + 1].lat, lng: road.geometry[i + 1].lon }
+          );
+          totalLength += distance;
+        }
+        distances.push(totalLength);
+      }
     }
     
     return distances;

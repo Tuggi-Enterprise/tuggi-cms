@@ -86,62 +86,6 @@ export class GoogleAPIsService {
     }
   }
   
-  /**
-   * Buscar ruas mais próximas usando Google Roads API
-   */
-  async getNearestRoads(points: Array<{ lat: number; lng: number }>) {
-    try {
-      const url = new URL('https://roads.googleapis.com/v1/nearestRoads');
-      const pointsStr = points.map(p => `${p.lat},${p.lng}`).join('|');
-      url.searchParams.set('points', pointsStr);
-      url.searchParams.set('key', this.apiKey);
-      
-      const response = await fetch(url.toString());
-      const data = await response.json();
-      
-      return {
-        success: !data.error,
-        data,
-        error: data.error ? data.error.message : null
-      };
-    } catch (error) {
-      console.error('Google Roads API error:', error);
-      return {
-        success: false,
-        data: null,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
-    }
-  }
-  
-  /**
-   * Snap de pontos para ruas
-   */
-  async snapToRoads(path: Array<{ lat: number; lng: number }>, interpolate: boolean = true) {
-    try {
-      const url = new URL('https://roads.googleapis.com/v1/snapToRoads');
-      const pathStr = path.map(p => `${p.lat},${p.lng}`).join('|');
-      url.searchParams.set('path', pathStr);
-      url.searchParams.set('interpolate', interpolate.toString());
-      url.searchParams.set('key', this.apiKey);
-      
-      const response = await fetch(url.toString());
-      const data = await response.json();
-      
-      return {
-        success: !data.error,
-        data,
-        error: data.error ? data.error.message : null
-      };
-    } catch (error) {
-      console.error('Google Snap to Roads API error:', error);
-      return {
-        success: false,
-        data: null,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
-    }
-  }
   
   /**
    * Buscar metadados do Street View

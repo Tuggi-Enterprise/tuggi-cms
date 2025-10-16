@@ -81,6 +81,7 @@ export interface BoundaryData {
     average: number;
     max: number;
     buildingCount: number;
+    tallBuildingsCount?: number; // NOVO: contagem de prédios altos (>50m)
   };
   address?: { // NOVO: informações de endereço do POI
     street?: string;
@@ -88,7 +89,16 @@ export interface BoundaryData {
     city?: string;
     state?: string;
     country?: string;
+    allStreets?: string[]; // NOVO: todas as ruas encontradas no endereço
   };
+  // NOVO: Dados consolidados do OSM para evitar requests redundantes
+  streets?: StreetData[]; // ruas encontradas ao redor do boundary
+  buildings?: any[]; // buildings para análise de obstruções
+  vegetation?: any[]; // vegetação para análise de obstruções
+  // NOVO: Classificação do POI (HIGH, MEDIUM, CANYON, FLAT)
+  classification?: any; // POIClassification from poi-classifier.service
+  barriers?: any[]; // barreiras para análise de obstruções
+  osmTags?: any; // NOVO: tags OSM para classificação de POI
 }
 
 export interface StreetData {
@@ -125,6 +135,7 @@ export interface TriggerPointCandidate {
   confidence: number;
   streetName?: string; // NOVO: nome da rua
   streetDirection?: { lat: number; lng: number }; // NOVO: direção da rua
+  metadata?: any; // NOVO: metadados adicionais
 }
 
 export interface TriggerPoint {
@@ -235,6 +246,7 @@ export interface TriggerPointPredictionResult {
     boundaryConfidence: number;
     streetCount: number;
     optimalPointsFound: number;
+    streetValidatedCandidates?: number;
     validatedPoints: number;
     finalPoints: number;
     fallbackUsed: boolean;

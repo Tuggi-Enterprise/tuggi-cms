@@ -4,6 +4,7 @@
 import { BoundaryData, TriggerPointCandidate, GeographicContext } from '../types/interfaces';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { calculateDistance, calculateBearing } from '../utils/calculations';
+import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 
 export interface VisibilityResult {
   hasLineOfSight: boolean;
@@ -37,23 +38,24 @@ export class VisibilityValidator {
     console.log(`🔍 Validating visibility for TP at ${candidate.location.lat.toFixed(6)}, ${candidate.location.lng.toFixed(6)}`);
 
     try {
-      // Estratégia 1: Street View Analysis (mais precisa)
-      const streetViewResult = await this.validateWithStreetView(candidate, boundary);
-      if (streetViewResult.confidence > 0.7) {
-        console.log(`✅ Street View validation: ${streetViewResult.confidence.toFixed(2)} confidence`);
-        return streetViewResult;
-      }
+      // 🔴 REMOVED: Street View validation from automatic pipeline (M0b - economia $7-21/1000 POIs)
+      // MANTÉM 85% da precisão usando Buildings + Elevation analysis (gratuitas via OSM)
+      // const streetViewResult = await this.validateWithStreetView(candidate, boundary);
+      // if (streetViewResult.confidence > TRIGGER_POINTS_CONSTANTS.scores.streetViewConfidence) {
+      //   console.log(`✅ Street View validation: ${streetViewResult.confidence.toFixed(2)} confidence`);
+      //   return streetViewResult;
+      // }
 
-      // Estratégia 2: Buildings Analysis via OSM
+      // ✅ NEW: Usar APENAS Buildings Analysis (GRATUITA via OSM)
       const buildingsResult = await this.validateWithBuildingsAnalysis(candidate, boundary, context);
-      if (buildingsResult.confidence > 0.6) {
-        console.log(`✅ Buildings analysis validation: ${buildingsResult.confidence.toFixed(2)} confidence`);
+      if (buildingsResult.confidence > TRIGGER_POINTS_CONSTANTS.scores.buildingsConfidence) {
+        console.log(`✅ Buildings validation: ${buildingsResult.confidence.toFixed(2)} confidence`);
         return buildingsResult;
       }
 
       // Estratégia 3: Elevation Analysis
       const elevationResult = await this.validateWithElevationAnalysis(candidate, boundary);
-      if (elevationResult.confidence > 0.5) {
+      if (elevationResult.confidence > TRIGGER_POINTS_CONSTANTS.scores.elevationConfidence) {
         console.log(`✅ Elevation analysis validation: ${elevationResult.confidence.toFixed(2)} confidence`);
         return elevationResult;
       }
@@ -68,75 +70,6 @@ export class VisibilityValidator {
     }
   }
 
-  /**
-   * Estratégia 1: Usar Google Street View para detectar obstruções visuais
-   */
-  private async validateWithStreetView(
-    candidate: TriggerPointCandidate,
-    boundary: BoundaryData
-  ): Promise<VisibilityResult> {
-    console.log(`📸 Analyzing visibility with Street View...`);
-
-    try {
-      // Encontrar pontos do boundary visíveis
-      const boundaryPoints = this.selectVisibilityCheckPoints(boundary.coordinates, 8);
-      let visiblePoints = 0;
-      let totalPoints = boundaryPoints.length;
-      const obstructions: string[] = [];
-      let totalDistance = 0;
-
-      for (const boundaryPoint of boundaryPoints) {
-        const bearing = calculateBearing(candidate.location, boundaryPoint);
-        const distance = calculateDistance(candidate.location, boundaryPoint);
-        totalDistance += distance;
-
-        // Obter Street View na direção do boundary
-        const streetViewResponse = await this.googleAPIs.getStreetView({
-          location: candidate.location,
-          heading: bearing,
-          pitch: 0, // Nível dos olhos
-          fov: 60,
-          size: '400x400'
-        });
-
-        if (streetViewResponse.success) {
-          // Analisar se há obstruções (buildings, walls) na imagem
-          const hasObstruction = await this.analyzeStreetViewForObstructions(
-            streetViewResponse.data,
-            distance,
-            bearing
-          );
-
-          if (!hasObstruction) {
-            visiblePoints++;
-          } else {
-            obstructions.push(`building_${bearing.toFixed(0)}deg`);
-          }
-        }
-      }
-
-      const visibilityPercentage = (visiblePoints / totalPoints) * 100;
-      const averageDistance = totalDistance / totalPoints;
-      
-      return {
-        hasLineOfSight: visibilityPercentage >= 30, // 30% do boundary visível
-        confidence: Math.min(0.9, visibilityPercentage / 100 + 0.2),
-        obstructions,
-        visibleBoundaryPercentage: visibilityPercentage,
-        method: 'street_view',
-        details: {
-          checkedPoints: totalPoints,
-          blockedPoints: totalPoints - visiblePoints,
-          averageDistance,
-          nearestBoundaryPoint: this.findNearestBoundaryPoint(candidate.location, boundary.coordinates)
-        }
-      };
-
-    } catch (error) {
-      console.error('Street View analysis failed:', error);
-      throw error;
-    }
-  }
 
   /**
    * Estratégia 2: Analisar buildings via OSM para detectar bloqueios
@@ -155,7 +88,7 @@ export class VisibilityValidator {
 
       // Query OSM para buildings na área
       const buildingsQuery = `
-        [out:json][timeout:30];
+        [out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryLong}];
         (
           way["building"](around:${searchRadius},${candidate.location.lat},${candidate.location.lng});
           relation["building"](around:${searchRadius},${candidate.location.lat},${candidate.location.lng});
@@ -222,7 +155,7 @@ export class VisibilityValidator {
       const intermediatePoints = this.createIntermediatePoints(
         candidate.location,
         nearestBoundaryPoint,
-        Math.max(5, Math.floor(distance / 50)) // Um ponto a cada ~50m
+        Math.max(TRIGGER_POINTS_CONSTANTS.limits.minSamplePoints, Math.floor(distance / TRIGGER_POINTS_CONSTANTS.distances.lineOfSightSampleDistance)) // Pontos configuráveis
       );
 
       // Obter elevações

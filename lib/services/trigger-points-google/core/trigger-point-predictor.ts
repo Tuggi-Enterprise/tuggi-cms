@@ -6,9 +6,9 @@ import { StreetAnalyzer } from '../analyzers/street-analyzer';
 import { OptimalPointCalculator } from '../analyzers/point-calculator';
 import { TriggerPointValidator } from '../analyzers/validator';
 import { GoogleAPIsService } from '../services/google-apis.service';
-import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext } from '../types/interfaces';
+import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData } from '../types/interfaces';
 import { calculateBearing, calculateDistance } from '../utils/calculations';
-import { loadTriggerPointsConfig, TriggerPointsConfig } from '../config/trigger-points-config';
+import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 
 export class CoreTriggerPointPredictor {
   private geographicAnalyzer: GeographicContextAnalyzer;
@@ -67,7 +67,7 @@ export class CoreTriggerPointPredictor {
       }
       const boundary = boundaryResult.data;
       
-      // 2.1. Re-analisar contexto geográfico com boundary (para usar boundary.center)
+      // 2.1. Re-analisar contexto geográfico com boundary (para usar boundary completo)
       console.log('📊 Step 2.1: Re-analyzing geographic context with boundary...');
       const contextWithBoundary = await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary);
       
@@ -106,7 +106,7 @@ export class CoreTriggerPointPredictor {
       
       if (accessibleStreets.length === 0) {
         console.warn('⚠️ No accessible streets found, using fallback strategy');
-        const fallbackPoints = await this.generateFallbackTriggerPoints(poiData, boundary, context);
+        const fallbackPoints = await this.generateFallbackTriggerPoints(poiData, boundary, context, streetAnalysisResult.streets);
         const processingTime = Date.now() - startTime;
         
         return {
@@ -134,7 +134,7 @@ export class CoreTriggerPointPredictor {
       
       if (optimalPoints.length === 0) {
         console.warn('⚠️ No optimal points calculated, using fallback strategy');
-        const fallbackPoints = await this.generateFallbackTriggerPoints(poiData, boundary, context);
+        const fallbackPoints = await this.generateFallbackTriggerPoints(poiData, boundary, context, accessibleStreets);
         const processingTime = Date.now() - startTime;
         
         return {
@@ -156,13 +156,51 @@ export class CoreTriggerPointPredictor {
         };
       }
       
-      // 5. Validação e ranking com distância mínima
-      console.log('✅ Step 5: Validating and ranking points with optimal spacing...');
+      // 5. Validação de candidatos em ruas (NOVO PASSO)
+      console.log('🛣️ Step 5: Validating candidates are on streets...');
+      const streetValidatedCandidates = await this.validateCandidatesOnStreets(optimalPoints, accessibleStreets);
+      
+      if (streetValidatedCandidates.length === 0) {
+        console.warn('⚠️ No candidates validated on streets, using fallback strategy');
+        const fallbackPoints = await this.generateFallbackTriggerPoints(poiData, boundary, context, accessibleStreets);
+        const processingTime = Date.now() - startTime;
+        
+        return {
+          triggerPoints: fallbackPoints,
+          boundary,
+          context,
+          processingTime,
+          metadata: {
+            boundarySource: boundary.source,
+            boundaryConfidence: boundary.confidence,
+            streetCount: accessibleStreets.length,
+            optimalPointsFound: optimalPoints.length,
+            streetValidatedCandidates: 0,
+            validatedPoints: fallbackPoints.length,
+            finalPoints: fallbackPoints.length,
+            fallbackUsed: true,
+            searchRadius: streetAnalysisResult.searchRadius,
+            elevationAnalysis: streetAnalysisResult.elevationAnalysis
+          }
+        };
+      }
+      
+      // 6. Validação e ranking com distância mínima
+      console.log('✅ Step 6: Validating and ranking points with optimal spacing...');
       const maxTPs = options.maxTriggerPoints || this.calculateDynamicTPLimit(boundary, context);
-      const minDistance = this.calculateMinDistance(context, boundary);
+      
+      // 🎯 NOVO: Usar configuração do grupo se disponível, senão calcular
+      let minDistance: number;
+      if (boundary.classification?.minDistanceBetweenTPs) {
+        minDistance = boundary.classification.minDistanceBetweenTPs;
+        console.log(`🎯 Using group configuration: ${minDistance}m (${boundary.classification.group.toUpperCase()})`);
+      } else {
+        minDistance = this.calculateMinDistance(context, boundary);
+        console.log(`🎯 Using calculated distance: ${minDistance}m (no group config)`);
+      }
       
       const validatedPoints = await this.validator.validateAndRankPoints(
-        optimalPoints, 
+        streetValidatedCandidates, 
         poiData, 
         contextWithBoundary,
         boundary,
@@ -170,17 +208,15 @@ export class CoreTriggerPointPredictor {
         minDistance
       );
       
-      // 6. Aplicar opções de filtro adicionais (se houver)
+      // 7. Aplicar opções de filtro adicionais (se houver)
       const filteredPoints = this.applyOptions(validatedPoints, options);
       
-      // 7. Otimização final (agora menos necessária devido à distância mínima)
-      const optimizedPoints = this.validator.optimizeTriggerPoints(filteredPoints);
-      
+      // 8. Otimização já foi feita em selectTriggerPointsWithMinDistance
       const processingTime = Date.now() - startTime;
-      console.log(`🎉 Generated ${optimizedPoints.length} trigger points in ${processingTime}ms`);
+      console.log(`🎉 Generated ${filteredPoints.length} trigger points in ${processingTime}ms`);
       
       return {
-        triggerPoints: optimizedPoints,
+        triggerPoints: filteredPoints,
         boundary,
         context,
         processingTime,
@@ -189,8 +225,9 @@ export class CoreTriggerPointPredictor {
           boundaryConfidence: boundary.confidence,
           streetCount: accessibleStreets.length,
           optimalPointsFound: optimalPoints.length,
+          streetValidatedCandidates: streetValidatedCandidates.length,
           validatedPoints: validatedPoints.length,
-          finalPoints: optimizedPoints.length,
+          finalPoints: filteredPoints.length,
           fallbackUsed: false,
           searchRadius: streetAnalysisResult.searchRadius,
           elevationAnalysis: streetAnalysisResult.elevationAnalysis
@@ -215,14 +252,26 @@ export class CoreTriggerPointPredictor {
     
     // USAR BOUNDARY.CENTER em vez de poiData.location
     const centerPoint = boundary?.center || poiData.location;
-    console.log(`📍 POI: ${poiData.name} at ${centerPoint.lat.toFixed(6)}, ${centerPoint.lng.toFixed(6)} (${boundary ? 'boundary.center' : 'poiData.location'})`);
     
     try {
       // ESTRATÉGIA INTELIGENTE: Usar funções existentes para buscar ruas reais no OSM
-      console.log('🔍 Finding real streets using OSM data (intelligent approach)...');
       
       // 1. USAR função existente para buscar ruas no OSM (50m radius para fallback)
-      const streets = await this.streetAnalyzer.getStreetsFromOSMOptimized(centerPoint, 50);
+      let streets: any[] = [];
+      
+      // Verificar se temos dados consolidados do boundary
+      if (boundary?.streets && boundary.streets.length > 0) {
+        console.log(`✅ Using consolidated streets from boundary: ${boundary.streets.length} streets`);
+        console.log(`🚀 CONSOLIDATION BENEFIT: Avoided OSM request for ${boundary.streets.length} streets`);
+        streets = boundary.streets;
+      } else {
+        try {
+          streets = await this.streetAnalyzer.getStreetsFromOSMOptimized(centerPoint, 50, boundary);
+        } catch (error) {
+          console.warn('⚠️ OSM query failed in intelligent fallback, using fallback without street validation:', error);
+          streets = []; // Usar array vazio para evitar nova tentativa
+        }
+      }
       
       if (streets && streets.length > 0) {
         // 2. USAR função existente para filtrar ruas acessíveis
@@ -271,13 +320,17 @@ export class CoreTriggerPointPredictor {
         }
       }
       
-      // Fallback: Google Roads se OSM não encontrar ruas
-      console.log('🔄 OSM found no streets, trying Google Roads fallback...');
-      return this.createGoogleRoadsFallback(poiData, context, boundary);
+      // 🔴 REMOVED: Google Roads fallback (M0 - economia $10/1000 POIs)
+      // console.log('🔄 OSM found no streets, trying Google Roads fallback...');
+      // return this.createGoogleRoadsFallback(poiData, context, boundary);
+
+      // ✅ NEW: Fallback direto para TP direcional estimado
+      console.log('🔄 OSM found no streets, using directional TP fallback...');
+      return this.createMinimalDirectionalTP(poiData, context, boundary);
       
     } catch (error) {
       console.warn('Intelligent fallback failed:', error);
-      return this.createGoogleRoadsFallback(poiData, context, boundary);
+      return this.createMinimalDirectionalTP(poiData, context, boundary);
     }
   }
 
@@ -318,64 +371,65 @@ export class CoreTriggerPointPredictor {
   }
   
   /**
-   * NOVO: Fallback usando Google Roads quando OSM falha
+   * 🔴 REMOVED: createGoogleRoadsFallback() - M0
+   * Manter código comentado para possível re-ativação manual futura
    */
-  private async createGoogleRoadsFallback(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): Promise<TriggerPoint[]> {
-    console.log('🔍 Finding nearest street using Google Roads API (fallback approach)...');
-    
-    const centerPoint = boundary?.center || poiData.location;
-    
-    try {
-      const roadsResponse = await this.googleAPIs.getNearestRoads([centerPoint]);
-      
-      if (roadsResponse.success && roadsResponse.data?.snappedPoints && roadsResponse.data.snappedPoints.length > 0) {
-        const snappedPoint = roadsResponse.data.snappedPoints[0];
-        const streetLocation = {
-          lat: snappedPoint.location.latitude,
-          lng: snappedPoint.location.longitude
-        };
-        
-        const distance = calculateDistance(centerPoint, streetLocation);
-        console.log(`✅ Found nearest street at ${distance.toFixed(0)}m from POI (using ${boundary ? 'boundary.center' : 'poiData.location'})`);
-        
-        // Criar APENAS 1 TP simples
-        const triggerPoint: TriggerPoint = {
-          id: 'google_fallback_1',
-          location: streetLocation,
-          radius: 30, // Raio generoso para compensar imprecisão
-          expectedBearing: calculateBearing(streetLocation, centerPoint),
-          bearingThreshold: 90, // Muito tolerante
-          type: 'primary',
-          priority: 1,
-          confidence: 0.7, // Boa confiança - Google Roads é preciso
-          quality: 0.7,
-          street: {
-            id: snappedPoint.placeId || 'google_road',
-            type: 'primary',
-            coordinates: [streetLocation],
-            accessibility: 'public',
-            confidence: 0.8
-          },
-          distance,
-          generationMethod: 'google_apis',
-          contextData: context,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
-        
-        console.log(`✅ Created 1 GOOGLE FALLBACK TP at ${streetLocation.lat.toFixed(6)}, ${streetLocation.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
-        return [triggerPoint];
-        
-      } else {
-        console.warn('⚠️ Google Roads failed, creating minimal directional TP');
-        return this.createMinimalDirectionalTP(poiData, context, boundary);
-      }
-      
-    } catch (error) {
-      console.warn('Google Roads fallback failed:', error);
-      return this.createMinimalDirectionalTP(poiData, context, boundary);
-    }
-  }
+  // private async createGoogleRoadsFallback(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): Promise<TriggerPoint[]> {
+  //   console.log('🔍 Finding nearest street using Google Roads API (fallback approach)...');
+  //   
+  //   const centerPoint = boundary?.center || poiData.location;
+  //   
+  //   try {
+  //     const roadsResponse = await this.googleAPIs.getNearestRoads([centerPoint]);
+  //     
+  //     if (roadsResponse.success && roadsResponse.data?.snappedPoints && roadsResponse.data.snappedPoints.length > 0) {
+  //       const snappedPoint = roadsResponse.data.snappedPoints[0];
+  //       const streetLocation = {
+  //         lat: snappedPoint.location.latitude,
+  //         lng: snappedPoint.location.longitude
+  //       };
+  //       
+  //       const distance = calculateDistance(centerPoint, streetLocation);
+  //       console.log(`✅ Found nearest street at ${distance.toFixed(0)}m from POI (using ${boundary ? 'boundary.center' : 'poiData.location'})`);
+  //       
+  //       // Criar APENAS 1 TP simples
+  //       const triggerPoint: TriggerPoint = {
+  //         id: 'google_fallback_1',
+  //         location: streetLocation,
+  //         radius: 30, // Raio generoso para compensar imprecisão
+  //         expectedBearing: calculateBearing(streetLocation, centerPoint),
+  //         bearingThreshold: 90, // Muito tolerante
+  //         type: 'primary',
+  //         priority: 1,
+  //         confidence: 0.7, // Boa confiança - Google Roads é preciso
+  //         quality: 0.7,
+  //         street: {
+  //           id: snappedPoint.placeId || 'google_road',
+  //           type: 'primary',
+  //           coordinates: [streetLocation],
+  //           accessibility: 'public',
+  //           confidence: 0.8
+  //         },
+  //         distance,
+  //         generationMethod: 'google_apis',
+  //         contextData: context,
+  //         createdAt: new Date().toISOString(),
+  //         updatedAt: new Date().toISOString()
+  //       };
+  //       
+  //       console.log(`✅ Created 1 GOOGLE FALLBACK TP at ${streetLocation.lat.toFixed(6)}, ${streetLocation.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
+  //       return [triggerPoint];
+  //       
+  //     } else {
+  //       console.warn('⚠️ Google Roads failed, creating minimal directional TP');
+  //       return this.createMinimalDirectionalTP(poiData, context, boundary);
+  //     }
+  //     
+  //   } catch (error) {
+  //     console.warn('Google Roads fallback failed:', error);
+  //     return this.createMinimalDirectionalTP(poiData, context, boundary);
+  //   }
+  // }
 
   /**
    * Cria 1 TP mínimo quando nem Google Roads funciona
@@ -420,12 +474,13 @@ export class CoreTriggerPointPredictor {
   }
 
   /**
-   * Gera trigger points de fallback INTELIGENTE - apenas 1-2 TPs na rua mais próxima (LEGACY)
+   * Gera trigger points de fallback INTELIGENTE - apenas 1-2 TPs na rua mais próxima (OTIMIZADO)
    */
   private async generateFallbackTriggerPoints(
     poiData: POIData, 
     boundary: any, 
-    context: any
+    context: any,
+    existingStreets?: any[]
   ): Promise<TriggerPoint[]> {
     console.log('🎯 Generating SMART fallback trigger points for small/unfound POI...');
     
@@ -434,8 +489,23 @@ export class CoreTriggerPointPredictor {
     console.log(`📍 POI location: ${poiData.name} at ${centerPoint.lat.toFixed(6)}, ${centerPoint.lng.toFixed(6)} (${boundary ? 'boundary.center' : 'poiData.location'})`);
     
     try {
-      // Estratégia 1: Encontrar a rua mais próxima do POI
-      const nearestStreet = await this.findNearestStreetToPOI(centerPoint);
+      // OTIMIZADO: Usar dados já obtidos do boundary detection
+      let streets = existingStreets;
+      if (!streets || streets.length === 0) {
+        // Verificar se temos dados consolidados do boundary
+        if (boundary?.streets && boundary.streets.length > 0) {
+          console.log(`✅ Using consolidated streets from boundary: ${boundary.streets.length} streets`);
+          console.log(`🚀 CONSOLIDATION BENEFIT: Avoided OSM request in fallback for ${boundary.streets.length} streets`);
+          streets = boundary.streets;
+        } else {
+          console.log('🔍 No existing streets data, using boundary data instead of OSM query...');
+          // Usar dados do boundary já obtidos em vez de fazer nova consulta OSM
+          streets = this.createStreetsFromBoundaryData(boundary, centerPoint);
+        }
+      }
+      
+      // Estratégia 1: Encontrar a rua mais próxima do POI usando dados já obtidos
+      const nearestStreet = this.findNearestStreetToPOIFromData(centerPoint, streets || []);
       
       if (nearestStreet && nearestStreet.coordinates.length > 0) {
         console.log(`🛣️ Found nearest street: ${nearestStreet.id || 'unnamed'}`);
@@ -444,28 +514,167 @@ export class CoreTriggerPointPredictor {
       
       // Estratégia 2: Se não encontrou rua, criar apenas 1 TP na direção da rua principal
       console.log('⚠️ No nearby street found, creating single directional TP');
-      return this.createSingleDirectionalTP(poiData, context, boundary);
+      return await this.createSingleDirectionalTP(poiData, context, boundary, streets || []);
       
     } catch (error) {
       console.warn('Smart fallback failed, using minimal fallback:', error);
-      return this.createSingleDirectionalTP(poiData, context, boundary);
+      return await this.createSingleDirectionalTP(poiData, context, boundary);
     }
   }
 
   /**
-   * Cria 1 TP direcional simples (fallback)
+   * Cria 1 TP direcional simples (fallback) - OTIMIZADO: usa dados OSM já obtidos
    */
-  private createSingleDirectionalTP(poiData: POIData, context: any, boundary?: BoundaryData): TriggerPoint[] {
-    console.log('🎯 Creating single directional TP (fallback)');
+  private async createSingleDirectionalTP(poiData: POIData, context: any, boundary?: BoundaryData, existingStreets?: any[]): Promise<TriggerPoint[]> {
+    console.log('🎯 Creating single directional TP (fallback) - USING EXISTING OSM DATA');
     
     // USAR BOUNDARY.CENTER em vez de poiData.location
     const centerPoint = boundary?.center || poiData.location;
     console.log(`📍 Using ${boundary ? 'boundary.center' : 'poiData.location'} for TP calculation`);
     
-    // Criar 1 TP a 50m na direção mais provável (sul - direção de aproximação comum)
-    const direction = 180; // Sul
+    // OTIMIZADO: Usar dados de ruas já obtidos se disponíveis
+    let streets = existingStreets;
+    if (!streets || streets.length === 0) {
+      // Verificar se temos dados consolidados do boundary
+      if (boundary?.streets && boundary.streets.length > 0) {
+        console.log(`✅ Using consolidated streets from boundary: ${boundary.streets.length} streets`);
+        console.log(`🚀 CONSOLIDATION BENEFIT: Avoided OSM request for ${boundary.streets.length} streets`);
+        streets = boundary.streets;
+      } else {
+        console.log('🔍 No existing streets data, using fallback without street validation...');
+        streets = []; // Não fazer nova consulta OSM para evitar rate limiting
+      }
+    } else {
+      console.log(`✅ Using existing streets data: ${streets.length} streets available`);
+    }
+    
+    // Tentar múltiplas direções até encontrar uma rua
+    const directions = [0, 45, 90, 135, 180, 225, 270, 315]; // 8 direções
     const distance = 50; // metros
-    const point = this.calculatePointAtDistance(centerPoint, distance, direction);
+    
+    for (const direction of directions) {
+      const point = this.calculatePointAtDistance(centerPoint, distance, direction);
+      
+      // OTIMIZADO: Validar usando dados já obtidos
+      const isOnStreet = this.validatePointOnStreetFromData(point, streets);
+      const isOutsideBoundary = boundary ? this.isPointOutsideBoundary(point, boundary) : true;
+      
+      if (isOnStreet && isOutsideBoundary) {
+        console.log(`✅ Found valid street location at direction ${direction}° (outside boundary)`);
+        return this.createTPAtPoint(point, direction, distance, poiData, context, boundary);
+      } else {
+        if (!isOnStreet) {
+          console.log(`❌ Direction ${direction}° not on street, trying next...`);
+        } else if (!isOutsideBoundary) {
+          console.log(`❌ Direction ${direction}° inside boundary, trying next...`);
+        }
+      }
+    }
+    
+    // Se nenhuma direção funcionou, usar a direção original mas com aviso
+    console.warn('⚠️ No street found in any direction, using original fallback with WARNING');
+    const point = this.calculatePointAtDistance(centerPoint, distance, 180);
+    return this.createTPAtPoint(point, 180, distance, poiData, context, boundary);
+  }
+  
+  /**
+   * NOVA: Valida se um ponto está em uma rua usando dados já obtidos (OTIMIZADO)
+   */
+  private validatePointOnStreetFromData(point: { lat: number; lng: number }, streets: any[]): boolean {
+    if (!streets || streets.length === 0) {
+      return false;
+    }
+    
+    // Verificar se o ponto está próximo a alguma rua (20m radius)
+    const radius = 20; // metros
+    
+    for (const street of streets) {
+      if (!street.coordinates || street.coordinates.length === 0) continue;
+      
+      // Verificar se o ponto está próximo a qualquer coordenada da rua
+      for (const coord of street.coordinates) {
+        const distance = calculateDistance(point, coord);
+        if (distance <= radius) {
+          // Verificar se é uma rua válida
+          const tags = street.tags || {};
+          const highway = (tags as any).highway;
+          
+          const validHighwayTypes = [
+            'primary', 'secondary', 'tertiary', 'residential', 'unclassified',
+            'trunk', 'motorway', 'primary_link', 'secondary_link', 'tertiary_link',
+            'living_street', 'pedestrian', 'service', 'track'
+          ];
+          
+          if (validHighwayTypes.includes(highway)) {
+            return true;
+          }
+        }
+      }
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Valida se um ponto está em uma rua real (CORRIGIDO: validação mais rigorosa)
+   */
+  private async validatePointOnStreet(point: { lat: number; lng: number }, boundary?: BoundaryData): Promise<boolean> {
+    try {
+      // Buscar ruas próximas ao ponto
+      const streets = await this.streetAnalyzer.getStreetsFromOSMOptimized(point, 20, boundary); // 20m radius
+      
+      if (!streets || streets.length === 0) {
+        console.log(`❌ No streets found near point ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}`);
+        return false;
+      }
+      
+      // CORRIGIDO: Validar se são ruas reais (highway tags)
+      const realStreets = streets.filter(street => {
+        const tags = street.tags || {};
+        const highway = (tags as any).highway;
+        
+        // Aceitar apenas tipos de rua válidos
+        const validHighwayTypes = [
+          'primary', 'secondary', 'tertiary', 'residential', 'unclassified',
+          'trunk', 'motorway', 'primary_link', 'secondary_link', 'tertiary_link',
+          'living_street', 'pedestrian', 'service', 'track'
+        ];
+        
+        const isValidHighway = validHighwayTypes.includes(highway);
+        
+        if (!isValidHighway) {
+          console.log(`❌ Invalid street type: ${highway} (${(tags as any).name || 'unnamed'})`);
+        } else {
+          console.log(`✅ Valid street: ${highway} (${(tags as any).name || 'unnamed'})`);
+        }
+        
+        return isValidHighway;
+      });
+      
+      const hasValidStreets = realStreets.length > 0;
+      console.log(`🛣️ Street validation: ${realStreets.length}/${streets.length} valid streets found`);
+      
+      return hasValidStreets;
+    } catch (error) {
+      console.warn('Error validating point on street:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Verifica se um ponto está fora do boundary
+   */
+  private isPointOutsideBoundary(point: { lat: number; lng: number }, boundary: BoundaryData): boolean {
+    // Usar a função existente de cálculos
+    const { isPointInPolygon } = require('../utils/calculations');
+    const isInside = isPointInPolygon(point, boundary.coordinates);
+    return !isInside;
+  }
+
+  /**
+   * Cria TP em um ponto específico
+   */
+  private createTPAtPoint(point: { lat: number; lng: number }, direction: number, distance: number, poiData: POIData, context: any, boundary?: BoundaryData): TriggerPoint[] {
     
     const triggerPoint: TriggerPoint = {
       id: 'minimal_fallback_1',
@@ -491,41 +700,167 @@ export class CoreTriggerPointPredictor {
       updatedAt: new Date().toISOString()
     };
     
-    console.log(`✅ Created 1 DIRECTIONAL TP at ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)} (${distance}m from ${boundary ? 'boundary.center' : 'POI'})`);
+    console.log(`✅ Created 1 VALIDATED DIRECTIONAL TP at ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)} (${distance}m from ${boundary ? 'boundary.center' : 'POI'}, direction: ${direction}°)`);
     return [triggerPoint];
   }
 
   /**
-   * NOVA: Encontrar a rua mais próxima do POI usando Google Roads API
+   * NOVA: Criar dados de ruas usando informações já obtidas do boundary
+   */
+  private createStreetsFromBoundaryData(boundary: any, centerPoint: { lat: number; lng: number }): any[] {
+    // Verificar se temos dados de rua no boundary
+    const streetName = boundary?.street || boundary?.primaryStreet;
+    
+    if (!boundary || !streetName) {
+      console.log('🔍 No boundary street data available, creating minimal street data...');
+      return [];
+    }
+
+    console.log(`✅ Using street from boundary: ${streetName}`);
+    
+    // Criar dados de rua baseados no boundary e rua principal
+    const streetData = {
+      id: `boundary_street_${streetName.toLowerCase().replace(/\s+/g, '_')}`,
+      name: streetName,
+      type: 'primary', // Assumir que é uma rua principal
+      coordinates: boundary.coordinates ? boundary.coordinates.slice(0, 2) : [centerPoint], // Usar primeiras coordenadas do boundary
+      accessibility: 'public',
+      confidence: 0.8,
+      tags: {
+        highway: 'primary',
+        name: streetName
+      }
+    };
+
+    console.log(`✅ Created street data from boundary: ${streetData.name} (${streetData.coordinates.length} coordinates)`);
+    return [streetData];
+  }
+
+  /**
+   * NOVA: Encontrar a rua mais próxima do POI usando dados já obtidos (OTIMIZADO)
+   */
+  private findNearestStreetToPOIFromData(poiLocation: { lat: number; lng: number }, streets: any[]): any | null {
+    if (!streets || streets.length === 0) {
+      return null;
+    }
+    
+    console.log(`🔍 Analyzing ${streets.length} streets found by OSM...`);
+    
+    let nearestStreet = null;
+    let minDistance = Infinity;
+    const streetDistances: Array<{name: string, distance: number, type: string, visibility: string}> = [];
+    
+    for (const street of streets) {
+      if (!street.coordinates || street.coordinates.length === 0) continue;
+      
+      // Calcular distância do POI para a rua (usar primeira coordenada como referência)
+      const streetPoint = street.coordinates[0];
+      const distance = calculateDistance(poiLocation, streetPoint);
+      
+      const streetName = street.name || street.id || 'unnamed';
+      const streetType = (street.tags as any)?.highway || 'unknown';
+      
+      // Analisar visibilidade básica
+      let visibility = '✅ Good';
+      
+      // Verificar se está em túnel ou coberto
+      if ((street.tags as any)?.tunnel === 'yes' || (street.tags as any)?.covered === 'yes') {
+        visibility = '🚫 Blocked (tunnel/covered)';
+      }
+      // Verificar se está em viaduto elevado
+      else if ((street.tags as any)?.bridge === 'yes' || ((street.tags as any)?.layer && parseInt((street.tags as any).layer) > 0)) {
+        visibility = '⚠️ Elevated (bridge/viaduct)';
+      }
+      // Verificar se é rua muito estreita
+      else if ((street.tags as any)?.width && parseInt((street.tags as any).width) < 3) {
+        visibility = '⚠️ Narrow street';
+      }
+      // Verificar se tem obstruções
+      else if ((street.tags as any)?.barrier === 'yes' || (street.tags as any)?.access === 'no') {
+        visibility = '🚫 Blocked (barrier/no access)';
+      }
+      
+      streetDistances.push({
+        name: streetName,
+        distance: distance,
+        type: streetType,
+        visibility: visibility
+      });
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestStreet = street;
+      }
+    }
+    
+    // Mostrar todas as ruas encontradas ordenadas por distância
+    streetDistances.sort((a, b) => a.distance - b.distance);
+    console.log(`📍 All streets found (sorted by distance):`);
+    streetDistances.forEach((street, index) => {
+      const marker = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '📍';
+      console.log(`  ${marker} ${street.name} (${street.type}) - ${street.distance.toFixed(0)}m - ${street.visibility}`);
+    });
+    
+    if (nearestStreet) {
+      console.log(`✅ Selected nearest road: ${nearestStreet.name || nearestStreet.id} (${(nearestStreet.tags as any)?.highway}) at ${minDistance.toFixed(0)}m`);
+    }
+    
+    return nearestStreet;
+  }
+
+  /**
+   * NOVA: Encontrar a rua mais próxima do POI usando OSM (sem Google Roads API)
    */
   private async findNearestStreetToPOI(poiLocation: { lat: number; lng: number }): Promise<any | null> {
     try {
-      console.log('🔍 Searching for nearest street using Google Roads API...');
+      console.log('🔍 Searching for nearest street using OSM...');
       
-      const roadsResponse = await this.googleAPIs.getNearestRoads([poiLocation]);
+      // Query OSM para buscar ruas próximas ao POI
+      const query = `
+[out:json][timeout:15];
+(
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:200,${poiLocation.lat},${poiLocation.lng});
+);
+out geom tags;
+`;
       
-      if (roadsResponse.success && roadsResponse.data?.snappedPoints && roadsResponse.data.snappedPoints.length > 0) {
-        const snappedPoint = roadsResponse.data.snappedPoints[0];
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: query,
+        headers: { 'Content-Type': 'text/plain' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const roads = data.elements || [];
         
-        console.log(`✅ Found nearest road point: ${snappedPoint.location.latitude.toFixed(6)}, ${snappedPoint.location.longitude.toFixed(6)}`);
-        
-        return {
-          id: snappedPoint.placeId || 'google_road',
-          type: 'primary',
-          coordinates: [{
-            lat: snappedPoint.location.latitude,
-            lng: snappedPoint.location.longitude
-          }],
-          accessibility: 'public',
-          confidence: 0.8
-        };
+        if (roads.length > 0) {
+          // Pegar a rua mais próxima
+          const nearestRoad = roads[0];
+          
+          // Converter geometria OSM para formato esperado
+          const coordinates = nearestRoad.geometry ? nearestRoad.geometry.map((point: any) => ({
+            lat: point.lat,
+            lng: point.lon
+          })) : [];
+          
+          console.log(`✅ Found nearest road: ${nearestRoad.tags?.name || 'unnamed'} (${nearestRoad.tags?.highway})`);
+          
+          return {
+            id: nearestRoad.id.toString(),
+            type: nearestRoad.tags?.highway || 'road',
+            coordinates,
+            accessibility: 'public',
+            confidence: 0.8
+          };
+        }
       }
       
-      console.warn('No roads found near POI');
+      console.warn('No roads found near POI via OSM');
       return null;
       
     } catch (error) {
-      console.warn('Error finding nearest street:', error);
+      console.warn('Error finding nearest street via OSM:', error);
       return null;
     }
   }
@@ -632,6 +967,53 @@ export class CoreTriggerPointPredictor {
     };
   }
   
+  /**
+   * Valida se os candidatos estão realmente em ruas (NOVO PASSO 5)
+   */
+  private async validateCandidatesOnStreets(
+    candidates: TriggerPointCandidate[], 
+    accessibleStreets: StreetData[]
+  ): Promise<TriggerPointCandidate[]> {
+    console.log(`🛣️ Validating ${candidates.length} candidates are on ${accessibleStreets.length} streets...`);
+    
+    const validatedCandidates: TriggerPointCandidate[] = [];
+    
+    for (const candidate of candidates) {
+      const isValidOnStreet = this.isCandidateOnStreet(candidate, accessibleStreets);
+      
+      if (isValidOnStreet) {
+        validatedCandidates.push(candidate);
+        // console.log(`✅ Candidate validated on street: ${candidate.street.name || candidate.street.id}`);
+      } else {
+        //console.log(`❌ Candidate rejected: not on any street (${candidate.location.lat.toFixed(6)}, ${candidate.location.lng.toFixed(6)})`);
+      }
+    }
+    
+    console.log(`🛣️ Street validation complete: ${validatedCandidates.length}/${candidates.length} candidates on streets`);
+    return validatedCandidates;
+  }
+  
+  /**
+   * Verifica se um candidato está em uma das ruas acessíveis
+   */
+  private isCandidateOnStreet(candidate: TriggerPointCandidate, accessibleStreets: StreetData[]): boolean {
+    const candidateLocation = candidate.location;
+    const maxDistanceFromStreet = TRIGGER_POINTS_CONSTANTS.distances.maxDistanceFromStreet;
+    
+    for (const street of accessibleStreets) {
+      // Verificar se o candidato está próximo a qualquer ponto da rua
+      for (const streetPoint of street.coordinates) {
+        const distance = calculateDistance(candidateLocation, streetPoint);
+        
+        if (distance <= maxDistanceFromStreet) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
   /**
    * Aplica opções de filtro aos trigger points
    */
