@@ -274,3 +274,4 @@ export class GeoJSONPreview {
     return ((value / total) * 100).toFixed(1);
   }
 }
+

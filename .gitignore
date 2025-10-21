@@ -1,55 +1,21 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+# Dependencies
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# local env files
+# Environment variables
 .env
 .env.local
-.env*.local
-.env.development
-.env.production
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Google Service Account credentials (security)
-*.json
-!package.json
-!package-lock.json
-!tsconfig.json
-!next.config.js
-!tailwind.config.js
-!postcss.config.js
-!.eslintrc.json
-
-# logs
-*.log
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# Build outputs
+dist/
+build/
+.next/
+out/
 
 # IDE
 .vscode/
@@ -58,9 +24,26 @@ next-env.d.ts
 *.swo
 
 # OS
+.DS_Store
 Thumbs.db
 
-# OSM Data files (large files)
-omsData/
-*.osm.pbf
-*.osm
+# OSM Data Processing - Large files
+output/*.geojson
+output/*.osm.pbf
+output/*.pbf
+output/chunks/
+output/preview-*.txt
+output/category-analysis-*.txt
+output/all-categories.txt
+
+# Keep documentation and configs
+!output/*.md
+!output/README.md
+
+# OSM Data files (keep structure, exclude large data)
+omsData/*.geojson
+omsData/*.osm.pbf
+omsData/*.pbf
+
+# Deno
+deno.lock

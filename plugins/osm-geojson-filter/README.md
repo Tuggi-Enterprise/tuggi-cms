@@ -114,3 +114,4 @@ plugins/osm-geojson-filter/
 ## License
 
 MIT License - Feel free to use and modify.
+

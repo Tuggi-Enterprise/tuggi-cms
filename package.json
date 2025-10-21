@@ -30,6 +30,8 @@
     "poi-validation:resume": "tsx --env-file=.env scripts/poi-name-validation.ts -- --resume",
     "poi-validation:high-threshold": "tsx --env-file=.env scripts/poi-name-validation.ts -- --threshold=85",
     "poi-validation:review": "tsx --env-file=.env scripts/poi-validation-review.ts",
+    "osm:pbf": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts pbf",
+    "osm:split": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts split",
     "osm:preview": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts preview",
     "osm:analyze": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts analyze",
     "osm:filter": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts filter",

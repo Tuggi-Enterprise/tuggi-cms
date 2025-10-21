@@ -84,3 +84,4 @@ export interface ValidationResult {
 
 export type FilterMode = "preview" | "analyze" | "filter" | "config";
 export type ConfigAction = "list" | "create" | "edit" | "delete" | "show";
+

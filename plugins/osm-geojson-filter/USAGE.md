@@ -171,3 +171,4 @@ This plugin is designed to work alongside your existing Tuggi CMS project:
 4. **Process with AI**: Use your existing description and trigger points services
 
 The filtered GeoJSON files can be processed by your existing `POIImportService` and other services in the Tuggi CMS project.
+

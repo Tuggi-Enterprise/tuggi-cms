@@ -12,6 +12,8 @@ import { GeoJSONPreview } from "./lib/geojson-preview.ts";
 import { CategoryAnalyzer } from "./lib/category-analyzer.ts";
 import { FilterEngine } from "./lib/filters.ts";
 import { GeoJSONReader } from "./lib/geojson-reader.ts";
+import { SimpleSplitter } from "./lib/simple-splitter.ts";
+import { PBFProcessor } from "./lib/pbf-processor.ts";
 import { FilterConfig, FilterMode } from "./lib/types.ts";
 
 class OSMGeoJSONFilter {
@@ -51,6 +53,12 @@ class OSMGeoJSONFilter {
           break;
         case "config":
           await this.configMode(args.slice(1));
+          break;
+        case "split":
+          await this.splitMode(args.slice(1));
+          break;
+        case "pbf":
+          await this.pbfMode(args.slice(1));
           break;
         default:
           console.error(`❌ Unknown mode: ${mode}`);
@@ -274,6 +282,95 @@ class OSMGeoJSONFilter {
   }
 
   /**
+   * Split mode - break large GeoJSON into manageable chunks
+   */
+  private async splitMode(args: string[]): Promise<void> {
+    const filePath = args[0];
+    const chunkSize = args[1] ? parseInt(args[1]) : 10000;
+    
+    if (!filePath) {
+      console.error("❌ Please provide a GeoJSON file path");
+      console.log("Usage: deno run filter-geojson.ts split <file-path> [chunk-size]");
+      Deno.exit(1);
+    }
+
+    console.log("✂️ Split Mode - Breaking large GeoJSON into chunks...\n");
+    
+    const splitter = new SimpleSplitter();
+    const result = await splitter.splitFile(filePath, chunkSize);
+    
+    console.log(`\n📊 Split Results:`);
+    console.log(`   Total features: ${result.totalFeatures.toLocaleString()}`);
+    console.log(`   Chunks created: ${result.chunks.length}`);
+    console.log(`   Processing time: ${result.processingTime}ms`);
+    console.log(`   Chunk directory: ${splitter['outputDir']}`);
+    
+    // Show recommendations for very large files
+    splitter.printRecommendations();
+  }
+
+  /**
+   * PBF mode - process OSM PBF files efficiently
+   */
+  private async pbfMode(args: string[]): Promise<void> {
+    const action = args[0] || "info";
+    const filePath = args[1];
+    
+    if (!filePath) {
+      console.error("❌ Please provide a PBF file path");
+      console.log("Usage: deno run filter-geojson.ts pbf <action> <file-path>");
+      Deno.exit(1);
+    }
+
+    console.log("🗺️ PBF Mode - Processing OSM PBF files...\n");
+    
+    const processor = new PBFProcessor();
+    
+    // Check if osmium-tool is available
+    const hasOsmium = await processor.checkOsmiumTool();
+    if (!hasOsmium) {
+      console.log("⚠️ osmium-tool not found. Installing...");
+      const installed = await processor.installOsmiumTool();
+      if (!installed) {
+        console.log("❌ Could not install osmium-tool automatically");
+        processor.printRecommendations();
+        return;
+      }
+    }
+    
+    switch (action) {
+      case "info":
+        await processor.getFileInfo(filePath);
+        break;
+      case "tags":
+        await processor.showAvailableTags(filePath);
+        break;
+      case "extract":
+        const tags = args.slice(2);
+        if (tags.length === 0) {
+          console.error("❌ Please provide tags to extract");
+          console.log("Usage: deno run filter-geojson.ts pbf extract <file-path> <tag1> <tag2> ...");
+          Deno.exit(1);
+        }
+        await processor.extractTags(filePath, tags);
+        break;
+      case "bounds":
+        const bounds = {
+          north: parseFloat(args[2]) || -23.0,
+          south: parseFloat(args[3]) || -24.0,
+          east: parseFloat(args[4]) || -46.0,
+          west: parseFloat(args[5]) || -47.5
+        };
+        await processor.extractByBounds(filePath, bounds);
+        break;
+      default:
+        console.error(`❌ Unknown PBF action: ${action}`);
+        console.log("Available actions: info, tags, extract, bounds");
+        Deno.exit(1);
+    }
+  }
+
+  /**
    * Print configuration details
    */
   private printConfiguration(config: FilterConfig): void {
@@ -309,12 +406,26 @@ USAGE:
   deno run --allow-read --allow-write filter-geojson.ts <mode> [options]
 
 MODES:
+  pbf <action> <file-path>      Process OSM PBF files efficiently (RECOMMENDED)
+  split <file-path> [size]      Split large GeoJSON into manageable chunks
   preview <file-path>           Preview file structure and validate data
   analyze <file-path>           Analyze all categories and generate statistics  
   filter <file-path> [config]   Apply filters and generate filtered output
   config <action> [options]     Manage saved configurations
 
 EXAMPLES:
+  # PBF Processing (RECOMMENDED for large files)
+  deno run --allow-read --allow-write filter-geojson.ts pbf info omsData/sudeste-251012.osm.pbf
+  deno run --allow-read --allow-write filter-geojson.ts pbf tags omsData/sudeste-251012.osm.pbf
+  deno run --allow-read --allow-write filter-geojson.ts pbf extract omsData/sudeste-251012.osm.pbf tourism historic
+  deno run --allow-read --allow-write filter-geojson.ts pbf bounds omsData/sudeste-251012.osm.pbf -23.0 -24.0 -46.0 -47.5
+
+  # Split large GeoJSON into chunks (10,000 features per chunk)
+  deno run --allow-read --allow-write filter-geojson.ts split data.geojson
+
+  # Split with custom chunk size (5,000 features per chunk)
+  deno run --allow-read --allow-write filter-geojson.ts split data.geojson 5000
+
   # Preview a GeoJSON file
   deno run --allow-read --allow-write filter-geojson.ts preview data.geojson
 
@@ -364,3 +475,4 @@ if (import.meta.main) {
   const app = new OSMGeoJSONFilter();
   await app.run();
 }
+

@@ -329,3 +329,4 @@ export class CategoryAnalyzer {
     console.log(`\n💾 Category analysis report saved to: ${reportPath}`);
   }
 }
+
