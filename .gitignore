@@ -53,4 +53,4 @@ scripts/*.json
 scripts/*.txt
 scripts/*.log
 tsconfig.tsbuildinfo
-next-env.d.ts
+next-env.d.tsoutput/uploads/
