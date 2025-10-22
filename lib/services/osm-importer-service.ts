@@ -33,13 +33,26 @@ export class OSMImporterService {
     // Handle both direct properties and nested tags structure
     const tags = properties.tags || properties
     
-    return {
+    const result = {
       name: tags.name || tags['name:en'] || tags['name:pt'] || null,
       city: tags['addr:city'] || tags['is_in:city'] || tags['addr:suburb'] || null,
       state: tags['addr:state'] || tags['is_in:state'] || tags['addr:province'] || null,
       country: tags['addr:country'] || tags['is_in:country'] || null,
       address: tags['addr:full'] || tags['addr:street'] || null
     }
+    
+    // Debug log for troubleshooting
+    if (result.name || result.city || result.state || result.country) {
+      console.log('🔍 EXTRACTED LOCATION:', {
+        name: result.name,
+        city: result.city,
+        state: result.state,
+        country: result.country,
+        rawProperties: Object.keys(tags).slice(0, 10) // First 10 keys for debugging
+      })
+    }
+    
+    return result
   }
 
   /**
