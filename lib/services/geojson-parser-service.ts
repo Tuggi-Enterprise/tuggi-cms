@@ -51,9 +51,13 @@ export class GeoJSONParserService {
     const cities = new Set<string>()
     
     features.forEach(f => {
-      const city = f.properties.tags['addr:city'] || 
-                   f.properties.tags['is_in:city'] ||
-                   f.properties.tags['addr:suburb']
+      // GeoJSON properties are directly in f.properties, not f.properties.tags
+      const props = f.properties || {}
+      const city = props['addr:city'] || 
+                   props['is_in:city'] ||
+                   props['addr:suburb'] ||
+                   props['city'] ||
+                   props['place']
       if (city) cities.add(city)
     })
     
@@ -65,11 +69,13 @@ export class GeoJSONParserService {
    */
   extractOSMCategories(features: OSMFeature[]): OSMCategory[] {
     const categories = new Map<string, number>()
-    const priorityKeys = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'shop', 'craft', 'office']
+    const priorityKeys = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'shop', 'craft', 'office', 'highway', 'barrier', 'crossing', 'waterway', 'railway', 'public_transport', 'man_made', 'landuse', 'building']
 
     features.forEach(f => {
+      // GeoJSON properties are directly in f.properties, not f.properties.tags
+      const props = f.properties || {}
       for (const key of priorityKeys) {
-        const value = f.properties.tags[key]
+        const value = props[key]
         if (value) {
           const category = `${key}=${value}`
           categories.set(category, (categories.get(category) || 0) + 1)
@@ -187,9 +193,13 @@ export class GeoJSONParserService {
     // City filter
     if (filters.cities && filters.cities.length > 0) {
       filtered = filtered.filter(f => {
-        const city = f.properties.tags['addr:city'] || 
-                     f.properties.tags['is_in:city'] ||
-                     f.properties.tags['addr:suburb']
+        // GeoJSON properties are directly in f.properties, not f.properties.tags
+        const props = f.properties || {}
+        const city = props['addr:city'] || 
+                     props['is_in:city'] ||
+                     props['addr:suburb'] ||
+                     props['city'] ||
+                     props['place']
         return city && filters.cities!.includes(city)
       })
     }
@@ -197,9 +207,11 @@ export class GeoJSONParserService {
     // Category filter
     if (filters.categories && filters.categories.length > 0) {
       filtered = filtered.filter(f => {
+        // GeoJSON properties are directly in f.properties, not f.properties.tags
+        const props = f.properties || {}
         return filters.categories!.some(cat => {
           const [key, value] = cat.split('=')
-          return f.properties.tags[key] === value
+          return props[key] === value
         })
       })
     }
@@ -207,11 +219,15 @@ export class GeoJSONParserService {
     // Search term
     if (filters.search_term) {
       const term = filters.search_term.toLowerCase()
-      filtered = filtered.filter(f => 
-        f.properties.tags.name?.toLowerCase().includes(term) ||
-        f.properties.tags['name:en']?.toLowerCase().includes(term) ||
-        f.properties.tags['name:pt']?.toLowerCase().includes(term)
-      )
+      filtered = filtered.filter(f => {
+        // GeoJSON properties are directly in f.properties, not f.properties.tags
+        const props = f.properties || {}
+        return props.name?.toLowerCase().includes(term) ||
+               props['name:en']?.toLowerCase().includes(term) ||
+               props['name:pt']?.toLowerCase().includes(term) ||
+               props['name:de']?.toLowerCase().includes(term) ||
+               props['name:fr']?.toLowerCase().includes(term)
+      })
     }
 
     // Bounding box filter

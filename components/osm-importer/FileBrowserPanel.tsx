@@ -20,7 +20,9 @@ interface FileBrowserPanelProps {
   collapsed: boolean
   onToggleCollapse: () => void
   onFileSelect: (filename: string, type: 'geojson' | 'pbf') => void
+  onFileUpload?: (file: File) => void
   selectedFile?: string
+  isLoading?: boolean
 }
 
 interface FileInfo {
@@ -35,7 +37,9 @@ export function FileBrowserPanel({
   collapsed, 
   onToggleCollapse, 
   onFileSelect, 
-  selectedFile 
+  onFileUpload,
+  selectedFile,
+  isLoading = false
 }: FileBrowserPanelProps) {
   const [files, setFiles] = useState<FileInfo[]>([])
   const [loading, setLoading] = useState(false)
@@ -46,6 +50,19 @@ export function FileBrowserPanel({
   useEffect(() => {
     loadFiles()
   }, [])
+
+  const handleFileUpload = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.geojson,.json,.pbf'
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0]
+      if (file && onFileUpload) {
+        onFileUpload(file)
+      }
+    }
+    input.click()
+  }
 
   const loadFiles = async () => {
     setLoading(true)
@@ -139,7 +156,10 @@ export function FileBrowserPanel({
         </div>
 
         {/* Upload Button */}
-        <Button className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition">
+        <Button 
+          onClick={handleFileUpload}
+          className="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition"
+        >
           <Upload className="w-4 h-4" />
           Upload File
         </Button>
@@ -171,6 +191,7 @@ export function FileBrowserPanel({
               modified={formatDate(file.modified)}
               type={file.type}
               selected={selectedFile === file.filename}
+              loading={isLoading && selectedFile === file.filename}
               onClick={() => onFileSelect(file.filename, file.type)}
             />
           ))}
@@ -191,6 +212,7 @@ export function FileBrowserPanel({
               modified={formatDate(file.modified)}
               type={file.type}
               selected={selectedFile === file.filename}
+              loading={isLoading && selectedFile === file.filename}
               onClick={() => onFileSelect(file.filename, file.type)}
             />
           ))}
@@ -211,6 +233,7 @@ export function FileBrowserPanel({
               modified={formatDate(file.modified)}
               type={file.type}
               selected={selectedFile === file.filename}
+              loading={isLoading && selectedFile === file.filename}
               onClick={() => onFileSelect(file.filename, file.type)}
             />
           ))}
@@ -283,6 +306,7 @@ function FileTreeItem({
   modified, 
   type,
   selected = false, 
+  loading = false,
   onClick 
 }: {
   name: string
@@ -290,20 +314,27 @@ function FileTreeItem({
   modified: string
   type: 'geojson' | 'pbf'
   selected?: boolean
+  loading?: boolean
   onClick: () => void
 }) {
   return (
     <button 
       onClick={onClick}
+      disabled={loading}
       className={cn(
         "w-full flex items-center justify-between px-2 py-1.5 text-sm rounded-lg transition group",
         selected 
           ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"
-          : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+          : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300",
+        loading && "opacity-50 cursor-not-allowed"
       )}
     >
       <div className="flex items-center gap-2 min-w-0">
-        <File className="w-4 h-4 flex-shrink-0 text-gray-400" />
+        {loading ? (
+          <RefreshCw className="w-4 h-4 flex-shrink-0 text-blue-500 animate-spin" />
+        ) : (
+          <File className="w-4 h-4 flex-shrink-0 text-gray-400" />
+        )}
         <span className="truncate">{name}</span>
         <span className={cn(
           "text-xs px-1.5 py-0.5 rounded",

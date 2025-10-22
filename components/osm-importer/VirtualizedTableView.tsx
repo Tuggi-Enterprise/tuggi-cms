@@ -15,7 +15,7 @@ import {
   MapPin, Tag, Calendar, AlertCircle 
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useOSMImporter } from '@/lib/hooks/use-osm-importer'
+import { useOSMImporterUnified } from '@/lib/hooks/use-osm-importer-unified'
 import { EditableOSMPOI } from '@/types/osm-importer'
 
 interface VirtualizedTableViewProps {
@@ -226,7 +226,7 @@ export function VirtualizedTableView({
     editPOI,
     getPrimaryCategory,
     extractLocationFromOSMTags
-  } = useOSMImporter()
+  } = useOSMImporterUnified()
 
   // Sort features
   const sortedFeatures = useMemo(() => {
@@ -271,11 +271,7 @@ export function VirtualizedTableView({
   }, [extractLocationFromOSMTags])
 
   const handleSave = useCallback((poiId: string) => {
-    Object.entries(editValues).forEach(([field, value]) => {
-      if (value !== '') {
-        editPOI(poiId, field, value)
-      }
-    })
+    editPOI(poiId, editValues)
     setEditingId(null)
     setEditValues({})
   }, [editValues, editPOI])

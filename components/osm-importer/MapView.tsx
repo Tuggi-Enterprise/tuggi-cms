@@ -10,7 +10,7 @@
 
 import { useMemo } from 'react'
 import { OSMPOIMap } from './OSMPOIMap'
-import { useOSMImporter } from '@/lib/hooks/use-osm-importer'
+import { useOSMImporterUnified } from '@/lib/hooks/use-osm-importer-unified'
 
 export function MapView() {
   const {
@@ -19,7 +19,7 @@ export function MapView() {
     toggleSelection,
     extractLocationFromOSMTags,
     getPrimaryCategory
-  } = useOSMImporter()
+  } = useOSMImporterUnified()
 
   // Convert features to map markers
   const markers = useMemo(() => {

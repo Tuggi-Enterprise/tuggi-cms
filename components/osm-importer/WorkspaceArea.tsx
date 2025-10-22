@@ -15,7 +15,7 @@ import {
   Upload, Settings, MoreHorizontal
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useOSMImporter } from '@/lib/hooks/use-osm-importer'
+import { useOSMImporterUnified } from '@/lib/hooks/use-osm-importer-unified'
 import { FilterPanel } from './FilterPanel'
 import { TableView } from './TableView'
 import { MapView } from './MapView'
@@ -47,7 +47,17 @@ export function WorkspaceArea({ className }: WorkspaceAreaProps) {
     setCategoryFilter,
     searchTerm,
     setSearchTerm
-  } = useOSMImporter()
+  } = useOSMImporterUnified()
+
+  // Debug logging for re-renders
+  console.log('🖥️ COMPONENT STEP 1: WorkspaceArea render started', {
+    featuresCount: features.length,
+    isLoading,
+    error,
+    availableCities: availableCities.length,
+    availableCategories: availableCategories.length,
+    timestamp: new Date().toISOString()
+  })
 
   const handleSelectAll = () => {
     if (selectedFeatures.size === features.length) {
@@ -243,43 +253,79 @@ export function WorkspaceArea({ className }: WorkspaceAreaProps) {
 
         {/* Main Content */}
         <div className="flex-1 overflow-hidden">
-          {isLoading && (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600 dark:text-gray-400">Loading POIs...</p>
-              </div>
-            </div>
-          )}
+          {(() => {
+            console.log('🖥️ COMPONENT STEP 2: Render logic evaluation', {
+              isLoading,
+              error,
+              featuresLength: features.length,
+              willShowLoading: isLoading,
+              willShowError: !isLoading && error,
+              willShowEmpty: !isLoading && !error && features.length === 0,
+              willShowContent: !isLoading && !error && features.length > 0
+            })
+            
+            if (isLoading) {
+              console.log('🖥️ COMPONENT STEP 3: Rendering loading state')
+              return (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600 dark:text-gray-400">Loading POIs...</p>
+                  </div>
+                </div>
+              )
+            }
 
-          {error && (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="text-red-500 mb-4">⚠️</div>
-                <p className="text-red-600 dark:text-red-400 mb-2">Error loading data</p>
-                <p className="text-sm text-gray-600 dark:text-gray-400">{error}</p>
-              </div>
-            </div>
-          )}
+            if (error) {
+              console.log('🖥️ COMPONENT STEP 3: Rendering error state')
+              return (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="text-red-500 mb-4">⚠️</div>
+                    <p className="text-red-600 dark:text-red-400 mb-2">Error loading data</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">{error}</p>
+                  </div>
+                </div>
+              )
+            }
 
-          {!isLoading && !error && features.length === 0 && (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <div className="text-gray-400 mb-4">🗺️</div>
-                <p className="text-gray-600 dark:text-gray-400 mb-2">No POIs found</p>
-                <p className="text-sm text-gray-500 dark:text-gray-500">
-                  Load a GeoJSON file to get started
-                </p>
-              </div>
-            </div>
-          )}
+            if (features.length === 0) {
+              console.log('🖥️ COMPONENT STEP 3: Rendering empty state')
+              return (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="text-gray-400 mb-4">🗺️</div>
+                    <p className="text-gray-600 dark:text-gray-400 mb-2">No POIs found</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-500">
+                      Load a GeoJSON file to get started
+                    </p>
+                  </div>
+                </div>
+              )
+            }
 
-          {!isLoading && !error && features.length > 0 && (
-            <>
-              {viewMode === 'table' && <TableView sortBy={sortBy} sortOrder={sortOrder} />}
-              {viewMode === 'map' && <MapView />}
-              {viewMode === 'split' && <SplitView sortBy={sortBy} sortOrder={sortOrder} />}
-            </>
+            console.log('🖥️ COMPONENT STEP 3: Rendering content with features', { 
+              featuresLength: features.length,
+              viewMode 
+            })
+            return (
+              <>
+                {viewMode === 'table' && <TableView sortBy={sortBy} sortOrder={sortOrder} />}
+                {viewMode === 'map' && <MapView />}
+                {viewMode === 'split' && <SplitView sortBy={sortBy} sortOrder={sortOrder} />}
+              </>
+            )
+          })()}
+
+          {/* Debug Info - Remove in production */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="fixed bottom-4 right-4 bg-black/80 text-white p-2 rounded text-xs z-50">
+              <div>Features: {features.length}</div>
+              <div>Loading: {isLoading ? 'Yes' : 'No'}</div>
+              <div>Error: {error || 'None'}</div>
+              <div>Cities: {availableCities.length}</div>
+              <div>Categories: {availableCategories.length}</div>
+            </div>
           )}
         </div>
       </div>

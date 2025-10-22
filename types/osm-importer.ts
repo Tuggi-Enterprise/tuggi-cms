@@ -4,22 +4,13 @@
  * TypeScript definitions for OpenStreetMap data import workflow
  */
 
-// OSM Feature from GeoJSON
+// OSM Feature from GeoJSON (Standard GeoJSON structure)
 export interface OSMFeature {
   type: 'Feature'
-  id: string // GeoJSON feature ID (not unique alone)
-  properties: {
-    id: number // OSM numeric ID (not unique alone - same ID can exist for node/way/relation)
-    type: 'node' | 'way' | 'relation' // OSM type
-    tags: Record<string, string>
-    // Parsed from tags
-    name?: string
-    'addr:city'?: string
-    'addr:state'?: string
-    'addr:country'?: string
-  }
+  id?: string | number // Optional GeoJSON feature ID
+  properties: Record<string, any> // Standard GeoJSON properties (no nested structure)
   geometry: {
-    type: 'Point' | 'LineString' | 'Polygon'
+    type: 'Point' | 'LineString' | 'Polygon' | 'MultiPoint' | 'MultiLineString' | 'MultiPolygon'
     coordinates: number[] | number[][] | number[][][]
   }
 }

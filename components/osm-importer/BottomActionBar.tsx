@@ -15,7 +15,7 @@ import {
   AlertTriangle, CheckCircle, Clock
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useOSMImporter } from '@/lib/hooks/use-osm-importer'
+import { useOSMImporterUnified } from '@/lib/hooks/use-osm-importer-unified'
 
 export function BottomActionBar() {
   const [showBulkEdit, setShowBulkEdit] = useState(false)
@@ -30,7 +30,7 @@ export function BottomActionBar() {
     checkDuplicates,
     extractLocationFromOSMTags,
     getPrimaryCategory
-  } = useOSMImporter()
+  } = useOSMImporterUnified()
 
   const selectedCount = selectedFeatures.size
   const selectedPOIs = features.filter(poi => selectedFeatures.has(poi._id))

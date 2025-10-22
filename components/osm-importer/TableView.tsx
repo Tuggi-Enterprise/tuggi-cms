@@ -14,7 +14,7 @@ import {
   MapPin, Tag, Calendar, AlertCircle 
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useOSMImporter } from '@/lib/hooks/use-osm-importer'
+import { useOSMImporterUnified } from '@/lib/hooks/use-osm-importer-unified'
 import { EditableOSMPOI } from '@/types/osm-importer'
 
 interface TableViewProps {
@@ -30,10 +30,12 @@ export function TableView({ sortBy, sortOrder }: TableViewProps) {
     editPOI,
     getPrimaryCategory,
     extractLocationFromOSMTags
-  } = useOSMImporter()
+  } = useOSMImporterUnified()
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Record<string, any>>({})
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 100
 
   // Sort features
   const sortedFeatures = useMemo(() => {
@@ -42,20 +44,20 @@ export function TableView({ sortBy, sortOrder }: TableViewProps) {
 
       switch (sortBy) {
         case 'name':
-          aValue = extractLocationFromOSMTags(a.properties.tags).name || ''
-          bValue = extractLocationFromOSMTags(b.properties.tags).name || ''
+          aValue = extractLocationFromOSMTags(a.properties?.tags).name || ''
+          bValue = extractLocationFromOSMTags(b.properties?.tags).name || ''
           break
         case 'city':
-          aValue = extractLocationFromOSMTags(a.properties.tags).city || ''
-          bValue = extractLocationFromOSMTags(b.properties.tags).city || ''
+          aValue = extractLocationFromOSMTags(a.properties?.tags).city || ''
+          bValue = extractLocationFromOSMTags(b.properties?.tags).city || ''
           break
         case 'category':
-          aValue = getPrimaryCategory(a.properties.tags) || ''
-          bValue = getPrimaryCategory(b.properties.tags) || ''
+          aValue = getPrimaryCategory(a.properties?.tags || {}) || ''
+          bValue = getPrimaryCategory(b.properties?.tags || {}) || ''
           break
         case 'date':
-          aValue = a.properties.tags['@timestamp'] || ''
-          bValue = b.properties.tags['@timestamp'] || ''
+          aValue = a.properties?.tags?.['@timestamp'] || ''
+          bValue = b.properties?.tags?.['@timestamp'] || ''
           break
         default:
           return 0
@@ -70,19 +72,15 @@ export function TableView({ sortBy, sortOrder }: TableViewProps) {
   const handleEdit = (poi: EditableOSMPOI) => {
     setEditingId(poi._id)
     setEditValues({
-      name: extractLocationFromOSMTags(poi.properties.tags).name || '',
-      city: extractLocationFromOSMTags(poi.properties.tags).city || '',
-      state: extractLocationFromOSMTags(poi.properties.tags).state || '',
-      country: extractLocationFromOSMTags(poi.properties.tags).country || ''
+      name: extractLocationFromOSMTags(poi.properties?.tags).name || '',
+      city: extractLocationFromOSMTags(poi.properties?.tags).city || '',
+      state: extractLocationFromOSMTags(poi.properties?.tags).state || '',
+      country: extractLocationFromOSMTags(poi.properties?.tags).country || ''
     })
   }
 
   const handleSave = (poiId: string) => {
-    Object.entries(editValues).forEach(([field, value]) => {
-      if (value !== '') {
-        editPOI(poiId, field, value)
-      }
-    })
+    editPOI(poiId, editValues)
     setEditingId(null)
     setEditValues({})
   }
@@ -113,11 +111,13 @@ export function TableView({ sortBy, sortOrder }: TableViewProps) {
         </div>
       </div>
 
-      {/* Table Body */}
+      {/* Table Body - Paginated for Performance */}
       <div className="flex-1 overflow-y-auto">
-        {sortedFeatures.map((poi) => {
-          const location = extractLocationFromOSMTags(poi.properties.tags)
-          const category = getPrimaryCategory(poi.properties.tags)
+        {sortedFeatures
+          .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+          .map((poi) => {
+          const location = extractLocationFromOSMTags(poi.properties?.tags)
+          const category = getPrimaryCategory(poi.properties?.tags || {})
           const isSelected = selectedFeatures.has(poi._id)
           const isEditing = editingId === poi._id
 
@@ -277,6 +277,34 @@ export function TableView({ sortBy, sortOrder }: TableViewProps) {
             <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">
               Try adjusting your filters or search terms
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Pagination Controls */}
+      {sortedFeatures.length > itemsPerPage && (
+        <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, sortedFeatures.length)} of {sortedFeatures.length} POIs
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <span className="px-3 py-1 text-sm bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded">
+              {currentPage} of {Math.ceil(sortedFeatures.length / itemsPerPage)}
+            </span>
+            <button
+              onClick={() => setCurrentPage(prev => Math.min(Math.ceil(sortedFeatures.length / itemsPerPage), prev + 1))}
+              disabled={currentPage >= Math.ceil(sortedFeatures.length / itemsPerPage)}
+              className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
           </div>
         </div>
       )}

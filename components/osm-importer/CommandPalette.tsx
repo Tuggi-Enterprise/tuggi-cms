@@ -15,7 +15,7 @@ import {
   ArrowRight, Command
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useOSMImporter } from '@/lib/hooks/use-osm-importer'
+import { useOSMImporterUnified } from '@/lib/hooks/use-osm-importer-unified'
 
 interface CommandPaletteProps {
   open: boolean
@@ -43,13 +43,11 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     availableCategories,
     selectAll,
     clearSelection,
-    setCityFilter,
-    setCategoryFilter,
-    setSearchTerm,
-    loadGeoJSON,
     importSelected,
-    checkDuplicates
-  } = useOSMImporter()
+    checkDuplicates,
+    setCityFilter,
+    setCategoryFilter
+  } = useOSMImporterUnified()
 
   // Define available commands
   const commands: Command[] = useMemo(() => [

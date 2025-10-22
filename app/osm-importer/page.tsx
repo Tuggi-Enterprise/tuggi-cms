@@ -10,15 +10,16 @@
 
 import { useState, useEffect } from 'react'
 import { 
-  FileX, HelpCircle, Settings, User, Command
+  FileX, HelpCircle, Settings, User, Command, RefreshCw
 } from 'lucide-react'
-import { useOSMImporter } from '@/lib/hooks/use-osm-importer'
+import { useOSMImporterUnified } from '@/lib/hooks/use-osm-importer-unified'
 import { FileBrowserPanel } from '@/components/osm-importer/FileBrowserPanel'
 import { WorkspaceArea } from '@/components/osm-importer/WorkspaceArea'
 import { CommandPalette } from '@/components/osm-importer/CommandPalette'
 import { BottomActionBar } from '@/components/osm-importer/BottomActionBar'
 import { ImportResults } from '@/components/osm-importer/ImportResults'
 import { OSMPOIModal } from '@/components/osm-importer/OSMPOIModal'
+import { LoadingOverlay } from '@/components/osm-importer/LoadingOverlay'
 
 export default function OSMImporterPage() {
   // UI State
@@ -27,7 +28,7 @@ export default function OSMImporterPage() {
   const [selectedPOI, setSelectedPOI] = useState<any>(null)
   const [showImportResults, setShowImportResults] = useState(false)
 
-  // OSM Importer Hook
+  // OSM Importer Hook (Unified)
   const {
     features,
     selectedFeatures,
@@ -36,11 +37,10 @@ export default function OSMImporterPage() {
     currentFile,
     isLoading,
     loadingProgress,
-    isImporting,
-    importProgress,
+    loadingStep,
+    loadingDetails,
     error,
     importResults,
-    duplicates,
     
     // Actions
     loadGeoJSONFromText,
@@ -53,7 +53,7 @@ export default function OSMImporterPage() {
     checkDuplicates,
     extractLocationFromOSMTags,
     getPrimaryCategory
-  } = useOSMImporter()
+  } = useOSMImporterUnified()
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -84,10 +84,7 @@ export default function OSMImporterPage() {
   }
 
   const handlePOISave = (poi: any) => {
-    editPOI(poi._id, 'name', poi._editedFields.name)
-    editPOI(poi._id, 'city', poi._editedFields.city)
-    editPOI(poi._id, 'state', poi._editedFields.state)
-    editPOI(poi._id, 'country', poi._editedFields.country)
+    editPOI(poi._id, poi._editedFields)
     setSelectedPOI(null)
   }
 
@@ -126,14 +123,59 @@ export default function OSMImporterPage() {
         <FileBrowserPanel 
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-          onFileSelect={(filename, type) => {
-            // TODO: Handle file selection
-            console.log('File selected:', filename, type)
+          isLoading={isLoading}
+          onFileSelect={async (filename, type) => {
+            console.log(`🔄 Loading file: ${filename} (${type})`)
+            try {
+              const response = await fetch(`/api/osm-importer/load-file?filename=${encodeURIComponent(filename)}&type=${type}`)
+              
+              if (response.ok) {
+                const data = await response.json()
+                console.log(`✅ File loaded successfully:`, data.metadata)
+                await loadGeoJSONFromText(JSON.stringify(data.content), filename)
+                console.log(`🎉 File processed and ready for editing`)
+              } else {
+                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+                console.error(`❌ Failed to load file:`, errorData.error || response.statusText)
+                // TODO: Show error toast to user
+              }
+            } catch (error) {
+              console.error(`💥 Error loading file:`, error)
+              // TODO: Show error toast to user
+            }
+          }}
+          onFileUpload={async (file) => {
+            console.log(`🔄 Uploading file: ${file.name}`)
+            // File upload would need to be implemented
+            console.log('File upload not implemented yet')
           }}
         />
 
         {/* Main Workspace */}
-        <WorkspaceArea />
+        <div className="flex-1 relative">
+          {isLoading && (
+            <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-50 flex items-center justify-center">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 flex flex-col items-center gap-4">
+                <RefreshCw className="w-8 h-8 text-blue-600 animate-spin" />
+                <div className="text-center">
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Loading File</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Processing {currentFile?.name || 'file'}...
+                  </p>
+                  {loadingProgress > 0 && (
+                    <div className="mt-2 w-48 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${loadingProgress}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <WorkspaceArea />
+        </div>
       </div>
 
       {/* Bottom Action Bar (appears when items selected) */}
@@ -172,6 +214,16 @@ export default function OSMImporterPage() {
           getPrimaryCategory={getPrimaryCategory}
         />
       )}
+
+      {/* Loading Overlay */}
+      {console.log('🔍 LOADING OVERLAY PROPS:', { isLoading, loadingProgress, loadingStep, loadingDetails, error })}
+      <LoadingOverlay
+        isLoading={isLoading}
+        progress={loadingProgress}
+        step={loadingStep}
+        details={loadingDetails}
+        error={error}
+      />
     </div>
   )
 }

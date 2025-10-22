@@ -256,14 +256,14 @@ export function OSMPOIModal({
             {/* OSM Tags */}
             <div>
               <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">
-                OSM Tags ({Object.keys(poi.properties.tags).length})
+                OSM Tags ({Object.keys(poi.properties).length})
               </h4>
               <div className="max-h-48 overflow-y-auto bg-gray-50 dark:bg-gray-900 rounded-lg p-3">
                 <div className="space-y-2">
-                  {Object.entries(poi.properties.tags).map(([key, value]) => (
+                  {Object.entries(poi.properties).map(([key, value]) => (
                     <div key={key} className="flex items-center justify-between text-sm">
                       <span className="font-mono text-gray-600 dark:text-gray-400">{key}</span>
-                      <span className="text-gray-900 dark:text-gray-100 ml-4">{value}</span>
+                      <span className="text-gray-900 dark:text-gray-100 ml-4">{String(value)}</span>
                     </div>
                   ))}
                 </div>

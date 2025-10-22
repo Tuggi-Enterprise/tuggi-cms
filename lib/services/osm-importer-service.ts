@@ -19,7 +19,17 @@ export class OSMImporterService {
   /**
    * Parse OSM tags to extract location data
    */
-  extractLocationFromOSMTags(tags: Record<string, string>) {
+  extractLocationFromOSMTags(tags: Record<string, string> | undefined) {
+    if (!tags) {
+      return {
+        name: null,
+        city: null,
+        state: null,
+        country: null,
+        address: null
+      }
+    }
+    
     return {
       name: tags.name || tags['name:en'] || tags['name:pt'] || null,
       city: tags['addr:city'] || tags['is_in:city'] || null,
@@ -54,7 +64,7 @@ export class OSMImporterService {
     const duplicates: DuplicateMatch[] = []
 
     for (const feature of features) {
-      const location = this.extractLocationFromOSMTags(feature.properties.tags)
+      const location = this.extractLocationFromOSMTags(feature.properties)
       const osmId = this.generateOSMId(feature.properties.type, feature.properties.id)
 
       // Check by OSM ID (most reliable)
@@ -136,7 +146,7 @@ export class OSMImporterService {
       try {
         const location = poi._edited 
           ? poi._editedFields 
-          : this.extractLocationFromOSMTags(poi.properties.tags)
+          : this.extractLocationFromOSMTags(poi.properties)
 
         const coords = this.extractCoordinates(poi.geometry)
 
@@ -171,7 +181,7 @@ export class OSMImporterService {
         results.imported.push(poi._id)
       } catch (error) {
         results.failed.push({ 
-          poi: poi.properties.tags.name || 'Unknown', 
+          poi: poi.properties.name || 'Unknown', 
           error: error instanceof Error ? error.message : 'Unknown error' 
         })
       }
@@ -210,7 +220,7 @@ export class OSMImporterService {
   ) {
     const location = poi._edited 
       ? poi._editedFields 
-      : this.extractLocationFromOSMTags(poi.properties.tags)
+      : this.extractLocationFromOSMTags(poi.properties)
 
         // Insert attraction (NO Google references - pure OSM data)
         const { data: attraction, error: attractionError } = await this.supabase
@@ -226,7 +236,7 @@ export class OSMImporterService {
         // OSM-specific fields
         osm_id: osmId,
         osm_type: poi.properties.type,
-        osm_tags: poi.properties.tags,
+        osm_tags: poi.properties,
         
         // NO Google fields - these remain NULL for OSM imports
         google_place_id: null,
@@ -270,7 +280,7 @@ export class OSMImporterService {
   ) {
     const location = poi._edited 
       ? poi._editedFields 
-      : this.extractLocationFromOSMTags(poi.properties.tags)
+      : this.extractLocationFromOSMTags(poi.properties)
 
     const osmId = this.generateOSMId(poi.properties.type, poi.properties.id)
 
@@ -286,7 +296,7 @@ export class OSMImporterService {
         formatted_address: 'address' in location ? location.address : null,
         osm_id: osmId,
         osm_type: poi.properties.type,
-        osm_tags: poi.properties.tags,
+        osm_tags: poi.properties,
         import_batch_id: batchId,
         import_source: 'osm-importer'
       })
