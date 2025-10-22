@@ -45,6 +45,9 @@ omsData/*.geojson
 omsData/*.osm.pbf
 omsData/*.pbf
 
+# User uploads directory (exclude all uploaded files)
+output/uploads/
+
 # Deno
 deno.lock
 
@@ -53,4 +56,3 @@ scripts/*.json
 scripts/*.txt
 scripts/*.log
 tsconfig.tsbuildinfo
-next-env.d.tsoutput/uploads/
