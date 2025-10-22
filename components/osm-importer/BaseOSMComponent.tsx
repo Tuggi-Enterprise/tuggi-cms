@@ -234,7 +234,7 @@ export function DRYTableView(props: BaseOSMComponentProps) {
                   <td className="px-4 py-2">{feature.properties.name || 'Unnamed'}</td>
                   <td className="px-4 py-2">{feature.properties.type}</td>
                   <td className="px-4 py-2">
-                    {feature.properties.tags?.['addr:city'] || 'Unknown'}
+                    {feature.properties['addr:city'] || 'Unknown'}
                   </td>
                   <td className="px-4 py-2">
                     <button

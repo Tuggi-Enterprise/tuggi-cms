@@ -235,20 +235,20 @@ export function VirtualizedTableView({
 
       switch (sortBy) {
         case 'name':
-          aValue = extractLocationFromOSMTags(a.properties.tags).name || ''
-          bValue = extractLocationFromOSMTags(b.properties.tags).name || ''
+          aValue = extractLocationFromOSMTags(a.properties).name || ''
+          bValue = extractLocationFromOSMTags(b.properties).name || ''
           break
         case 'city':
-          aValue = extractLocationFromOSMTags(a.properties.tags).city || ''
-          bValue = extractLocationFromOSMTags(b.properties.tags).city || ''
+          aValue = extractLocationFromOSMTags(a.properties).city || ''
+          bValue = extractLocationFromOSMTags(b.properties).city || ''
           break
         case 'category':
-          aValue = getPrimaryCategory(a.properties.tags) || ''
-          bValue = getPrimaryCategory(b.properties.tags) || ''
+          aValue = getPrimaryCategory(a.properties) || ''
+          bValue = getPrimaryCategory(b.properties) || ''
           break
         case 'date':
-          aValue = a.properties.tags['@timestamp'] || ''
-          bValue = b.properties.tags['@timestamp'] || ''
+          aValue = a.properties['@timestamp'] || ''
+          bValue = b.properties['@timestamp'] || ''
           break
         default:
           return 0
@@ -263,10 +263,10 @@ export function VirtualizedTableView({
   const handleEdit = useCallback((poi: EditableOSMPOI) => {
     setEditingId(poi._id)
     setEditValues({
-      name: extractLocationFromOSMTags(poi.properties.tags).name || '',
-      city: extractLocationFromOSMTags(poi.properties.tags).city || '',
-      state: extractLocationFromOSMTags(poi.properties.tags).state || '',
-      country: extractLocationFromOSMTags(poi.properties.tags).country || ''
+      name: extractLocationFromOSMTags(poi.properties).name || '',
+      city: extractLocationFromOSMTags(poi.properties).city || '',
+      state: extractLocationFromOSMTags(poi.properties).state || '',
+      country: extractLocationFromOSMTags(poi.properties).country || ''
     })
   }, [extractLocationFromOSMTags])
 

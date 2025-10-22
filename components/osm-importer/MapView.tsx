@@ -24,8 +24,8 @@ export function MapView() {
   // Convert features to map markers
   const markers = useMemo(() => {
     return features.map(poi => {
-      const location = extractLocationFromOSMTags(poi.properties.tags)
-      const category = getPrimaryCategory(poi.properties.tags)
+      const location = extractLocationFromOSMTags(poi.properties)
+      const category = getPrimaryCategory(poi.properties)
       
       // Extract coordinates from geometry
       let coordinates: [number, number] | null = null

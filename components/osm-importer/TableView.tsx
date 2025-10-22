@@ -44,20 +44,20 @@ export function TableView({ sortBy, sortOrder }: TableViewProps) {
 
       switch (sortBy) {
         case 'name':
-          aValue = extractLocationFromOSMTags(a.properties?.tags).name || ''
-          bValue = extractLocationFromOSMTags(b.properties?.tags).name || ''
+          aValue = extractLocationFromOSMTags(a.properties).name || ''
+          bValue = extractLocationFromOSMTags(b.properties).name || ''
           break
         case 'city':
-          aValue = extractLocationFromOSMTags(a.properties?.tags).city || ''
-          bValue = extractLocationFromOSMTags(b.properties?.tags).city || ''
+          aValue = extractLocationFromOSMTags(a.properties).city || ''
+          bValue = extractLocationFromOSMTags(b.properties).city || ''
           break
         case 'category':
-          aValue = getPrimaryCategory(a.properties?.tags || {}) || ''
-          bValue = getPrimaryCategory(b.properties?.tags || {}) || ''
+          aValue = getPrimaryCategory(a.properties) || ''
+          bValue = getPrimaryCategory(b.properties) || ''
           break
         case 'date':
-          aValue = a.properties?.tags?.['@timestamp'] || ''
-          bValue = b.properties?.tags?.['@timestamp'] || ''
+          aValue = a.properties?.['@timestamp'] || ''
+          bValue = b.properties?.['@timestamp'] || ''
           break
         default:
           return 0
@@ -72,10 +72,10 @@ export function TableView({ sortBy, sortOrder }: TableViewProps) {
   const handleEdit = (poi: EditableOSMPOI) => {
     setEditingId(poi._id)
     setEditValues({
-      name: extractLocationFromOSMTags(poi.properties?.tags).name || '',
-      city: extractLocationFromOSMTags(poi.properties?.tags).city || '',
-      state: extractLocationFromOSMTags(poi.properties?.tags).state || '',
-      country: extractLocationFromOSMTags(poi.properties?.tags).country || ''
+      name: extractLocationFromOSMTags(poi.properties).name || '',
+      city: extractLocationFromOSMTags(poi.properties).city || '',
+      state: extractLocationFromOSMTags(poi.properties).state || '',
+      country: extractLocationFromOSMTags(poi.properties).country || ''
     })
   }
 
@@ -116,8 +116,8 @@ export function TableView({ sortBy, sortOrder }: TableViewProps) {
         {sortedFeatures
           .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
           .map((poi) => {
-          const location = extractLocationFromOSMTags(poi.properties?.tags)
-          const category = getPrimaryCategory(poi.properties?.tags || {})
+          const location = extractLocationFromOSMTags(poi.properties)
+          const category = getPrimaryCategory(poi.properties)
           const isSelected = selectedFeatures.has(poi._id)
           const isEditing = editingId === poi._id
 

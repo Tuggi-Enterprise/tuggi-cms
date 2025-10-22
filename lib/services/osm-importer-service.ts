@@ -19,8 +19,8 @@ export class OSMImporterService {
   /**
    * Parse OSM tags to extract location data
    */
-  extractLocationFromOSMTags(tags: Record<string, string> | undefined) {
-    if (!tags) {
+  extractLocationFromOSMTags(properties: Record<string, any> | undefined) {
+    if (!properties) {
       return {
         name: null,
         city: null,
@@ -30,10 +30,13 @@ export class OSMImporterService {
       }
     }
     
+    // Handle both direct properties and nested tags structure
+    const tags = properties.tags || properties
+    
     return {
       name: tags.name || tags['name:en'] || tags['name:pt'] || null,
-      city: tags['addr:city'] || tags['is_in:city'] || null,
-      state: tags['addr:state'] || tags['is_in:state'] || null,
+      city: tags['addr:city'] || tags['is_in:city'] || tags['addr:suburb'] || null,
+      state: tags['addr:state'] || tags['is_in:state'] || tags['addr:province'] || null,
       country: tags['addr:country'] || tags['is_in:country'] || null,
       address: tags['addr:full'] || tags['addr:street'] || null
     }
@@ -42,8 +45,13 @@ export class OSMImporterService {
   /**
    * Get primary OSM category for a feature
    */
-  getPrimaryCategory(tags: Record<string, string>): string | null {
-    const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'shop']
+  getPrimaryCategory(properties: Record<string, any> | undefined): string | null {
+    if (!properties) return null
+    
+    // Handle both direct properties and nested tags structure
+    const tags = properties.tags || properties
+    
+    const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'shop', 'highway', 'building']
     for (const tag of priorityTags) {
       if (tags[tag]) return `${tag}=${tags[tag]}`
     }
