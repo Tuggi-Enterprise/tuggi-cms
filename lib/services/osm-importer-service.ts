@@ -48,7 +48,11 @@ export class OSMImporterService {
         city: result.city,
         state: result.state,
         country: result.country,
-        rawProperties: Object.keys(tags).slice(0, 10) // First 10 keys for debugging
+        rawProperties: Object.keys(tags).slice(0, 10), // First 10 keys for debugging
+        addrState: tags['addr:state'],
+        isInState: tags['is_in:state'],
+        addrCountry: tags['addr:country'],
+        isInCountry: tags['is_in:country']
       })
     }
     
