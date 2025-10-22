@@ -49,6 +49,12 @@ const navigation = [
     category: 'poi'
   },
   {
+    name: 'OSM Importer',
+    href: '/osm-importer',
+    icon: Database,
+    category: 'poi'
+  },
+  {
     name: 'Verification',
     href: '/verification',
     icon: CheckCircle,
