@@ -50,15 +50,15 @@ const nextConfig = {
       }
     ]
   },
-  // Explicitly exclude supabase functions from the build process
+  // Explicitly exclude supabase functions and plugins from the build process
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,
     };
-    // Ignore supabase functions directory
+    // Ignore supabase functions and plugins directories
     config.watchOptions = {
       ...config.watchOptions,
-      ignored: ['**/supabase/functions/**/*']
+      ignored: ['**/supabase/functions/**/*', '**/plugins/**/*']
     };
     return config;
   },
