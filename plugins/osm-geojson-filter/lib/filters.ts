@@ -17,6 +17,7 @@ export class FilterEngine {
       excludedByCategory: 0,
       excludedByRegion: 0,
       excludedByBounds: 0,
+      excludedByUnnamed: 0,
       processingTime: 0
     };
   }
@@ -41,13 +42,19 @@ export class FilterEngine {
       }
     }
 
-    // 3. Region filtering
+    // 3. Unnamed POI exclusion (if enabled)
+    if (this.config.excludeUnnamed && this.isUnnamed(feature)) {
+      this.stats.excludedByUnnamed++;
+      return false;
+    }
+
+    // 4. Region filtering
     if (!this.matchesRegion(feature)) {
       this.stats.excludedByRegion++;
       return false;
     }
 
-    // 4. Bounds filtering (if specified)
+    // 5. Bounds filtering (if specified)
     if (this.config.bounds && !this.isWithinBounds(feature)) {
       this.stats.excludedByBounds++;
       return false;
@@ -276,6 +283,14 @@ export class FilterEngine {
   }
 
   /**
+   * Check if feature is unnamed (no name property or empty name)
+   */
+  private isUnnamed(feature: GeoJSONFeature): boolean {
+    const name = feature.properties?.name;
+    return !name || name.trim() === '' || name === 'Unnamed';
+  }
+
+  /**
    * Get processing statistics
    */
   getStats(): ProcessingStats {
@@ -292,6 +307,7 @@ export class FilterEngine {
       excludedByCategory: 0,
       excludedByRegion: 0,
       excludedByBounds: 0,
+      excludedByUnnamed: 0,
       processingTime: 0
     };
   }
@@ -317,6 +333,7 @@ export class FilterEngine {
     console.log(`   Excluded by category: ${this.stats.excludedByCategory.toLocaleString()}`);
     console.log(`   Excluded by region: ${this.stats.excludedByRegion.toLocaleString()}`);
     console.log(`   Excluded by bounds: ${this.stats.excludedByBounds.toLocaleString()}`);
+    console.log(`   Excluded by unnamed: ${this.stats.excludedByUnnamed.toLocaleString()}`);
     console.log(`   Processing time: ${this.stats.processingTime}ms`);
     
     if (this.stats.originalCount > 0) {

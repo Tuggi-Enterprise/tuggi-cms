@@ -7,6 +7,7 @@ A standalone Deno TypeScript plugin for filtering large OpenStreetMap GeoJSON fi
 - 🔍 **Preview Mode**: Analyze file structure and validate data quality
 - 📊 **Category Analysis**: Comprehensive OSM category exploration with statistics
 - 🎯 **Smart Filtering**: Filter by cities, states, and exclude unwanted categories
+- 🏷️ **Name Filtering**: Exclude POIs without names (configurable)
 - ⚙️ **Configuration Management**: Save and reuse filter configurations
 - 🚀 **Memory Efficient**: Streaming processing for large files (>200MB)
 - 📈 **Data Quality Reports**: Identify invalid coordinates, duplicates, missing data

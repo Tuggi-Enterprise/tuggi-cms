@@ -34,6 +34,7 @@ export interface FilterConfig {
     east: number;
     west: number;
   };
+  excludeUnnamed?: boolean; // New option to exclude POIs without names
 }
 
 export interface CategoryStats {
@@ -73,6 +74,7 @@ export interface ProcessingStats {
   excludedByCategory: number;
   excludedByRegion: number;
   excludedByBounds: number;
+  excludedByUnnamed: number; // New stat for unnamed POIs
   processingTime: number;
 }
 

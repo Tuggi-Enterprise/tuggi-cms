@@ -120,7 +120,8 @@ export class ConfigManager {
         "historic",
         "natural",
         "leisure"
-      ]
+      ],
+      excludeUnnamed: true // Default to exclude unnamed POIs
     };
   }
 

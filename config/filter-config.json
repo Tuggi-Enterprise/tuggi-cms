@@ -1,0 +1,23 @@
+[
+  {
+    "name": "test-unnamed-filter",
+    "regions": {
+      "states": [],
+      "cities": []
+    },
+    "excludedCategories": [
+      "shop",
+      "amenity:parking",
+      "amenity:toilets",
+      "highway:residential",
+      "highway:service"
+    ],
+    "includedCategories": [
+      "tourism",
+      "historic",
+      "natural",
+      "leisure"
+    ],
+    "excludeUnnamed": true
+  }
+]

@@ -37,27 +37,43 @@ export function TableView({ sortBy, sortOrder }: TableViewProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 100
 
-  // Sort features
+  // Sort features with optimized extraction
   const sortedFeatures = useMemo(() => {
-    return [...features].sort((a, b) => {
+    // Pre-extract values to avoid repeated function calls
+    const featuresWithValues = features.map(feature => {
+      const location = extractLocationFromOSMTags(feature.properties)
+      const category = getPrimaryCategory(feature.properties)
+      
+      return {
+        ...feature,
+        _sortValues: {
+          name: location.name || '',
+          city: location.city || '',
+          category: category || '',
+          date: feature.properties?.['@timestamp'] || ''
+        }
+      }
+    })
+
+    return featuresWithValues.sort((a, b) => {
       let aValue: any, bValue: any
 
       switch (sortBy) {
         case 'name':
-          aValue = extractLocationFromOSMTags(a.properties).name || ''
-          bValue = extractLocationFromOSMTags(b.properties).name || ''
+          aValue = a._sortValues.name
+          bValue = b._sortValues.name
           break
         case 'city':
-          aValue = extractLocationFromOSMTags(a.properties).city || ''
-          bValue = extractLocationFromOSMTags(b.properties).city || ''
+          aValue = a._sortValues.city
+          bValue = b._sortValues.city
           break
         case 'category':
-          aValue = getPrimaryCategory(a.properties) || ''
-          bValue = getPrimaryCategory(b.properties) || ''
+          aValue = a._sortValues.category
+          bValue = b._sortValues.category
           break
         case 'date':
-          aValue = a.properties?.['@timestamp'] || ''
-          bValue = b.properties?.['@timestamp'] || ''
+          aValue = a._sortValues.date
+          bValue = b._sortValues.date
           break
         default:
           return 0
