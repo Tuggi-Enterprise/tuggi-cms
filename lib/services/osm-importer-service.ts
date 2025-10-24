@@ -20,7 +20,10 @@ export class OSMImporterService {
    * Parse OSM tags to extract location data
    */
   extractLocationFromOSMTags(properties: Record<string, any> | undefined) {
+    console.log('🔍 EXTRACT LOCATION CALLED:', { properties: properties ? Object.keys(properties).slice(0, 5) : 'null' })
+    
     if (!properties) {
+      console.log('❌ NO PROPERTIES')
       return {
         name: null,
         city: null,
@@ -32,6 +35,7 @@ export class OSMImporterService {
     
     // Handle both direct properties and nested tags structure
     const tags = properties.tags || properties
+    console.log('🔍 TAGS STRUCTURE:', { hasTags: !!properties.tags, directProps: Object.keys(properties).slice(0, 5) })
     
     const result = {
       name: tags.name || tags['name:en'] || tags['name:pt'] || null,
