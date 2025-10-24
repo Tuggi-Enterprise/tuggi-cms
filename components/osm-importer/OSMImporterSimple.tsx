@@ -233,9 +233,9 @@ export function OSMImporterSimple() {
     currentFile: currentFile?.name,
     hasData,
     isInitialLoad,
-    availableCities: availableCities.length,
-    availableCategories: availableCategories.length,
-    citiesSample: availableCities.slice(0, 3)
+    availableCities: availableCities?.length || 0,
+    availableCategories: availableCategories?.length || 0,
+    citiesSample: availableCities?.slice(0, 3) || []
   })
 
   // KISS: Simple event handlers
@@ -545,7 +545,7 @@ export function OSMImporterSimple() {
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
                       >
                         <option value="">All States</option>
-                        {availableCities
+                        {(availableCities || [])
                           .map(city => city.state)
                           .filter((state, index, self) => self.indexOf(state) === index)
                           .sort()
@@ -569,7 +569,7 @@ export function OSMImporterSimple() {
                         disabled={!stateFilter}
                       >
                         <option value="">All Cities</option>
-                        {availableCities
+                        {(availableCities || [])
                           .filter(city => !stateFilter || city.state === stateFilter)
                           .map(city => city.name)
                           .filter((name, index, self) => self.indexOf(name) === index)
@@ -593,7 +593,7 @@ export function OSMImporterSimple() {
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
                       >
                         <option value="">All Categories</option>
-                        {availableCategories
+                        {(availableCategories || [])
                           .sort()
                           .map((category) => (
                             <option key={category} value={category}>

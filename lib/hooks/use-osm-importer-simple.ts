@@ -159,9 +159,9 @@ export function useOSMImporterSimple() {
           pagination: result.data.pagination
         }))
         console.log('✅ [HOOK] All data loaded:', {
-          features: result.data.features.length,
-          cities: result.data.cities.length,
-          categories: result.data.categories.length,
+          features: result.data.features?.length || 0,
+          cities: result.data.cities?.length || 0,
+          categories: result.data.categories?.length || 0,
           stats: result.data.stats
         })
       } else {
@@ -207,9 +207,9 @@ export function useOSMImporterSimple() {
         }))
         console.log('✅ [HOOK] Data loaded for mode:', {
           mode,
-          features: result.data.features.length,
-          cities: result.data.cities.length,
-          categories: result.data.categories.length
+          features: result.data.features?.length || 0,
+          cities: result.data.cities?.length || 0,
+          categories: result.data.categories?.length || 0
         })
       } else {
         throw new Error(result.error || 'Failed to load data')
