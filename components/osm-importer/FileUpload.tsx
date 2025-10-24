@@ -33,7 +33,7 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
     
     const file = event.target.files?.[0]
     if (file) {
-      const isValidType = file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json')
+      const isValidType = file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json') || file.name.endsWith('.pbf')
       console.log('📄 [FILEUPLOAD] File selected:', { 
         name: file.name, 
         type: file.type, 
@@ -41,7 +41,7 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
         isValidType
       })
       
-      if (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json')) {
+      if (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json') || file.name.endsWith('.pbf')) {
         console.log('✅ [FILEUPLOAD] Valid JSON/GeoJSON file, calling onFileSelect')
         onFileSelect(file)
       } else {
@@ -60,7 +60,7 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
       size: file?.size 
     })
     
-    if (file && (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json'))) {
+    if (file && (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json') || file.name.endsWith('.pbf'))) {
       console.log('✅ [FILEUPLOAD] Valid dropped file, calling onFileSelect')
       onFileSelect(file)
     } else {
@@ -87,7 +87,7 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
       >
         <input
           type="file"
-          accept=".json,.geojson"
+          accept=".json,.geojson,.pbf"
           onChange={handleFileChange}
           disabled={isLoading}
           className="hidden"
@@ -103,10 +103,10 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
             
             <div>
               <p className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                {isLoading ? 'Loading...' : 'Upload GeoJSON File'}
+                {isLoading ? 'Loading...' : 'Upload OSM File'}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Drag and drop or click to select
+                Drag and drop or click to select (GeoJSON or PBF)
               </p>
             </div>
 

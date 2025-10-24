@@ -64,10 +64,22 @@ export class OSMImporterService {
     // Handle both direct properties and nested tags structure
     const tags = properties.tags || properties
     
-    const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'shop', 'highway', 'building']
+    const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'railway', 'public_transport', 'shop', 'highway', 'building']
+    
+    // First pass: look for specific categories (not *=yes)
     for (const tag of priorityTags) {
-      if (tags[tag]) return `${tag}=${tags[tag]}`
+      if (tags[tag] && tags[tag] !== 'yes') {
+        return `${tag}=${tags[tag]}`
+      }
     }
+    
+    // Second pass: if no specific category found, use *=yes as fallback
+    for (const tag of priorityTags) {
+      if (tags[tag] === 'yes') {
+        return `${tag}=${tags[tag]}`
+      }
+    }
+    
     return null
   }
 

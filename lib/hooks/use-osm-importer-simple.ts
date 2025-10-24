@@ -223,7 +223,7 @@ export function useOSMImporterSimple() {
     try {
       // Always parse and save directly to local database
       console.log('💾 [HOOK] Parsing and saving to local database...')
-      const results = await OSMService.parseGeoJSONToDB(file)
+      const results = await OSMService.parseFileToDB(file)
       
       if (results.success) {
         // Reload all data from database (single call, no race conditions)

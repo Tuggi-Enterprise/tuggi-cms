@@ -230,7 +230,7 @@ export class LocalSQLiteDB {
       const insertExcludedStmt = this.db.prepare(`
         INSERT INTO excluded_features (
           id, feature_id, name, reason, excluded_by, source_file, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ? ? ? ? ? ? ? ? ? ? ?)
       `)
       
       for (const feature of features as any[]) {
@@ -419,6 +419,7 @@ export class LocalSQLiteDB {
     // Extract properties
     const props = poi.properties
     const categories = this.extractCategories(props)
+    const tourismFlags = this.extractTourismFlags(props)
     
     // Use the already extracted location data from OSMService
     const location = {
@@ -460,6 +461,9 @@ export class LocalSQLiteDB {
         access_points, entrance_fee, urban_density, noise_level,
         air_quality, shade_availability, cultural_significance,
         local_traditions, seasonal_attractions, source_file,
+        is_historic, is_touristic, has_train, has_ferry, has_bus,
+        has_wheelchair_access, has_water, has_fishing, has_playground,
+        is_building, has_ruins,
         created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
@@ -529,6 +533,17 @@ export class LocalSQLiteDB {
       props.local_traditions || null,
       props.seasonal_attractions || null,
       sourceFile,
+      tourismFlags.is_historic,
+      tourismFlags.is_touristic,
+      tourismFlags.has_train,
+      tourismFlags.has_ferry,
+      tourismFlags.has_bus,
+      tourismFlags.has_wheelchair_access,
+      tourismFlags.has_water,
+      tourismFlags.has_fishing,
+      tourismFlags.has_playground,
+      tourismFlags.is_building,
+      tourismFlags.has_ruins,
       new Date().toISOString(), // created_at
       new Date().toISOString()  // updated_at
     )
@@ -566,6 +581,25 @@ export class LocalSQLiteDB {
   }
 
   /**
+   * Extract tourism flags from properties
+   */
+  private extractTourismFlags(props: Record<string, any>) {
+    return {
+      is_historic: props.historic === 'yes' ? 1 : 0,
+      is_touristic: props.tourism === 'yes' ? 1 : 0,
+      has_train: props.train === 'yes' ? 1 : 0,
+      has_ferry: props.ferry === 'yes' ? 1 : 0,
+      has_bus: props.bus === 'yes' ? 1 : 0,
+      has_wheelchair_access: props.wheelchair === 'yes' ? 1 : 0,
+      has_water: props.water === 'yes' ? 1 : 0,
+      has_fishing: props.fishing === 'yes' ? 1 : 0,
+      has_playground: props.playground === 'yes' ? 1 : 0,
+      is_building: props.building === 'yes' ? 1 : 0,
+      has_ruins: props.ruins === 'yes' ? 1 : 0
+    }
+  }
+
+  /**
    * Extract categories from properties
    */
   private extractCategories(props: Record<string, any>) {
@@ -580,15 +614,27 @@ export class LocalSQLiteDB {
     }
 
     // Original logic for raw OSM data
-    const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'shop', 'highway', 'building']
+    const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'railway', 'public_transport', 'shop', 'highway', 'building']
     let primary = null
     let primaryType = null
 
+    // First pass: look for specific categories (not *=yes)
     for (const tag of priorityTags) {
-      if (props[tag]) {
+      if (props[tag] && props[tag] !== 'yes') {
         primary = props[tag] // Just the value (e.g., "park")
         primaryType = tag // The type (e.g., "leisure")
         break
+      }
+    }
+
+    // Second pass: if no specific category found, use *=yes as fallback
+    if (!primary) {
+      for (const tag of priorityTags) {
+        if (props[tag] === 'yes') {
+          primary = props[tag] // "yes"
+          primaryType = tag // The type (e.g., "building")
+          break
+        }
       }
     }
 
