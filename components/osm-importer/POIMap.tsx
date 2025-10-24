@@ -8,7 +8,7 @@
 
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { SimpleOSMPOI } from '@/lib/hooks/use-osm-importer-simple'
 import { OSMService } from '@/lib/services/osm-service-simple'
 
@@ -29,6 +29,33 @@ export function POIMap({
 }: POIMapProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
+
+  const renderMarkers = useCallback(() => {
+    if (!mapRef.current) return
+
+    // Clear existing markers
+    mapRef.current.innerHTML = ''
+
+    // Create simple markers (replace with your map library)
+    features.forEach(poi => {
+      const marker = document.createElement('div')
+      marker.className = `absolute w-4 h-4 rounded-full cursor-pointer transform -translate-x-1/2 -translate-y-1/2 ${
+        selectedFeatures.has(poi._id) 
+          ? 'bg-blue-600 border-2 border-white' 
+          : 'bg-gray-400 border-2 border-white'
+      }`
+      
+      marker.style.left = `${50 + (poi.geometry.coordinates[0] * 0.1)}%`
+      marker.style.top = `${50 - (poi.geometry.coordinates[1] * 0.1)}%`
+      
+      marker.onclick = () => onToggleSelection(poi._id)
+      
+      // Tooltip
+      marker.title = OSMService.extractLocation(poi).name
+      
+      mapRef.current?.appendChild(marker)
+    })
+  }, [features, selectedFeatures, onToggleSelection])
 
   useEffect(() => {
     if (!mapRef.current || features.length === 0) return
@@ -55,33 +82,6 @@ export function POIMap({
     // Render markers
     renderMarkers()
   }, [features, selectedFeatures, renderMarkers])
-
-  const renderMarkers = () => {
-    if (!mapRef.current) return
-
-    // Clear existing markers
-    mapRef.current.innerHTML = ''
-
-    // Create simple markers (replace with your map library)
-    features.forEach(poi => {
-      const marker = document.createElement('div')
-      marker.className = `absolute w-4 h-4 rounded-full cursor-pointer transform -translate-x-1/2 -translate-y-1/2 ${
-        selectedFeatures.has(poi._id) 
-          ? 'bg-blue-600 border-2 border-white' 
-          : 'bg-gray-400 border-2 border-white'
-      }`
-      
-      marker.style.left = `${50 + (poi.geometry.coordinates[0] * 0.1)}%`
-      marker.style.top = `${50 - (poi.geometry.coordinates[1] * 0.1)}%`
-      
-      marker.onclick = () => onToggleSelection(poi._id)
-      
-      // Tooltip
-      marker.title = OSMService.extractLocation(poi).name
-      
-      mapRef.current?.appendChild(marker)
-    })
-  }
 
   return (
     <div className={className} style={{ height }}>
