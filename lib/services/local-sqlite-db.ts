@@ -14,6 +14,11 @@ export class LocalSQLiteDB {
   private db: Database.Database | null = null
   private dbPath: string
 
+  // Public getter for database access
+  get database(): Database.Database | null {
+    return this.db
+  }
+
   constructor() {
     this.dbPath = join(process.cwd(), 'data', 'geojson.db')
   }
@@ -139,14 +144,218 @@ export class LocalSQLiteDB {
       )
     `)
 
-    // Create indexes
+    // Create excluded_features table for blacklist
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS excluded_features (
+        id TEXT PRIMARY KEY,
+        feature_id TEXT NOT NULL,
+        name TEXT,
+        reason TEXT DEFAULT 'user_deleted',
+        excluded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        excluded_by TEXT DEFAULT 'user',
+        source_file TEXT,
+        metadata TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    // Create indexes and constraints
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_geojson_features_name ON geojson_features(name);
       CREATE INDEX IF NOT EXISTS idx_geojson_features_city ON geojson_features(city);
       CREATE INDEX IF NOT EXISTS idx_geojson_features_category ON geojson_features(primary_category);
       CREATE INDEX IF NOT EXISTS idx_geojson_coordinates_lat_lng ON geojson_coordinates(latitude, longitude);
       CREATE INDEX IF NOT EXISTS idx_geojson_coordinates_feature_id ON geojson_coordinates(feature_id);
+      
+      -- Unique constraints to prevent duplicates
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_geojson_features_osm_unique 
+      ON geojson_features(osm_type, osm_id) 
+      WHERE osm_type IS NOT NULL AND osm_id IS NOT NULL;
     `)
+  }
+
+  /**
+   * Clear all data from database
+   */
+  async clearAllData(): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized')
+
+    console.log('🧹 [SQLite] Clearing all data...')
+    
+    // Clear coordinates first (due to foreign key constraint)
+    this.db.exec('DELETE FROM geojson_coordinates')
+    
+    // Clear features
+    this.db.exec('DELETE FROM geojson_features')
+    
+    // Reset auto-increment counters (only if sqlite_sequence exists)
+    try {
+      this.db.exec('DELETE FROM sqlite_sequence WHERE name IN ("geojson_features", "geojson_coordinates")')
+    } catch (error) {
+      // sqlite_sequence table doesn't exist, which is fine
+      console.log('ℹ️ [SQLite] sqlite_sequence table not found (normal for non-AUTOINCREMENT tables)')
+    }
+    
+    console.log('✅ [SQLite] All data cleared successfully')
+  }
+
+  /**
+   * Move selected features to excluded_features (blacklist)
+   */
+  async deleteSelectedFeatures(featureIds: string[]): Promise<{ deleted: number, errors: string[] }> {
+    if (!this.db) throw new Error('Database not initialized')
+    if (!featureIds || featureIds.length === 0) {
+      return { deleted: 0, errors: [] }
+    }
+
+    console.log('🗑️ [SQLite] Moving selected features to blacklist:', { count: featureIds.length })
+    
+    const errors: string[] = []
+    let movedCount = 0
+
+    try {
+      // Use transaction for better performance and consistency
+      this.db.exec('BEGIN TRANSACTION')
+      
+      // Get feature data before moving
+      const featuresPlaceholders = featureIds.map(() => '?').join(',')
+      const getFeaturesStmt = this.db.prepare(`
+        SELECT id, name, city, state, country, primary_category, osm_id, osm_type, source_file
+        FROM geojson_features 
+        WHERE id IN (${featuresPlaceholders})
+      `)
+      const features = getFeaturesStmt.all(...featureIds)
+      
+      // Move features to excluded_features table
+      const insertExcludedStmt = this.db.prepare(`
+        INSERT INTO excluded_features (
+          id, feature_id, name, reason, excluded_by, source_file, metadata
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      
+      for (const feature of features as any[]) {
+        const excludedId = `excluded-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const metadata = JSON.stringify({
+          city: feature.city,
+          state: feature.state,
+          country: feature.country,
+          primary_category: feature.primary_category,
+          osm_id: feature.osm_id,
+          osm_type: feature.osm_type,
+          original_id: feature.id
+        })
+        
+        insertExcludedStmt.run(
+          excludedId,
+          feature.id,
+          feature.name,
+          'user_deleted',
+          'user',
+          feature.source_file,
+          metadata
+        )
+      }
+      
+      // Delete coordinates first (due to foreign key constraint)
+      const deleteCoordinatesStmt = this.db.prepare(`
+        DELETE FROM geojson_coordinates 
+        WHERE feature_id IN (${featuresPlaceholders})
+      `)
+      deleteCoordinatesStmt.run(...featureIds)
+      
+      // Delete features from main table
+      const deleteFeaturesStmt = this.db.prepare(`
+        DELETE FROM geojson_features 
+        WHERE id IN (${featuresPlaceholders})
+      `)
+      const result = deleteFeaturesStmt.run(...featureIds)
+      
+      movedCount = result.changes || 0
+      
+      this.db.exec('COMMIT')
+      
+      console.log('✅ [SQLite] Selected features moved to blacklist successfully:', { moved: movedCount })
+      
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      errors.push(`Failed to move features to blacklist: ${errorMsg}`)
+      console.error('❌ [SQLite] Error moving selected features to blacklist:', error)
+    }
+
+    return { deleted: movedCount, errors }
+  }
+
+  /**
+   * Check if a feature is in the blacklist (excluded_features)
+   */
+  async isFeatureExcluded(featureId: string): Promise<boolean> {
+    if (!this.db) return false
+    
+    const stmt = this.db.prepare(`
+      SELECT COUNT(*) as count FROM excluded_features WHERE feature_id = ?
+    `)
+    const result = stmt.get(featureId) as { count: number }
+    
+    return result.count > 0
+  }
+
+  /**
+   * Get all excluded features (for management)
+   */
+  async getExcludedFeatures(): Promise<any[]> {
+    if (!this.db) return []
+    
+    const stmt = this.db.prepare(`
+      SELECT * FROM excluded_features 
+      ORDER BY excluded_at DESC
+    `)
+    
+    return stmt.all()
+  }
+
+  /**
+   * Restore a feature from blacklist
+   */
+  async restoreExcludedFeature(excludedId: string): Promise<{ success: boolean, error?: string }> {
+    if (!this.db) return { success: false, error: 'Database not initialized' }
+    
+    try {
+      this.db.exec('BEGIN TRANSACTION')
+      
+      // Get excluded feature data
+      const getExcludedStmt = this.db.prepare(`
+        SELECT * FROM excluded_features WHERE id = ?
+      `)
+      const excludedFeature = getExcludedStmt.get(excludedId)
+      
+      if (!excludedFeature) {
+        this.db.exec('ROLLBACK')
+        return { success: false, error: 'Excluded feature not found' }
+      }
+      
+      // Parse metadata
+      const metadata = JSON.parse((excludedFeature as any).metadata || '{}')
+      
+      // Restore to geojson_features (simplified - would need full feature data)
+      // This is a placeholder - in practice, you'd need the full feature data
+      console.log('🔄 [SQLite] Restoring excluded feature:', (excludedFeature as any).feature_id)
+      
+      // Remove from excluded_features
+      const deleteExcludedStmt = this.db.prepare(`
+        DELETE FROM excluded_features WHERE id = ?
+      `)
+      deleteExcludedStmt.run(excludedId)
+      
+      this.db.exec('COMMIT')
+      
+      return { success: true }
+      
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+      return { success: false, error: errorMsg }
+    }
   }
 
   /**
@@ -156,6 +365,14 @@ export class LocalSQLiteDB {
     if (!this.db) throw new Error('Database not initialized')
 
     const featureId = poi._id
+    
+    // Check if feature is in blacklist
+    const isExcluded = await this.isFeatureExcluded(featureId)
+    if (isExcluded) {
+      console.log('🚫 [SQLite] Skipping excluded feature:', featureId)
+      return
+    }
+    
     const geometry = poi.geometry
 
     // Extract coordinates
@@ -167,12 +384,62 @@ export class LocalSQLiteDB {
       longitude = geometry.coordinates[0]
       latitude = geometry.coordinates[1]
       elevation = (geometry.coordinates as number[]).length > 2 ? (geometry.coordinates as number[])[2] : null
+    } else if (geometry?.type === 'LineString' && geometry.coordinates) {
+      // Calculate centroid for LineString
+      const coords = geometry.coordinates as any
+      let sumLng = 0, sumLat = 0
+      for (const coord of coords) {
+        sumLng += coord[0]
+        sumLat += coord[1]
+      }
+      longitude = sumLng / coords.length
+      latitude = sumLat / coords.length
+    } else if (geometry?.type === 'MultiPolygon' && geometry.coordinates) {
+      // Calculate centroid for MultiPolygon (use first polygon)
+      const firstPolygon = (geometry.coordinates as any)[0][0] // First polygon, first ring
+      let sumLng = 0, sumLat = 0
+      for (const coord of firstPolygon) {
+        sumLng += coord[0]
+        sumLat += coord[1]
+      }
+      longitude = sumLng / firstPolygon.length
+      latitude = sumLat / firstPolygon.length
+    } else if (geometry?.type === 'Polygon' && geometry.coordinates) {
+      // Calculate centroid for Polygon
+      const firstRing = (geometry.coordinates as any)[0] // First ring (exterior)
+      let sumLng = 0, sumLat = 0
+      for (const coord of firstRing) {
+        sumLng += coord[0]
+        sumLat += coord[1]
+      }
+      longitude = sumLng / firstRing.length
+      latitude = sumLat / firstRing.length
     }
 
     // Extract properties
     const props = poi.properties
     const categories = this.extractCategories(props)
-    const location = this.extractLocationData(props)
+    
+    // Use the already extracted location data from OSMService
+    const location = {
+      city: props.city || null,
+      state: props.state || null,
+      country: props.country || null,
+      neighborhood: null,
+      street_name: null,
+      house_number: null,
+      postal_code: null,
+      formatted_address: null
+    }
+    
+    // Debug: Log extracted data
+    // console.log('🔍 [SQLite] Extracted data for POI:', {
+    //   name: props.name || 'Unnamed POI',
+    //   categories,
+    //   location,
+    //   hasOsmId: !!props.osm_id,
+    //   hasOsmType: !!props.osm_type
+    // })
 
     // Insert feature
     const insertFeature = this.db.prepare(`
@@ -192,8 +459,9 @@ export class LocalSQLiteDB {
         monument_event, monument_person, parking_capacity, public_transport,
         access_points, entrance_fee, urban_density, noise_level,
         air_quality, shade_availability, cultural_significance,
-        local_traditions, seasonal_attractions, source_file
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        local_traditions, seasonal_attractions, source_file,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     insertFeature.run(
@@ -260,7 +528,9 @@ export class LocalSQLiteDB {
       props.cultural_significance || null,
       props.local_traditions || null,
       props.seasonal_attractions || null,
-      sourceFile
+      sourceFile,
+      new Date().toISOString(), // created_at
+      new Date().toISOString()  // updated_at
     )
 
     // Insert coordinates
@@ -299,14 +569,25 @@ export class LocalSQLiteDB {
    * Extract categories from properties
    */
   private extractCategories(props: Record<string, any>) {
+    // Check if category is already processed (from OSMService.getPrimaryCategory)
+    if (props.category && typeof props.category === 'string' && props.category.includes('=')) {
+      const [primaryType, primaryValue] = props.category.split('=')
+      return {
+        primary: primaryValue, // Just the category value (e.g., "park")
+        primaryType: primaryType, // The type (e.g., "leisure")
+        all: [props.category]
+      }
+    }
+
+    // Original logic for raw OSM data
     const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'shop', 'highway', 'building']
     let primary = null
     let primaryType = null
 
     for (const tag of priorityTags) {
       if (props[tag]) {
-        primary = `${tag}=${props[tag]}`
-        primaryType = tag
+        primary = props[tag] // Just the value (e.g., "park")
+        primaryType = tag // The type (e.g., "leisure")
         break
       }
     }
@@ -322,10 +603,28 @@ export class LocalSQLiteDB {
    * Extract location data from properties
    */
   private extractLocationData(props: Record<string, any>) {
+    // Try to extract from OSM tags first
+    let city = props['addr:city'] || props['is_in:city'] || props['addr:suburb'] || null
+    let state = props['addr:state'] || props['is_in:state'] || props['addr:province'] || null
+    let country = props['addr:country'] || props['is_in:country'] || null
+    
+    // If no location data found in OSM tags, try alternative fields
+    if (!city) {
+      city = props.city || props.place || null
+    }
+    if (!state) {
+      state = props.state || props.region || null
+    }
+    if (!country) {
+      country = props.country || null
+    }
+    
+    // If still no data, we'll need to use reverse geocoding later
+    // For now, return what we have
     return {
-      city: props['addr:city'] || props['is_in:city'] || props['addr:suburb'] || null,
-      state: props['addr:state'] || props['is_in:state'] || props['addr:province'] || null,
-      country: props['addr:country'] || props['is_in:country'] || null,
+      city,
+      state,
+      country,
       neighborhood: props['addr:neighbourhood'] || props['addr:suburb'] || null,
       street_name: props['addr:street'] || null,
       house_number: props['addr:housenumber'] || null,

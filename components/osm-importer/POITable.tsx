@@ -26,12 +26,14 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
   const [editValues, setEditValues] = useState<Record<string, any>>({})
 
   const handleEdit = (poi: SimpleOSMPOI) => {
-    setEditingId(poi._id)
+    const isDbData = !poi.properties && !poi.geometry
+    const poiId = isDbData ? (poi as any).id : poi._id
+    setEditingId(poiId)
     setEditValues({
-      name: poi.properties.name || '',
-      city: poi.properties.city || '',
-      state: poi.properties.state || '',
-      country: poi.properties.country || ''
+      name: isDbData ? ((poi as any).name || '') : (poi.properties.name || ''),
+      city: isDbData ? ((poi as any).city || '') : (poi.properties.city || ''),
+      state: isDbData ? ((poi as any).state || '') : (poi.properties.state || ''),
+      country: isDbData ? ((poi as any).country || '') : (poi.properties.country || '')
     })
   }
 
@@ -72,13 +74,23 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
       {/* Table Body */}
       <div className="flex-1 overflow-y-auto">
         {features.map((poi) => {
-          const location = OSMService.extractLocation(poi)
-          const isSelected = selectedFeatures.has(poi._id)
-          const isEditing = editingId === poi._id
+          // Handle both in-memory and database data structures
+          const isDbData = !poi.properties && !poi.geometry
+          const location = isDbData ? {
+            name: (poi as any).name || 'Unnamed POI',
+            city: (poi as any).city || 'Unknown',
+            state: (poi as any).state || 'Unknown',
+            country: (poi as any).country || 'Unknown',
+            category: (poi as any).primary_category || 'Unknown'
+          } : OSMService.extractLocation(poi)
+          
+          const poiId = isDbData ? (poi as any).id : poi._id
+          const isSelected = selectedFeatures.has(poiId)
+          const isEditing = editingId === poiId
 
           return (
             <div
-              key={poi._id}
+              key={poiId}
               className={cn(
                 "grid grid-cols-12 gap-4 px-4 py-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900 transition",
                 isSelected && "bg-blue-50 dark:bg-blue-900/20"
@@ -87,7 +99,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
               {/* Selection Checkbox */}
               <div className="col-span-1 flex items-center">
                 <button
-                  onClick={() => onToggleSelection(poi._id)}
+                  onClick={() => onToggleSelection(poiId)}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
@@ -162,7 +174,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                 {isEditing ? (
                   <>
                     <button
-                      onClick={() => handleSave(poi._id)}
+                      onClick={() => handleSave(poiId)}
                       className="text-green-600 hover:text-green-700"
                     >
                       <Save className="w-4 h-4" />

@@ -251,13 +251,12 @@ function POIMapContent({
 
     mapInstanceRef.current = map
 
-    // Initialize marker clusterer
-    const clusterer = new MarkerClusterer({
-      map,
-      markers: []
-    })
-
-    markerClustererRef.current = clusterer
+    // CLUSTERING DISABLED: For 31k POIs, direct rendering is more performant
+    // The Google Maps API handles large numbers of markers efficiently
+    console.log('🗺️ [POIMapVisualization] Clustering disabled for better performance with large datasets')
+    
+    // Keep clusterer reference null to indicate no clustering
+    markerClustererRef.current = null
 
     // Set up center and zoom change listeners to save state
     map.addListener('center_changed', () => {
@@ -500,12 +499,30 @@ function POIMapContent({
 
   // Update markers when filtered POIs change
   const updateMarkers = useCallback(() => {
-    if (!mapInstanceRef.current || !markerClustererRef.current) return
+    console.log('🗺️ [POIMapVisualization] updateMarkers called:', {
+      hasMap: !!mapInstanceRef.current,
+      hasClusterer: !!markerClustererRef.current,
+      filteredPOIsCount: filteredPOIs.length,
+      geographicContext,
+      showClusters
+    })
+    
+    if (!mapInstanceRef.current || !markerClustererRef.current) {
+      console.warn('🗺️ [POIMapVisualization] Missing map or clusterer:', {
+        hasMap: !!mapInstanceRef.current,
+        hasClusterer: !!markerClustererRef.current
+      })
+      return
+    }
 
     // Clear existing markers
     markersRef.current.forEach(marker => marker.setMap(null))
     markersRef.current.clear()
-    markerClustererRef.current.clearMarkers()
+    
+    // Clear clusterer if it exists
+    if (markerClustererRef.current) {
+      markerClustererRef.current.clearMarkers()
+    }
 
     // Create new markers for filtered POIs
     const newMarkers: google.maps.Marker[] = []
@@ -546,20 +563,36 @@ function POIMapContent({
       })
     } else {
       // Render individual POI markers for specific contexts
-      filteredPOIs.forEach(poi => {
-      if (!poi.coordinates?.latitude || !poi.coordinates?.longitude) return
-
-      const position = new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude)
-      const status = getPOIStatus(poi)
-      const isSelected = selectedPOI?.id === poi.id
-
-      const marker = new google.maps.Marker({
-        position,
-        title: `${poi.name} - Click to edit`,
-        icon: createMarkerIcon(status, isSelected),
-        map: showClusters ? undefined : mapInstanceRef.current!,
-        cursor: 'pointer'
+      console.log('🗺️ [POIMapVisualization] Rendering individual POI markers:', {
+        filteredPOIsCount: filteredPOIs.length,
+        showClusters,
+        geographicContext
       })
+      
+      filteredPOIs.forEach((poi, index) => {
+        if (!poi.coordinates?.latitude || !poi.coordinates?.longitude) {
+          console.warn(`🗺️ [POIMapVisualization] Skipping POI ${index} - no coordinates:`, poi)
+          return
+        }
+
+        const position = new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude)
+        const status = getPOIStatus(poi)
+        const isSelected = selectedPOI?.id === poi.id
+
+        console.log(`🗺️ [POIMapVisualization] Creating marker for POI ${index}:`, {
+          name: poi.name,
+          coordinates: poi.coordinates,
+          status,
+          isSelected
+        })
+
+        const marker = new google.maps.Marker({
+          position,
+          title: `${poi.name} - Click to edit`,
+          icon: createMarkerIcon(status, isSelected),
+          map: mapInstanceRef.current!, // Always add to map since clustering is disabled
+          cursor: 'pointer'
+        })
 
       // Create info window content
       const infoContent = `
@@ -651,10 +684,12 @@ function POIMapContent({
       })
     }
 
-    // Add markers to clusterer if clustering is enabled (only for non-global contexts)
-    if (showClusters && geographicContext !== 'global') {
-      markerClustererRef.current.addMarkers(newMarkers)
-    }
+    // DISABLED CLUSTERING: Markers are already added to map during creation
+    // For 31k POIs, direct rendering is more performant than clustering
+    console.log('🗺️ [POIMapVisualization] All POIs rendered directly (clustering disabled):', {
+      newMarkersCount: newMarkers.length,
+      reason: 'Direct rendering for better performance with large datasets'
+    })
 
     // Update POI count based on context
     setPOICount(prev => ({
@@ -865,6 +900,10 @@ function POIMapContent({
   }, [fetchPOIs])
 
   useEffect(() => {
+    console.log('🗺️ [POIMapVisualization] useEffect calling updateMarkers:', {
+      hasMap: !!mapInstanceRef.current,
+      updateMarkersDeps: 'updateMarkers'
+    })
     if (mapInstanceRef.current) {
       updateMarkers()
     }
