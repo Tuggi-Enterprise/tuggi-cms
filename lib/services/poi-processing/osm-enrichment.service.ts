@@ -351,7 +351,7 @@ export class OSMEnrichmentService {
       const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(nominatimQuery)}&format=json&limit=1&extratags=1&namedetails=1&addressdetails=1`
       
       const nominatimResponse = await fetch(nominatimUrl, {
-        headers: { 'User-Agent': 'TuggiCMS/1.0' }
+        headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
       })
       
       if (nominatimResponse.ok) {
@@ -365,7 +365,7 @@ export class OSMEnrichmentService {
       const reverseUrl = `https://nominatim.openstreetmap.org/reverse?lat=${coordinates.lat}&lon=${coordinates.lng}&format=json&extratags=1&namedetails=1&addressdetails=1`
       
       const reverseResponse = await fetch(reverseUrl, {
-        headers: { 'User-Agent': 'TuggiCMS/1.0' }
+        headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
       })
       
       if (reverseResponse.ok) {

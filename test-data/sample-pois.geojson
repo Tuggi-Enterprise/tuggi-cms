@@ -1,0 +1,56 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Praça da Sé",
+        "city": "São Paulo",
+        "state": "SP",
+        "country": "Brazil",
+        "category": "tourism=attraction",
+        "osm_id": "12345",
+        "osm_type": "way",
+        "importance": 0.8
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-46.6333, -23.5505]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Cristo Redentor",
+        "city": "Rio de Janeiro",
+        "state": "RJ",
+        "country": "Brazil",
+        "category": "tourism=attraction",
+        "osm_id": "67890",
+        "osm_type": "way",
+        "importance": 0.9
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-43.2105, -22.9519]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Parque Ibirapuera",
+        "city": "São Paulo",
+        "state": "SP",
+        "country": "Brazil",
+        "category": "leisure=park",
+        "osm_id": "11111",
+        "osm_type": "way",
+        "importance": 0.7
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-46.6556, -23.5874]
+      }
+    }
+  ]
+}

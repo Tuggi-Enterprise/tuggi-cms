@@ -25,6 +25,15 @@ export class OSMService {
   // Cache for Nominatim requests to avoid duplicates
   private static nominatimCache = new Map<string, any>()
 
+  // Throttling system for Nominatim requests
+  private static throttling = {
+    isProcessing: false,
+    queue: [] as Array<() => Promise<any>>,
+    lastRequestTime: 0,
+    minDelay: 25, // 1.5 seconds between requests (more conservative)
+    maxConcurrent: 1 // Only 1 request at a time
+  }
+
   /**
    * Check if Nominatim circuit breaker is open
    */
@@ -86,13 +95,146 @@ export class OSMService {
   }
 
   /**
+   * Throttled request to Nominatim API
+   */
+  private static async throttledNominatimRequest(url: string, options: RequestInit): Promise<Response> {
+    return new Promise((resolve, reject) => {
+      const requestFunction = async () => {
+        try {
+          // Ensure minimum delay between requests
+          const now = Date.now()
+          const timeSinceLastRequest = now - this.throttling.lastRequestTime
+          if (timeSinceLastRequest < this.throttling.minDelay) {
+            const waitTime = this.throttling.minDelay - timeSinceLastRequest
+            console.log(`⏳ [THROTTLE] Waiting ${waitTime}ms before next request...`)
+            await new Promise(resolve => setTimeout(resolve, waitTime))
+          }
+
+          console.log('🌐 [THROTTLE] Making throttled Nominatim request...')
+          this.throttling.lastRequestTime = Date.now()
+          
+          const response = await fetch(url, options)
+          resolve(response)
+        } catch (error) {
+          reject(error)
+        }
+      }
+
+      // Add to queue
+      this.throttling.queue.push(requestFunction)
+      
+      // Process queue if not already processing
+      if (!this.throttling.isProcessing) {
+        this.processThrottleQueue()
+      }
+    })
+  }
+
+  /**
+   * Process throttling queue sequentially
+   */
+  private static async processThrottleQueue(): Promise<void> {
+    if (this.throttling.isProcessing || this.throttling.queue.length === 0) {
+      return
+    }
+
+    this.throttling.isProcessing = true
+    console.log(`🔄 [THROTTLE] Processing queue: ${this.throttling.queue.length} requests`)
+
+    while (this.throttling.queue.length > 0) {
+      const requestFunction = this.throttling.queue.shift()
+      if (requestFunction) {
+        try {
+          await requestFunction()
+        } catch (error) {
+          console.error('❌ [THROTTLE] Request failed:', error)
+        }
+      }
+    }
+
+    this.throttling.isProcessing = false
+    console.log('✅ [THROTTLE] Queue processing completed')
+  }
+
+  /**
+   * Emit progress update via Server-Sent Events
+   */
+  private static async emitProgressUpdate(uploadId: string, data: any): Promise<void> {
+    if (!uploadId) return
+
+    try {
+      // Make HTTP request to emit progress update
+      await fetch('/api/upload-progress/emit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          uploadId,
+          data
+        })
+      })
+    } catch (error) {
+      console.error('❌ [SERVICE] Error emitting progress update:', error)
+    }
+  }
+
+  /**
+   * Save coordinates for POIs
+   */
+  private static async saveCoordinatesForPOIs(pois: SimpleOSMPOI[], savedPOIs: any[]): Promise<void> {
+    try {
+      console.log(`📍 [SERVICE] Saving coordinates for ${pois.length} POIs`)
+      
+      for (let i = 0; i < pois.length; i++) {
+        const poi = pois[i]
+        const savedPOI = savedPOIs[i]
+        
+        if (!savedPOI?.id) continue
+        
+        const coordinates = this.extractCoordinates(poi.geometry)
+        if (!coordinates) continue
+        
+        const coordinateData = {
+          poiId: savedPOI.id,
+          latitude: coordinates.lat,
+          longitude: coordinates.lon,
+          elevation_m: null,
+          boundary_type: 'point',
+          boundary_source: 'osm',
+          show_in_map: true
+        }
+        
+        const response = await fetch('/api/supabase/coordinates', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            coordinates: coordinateData,
+            poiId: savedPOI.id
+          })
+        })
+        
+        if (!response.ok) {
+          console.error(`❌ [SERVICE] Error saving coordinates for POI ${savedPOI.id}:`, response.statusText)
+        }
+      }
+      
+      console.log('✅ [SERVICE] Coordinates saved successfully')
+    } catch (error) {
+      console.error('❌ [SERVICE] Error saving coordinates:', error)
+    }
+  }
+
+  /**
    * Save POIs to local SQLite database via API
    */
   static async saveToLocalDB(pois: SimpleOSMPOI[], sourceFile: string): Promise<ImportResults> {
-    console.log('💾 [SERVICE] Saving to local SQLite database via API:', { poisCount: pois.length, sourceFile })
+    console.log('💾 [SERVICE] Saving to Supabase database via API:', { poisCount: pois.length, sourceFile })
     
     try {
-      const response = await fetch('/api/local-db/save', {
+      const response = await fetch('/api/supabase/pois', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -106,19 +248,24 @@ export class OSMService {
       if (!response.ok) {
         const errorText = await response.text()
         console.error('❌ [SERVICE] API error response:', errorText)
-        throw new Error(`Local database save failed: ${response.statusText} - ${errorText}`)
+        throw new Error(`Supabase database save failed: ${response.statusText} - ${errorText}`)
       }
 
       const results = await response.json()
-      console.log('✅ [SERVICE] Local database save API success:', results)
+      console.log('✅ [SERVICE] Supabase database save API success:', results)
       
-      return results.results || {
+      // Save coordinates for each POI
+      if (results.success && results.data) {
+        await this.saveCoordinatesForPOIs(pois, results.data)
+      }
+      
+      return results || {
         success: true,
         imported: pois.length,
         errors: []
       }
     } catch (error) {
-      console.error('❌ [SERVICE] Local database save failed:', error)
+      console.error('❌ [SERVICE] Supabase database save failed:', error)
       return {
         success: false,
         imported: 0,
@@ -190,7 +337,8 @@ export class OSMService {
    */
   static async parseFileToDB(
     file: File, 
-    onProgress?: (current: number, total: number, message: string) => void
+    onProgress?: (current: number, total: number, message: string) => void,
+    uploadId?: string
   ): Promise<{ success: boolean, imported: number, errors: string[] }> {
     console.log('📄 [SERVICE] Starting unified file parsing to DB:', { name: file.name, size: file.size })
     
@@ -241,6 +389,17 @@ export class OSMService {
       onProgress(0, totalFeatures, `Starting to process ${totalFeatures} features (${completeCount} complete, ${incompleteCount} incomplete)...`)
     }
     
+    // Emit start notification
+    if (uploadId) {
+      await this.emitProgressUpdate(uploadId, {
+        type: 'upload-started',
+        totalFeatures,
+        completeCount,
+        incompleteCount,
+        message: `Starting to process ${totalFeatures} features`
+      })
+    }
+    
     for (let i = 0; i < sortedFeatures.length; i += CHUNK_SIZE) {
       const chunk = sortedFeatures.slice(i, i + CHUNK_SIZE)
       const chunkNumber = Math.floor(i / CHUNK_SIZE) + 1
@@ -268,13 +427,12 @@ export class OSMService {
         })
       }
       
-      // Process POIs with conditional enrichment
-      const processedPOIs = await Promise.all(
-        chunk.map(async (feature: any) => {
-          const processedPOI = await OSMService.processPOI(feature)
-          return processedPOI
-        })
-      )
+      // Process POIs with conditional enrichment (sequentially to respect throttling)
+      const processedPOIs = []
+      for (const feature of chunk) {
+        const processedPOI = await OSMService.processPOI(feature)
+        processedPOIs.push(processedPOI)
+      }
       
       // Filter out rejected POIs
       const validPOIs = processedPOIs.filter(poi => poi !== null)
@@ -287,6 +445,18 @@ export class OSMService {
       if (chunkResults.success) {
         totalImported += chunkResults.imported
         console.log(`✅ [SERVICE] Chunk ${chunkNumber} completed: ${chunkResults.imported} imported`)
+        
+        // Emit progress update with new POIs
+        if (uploadId && validPOIs.length > 0) {
+          await this.emitProgressUpdate(uploadId, {
+            type: 'pois-processed',
+            chunkNumber,
+            totalChunks,
+            newPOIs: validPOIs.length,
+            totalImported,
+            message: `Processed ${validPOIs.length} POIs from chunk ${chunkNumber}/${totalChunks}`
+          })
+        }
       } else {
         allErrors.push(...chunkResults.errors)
         console.error(`❌ [SERVICE] Chunk ${chunkNumber} failed:`, chunkResults.errors)
@@ -303,6 +473,17 @@ export class OSMService {
     }
     
     console.log(`✅ [SERVICE] ${fileType} file processing completed: ${totalImported} total imported, ${allErrors.length} errors`)
+    
+    // Emit completion notification
+    if (uploadId) {
+      await this.emitProgressUpdate(uploadId, {
+        type: 'upload-completed',
+        totalImported,
+        totalErrors: allErrors.length,
+        success: allErrors.length === 0,
+        message: `Upload completed: ${totalImported} POIs imported, ${allErrors.length} errors`
+      })
+    }
     
     return {
       success: allErrors.length === 0,
@@ -478,9 +659,6 @@ export class OSMService {
     
     console.log('🌐 [SERVICE] Enriching POI with Nominatim:', { lat, lon })
     
-    // Add delay before making request to respect rate limits
-    await new Promise(resolve => setTimeout(resolve, 2000)) // 2 seconds delay
-    
     // Retry logic with exponential backoff
     const maxRetries = 3
     let lastError: Error | null = null
@@ -489,11 +667,11 @@ export class OSMService {
       try {
         console.log(`🔄 [SERVICE] Nominatim attempt ${attempt}/${maxRetries}`)
         
-        const response = await fetch(
+        const response = await this.throttledNominatimRequest(
           `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=pt-BR`,
           {
             headers: {
-              'User-Agent': 'TuggiCMS/1.0 (POI Enrichment)'
+              'User-Agent': 'TuggiCMS/1.0 (POI Enrichment) - Contact: leandro@tuggi.com.br'
             }
           }
         )

@@ -146,7 +146,7 @@ export function useOSMImporterSimple() {
         limit: limit.toString()
       })
       
-      const response = await fetch(`/api/local-db/all-data?${params}`)
+      const response = await fetch(`/api/supabase/pois?${params}`)
       const result = await response.json()
       
       if (result.success) {
@@ -193,7 +193,7 @@ export function useOSMImporterSimple() {
         limit: limit.toString()
       })
       
-      const response = await fetch(`/api/local-db/all-data?${params}`)
+      const response = await fetch(`/api/supabase/pois?${params}`)
       const result = await response.json()
       
       if (result.success) {
@@ -230,6 +230,9 @@ export function useOSMImporterSimple() {
     console.log('🚀 [HOOK] Starting file load:', { name: file.name, size: file.size, type: file.type })
     setState(prev => ({ ...prev, isLoading: true, error: null, progress: null }))
     
+    // Generate unique upload ID for this session
+    const uploadId = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    
     try {
       // Always parse and save directly to local database
       console.log('💾 [HOOK] Parsing and saving to local database...')
@@ -238,7 +241,7 @@ export function useOSMImporterSimple() {
           ...prev,
           progress: { current, total, message }
         }))
-      })
+      }, uploadId)
       
       if (results.success) {
         // Reload all data from database (single call, no race conditions)
