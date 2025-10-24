@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+// Cliente sem configuração de schema - especifica schema em cada chamada
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 export async function POST(request: NextRequest) {
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest) {
       const batch = transformedPOIs.slice(i, i + batchSize)
       
       const { data, error } = await supabase
+        .schema('homolog')
         .from('pois')
         .insert(batch)
         .select('id')
@@ -94,6 +96,7 @@ export async function GET(request: NextRequest) {
 
     // Use the custom function for pagination
     const { data, error } = await supabase
+      .schema('homolog')
       .rpc('get_pois_paginated', {
         page_limit: limit,
         page_offset: offset,
@@ -150,6 +153,7 @@ export async function DELETE(request: NextRequest) {
     console.log(`🗑️ [SUPABASE] Deleting ${ids.length} POIs`)
 
     const { data, error } = await supabase
+      .schema('homolog')
       .from('pois')
       .delete()
       .in('id', ids)

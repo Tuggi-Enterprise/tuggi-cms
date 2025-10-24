@@ -82,14 +82,14 @@ export function OSMImporterSimple() {
   } = useOSMImporterSimple()
 
   // KISS: Simple derived state
-  const currentFeatures = features
-  const currentFeaturesCount = dbPagination.total
+  const currentFeatures = features || []
+  const currentFeaturesCount = dbPagination?.total || 0
   const hasData = currentFeaturesCount > 0
   const isInitialLoad = !isLoading && currentFeaturesCount === 0 && !error
 
   // Filter logic - reusing POI Management pattern
   const filteredFeatures = useMemo(() => {
-    if (!currentFeatures.length) return []
+    if (!currentFeatures || !currentFeatures.length) return []
     
     return currentFeatures.filter(feature => {
       // Handle both in-memory and database data structures

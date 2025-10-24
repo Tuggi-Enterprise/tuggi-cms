@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { data, error } = await supabase
+      .schema('homolog')
       .from('coordinates')
       .insert(transformedCoordinates)
       .select('id')
@@ -81,6 +82,7 @@ export async function GET(request: NextRequest) {
 
     // Use the custom function for pagination
     const { data, error } = await supabase
+      .schema('homolog')
       .rpc('get_coordinates_paginated', {
         page_limit: limit,
         page_offset: offset,
@@ -138,6 +140,7 @@ export async function DELETE(request: NextRequest) {
     console.log(`🗑️ [SUPABASE] Deleting ${ids.length} coordinates`)
 
     const { data, error } = await supabase
+      .schema('homolog')
       .from('coordinates')
       .delete()
       .in('id', ids)

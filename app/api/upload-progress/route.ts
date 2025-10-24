@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
 
     cancel() {
       console.log(`📡 [SSE] Stream cancelled for upload: ${uploadId}`)
-      connections.delete(controller)
+      // Connection cleanup is handled by the abort signal listener
     }
   })
 

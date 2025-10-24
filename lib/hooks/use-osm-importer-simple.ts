@@ -131,7 +131,7 @@ export function useOSMImporterSimple() {
 
   // Derived state - computed values (no race conditions)
   const selectedPOIs = useMemo(() => 
-    state.features.filter(f => state.selectedFeatures.has(f.id)),
+    (state.features || []).filter(f => state.selectedFeatures.has(f.id)),
     [state.features, state.selectedFeatures]
   )
 
@@ -284,7 +284,7 @@ export function useOSMImporterSimple() {
   const selectAll = useCallback(() => {
     setState(prev => ({
       ...prev,
-      selectedFeatures: new Set(state.features.map(f => f.id))
+      selectedFeatures: new Set((state.features || []).map(f => f.id))
     }))
   }, [state.features])
 

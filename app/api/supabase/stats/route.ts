@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
 
     // Get statistics from the view
     const { data: stats, error: statsError } = await supabase
+      .schema('homolog')
       .from('pois_stats')
       .select('*')
 
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
 
     // Get unique cities
     const { data: cities, error: citiesError } = await supabase
+      .schema('homolog')
       .from('pois')
       .select('city')
       .not('city', 'is', null)
@@ -36,6 +38,7 @@ export async function GET(request: NextRequest) {
 
     // Get unique categories
     const { data: categories, error: categoriesError } = await supabase
+      .schema('homolog')
       .from('pois')
       .select('category')
       .not('category', 'is', null)
@@ -47,6 +50,7 @@ export async function GET(request: NextRequest) {
 
     // Get unique states
     const { data: states, error: statesError } = await supabase
+      .schema('homolog')
       .from('pois')
       .select('state')
       .not('state', 'is', null)

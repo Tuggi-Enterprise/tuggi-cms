@@ -33,7 +33,7 @@ export type SupabaseClientType = 'server' | 'client' | 'edge' | 'service'
 export class SupabaseClientManager {
   private static instance: SupabaseClientManager
   private serverClient: SupabaseClient | null = null
-  private serviceClient: SupabaseClient | null = null
+  private serviceClient: any = null
   private edgeClient: SupabaseClient | null = null
   
   private constructor() {
