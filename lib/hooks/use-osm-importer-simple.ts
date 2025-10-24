@@ -61,6 +61,13 @@ interface OSMImporterState {
   currentFile: { name: string; size: number } | null
   importResults: ImportResults | null
   
+  // Progress State
+  progress: {
+    current: number
+    total: number
+    message: string
+  } | null
+  
   // View State
   viewMode: 'table' | 'map'
   showUploadModal: boolean
@@ -100,6 +107,9 @@ export function useOSMImporterSimple() {
     error: null,
     currentFile: null,
     importResults: null,
+    
+    // Progress State
+    progress: null,
     
     // View State
     viewMode: 'table',
@@ -218,12 +228,17 @@ export function useOSMImporterSimple() {
   // File loading (unchanged functionality)
   const loadFile = useCallback(async (file: File) => {
     console.log('🚀 [HOOK] Starting file load:', { name: file.name, size: file.size, type: file.type })
-    setState(prev => ({ ...prev, isLoading: true, error: null }))
+    setState(prev => ({ ...prev, isLoading: true, error: null, progress: null }))
     
     try {
       // Always parse and save directly to local database
       console.log('💾 [HOOK] Parsing and saving to local database...')
-      const results = await OSMService.parseFileToDB(file)
+      const results = await OSMService.parseFileToDB(file, (current, total, message) => {
+        setState(prev => ({
+          ...prev,
+          progress: { current, total, message }
+        }))
+      })
       
       if (results.success) {
         // Reload all data from database (single call, no race conditions)
@@ -233,6 +248,7 @@ export function useOSMImporterSimple() {
       setState(prev => ({
         ...prev,
         isLoading: false,
+        progress: null,
         currentFile: { name: file.name, size: file.size },
         importResults: results
       }))
@@ -243,6 +259,7 @@ export function useOSMImporterSimple() {
       setState(prev => ({
         ...prev,
         isLoading: false,
+        progress: null,
         error: error instanceof Error ? error.message : 'Failed to load file'
       }))
     }
@@ -343,6 +360,9 @@ export function useOSMImporterSimple() {
       currentFile: null,
       importResults: null,
       
+      // Progress State
+      progress: null,
+      
       // View State
       viewMode: 'table',
       showUploadModal: false,
@@ -384,6 +404,9 @@ export function useOSMImporterSimple() {
     error: state.error,
     currentFile: state.currentFile,
     importResults: state.importResults,
+    
+    // Progress State
+    progress: state.progress,
     
     // View State
     viewMode: state.viewMode,

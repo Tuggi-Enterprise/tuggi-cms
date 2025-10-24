@@ -13,6 +13,77 @@
 import { SimpleOSMPOI, ImportResults } from '../hooks/use-osm-importer-simple'
 
 export class OSMService {
+  // Circuit breaker for Nominatim API
+  private static nominatimCircuitBreaker = {
+    isOpen: false,
+    failureCount: 0,
+    lastFailureTime: 0,
+    failureThreshold: 5,
+    timeout: 30000 // 30 seconds
+  }
+
+  // Cache for Nominatim requests to avoid duplicates
+  private static nominatimCache = new Map<string, any>()
+
+  /**
+   * Check if Nominatim circuit breaker is open
+   */
+  private static isNominatimCircuitOpen(): boolean {
+    const now = Date.now()
+    
+    // Reset circuit breaker if timeout has passed
+    if (this.nominatimCircuitBreaker.isOpen && 
+        now - this.nominatimCircuitBreaker.lastFailureTime > this.nominatimCircuitBreaker.timeout) {
+      console.log('🔄 [CIRCUIT] Nominatim circuit breaker reset - attempting to reconnect')
+      this.nominatimCircuitBreaker.isOpen = false
+      this.nominatimCircuitBreaker.failureCount = 0
+    }
+    
+    return this.nominatimCircuitBreaker.isOpen
+  }
+
+  /**
+   * Record Nominatim failure
+   */
+  private static recordNominatimFailure(): void {
+    this.nominatimCircuitBreaker.failureCount++
+    this.nominatimCircuitBreaker.lastFailureTime = Date.now()
+    
+    if (this.nominatimCircuitBreaker.failureCount >= this.nominatimCircuitBreaker.failureThreshold) {
+      this.nominatimCircuitBreaker.isOpen = true
+      console.log('🚫 [CIRCUIT] Nominatim circuit breaker OPEN - too many failures, skipping enrichment')
+    }
+  }
+
+  /**
+   * Record Nominatim success
+   */
+  private static recordNominatimSuccess(): void {
+    this.nominatimCircuitBreaker.failureCount = 0
+    this.nominatimCircuitBreaker.isOpen = false
+  }
+
+  /**
+   * Build enriched POI from Nominatim data
+   */
+  private static buildEnrichedPOI(poi: SimpleOSMPOI, data: any): SimpleOSMPOI {
+    return {
+      ...poi,
+      properties: {
+        ...poi.properties,
+        name: data.name || poi.properties.name || 'Unnamed POI',
+        city: data.address?.city || poi.properties.city,
+        state: data.address?.state || poi.properties.state,
+        country: data.address?.country || poi.properties.country,
+        category: `${data.class}=${data.type}`,
+        formatted_address: data.display_name,
+        importance: data.importance,
+        place_id: data.place_id,
+        osm_type: data.osm_type,
+        osm_id: data.osm_id
+      }
+    }
+  }
 
   /**
    * Save POIs to local SQLite database via API
@@ -117,7 +188,10 @@ export class OSMService {
    * Parse file (GeoJSON or PBF) and save directly to local database
    * Unified parsing using UnifiedParserService
    */
-  static async parseFileToDB(file: File): Promise<{ success: boolean, imported: number, errors: string[] }> {
+  static async parseFileToDB(
+    file: File, 
+    onProgress?: (current: number, total: number, message: string) => void
+  ): Promise<{ success: boolean, imported: number, errors: string[] }> {
     console.log('📄 [SERVICE] Starting unified file parsing to DB:', { name: file.name, size: file.size })
     
     // Import UnifiedParserService dynamically to avoid circular dependencies
@@ -137,22 +211,55 @@ export class OSMService {
     const CHUNK_SIZE = 1000 // Process 1000 features at a time
     let totalImported = 0
     let allErrors: string[] = []
-    let totalFeatures = 0
 
     console.log(`🔄 [SERVICE] Processing ${fileType} file with unified parser`)
 
     // Parse file in chunks using unified parser
     const features = await UnifiedParserService.parseFile(file)
+    const totalFeatures = features.length
     
-    for (let i = 0; i < features.length; i += CHUNK_SIZE) {
-      const chunk = features.slice(i, i + CHUNK_SIZE)
-      totalFeatures += chunk.length
-      const chunkNumber = Math.floor(totalFeatures / CHUNK_SIZE)
+    // Sort features by completeness: complete POIs first, incomplete POIs last
+    console.log('🔄 [SERVICE] Sorting features by completeness...')
+    const sortedFeatures = features.sort((a, b) => {
+      const aComplete = OSMService.isComplete(a.properties)
+      const bComplete = OSMService.isComplete(b.properties)
       
-      console.log(`📦 [SERVICE] Processing chunk ${chunkNumber} (${chunk.length} features)`)
+      // Complete POIs first (-1), incomplete POIs last (1)
+      if (aComplete && !bComplete) return -1
+      if (!aComplete && bComplete) return 1
+      return 0
+    })
+    
+    // Count complete vs incomplete for progress reporting
+    const completeCount = sortedFeatures.filter(f => OSMService.isComplete(f.properties)).length
+    const incompleteCount = totalFeatures - completeCount
+    
+    console.log(`📊 [SERVICE] Sorted ${completeCount} complete POIs first, ${incompleteCount} incomplete POIs last`)
+    
+    // Report initial progress
+    if (onProgress) {
+      onProgress(0, totalFeatures, `Starting to process ${totalFeatures} features (${completeCount} complete, ${incompleteCount} incomplete)...`)
+    }
+    
+    for (let i = 0; i < sortedFeatures.length; i += CHUNK_SIZE) {
+      const chunk = sortedFeatures.slice(i, i + CHUNK_SIZE)
+      const chunkNumber = Math.floor(i / CHUNK_SIZE) + 1
+      const totalChunks = Math.ceil(totalFeatures / CHUNK_SIZE)
+      
+      console.log(`📦 [SERVICE] Processing chunk ${chunkNumber}/${totalChunks} (${chunk.length} features)`)
+      
+      // Report progress with completeness info
+      if (onProgress) {
+        const processedSoFar = Math.min(i + CHUNK_SIZE, totalFeatures)
+        const isProcessingComplete = i < completeCount
+        const status = isProcessingComplete ? 'complete' : 'incomplete'
+        
+        onProgress(processedSoFar, totalFeatures, 
+          `Processing ${status} POIs: ${processedSoFar}/${totalFeatures} (chunk ${chunkNumber}/${totalChunks})`)
+      }
       
       // Debug: Log first feature structure from first chunk
-      if (chunkNumber === 0 && chunk.length > 0) {
+      if (chunkNumber === 1 && chunk.length > 0) {
         console.log('🔍 [SERVICE] First feature structure:', {
           properties: chunk[0].properties,
           geometry: chunk[0].geometry,
@@ -165,16 +272,6 @@ export class OSMService {
       const processedPOIs = await Promise.all(
         chunk.map(async (feature: any) => {
           const processedPOI = await OSMService.processPOI(feature)
-          
-          // Add delay to respect Nominatim rate limit (1 req/second)
-          if (processedPOI && OSMService.needsNominatimEnrichment({
-            name: feature.properties.name,
-            city: feature.properties['addr:city'] || feature.properties['is_in:city'],
-            state: feature.properties['addr:state'] || feature.properties['is_in:state']
-          })) {
-            await new Promise(resolve => setTimeout(resolve, 1000)) // 1 second delay
-          }
-          
           return processedPOI
         })
       )
@@ -193,6 +290,12 @@ export class OSMService {
       } else {
         allErrors.push(...chunkResults.errors)
         console.error(`❌ [SERVICE] Chunk ${chunkNumber} failed:`, chunkResults.errors)
+      }
+      
+      // Report progress after chunk
+      if (onProgress) {
+        onProgress(Math.min(i + CHUNK_SIZE, totalFeatures), totalFeatures, 
+          `Processed ${Math.min(i + CHUNK_SIZE, totalFeatures)}/${totalFeatures} features`)
       }
       
       // Add small delay between chunks to prevent overwhelming the database
@@ -323,6 +426,18 @@ export class OSMService {
   }
 
   /**
+   * Check if a POI is complete (has all required data)
+   * Used for sorting: complete POIs are processed first
+   */
+  static isComplete(properties: any): boolean {
+    const hasName = properties.name && properties.name !== 'Unnamed POI'
+    const hasCity = properties.city || properties['addr:city'] || properties['is_in:city']
+    const hasState = properties.state || properties['addr:state'] || properties['is_in:state']
+    
+    return hasName && hasCity && hasState
+  }
+
+  /**
    * Check if a category is accepted for our project
    * KISS: Simple category validation
    * TEMPORARILY DISABLED: Allow all categories for now
@@ -345,55 +460,84 @@ export class OSMService {
    * SSOT: Single source for Nominatim integration
    */
   static async enrichWithNominatim(poi: SimpleOSMPOI): Promise<SimpleOSMPOI | null> {
-    try {
-      const { lat, lon } = this.extractCoordinates(poi.geometry)
-      
-      console.log('🌐 [SERVICE] Enriching POI with Nominatim:', { lat, lon })
-      
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=pt-BR`,
-        {
-          headers: {
-            'User-Agent': 'TuggiCMS/1.0 (POI Enrichment)'
-          }
-        }
-      )
-      
-      if (!response.ok) {
-        console.error('❌ [SERVICE] Nominatim request failed:', response.statusText)
-        return null
-      }
-      
-      const data = await response.json()
-      
-      // Category validation temporarily disabled
-      // if (!this.isAcceptedCategory(`${data.class}=${data.type}`)) {
-      //   console.log('🚫 [SERVICE] POI rejected - invalid category:', { class: data.class, type: data.type })
-      //   return null
-      // }
-      
-      // Enrich POI with Nominatim data
-      return {
-        ...poi,
-        properties: {
-          ...poi.properties,
-          name: data.name || poi.properties.name || 'Unnamed POI',
-          city: data.address?.city || poi.properties.city,
-          state: data.address?.state || poi.properties.state,
-          country: data.address?.country || poi.properties.country,
-          category: `${data.class}=${data.type}`,
-          formatted_address: data.display_name,
-          importance: data.importance,
-          place_id: data.place_id,
-          osm_type: data.osm_type,
-          osm_id: data.osm_id
-        }
-      }
-      
-    } catch (error) {
-      console.error('❌ [SERVICE] Nominatim enrichment failed:', error)
+    // Check circuit breaker first
+    if (this.isNominatimCircuitOpen()) {
+      console.log('🚫 [SERVICE] Nominatim circuit breaker is OPEN - skipping enrichment')
       return null
     }
+
+    const { lat, lon } = this.extractCoordinates(poi.geometry)
+    
+    // Check cache first
+    const cacheKey = `${lat.toFixed(6)},${lon.toFixed(6)}`
+    if (this.nominatimCache.has(cacheKey)) {
+      console.log('💾 [SERVICE] Using cached Nominatim data for:', { lat, lon })
+      const cachedData = this.nominatimCache.get(cacheKey)
+      return this.buildEnrichedPOI(poi, cachedData)
+    }
+    
+    console.log('🌐 [SERVICE] Enriching POI with Nominatim:', { lat, lon })
+    
+    // Add delay before making request to respect rate limits
+    await new Promise(resolve => setTimeout(resolve, 2000)) // 2 seconds delay
+    
+    // Retry logic with exponential backoff
+    const maxRetries = 3
+    let lastError: Error | null = null
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🔄 [SERVICE] Nominatim attempt ${attempt}/${maxRetries}`)
+        
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=pt-BR`,
+          {
+            headers: {
+              'User-Agent': 'TuggiCMS/1.0 (POI Enrichment)'
+            }
+          }
+        )
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+        
+        const data = await response.json()
+        
+        // Category validation temporarily disabled
+        // if (!this.isAcceptedCategory(`${data.class}=${data.type}`)) {
+        //   console.log('🚫 [SERVICE] POI rejected - invalid category:', { class: data.class, type: data.type })
+        //   return null
+        // }
+        
+        // Enrich POI with Nominatim data
+        console.log('✅ [SERVICE] Nominatim enrichment successful')
+        this.recordNominatimSuccess() // Record success to reset circuit breaker
+        
+        // Cache the result for future use
+        this.nominatimCache.set(cacheKey, data)
+        
+        return this.buildEnrichedPOI(poi, data)
+        
+      } catch (error) {
+        lastError = error as Error
+        console.error(`❌ [SERVICE] Nominatim attempt ${attempt} failed:`, error)
+        
+        // Record failure for circuit breaker
+        this.recordNominatimFailure()
+        
+        // If this is not the last attempt, wait with exponential backoff
+        if (attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000 // 2s, 4s, 8s
+          console.log(`⏳ [SERVICE] Waiting ${delay}ms before retry...`)
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+      }
+    }
+    
+    // All retries failed
+    console.error('❌ [SERVICE] Nominatim enrichment failed after all retries:', lastError)
+    return null
   }
 
   /**
@@ -501,8 +645,9 @@ export class OSMService {
       const enrichedPOI = await OSMService.enrichWithNominatim(basicPOI)
       
       if (!enrichedPOI) {
-        console.log('🚫 [SERVICE] POI rejected after enrichment')
-        return null
+        console.log('⚠️ [SERVICE] Nominatim enrichment failed, saving POI without enrichment')
+        // Fallback: save POI without enrichment instead of rejecting
+        return basicPOI
       }
       
       return enrichedPOI

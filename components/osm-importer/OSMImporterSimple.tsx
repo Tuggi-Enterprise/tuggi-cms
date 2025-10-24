@@ -36,6 +36,9 @@ export function OSMImporterSimple() {
     currentFile,
     importResults,
     
+    // Progress State
+    progress,
+    
     // View State
     viewMode,
     showUploadModal,
@@ -323,9 +326,36 @@ export function OSMImporterSimple() {
         {/* Loading State */}
         {isLoading && !hasData && (
           <div className="flex-1 flex items-center justify-center p-8">
-            <div className="text-center">
+            <div className="text-center w-full max-w-md">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600 dark:text-gray-400">Loading data from local database...</p>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">Loading data from local database...</p>
+              
+              {/* Progress Bar */}
+              {progress && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {progress.message}
+                    </span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                      {progress.current}/{progress.total}
+                    </span>
+                  </div>
+                  
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${Math.min((progress.current / progress.total) * 100, 100)}%` 
+                      }}
+                    ></div>
+                  </div>
+                  
+                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 text-center">
+                    {Math.round((progress.current / progress.total) * 100)}% complete
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
