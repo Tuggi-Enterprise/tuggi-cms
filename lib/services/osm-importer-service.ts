@@ -20,10 +20,7 @@ export class OSMImporterService {
    * Parse OSM tags to extract location data
    */
   extractLocationFromOSMTags(properties: Record<string, any> | undefined) {
-    console.log('🔍 EXTRACT LOCATION CALLED:', { properties: properties ? Object.keys(properties).slice(0, 5) : 'null' })
-    
     if (!properties) {
-      console.log('❌ NO PROPERTIES')
       return {
         name: null,
         city: null,
@@ -35,7 +32,6 @@ export class OSMImporterService {
     
     // Handle both direct properties and nested tags structure
     const tags = properties.tags || properties
-    console.log('🔍 TAGS STRUCTURE:', { hasTags: !!properties.tags, directProps: Object.keys(properties).slice(0, 5) })
     
     const result = {
       name: tags.name || tags['name:en'] || tags['name:pt'] || null,
@@ -45,18 +41,14 @@ export class OSMImporterService {
       address: tags['addr:full'] || tags['addr:street'] || null
     }
     
-    // Debug log for troubleshooting
-    if (result.name || result.city || result.state || result.country) {
-      console.log('🔍 EXTRACTED LOCATION:', {
+    // Debug log for troubleshooting (only for first few items to avoid spam)
+    if ((result.name || result.city || result.state || result.country) && Math.random() < 0.01) {
+      console.log('🔍 EXTRACTED LOCATION SAMPLE:', {
         name: result.name,
         city: result.city,
         state: result.state,
         country: result.country,
-        rawProperties: Object.keys(tags).slice(0, 10), // First 10 keys for debugging
-        addrState: tags['addr:state'],
-        isInState: tags['is_in:state'],
-        addrCountry: tags['addr:country'],
-        isInCountry: tags['is_in:country']
+        rawProperties: Object.keys(tags).slice(0, 5)
       })
     }
     
