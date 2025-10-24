@@ -18,7 +18,7 @@ interface POITableProps {
   features: SimpleOSMPOI[]
   selectedFeatures: Set<string>
   onToggleSelection: (id: string) => void
-  onEditPOI: (id: string, updates: any) => void
+  onEditPOI?: (id: string, updates: any) => void
 }
 
 export function POITable({ features, selectedFeatures, onToggleSelection, onEditPOI }: POITableProps) {
@@ -36,7 +36,9 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
   }
 
   const handleSave = (poiId: string) => {
-    onEditPOI(poiId, editValues)
+    if (onEditPOI) {
+      onEditPOI(poiId, editValues)
+    }
     setEditingId(null)
     setEditValues({})
   }

@@ -35,47 +35,65 @@ export interface ImportResults {
   errors: string[]
 }
 
+export interface LocalDBStats {
+  features: number
+  coordinates: number
+}
+
 export function useOSMImporterSimple() {
   // Single state object - no race conditions
   const [state, setState] = useState({
-    features: [] as SimpleOSMPOI[],
     selectedFeatures: new Set<string>(),
     isLoading: false,
     error: null as string | null,
     currentFile: null as { name: string; size: number } | null,
-    importResults: null as ImportResults | null
+    importResults: null as ImportResults | null,
+    localDBStats: null as LocalDBStats | null,
+    dbFeatures: [] as any[],
+    dbCities: [] as string[],
+    dbCategories: [] as string[],
+    dbPagination: {
+      page: 1,
+      limit: 50,
+      total: 0,
+      totalPages: 0
+    }
   })
 
   // Derived state - computed values
   const selectedPOIs = useMemo(() => 
-    state.features.filter(f => state.selectedFeatures.has(f._id)),
-    [state.features, state.selectedFeatures]
-  )
-
-  const availableCities = useMemo(() => 
-    [...new Set(state.features.map(f => f.properties.city).filter(Boolean))],
-    [state.features]
-  )
-
-  const availableCategories = useMemo(() => 
-    [...new Set(state.features.map(f => f.properties.category).filter(Boolean))],
-    [state.features]
+    state.dbFeatures.filter(f => state.selectedFeatures.has(f.id)),
+    [state.dbFeatures, state.selectedFeatures]
   )
 
   // Actions - all mutations go through setState
   const loadFile = useCallback(async (file: File) => {
+    console.log('🚀 [HOOK] Starting file load:', { name: file.name, size: file.size, type: file.type })
     setState(prev => ({ ...prev, isLoading: true, error: null }))
     
     try {
-      const features = await OSMService.parseGeoJSON(file)
+      // Always parse and save directly to local database
+      console.log('💾 [HOOK] Parsing and saving to local database...')
+      const results = await OSMService.parseGeoJSONToDB(file)
+      
+      if (results.success) {
+        // Load data from database
+        await loadDBFeatures()
+        await loadDBCities()
+        await loadDBCategories()
+        await refreshLocalStats()
+      }
+      
       setState(prev => ({
         ...prev,
-        features,
-        selectedFeatures: new Set(),
         isLoading: false,
-        currentFile: { name: file.name, size: file.size }
+        currentFile: { name: file.name, size: file.size },
+        importResults: results
       }))
+      
+      console.log('🎯 [HOOK] State updated')
     } catch (error) {
+      console.error('❌ [HOOK] File load failed:', error)
       setState(prev => ({
         ...prev,
         isLoading: false,
@@ -84,16 +102,61 @@ export function useOSMImporterSimple() {
     }
   }, [])
 
-  const editPOI = useCallback((id: string, updates: Partial<SimpleOSMPOI['properties']>) => {
-    setState(prev => ({
-      ...prev,
-      features: prev.features.map(f => 
-        f._id === id 
-          ? { ...f, properties: { ...f.properties, ...updates } }
-          : f
-      )
-    }))
+  const loadDBFeatures = useCallback(async (page = 1, limit = 50, filters = {}) => {
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString(),
+        ...filters
+      })
+      
+      const response = await fetch(`/api/local-db/features?${params}`)
+      const data = await response.json()
+      
+      if (data.success) {
+        setState(prev => ({
+          ...prev,
+          dbFeatures: data.data.features,
+          dbPagination: data.data.pagination
+        }))
+      }
+    } catch (error) {
+      console.error('❌ [HOOK] Error loading DB features:', error)
+    }
   }, [])
+
+  const loadDBCities = useCallback(async () => {
+    try {
+      const response = await fetch('/api/local-db/cities')
+      const data = await response.json()
+      
+      if (data.success) {
+        setState(prev => ({
+          ...prev,
+          dbCities: data.data.map((item: any) => item.city)
+        }))
+      }
+    } catch (error) {
+      console.error('❌ [HOOK] Error loading DB cities:', error)
+    }
+  }, [])
+
+  const loadDBCategories = useCallback(async () => {
+    try {
+      const response = await fetch('/api/local-db/categories')
+      const data = await response.json()
+      
+      if (data.success) {
+        setState(prev => ({
+          ...prev,
+          dbCategories: data.data.map((item: any) => item.primary_category)
+        }))
+      }
+    } catch (error) {
+      console.error('❌ [HOOK] Error loading DB categories:', error)
+    }
+  }, [])
+
 
   const toggleSelection = useCallback((id: string) => {
     setState(prev => {
@@ -110,7 +173,7 @@ export function useOSMImporterSimple() {
   const selectAll = useCallback(() => {
     setState(prev => ({
       ...prev,
-      selectedFeatures: new Set(prev.features.map(f => f._id))
+      selectedFeatures: new Set(prev.dbFeatures.map(f => f.id))
     }))
   }, [])
 
@@ -118,58 +181,112 @@ export function useOSMImporterSimple() {
     setState(prev => ({ ...prev, selectedFeatures: new Set() }))
   }, [])
 
+  const refreshLocalStats = useCallback(async () => {
+    try {
+      const stats = await OSMService.getLocalStats()
+      setState(prev => ({ ...prev, localDBStats: stats }))
+    } catch (error) {
+      console.error('❌ [HOOK] Error refreshing local stats:', error)
+    }
+  }, [])
+
   const importSelected = useCallback(async () => {
-    if (selectedPOIs.length === 0) return
+    console.log('📤 [HOOK] Starting import process:', { selectedCount: selectedPOIs.length })
+    if (selectedPOIs.length === 0) {
+      console.log('⚠️ [HOOK] No POIs selected for import')
+      return
+    }
 
     setState(prev => ({ ...prev, isLoading: true, error: null }))
+    console.log('🔄 [HOOK] Loading state set, calling import service...')
     
     try {
-      const results = await OSMService.importPOIs(selectedPOIs)
+      // Convert DB features to SimpleOSMPOI format for Supabase import
+      const poisForSupabase = selectedPOIs.map(f => ({
+        _id: f.id,
+        properties: {
+          name: f.name,
+          city: f.city,
+          state: f.state,
+          country: f.country,
+          category: f.primary_category,
+          ...JSON.parse(f.osm_tags || '{}')
+        },
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [f.longitude, f.latitude] as [number, number]
+        }
+      }))
+      
+      console.log('🌐 [HOOK] Importing to Supabase')
+      const results = await OSMService.importPOIs(poisForSupabase)
+      
+      console.log('✅ [HOOK] Import completed:', results)
       setState(prev => ({
         ...prev,
         isLoading: false,
         importResults: results
       }))
+      
+      // Refresh local DB stats
+      await refreshLocalStats()
     } catch (error) {
+      console.error('❌ [HOOK] Import failed:', error)
       setState(prev => ({
         ...prev,
         isLoading: false,
         error: error instanceof Error ? error.message : 'Import failed'
       }))
     }
-  }, [selectedPOIs])
+  }, [selectedPOIs, refreshLocalStats])
 
   const clearData = useCallback(() => {
     setState({
-      features: [],
       selectedFeatures: new Set(),
       isLoading: false,
       error: null,
       currentFile: null,
-      importResults: null
+      importResults: null,
+      localDBStats: null,
+      dbFeatures: [],
+      dbCities: [],
+      dbCategories: [],
+      dbPagination: {
+        page: 1,
+        limit: 50,
+        total: 0,
+        totalPages: 0
+      }
     })
   }, [])
 
   // Return unified interface
   return {
     // State
-    features: state.features,
+    features: state.dbFeatures,
     selectedFeatures: state.selectedFeatures,
     selectedPOIs,
-    availableCities,
-    availableCategories,
+    availableCities: state.dbCities,
+    availableCategories: state.dbCategories,
     isLoading: state.isLoading,
     error: state.error,
     currentFile: state.currentFile,
     importResults: state.importResults,
+    localDBStats: state.localDBStats,
+    dbPagination: state.dbPagination,
     
     // Actions
     loadFile,
-    editPOI,
     toggleSelection,
     selectAll,
     clearSelection,
     importSelected,
-    clearData
+    clearData,
+    
+    // Local DB Actions
+    refreshLocalStats,
+    loadDBFeatures,
+    loadDBCities,
+    loadDBCategories
   }
 }

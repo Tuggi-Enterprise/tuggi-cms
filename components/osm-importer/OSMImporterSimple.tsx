@@ -8,8 +8,8 @@
 
 'use client'
 
-import { useState } from 'react'
-import { Table2, Map, Download, Upload, CheckSquare, Square, Trash2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Table2, Map, Download, Upload, CheckSquare, Square, Trash2, Database, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useOSMImporterSimple } from '@/lib/hooks/use-osm-importer-simple'
 import { FileUpload } from './FileUpload'
@@ -17,6 +17,7 @@ import { POITable } from './POITable'
 import { POIMap } from './POIMap'
 
 export function OSMImporterSimple() {
+  console.log('🏗️ [COMPONENT] OSMImporterSimple rendering')
   const [viewMode, setViewMode] = useState<'table' | 'map'>('table')
   
   const {
@@ -29,17 +30,40 @@ export function OSMImporterSimple() {
     error,
     currentFile,
     importResults,
+    localDBStats,
+    dbPagination,
     loadFile,
-    editPOI,
     toggleSelection,
     selectAll,
     clearSelection,
     importSelected,
-    clearData
+    clearData,
+    refreshLocalStats,
+    loadDBFeatures,
+    loadDBCities,
+    loadDBCategories
   } = useOSMImporterSimple()
 
+  // Load local DB stats on component mount
+  useEffect(() => {
+    refreshLocalStats()
+  }, [refreshLocalStats])
+
+  // All data comes from local database
+  const currentFeatures = features
+  const currentFeaturesCount = dbPagination.total
+
+  console.log('📊 [COMPONENT] Current state:', {
+    featuresCount: currentFeaturesCount,
+    selectedCount: selectedFeatures.size,
+    isLoading,
+    hasError: !!error,
+    currentFile: currentFile?.name,
+    dbFeaturesCount: features.length
+  })
+
   const handleSelectAll = () => {
-    if (selectedFeatures.size === features.length) {
+    if (selectedFeatures.size === currentFeaturesCount) {
       clearSelection()
     } else {
       selectAll()
@@ -67,11 +91,11 @@ export function OSMImporterSimple() {
           <div className="flex items-center space-x-4">
             {currentFile && (
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                {features.length} POIs loaded
+                {currentFeaturesCount} POIs loaded
               </div>
             )}
             
-            {features.length > 0 && (
+            {currentFeaturesCount > 0 && (
               <button
                 onClick={clearData}
                 className="px-4 py-2 text-sm text-red-600 hover:text-red-700 border border-red-300 rounded-lg hover:bg-red-50"
@@ -86,7 +110,7 @@ export function OSMImporterSimple() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* File Upload */}
-        {features.length === 0 && (
+        {currentFeaturesCount === 0 && (
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="w-full max-w-2xl">
               <FileUpload
@@ -100,7 +124,7 @@ export function OSMImporterSimple() {
         )}
 
         {/* Data View */}
-        {features.length > 0 && (
+        {currentFeaturesCount > 0 && (
           <>
             {/* Toolbar */}
             <div className="bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800 px-6 py-4">
@@ -140,13 +164,13 @@ export function OSMImporterSimple() {
                       onClick={handleSelectAll}
                       className="flex items-center space-x-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                     >
-                      {selectedFeatures.size === features.length ? (
+                      {selectedFeatures.size === currentFeaturesCount ? (
                         <Square className="w-4 h-4" />
                       ) : (
                         <CheckSquare className="w-4 h-4" />
                       )}
                       <span>
-                        {selectedFeatures.size === features.length ? 'Deselect All' : 'Select All'}
+                        {selectedFeatures.size === currentFeaturesCount ? 'Deselect All' : 'Select All'}
                       </span>
                     </button>
                     
@@ -160,6 +184,22 @@ export function OSMImporterSimple() {
                     )}
                   </div>
                 </div>
+
+                {/* Local DB Stats */}
+                {localDBStats && (
+                  <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
+                    <Database className="w-4 h-4" />
+                    <span>{localDBStats.features} features</span>
+                    <span>•</span>
+                    <span>{localDBStats.coordinates} coordinates</span>
+                    <button
+                      onClick={refreshLocalStats}
+                      className="ml-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
 
                 {/* Import Button */}
                 <div className="flex items-center space-x-4">
@@ -178,7 +218,7 @@ export function OSMImporterSimple() {
                     )}
                   >
                     <Download className="w-4 h-4 mr-2 inline" />
-                    Import Selected
+                    Import to Supabase
                   </button>
                 </div>
               </div>
@@ -188,14 +228,13 @@ export function OSMImporterSimple() {
             <div className="flex-1 overflow-hidden">
               {viewMode === 'table' ? (
                 <POITable
-                  features={features}
+                  features={currentFeatures}
                   selectedFeatures={selectedFeatures}
                   onToggleSelection={toggleSelection}
-                  onEditPOI={editPOI}
                 />
               ) : (
                 <POIMap
-                  features={features}
+                  features={currentFeatures}
                   selectedFeatures={selectedFeatures}
                   onToggleSelection={toggleSelection}
                 />

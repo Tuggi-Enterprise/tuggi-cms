@@ -11,8 +11,18 @@ import { OSMImporterService } from '@/lib/services/osm-importer-service'
 import { EditableOSMPOI } from '@/types/osm-importer'
 
 export async function POST(request: NextRequest) {
+  console.log('🚀 [API] Import request received')
+  
   try {
     const body = await request.json()
+    console.log('📦 [API] Request body parsed:', { 
+      hasPois: !!body.pois,
+      poisCount: body.pois?.length,
+      hasSourceFile: !!body.sourceFile,
+      duplicateStrategy: body.duplicateStrategy,
+      hasBatchId: !!body.batchId
+    })
+    
     const { 
       pois, 
       sourceFile, 
@@ -26,6 +36,7 @@ export async function POST(request: NextRequest) {
     } = body
 
     if (!pois || !Array.isArray(pois) || pois.length === 0) {
+      console.log('❌ [API] No POIs provided for import')
       return NextResponse.json(
         { error: 'No POIs provided for import' },
         { status: 400 }
@@ -33,6 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!sourceFile) {
+      console.log('❌ [API] Source file is required')
       return NextResponse.json(
         { error: 'Source file is required' },
         { status: 400 }

@@ -22,17 +22,49 @@ interface FileUploadProps {
 
 export function FileUpload({ onFileSelect, isLoading, error, currentFile, className }: FileUploadProps) {
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('📁 [FILEUPLOAD] File input changed:', { 
+      filesCount: event.target.files?.length,
+      firstFile: event.target.files?.[0] ? {
+        name: event.target.files[0].name,
+        type: event.target.files[0].type,
+        size: event.target.files[0].size
+      } : null
+    })
+    
     const file = event.target.files?.[0]
-    if (file && file.type === 'application/json') {
-      onFileSelect(file)
+    if (file) {
+      const isValidType = file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json')
+      console.log('📄 [FILEUPLOAD] File selected:', { 
+        name: file.name, 
+        type: file.type, 
+        size: file.size,
+        isValidType
+      })
+      
+      if (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json')) {
+        console.log('✅ [FILEUPLOAD] Valid JSON/GeoJSON file, calling onFileSelect')
+        onFileSelect(file)
+      } else {
+        console.log('❌ [FILEUPLOAD] Invalid file type, expected application/json or application/geo+json')
+      }
     }
   }, [onFileSelect])
 
   const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    console.log('🎯 [FILEUPLOAD] File dropped')
     event.preventDefault()
     const file = event.dataTransfer.files[0]
-    if (file && file.type === 'application/json') {
+    console.log('📄 [FILEUPLOAD] Dropped file:', { 
+      name: file?.name, 
+      type: file?.type, 
+      size: file?.size 
+    })
+    
+    if (file && (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json'))) {
+      console.log('✅ [FILEUPLOAD] Valid dropped file, calling onFileSelect')
       onFileSelect(file)
+    } else {
+      console.log('❌ [FILEUPLOAD] Invalid dropped file type')
     }
   }, [onFileSelect])
 
