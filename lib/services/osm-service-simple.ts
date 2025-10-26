@@ -190,13 +190,22 @@ export class OSMService {
         const poi = pois[i]
         const savedPOI = savedPOIs[i]
         
-        if (!savedPOI?.id) continue
+        console.log(`📍 [SERVICE] Processing POI ${i + 1}:`, {
+          poiName: poi.properties?.name,
+          savedPOI: savedPOI,
+          hasUuid: !!savedPOI?.uuid_id
+        })
+        
+        if (!savedPOI?.uuid_id) {
+          console.log(`⚠️ [SERVICE] Skipping coordinates for POI ${i + 1} - no saved POI UUID`)
+          continue
+        }
         
         const coordinates = this.extractCoordinates(poi.geometry)
         if (!coordinates) continue
         
         const coordinateData = {
-          poiId: savedPOI.id,
+          poiUuidId: poi.uuid_id, // Use UUID as primary reference
           latitude: coordinates.lat,
           longitude: coordinates.lon,
           elevation_m: null,
@@ -233,6 +242,15 @@ export class OSMService {
   static async saveToLocalDB(pois: SimpleOSMPOI[], sourceFile: string): Promise<ImportResults> {
     console.log('💾 [SERVICE] Saving to Supabase database via API:', { poisCount: pois.length, sourceFile })
     
+    if (pois.length === 0) {
+      console.log('⚠️ [SERVICE] No POIs to save, returning empty result')
+      return {
+        success: true,
+        imported: 0,
+        errors: []
+      }
+    }
+    
     try {
       const response = await fetch('/api/supabase/pois', {
         method: 'POST',
@@ -256,7 +274,10 @@ export class OSMService {
       
       // Save coordinates for each POI
       if (results.success && results.data) {
+        console.log(`📍 [SERVICE] Saving coordinates for ${pois.length} POIs with data:`, results.data)
         await this.saveCoordinatesForPOIs(pois, results.data)
+      } else {
+        console.log(`⚠️ [SERVICE] Skipping coordinates save - POI save failed or no data returned`)
       }
       
       return results || {
@@ -427,34 +448,80 @@ export class OSMService {
         })
       }
       
-      // Process POIs with conditional enrichment (sequentially to respect throttling)
-      const processedPOIs = []
-      for (const feature of chunk) {
-        const processedPOI = await OSMService.processPOI(feature)
-        processedPOIs.push(processedPOI)
+      // Process and save POIs individually (immediate database save)
+      let chunkImported = 0
+      let chunkErrors: string[] = []
+      
+      for (let j = 0; j < chunk.length; j++) {
+        const feature = chunk[j]
+        
+        try {
+          // Process POI
+          const processedPOI = await OSMService.processPOI(feature)
+          
+          if (processedPOI) {
+            // Save immediately to database
+            const saveResult = await OSMService.saveToLocalDB([processedPOI], file.name)
+            
+            if (saveResult.success) {
+              chunkImported += saveResult.imported
+              console.log(`✅ [SERVICE] POI saved: ${processedPOI.properties?.name || 'Unnamed'} (${j + 1}/${chunk.length})`)
+              
+              // Emit individual POI progress
+              if (uploadId) {
+                await this.emitProgressUpdate(uploadId, {
+                  type: 'poi-saved',
+                  poiName: processedPOI.properties?.name || 'Unnamed',
+                  chunkNumber,
+                  totalChunks,
+                  chunkProgress: j + 1,
+                  chunkTotal: chunk.length,
+                  totalImported: totalImported + chunkImported,
+                  message: `POI saved: ${processedPOI.properties?.name || 'Unnamed'} (${j + 1}/${chunk.length})`
+                })
+              }
+            } else {
+              chunkErrors.push(`Failed to save POI ${j + 1}: ${saveResult.errors.join(', ')}`)
+              console.error(`❌ [SERVICE] Failed to save POI ${j + 1}:`, saveResult.errors)
+            }
+          } else {
+            console.log(`⚠️ [SERVICE] POI ${j + 1} rejected during processing`)
+          }
+        } catch (error) {
+          const errorMsg = `Error processing POI ${j + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`
+          chunkErrors.push(errorMsg)
+          console.error(`❌ [SERVICE] ${errorMsg}`)
+        }
+        
+        // Log progress every 100 POIs
+        if ((j + 1) % 100 === 0) {
+          console.log(`🔄 [SERVICE] Chunk ${chunkNumber} progress: ${j + 1}/${chunk.length} POIs processed, ${chunkImported} saved`)
+        }
       }
       
-      // Filter out rejected POIs
-      const validPOIs = processedPOIs.filter(poi => poi !== null)
+      console.log(`📊 [SERVICE] Chunk ${chunkNumber} completed: ${chunkImported} POIs saved, ${chunkErrors.length} errors`)
       
-      console.log(`📊 [SERVICE] Chunk processed: ${chunk.length} features, ${validPOIs.length} valid POIs`)
-      
-      const chunkResults = await OSMService.saveToLocalDB(validPOIs, file.name)
+      // Create chunk results
+      const chunkResults = {
+        success: chunkErrors.length === 0,
+        imported: chunkImported,
+        errors: chunkErrors
+      }
     
       // Accumulate results
       if (chunkResults.success) {
         totalImported += chunkResults.imported
         console.log(`✅ [SERVICE] Chunk ${chunkNumber} completed: ${chunkResults.imported} imported`)
         
-        // Emit progress update with new POIs
-        if (uploadId && validPOIs.length > 0) {
+        // Emit progress update for chunk completion
+        if (uploadId && chunkResults.imported > 0) {
           await this.emitProgressUpdate(uploadId, {
-            type: 'pois-processed',
+            type: 'chunk-completed',
             chunkNumber,
             totalChunks,
-            newPOIs: validPOIs.length,
+            newPOIs: chunkResults.imported,
             totalImported,
-            message: `Processed ${validPOIs.length} POIs from chunk ${chunkNumber}/${totalChunks}`
+            message: `Chunk ${chunkNumber}/${totalChunks} completed: ${chunkResults.imported} POIs saved`
           })
         }
       } else {
@@ -510,7 +577,7 @@ export class OSMService {
         city: feature.properties['addr:city'] || feature.properties['is_in:city'] || feature.properties['addr:suburb'] || null,
         state: feature.properties['addr:state'] || feature.properties['is_in:state'] || feature.properties['addr:province'] || null,
         country: feature.properties['addr:country'] || feature.properties['is_in:country'] || null,
-          category: OSMService.getPrimaryCategory(feature.properties) || undefined,
+        category: OSMService.getNormalizedCategory(feature.properties) || undefined,
         // Only include OSM properties that are relevant to our schema
         osm_id: feature.properties.osm_id,
         osm_type: feature.properties.osm_type,
@@ -567,7 +634,7 @@ export class OSMService {
 
 
   /**
-   * Get primary OSM category for a feature
+   * Get primary OSM category for a feature (raw format)
    */
   static getPrimaryCategory(properties: Record<string, any> | undefined): string | null {
     if (!properties) return null
@@ -588,6 +655,35 @@ export class OSMService {
     for (const tag of priorityTags) {
       if (tags[tag] === 'yes') {
         return `${tag}=${tags[tag]}`
+      }
+    }
+    
+    return null
+  }
+
+  /**
+   * Get normalized category (just the value, not the type=value format)
+   * This matches the local database system behavior
+   */
+  static getNormalizedCategory(properties: Record<string, any> | undefined): string | null {
+    if (!properties) return null
+    
+    // Handle both direct properties and nested tags structure
+    const tags = properties.tags || properties
+    
+    const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'railway', 'public_transport', 'shop', 'highway', 'building']
+    
+    // First pass: look for specific categories (not *=yes)
+    for (const tag of priorityTags) {
+      if (tags[tag] && tags[tag] !== 'yes') {
+        return tags[tag] // Just the value (e.g., "hotel", "park", "restaurant")
+      }
+    }
+    
+    // Second pass: if no specific category found, use *=yes as fallback
+    for (const tag of priorityTags) {
+      if (tags[tag] === 'yes') {
+        return tags[tag] // "yes"
       }
     }
     
@@ -752,67 +848,135 @@ export class OSMService {
   }
 
   /**
+   * Generate deterministic UUID for POI based on OSM data
+   */
+  static generateDeterministicUUID(feature: any): string {
+    const coords = OSMService.extractCoordinates(feature.geometry)
+    const uuidString = `osm:${feature.properties?.osm_id || 0}:${feature.properties?.osm_type || 'unknown'}:${feature.properties?.name || ''}:${coords.lat}:${coords.lon}`
+    const deterministicUUID = require('crypto').createHash('sha1').update(uuidString).digest('hex')
+    const formattedUUID = [
+      deterministicUUID.substring(0, 8),
+      deterministicUUID.substring(8, 12),
+      '5' + deterministicUUID.substring(13, 16), // Version 5
+      ((parseInt(deterministicUUID.substring(16, 17), 16) & 0x3) | 0x8).toString(16) + deterministicUUID.substring(17, 20), // Variant
+      deterministicUUID.substring(20, 32)
+    ].join('-')
+    return formattedUUID
+  }
+
+  /**
    * Process POI with conditional enrichment
    * SSOT: Single processing logic
    */
   static async processPOI(feature: any): Promise<SimpleOSMPOI | null> {
+    const props = feature.properties || {}
+    
+    // Extract tourism flags from OSM properties
+    const extractTourismFlags = (properties: any) => ({
+      is_historic: properties?.historic === 'yes' || !!properties?.historic,
+      is_touristic: properties?.tourism === 'yes' || !!properties?.tourism,
+      has_train: properties?.train === 'yes' || !!properties?.train,
+      has_ferry: properties?.ferry === 'yes' || !!properties?.ferry,
+      has_bus: properties?.bus === 'yes' || !!properties?.bus,
+      has_wheelchair_access: properties?.wheelchair === 'yes' || !!properties?.wheelchair,
+      has_water: properties?.water === 'yes' || !!properties?.water,
+      has_fishing: properties?.fishing === 'yes' || !!properties?.fishing,
+      has_playground: properties?.playground === 'yes' || !!properties?.playground,
+      is_building: properties?.building === 'yes' || !!properties?.building,
+      has_ruins: properties?.ruins === 'yes' || !!properties?.ruins
+    })
+    
+    const tourismFlags = extractTourismFlags(props)
+    
     // Create basic POI
     const basicPOI: SimpleOSMPOI = {
       _id: OSMService.generatePOIId(feature),
+      uuid_id: OSMService.generateDeterministicUUID(feature), // Add deterministic UUID
       properties: {
-        name: feature.properties.name || feature.properties['name:en'] || feature.properties['name:pt'] || 'Unnamed POI',
-        city: feature.properties['addr:city'] || feature.properties['is_in:city'] || feature.properties['addr:suburb'] || null,
-        state: feature.properties['addr:state'] || feature.properties['is_in:state'] || feature.properties['addr:province'] || null,
-        country: feature.properties['addr:country'] || feature.properties['is_in:country'] || null,
-          category: OSMService.getPrimaryCategory(feature.properties) || undefined,
-        osm_id: feature.properties.osm_id,
-        osm_type: feature.properties.osm_type,
-        website: feature.properties.website,
-        contact_phone: feature.properties.contact_phone,
-        contact_email: feature.properties.contact_email,
-        operator_name: feature.properties.operator_name,
-        wheelchair_accessible: feature.properties.wheelchair_accessible,
-        wheelchair_toilets: feature.properties.wheelchair_toilets,
-        accessibility_notes: feature.properties.accessibility_notes,
-        height: feature.properties.height,
-        building_material: feature.properties.building_material,
-        building_colour: feature.properties.building_colour,
-        roof_colour: feature.properties.roof_colour,
-        architectural_style: feature.properties.architectural_style,
-        historic_period: feature.properties.historic_period,
-        landmark_type: feature.properties.landmark_type,
-        architect: feature.properties.architect,
-        construction_status: feature.properties.construction_status,
-        start_date: feature.properties.start_date,
-        heritage_status: feature.properties.heritage_status,
-        unesco_status: feature.properties.unesco_status,
-        unesco_inscription_date: feature.properties.unesco_inscription_date,
-        unesco_reference: feature.properties.unesco_reference,
-        landmark_level: feature.properties.landmark_level,
-        importance_level: feature.properties.importance_level,
-        museum_type: feature.properties.museum_type,
-        museum_collection: feature.properties.museum_collection,
-        museum_audience: feature.properties.museum_audience,
-        museum_education: feature.properties.museum_education,
-        leisure_type: feature.properties.leisure_type,
-        natural_type: feature.properties.natural_type,
-        natural_water: feature.properties.natural_water,
-        sport_facilities: feature.properties.sport_facilities,
-        leisure_playground: feature.properties.leisure_playground,
-        monument_type: feature.properties.monument_type,
-        monument_event: feature.properties.monument_event,
-        monument_person: feature.properties.monument_person,
-        parking_capacity: feature.properties.parking_capacity,
-        public_transport: feature.properties.public_transport,
-        access_points: feature.properties.access_points,
-        entrance_fee: feature.properties.entrance_fee,
-        urban_density: feature.properties.urban_density,
-        noise_level: feature.properties.noise_level,
-        air_quality: feature.properties.air_quality,
-        shade_availability: feature.properties.shade_availability,
-        cultural_significance: feature.properties.cultural_significance,
-        local_traditions: feature.properties.local_traditions,
-        seasonal_attractions: feature.properties.seasonal_attractions
+        name: props.name || props['name:en'] || props['name:pt'] || 'Unnamed POI',
+        description: props.description || props['description:pt'] || props['description:en'] || null,
+        city: props['addr:city'] || props['is_in:city'] || props['addr:suburb'] || null,
+        state: props['addr:state'] || props['is_in:state'] || props['addr:province'] || null,
+        country: props['addr:country'] || props['is_in:country'] || 'Brazil',
+        neighborhood: props['addr:suburb'] || props['addr:neighbourhood'] || null,
+        street_name: props['addr:street'] || props['addr:road'] || null,
+        house_number: props['addr:housenumber'] || null,
+        postal_code: props['addr:postcode'] || null,
+        formatted_address: null, // Will be filled by Nominatim
+        primary_category: OSMService.getNormalizedCategory(props) || 'unknown',
+        primary_category_type: 'osm',
+        categories: [OSMService.getNormalizedCategory(props)].filter(Boolean),
+        category: OSMService.getNormalizedCategory(props) || 'unknown',
+        osm_id: props.osm_id,
+        osm_type: props.osm_type,
+        
+        // Contact/Operation fields
+        website: props.website || props.url || null,
+        contact_phone: props.phone || props['contact:phone'] || null,
+        contact_email: props.email || props['contact:email'] || null,
+        operator_name: props.operator || props['operator:name'] || null,
+        
+        // Accessibility fields
+        wheelchair_accessible: props.wheelchair || null,
+        wheelchair_toilets: props['toilets:wheelchair'] || null,
+        accessibility_notes: props['accessibility:notes'] || null,
+        
+        // Physical characteristics
+        height: props.height ? parseFloat(props.height) : null,
+        building_material: props['building:material'] || null,
+        building_colour: props['building:colour'] || props['building:color'] || null,
+        roof_colour: props['roof:colour'] || props['roof:color'] || null,
+        architectural_style: props['architectural_style'] || null,
+        
+        // Historical/Heritage fields
+        historic_period: props['historic:period'] || null,
+        landmark_type: props['landmark:type'] || null,
+        architect: props.architect || null,
+        construction_status: props['construction:status'] || null,
+        start_date: props['start_date'] || props['construction:date'] || null,
+        heritage_status: props['heritage:status'] || null,
+        unesco_status: props['unesco:status'] || null,
+        unesco_inscription_date: props['unesco:inscription_date'] || null,
+        unesco_reference: props['unesco:reference'] || null,
+        landmark_level: props['landmark:level'] ? parseInt(props['landmark:level']) : null,
+        importance_level: props['importance:level'] || null,
+        
+        // Type-specific fields
+        museum_type: props['museum:type'] || null,
+        museum_collection: props['museum:collection'] || null,
+        museum_audience: props['museum:audience'] || null,
+        museum_education: props['museum:education'] || null,
+        leisure_type: props['leisure:type'] || null,
+        natural_type: props['natural:type'] || null,
+        natural_water: props['natural:water'] || null,
+        sport_facilities: props['sport:facilities'] || null,
+        leisure_playground: props['leisure:playground'] || null,
+        monument_type: props['monument:type'] || null,
+        monument_event: props['monument:event'] || null,
+        monument_person: props['monument:person'] || null,
+        
+        // Infrastructure fields
+        parking_capacity: props['parking:capacity'] || null,
+        public_transport: props['public_transport'] || null,
+        access_points: props['access:points'] || null,
+        entrance_fee: props['entrance:fee'] || null,
+        
+        // Environmental fields
+        urban_density: props['urban:density'] || null,
+        noise_level: props['noise:level'] || null,
+        air_quality: props['air:quality'] || null,
+        shade_availability: props['shade:availability'] || null,
+        
+        // Cultural fields
+        cultural_significance: props['cultural:significance'] || null,
+        local_traditions: props['local:traditions'] || null,
+        seasonal_attractions: props['seasonal:attractions'] || null,
+        
+        // Tourism flags
+        ...tourismFlags,
+        
+        // Store all OSM properties for reference
+        osm_properties: props
       },
       geometry: feature.geometry
     }

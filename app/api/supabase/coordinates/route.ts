@@ -8,17 +8,20 @@ const supabase = createClient(supabaseUrl, supabaseKey)
 
 export async function POST(request: NextRequest) {
   try {
-    const { coordinates, poiId } = await request.json()
+    const { coordinates, poiUuidId } = await request.json()
     
-    if (!coordinates || !poiId) {
-      return NextResponse.json({ error: 'Missing coordinates or poiId' }, { status: 400 })
+    console.log(`📊 [SUPABASE] Received coordinates data:`, { coordinates, poiUuidId })
+    
+    if (!coordinates || !poiUuidId) {
+      console.error('❌ [SUPABASE] Missing coordinates or poiUuidId:', { coordinates, poiUuidId })
+      return NextResponse.json({ error: 'Missing coordinates or poiUuidId' }, { status: 400 })
     }
 
-    console.log(`📊 [SUPABASE] Inserting coordinates for POI: ${poiId}`)
+    console.log(`📊 [SUPABASE] Inserting coordinates for POI UUID: ${poiUuidId}`)
 
     // Transform coordinates to match database schema
     const transformedCoordinates = {
-      poi_id: poiId,
+      poi_uuid_id: poiUuidId, // UUID reference
       latitude: coordinates.latitude || coordinates.lat,
       longitude: coordinates.longitude || coordinates.lon,
       elevation_m: coordinates.elevation_m || null,
@@ -34,6 +37,8 @@ export async function POST(request: NextRequest) {
       show_in_map: coordinates.show_in_map !== undefined ? coordinates.show_in_map : true
     }
 
+    console.log(`📊 [SUPABASE] Transformed coordinates:`, transformedCoordinates)
+
     const { data, error } = await supabase
       .schema('homolog')
       .from('coordinates')
@@ -42,6 +47,12 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('❌ [SUPABASE] Error inserting coordinates:', error)
+      console.error('❌ [SUPABASE] Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      })
       return NextResponse.json({ 
         success: false, 
         error: error.message 

@@ -109,16 +109,16 @@ BEGIN
   RETURN QUERY
   SELECT 
     ROUND(
-      ST_Distance(
+      (ST_Distance(
         ST_Point(lng, lat)::geography,
         ST_Point(-46.6333, -23.5505)::geography -- São Paulo coordinates
-      ) / 1000, 2
+      ) / 1000)::NUMERIC, 2
     )::DECIMAL(8,2) as distance_sao_paulo_km,
     ROUND(
-      ST_Distance(
+      (ST_Distance(
         ST_Point(lng, lat)::geography,
         ST_Point(-43.2105, -22.9519)::geography -- Rio de Janeiro coordinates
-      ) / 1000, 2
+      ) / 1000)::NUMERIC, 2
     )::DECIMAL(8,2) as distance_rio_km;
 END;
 $$ LANGUAGE plpgsql;

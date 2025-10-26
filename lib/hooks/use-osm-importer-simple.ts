@@ -15,6 +15,7 @@ import { OSMService } from '../services/osm-service-simple'
 
 export interface SimpleOSMPOI {
   _id: string
+  uuid_id?: string // Deterministic UUID for Supabase
   properties: {
     name?: string
     city?: string

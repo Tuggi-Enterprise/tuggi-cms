@@ -1,0 +1,78 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Museu do Ipiranga",
+        "tourism": "museum",
+        "historic": "yes",
+        "website": "https://museudoipiranga.org.br",
+        "phone": "+55 11 2065-8000",
+        "email": "contato@museudoipiranga.org.br",
+        "operator": "USP",
+        "wheelchair": "yes",
+        "height": "25.5",
+        "building:material": "stone",
+        "building:colour": "beige",
+        "architect": "Tommaso Gaudenzio Bezzi",
+        "heritage:status": "national",
+        "unesco:status": "tentative",
+        "museum:type": "history",
+        "museum:collection": "Brazilian history",
+        "parking:capacity": "50",
+        "entrance:fee": "free",
+        "cultural:significance": "Independence monument",
+        "addr:street": "Parque da Independência",
+        "addr:housenumber": "s/n",
+        "addr:city": "São Paulo",
+        "addr:state": "SP",
+        "addr:postcode": "04263-000",
+        "osm_id": 123456789,
+        "osm_type": "way"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-46.6256, -23.5855]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Parque Ibirapuera",
+        "leisure": "park",
+        "tourism": "yes",
+        "website": "https://parqueibirapuera.org",
+        "phone": "+55 11 5574-5045",
+        "operator": "Prefeitura de São Paulo",
+        "wheelchair": "yes",
+        "playground": "yes",
+        "water": "yes",
+        "fishing": "yes",
+        "building": "yes",
+        "natural:type": "park",
+        "sport:facilities": "running track, soccer fields",
+        "leisure:playground": "yes",
+        "parking:capacity": "200",
+        "entrance:fee": "free",
+        "urban:density": "high",
+        "noise:level": "low",
+        "air:quality": "good",
+        "shade:availability": "high",
+        "cultural:significance": "Modernist architecture",
+        "local:traditions": "Sunday family gatherings",
+        "seasonal:attractions": "Spring flower exhibitions",
+        "addr:street": "Av. Pedro Álvares Cabral",
+        "addr:city": "São Paulo",
+        "addr:state": "SP",
+        "addr:postcode": "04094-050",
+        "osm_id": 987654321,
+        "osm_type": "relation"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-46.6556, -23.5875]
+      }
+    }
+  ]
+}

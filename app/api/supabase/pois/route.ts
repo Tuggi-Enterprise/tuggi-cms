@@ -17,25 +17,160 @@ export async function POST(request: NextRequest) {
 
     console.log(`📊 [SUPABASE] Inserting ${pois.length} POIs from ${sourceFile}`)
 
+    // Helper function to extract coordinates from geometry
+    const extractCoordinates = (geometry: any): { lat: number, lon: number } => {
+      if (geometry?.type === 'Point' && geometry.coordinates) {
+        return { lon: geometry.coordinates[0], lat: geometry.coordinates[1] }
+      }
+      
+      // For other geometry types, calculate centroid
+      if (geometry?.coordinates) {
+        let sumLng = 0, sumLat = 0, count = 0
+        
+        const processCoords = (coords: any) => {
+          if (Array.isArray(coords[0])) {
+            coords.forEach(processCoords)
+          } else {
+            sumLng += coords[0]
+            sumLat += coords[1]
+            count++
+          }
+        }
+        
+        processCoords(geometry.coordinates)
+        
+        if (count > 0) {
+          return { lon: sumLng / count, lat: sumLat / count }
+        }
+      }
+      
+      return { lat: 0, lon: 0 }
+    }
+
     // Transform POIs to match database schema
-    const transformedPOIs = pois.map(poi => ({
-      name: poi.properties?.name || 'Unnamed POI',
-      city: poi.properties?.city || poi.properties?.['addr:city'] || poi.properties?.['is_in:city'],
-      state: poi.properties?.state || poi.properties?.['addr:state'] || poi.properties?.['is_in:state'],
-      country: poi.properties?.country || 'Brazil',
-      category: poi.properties?.category || poi.properties?.google_types || 'unknown',
-      lat: poi.geometry?.coordinates?.[1] || 0,
-      lon: poi.geometry?.coordinates?.[0] || 0,
-      osm_id: poi.properties?.osm_id,
-      osm_type: poi.properties?.osm_type,
-      place_id: poi.properties?.place_id,
-      formatted_address: poi.properties?.formatted_address,
-      importance: poi.properties?.importance,
-      source_file: sourceFile,
-      source_type: 'osm',
-      osm_properties: poi.properties,
-      processing_status: 'completed'
-    }))
+    const transformedPOIs = pois.map(poi => {
+      // Generate deterministic UUID using the same logic as the database function
+      const uuidString = `osm:${poi.osm_id || 0}:${poi.osm_type || 'unknown'}:${poi.name || ''}:${poi.lat}:${poi.lon}`
+      const deterministicUUID = require('crypto').createHash('sha1').update(uuidString).digest('hex')
+      const formattedUUID = [
+        deterministicUUID.substring(0, 8),
+        deterministicUUID.substring(8, 12),
+        '5' + deterministicUUID.substring(13, 16), // Version 5
+        ((parseInt(deterministicUUID.substring(16, 17), 16) & 0x3) | 0x8).toString(16) + deterministicUUID.substring(17, 20), // Variant
+        deterministicUUID.substring(20, 32)
+      ].join('-')
+      
+      // Extract tourism flags from OSM properties
+      const extractTourismFlags = (props: any) => ({
+        is_historic: props?.historic === 'yes' || props?.historic === 'yes',
+        is_touristic: props?.tourism === 'yes' || !!props?.tourism,
+        has_train: props?.train === 'yes' || !!props?.train,
+        has_ferry: props?.ferry === 'yes' || !!props?.ferry,
+        has_bus: props?.bus === 'yes' || !!props?.bus,
+        has_wheelchair_access: props?.wheelchair === 'yes' || !!props?.wheelchair,
+        has_water: props?.water === 'yes' || !!props?.water,
+        has_fishing: props?.fishing === 'yes' || !!props?.fishing,
+        has_playground: props?.playground === 'yes' || !!props?.playground,
+        is_building: props?.building === 'yes' || !!props?.building,
+        has_ruins: props?.ruins === 'yes' || !!props?.ruins
+      })
+      
+      const tourismFlags = extractTourismFlags(poi.osm_properties || poi)
+      
+      return {
+        uuid_id: formattedUUID, // Deterministic UUID
+        name: poi.name || 'Unnamed POI',
+        description: poi.description || null,
+        city: poi.city,
+        state: poi.state,
+        country: poi.country || 'Brazil',
+        neighborhood: poi.neighborhood || null,
+        street_name: poi.street_name || null,
+        house_number: poi.house_number || null,
+        postal_code: poi.postal_code || null,
+        formatted_address: poi.formatted_address,
+        primary_category: poi.primary_category || poi.category || 'unknown',
+        primary_category_type: poi.primary_category_type || null,
+        categories: poi.categories || (poi.category ? [poi.category] : null),
+        category: poi.category || 'unknown',
+        lat: poi.lat,
+        lon: poi.lon,
+        osm_id: poi.osm_id,
+        osm_type: poi.osm_type,
+        place_id: poi.place_id,
+        importance: poi.importance,
+        source_file: sourceFile,
+        source_type: 'osm',
+        osm_properties: poi.osm_properties || poi,
+        processing_status: 'completed',
+        approved: false, // Default to unapproved
+        
+        // Contact/Operation fields
+        website: poi.website || null,
+        contact_phone: poi.contact_phone || null,
+        contact_email: poi.contact_email || null,
+        operator_name: poi.operator_name || null,
+        
+        // Accessibility fields
+        wheelchair_accessible: poi.wheelchair_accessible || null,
+        wheelchair_toilets: poi.wheelchair_toilets || null,
+        accessibility_notes: poi.accessibility_notes || null,
+        
+        // Physical characteristics
+        height: poi.height || null,
+        building_material: poi.building_material || null,
+        building_colour: poi.building_colour || null,
+        roof_colour: poi.roof_colour || null,
+        architectural_style: poi.architectural_style || null,
+        
+        // Historical/Heritage fields
+        historic_period: poi.historic_period || null,
+        landmark_type: poi.landmark_type || null,
+        architect: poi.architect || null,
+        construction_status: poi.construction_status || null,
+        start_date: poi.start_date || null,
+        heritage_status: poi.heritage_status || null,
+        unesco_status: poi.unesco_status || null,
+        unesco_inscription_date: poi.unesco_inscription_date || null,
+        unesco_reference: poi.unesco_reference || null,
+        landmark_level: poi.landmark_level || null,
+        importance_level: poi.importance_level || null,
+        
+        // Type-specific fields
+        museum_type: poi.museum_type || null,
+        museum_collection: poi.museum_collection || null,
+        museum_audience: poi.museum_audience || null,
+        museum_education: poi.museum_education || null,
+        leisure_type: poi.leisure_type || null,
+        natural_type: poi.natural_type || null,
+        natural_water: poi.natural_water || null,
+        sport_facilities: poi.sport_facilities || null,
+        leisure_playground: poi.leisure_playground || null,
+        monument_type: poi.monument_type || null,
+        monument_event: poi.monument_event || null,
+        monument_person: poi.monument_person || null,
+        
+        // Infrastructure fields
+        parking_capacity: poi.parking_capacity || null,
+        public_transport: poi.public_transport || null,
+        access_points: poi.access_points || null,
+        entrance_fee: poi.entrance_fee || null,
+        
+        // Environmental fields
+        urban_density: poi.urban_density || null,
+        noise_level: poi.noise_level || null,
+        air_quality: poi.air_quality || null,
+        shade_availability: poi.shade_availability || null,
+        
+        // Cultural fields
+        cultural_significance: poi.cultural_significance || null,
+        local_traditions: poi.local_traditions || null,
+        seasonal_attractions: poi.seasonal_attractions || null,
+        
+        // Tourism flags
+        ...tourismFlags
+      }
+    })
 
     // Insert POIs in batches to avoid payload size limits
     const batchSize = 100
@@ -47,8 +182,11 @@ export async function POST(request: NextRequest) {
       const { data, error } = await supabase
         .schema('homolog')
         .from('pois')
-        .insert(batch)
-        .select('id')
+        .upsert(batch, { 
+          onConflict: 'uuid_id',
+          ignoreDuplicates: false 
+        })
+        .select('uuid_id')
 
       if (error) {
         console.error(`❌ [SUPABASE] Error inserting batch ${Math.floor(i / batchSize) + 1}:`, error)
@@ -64,10 +202,10 @@ export async function POST(request: NextRequest) {
 
     console.log(`✅ [SUPABASE] Successfully inserted ${results.length} POIs`)
 
-    return NextResponse.json({
-      success: true,
+    return NextResponse.json({ 
+      success: true, 
       imported: results.length,
-      data: results
+      data: results.map(r => ({ uuid_id: r.uuid_id }))
     })
 
   } catch (error) {
