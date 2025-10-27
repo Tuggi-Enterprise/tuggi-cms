@@ -590,8 +590,8 @@ export class OSMService {
         country: feature.properties['addr:country'] || feature.properties['is_in:country'] || null,
         category: OSMService.getNormalizedCategory(feature.properties) || undefined,
         // Only include OSM properties that are relevant to our schema
-        osm_id: feature.properties.osm_id,
-        osm_type: feature.properties.osm_type,
+        osm_id: feature.properties['@id'] || feature.properties.osm_id,
+        osm_type: feature.properties['@type'] || feature.properties.osm_type,
         website: feature.properties.website,
         contact_phone: feature.properties.contact_phone,
         contact_email: feature.properties.contact_email,
@@ -859,6 +859,71 @@ export class OSMService {
   }
 
   /**
+   * Extract OSM ID from GeoJSON feature.id
+   * Example: "n123456" -> 123456, "w789" -> 789, "r999" -> 999
+   */
+  static extractOSMId(featureId: string | number | undefined): number | null {
+    if (!featureId) return null
+    
+    const idStr = String(featureId)
+    // Remove the first character (n, w, or r) and parse as number
+    const match = idStr.match(/^[nwr](\d+)$/)
+    return match ? parseInt(match[1], 10) : null
+  }
+
+  /**
+   * Extract OSM type from GeoJSON feature.id
+   * Example: "n123456" -> "node", "w789" -> "way", "r999" -> "relation"
+   */
+  static extractOSMType(featureId: string | number | undefined): string | null {
+    if (!featureId) return null
+    
+    const idStr = String(featureId)
+    const typeChar = idStr.charAt(0)
+    
+    switch (typeChar) {
+      case 'n': return 'node'
+      case 'w': return 'way'
+      case 'r': return 'relation'
+      default: return null
+    }
+  }
+
+  /**
+   * Extract height and elevation from OSM properties - KISS approach
+   * Returns: { height: number | null, elevation: number | null }
+   */
+  static extractHeightAndElevation(props: any): { height: number | null, elevation: number | null } {
+    // Height: get first valid value found
+    const height = this.parseNumericValue(props.height) || 
+                   this.parseNumericValue(props['building:height']) || 
+                   this.convertLevels(props['building:levels'])
+    
+    // Elevation: only ele tag
+    const elevation = this.parseNumericValue(props.ele)
+    
+    return { height, elevation }
+  }
+
+  /**
+   * Parse numeric value from OSM tag - simple and robust
+   */
+  private static parseNumericValue(value: any): number | null {
+    if (!value) return null
+    const parsed = parseFloat(String(value).replace(/[^\d.,]/g, '').replace(',', '.'))
+    return (parsed > 0 && parsed < 1000) ? parsed : null
+  }
+
+  /**
+   * Convert building levels to height - simple 3m per floor
+   */
+  private static convertLevels(levels: any): number | null {
+    if (!levels) return null
+    const parsed = parseInt(String(levels))
+    return (parsed > 0 && parsed <= 100) ? parsed * 3.0 : null
+  }
+
+  /**
    * Generate deterministic UUID for POI based on OSM data
    */
   static generateDeterministicUUID(feature: any): string {
@@ -881,6 +946,19 @@ export class OSMService {
    */
   static async processPOI(feature: any): Promise<SimpleOSMPOI | null> {
     const props = feature.properties || {}
+    
+    // Debug: Log the first few POIs to verify data extraction
+    if (Math.random() < 0.01) { // Log 1% of POIs for debugging
+      console.log('🔍 [DEBUG] Processing POI with properties:', {
+        '@id': props['@id'],
+        '@type': props['@type'],
+        'osm_id': props.osm_id,
+        'osm_type': props.osm_type,
+        'name': props.name,
+        'tourism': props.tourism,
+        'allKeys': Object.keys(props).slice(0, 10)
+      })
+    }
     
     // Extract tourism flags from OSM properties
     const extractTourismFlags = (properties: any) => ({
@@ -912,13 +990,15 @@ export class OSMService {
         street_name: props['addr:street'] || props['addr:road'] || null,
         house_number: props['addr:housenumber'] || null,
         postal_code: props['addr:postcode'] || null,
+        description: props.description || props['description:en'] || props['description:pt'] || null,
         formatted_address: null, // Will be filled by Nominatim
         primary_category: OSMService.getNormalizedCategory(props) || 'unknown',
         primary_category_type: 'osm',
         categories: [OSMService.getNormalizedCategory(props)].filter(Boolean),
         category: OSMService.getNormalizedCategory(props) || 'unknown',
-        osm_id: props.osm_id,
-        osm_type: props.osm_type,
+        // Extract OSM ID and type from GeoJSON feature.id (e.g., "n123456" -> id=123456, type=node)
+        osm_id: OSMService.extractOSMId(feature.id),
+        osm_type: OSMService.extractOSMType(feature.id),
         
         // Contact/Operation fields
         website: props.website || props.url || null,
@@ -931,8 +1011,8 @@ export class OSMService {
         wheelchair_toilets: props['toilets:wheelchair'] || null,
         accessibility_notes: props['accessibility:notes'] || null,
         
-        // Physical characteristics
-        height: props.height ? parseFloat(props.height) : null,
+        // Physical characteristics - extract height and elevation
+        ...OSMService.extractHeightAndElevation(props),
         building_material: props['building:material'] || null,
         building_colour: props['building:colour'] || props['building:color'] || null,
         roof_colour: props['roof:colour'] || props['roof:color'] || null,
