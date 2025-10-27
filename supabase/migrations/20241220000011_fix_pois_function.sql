@@ -1,10 +1,9 @@
--- Update get_pois_paginated function to include all new fields
--- This ensures the API returns all available POI data
+-- Fix get_pois_paginated function to remove lat/lon references
 
 -- Drop existing function first to avoid conflicts
 DROP FUNCTION IF EXISTS homolog.get_pois_paginated CASCADE;
 
--- Create updated function with all fields
+-- Create corrected function without lat/lon
 CREATE OR REPLACE FUNCTION homolog.get_pois_paginated(
   category_filter TEXT DEFAULT NULL,
   city_filter TEXT DEFAULT NULL,

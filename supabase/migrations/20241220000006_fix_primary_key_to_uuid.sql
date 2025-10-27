@@ -73,8 +73,8 @@ SELECT
   p.state as poi_state,
   p.country as poi_country,
   p.category as poi_category,
-  p.lat as poi_lat,
-  p.lon as poi_lon,
+  c.latitude as poi_lat,  -- Use coordinates from coordinates table
+  c.longitude as poi_lon, -- Use coordinates from coordinates table
   p.approved as poi_approved
 FROM homolog.coordinates c
 LEFT JOIN homolog.pois p ON c.poi_uuid_id = p.uuid_id;
@@ -166,14 +166,14 @@ CREATE OR REPLACE FUNCTION homolog.get_coordinates_paginated(
   page_offset INTEGER DEFAULT 0
 )
 RETURNS TABLE (
-  id INTEGER,
+  id BIGINT,
   poi_uuid_id UUID,
   latitude DECIMAL(10,8),
   longitude DECIMAL(11,8),
-  elevation_m DECIMAL(8,2),
+  elevation_m INTEGER,
   distance_from_sao_paulo_km DECIMAL(8,2),
   distance_from_rio_km DECIMAL(8,2),
-  boundary_geometry GEOGRAPHY,
+  boundary_geometry TEXT,
   boundary_type TEXT,
   boundary_source TEXT,
   boundary_confidence DECIMAL(3,2),
@@ -182,9 +182,17 @@ RETURNS TABLE (
   boundary_centroid_lng DECIMAL(11,8),
   show_in_map BOOLEAN,
   created_at TIMESTAMP WITH TIME ZONE,
-  updated_at TIMESTAMP WITH TIME ZONE
+  updated_at TIMESTAMP WITH TIME ZONE,
+  total_count BIGINT
 ) AS $$
+DECLARE
+  total_rows BIGINT;
 BEGIN
+  -- Calculate total rows for pagination metadata
+  SELECT COUNT(*) INTO total_rows
+  FROM homolog.coordinates c
+  WHERE (poi_uuid_filter IS NULL OR c.poi_uuid_id = poi_uuid_filter);
+
   RETURN QUERY
   SELECT 
     c.id,
@@ -203,7 +211,8 @@ BEGIN
     c.boundary_centroid_lng,
     c.show_in_map,
     c.created_at,
-    c.updated_at
+    c.updated_at,
+    total_rows AS total_count
   FROM homolog.coordinates c
   WHERE 
     (poi_uuid_filter IS NULL OR c.poi_uuid_id = poi_uuid_filter)

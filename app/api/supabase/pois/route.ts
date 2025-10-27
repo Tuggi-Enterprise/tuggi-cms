@@ -80,7 +80,6 @@ export async function POST(request: NextRequest) {
       return {
         uuid_id: formattedUUID, // Deterministic UUID
         name: poi.name || 'Unnamed POI',
-        description: poi.description || null,
         city: poi.city,
         state: poi.state,
         country: poi.country || 'Brazil',
@@ -93,8 +92,6 @@ export async function POST(request: NextRequest) {
         primary_category_type: poi.primary_category_type || null,
         categories: poi.categories || (poi.category ? [poi.category] : null),
         category: poi.category || 'unknown',
-        lat: poi.lat,
-        lon: poi.lon,
         osm_id: poi.osm_id,
         osm_type: poi.osm_type,
         place_id: poi.place_id,
@@ -201,6 +198,41 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`✅ [SUPABASE] Successfully inserted ${results.length} POIs`)
+
+    // Save coordinates for each POI
+    for (let i = 0; i < pois.length; i++) {
+      const poi = pois[i]
+      const savedPOI = results[i]
+      
+      if (savedPOI?.uuid_id && poi.lat && poi.lon) {
+        try {
+          const coordinateData = {
+            latitude: poi.lat,
+            longitude: poi.lon,
+            elevation_m: null,
+            boundary_type: 'point',
+            boundary_source: 'osm',
+            show_in_map: true
+          }
+          
+          const { error: coordError } = await supabase
+            .schema('homolog')
+            .from('coordinates')
+            .insert({
+              poi_uuid_id: savedPOI.uuid_id,
+              ...coordinateData
+            })
+          
+          if (coordError) {
+            console.error(`❌ [SUPABASE] Failed to save coordinates for POI ${poi.name}:`, coordError)
+          } else {
+            console.log(`✅ [SUPABASE] Coordinates saved for POI: ${poi.name}`)
+          }
+        } catch (error) {
+          console.error(`❌ [SUPABASE] Error saving coordinates for POI ${poi.name}:`, error)
+        }
+      }
+    }
 
     return NextResponse.json({ 
       success: true, 

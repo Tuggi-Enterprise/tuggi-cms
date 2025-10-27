@@ -201,11 +201,20 @@ export class OSMService {
           continue
         }
         
+        // Check if coordinates already exist for this POI
+        const existingCoordsResponse = await fetch(`/api/supabase/coordinates?poiUuid=${savedPOI.uuid_id}&limit=1`)
+        if (existingCoordsResponse.ok) {
+          const existingCoords = await existingCoordsResponse.json()
+          if (existingCoords.success && existingCoords.data && existingCoords.data.length > 0) {
+            console.log(`⚠️ [SERVICE] Coordinates already exist for POI ${savedPOI.uuid_id}, skipping`)
+            continue
+          }
+        }
+        
         const coordinates = this.extractCoordinates(poi.geometry)
         if (!coordinates) continue
         
         const coordinateData = {
-          poiUuidId: poi.uuid_id, // Use UUID as primary reference
           latitude: coordinates.lat,
           longitude: coordinates.lon,
           elevation_m: null,
@@ -221,12 +230,14 @@ export class OSMService {
           },
           body: JSON.stringify({
             coordinates: coordinateData,
-            poiId: savedPOI.id
+            poiUuidId: savedPOI.uuid_id
           })
         })
         
         if (!response.ok) {
-          console.error(`❌ [SERVICE] Error saving coordinates for POI ${savedPOI.id}:`, response.statusText)
+          console.error(`❌ [SERVICE] Error saving coordinates for POI ${savedPOI.uuid_id}:`, response.statusText)
+        } else {
+          console.log(`✅ [SERVICE] Coordinates saved for POI ${savedPOI.uuid_id}`)
         }
       }
       
@@ -894,7 +905,6 @@ export class OSMService {
       uuid_id: OSMService.generateDeterministicUUID(feature), // Add deterministic UUID
       properties: {
         name: props.name || props['name:en'] || props['name:pt'] || 'Unnamed POI',
-        description: props.description || props['description:pt'] || props['description:en'] || null,
         city: props['addr:city'] || props['is_in:city'] || props['addr:suburb'] || null,
         state: props['addr:state'] || props['is_in:state'] || props['addr:province'] || null,
         country: props['addr:country'] || props['is_in:country'] || 'Brazil',

@@ -19,15 +19,25 @@ export async function POST(request: NextRequest) {
 
     console.log(`📊 [SUPABASE] Inserting coordinates for POI UUID: ${poiUuidId}`)
 
+    // Generate boundary_geometry as GeoJSON if not provided
+    const lat = coordinates.latitude || coordinates.lat
+    const lon = coordinates.longitude || coordinates.lon
+    const boundaryGeometry = coordinates.boundary_geometry || (lat && lon ? 
+      JSON.stringify({
+        type: "Point",
+        coordinates: [lon, lat]
+      }) : null
+    )
+
     // Transform coordinates to match database schema
     const transformedCoordinates = {
       poi_uuid_id: poiUuidId, // UUID reference
-      latitude: coordinates.latitude || coordinates.lat,
-      longitude: coordinates.longitude || coordinates.lon,
+      latitude: lat,
+      longitude: lon,
       elevation_m: coordinates.elevation_m || null,
       distance_from_sao_paulo_km: coordinates.distance_from_sao_paulo_km || null,
       distance_from_rio_km: coordinates.distance_from_rio_km || null,
-      boundary_geometry: coordinates.boundary_geometry || null,
+      boundary_geometry: boundaryGeometry,
       boundary_type: coordinates.boundary_type || 'point',
       boundary_source: coordinates.boundary_source || 'osm',
       boundary_confidence: coordinates.boundary_confidence || null,
@@ -80,7 +90,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '50')
-    const poiId = searchParams.get('poiId') ? parseInt(searchParams.get('poiId')!) : null
+    const poiUuid = searchParams.get('poiUuid') || null
     const city = searchParams.get('city') || null
     const state = searchParams.get('state') || null
     const category = searchParams.get('category') || null
@@ -89,7 +99,7 @@ export async function GET(request: NextRequest) {
 
     const offset = (page - 1) * limit
 
-    console.log(`📊 [SUPABASE] Fetching coordinates: page=${page}, limit=${limit}`)
+    console.log(`📊 [SUPABASE] Fetching coordinates: page=${page}, limit=${limit}, poiUuid=${poiUuid}`)
 
     // Use the custom function for pagination
     const { data, error } = await supabase
@@ -97,12 +107,7 @@ export async function GET(request: NextRequest) {
       .rpc('get_coordinates_paginated', {
         page_limit: limit,
         page_offset: offset,
-        poi_id_filter: poiId,
-        city_filter: city,
-        state_filter: state,
-        category_filter: category,
-        show_in_map_filter: showInMap,
-        boundary_type_filter: boundaryType
+        poi_uuid_filter: poiUuid // This should be a UUID
       })
 
     if (error) {
