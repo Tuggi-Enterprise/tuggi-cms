@@ -110,7 +110,17 @@ export async function POST(request: NextRequest) {
         website: props.website || null,
         contact_phone: props.contact_phone || null,
         contact_email: props.contact_email || null,
+        contact_fax: props.contact_fax || null,
         operator_name: props.operator_name || null,
+        
+        // Brand information
+        brand: props.brand || null,
+        brand_wikidata: props.brand_wikidata || null,
+        brand_wikipedia: props.brand_wikipedia || null,
+        
+        // Internet access
+        internet_access: props.internet_access || null,
+        internet_access_fee: props.internet_access_fee || null,
         
         // Accessibility fields
         wheelchair_accessible: props.wheelchair_accessible || null,
@@ -118,12 +128,12 @@ export async function POST(request: NextRequest) {
         accessibility_notes: props.accessibility_notes || null,
         
             // Physical characteristics - extract height and elevation
-            height_m: props.height || null,
-            elevation_m: props.elevation || null,
+            height_m: props.height_m || null,
+            elevation_m: props.elevation_m || null,
         building_material: props.building_material || null,
         building_colour: props.building_colour || null,
-        roof_colour: props.roof_colour || null,
         architectural_style: props.architectural_style || null,
+        capacity: props.capacity || null,
         
         // Historical/Heritage fields
         historic_period: props.historic_period || null,
@@ -144,30 +154,43 @@ export async function POST(request: NextRequest) {
         museum_audience: props.museum_audience || null,
         museum_education: props.museum_education || null,
         leisure_type: props.leisure_type || null,
-        natural_type: props.natural_type || null,
         natural_water: props.natural_water || null,
-        sport_facilities: props.sport_facilities || null,
-        leisure_playground: props.leisure_playground || null,
         monument_type: props.monument_type || null,
         monument_event: props.monument_event || null,
         monument_person: props.monument_person || null,
         
         // Infrastructure fields
         parking_capacity: props.parking_capacity || null,
-        public_transport: props.public_transport || null,
         access_points: props.access_points || null,
         entrance_fee: props.entrance_fee || null,
         
         // Environmental fields
         urban_density: props.urban_density || null,
-        noise_level: props.noise_level || null,
-        air_quality: props.air_quality || null,
         shade_availability: props.shade_availability || null,
         
         // Cultural fields
         cultural_significance: props.cultural_significance || null,
         local_traditions: props.local_traditions || null,
         seasonal_attractions: props.seasonal_attractions || null,
+        
+        // Critical missing fields
+        opening_hours: props.opening_hours || null,
+        wikidata: props.wikidata || null,
+        wikipedia: props.wikipedia || null,
+        amenity: props.amenity || null,
+        
+        // Important missing fields
+        building: props.building || null,
+        artwork_type: props.artwork_type || null,
+        information: props.information || null,
+        
+        // PBF analysis fields (essential)
+        source: props.source || null,
+        natural_type: props.natural_type || null,
+        landuse: props.landuse || null,
+        access: props.access || null,
+        ref: props.ref || null,
+        type: props.type || null,
         
         // Tourism flags
         ...tourismFlags
@@ -217,9 +240,9 @@ export async function POST(request: NextRequest) {
           p_category: poi.category || 'unknown',
           p_osm_id: poi.osm_id,
           p_osm_type: poi.osm_type,
-          p_place_id: poi.place_id,
           p_formatted_address: poi.formatted_address,
-          p_importance: poi.importance,
+          p_place_id: poi.place_id || null,
+          p_importance: poi.importance || null,
           p_source_file: sourceFile,
           p_source_type: 'osm',
           p_is_complete: !!(poi.name && poi.city && poi.state),
@@ -240,6 +263,11 @@ export async function POST(request: NextRequest) {
           p_contact_phone: poi.contact_phone || null,
           p_contact_email: poi.contact_email || null,
           p_operator_name: poi.operator_name || null,
+          p_brand: poi.brand || null,
+          p_brand_wikidata: poi.brand_wikidata || null,
+          p_brand_wikipedia: poi.brand_wikipedia || null,
+          p_internet_access: poi.internet_access || null,
+          p_internet_access_fee: poi.internet_access_fee || null,
           p_wheelchair_accessible: poi.wheelchair_accessible || null,
           p_wheelchair_toilets: poi.wheelchair_toilets || null,
           p_accessibility_notes: poi.accessibility_notes || null,
@@ -247,8 +275,8 @@ export async function POST(request: NextRequest) {
               p_elevation_m: poi.elevation_m || null,
           p_building_material: poi.building_material || null,
           p_building_colour: poi.building_colour || null,
-          p_roof_colour: poi.roof_colour || null,
           p_architectural_style: poi.architectural_style || null,
+          p_capacity: poi.capacity || null,
           p_historic_period: poi.historic_period || null,
           p_landmark_type: poi.landmark_type || null,
           p_architect: poi.architect || null,
@@ -259,26 +287,19 @@ export async function POST(request: NextRequest) {
           p_unesco_inscription_date: poi.unesco_inscription_date || null,
           p_unesco_reference: poi.unesco_reference || null,
           p_landmark_level: poi.landmark_level || null,
-          p_importance_level: poi.importance_level || null,
           p_museum_type: poi.museum_type || null,
           p_museum_collection: poi.museum_collection || null,
           p_museum_audience: poi.museum_audience || null,
           p_museum_education: poi.museum_education || null,
           p_leisure_type: poi.leisure_type || null,
-          p_natural_type: poi.natural_type || null,
           p_natural_water: poi.natural_water || null,
-          p_sport_facilities: poi.sport_facilities || null,
-          p_leisure_playground: poi.leisure_playground || null,
           p_monument_type: poi.monument_type || null,
           p_monument_event: poi.monument_event || null,
           p_monument_person: poi.monument_person || null,
           p_parking_capacity: poi.parking_capacity || null,
-          p_public_transport: poi.public_transport || null,
           p_access_points: poi.access_points || null,
           p_entrance_fee: poi.entrance_fee || null,
           p_urban_density: poi.urban_density || null,
-          p_noise_level: poi.noise_level || null,
-          p_air_quality: poi.air_quality || null,
           p_shade_availability: poi.shade_availability || null,
           p_cultural_significance: poi.cultural_significance || null,
           p_local_traditions: poi.local_traditions || null,
@@ -296,7 +317,22 @@ export async function POST(request: NextRequest) {
           p_has_ruins: poi.has_ruins || false,
           p_lat: coords.lat,
           p_lon: coords.lon,
-          p_coordinate_data: coordinateData
+          // Critical missing fields
+          p_opening_hours: poi.opening_hours || null,
+          p_wikidata: poi.wikidata || null,
+          p_wikipedia: poi.wikipedia || null,
+          p_amenity: poi.amenity || null,
+          // Important missing fields
+          p_building: poi.building || null,
+          p_artwork_type: poi.artwork_type || null,
+          p_information: poi.information || null,
+          // PBF analysis fields (essential)
+          p_source: poi.source || null,
+          p_natural_type: poi.natural_type || null,
+          p_landuse: poi.landuse || null,
+          p_access: poi.access || null,
+          p_ref: poi.ref || null,
+          p_type: poi.type || null
         })
 
       if (error) {

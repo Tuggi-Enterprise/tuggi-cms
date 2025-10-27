@@ -754,7 +754,7 @@ export class OSMService {
       return null
     }
 
-    const { lat, lon } = this.extractCoordinates(poi.geometry)
+      const { lat, lon } = this.extractCoordinates(poi.geometry)
     
     // Check cache first
     const cacheKey = `${lat.toFixed(6)},${lon.toFixed(6)}`
@@ -763,9 +763,9 @@ export class OSMService {
       const cachedData = this.nominatimCache.get(cacheKey)
       return this.buildEnrichedPOI(poi, cachedData)
     }
-    
-    console.log('🌐 [SERVICE] Enriching POI with Nominatim:', { lat, lon })
-    
+      
+      console.log('🌐 [SERVICE] Enriching POI with Nominatim:', { lat, lon })
+      
     // Retry logic with exponential backoff
     const maxRetries = 3
     let lastError: Error | null = null
@@ -775,27 +775,27 @@ export class OSMService {
         console.log(`🔄 [SERVICE] Nominatim attempt ${attempt}/${maxRetries}`)
         
         const response = await this.throttledNominatimRequest(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=pt-BR`,
-          {
-            headers: {
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1&accept-language=pt-BR`,
+        {
+          headers: {
               'User-Agent': 'TuggiCMS/1.0 (POI Enrichment) - Contact: leandro@tuggi.com.br'
-            }
           }
-        )
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
         }
-        
-        const data = await response.json()
-        
-        // Category validation temporarily disabled
-        // if (!this.isAcceptedCategory(`${data.class}=${data.type}`)) {
-        //   console.log('🚫 [SERVICE] POI rejected - invalid category:', { class: data.class, type: data.type })
-        //   return null
-        // }
-        
-        // Enrich POI with Nominatim data
+      )
+      
+      if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
+      const data = await response.json()
+      
+      // Category validation temporarily disabled
+      // if (!this.isAcceptedCategory(`${data.class}=${data.type}`)) {
+      //   console.log('🚫 [SERVICE] POI rejected - invalid category:', { class: data.class, type: data.type })
+      //   return null
+      // }
+      
+      // Enrich POI with Nominatim data
         console.log('✅ [SERVICE] Nominatim enrichment successful')
         this.recordNominatimSuccess() // Record success to reset circuit breaker
         
@@ -822,7 +822,7 @@ export class OSMService {
     
     // All retries failed
     console.error('❌ [SERVICE] Nominatim enrichment failed after all retries:', lastError)
-    return null
+      return null
   }
 
   /**
@@ -1001,10 +1001,20 @@ export class OSMService {
         osm_type: OSMService.extractOSMType(feature.id),
         
         // Contact/Operation fields
-        website: props.website || props.url || null,
+        website: props.website || props.url || props['contact:website'] || null,
         contact_phone: props.phone || props['contact:phone'] || null,
         contact_email: props.email || props['contact:email'] || null,
+        contact_fax: props.fax || props['contact:fax'] || null,
         operator_name: props.operator || props['operator:name'] || null,
+        
+        // Brand information
+        brand: props.brand || null,
+        brand_wikidata: props['brand:wikidata'] || null,
+        brand_wikipedia: props['brand:wikipedia'] || null,
+        
+        // Internet access
+        internet_access: props['internet_access'] || null,
+        internet_access_fee: props['internet_access:fee'] || null,
         
         // Accessibility fields
         wheelchair_accessible: props.wheelchair || null,
@@ -1037,7 +1047,6 @@ export class OSMService {
         museum_audience: props['museum:audience'] || null,
         museum_education: props['museum:education'] || null,
         leisure_type: props['leisure:type'] || null,
-        natural_type: props['natural:type'] || null,
         natural_water: props['natural:water'] || null,
         sport_facilities: props['sport:facilities'] || null,
         leisure_playground: props['leisure:playground'] || null,
@@ -1061,6 +1070,72 @@ export class OSMService {
         cultural_significance: props['cultural:significance'] || null,
         local_traditions: props['local:traditions'] || null,
         seasonal_attractions: props['seasonal:attractions'] || null,
+        
+        // Critical missing fields
+        opening_hours: props['opening_hours'] || null,
+        wikidata: props['wikidata'] || null,
+        wikipedia: props['wikipedia'] || null,
+        amenity: props['amenity'] || null,
+        
+        // Important missing fields
+        building: props['building'] || null,
+        artwork_type: props['artwork_type'] || null,
+        information: props['information'] || null,
+        
+        // PBF analysis fields
+        source: props['source'] || null,
+        natural_type: props['natural'] || null,
+        landuse: props['landuse'] || null,
+        access: props['access'] || null,
+        ref: props['ref'] || null,
+        type: props['type'] || null,
+        
+        // Contact fields
+        contact_phone_alt: props['contact:phone'] || null,
+        contact_mobile: props['contact:mobile'] || null,
+        contact_website_alt: props['contact:website'] || null,
+        contact_email_alt: props['contact:email'] || null,
+        contact_facebook: props['contact:facebook'] || null,
+        contact_instagram: props['contact:instagram'] || null,
+        contact_whatsapp: props['contact:whatsapp'] || null,
+        contact_twitter: props['contact:twitter'] || null,
+        contact_youtube: props['contact:youtube'] || null,
+        
+        // Payment fields
+        fee: props['fee'] || null,
+        payment_credit_cards: props['payment:credit_cards'] || null,
+        payment_cash: props['payment:cash'] || null,
+        payment_visa: props['payment:visa'] || null,
+        payment_mastercard: props['payment:mastercard'] || null,
+        
+        // Capacity fields
+        rooms: props['rooms'] ? parseInt(props['rooms']) : null,
+        air_conditioning: props['air_conditioning'] || null,
+        smoking: props['smoking'] || null,
+        capacity: props['capacity'] ? parseInt(props['capacity']) : null,
+        pets_allowed: props['pets_allowed'] || null,
+        
+        // Additional fields
+        surface: props['surface'] || null,
+        waterway: props['waterway'] || null,
+        power: props['power'] || null,
+        lanes: props['lanes'] ? parseInt(props['lanes']) : null,
+        maxspeed: props['maxspeed'] ? parseInt(props['maxspeed']) : null,
+        intermittent: props['intermittent'] || null,
+        layer: props['layer'] ? parseInt(props['layer']) : null,
+        leisure: props['leisure'] || null,
+        lit: props['lit'] || null,
+        service: props['service'] || null,
+        barrier: props['barrier'] || null,
+        alt_name: props['alt_name'] || null,
+        tunnel: props['tunnel'] || null,
+        bus: props['bus'] || null,
+        place: props['place'] || null,
+        man_made: props['man_made'] || null,
+        source_name: props['source:name'] || null,
+        trees: props['trees'] || null,
+        bridge: props['bridge'] || null,
+        shop: props['shop'] || null,
         
         // Tourism flags
         ...tourismFlags,
