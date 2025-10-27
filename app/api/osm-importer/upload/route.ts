@@ -26,12 +26,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file type
-    const allowedTypes = ['.geojson', '.json', '.pbf']
+    const allowedTypes = ['.geojson', '.json']
     const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
     
     if (!allowedTypes.includes(fileExtension)) {
       return NextResponse.json(
-        { error: 'Invalid file type. Only .geojson, .json, and .pbf files are allowed.' },
+        { error: 'Invalid file type. Only .geojson and .json files are allowed.' },
         { status: 400 }
       )
     }
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     await writeFile(filepath, buffer)
 
     // Determine file type
-    const fileType = fileExtension === '.pbf' ? 'pbf' : 'geojson'
+    const fileType = 'geojson'
 
     // Return success response
     return NextResponse.json({

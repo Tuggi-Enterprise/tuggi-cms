@@ -16,7 +16,7 @@ BEGIN
   -- Create deterministic UUID based on OSM data
   -- This ensures the same POI always gets the same UUID
   RETURN uuid_generate_v5(
-    uuid_ns_dns(), 
+    '6ba7b810-9dad-11d1-80b4-00c04fd430c8'::uuid, -- DNS namespace
     CONCAT(
       'osm:', osm_id_val, ':', osm_type_val, ':', 
       COALESCE(name_val, ''), ':', lat_val, ':', lon_val

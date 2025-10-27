@@ -4,7 +4,7 @@
  * Single source of truth for file parsing:
  * - Factory pattern for parser creation
  * - Automatic file type detection
- * - Unified interface for GeoJSON and PBF
+ * - Unified interface for GeoJSON files (converted from PBF using osmium-tool)
  * 
  * @module lib/services/unified-parser-service
  */
@@ -12,7 +12,6 @@
 import { FileParser, FileType, FileInfo, ParseOptions, ParserFactory } from '@/types/parser-types'
 import { OSMFeature } from '@/types/osm-importer'
 import { GeoJSONParserService } from './geojson-parser-service'
-import { PBFParserService } from './pbf-parser-service'
 
 export class UnifiedParserService {
   private static instance: UnifiedParserService
@@ -35,8 +34,6 @@ export class UnifiedParserService {
     switch (fileType) {
       case 'geojson':
         return new GeoJSONParserAdapter()
-      case 'pbf':
-        return new PBFParserAdapter()
       default:
         throw new Error(`Unsupported file type: ${fileType}`)
     }
@@ -48,26 +45,18 @@ export class UnifiedParserService {
   static detectFileType(file: File): FileType {
     const fileName = file.name.toLowerCase()
     
-    if (fileName.endsWith('.pbf')) {
-      return 'pbf'
-    } else if (fileName.endsWith('.geojson') || fileName.endsWith('.json')) {
+    if (fileName.endsWith('.geojson') || fileName.endsWith('.json')) {
       return 'geojson'
     }
     
-    // Fallback: try to detect by content type
-    if (file.type === 'application/octet-stream' && fileName.endsWith('.pbf')) {
-      return 'pbf'
-    }
-    
-    // Default to geojson for backward compatibility
-    return 'geojson'
+    throw new Error(`Unsupported file type: ${fileName}. Only GeoJSON files are supported.`)
   }
 
   /**
    * Check if file type is supported
    */
   supportsFileType(fileType: FileType): boolean {
-    return fileType === 'geojson' || fileType === 'pbf'
+    return fileType === 'geojson'
   }
 
   /**
@@ -155,33 +144,3 @@ class GeoJSONParserAdapter implements FileParser {
   }
 }
 
-/**
- * PBF Parser Adapter
- * Wraps PBFParserService to implement FileParser interface
- */
-class PBFParserAdapter implements FileParser {
-  private parser: PBFParserService
-
-  constructor() {
-    this.parser = new PBFParserService()
-  }
-
-  async *parse(file: File): AsyncGenerator<OSMFeature[], void, unknown> {
-    yield* this.parser.parsePBF(file)
-  }
-
-  async getFileInfo(file: File): Promise<FileInfo> {
-    const info = await this.parser.getPBFInfo(file)
-    return {
-      size: info.size,
-      featureCount: info.featureCount,
-      bounds: info.bounds,
-      tags: info.tags,
-      type: 'pbf'
-    }
-  }
-
-  async validate(file: File): Promise<boolean> {
-    return await this.parser.validatePBF(file)
-  }
-}

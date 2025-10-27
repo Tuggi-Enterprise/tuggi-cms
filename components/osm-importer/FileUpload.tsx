@@ -1,7 +1,7 @@
 /**
  * File Upload Component - KISS SIMPLIFIED
  * 
- * Simple file upload for GeoJSON files
+ * Simple file upload for GeoJSON files (converted from PBF using osmium-tool)
  * 
  * @module components/osm-importer/FileUpload
  */
@@ -33,7 +33,7 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
     
     const file = event.target.files?.[0]
     if (file) {
-      const isValidType = file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json') || file.name.endsWith('.pbf')
+      const isValidType = file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json')
       console.log('📄 [FILEUPLOAD] File selected:', { 
         name: file.name, 
         type: file.type, 
@@ -41,7 +41,7 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
         isValidType
       })
       
-      if (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json') || file.name.endsWith('.pbf')) {
+      if (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json')) {
         console.log('✅ [FILEUPLOAD] Valid JSON/GeoJSON file, calling onFileSelect')
         onFileSelect(file)
       } else {
@@ -60,7 +60,7 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
       size: file?.size 
     })
     
-    if (file && (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json') || file.name.endsWith('.pbf'))) {
+    if (file && (file.type === 'application/json' || file.type === 'application/geo+json' || file.name.endsWith('.geojson') || file.name.endsWith('.json'))) {
       console.log('✅ [FILEUPLOAD] Valid dropped file, calling onFileSelect')
       onFileSelect(file)
     } else {
@@ -87,7 +87,7 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
       >
         <input
           type="file"
-          accept=".json,.geojson,.pbf"
+          accept=".json,.geojson"
           onChange={handleFileChange}
           disabled={isLoading}
           className="hidden"
@@ -106,7 +106,10 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
                 {isLoading ? 'Loading...' : 'Upload OSM File'}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Drag and drop or click to select (GeoJSON or PBF)
+                Drag and drop or click to select GeoJSON file
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                Convert PBF to GeoJSON using: osmium export input.pbf -a type,id -o output.geojson
               </p>
             </div>
 
