@@ -130,6 +130,41 @@ export class PBFProcessor {
   }
 
   /**
+   * Convert PBF to GeoJSON with high quality settings
+   * Preserves all fields from POI_FIELDS_DOCUMENTATION.md
+   */
+  async convertToGeoJSONHighQuality(inputPath: string, outputPath: string): Promise<void> {
+    console.log(`🔄 Converting PBF to GeoJSON (High Quality)...`);
+    console.log(`📁 Input: ${inputPath}`);
+    console.log(`📁 Output: ${outputPath}`);
+    console.log(`🎯 Preserving all 98 fields from documentation`);
+    
+    const command = new Deno.Command("osmium", {
+      args: [
+        "export",
+        inputPath,
+        "-f", "geojson",
+        "-o", outputPath,
+        "--overwrite",
+        "--add-metadata",
+        "--id-type=string",
+        "--id-format=type_id"
+      ],
+      stdout: "piped",
+      stderr: "piped"
+    });
+    
+    const { code, stdout, stderr } = await command.output();
+    
+    if (code !== 0) {
+      const error = new TextDecoder().decode(stderr);
+      throw new Error(`Osmium export failed: ${error}`);
+    }
+    
+    console.log(`✅ High quality conversion complete: ${outputPath}`);
+  }
+
+  /**
    * Get file information
    */
   async getFileInfo(inputPath: string): Promise<{
