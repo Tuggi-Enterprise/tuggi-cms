@@ -64,6 +64,13 @@ export function POIMap({
         console.log('📍 [POIMap] Using GeoJSON coordinates:', { latitude, longitude })
       } else {
         console.warn('⚠️ [POIMap] No coordinates found for feature:', feature)
+        return null // Skip this feature
+      }
+
+      // Validate coordinates
+      if (latitude === 0 && longitude === 0) {
+        console.warn('⚠️ [POIMap] Invalid coordinates (0,0) for feature:', feature)
+        return null // Skip this feature
       }
 
       // Get name from different formats
@@ -120,7 +127,7 @@ export function POIMap({
       })
       
       return transformedPOI
-    }).filter(poi => poi.coordinates.latitude !== 0 || poi.coordinates.longitude !== 0)
+    }).filter(poi => poi !== null && poi.coordinates.latitude !== 0 && poi.coordinates.longitude !== 0)
   }, [selectedFeatures])
 
   // Handle POI click
@@ -128,7 +135,7 @@ export function POIMap({
     onToggleSelection(poi.id)
   }, [onToggleSelection])
 
-  // Transform features when they change
+  // Transform features when they change - optimized for performance
   useEffect(() => {
     console.log('🗺️ [POIMap] Features changed:', {
       featuresCount: features.length,
@@ -136,20 +143,14 @@ export function POIMap({
     })
     
     if (features.length > 0) {
-      setIsLoading(true)
-      
-      // Simulate loading delay for better UX
-      const timer = setTimeout(() => {
-        const transformedPois = transformFeaturesToPOIs(features)
-        console.log('🗺️ [POIMap] Transformed POIs:', {
-          transformedCount: transformedPois.length,
-          transformedPois: transformedPois.slice(0, 3) // Log first 3 for debugging
-        })
-        setMapPois(transformedPois)
-        setIsLoading(false)
-      }, 100)
-
-      return () => clearTimeout(timer)
+      // Transform immediately without delay for better performance
+      const transformedPois = transformFeaturesToPOIs(features)
+      console.log('🗺️ [POIMap] Transformed POIs:', {
+        transformedCount: transformedPois.length,
+        transformedPois: transformedPois.slice(0, 3) // Log first 3 for debugging
+      })
+      setMapPois(transformedPois)
+      setIsLoading(false)
     } else {
       setMapPois([])
       setIsLoading(false)

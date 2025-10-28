@@ -199,6 +199,19 @@ function POIMapContent({
   const currentPois = providedPois || pois
   const currentTotalCount = providedTotalCount || poiCount.total
   
+  // Update local pois state when providedPois changes
+  useEffect(() => {
+    if (providedPois && providedPois.length > 0) {
+      console.log(`🗺️ [POIMapVisualization] Using ${providedPois.length} provided POIs, updating local state`)
+      setPois(providedPois)
+      setPOICount(prev => ({
+        ...prev,
+        total: providedTotalCount || providedPois.length,
+        visible: providedPois.length
+      }))
+    }
+  }, [providedPois, providedTotalCount])
+  
   // Detect geographic context for intelligent rendering
   const getGeographicContext = useCallback(() => {
     if (!countryFilter) {
@@ -251,8 +264,8 @@ function POIMapContent({
     }
   }, [])
   
-  // Determine clustering mode based on current zoom
-  const clusteringConfig = getClusteringConfig(currentZoom)
+  // Determine clustering mode based on current zoom - memoized to prevent loops
+  const clusteringConfig = useMemo(() => getClusteringConfig(currentZoom), [currentZoom, getClusteringConfig])
   
   // Log when using provided POIs
   useEffect(() => {
@@ -343,8 +356,8 @@ function POIMapContent({
   // Fetch POIs using pagination to overcome Supabase 1000 limit
   const fetchPOIs = useCallback(async () => {
     // Skip fetching if POIs are provided as props
-    if (providedPois) {
-      console.log('🗺️ Using provided POIs, skipping fetch')
+    if (providedPois && providedPois.length > 0) {
+      console.log('🗺️ [POIMapVisualization] Using provided POIs, skipping fetch')
       setIsLoading(false)
       return
     }
@@ -796,7 +809,7 @@ function POIMapContent({
       visible: geographicContext === 'global' ? Object.keys(countryGroups || {}).length : filteredPOIs.length
     }))
 
-  }, [filteredPOIs, selectedPOI, showClusters, onPOIClick, geographicContext, countryGroups, clusteringMode, clusteringConfig, currentZoom, isTransitioning])
+  }, [filteredPOIs, selectedPOI, showClusters, onPOIClick, geographicContext, countryGroups, clusteringMode, currentZoom])
 
   // Update city boundaries on map
   const updateCityBoundaries = useCallback(() => {
@@ -993,20 +1006,27 @@ function POIMapContent({
 
   useEffect(() => {
     if (mapInstanceRef.current) {
-      // Always fetch POIs when filters change, but don't reinitialize map
-      fetchPOIs()
+      // Only fetch POIs if we don't have provided POIs
+      if (!providedPois || providedPois.length === 0) {
+        console.log('🗺️ [POIMapVisualization] No provided POIs, fetching from API')
+        fetchPOIs()
+      } else {
+        console.log('🗺️ [POIMapVisualization] Using provided POIs, skipping fetch')
+      }
     }
-  }, [fetchPOIs])
+  }, [fetchPOIs, providedPois])
 
   useEffect(() => {
     console.log('🗺️ [POIMapVisualization] useEffect calling updateMarkers:', {
       hasMap: !!mapInstanceRef.current,
-      updateMarkersDeps: 'updateMarkers'
+      filteredPOIsCount: filteredPOIs.length,
+      clusteringMode,
+      currentZoom
     })
-    if (mapInstanceRef.current) {
+    if (mapInstanceRef.current && filteredPOIs.length > 0) {
       updateMarkers()
     }
-  }, [updateMarkers])
+  }, [filteredPOIs.length, clusteringMode, currentZoom, updateMarkers])
 
   // Auto fit map when filtered POIs or city boundaries change (after filter changes)
   useEffect(() => {
