@@ -1,24 +1,22 @@
 /**
- * OSM Importer Simple Component - KISS SIMPLIFIED
+ * Homolog POI Viewer Component - KISS SIMPLIFIED
  * 
- * Main component with simplified logic and no race conditions
+ * Main component for viewing and managing POIs from homolog.pois
  * 
- * @module components/osm-importer/OSMImporterSimple
+ * @module components/poi-importer/HomologPOIViewer
  */
 
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Table2, Map, Download, Upload, CheckSquare, Square, Trash2, Database, RefreshCw, X, Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Table2, Map, CheckSquare, Square, Trash2, Database, RefreshCw, Search, Filter } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useOSMImporterSimple } from '@/lib/hooks/use-osm-importer-simple'
-import { useUploadProgress } from '@/lib/hooks/use-upload-progress'
-import { FileUpload } from './FileUpload'
+import { useHomologPOIViewer } from '@/lib/hooks/use-homolog-poi-viewer'
 import { POITable } from './POITable'
-import { POIMap } from './POIMap'
+import { POIMap } from '@/components/osm-importer/POIMap'
 
-export function OSMImporterSimple() {
-  console.log('🏗️ [COMPONENT] OSMImporterSimple rendering')
+export function HomologPOIViewer() {
+  console.log('🏗️ [HOMOLOG-POI-VIEWER] Component rendering')
   
   // KISS: Single hook call with all functionality and state
   const {
@@ -26,16 +24,16 @@ export function OSMImporterSimple() {
     features,
     selectedFeatures,
     selectedPOIs,
-    availableStates,
     availableCities,
     availableCategories,
     localDBStats,
     dbPagination,
+    totalCount,
+    hasData,
     
     // UI State
     isLoading,
     error,
-    currentFile,
     importResults,
     
     // Progress State
@@ -43,7 +41,6 @@ export function OSMImporterSimple() {
     
     // View State
     viewMode,
-    showUploadModal,
     
     // Filter State
     searchTerm,
@@ -59,12 +56,13 @@ export function OSMImporterSimple() {
     isDeleting,
     
     // Actions
-    loadFile,
     toggleSelection,
     selectAll,
     clearSelection,
-    importSelected,
+    updatePOI,  // NEW
+    deletePOIs, // NEW
     clearData,
+    loadAllData, // Main data loading function
     refreshLocalStats,
     loadDBFeatures,
     loadDBCities,
@@ -73,19 +71,31 @@ export function OSMImporterSimple() {
     
     // State Setters
     setViewMode,
-    setShowUploadModal,
     setSearchTerm,
     setCityFilter,
     setStateFilter,
     setCategoryFilter,
     setCurrentPage,
     setIsDeleting
-  } = useOSMImporterSimple()
+  } = useHomologPOIViewer()
+
+  // Load data on mount
+  useEffect(() => {
+    console.log('🔄 [COMPONENT] Loading initial data...')
+    loadAllData(1, 1000)
+  }, [loadAllData])
+
+  // Load data when page changes
+  useEffect(() => {
+    if (currentPage > 1) {
+      console.log('🔄 [COMPONENT] Loading page:', currentPage)
+      loadAllData(currentPage, itemsPerPage)
+    }
+  }, [currentPage, itemsPerPage, loadAllData])
 
   // KISS: Simple derived state
-  const currentFeatures = useMemo(() => features || [], [features])
-  const currentFeaturesCount = dbPagination?.total || 0
-  const hasData = currentFeaturesCount > 0
+  const currentFeatures = features || []
+  const currentFeaturesCount = totalCount || 0
   const isInitialLoad = !isLoading && currentFeaturesCount === 0 && !error
 
   // Filter logic - reusing POI Management pattern
@@ -93,20 +103,12 @@ export function OSMImporterSimple() {
     if (!currentFeatures || !currentFeatures.length) return []
     
     return currentFeatures.filter(feature => {
-      // Handle both in-memory and database data structures
-      const isDbData = !feature.properties && !feature.geometry
-      const location = isDbData ? {
-        name: (feature as any).name || 'Unnamed POI',
-        city: (feature as any).city || 'Unknown',
-        state: (feature as any).state || 'Unknown',
-        country: (feature as any).country || 'Unknown',
-        category: (feature as any).primary_category || 'Unknown'
-      } : {
-        name: feature.properties?.name || 'Unnamed POI',
-        city: feature.properties?.city || 'Unknown',
-        state: feature.properties?.state || 'Unknown',
-        country: feature.properties?.country || 'Unknown',
-        category: feature.properties?.category || 'Unknown'
+      const location = {
+        name: feature.name || 'Unnamed POI',
+        city: feature.city || 'Unknown',
+        state: feature.state || 'Unknown',
+        country: feature.country || 'Unknown',
+        category: feature.primary_category || 'Unknown'
       }
 
       // Search filter
@@ -138,24 +140,21 @@ export function OSMImporterSimple() {
     })
   }, [currentFeatures, searchTerm, cityFilter, stateFilter, categoryFilter])
 
-  // Pagination logic for table mode (50 items per page)
+  // Use server-side pagination - no client-side pagination needed
   const paginatedFeatures = useMemo(() => {
     if (viewMode === 'map') {
       // Map mode: show all filtered features (no pagination)
       return filteredFeatures
     } else {
-      // Table mode: apply pagination with 50 items per page
-      const startIndex = (currentPage - 1) * 50
-      const endIndex = startIndex + 50
-      return filteredFeatures.slice(startIndex, endIndex)
+      // Table mode: use server-paginated data directly
+      return currentFeatures
     }
-  }, [filteredFeatures, viewMode, currentPage])
+  }, [currentFeatures, viewMode])
 
-  // Pagination info (50 items per page)
-  const totalPages = Math.ceil(filteredFeatures.length / 50)
+  // Server-side pagination info
+  const totalPages = Math.ceil((totalCount || 0) / itemsPerPage)
   const hasNextPage = currentPage < totalPages
   const hasPrevPage = currentPage > 1
-
 
   // Clear filters function
   const clearFilters = () => {
@@ -169,6 +168,7 @@ export function OSMImporterSimple() {
   // Handle page change
   const handlePageChange = (page: number) => {
     setCurrentPage(page)
+    loadAllData(page, itemsPerPage)
   }
 
   // Handle view mode change with optimized loading
@@ -180,49 +180,20 @@ export function OSMImporterSimple() {
     loadDataForMode(mode)
   }
 
-  // Delete selected features
-  const handleDeleteSelected = async () => {
-    if (selectedFeatures.size === 0) return
+  // NEW: Delete single POI with confirmation
+  const handleDelete = (id: string) => {
+    if (window.confirm('Delete this POI? This cannot be undone.')) {
+      deletePOIs([id])
+    }
+  }
+
+  // NEW: Delete selected POIs with confirmation
+  const handleDeleteSelected = () => {
+    const count = selectedFeatures.size
+    if (count === 0) return
     
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedFeatures.size} selected features? This action cannot be undone.`
-    )
-    
-    if (!confirmed) return
-    
-    setIsDeleting(true)
-    
-    try {
-      const featureIds = Array.from(selectedFeatures)
-      console.log('🗑️ [COMPONENT] Deleting selected features:', { count: featureIds.length })
-      
-      const response = await fetch('/api/local-db/delete-selected', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ featureIds }),
-      })
-      
-      const result = await response.json()
-      
-      if (result.success) {
-        console.log('✅ [COMPONENT] Features deleted successfully:', result)
-        // Clear selection and refresh data
-        clearSelection()
-        // Reload data to reflect changes
-        loadDataForMode(viewMode)
-        // Show success message
-        alert(`${result.deleted} features deleted successfully`)
-      } else {
-        console.error('❌ [COMPONENT] Error deleting features:', result.error)
-        alert(`Error deleting features: ${result.error}`)
-      }
-    } catch (error) {
-      console.error('❌ [COMPONENT] Error deleting features:', error)
-      alert(`Error deleting features: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    } finally {
-      setIsDeleting(false)
+    if (window.confirm(`Delete ${count} POIs? This cannot be undone.`)) {
+      deletePOIs(Array.from(selectedFeatures))
     }
   }
 
@@ -232,13 +203,10 @@ export function OSMImporterSimple() {
     selectedCount: selectedFeatures.size,
     isLoading,
     hasError: !!error,
-    currentFile: currentFile?.name,
     hasData,
     isInitialLoad,
-    availableStates: availableStates?.length || 0,
     availableCities: availableCities?.length || 0,
     availableCategories: availableCategories?.length || 0,
-    statesSample: availableStates?.slice(0, 5) || [],
     citiesSample: availableCities?.slice(0, 3) || []
   })
 
@@ -251,32 +219,11 @@ export function OSMImporterSimple() {
     }
   }
 
-  const handleImport = async () => {
-    await importSelected()
-  }
-
   const handleRefresh = () => {
     loadDBFeatures(1, 50000) // Load all POIs for map view (up to 50k)
     loadDBCities()
     loadDBCategories()
     refreshLocalStats()
-  }
-
-  const handleClearAll = async () => {
-    if (confirm('Are you sure you want to clear all data? This action cannot be undone.')) {
-      try {
-        const response = await fetch('/api/local-db/clear', { method: 'POST' })
-        if (response.ok) {
-          clearData()
-          window.location.reload()
-        } else {
-          alert('Error clearing data')
-        }
-      } catch (error) {
-        console.error('Error clearing data:', error)
-        alert('Error clearing data')
-      }
-    }
   }
 
   return (
@@ -286,15 +233,15 @@ export function OSMImporterSimple() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-              OSM Importer
+              POI Viewer
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Import and manage OpenStreetMap POIs
+              View and manage POIs from homolog.pois
             </p>
           </div>
           
           <div className="flex items-center space-x-4">
-            {currentFile && (
+            {hasData && (
               <div className="text-sm text-gray-600 dark:text-gray-400">
                 {currentFeaturesCount} POIs loaded
               </div>
@@ -307,18 +254,6 @@ export function OSMImporterSimple() {
                   className="px-4 py-2 text-sm text-blue-600 hover:text-blue-700 border border-blue-300 rounded-lg hover:bg-blue-50"
                 >
                   Refresh Data
-                </button>
-                <button
-                  onClick={() => setShowUploadModal(true)}
-                  className="px-4 py-2 text-sm text-green-600 hover:text-green-700 border border-green-300 rounded-lg hover:bg-green-50"
-                >
-                  Add More Data
-                </button>
-                <button
-                  onClick={handleClearAll}
-                  className="px-4 py-2 text-sm text-red-600 hover:text-red-700 border border-red-300 rounded-lg hover:bg-red-50"
-                >
-                  Clear All Data
                 </button>
               </div>
             )}
@@ -333,58 +268,21 @@ export function OSMImporterSimple() {
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="text-center w-full max-w-md">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">Loading data from local database...</p>
-              
-              {/* Progress Bar */}
-              {progress && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      {progress.message}
-                    </span>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">
-                      {progress.current}/{progress.total}
-                    </span>
-                  </div>
-                  
-                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                    <div 
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                      style={{ 
-                        width: `${Math.min((progress.current / progress.total) * 100, 100)}%` 
-                      }}
-                    ></div>
-                  </div>
-                  
-                  <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 text-center">
-                    {Math.round((progress.current / progress.total) * 100)}% complete
-                  </div>
-                </div>
-              )}
+              <p className="text-gray-600 dark:text-gray-400 mb-4">Loading POIs from database...</p>
             </div>
           </div>
         )}
 
-        {/* File Upload - Show when no data or initial load */}
+        {/* Empty State */}
         {!hasData && !isLoading && (
           <div className="flex-1 flex items-center justify-center p-8">
-            <div className="w-full max-w-2xl">
-              {isInitialLoad ? (
-                <div className="text-center">
-                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                    No Data Found
-                  </h2>
-                  <p className="text-gray-600 dark:text-gray-400 mb-8">
-                    No POIs found in the local database. Upload a GeoJSON file to get started.
-                  </p>
-                </div>
-              ) : null}
-              <FileUpload
-                onFileSelect={loadFile}
-                isLoading={isLoading}
-                error={error}
-                currentFile={currentFile}
-              />
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
+                No POIs Found
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mb-8">
+                No POIs found in homolog.pois database. Data will appear here when imported.
+              </p>
             </div>
           </div>
         )}
@@ -451,7 +349,7 @@ export function OSMImporterSimple() {
                   </div>
                 </div>
 
-                {/* Local DB Stats */}
+                {/* Database Stats */}
                 {localDBStats && (
                   <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
                     <Database className="w-4 h-4" />
@@ -467,7 +365,7 @@ export function OSMImporterSimple() {
                   </div>
                 )}
 
-                {/* Import Button */}
+                {/* Delete Button */}
                 <div className="flex items-center space-x-4">
                   <div className="text-sm text-gray-600 dark:text-gray-400">
                     {selectedFeatures.size} selected
@@ -485,20 +383,6 @@ export function OSMImporterSimple() {
                   >
                     <Trash2 className="w-4 h-4 mr-2 inline" />
                     {isDeleting ? 'Deleting...' : 'Delete Selected'}
-                  </button>
-                  
-                  <button
-                    onClick={handleImport}
-                    disabled={selectedFeatures.size === 0 || isLoading}
-                    className={cn(
-                      "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-                      selectedFeatures.size === 0 || isLoading
-                        ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                        : "bg-green-600 text-white hover:bg-green-700"
-                    )}
-                  >
-                    <Download className="w-4 h-4 mr-2 inline" />
-                    Import to Supabase
                   </button>
                 </div>
               </div>
@@ -549,11 +433,15 @@ export function OSMImporterSimple() {
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
                       >
                         <option value="">All States</option>
-                        {(availableStates || []).map((state) => (
-                          <option key={state} value={state}>
-                            {state}
-                          </option>
-                        ))}
+                        {(availableCities || [])
+                          .map(city => city.state)
+                          .filter((state, index, self) => self.indexOf(state) === index)
+                          .sort()
+                          .map((state) => (
+                            <option key={state} value={state}>
+                              {state}
+                            </option>
+                          ))}
                       </select>
                     </div>
 
@@ -627,69 +515,82 @@ export function OSMImporterSimple() {
               )}
 
               {/* Main Content */}
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 overflow-hidden">
                 {viewMode === 'table' ? (
-                  <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                  <>
                     <POITable
                       features={paginatedFeatures}
                       selectedFeatures={selectedFeatures}
                       onToggleSelection={toggleSelection}
+                      onEditPOI={updatePOI}
+                      onDeletePOI={handleDelete}
                     />
                     
-                    {/* Pagination */}
+                    {/* Pagination Controls */}
                     {totalPages > 1 && (
-                      <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                        <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
-                          <span>
-                            Showing {((currentPage - 1) * 50) + 1} to {Math.min(currentPage * 50, filteredFeatures.length)} of {filteredFeatures.length} results
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <label htmlFor="itemsPerPage" className="text-sm font-medium">
-                              Items per page:
-                            </label>
-                            <select
-                              id="itemsPerPage"
-                              value={50}
-                              disabled
-                              className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                            >
-                              <option value={50}>50</option>
-                            </select>
+                      <div className="bg-white dark:bg-gray-950 border-t border-gray-200 dark:border-gray-800 px-6 py-4">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm text-gray-600 dark:text-gray-400">
+                            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalCount || 0)} of {totalCount || 0} results
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handlePageChange(currentPage - 1)}
-                            disabled={currentPage === 1}
-                            className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                          >
-                            <ChevronLeft className="h-4 w-4 mr-1" />
-                            Previous
-                          </button>
-                          <span className="px-3 py-1 text-sm text-gray-700 dark:text-gray-300">
-                            Page {currentPage} of {totalPages}
-                          </span>
-                          <button
-                            onClick={() => handlePageChange(currentPage + 1)}
-                            disabled={currentPage === totalPages}
-                            className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                          >
-                            Next
-                            <ChevronRight className="h-4 w-4 ml-1" />
-                          </button>
+                          
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => handlePageChange(currentPage - 1)}
+                              disabled={!hasPrevPage}
+                              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Previous
+                            </button>
+                            
+                            <div className="flex items-center space-x-1">
+                              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                const page = i + 1
+                                const isActive = page === currentPage
+                                return (
+                                  <button
+                                    key={page}
+                                    onClick={() => handlePageChange(page)}
+                                    className={`px-3 py-2 text-sm border rounded-lg ${
+                                      isActive
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : 'border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
+                                    }`}
+                                  >
+                                    {page}
+                                  </button>
+                                )
+                              })}
+                              {totalPages > 5 && (
+                                <>
+                                  <span className="px-2 text-gray-500">...</span>
+                                  <button
+                                    onClick={() => handlePageChange(totalPages)}
+                                    className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+                                  >
+                                    {totalPages}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                            
+                            <button
+                              onClick={() => handlePageChange(currentPage + 1)}
+                              disabled={!hasNextPage}
+                              className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Next
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
-                  </div>
+                  </>
                 ) : (
                   <POIMap
                     features={filteredFeatures}
                     selectedFeatures={selectedFeatures}
                     onToggleSelection={toggleSelection}
-                    searchTerm={searchTerm}
-                    stateFilter={stateFilter}
-                    cityFilter={cityFilter}
-                    categoryFilter={categoryFilter}
                   />
                 )}
               </div>
@@ -719,47 +620,6 @@ export function OSMImporterSimple() {
                   }
                 </span>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Upload Modal */}
-        {showUploadModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-900 rounded-lg p-6 max-w-2xl w-full mx-4">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Add More GeoJSON Data
-                </h3>
-                <button
-                  onClick={() => setShowUploadModal(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                >
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-              
-              <div className="mb-4">
-                <p className="text-gray-600 dark:text-gray-400 mb-2">
-                  Upload additional GeoJSON data to merge with existing POIs in the database.
-                </p>
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                  <p className="text-sm text-blue-800 dark:text-blue-200">
-                    <strong>Note:</strong> New data will be added to the existing database. 
-                    Duplicate POIs will be handled automatically.
-                  </p>
-                </div>
-              </div>
-              
-              <FileUpload
-                onFileSelect={(file) => {
-                  loadFile(file)
-                  setShowUploadModal(false)
-                }}
-                isLoading={isLoading}
-                error={error}
-                currentFile={currentFile}
-              />
             </div>
           </div>
         )}

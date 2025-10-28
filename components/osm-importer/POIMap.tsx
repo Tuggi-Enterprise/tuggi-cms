@@ -18,6 +18,10 @@ interface POIMapProps {
   features: SimpleOSMPOI[]
   selectedFeatures: Set<string>
   onToggleSelection: (id: string) => void
+  searchTerm?: string
+  stateFilter?: string
+  cityFilter?: string
+  categoryFilter?: string
   height?: string
   className?: string
 }
@@ -25,7 +29,11 @@ interface POIMapProps {
 export function POIMap({ 
   features, 
   selectedFeatures, 
-  onToggleSelection, 
+  onToggleSelection,
+  searchTerm = "",
+  stateFilter = "",
+  cityFilter = "",
+  categoryFilter = "",
   height = "600px",
   className = ""
 }: POIMapProps) {
@@ -188,11 +196,11 @@ export function POIMap({
       <POIMapVisualization
         pois={mapPois}
         totalCount={mapPois.length}
-        searchTerm=""
+        searchTerm={searchTerm}
         statusFilter="all"
         countryFilter=""
-        stateFilter=""
-        cityFilter=""
+        stateFilter={stateFilter}
+        cityFilter={cityFilter}
         googleTypesFilter=""
         contentStatusFilter="all"
         groupStatusFilter="all"

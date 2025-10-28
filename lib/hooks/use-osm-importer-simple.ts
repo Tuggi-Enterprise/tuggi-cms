@@ -11,6 +11,7 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { OSMService } from '../services/osm-service-simple'
 
 export interface SimpleOSMPOI {
@@ -88,6 +89,9 @@ interface OSMImporterState {
 }
 
 export function useOSMImporterSimple() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  
   // KISS: Single unified state object
   const [state, setState] = useState<OSMImporterState>({
     // Data
@@ -136,38 +140,115 @@ export function useOSMImporterSimple() {
     [state.features, state.selectedFeatures]
   )
 
+  // Extract unique states and cities from all loaded features
+  const availableStates = useMemo(() => {
+    if (!state.features || state.features.length === 0) return []
+    
+    const states = new Set<string>()
+    state.features.forEach(feature => {
+      // Handle both in-memory and database data structures
+      const isDbData = !feature.properties && !feature.geometry
+      const state = isDbData ? (feature as any).state : feature.properties?.state
+      if (state && state !== 'Unknown' && state.trim() !== '') {
+        states.add(state)
+      }
+    })
+    
+    return Array.from(states).sort()
+  }, [state.features])
+
+  const availableCities = useMemo(() => {
+    if (!state.features || state.features.length === 0) return []
+    
+    const cityStateMap = new Map<string, string>()
+    state.features.forEach(feature => {
+      // Handle both in-memory and database data structures
+      const isDbData = !feature.properties && !feature.geometry
+      const city = isDbData ? (feature as any).city : feature.properties?.city
+      const state = isDbData ? (feature as any).state : feature.properties?.state
+      
+      if (city && city !== 'Unknown' && city.trim() !== '' && 
+          state && state !== 'Unknown' && state.trim() !== '') {
+        cityStateMap.set(city, state)
+      }
+    })
+    
+    return Array.from(cityStateMap.entries()).map(([name, state]) => ({ name, state }))
+  }, [state.features])
+
+  const availableCategories = useMemo(() => {
+    if (!state.features || state.features.length === 0) return []
+    
+    const categories = new Set<string>()
+    state.features.forEach(feature => {
+      // Handle both in-memory and database data structures
+      const isDbData = !feature.properties && !feature.geometry
+      const category = isDbData ? (feature as any).primary_category : feature.properties?.category
+      if (category && category !== 'Unknown' && category.trim() !== '') {
+        categories.add(category)
+      }
+    })
+    
+    return Array.from(categories).sort()
+  }, [state.features])
+
   // KISS: Single function to load all data (eliminates race conditions)
-  const loadAllData = useCallback(async (page = 1, limit = 50000) => {
-    console.log('🔄 [HOOK] Loading all data from local DB...')
+  const loadAllData = useCallback(async (page = 1, limit = 50) => {
+    console.log('🔄 [HOOK] Loading all data from Supabase...')
     setState(prev => ({ ...prev, isLoading: true, error: null }))
     
     try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: limit.toString()
-      })
+      // First, get total count using RPC
+      const countResponse = await fetch('/api/supabase/pois?page=1&limit=1')
+      const countResult = await countResponse.json()
+      const totalCount = countResult.pagination?.total || 0
       
-      const response = await fetch(`/api/supabase/pois?${params}`)
-      const result = await response.json()
+      console.log(`📊 [HOOK] Total POIs in database: ${totalCount}`)
       
-      if (result.success) {
-        setState(prev => ({
-          ...prev,
-          features: result.data.features,
-          cities: result.data.cities,
-          categories: result.data.categories,
-          stats: result.data.stats,
-          pagination: result.data.pagination
-        }))
-        console.log('✅ [HOOK] All data loaded:', {
-          features: result.data.features?.length || 0,
-          cities: result.data.cities?.length || 0,
-          categories: result.data.categories?.length || 0,
-          stats: result.data.stats
+      // Load all data in batches of 1000 (Supabase RPC limit)
+      const allFeatures: any[] = []
+      const batchSize = 1000
+      const totalBatches = Math.ceil(totalCount / batchSize)
+      
+      console.log(`🔄 [HOOK] Loading ${totalBatches} batches of ${batchSize} items each...`)
+      
+      for (let batch = 1; batch <= totalBatches; batch++) {
+        const offset = (batch - 1) * batchSize
+        const params = new URLSearchParams({
+          page: batch.toString(),
+          limit: batchSize.toString()
         })
-      } else {
-        throw new Error(result.error || 'Failed to load data')
+        
+        console.log(`🔄 [HOOK] Loading batch ${batch}/${totalBatches} (offset: ${offset})...`)
+        const response = await fetch(`/api/supabase/pois?${params}`)
+        const result = await response.json()
+        
+        if (result.success) {
+          allFeatures.push(...result.data)
+          console.log(`✅ [HOOK] Batch ${batch}/${totalBatches} loaded: ${result.data.length} items (total so far: ${allFeatures.length})`)
+        } else {
+          throw new Error(`Failed to load batch ${batch}: ${result.error}`)
+        }
       }
+      
+      setState(prev => ({
+        ...prev,
+        features: allFeatures,
+        totalCount: allFeatures.length,
+        pagination: {
+          page: 1,
+          limit: 50,
+          total: allFeatures.length,
+          totalPages: Math.ceil(allFeatures.length / 50),
+          hasNext: false,
+          hasPrev: false
+        }
+      }))
+      
+      console.log('✅ [HOOK] All data loaded:', {
+        totalFeatures: allFeatures.length,
+        totalCount: allFeatures.length
+      })
     } catch (error) {
       console.error('❌ [HOOK] Error loading all data:', error)
       setState(prev => ({
@@ -182,48 +263,11 @@ export function useOSMImporterSimple() {
   // Optimized data loading for different modes
   const loadDataForMode = useCallback(async (mode: 'table' | 'map') => {
     console.log('🔄 [HOOK] Loading data for mode:', mode)
-    setState(prev => ({ ...prev, isLoading: true, error: null, viewMode: mode }))
+    setState(prev => ({ ...prev, viewMode: mode }))
     
-    try {
-      // For table mode, load fewer features for better performance
-      // For map mode, load all features
-      const limit = mode === 'table' ? 1000 : 50000
-      
-      const params = new URLSearchParams({
-        page: '1',
-        limit: limit.toString()
-      })
-      
-      const response = await fetch(`/api/supabase/pois?${params}`)
-      const result = await response.json()
-      
-      if (result.success) {
-        setState(prev => ({
-          ...prev,
-          features: result.data.features,
-          cities: result.data.cities,
-          categories: result.data.categories,
-          stats: result.data.stats,
-          pagination: result.data.pagination
-        }))
-        console.log('✅ [HOOK] Data loaded for mode:', {
-          mode,
-          features: result.data.features?.length || 0,
-          cities: result.data.cities?.length || 0,
-          categories: result.data.categories?.length || 0
-        })
-      } else {
-        throw new Error(result.error || 'Failed to load data')
-      }
-    } catch (error) {
-      console.error('❌ [HOOK] Error loading data for mode:', error)
-      setState(prev => ({
-        ...prev,
-        error: error instanceof Error ? error.message : 'Failed to load data'
-      }))
-    } finally {
-      setState(prev => ({ ...prev, isLoading: false }))
-    }
+    // Since we load all data at once, just change the view mode
+    // No need to reload data
+    console.log('✅ [HOOK] View mode changed to:', mode)
   }, [])
 
   // File loading (unchanged functionality)
@@ -390,7 +434,26 @@ export function useOSMImporterSimple() {
   useEffect(() => {
     console.log('🔄 [HOOK] Auto-loading data on mount...')
     loadAllData()
-  }, []) // No dependencies = no race conditions
+  }, [loadAllData]) // Include loadAllData dependency
+
+
+  // Sync current page with URL
+  useEffect(() => {
+    const pageFromUrl = searchParams.get('page')
+    if (pageFromUrl) {
+      const page = parseInt(pageFromUrl, 10)
+      if (page > 0 && page !== state.pagination.page) {
+        console.log('🔄 [HOOK] Syncing page from URL:', page)
+        setState(prev => ({
+          ...prev,
+          pagination: {
+            ...prev.pagination,
+            page
+          }
+        }))
+      }
+    }
+  }, [searchParams, state.pagination.page])
 
   // Return unified interface (enhanced with new state)
   return {
@@ -398,8 +461,9 @@ export function useOSMImporterSimple() {
     features: state.features,
     selectedFeatures: state.selectedFeatures,
     selectedPOIs,
-    availableCities: state.cities,
-    availableCategories: state.categories,
+    availableStates,
+    availableCities,
+    availableCategories,
     localDBStats: state.stats,
     dbPagination: state.pagination,
     
@@ -444,7 +508,13 @@ export function useOSMImporterSimple() {
     setCityFilter: (city: string) => setState(prev => ({ ...prev, cityFilter: city })),
     setStateFilter: (stateFilter: string) => setState(prev => ({ ...prev, stateFilter })),
     setCategoryFilter: (category: string) => setState(prev => ({ ...prev, categoryFilter: category })),
-    setCurrentPage: (page: number) => setState(prev => ({ ...prev, currentPage: page })),
+    setCurrentPage: (page: number) => {
+      setState(prev => ({ ...prev, currentPage: page }))
+      // Update URL with new page
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('page', page.toString())
+      router.push(`?${params.toString()}`, { scroll: false })
+    },
     setIsDeleting: (deleting: boolean) => setState(prev => ({ ...prev, isDeleting: deleting })),
     
     // Local DB Actions (simplified - now just one function)

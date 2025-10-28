@@ -190,6 +190,11 @@ function POIMapContent({
   const [isLoadingBoundaries, setIsLoadingBoundaries] = useState(false)
   const [isAutoFitting, setIsAutoFitting] = useState(false)
   
+  // Clustering state
+  const [currentZoom, setCurrentZoom] = useState(initialZoom)
+  const [clusteringMode, setClusteringMode] = useState<'clustered' | 'individual'>('clustered')
+  const [isTransitioning, setIsTransitioning] = useState(false)
+  
   // Use provided POIs if available, otherwise use local state
   const currentPois = providedPois || pois
   const currentTotalCount = providedTotalCount || poiCount.total
@@ -209,13 +214,54 @@ function POIMapContent({
   
   const geographicContext = getGeographicContext()
   
+  // Clustering configuration based on zoom levels
+  const getClusteringConfig = useCallback((zoom: number) => {
+    if (zoom <= 6) {
+      return {
+        mode: 'clustered' as const,
+        gridSize: 100,
+        minimumClusterSize: 5,
+        maxZoom: 10,
+        name: 'Global clusters'
+      }
+    } else if (zoom <= 10) {
+      return {
+        mode: 'clustered' as const,
+        gridSize: 60,
+        minimumClusterSize: 3,
+        maxZoom: 13,
+        name: 'Regional clusters'
+      }
+    } else if (zoom <= 13) {
+      return {
+        mode: 'clustered' as const,
+        gridSize: 40,
+        minimumClusterSize: 2,
+        maxZoom: 15,
+        name: 'Local clusters'
+      }
+    } else {
+      return {
+        mode: 'individual' as const,
+        gridSize: 20,
+        minimumClusterSize: 1,
+        maxZoom: 20,
+        name: 'Individual markers'
+      }
+    }
+  }, [])
+  
+  // Determine clustering mode based on current zoom
+  const clusteringConfig = getClusteringConfig(currentZoom)
+  
   // Log when using provided POIs
   useEffect(() => {
     if (providedPois) {
       console.log(`🗺️ Using ${providedPois.length} provided POIs for map visualization`)
       console.log(`🗺️ Geographic context: ${geographicContext}`)
+      console.log(`🗺️ Clustering config:`, clusteringConfig)
     }
-  }, [providedPois, geographicContext])
+  }, [providedPois, geographicContext, clusteringConfig])
   
   // Map state preservation
   const [mapState, setMapState] = useState<{
@@ -269,14 +315,28 @@ function POIMapContent({
 
     map.addListener('zoom_changed', () => {
       const zoom = map.getZoom()!
+      setCurrentZoom(zoom)
       setMapState(prev => ({
         ...prev,
         zoom: zoom
       }))
+      
+      // Update clustering mode based on zoom
+      const newConfig = getClusteringConfig(zoom)
+      if (newConfig.mode !== clusteringMode) {
+        console.log(`🗺️ [POIMapVisualization] Zoom changed: ${zoom}, switching to ${newConfig.name}`)
+        setClusteringMode(newConfig.mode)
+        setIsTransitioning(true)
+        
+        // Trigger marker update after a short delay for smooth transition
+        setTimeout(() => {
+          setIsTransitioning(false)
+        }, 300)
+      }
     })
 
     setIsLoading(false)
-  }, [initialCenter, initialZoom, onFiltersChange])
+  }, [initialCenter, initialZoom, onFiltersChange, clusteringMode, getClusteringConfig, mapState.center, mapState.zoom])
 
   // Remove viewport-based caching since we're using the search API
 
@@ -504,69 +564,107 @@ function POIMapContent({
       hasClusterer: !!markerClustererRef.current,
       filteredPOIsCount: filteredPOIs.length,
       geographicContext,
-      showClusters
+      showClusters,
+      currentZoom,
+      clusteringMode,
+      clusteringConfig
     })
     
-    if (!mapInstanceRef.current || !markerClustererRef.current) {
-      console.warn('🗺️ [POIMapVisualization] Missing map or clusterer:', {
-        hasMap: !!mapInstanceRef.current,
-        hasClusterer: !!markerClustererRef.current
+    if (!mapInstanceRef.current) {
+      console.warn('🗺️ [POIMapVisualization] Missing map:', {
+        hasMap: !!mapInstanceRef.current
       })
       return
     }
 
-    // Clear existing markers
+    // Clear existing markers and clusterer
     markersRef.current.forEach(marker => marker.setMap(null))
     markersRef.current.clear()
     
-    // Clear clusterer if it exists
     if (markerClustererRef.current) {
       markerClustererRef.current.clearMarkers()
+      markerClustererRef.current = null
     }
 
     // Create new markers for filtered POIs
     const newMarkers: google.maps.Marker[] = []
 
-    // Render based on geographic context
-    if (geographicContext === 'global' && countryGroups) {
-      // Render country markers for global view
-      Object.values(countryGroups).forEach(group => {
-        if (group.count === 0) return
+    // Render based on clustering mode
+    if (clusteringMode === 'clustered' && !isTransitioning) {
+      console.log('🗺️ [POIMapVisualization] Rendering clustered markers:', {
+        filteredPOIsCount: filteredPOIs.length,
+        clusteringConfig,
+        currentZoom
+      })
+      
+      // Create individual markers for clustering
+      filteredPOIs.forEach((poi, index) => {
+        if (!poi.coordinates?.latitude || !poi.coordinates?.longitude) {
+          console.warn(`🗺️ [POIMapVisualization] Skipping POI ${index} - no coordinates:`, poi)
+          return
+        }
+
+        const position = new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude)
+        const status = getPOIStatus(poi)
+        const isSelected = selectedPOI?.id === poi.id
 
         const marker = new google.maps.Marker({
-          position: group.center,
-          title: `${group.country}: ${group.count} POIs`,
-          icon: {
-            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-              <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="20" cy="20" r="18" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
-                <text x="20" y="26" text-anchor="middle" fill="white" font-size="12" font-weight="bold">
-                  ${group.count > 999 ? Math.floor(group.count/1000) + 'k' : group.count}
-                </text>
-              </svg>
-            `),
-            scaledSize: new google.maps.Size(40, 40),
-            anchor: new google.maps.Point(20, 20)
-          },
-          map: mapInstanceRef.current!,
-          optimized: false
+          position,
+          title: `${poi.name} - Click to edit`,
+          icon: createMarkerIcon(status, isSelected),
+          // Don't add to map directly - let clusterer handle it
+          map: null,
+          cursor: 'pointer'
         })
 
-        // Add click listener for country marker
+        // Add click listener
         marker.addListener('click', () => {
-          console.log(`🗺️ Country marker clicked: ${group.country} (${group.count} POIs)`)
-          // Could implement country drill-down here
+          onPOIClick(poi)
+          setSelectedPOI(poi)
         })
 
-        markersRef.current.set(`country-${group.country}`, marker)
+        markersRef.current.set(poi.id, marker)
         newMarkers.push(marker)
       })
+
+      // Initialize MarkerClusterer
+      if (newMarkers.length > 0) {
+        markerClustererRef.current = new MarkerClusterer({
+          map: mapInstanceRef.current!,
+          markers: newMarkers,
+          renderer: {
+            render: ({ count, position }) => {
+              return new google.maps.Marker({
+                position,
+                icon: {
+                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+                    <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="20" cy="20" r="18" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+                      <text x="20" y="26" text-anchor="middle" fill="white" font-size="12" font-weight="bold">
+                        ${count > 999 ? Math.floor(count/1000) + 'k' : count}
+                      </text>
+                    </svg>
+                  `),
+                  scaledSize: new google.maps.Size(40, 40),
+                  anchor: new google.maps.Point(20, 20)
+                },
+                label: {
+                  text: count.toString(),
+                  color: 'white',
+                  fontSize: '12px',
+                  fontWeight: 'bold'
+                },
+                zIndex: 1000
+              })
+            }
+          }
+        })
+      }
     } else {
-      // Render individual POI markers for specific contexts
-      console.log('🗺️ [POIMapVisualization] Rendering individual POI markers:', {
+      console.log('🗺️ [POIMapVisualization] Rendering individual markers:', {
         filteredPOIsCount: filteredPOIs.length,
-        showClusters,
-        geographicContext
+        clusteringMode,
+        isTransitioning
       })
       
       filteredPOIs.forEach((poi, index) => {
@@ -680,15 +778,16 @@ function POIMapContent({
       ;(marker as any).infoWindow = infoWindow
 
       markersRef.current.set(poi.id, marker)
-        newMarkers.push(marker)
-      })
+      newMarkers.push(marker)
+    })
     }
 
-    // DISABLED CLUSTERING: Markers are already added to map during creation
-    // For 31k POIs, direct rendering is more performant than clustering
-    console.log('🗺️ [POIMapVisualization] All POIs rendered directly (clustering disabled):', {
+    // Log rendering results
+    console.log('🗺️ [POIMapVisualization] Rendering complete:', {
       newMarkersCount: newMarkers.length,
-      reason: 'Direct rendering for better performance with large datasets'
+      clusteringMode,
+      currentZoom,
+      clusteringConfig
     })
 
     // Update POI count based on context
@@ -697,7 +796,7 @@ function POIMapContent({
       visible: geographicContext === 'global' ? Object.keys(countryGroups || {}).length : filteredPOIs.length
     }))
 
-  }, [filteredPOIs, selectedPOI, showClusters, onPOIClick, geographicContext, countryGroups])
+  }, [filteredPOIs, selectedPOI, showClusters, onPOIClick, geographicContext, countryGroups, clusteringMode, clusteringConfig, currentZoom, isTransitioning])
 
   // Update city boundaries on map
   const updateCityBoundaries = useCallback(() => {

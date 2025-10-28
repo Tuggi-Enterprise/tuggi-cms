@@ -1,39 +1,46 @@
 /**
  * POI Table Component - KISS SIMPLIFIED
  * 
- * Simple table view for POIs with editing and selection
+ * Simple table view for POIs with editing, selection, and deletion
  * 
- * @module components/osm-importer/POITable
+ * @module components/poi-importer/POITable
  */
 
 'use client'
 
 import { useState } from 'react'
-import { CheckSquare, Square, Edit3, Save, X } from 'lucide-react'
+import { CheckSquare, Square, Edit3, Save, X, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SimpleOSMPOI } from '@/lib/hooks/use-osm-importer-simple'
-import { OSMService } from '@/lib/services/osm-service-simple'
+
+interface HomologPOI {
+  uuid_id: string
+  name?: string
+  city?: string
+  state?: string
+  country?: string
+  primary_category?: string
+  [key: string]: any
+}
 
 interface POITableProps {
-  features: SimpleOSMPOI[]
+  features: HomologPOI[]
   selectedFeatures: Set<string>
   onToggleSelection: (id: string) => void
   onEditPOI?: (id: string, updates: any) => void
+  onDeletePOI?: (id: string) => void
 }
 
-export function POITable({ features, selectedFeatures, onToggleSelection, onEditPOI }: POITableProps) {
+export function POITable({ features, selectedFeatures, onToggleSelection, onEditPOI, onDeletePOI }: POITableProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Record<string, any>>({})
 
-  const handleEdit = (poi: SimpleOSMPOI) => {
-    const isDbData = !poi.properties && !poi.geometry
-    const poiId = isDbData ? (poi as any).id : poi._id
-    setEditingId(poiId)
+  const handleEdit = (poi: HomologPOI) => {
+    setEditingId(poi.uuid_id)
     setEditValues({
-      name: isDbData ? ((poi as any).name || '') : (poi.properties.name || ''),
-      city: isDbData ? ((poi as any).city || '') : (poi.properties.city || ''),
-      state: isDbData ? ((poi as any).state || '') : (poi.properties.state || ''),
-      country: isDbData ? ((poi as any).country || '') : (poi.properties.country || '')
+      name: poi.name || '',
+      city: poi.city || '',
+      state: poi.state || '',
+      country: poi.country || ''
     })
   }
 
@@ -54,8 +61,14 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
     setEditValues(prev => ({ ...prev, [field]: value }))
   }
 
+  const handleDelete = (poiId: string) => {
+    if (onDeletePOI) {
+      onDeletePOI(poiId)
+    }
+  }
+
   return (
-    <div>
+    <div className="h-full flex flex-col">
       {/* Table Header */}
       <div className="bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800">
         <div className="grid grid-cols-12 gap-4 px-4 py-3 text-sm font-medium text-gray-500 dark:text-gray-400">
@@ -72,19 +85,9 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
       </div>
 
       {/* Table Body */}
-      <div className="divide-y divide-gray-200 dark:divide-gray-700">
+      <div className="flex-1 overflow-y-auto">
         {features.map((poi) => {
-          // Handle both in-memory and database data structures
-          const isDbData = !poi.properties && !poi.geometry
-          const location = isDbData ? {
-            name: (poi as any).name || 'Unnamed POI',
-            city: (poi as any).city || 'Unknown',
-            state: (poi as any).state || 'Unknown',
-            country: (poi as any).country || 'Unknown',
-            category: (poi as any).primary_category || 'Unknown'
-          } : OSMService.extractLocation(poi)
-          
-          const poiId = isDbData ? (poi as any).id : poi._id
+          const poiId = poi.uuid_id
           const isSelected = selectedFeatures.has(poiId)
           const isEditing = editingId === poiId
 
@@ -116,14 +119,14 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     className="w-full px-2 py-1 border rounded text-sm"
                   />
                 ) : (
-                  <span className="font-medium">{location.name}</span>
+                  <span className="font-medium">{poi.name || 'Unnamed POI'}</span>
                 )}
               </div>
 
               {/* Category */}
               <div className="col-span-2 flex items-center">
                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                  {location.category}
+                  {poi.primary_category || 'Unknown'}
                 </span>
               </div>
 
@@ -137,7 +140,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     className="w-full px-2 py-1 border rounded text-sm"
                   />
                 ) : (
-                  <span className="text-sm">{location.city}</span>
+                  <span className="text-sm">{poi.city || 'Unknown'}</span>
                 )}
               </div>
 
@@ -151,7 +154,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     className="w-full px-2 py-1 border rounded text-sm"
                   />
                 ) : (
-                  <span className="text-sm">{location.state}</span>
+                  <span className="text-sm">{poi.state || 'Unknown'}</span>
                 )}
               </div>
 
@@ -165,7 +168,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     className="w-full px-2 py-1 border rounded text-sm"
                   />
                 ) : (
-                  <span className="text-sm">{location.country}</span>
+                  <span className="text-sm">{poi.country || 'Unknown'}</span>
                 )}
               </div>
 
@@ -176,23 +179,35 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     <button
                       onClick={() => handleSave(poiId)}
                       className="text-green-600 hover:text-green-700"
+                      title="Save"
                     >
                       <Save className="w-4 h-4" />
                     </button>
                     <button
                       onClick={handleCancel}
                       className="text-red-600 hover:text-red-700"
+                      title="Cancel"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </>
                 ) : (
-                  <button
-                    onClick={() => handleEdit(poi)}
-                    className="text-blue-600 hover:text-blue-700"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => handleEdit(poi)}
+                      className="text-blue-600 hover:text-blue-700"
+                      title="Edit"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(poiId)}
+                      className="text-red-600 hover:text-red-700"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
                 )}
               </div>
             </div>
