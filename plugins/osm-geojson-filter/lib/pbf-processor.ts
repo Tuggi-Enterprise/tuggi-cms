@@ -62,32 +62,84 @@ export class PBFProcessor {
 
   /**
    * Extract specific tags from PBF file
+   * Uses expressions file if there are many tags to avoid command line length limits
    */
-  async extractTags(inputPath: string, tags: string[]): Promise<string> {
+  async extractTags(inputPath: string, tags: string[], omitReferenced: boolean = false): Promise<string> {
     await ensureDir(this.outputDir);
     
     const outputPath = join(this.outputDir, `filtered-${Date.now()}.osm.pbf`);
     
-    console.log(`🔍 Extracting tags: ${tags.join(", ")}`);
+    console.log(`🔍 Extracting tags: ${tags.length} tags`);
     console.log(`📁 Input: ${inputPath}`);
     console.log(`📁 Output: ${outputPath}`);
+    if (omitReferenced) {
+      console.log(`⚠️  Using --omit-referenced to exclude related objects`);
+    }
     
-    const tagFilter = tags.map(tag => `nwr/${tag}`).join(",");
+    // Use expressions file if many tags (recommended to avoid command line limits)
+    const useExpressionsFile = tags.length > 10;
     
-    const command = new Deno.Command("osmium", {
-      args: [
+    let args: string[];
+    let expressionsFilePath: string | null = null;
+    
+    if (useExpressionsFile) {
+      // Create expressions file
+      expressionsFilePath = join(this.outputDir, `expressions-${Date.now()}.txt`);
+      const expressions = tags.map(tag => `nwr/${tag}`).join('\n');
+      await Deno.writeTextFile(expressionsFilePath, expressions);
+      
+      args = [
+        "tags-filter"
+      ];
+      
+      if (omitReferenced) {
+        args.push("--omit-referenced");
+      }
+      
+      args.push(
+        "--expressions", expressionsFilePath,
+        inputPath,
+        "-o", outputPath
+      );
+      
+      console.log(`📄 Using expressions file (${tags.length} tags): ${expressionsFilePath}`);
+    } else {
+      // Use command line arguments for small number of tags
+      const tagFilter = tags.map(tag => `nwr/${tag}`).join(",");
+      
+      args = [
         "tags-filter",
         inputPath,
         tagFilter,
         "-o", outputPath
-      ],
+      ];
+      
+      if (omitReferenced) {
+        args.splice(2, 0, "--omit-referenced");
+      }
+      
+      console.log(`🔍 Tags: ${tags.slice(0, 3).join(", ")}${tags.length > 3 ? "..." : ""}`);
+    }
+    
+    const command = new Deno.Command("osmium", {
+      args,
       stdout: "piped",
       stderr: "piped"
     });
     
-    console.log(`🔄 Running: osmium tags-filter ${inputPath} ${tagFilter} -o ${outputPath}`);
+    const commandStr = args.join(" ");
+    console.log(`🔄 Running: osmium ${commandStr}`);
     
     const { code, stdout, stderr } = await command.output();
+    
+    // Clean up expressions file
+    if (expressionsFilePath) {
+      try {
+        await Deno.remove(expressionsFilePath);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
     
     if (code !== 0) {
       const error = new TextDecoder().decode(stderr);
@@ -273,6 +325,97 @@ export class PBFProcessor {
     const output = new TextDecoder().decode(stdout);
     console.log(`📊 Available tags:`);
     console.log(output);
+  }
+
+  /**
+   * Validate that all objects have at least one expected tag
+   * Uses osmium to re-filter and compare sizes
+   */
+  async validateExpectedTags(inputPath: string, expectedTags: string[]): Promise<{
+    isValid: boolean;
+    originalSize: number;
+    validatedSize: number;
+    difference: number;
+  }> {
+    const originalInfo = await Deno.stat(inputPath);
+    const originalSize = originalInfo.size;
+    
+    // Re-filter with same tags to ensure only objects with expected tags remain
+    const tempPath = join(this.outputDir, `validation-${Date.now()}.osm.pbf`);
+    
+    try {
+      await this.extractTags(inputPath, expectedTags, true);
+      
+      // Get the latest filtered file (extractTags creates with timestamp)
+      const files = await Array.fromAsync(Deno.readDir(this.outputDir));
+      const validationFiles = files
+        .filter(f => f.name.startsWith("validation-") && f.name.endsWith(".osm.pbf"))
+        .sort((a, b) => b.name.localeCompare(a.name));
+      
+      if (validationFiles.length > 0) {
+        const latestValidation = join(this.outputDir, validationFiles[0].name);
+        const validatedInfo = await Deno.stat(latestValidation);
+        const validatedSize = validatedInfo.size;
+        
+        // Clean up
+        await Deno.remove(latestValidation);
+        
+        return {
+          isValid: validatedSize === originalSize,
+          originalSize,
+          validatedSize,
+          difference: originalSize - validatedSize
+        };
+      }
+      
+      return {
+        isValid: false,
+        originalSize,
+        validatedSize: 0,
+        difference: originalSize
+      };
+    } catch (error) {
+      return {
+        isValid: false,
+        originalSize,
+        validatedSize: 0,
+        difference: originalSize
+      };
+    }
+  }
+
+  /**
+   * Merge multiple PBF files into one
+   */
+  async mergeFiles(inputPaths: string[], outputPath: string): Promise<string> {
+    await ensureDir(this.outputDir);
+    
+    console.log(`🔀 Merging ${inputPaths.length} PBF files...`);
+    console.log(`📁 Output: ${outputPath}`);
+    
+    const command = new Deno.Command("osmium", {
+      args: [
+        "merge",
+        ...inputPaths,
+        "-o", outputPath
+      ],
+      stdout: "piped",
+      stderr: "piped"
+    });
+    
+    console.log(`🔄 Running: osmium merge ${inputPaths.join(" ")} -o ${outputPath}`);
+    
+    const { code, stdout, stderr } = await command.output();
+    
+    if (code !== 0) {
+      const error = new TextDecoder().decode(stderr);
+      throw new Error(`Osmium merge failed: ${error}`);
+    }
+    
+    const output = new TextDecoder().decode(stdout);
+    console.log(`✅ Merge complete: ${outputPath}`);
+    
+    return outputPath;
   }
 
   /**

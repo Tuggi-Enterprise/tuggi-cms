@@ -35,7 +35,8 @@
     "osm:preview": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts preview",
     "osm:analyze": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts analyze",
     "osm:filter": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts filter",
-    "osm:config": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts config"
+    "osm:config": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts config",
+    "osm:filter-tourism": "deno run --allow-read --allow-write scripts/filter-pbf-tourism.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
