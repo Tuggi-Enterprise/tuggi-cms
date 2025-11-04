@@ -13,6 +13,33 @@ Criar um arquivo PBF filtrado contendo apenas:
 
 ## Análise dos Dados
 
+### Análise no Arquivo ORIGINAL (omsData/sudeste-251012.osm.pbf)
+
+#### RUAS (highway=primary/secondary/tertiary/trunk):
+- **Total**: ~3 milhões de objetos com tag `highway`
+- **Ruas nomeadas**: 45.244
+- **Com wikipedia**: 1.537
+- **Com wikidata**: 314
+- **Av Paulista**: Não encontrada como feature (provavelmente é way, não node)
+
+#### PONTES (bridge=yes):
+- **Total**: 64.027 objetos com tag `bridge`
+- **Exportáveis como features**: 3 (muito poucas!)
+- **Pontes nomeadas**: 2 (66.7%)
+- **Viaduto do Chá**: Não encontrado como `bridge=yes`, mas encontrado como `historic=bridge`
+
+#### PONTES HISTÓRICAS (historic=bridge):
+- **Total**: 1 encontrado
+- **Viaduto do Chá**: ✅ `historic=bridge` + `tourism=attraction` + wikipedia + wikidata
+
+#### PICOS (natural=peak):
+- **Total**: 6.634
+- **Nomeados**: 2.919 (44%)
+- **Com tourism**: 24
+- **Com wikipedia**: 78
+- **Com wikidata**: 472
+- **Pico do Jaraguá**: ✅ ENCONTRADO (`wikipedia` + `wikidata` + `ele=1135`)
+
 ### Estatísticas do Arquivo Filtrado Atual (181.322 features)
 - **com_tourism**: 4.038 (2.2%)
 - **com_historic**: 2.591 (1.4%)
@@ -23,21 +50,27 @@ Criar um arquivo PBF filtrado contendo apenas:
 - **com_access_private**: 14 (0.0%)
 - **com_multiplas_tags** (2+ tags importantes): 1.364 (0.8%)
 
-### Casos de Estudo
-1. **Viaduto do Chá** ✅ (está no arquivo filtrado)
-   - `tourism=attraction`
+### Casos de Estudo (Análise no Arquivo ORIGINAL)
+
+1. **Viaduto do Chá** ✅ (encontrado no arquivo original)
    - `historic=bridge`
+   - `tourism=attraction`
    - `wikipedia` + `wikidata`
    - **Conclusão**: Tem tags de turismo E histórico E referências externas
+   - **Status no filtrado**: ✅ Já está incluído (tem `historic=bridge`)
 
-2. **Pico do Jaraguá** ✅ (está no arquivo filtrado)
+2. **Pico do Jaraguá** ✅ (encontrado no arquivo original)
+   - `natural=peak`
    - `wikipedia` + `wikidata`
+   - `ele=1135` (altitude)
    - **Conclusão**: Tem referências externas (indicam importância)
+   - **Status no filtrado**: ✅ Já está incluído (tem `natural=peak`)
 
-3. **Av Paulista** ❌ (não está no arquivo filtrado)
-   - Provavelmente tem apenas `highway=primary/secondary`
-   - Não tem `tourism` ou `historic`
-   - **Problema**: Como identificar ruas importantes sem tags de turismo?
+3. **Av Paulista** ❌ (não encontrada como feature)
+   - **Problema**: Ruas no OSM são geralmente **ways** (linhas), não **nodes** (pontos)
+   - Quando exportamos para GeoJSON, apenas nodes viram features Point
+   - Ways precisam ser processadas de forma diferente
+   - **Solução**: Precisa análise especial para incluir ways importantes
 
 ## Lógica Proposta
 
@@ -194,8 +227,12 @@ Usar `osmium tags-filter` com expressões que combinem:
 ## Decisões Pendentes
 
 1. **Av Paulista**: Como incluí-la se não tem tags de turismo/histórico?
-   - Opção: Adicionar regra especial para `highway=primary/secondary` com `name` + `wikipedia`/`wikidata`
-   - Opção: Manter apenas ruas com `tourism` ou `historic`
+   - **Problema**: Ruas são geralmente **ways** (linhas), não **nodes** (pontos)
+   - **Desafio**: O filtro atual processa apenas nodes/points que viram features no GeoJSON
+   - **Opções**:
+     - A) Processar ways separadamente (mais complexo)
+     - B) Adicionar regra especial para `highway=primary/secondary` com `name` + `wikipedia`/`wikidata`
+     - C) Manter apenas ruas com `tourism` ou `historic` (mais simples)
 
 2. **Picos genéricos**: Quantos metros de altitude mínimo?
    - Sugestão: 500m ou picos com `name`/referências

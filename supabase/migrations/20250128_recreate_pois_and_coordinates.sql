@@ -4,9 +4,14 @@
 
 -- Step 1: Ensure UUID extension exists
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- Step 1b: Drop existing tables if they exist (to ensure clean recreation)
+DROP TABLE IF EXISTS homolog.coordinates CASCADE;
+DROP TABLE IF EXISTS homolog.pois CASCADE;
 
 -- Step 2: Create pois table with UUID as primary key and all fields
-CREATE TABLE IF NOT EXISTS homolog.pois (
+CREATE TABLE homolog.pois (
   -- Primary key (UUID-based)
   uuid_id UUID PRIMARY KEY,
   
@@ -160,16 +165,55 @@ CREATE TABLE IF NOT EXISTS homolog.pois (
   ref TEXT,
   type TEXT,
   
+  -- Additional PBF analysis fields
+  contact_phone_alt TEXT,
+  contact_mobile TEXT,
+  contact_website_alt TEXT,
+  contact_email_alt TEXT,
+  contact_facebook TEXT,
+  contact_instagram TEXT,
+  contact_whatsapp TEXT,
+  contact_twitter TEXT,
+  contact_youtube TEXT,
+  fee TEXT,
+  payment_credit_cards TEXT,
+  payment_cash TEXT,
+  payment_visa TEXT,
+  payment_mastercard TEXT,
+  rooms INTEGER,
+  air_conditioning TEXT,
+  smoking TEXT,
+  capacity INTEGER,
+  pets_allowed TEXT,
+  surface TEXT,
+  waterway TEXT,
+  power TEXT,
+  lanes INTEGER,
+  maxspeed INTEGER,
+  intermittent TEXT,
+  layer INTEGER,
+  leisure TEXT,
+  lit TEXT,
+  service TEXT,
+  barrier TEXT,
+  alt_name TEXT,
+  tunnel TEXT,
+  bus TEXT,
+  place TEXT,
+  man_made TEXT,
+  source_name TEXT,
+  trees TEXT,
+  bridge TEXT,
+  shop TEXT,
+  
   -- Constraints
   CONSTRAINT pois_lat_check CHECK (lat IS NULL OR (lat >= -90 AND lat <= 90)),
   CONSTRAINT pois_lon_check CHECK (lon IS NULL OR (lon >= -180 AND lon <= 180))
 );
 
--- Step 3: Create unique constraint on uuid_id (already primary key, but explicit for clarity)
-ALTER TABLE homolog.pois ADD CONSTRAINT pois_uuid_id_unique UNIQUE (uuid_id);
-
--- Step 4: Create coordinates table with UUID foreign key
-CREATE TABLE IF NOT EXISTS homolog.coordinates (
+-- Step 3: Create coordinates table with UUID foreign key
+-- Note: uuid_id is already PRIMARY KEY, so UNIQUE constraint is implicit
+CREATE TABLE homolog.coordinates (
   id SERIAL PRIMARY KEY,
   
   -- Reference to POI (UUID-based)
@@ -211,7 +255,7 @@ CREATE TABLE IF NOT EXISTS homolog.coordinates (
   CONSTRAINT coordinates_poi_uuid_unique UNIQUE (poi_uuid_id)
 );
 
--- Step 5: Create indexes for pois table
+-- Step 4: Create indexes for pois table
 CREATE INDEX IF NOT EXISTS idx_pois_location ON homolog.pois USING GIST (ST_Point(lon, lat)) WHERE lon IS NOT NULL AND lat IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_pois_city ON homolog.pois (city);
 CREATE INDEX IF NOT EXISTS idx_pois_state ON homolog.pois (state);
@@ -231,13 +275,19 @@ CREATE INDEX IF NOT EXISTS idx_pois_unesco_status ON homolog.pois(unesco_status)
 CREATE INDEX IF NOT EXISTS idx_pois_is_historic ON homolog.pois(is_historic);
 CREATE INDEX IF NOT EXISTS idx_pois_is_touristic ON homolog.pois(is_touristic);
 CREATE INDEX IF NOT EXISTS idx_pois_has_wheelchair_access ON homolog.pois(has_wheelchair_access);
+CREATE INDEX IF NOT EXISTS idx_pois_source ON homolog.pois (source) WHERE source IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pois_natural_type ON homolog.pois (natural_type) WHERE natural_type IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pois_landuse ON homolog.pois (landuse) WHERE landuse IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pois_access ON homolog.pois (access) WHERE access IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pois_rooms ON homolog.pois (rooms) WHERE rooms IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pois_capacity ON homolog.pois (capacity) WHERE capacity IS NOT NULL;
 
 -- Composite indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_pois_city_state ON homolog.pois (city, state);
 CREATE INDEX IF NOT EXISTS idx_pois_category_city ON homolog.pois (category, city);
 CREATE INDEX IF NOT EXISTS idx_pois_osm_id_type ON homolog.pois (osm_id, osm_type);
 
--- Step 6: Create indexes for coordinates table
+-- Step 5: Create indexes for coordinates table
 CREATE INDEX IF NOT EXISTS idx_coordinates_poi_uuid ON homolog.coordinates (poi_uuid_id);
 CREATE INDEX IF NOT EXISTS idx_coordinates_location ON homolog.coordinates USING GIST (ST_Point(longitude, latitude));
 CREATE INDEX IF NOT EXISTS idx_coordinates_lat_lng ON homolog.coordinates (latitude, longitude);
@@ -249,11 +299,11 @@ CREATE INDEX IF NOT EXISTS idx_coordinates_created_at ON homolog.coordinates (cr
 CREATE INDEX IF NOT EXISTS idx_coordinates_poi_location ON homolog.coordinates (poi_uuid_id, latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_coordinates_boundary ON homolog.coordinates (boundary_type, boundary_confidence);
 
--- Step 7: Enable Row Level Security (RLS)
+-- Step 6: Enable Row Level Security (RLS)
 ALTER TABLE homolog.pois ENABLE ROW LEVEL SECURITY;
 ALTER TABLE homolog.coordinates ENABLE ROW LEVEL SECURITY;
 
--- Step 8: Create RLS policies
+-- Step 7: Create RLS policies
 -- Allow all operations for authenticated users
 CREATE POLICY "Allow all operations on pois" ON homolog.pois
   FOR ALL USING (true);
@@ -261,7 +311,7 @@ CREATE POLICY "Allow all operations on pois" ON homolog.pois
 CREATE POLICY "Allow all operations on coordinates" ON homolog.coordinates
   FOR ALL USING (true);
 
--- Step 9: Create functions for automatic timestamp updates
+-- Step 8: Create functions for automatic timestamp updates
 CREATE OR REPLACE FUNCTION homolog.update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -278,7 +328,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Step 10: Create triggers for automatic timestamp updates
+-- Step 9: Create triggers for automatic timestamp updates
 CREATE TRIGGER update_pois_updated_at
   BEFORE UPDATE ON homolog.pois
   FOR EACH ROW
@@ -289,7 +339,7 @@ CREATE TRIGGER update_coordinates_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION homolog.update_coordinates_updated_at();
 
--- Step 11: Create function to automatically set is_complete flag
+-- Step 10: Create function to automatically set is_complete flag
 CREATE OR REPLACE FUNCTION homolog.set_poi_completeness()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -315,13 +365,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Step 12: Create trigger to automatically set completeness flags
+-- Step 11: Create trigger to automatically set completeness flags
 CREATE TRIGGER set_poi_completeness_trigger
   BEFORE INSERT OR UPDATE ON homolog.pois
   FOR EACH ROW
   EXECUTE FUNCTION homolog.set_poi_completeness();
 
--- Step 13: Create function to calculate distances from major cities
+-- Step 12: Create function to calculate distances from major cities
 CREATE OR REPLACE FUNCTION homolog.calculate_distances(
   lat DECIMAL(10,8),
   lng DECIMAL(11,8)
@@ -348,7 +398,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Step 14: Create function to automatically calculate distances when inserting coordinates
+-- Step 13: Create function to automatically calculate distances when inserting coordinates
 CREATE OR REPLACE FUNCTION homolog.auto_calculate_distances()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -371,13 +421,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Step 15: Create trigger to automatically calculate distances
+-- Step 14: Create trigger to automatically calculate distances
 CREATE TRIGGER auto_calculate_distances_trigger
   BEFORE INSERT OR UPDATE ON homolog.coordinates
   FOR EACH ROW
   EXECUTE FUNCTION homolog.auto_calculate_distances();
 
--- Step 16: Create views
+-- Step 15: Create views
 -- View for statistics
 CREATE OR REPLACE VIEW homolog.pois_stats AS
 SELECT 
@@ -425,7 +475,7 @@ SELECT
 FROM homolog.coordinates c
 LEFT JOIN homolog.pois p ON c.poi_uuid_id = p.uuid_id;
 
--- Step 17: Create pagination functions
+-- Step 16: Create pagination functions
 -- Drop existing functions first to avoid conflicts
 -- Use DO block to drop all variations of the functions
 DO $$
@@ -588,7 +638,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Step 18: Grant permissions
+-- Step 17: Grant permissions
 GRANT USAGE ON SCHEMA homolog TO authenticated;
 GRANT USAGE ON SCHEMA homolog TO service_role;
 GRANT USAGE ON SCHEMA homolog TO anon;
@@ -619,7 +669,7 @@ GRANT EXECUTE ON FUNCTION homolog.get_coordinates_paginated TO service_role;
 GRANT EXECUTE ON FUNCTION homolog.calculate_distances TO authenticated;
 GRANT EXECUTE ON FUNCTION homolog.calculate_distances TO service_role;
 
--- Step 19: Add comments for documentation
+-- Step 18: Add comments for documentation
 COMMENT ON TABLE homolog.pois IS 'OSM POIs imported from various file formats';
 COMMENT ON COLUMN homolog.pois.uuid_id IS 'Primary key - Deterministic UUID based on OSM data (osm_id + osm_type + name)';
 COMMENT ON COLUMN homolog.pois.is_complete IS 'Indicates if POI has name, city, and state';

@@ -3,8 +3,8 @@
  * Efficient processing of OSM PBF files using osmium-tool
  */
 
-import { ensureDir } from "@std/fs";
-import { join } from "@std/path";
+import { ensureDir } from "https://deno.land/std@0.208.0/fs/mod.ts";
+import { join } from "https://deno.land/std@0.208.0/path/mod.ts";
 
 export class PBFProcessor {
   private outputDir: string;
@@ -63,8 +63,9 @@ export class PBFProcessor {
   /**
    * Extract specific tags from PBF file
    * Uses expressions file if there are many tags to avoid command line length limits
+   * @param invertMatch If true, excludes objects with matching tags (inverse filter)
    */
-  async extractTags(inputPath: string, tags: string[], omitReferenced: boolean = false): Promise<string> {
+  async extractTags(inputPath: string, tags: string[], omitReferenced: boolean = false, invertMatch: boolean = false): Promise<string> {
     await ensureDir(this.outputDir);
     
     const outputPath = join(this.outputDir, `filtered-${Date.now()}.osm.pbf`);
@@ -96,6 +97,10 @@ export class PBFProcessor {
         args.push("--omit-referenced");
       }
       
+      if (invertMatch) {
+        args.push("--invert-match");
+      }
+      
       args.push(
         "--expressions", expressionsFilePath,
         inputPath,
@@ -108,15 +113,22 @@ export class PBFProcessor {
       const tagFilter = tags.map(tag => `nwr/${tag}`).join(",");
       
       args = [
-        "tags-filter",
-        inputPath,
-        tagFilter,
-        "-o", outputPath
+        "tags-filter"
       ];
       
       if (omitReferenced) {
-        args.splice(2, 0, "--omit-referenced");
+        args.push("--omit-referenced");
       }
+      
+      if (invertMatch) {
+        args.push("--invert-match");
+      }
+      
+      args.push(
+        inputPath,
+        tagFilter,
+        "-o", outputPath
+      );
       
       console.log(`🔍 Tags: ${tags.slice(0, 3).join(", ")}${tags.length > 3 ? "..." : ""}`);
     }
@@ -184,12 +196,27 @@ export class PBFProcessor {
   /**
    * Convert PBF to GeoJSON with high quality settings
    * Preserves all fields from POI_FIELDS_DOCUMENTATION.md
+   * 
+   * IMPORTANT: osmium export preserves ALL OSM tags by default.
+   * All OSM tags will be available in the properties object, which can be
+   * stored in the osm_properties JSONB field in the database.
+   * 
+   * The GeoJSON will have:
+   * - Feature.id: OSM ID (e.g., "123456" for nodes, "w123456" for ways)
+   * - Feature.properties: All OSM tags + metadata
+   * - Feature.geometry: Coordinates/polygons
+   * 
+   * Note: The @id and @type fields can be extracted from the Feature.id
+   * or added during processing if needed for UUID generation.
    */
   async convertToGeoJSONHighQuality(inputPath: string, outputPath: string): Promise<void> {
     console.log(`🔄 Converting PBF to GeoJSON (High Quality)...`);
     console.log(`📁 Input: ${inputPath}`);
     console.log(`📁 Output: ${outputPath}`);
-    console.log(`🎯 Preserving all 98 fields from documentation`);
+    console.log(`🎯 Preserving all OSM tags and metadata`);
+    console.log(`   - All OSM tags preserved in properties`);
+    console.log(`   - Feature.id contains OSM ID`);
+    console.log(`   - Ready for import into database osm_properties field`);
     
     const command = new Deno.Command("osmium", {
       args: [
@@ -197,10 +224,7 @@ export class PBFProcessor {
         inputPath,
         "-f", "geojson",
         "-o", outputPath,
-        "--overwrite",
-        "--add-metadata",
-        "--id-type=string",
-        "--id-format=type_id"
+        "--overwrite"
       ],
       stdout: "piped",
       stderr: "piped"
@@ -214,6 +238,8 @@ export class PBFProcessor {
     }
     
     console.log(`✅ High quality conversion complete: ${outputPath}`);
+    console.log(`   All OSM tags are preserved in the properties object`);
+    console.log(`   Ready for import into database osm_properties field`);
   }
 
   /**

@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
         if (!sampleError && sample) {
           const columns = Object.keys(sample).map(key => {
             const value = sample[key]
-            let dataType = typeof value
+            let dataType: string = typeof value
             
             if (value === null) {
               dataType = 'unknown'

@@ -317,6 +317,8 @@ export async function POST(request: NextRequest) {
           p_has_ruins: poi.has_ruins || false,
           p_lat: coords.lat,
           p_lon: coords.lon,
+          // Coordinate data for coordinates table
+          p_coordinate_data: coordinateData,
           // Critical missing fields
           p_opening_hours: poi.opening_hours || null,
           p_wikidata: poi.wikidata || null,
@@ -335,16 +337,30 @@ export async function POST(request: NextRequest) {
           p_type: poi.type || null
         })
 
+      console.log(`🔍 [SUPABASE] RPC response for POI ${i + 1}:`, { 
+        data, 
+        dataLength: data?.length, 
+        dataType: typeof data,
+        error,
+        errorMessage: error ? error.message : undefined,
+        errorDetails: error ? error.details : undefined,
+        errorHint: error ? error.hint : undefined
+      })
+      
       if (error) {
         console.error(`❌ [SUPABASE] Error creating POI ${i + 1}:`, error)
         console.error(`❌ [SUPABASE] Error details:`, JSON.stringify(error, null, 2))
+        console.error(`❌ [SUPABASE] RPC Error for POI ${i + 1}:`, {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        })
         return NextResponse.json({ 
           success: false, 
           error: `Failed to create POI: ${error.message}` 
         }, { status: 500 })
       }
-
-      console.log(`🔍 [SUPABASE] RPC response for POI ${i + 1}:`, { data, error })
       
       if (data && data.length > 0) {
         const result = data[0]
