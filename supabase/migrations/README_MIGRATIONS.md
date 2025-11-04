@@ -77,3 +77,4 @@ Se precisar aplicar migrations manualmente:
 - Migrations antigas são mantidas apenas para histórico
 - A migration `20250128_recreate_pois_and_coordinates.sql` tem DROP TABLE comentado - NUNCA descomentar
 
+
