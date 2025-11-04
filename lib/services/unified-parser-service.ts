@@ -4,7 +4,7 @@
  * Single source of truth for file parsing:
  * - Factory pattern for parser creation
  * - Automatic file type detection
- * - Unified interface for GeoJSON files (converted from PBF using osmium-tool)
+ * - Unified interface for GeoJSON, CSV files (converted from PBF using osmium-tool)
  * 
  * @module lib/services/unified-parser-service
  */
@@ -12,6 +12,7 @@
 import { FileParser, FileType, FileInfo, ParseOptions, ParserFactory } from '@/types/parser-types'
 import { OSMFeature } from '@/types/osm-importer'
 import { GeoJSONParserService } from './geojson-parser-service'
+import { CSVParserService } from './csv-parser-service'
 
 export class UnifiedParserService {
   private static instance: UnifiedParserService
@@ -34,6 +35,8 @@ export class UnifiedParserService {
     switch (fileType) {
       case 'geojson':
         return new GeoJSONParserAdapter()
+      case 'csv':
+        return new CSVParserAdapter()
       default:
         throw new Error(`Unsupported file type: ${fileType}`)
     }
@@ -49,14 +52,18 @@ export class UnifiedParserService {
       return 'geojson'
     }
     
-    throw new Error(`Unsupported file type: ${fileName}. Only GeoJSON files are supported.`)
+    if (fileName.endsWith('.csv')) {
+      return 'csv'
+    }
+    
+    throw new Error(`Unsupported file type: ${fileName}. Supported formats: GeoJSON (.geojson, .json) and CSV (.csv)`)
   }
 
   /**
    * Check if file type is supported
    */
   supportsFileType(fileType: FileType): boolean {
-    return fileType === 'geojson'
+    return fileType === 'geojson' || fileType === 'csv'
   }
 
   /**
@@ -138,6 +145,88 @@ class GeoJSONParserAdapter implements FileParser {
       const text = await file.text()
       const geojson = JSON.parse(text)
       return geojson.type === 'FeatureCollection'
+    } catch {
+      return false
+    }
+  }
+}
+
+/**
+ * CSV Parser Adapter
+ * Wraps existing CSVParserService to implement FileParser interface
+ */
+class CSVParserAdapter implements FileParser {
+  private parser: CSVParserService
+
+  constructor() {
+    this.parser = new CSVParserService()
+  }
+
+  async *parse(file: File): AsyncGenerator<OSMFeature[], void, unknown> {
+    yield* this.parser.parseCSV(file)
+  }
+
+  async getFileInfo(file: File): Promise<FileInfo> {
+    // For CSV, count lines (excluding header)
+    const text = await file.text()
+    const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0)
+    const featureCount = Math.max(0, lines.length - 1) // Subtract header row
+    
+    return {
+      size: file.size,
+      featureCount,
+      type: 'csv'
+    }
+  }
+
+  async validate(file: File): Promise<boolean> {
+    try {
+      const text = await file.text()
+      const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0)
+      
+      if (lines.length < 2) {
+        return false // Need at least header + 1 data row
+      }
+      
+      // Use the parser's parseCSVLine method (we need to access it, so create a temporary parser)
+      const tempParser = new CSVParserService()
+      // Access private method via reflection or use a simpler approach
+      // For validation, we'll use a simple CSV line parser
+      const parseLine = (line: string): string[] => {
+        const result: string[] = []
+        let current = ''
+        let inQuotes = false
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i]
+          const nextChar = line[i + 1]
+          
+          if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+              current += '"'
+              i++
+            } else {
+              inQuotes = !inQuotes
+            }
+          } else if (char === ',' && !inQuotes) {
+            result.push(current)
+            current = ''
+          } else {
+            current += char
+          }
+        }
+        result.push(current)
+        return result
+      }
+      
+      // Check if header contains required columns
+      const headerLine = lines[0]
+      const headers = parseLine(headerLine).map(h => h.trim().toLowerCase())
+      
+      const hasLat = headers.some(h => h === 'latitude' || h === 'lat')
+      const hasLng = headers.some(h => h === 'longitude' || h === 'lng' || h === 'lon')
+      
+      return hasLat && hasLng
     } catch {
       return false
     }

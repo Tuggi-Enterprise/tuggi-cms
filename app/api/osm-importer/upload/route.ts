@@ -1,7 +1,7 @@
 /**
  * OSM Importer Upload API
  * 
- * Handles file uploads for OSM data processing
+ * Handles file uploads for OSM data processing (GeoJSON and CSV)
  * 
  * @module app/api/osm-importer/upload
  */
@@ -26,12 +26,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file type
-    const allowedTypes = ['.geojson', '.json']
+    const allowedTypes = ['.geojson', '.json', '.csv']
     const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
     
     if (!allowedTypes.includes(fileExtension)) {
       return NextResponse.json(
-        { error: 'Invalid file type. Only .geojson and .json files are allowed.' },
+        { error: 'Invalid file type. Only .geojson, .json, and .csv files are allowed.' },
         { status: 400 }
       )
     }
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     await writeFile(filepath, buffer)
 
     // Determine file type
-    const fileType = 'geojson'
+    const fileType = fileExtension === '.csv' ? 'csv' : 'geojson'
 
     // Return success response
     return NextResponse.json({
@@ -103,7 +103,10 @@ export async function GET() {
       
       // Determine file type
       const extension = file.toLowerCase().substring(file.lastIndexOf('.'))
-      const type: 'pbf' | 'geojson' = extension === '.pbf' ? 'pbf' : 'geojson'
+      const type: 'pbf' | 'geojson' | 'csv' = 
+        extension === '.pbf' ? 'pbf' : 
+        extension === '.csv' ? 'csv' : 
+        'geojson'
       
       fileList.push({
         filename: file,

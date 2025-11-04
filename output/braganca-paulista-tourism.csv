@@ -1,0 +1,4 @@
+id,type,latitude,longitude,name,tourism,aeroway,wikidata,addr:city,addr:housenumber,addr:street,fee,icao,source
+,Point,-23.0058183,-46.636751,Fazenda Vale Eldorado,,aerodrome,Q31205396,,,,,SDVH,ourairports.com
+,Point,-22.9589783,-46.5414859,Museu o telefone,museum,,,,126,Praça José Bonifácio,,,
+,Point,-22.9545516,-46.5412335,Museu Municipal Oswaldo Russomano,museum,,,Bragança Paulista,520,Rua Coronel João Leme,no,,

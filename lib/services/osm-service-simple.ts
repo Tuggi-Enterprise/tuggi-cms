@@ -74,22 +74,80 @@ export class OSMService {
 
   /**
    * Build enriched POI from Nominatim data
+   * IMPORTANT: Only update fields that are missing - preserve all existing data
    */
-  private static buildEnrichedPOI(poi: SimpleOSMPOI, data: any): SimpleOSMPOI {
+  private static buildEnrichedPOI(
+    poi: SimpleOSMPOI, 
+    data: any,
+    fieldsToUpdate: { needsName: boolean, needsCity: boolean, needsState: boolean }
+  ): SimpleOSMPOI {
+    const isTrackingPOI = (poi.properties.name || '').includes('Lago') || (poi.properties.name || '').includes('Orfeu')
+    
+    const originalName = poi.properties.name
+    const nominatimName = data.name || null
+    
+    // Only update name if it was missing
+    const finalName = fieldsToUpdate.needsName 
+      ? (nominatimName || originalName || 'Unnamed POI')
+      : originalName
+    
+    // Extract city from Nominatim with fallbacks (city can be in different fields)
+    const nominatimCity = data.address?.city || 
+                         data.address?.town || 
+                         data.address?.municipality || 
+                         data.address?.village || 
+                         data.address?.hamlet ||
+                         data.address?.county ||
+                         null
+    
+    // Only update city if it was missing
+    const finalCity = fieldsToUpdate.needsCity
+      ? (nominatimCity || poi.properties.city || null)
+      : poi.properties.city
+    
+    // Extract state from Nominatim with fallbacks (state can be in different fields)
+    const nominatimState = data.address?.state || 
+                          data.address?.province || 
+                          data.address?.region ||
+                          null
+    
+    // Only update state if it was missing
+    const finalState = fieldsToUpdate.needsState
+      ? (nominatimState || poi.properties.state || null)
+      : poi.properties.state
+    
+    if (isTrackingPOI) {
+      console.log('🔨 [BUILD] buildEnrichedPOI (TRACKING):', {
+        originalName,
+        nominatimName,
+        finalName,
+        needsName: fieldsToUpdate.needsName,
+        needsCity: fieldsToUpdate.needsCity,
+        needsState: fieldsToUpdate.needsState,
+        nameChanged: originalName !== finalName,
+        cityChanged: poi.properties.city !== finalCity,
+        stateChanged: poi.properties.state !== finalState
+      })
+    }
+    
     return {
       ...poi,
       properties: {
         ...poi.properties,
-        name: data.name || poi.properties.name || 'Unnamed POI',
-        city: data.address?.city || poi.properties.city,
-        state: data.address?.state || poi.properties.state,
-        country: data.address?.country || poi.properties.country,
-        category: `${data.class}=${data.type}`,
-        formatted_address: data.display_name,
-        importance: data.importance,
-        place_id: data.place_id,
-        osm_type: data.osm_type,
-        osm_id: data.osm_id
+        name: finalName,
+        city: finalCity,
+        state: finalState,
+        // Only update country if it was missing (but we have a default)
+        country: poi.properties.country || data.address?.country || 'Brazil',
+        // Only set category from Nominatim if POI doesn't have one
+        category: poi.properties.category || `${data.class}=${data.type}` || 'unknown',
+        // Only update formatted_address if it was missing
+        formatted_address: poi.properties.formatted_address || data.display_name || null,
+        // Only update other fields if they were missing
+        importance: poi.properties.importance || data.importance || null,
+        place_id: poi.properties.place_id || data.place_id || null,
+        osm_type: poi.properties.osm_type || data.osm_type || null,
+        osm_id: poi.properties.osm_id || data.osm_id || null
       }
     }
   }
@@ -496,7 +554,17 @@ export class OSMService {
               console.error(`❌ [SERVICE] Failed to save POI ${j + 1}:`, saveResult.errors)
             }
           } else {
-            console.log(`⚠️ [SERVICE] POI ${j + 1} rejected during processing`)
+            // Log detailed info about rejected POI
+            const poiName = feature.properties?.name || feature.properties?.Name || 'Unnamed'
+            const poiCity = feature.properties?.city || feature.properties?.['addr:city'] || 'Unknown'
+            const poiCategory = feature.properties?.category || feature.properties?.tourism || feature.properties?.amenity || 'Unknown'
+            console.warn(`⚠️ [SERVICE] POI ${j + 1} rejected during processing:`, {
+              name: poiName,
+              city: poiCity,
+              category: poiCategory,
+              hasCoordinates: !!feature.geometry?.coordinates,
+              propertiesKeys: Object.keys(feature.properties || {}).slice(0, 10)
+            })
           }
         } catch (error) {
           const errorMsg = `Error processing POI ${j + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -703,14 +771,55 @@ export class OSMService {
 
   /**
    * Check if a POI needs Nominatim enrichment
-   * KISS: Simple validation logic
+   * Returns which fields need to be fetched from Nominatim
+   * 
+   * Rules:
+   * - If missing city OR state → fetch city and state
+   * - If missing name → fetch name, city, and state (to validate/update all)
    */
-  static needsNominatimEnrichment(poi: { name?: string, city?: string, state?: string }): boolean {
-    return (
-      !poi.name || poi.name === 'Unnamed POI' ||
-      !poi.city || poi.city === null ||
-      !poi.state || poi.state === null
-    )
+  static needsNominatimEnrichment(poi: { name?: string, city?: string, state?: string }): {
+    needsEnrichment: boolean
+    needsName: boolean
+    needsCity: boolean
+    needsState: boolean
+  } {
+    const hasName = poi.name && poi.name !== 'Unnamed POI' && poi.name.trim() !== ''
+    const hasCity = poi.city && poi.city !== null && poi.city.trim() !== ''
+    const hasState = poi.state && poi.state !== null && poi.state.trim() !== ''
+    
+    // Rule 1: If missing name → fetch name, city, and state
+    const needsName = !hasName
+    if (needsName) {
+      // When missing name, fetch everything (name, city, state) to ensure completeness
+      return {
+        needsEnrichment: true,
+        needsName: true,
+        needsCity: true,  // Always fetch city when name is missing
+        needsState: true  // Always fetch state when name is missing
+      }
+    }
+    
+    // Rule 2: If missing city OR state → fetch city and state
+    const needsCity = !hasCity
+    const needsState = !hasState
+    
+    if (needsCity || needsState) {
+      // When missing city or state, fetch both (even if one exists, refresh both)
+      return {
+        needsEnrichment: true,
+        needsName: false,
+        needsCity: true,   // Always fetch city when missing city or state
+        needsState: true   // Always fetch state when missing city or state
+      }
+    }
+    
+    // No enrichment needed
+    return {
+      needsEnrichment: false,
+      needsName: false,
+      needsCity: false,
+      needsState: false
+    }
   }
 
   /**
@@ -746,25 +855,56 @@ export class OSMService {
   /**
    * Enrich POI with Nominatim data
    * SSOT: Single source for Nominatim integration
+   * Only fetches missing fields - preserves all existing data
    */
-  static async enrichWithNominatim(poi: SimpleOSMPOI): Promise<SimpleOSMPOI | null> {
+  static async enrichWithNominatim(
+    poi: SimpleOSMPOI,
+    fieldsToUpdate: { needsName: boolean, needsCity: boolean, needsState: boolean }
+  ): Promise<SimpleOSMPOI | null> {
     // Check circuit breaker first
     if (this.isNominatimCircuitOpen()) {
       console.log('🚫 [SERVICE] Nominatim circuit breaker is OPEN - skipping enrichment')
       return null
     }
 
-      const { lat, lon } = this.extractCoordinates(poi.geometry)
+    const { lat, lon } = this.extractCoordinates(poi.geometry)
+    
+    // Log what we're fetching
+    const fieldsBeingFetched = []
+    if (fieldsToUpdate.needsName) fieldsBeingFetched.push('name')
+    if (fieldsToUpdate.needsCity) fieldsBeingFetched.push('city')
+    if (fieldsToUpdate.needsState) fieldsBeingFetched.push('state')
+    
+    console.log(`🌐 [SERVICE] Fetching from Nominatim (${fieldsBeingFetched.join(', ')}) for POI:`, {
+      currentName: poi.properties.name,
+      currentCity: poi.properties.city,
+      currentState: poi.properties.state,
+      lat,
+      lon
+    })
     
     // Check cache first
     const cacheKey = `${lat.toFixed(6)},${lon.toFixed(6)}`
+    const isTrackingPOI = (poi.properties.name || '').includes('Lago') || (poi.properties.name || '').includes('Orfeu')
+    
     if (this.nominatimCache.has(cacheKey)) {
-      console.log('💾 [SERVICE] Using cached Nominatim data for:', { lat, lon })
       const cachedData = this.nominatimCache.get(cacheKey)
-      return this.buildEnrichedPOI(poi, cachedData)
-    }
       
-      console.log('🌐 [SERVICE] Enriching POI with Nominatim:', { lat, lon })
+      if (isTrackingPOI) {
+        console.log('💾 [CACHE] Using cached Nominatim data (TRACKING):', {
+          lat,
+          lon,
+          cacheKey,
+          cachedName: cachedData?.name,
+          currentPOIName: poi.properties.name,
+          fieldsToUpdate
+        })
+      } else {
+        console.log('💾 [SERVICE] Using cached Nominatim data for:', { lat, lon })
+      }
+      
+      return this.buildEnrichedPOI(poi, cachedData, fieldsToUpdate)
+    }
       
     // Retry logic with exponential backoff
     const maxRetries = 3
@@ -789,20 +929,14 @@ export class OSMService {
       
       const data = await response.json()
       
-      // Category validation temporarily disabled
-      // if (!this.isAcceptedCategory(`${data.class}=${data.type}`)) {
-      //   console.log('🚫 [SERVICE] POI rejected - invalid category:', { class: data.class, type: data.type })
-      //   return null
-      // }
+      // Enrich POI with Nominatim data - only updating requested fields
+      console.log('✅ [SERVICE] Nominatim enrichment successful')
+      this.recordNominatimSuccess() // Record success to reset circuit breaker
       
-      // Enrich POI with Nominatim data
-        console.log('✅ [SERVICE] Nominatim enrichment successful')
-        this.recordNominatimSuccess() // Record success to reset circuit breaker
-        
-        // Cache the result for future use
-        this.nominatimCache.set(cacheKey, data)
-        
-        return this.buildEnrichedPOI(poi, data)
+      // Cache the result for future use
+      this.nominatimCache.set(cacheKey, data)
+      
+      return this.buildEnrichedPOI(poi, data, fieldsToUpdate)
         
       } catch (error) {
         lastError = error as Error
@@ -822,7 +956,7 @@ export class OSMService {
     
     // All retries failed
     console.error('❌ [SERVICE] Nominatim enrichment failed after all retries:', lastError)
-      return null
+    return null
   }
 
   /**
@@ -947,16 +1081,14 @@ export class OSMService {
   static async processPOI(feature: any): Promise<SimpleOSMPOI | null> {
     const props = feature.properties || {}
     
-    // Debug: Log the first few POIs to verify data extraction
-    if (Math.random() < 0.01) { // Log 1% of POIs for debugging
-      console.log('🔍 [DEBUG] Processing POI with properties:', {
-        '@id': props['@id'],
-        '@type': props['@type'],
-        'osm_id': props.osm_id,
-        'osm_type': props.osm_type,
-        'name': props.name,
-        'tourism': props.tourism,
-        'allKeys': Object.keys(props).slice(0, 10)
+    // Debug: Log POIs with "Lago" or "Orfeu" in name to track name changes
+    const poiName = props.name || props.Name || 'Unnamed'
+    if (poiName.includes('Lago') || poiName.includes('Orfeu')) {
+      console.log('🔍 [PROCESS] Starting processPOI for:', {
+        name: poiName,
+        city: props.city || props['addr:city'],
+        state: props.state || props['addr:state'],
+        allProps: props
       })
     }
     
@@ -983,9 +1115,9 @@ export class OSMService {
       // uuid_id will be generated by database trigger
       properties: {
         name: props.name || props['name:en'] || props['name:pt'] || 'Unnamed POI',
-        city: props['addr:city'] || props['is_in:city'] || props['addr:suburb'] || null,
-        state: props['addr:state'] || props['is_in:state'] || props['addr:province'] || null,
-        country: props['addr:country'] || props['is_in:country'] || 'Brazil',
+        city: props['addr:city'] || props.city || props['is_in:city'] || props['addr:suburb'] || null,
+        state: props['addr:state'] || props.state || props['is_in:state'] || props['addr:province'] || null,
+        country: props['addr:country'] || props.country || props['is_in:country'] || 'Brazil',
         neighborhood: props['addr:suburb'] || props['addr:neighbourhood'] || null,
         street_name: props['addr:street'] || props['addr:road'] || null,
         house_number: props['addr:housenumber'] || null,
@@ -1146,18 +1278,59 @@ export class OSMService {
       geometry: feature.geometry
     }
 
-    // Check if POI needs enrichment
-    if (OSMService.needsNominatimEnrichment(basicPOI.properties)) {
-      console.log('🔍 [SERVICE] POI needs enrichment, calling Nominatim')
-      const enrichedPOI = await OSMService.enrichWithNominatim(basicPOI)
+    // Check if POI needs enrichment and which fields need to be fetched
+    const enrichmentCheck = OSMService.needsNominatimEnrichment(basicPOI.properties)
+    
+    // Log for specific POIs to track name changes
+    const isTrackingPOI = (basicPOI.properties.name || '').includes('Lago') || (basicPOI.properties.name || '').includes('Orfeu')
+    
+    if (enrichmentCheck.needsEnrichment) {
+      if (isTrackingPOI) {
+        console.log('🔍 [ENRICH] POI needs enrichment (TRACKING):', {
+          needsName: enrichmentCheck.needsName,
+          needsCity: enrichmentCheck.needsCity,
+          needsState: enrichmentCheck.needsState,
+          currentName: basicPOI.properties.name,
+          currentCity: basicPOI.properties.city,
+          currentState: basicPOI.properties.state
+        })
+      }
+      
+      const enrichedPOI = await OSMService.enrichWithNominatim(basicPOI, {
+        needsName: enrichmentCheck.needsName,
+        needsCity: enrichmentCheck.needsCity,
+        needsState: enrichmentCheck.needsState
+      })
       
       if (!enrichedPOI) {
-        console.log('⚠️ [SERVICE] Nominatim enrichment failed, saving POI without enrichment')
+        if (isTrackingPOI) {
+          console.log('⚠️ [ENRICH] Nominatim enrichment failed, saving POI without enrichment (TRACKING)')
+        }
         // Fallback: save POI without enrichment instead of rejecting
         return basicPOI
       }
       
+      if (isTrackingPOI) {
+        console.log('✅ [ENRICH] POI enriched with Nominatim (TRACKING):', {
+          originalName: basicPOI.properties.name,
+          enrichedName: enrichedPOI.properties.name,
+          city: enrichedPOI.properties.city,
+          state: enrichedPOI.properties.state,
+          wasNameUpdated: enrichmentCheck.needsName,
+          wasCityUpdated: enrichmentCheck.needsCity,
+          wasStateUpdated: enrichmentCheck.needsState
+        })
+      }
+      
       return enrichedPOI
+    } else {
+      if (isTrackingPOI) {
+        console.log('✅ [ENRICH] POI complete, no enrichment needed (TRACKING):', {
+          name: basicPOI.properties.name,
+          city: basicPOI.properties.city,
+          state: basicPOI.properties.state
+        })
+      }
     }
 
     // Category validation temporarily disabled

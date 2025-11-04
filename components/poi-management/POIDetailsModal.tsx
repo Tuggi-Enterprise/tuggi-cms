@@ -1773,304 +1773,916 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               </div>
             ) : (
               <div className="space-y-6">
-                {/* Basic Information */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Name
-                      </label>
-                      <input
-                        type="text"
-                        value={editedPoi.name}
-                        onChange={(e) => setEditedPoi(prev => ({ ...prev, name: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-
-                    {/* <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Category
-                      </label>
-                      <select
-                        value={editedPoi.category || ''}
-                        onChange={(e) => setEditedPoi(prev => ({ ...prev, category: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                      >
-                        <option value="">Select Category</option>
-                        {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
-                          <option key={category.value} value={category.value}>
-                            {category.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div> */}
-
-                    <div className="grid grid-cols-2 gap-4">
+                {/* SECTION 1: Basic Information & Categories - PRIORITY */}
+                <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                    <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
+                    Basic Information & Categories
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Left Column: Editable Fields */}
+                    <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          City
+                          Name *
                         </label>
                         <input
                           type="text"
-                          value={editedPoi.city}
-                          onChange={(e) => setEditedPoi(prev => ({ ...prev, city: e.target.value }))}
+                          value={editedPoi.name}
+                          onChange={(e) => setEditedPoi(prev => ({ ...prev, name: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                         />
                       </div>
+
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Country
+                          Category
                         </label>
-                        <input
-                          type="text"
-                          value={editedPoi.country}
-                          onChange={(e) => setEditedPoi(prev => ({ ...prev, country: e.target.value }))}
+                        <select
+                          value={editedPoi.category || ''}
+                          onChange={(e) => setEditedPoi(prev => ({ ...prev, category: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                        />
+                        >
+                          <option value="">Select Category</option>
+                          {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
+                            <option key={category.value} value={category.value}>
+                              {category.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            City *
+                          </label>
+                          <input
+                            type="text"
+                            value={editedPoi.city}
+                            onChange={(e) => setEditedPoi(prev => ({ ...prev, city: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            State
+                          </label>
+                          <input
+                            type="text"
+                            value={editedPoi.state || ''}
+                            onChange={(e) => setEditedPoi(prev => ({ ...prev, state: e.target.value || null }))}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Country *
+                          </label>
+                          <input
+                            type="text"
+                            value={editedPoi.country}
+                            onChange={(e) => setEditedPoi(prev => ({ ...prev, country: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
                       </div>
                     </div>
-                      <div className="space-y-4">
-                        <h4 className="text-lg font-medium text-gray-900 dark:text-white">
-                          Contact & Details
-                        </h4>
 
-                        {poi.formatted_address && (
-                          <div className="flex items-start space-x-">
-                            <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                    {/* Right Column: Categories Display */}
+                    <div className="space-y-4">
+                      {/* Google Types */}
+                      {poi.google_types && poi.google_types.length > 0 && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Google Types ({poi.google_types.length})
+                          </label>
+                          <div className="flex flex-wrap gap-2 p-3 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
+                            {poi.google_types.map((type, index) => (
+                              <span 
+                                key={index}
+                                className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20"
+                              >
+                                {type.replace(/_/g, ' ')}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Content Status Summary */}
+                      <div className="bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 p-4">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                          Content Status
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="flex items-center space-x-2">
+                            <FileText className="h-4 w-4 text-gray-400" />
                             <div>
-                              <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Address</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">Descriptions</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi.description_count || 0}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Volume2 className="h-4 w-4 text-gray-400" />
+                            <div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">Audio Files</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi.audio_count || 0}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Target className="h-4 w-4 text-gray-400" />
+                            <div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">Trigger Points</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi.trigger_points_count || 0}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <CheckCircle className="h-4 w-4 text-gray-400" />
+                            <div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">Active TPs</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi.active_trigger_points_count || 0}</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: Status & Ratings - Two Column Layout */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Left Column: Status & Ratings */}
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                      <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
+                      Status & Ratings
+                    </h3>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Approval Status */}
+                      <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Approval Status</div>
+                        <span className={cn(
+                          'inline-flex items-center px-3 py-1 text-sm font-medium rounded-full',
+                          poi.approved
+                            ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+                            : 'bg-tuggi-orange/10 text-tuggi-orange border border-tuggi-orange/20'
+                        )}>
+                          {poi.approved ? (
+                            <>
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              Approved
+                            </>
+                          ) : (
+                            <>
+                              <Clock className="h-4 w-4 mr-1" />
+                              Pending
+                            </>
+                          )}
+                        </span>
+                      </div>
+
+                      {/* Rating */}
+                      {poi.rating ? (
+                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Rating</div>
+                          <div className="flex items-center">
+                            <Star className="h-5 w-5 text-yellow-400 mr-1" />
+                            <span className="text-lg font-semibold text-gray-900 dark:text-white">
+                              {poi.rating.toFixed(1)}
+                            </span>
+                            {poi.user_ratings_total && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
+                                ({poi.user_ratings_total})
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Rating</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400">N/A</div>
+                        </div>
+                      )}
+
+                      {/* Verification Score */}
+                      {poi.verification_score !== null && poi.verification_score !== undefined ? (
+                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Verification Score</div>
+                          <div className="flex items-center">
+                            <span className={cn(
+                              "text-lg font-semibold",
+                              poi.verification_score >= 0.8 ? "text-green-600 dark:text-green-400" :
+                              poi.verification_score >= 0.6 ? "text-yellow-600 dark:text-yellow-400" :
+                              "text-red-600 dark:text-red-400"
+                            )}>
+                              {(poi.verification_score * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {/* Group Status */}
+                      {poi.group_status && poi.group_status.is_in_group ? (
+                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Group</div>
+                          <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                            {poi.group_status.group_role === 'main' ? 'Main' : 'Member'}
+                          </div>
+                          {poi.group_status.group_name && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              {poi.group_status.group_name}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+
+                      {/* Business Status */}
+                      {poi.business_status ? (
+                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Business Status</div>
+                          <div className="text-sm font-semibold text-gray-900 dark:text-white capitalize">
+                            {poi.business_status.replace(/_/g, ' ')}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Importance & Classification */}
+                  {(poi as any)._homologData ? (
+                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                        <Star className="h-5 w-5 mr-2 text-amber-600" />
+                        Importance & Classification
+                      </h3>
+                      
+                      <div className="space-y-3">
+                        {/* Importance Score */}
+                        {((poi as any)._homologData.importance !== null && (poi as any)._homologData.importance !== undefined) ? (
+                          <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Importance Score</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  {Number((poi as any)._homologData.importance).toFixed(2)} 
+                                  {(poi as any)._homologData.importance_level && ` • ${(poi as any)._homologData.importance_level}`}
+                                </div>
+                              </div>
+                              <div className="flex items-center">
+                                <span className={cn(
+                                  "text-lg font-semibold",
+                                  Number((poi as any)._homologData.importance) >= 0.7 ? "text-green-600 dark:text-green-400" :
+                                  Number((poi as any)._homologData.importance) >= 0.4 ? "text-yellow-600 dark:text-yellow-400" :
+                                  "text-gray-600 dark:text-gray-400"
+                                )}>
+                                  {Number((poi as any)._homologData.importance).toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {/* Importance Level (if no importance score but has level) */}
+                        {((poi as any)._homologData.importance === null || (poi as any)._homologData.importance === undefined) && 
+                          (poi as any)._homologData.importance_level ? (
+                          <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Importance Level</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Classification level</div>
+                              </div>
+                              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 capitalize">
+                                {(poi as any)._homologData.importance_level}
+                              </span>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {/* Historic Classification */}
+                        {(() => {
+                          const isHistoric = (poi as any)._homologData?.is_historic;
+                          // Debug: uncomment to check values
+                          // console.log('is_historic value:', isHistoric, 'type:', typeof isHistoric);
+                          return isHistoric === true || isHistoric === 'true' || isHistoric === 1 ? (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Historic Site</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">This POI is classified as historic</div>
+                                </div>
+                                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                                  <Calendar className="h-4 w-4 mr-1" />
+                                  Historic
+                                </span>
+                              </div>
+                            </div>
+                          ) : null;
+                        })()}
+                        
+                        {/* Touristic Classification */}
+                        {(() => {
+                          const isTouristic = (poi as any)._homologData?.is_touristic;
+                          // Debug: uncomment to check values
+                          // console.log('is_touristic value:', isTouristic, 'type:', typeof isTouristic);
+                          return isTouristic === true || isTouristic === 'true' || isTouristic === 1 ? (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Touristic Site</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">This POI is classified as touristic</div>
+                                </div>
+                                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                  <Target className="h-4 w-4 mr-1" />
+                                  Touristic
+                                </span>
+                              </div>
+                            </div>
+                          ) : null;
+                        })()}
+                        
+                        {/* Show message if no data available */}
+                        {(() => {
+                          const hasImportance = (poi as any)._homologData.importance !== null && (poi as any)._homologData.importance !== undefined;
+                          const hasImportanceLevel = !!(poi as any)._homologData.importance_level;
+                          const isHistoric = (poi as any)._homologData?.is_historic;
+                          const isTouristic = (poi as any)._homologData?.is_touristic;
+                          const hasHistoric = isHistoric === true || isHistoric === 'true' || isHistoric === 1;
+                          const hasTouristic = isTouristic === true || isTouristic === 'true' || isTouristic === 1;
+                          
+                          if (!hasImportance && !hasImportanceLevel && !hasHistoric && !hasTouristic) {
+                            return (
+                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                <div className="text-sm text-gray-500 dark:text-gray-400 text-center">
+                                  No importance or classification data available
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* SECTION 3: Location Details & Image - Two Column Layout */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Left Column: Location Details */}
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                      <MapPin className="h-5 w-5 mr-2 text-red-600" />
+                      Location Details
+                    </h3>
+                    
+                    <div className="space-y-4">
+                      {poi.formatted_address && (
+                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                          <div className="flex items-start space-x-3">
+                            <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Address</div>
                               <div className="text-sm text-gray-900 dark:text-white">{poi.formatted_address}</div>
                             </div>
                           </div>
-                        )}
-                        {poi.formatted_phone_number && (
-                            <div className="flex items-start space-x-2">
-                              <Phone className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                              <div>
-                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Phone</div>
-                                <div className="text-sm text-gray-900 dark:text-white">{poi.formatted_phone_number}</div>
+                        </div>
+                      )}
+
+                      {poi.vicinity && (
+                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                          <div className="flex items-start space-x-3">
+                            <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vicinity</div>
+                              <div className="text-sm text-gray-900 dark:text-white">{poi.vicinity}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {poi.coordinates && (
+                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                          <div className="flex items-start space-x-3">
+                            <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                            <div className="flex-1">
+                              <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Coordinates</div>
+                              <div className="text-sm text-gray-900 dark:text-white font-mono">
+                                {poi.coordinates.latitude.toFixed(6)}, {poi.coordinates.longitude.toFixed(6)}
                               </div>
+                              <button
+                                onClick={openInGoogleMaps}
+                                className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline inline-flex items-center mt-2"
+                              >
+                                <ExternalLink className="h-3 w-3 mr-1" />
+                                View on Google Maps
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Image Preview */}
+                  <div>
+                    {(() => {
+                      const fullSizeImageUrl = getFullSizeImageUrl(poi)
+                      return (fullSizeImageUrl || images.length > 0) && (
+                        <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 h-full">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Images
+                          </label>
+                          <div className="space-y-2">
+                            {fullSizeImageUrl && (
+                              <img
+                                src={fullSizeImageUrl}
+                                alt={poi.name}
+                                className="w-full h-48 object-cover rounded-md border border-gray-200 dark:border-gray-700"
+                                loading="eager"
+                              />
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                </div>
+
+                {/* SECTION 4: OSM Data (from homolog.pois) - Two Column Layout */}
+                {(poi as any)._homologData && (
+                  <>
+                    {/* OSM Categories & Metadata - Two Column Layout */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Left Column: OSM Categories */}
+                      {((poi as any)._homologData.primary_category || (poi as any)._homologData.categories?.length > 0) && (
+                        <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                            <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
+                            OSM Categories
+                          </h3>
+                          
+                          <div className="space-y-4">
+                          {(poi as any)._homologData.primary_category && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Primary Category</div>
+                              <div className="text-sm text-gray-900 dark:text-white font-semibold capitalize">{(poi as any)._homologData.primary_category}</div>
+                              {(poi as any)._homologData.primary_category_type && (
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Type: {(poi as any)._homologData.primary_category_type}</div>
+                              )}
                             </div>
                           )}
-
-                          {poi.website && (
-                            <div className="flex items-start space-x-2">
-                              <Globe className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                              <div>
-                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Website</div>
-                                <button
-                                  onClick={openWebsite}
-                                  className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline"
-                                >
-                                  {poi.website}
-                                </button>
-                              </div>
-                            </div>
-                          )}
-
-                          {poi.coordinates && (
-                            <div className="flex items-start space-x-2">
-                              <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                              <div>
-                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Coordinates</div>
-                                <div className="text-sm text-gray-900 dark:text-white">
-                                  {poi.coordinates.latitude.toFixed(6)}, {poi.coordinates.longitude.toFixed(6)}
-                                </div>
-                                <button
-                                  onClick={openInGoogleMaps}
-                                  className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline inline-flex items-center mt-1"
-                                >
-                                  <ExternalLink className="h-3 w-3 mr-1" />
-                                  View on Google Maps
-                                </button>
+                          
+                          {(poi as any)._homologData.categories && (poi as any)._homologData.categories.length > 0 && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">All Categories</div>
+                              <div className="flex flex-wrap gap-2">
+                                {(poi as any)._homologData.categories.map((cat: string, idx: number) => (
+                                  <span 
+                                    key={idx}
+                                    className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border border-purple-200 dark:border-purple-700"
+                                  >
+                                    {cat}
+                                  </span>
+                                ))}
                               </div>
                             </div>
                           )}
                         </div>
-                  </div>
-                  
+                      </div>
+                      )}
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-4">
-                      {/* Image Preview */}
-                      {(() => {
-                        const fullSizeImageUrl = getFullSizeImageUrl(poi)
-                        return (fullSizeImageUrl || images.length > 0) && (
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              Images
-                            </label>
-                            <div className="space-y-4 mr-2">
-                              {fullSizeImageUrl && (
-                                <img
-                                  src={fullSizeImageUrl}
-                                  alt={poi.name}
-                                  className="w-full h-full object-cover rounded-md border border-gray-200 dark:border-gray-700 max-h-[300px]"
-                                  loading="eager"
-                                />
-                              )}
-                              {images.slice(0, 0).map((image, index) => (
-                                <img
-                                  key={image.id}
-                                  src={image.image_url}
-                                  alt={`${poi.name} ${index + 1}`}
-                                  className="w-full h-48 object-cover rounded-md border border-gray-200 dark:border-gray-700"
-                                />
-                              ))}
+                      {/* Right Column: Metadata */}
+                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                          <Info className="h-5 w-5 mr-2 text-gray-600" />
+                          Metadata
+                        </h3>
+                        
+                        <div className="space-y-4">
+                          <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                            <div className="flex items-start space-x-3">
+                              <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                              <div>
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Created</div>
+                                <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.created_at)}</div>
+                              </div>
                             </div>
                           </div>
-                        )
-                      })()}
 
-                      {/* Rating and Status */}
-                      <div className="flex justify-between items-start space-x-4">
-                        {poi.rating && (
-                          <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              Rating
-                            </label>
-                            <div className="flex items-center">
-                              <Star className="h-5 w-5 text-yellow-400 mr-1" />
-                              <span className="text-lg font-medium text-gray-900 dark:text-white">
-                                {poi.rating.toFixed(1)}
-                              </span>
-                              {poi.user_ratings_total && (
-                                <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
-                                  ({poi.user_ratings_total} reviews)
-                                </span>
+                          <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                            <div className="flex items-start space-x-3">
+                              <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                              <div>
+                                <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Updated</div>
+                                <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.updated_at)}</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {poi.approved && poi.approved_at && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="flex items-start space-x-3">
+                                <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Approved At</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.approved_at)}</div>
+                                  {poi.approved_by && (
+                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">By: {poi.approved_by}</div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {poi.google_place_id && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="flex items-start space-x-3">
+                                <ExternalLink className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                <div>
+                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Google Place ID</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 font-mono break-all">{poi.google_place_id}</div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Detailed Address & Extended Contact - Two Column Layout */}
+                    {(((poi as any)._homologData.neighborhood || (poi as any)._homologData.street_name || (poi as any)._homologData.house_number || (poi as any)._homologData.postal_code) || 
+                       ((poi as any)._homologData.contact_email || (poi as any)._homologData.operator_name)) && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Detailed Address */}
+                        {((poi as any)._homologData.neighborhood || (poi as any)._homologData.street_name || (poi as any)._homologData.house_number || (poi as any)._homologData.postal_code) && (
+                          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                              <MapPin className="h-5 w-5 mr-2 text-red-600" />
+                              Detailed Address
+                            </h3>
+                            
+                            <div className="space-y-4">
+                              {(poi as any)._homologData.neighborhood && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Neighborhood</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.neighborhood}</div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.street_name && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Street</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">
+                                    {(poi as any)._homologData.street_name}
+                                    {(poi as any)._homologData.house_number && `, ${(poi as any)._homologData.house_number}`}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.postal_code && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Postal Code</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.postal_code}</div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.description && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Description</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.description}</div>
+                                </div>
                               )}
                             </div>
                           </div>
                         )}
 
-                        {/* Status */}
-                        <div className="flex-1">
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Status
-                          </label>
-                          <span className={cn(
-                            'inline-flex items-center px-3 py-1 text-sm font-medium rounded-full',
-                            poi.approved
-                              ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
-                              : 'bg-tuggi-orange/10 text-tuggi-orange border border-tuggi-orange/20'
-                          )}>
-                            {poi.approved ? (
-                              <>
-                                <CheckCircle className="h-4 w-4 mr-1" />
-                                Approved
-                              </>
-                            ) : (
-                              <>
-                                <Clock className="h-4 w-4 mr-1" />
-                                Pending
-                              </>
-                            )}
+                        {/* Extended Contact Info */}
+                        {((poi as any)._homologData.contact_email || (poi as any)._homologData.operator_name) && (
+                          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                              <Globe className="h-5 w-5 mr-2 text-blue-600" />
+                              Extended Contact
+                            </h3>
+                            
+                            <div className="space-y-4">
+                              {(poi as any)._homologData.contact_email && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="flex items-start space-x-3">
+                                    <Globe className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                    <div className="flex-1">
+                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</div>
+                                      <a 
+                                        href={`mailto:${(poi as any)._homologData.contact_email}`}
+                                        className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline break-all"
+                                      >
+                                        {(poi as any)._homologData.contact_email}
+                                      </a>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.operator_name && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="flex items-start space-x-3">
+                                    <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                    <div className="flex-1">
+                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Operator</div>
+                                      <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.operator_name}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Brand & Accessibility - Two Column Layout */}
+                    {((poi as any)._homologData.brand || 
+                       ((poi as any)._homologData.wheelchair_accessible || (poi as any)._homologData.wheelchair_toilets || (poi as any)._homologData.accessibility_notes || (poi as any)._homologData.has_wheelchair_access)) && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Brand Information */}
+                        {(poi as any)._homologData.brand && (
+                          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                              <Star className="h-5 w-5 mr-2 text-yellow-600" />
+                              Brand Information
+                            </h3>
+                            
+                            <div className="space-y-4">
+                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Brand</div>
+                                <div className="text-sm font-semibold text-gray-900 dark:text-white">{(poi as any)._homologData.brand}</div>
+                              </div>
+                              
+                              {(poi as any)._homologData.brand_wikidata && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wikidata ID</div>
+                                  <div className="text-sm text-gray-900 dark:text-white font-mono">{(poi as any)._homologData.brand_wikidata}</div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.brand_wikipedia && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wikipedia</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.brand_wikipedia}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Accessibility */}
+                        {((poi as any)._homologData.wheelchair_accessible || (poi as any)._homologData.wheelchair_toilets || (poi as any)._homologData.accessibility_notes || (poi as any)._homologData.has_wheelchair_access) && (
+                          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                              <Users className="h-5 w-5 mr-2 text-green-600" />
+                              Accessibility
+                            </h3>
+                            
+                            <div className="space-y-4">
+                              {((poi as any)._homologData.wheelchair_accessible || (poi as any)._homologData.has_wheelchair_access) && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wheelchair Access</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">
+                                    {(poi as any)._homologData.wheelchair_accessible || ((poi as any)._homologData.has_wheelchair_access ? 'Yes' : 'No')}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.wheelchair_toilets && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wheelchair Toilets</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.wheelchair_toilets}</div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.accessibility_notes && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Accessibility Notes</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.accessibility_notes}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Physical Characteristics */}
+                    {((poi as any)._homologData.height || (poi as any)._homologData.building_material || (poi as any)._homologData.building_colour || (poi as any)._homologData.architectural_style) && (
+                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                          <Target className="h-5 w-5 mr-2 text-indigo-600" />
+                          Physical Characteristics
+                        </h3>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(poi as any)._homologData.height && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Height</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                                {Number((poi as any)._homologData.height).toFixed(2)} m
+                              </div>
+                            </div>
+                          )}
+                          
+                          {(poi as any)._homologData.building_material && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Building Material</div>
+                              <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.building_material}</div>
+                            </div>
+                          )}
+                          
+                          {(poi as any)._homologData.building_colour && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Building Colour</div>
+                              <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.building_colour}</div>
+                            </div>
+                          )}
+                          
+                          {(poi as any)._homologData.architectural_style && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Architectural Style</div>
+                              <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.architectural_style}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Historical & Heritage - Two Column Layout */}
+                    {((poi as any)._homologData.heritage_status || (poi as any)._homologData.unesco_status || (poi as any)._homologData.landmark_type || (poi as any)._homologData.architect || (poi as any)._homologData.start_date || (poi as any)._homologData.historic_period) && (
+                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                          <Calendar className="h-5 w-5 mr-2 text-amber-600" />
+                          Historical & Heritage Details
+                        </h3>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(poi as any)._homologData.heritage_status && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Heritage Status</div>
+                              <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.heritage_status}</div>
+                            </div>
+                          )}
+                          
+                          {(poi as any)._homologData.unesco_status && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">UNESCO Status</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.unesco_status}</div>
+                              {(poi as any)._homologData.unesco_inscription_date && (
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  Inscribed: {(poi as any)._homologData.unesco_inscription_date}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          {(poi as any)._homologData.landmark_type && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Landmark Type</div>
+                              <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.landmark_type}</div>
+                              {(poi as any)._homologData.landmark_level && (
+                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  Level: {(poi as any)._homologData.landmark_level}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          
+                          {(poi as any)._homologData.architect && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Architect</div>
+                              <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.architect}</div>
+                            </div>
+                          )}
+                          
+                          {(poi as any)._homologData.start_date && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Start Date</div>
+                              <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.start_date}</div>
+                            </div>
+                          )}
+                          
+                          {(poi as any)._homologData.historic_period && (
+                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Historic Period</div>
+                              <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.historic_period}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Type-Specific & Infrastructure - Two Column Layout */}
+                    {(((poi as any)._homologData.museum_type || (poi as any)._homologData.leisure_type || (poi as any)._homologData.monument_type) || 
+                       ((poi as any)._homologData.parking_capacity || (poi as any)._homologData.entrance_fee)) && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Type-Specific Information */}
+                        {((poi as any)._homologData.museum_type || (poi as any)._homologData.leisure_type || (poi as any)._homologData.monument_type) && (
+                          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                              <Target className="h-5 w-5 mr-2 text-blue-600" />
+                              Type-Specific Information
+                            </h3>
+                            
+                            <div className="space-y-4">
+                              {(poi as any)._homologData.museum_type && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Museum Type</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.museum_type}</div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.leisure_type && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Leisure Type</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.leisure_type}</div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.monument_type && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Monument Type</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.monument_type}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Infrastructure & Facilities */}
+                        {((poi as any)._homologData.parking_capacity || (poi as any)._homologData.entrance_fee) && (
+                          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                              <Info className="h-5 w-5 mr-2 text-teal-600" />
+                              Infrastructure & Facilities
+                            </h3>
+                            
+                            <div className="space-y-4">
+                              {(poi as any)._homologData.parking_capacity && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Parking Capacity</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.parking_capacity}</div>
+                                </div>
+                              )}
+                              
+                              {(poi as any)._homologData.entrance_fee && (
+                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Entrance Fee</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.entrance_fee}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Additional Flags */}
+                    {(poi as any)._homologData.is_building && (
+                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                            Building
                           </span>
                         </div>
                       </div>
-                    </div>
-                    <div className="space-y-4">
-                      <h4 className="text-lg font-medium text-gray-900 dark:text-white">
-                        Metadata
-                      </h4>
-                      <div className="flex items-start space-x-2">
-                        <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Created</div>
-                          <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.created_at)}</div>
-                        </div>
-                      </div>
+                    )}
+                  </>
+                )}
 
-                      <div className="flex items-start space-x-2">
-                        <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Updated</div>
-                          <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.updated_at)}</div>
-                        </div>
-                      </div>
-
-                      {poi.approved && poi.approved_at && (
-                        <div className="flex items-start space-x-2">
-                          <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Approved</div>
-                            <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.approved_at)}</div>
-                          </div>
-                        </div>
-                      )}
-
-                      {poi.google_types && poi.google_types.length > 0 && (
-                        <div className="flex items-start space-x-2">
-                          <Target className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Google Types</div>
-                            <div className="text-sm text-gray-900 dark:text-white">
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {poi.google_types.slice(0, 6).map((type, index) => (
-                                  <span 
-                                    key={index}
-                                    className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20"
-                                  >
-                                    {type.replace(/_/g, ' ')}
-                                  </span>
-                                ))}
-                                {poi.google_types.length > 6 && (
-                                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                                    +{poi.google_types.length - 6} more
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {poi.business_status && (
-                        <div className="flex items-start space-x-2">
-                          <Clock className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Business Status</div>
-                            <div className="text-sm text-gray-900 dark:text-white">{poi.business_status}</div>
-                          </div>
-                        </div>
-                      )}
-
-                      
-                    </div>
-                      
-                  </div>
-                  
+                {/* Action Buttons */}
+                <div className="flex items-center space-x-3 pt-4 border-t border-gray-200 dark:border-gray-600">
+                  <button
+                    onClick={handleDelete}
+                    disabled={isSaving}
+                    className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete POI
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={isSaving}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    {isSaving ? 'Saving...' : 'Save Changes'}
+                  </button>
                 </div>
-                    <div className="space-y-4">
-                  
-                    {/* Action Buttons */}
-                    <div className="flex items-center space-x-3 pt-4 border-t border-gray-200 dark:border-gray-600">
-                      <button
-                        onClick={handleDelete}
-                        disabled={isSaving}
-                        className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete POI
-                      </button>
-                      <button
-                        onClick={onClose}
-                        className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleSave}
-                        disabled={isSaving}
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                      >
-                        <Save className="h-4 w-4 mr-2" />
-                        {isSaving ? 'Saving...' : 'Save Changes'}
-                      </button>
-                    </div>
-                  </div>
-
               </div>
             )}
           </div>

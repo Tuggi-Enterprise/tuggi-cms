@@ -9,7 +9,7 @@
 'use client'
 
 import { useState } from 'react'
-import { CheckSquare, Square, Edit3, Save, X } from 'lucide-react'
+import { CheckSquare, Square, Edit3, Save, X, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SimpleOSMPOI } from '@/lib/hooks/use-osm-importer-simple'
 import { OSMService } from '@/lib/services/osm-service-simple'
@@ -19,9 +19,10 @@ interface POITableProps {
   selectedFeatures: Set<string>
   onToggleSelection: (id: string) => void
   onEditPOI?: (id: string, updates: any) => void
+  onPOIClick?: (poi: SimpleOSMPOI) => void
 }
 
-export function POITable({ features, selectedFeatures, onToggleSelection, onEditPOI }: POITableProps) {
+export function POITable({ features, selectedFeatures, onToggleSelection, onEditPOI, onPOIClick }: POITableProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Record<string, any>>({})
 
@@ -93,13 +94,22 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
               key={poiId}
               className={cn(
                 "grid grid-cols-12 gap-4 px-4 py-3 border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900 transition",
-                isSelected && "bg-blue-50 dark:bg-blue-900/20"
+                isSelected && "bg-blue-50 dark:bg-blue-900/20",
+                onPOIClick && "cursor-pointer"
               )}
+              onClick={() => {
+                if (onPOIClick && !isEditing) {
+                  onPOIClick(poi)
+                }
+              }}
             >
               {/* Selection Checkbox */}
               <div className="col-span-1 flex items-center">
                 <button
-                  onClick={() => onToggleSelection(poiId)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onToggleSelection(poiId)
+                  }}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
@@ -187,12 +197,30 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     </button>
                   </>
                 ) : (
-                  <button
-                    onClick={() => handleEdit(poi)}
-                    className="text-blue-600 hover:text-blue-700"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                  </button>
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleEdit(poi)
+                      }}
+                      className="text-blue-600 hover:text-blue-700"
+                      title="Edit inline"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    {onPOIClick && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onPOIClick(poi)
+                        }}
+                        className="text-green-600 hover:text-green-700 ml-2"
+                        title="Open details modal"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </div>

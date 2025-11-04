@@ -18,6 +18,7 @@ interface POIMapProps {
   features: SimpleOSMPOI[]
   selectedFeatures: Set<string>
   onToggleSelection: (id: string) => void
+  onPOIClick?: (poi: SimpleOSMPOI) => void
   searchTerm?: string
   stateFilter?: string
   cityFilter?: string
@@ -30,6 +31,7 @@ export function POIMap({
   features, 
   selectedFeatures, 
   onToggleSelection,
+  onPOIClick,
   searchTerm = "",
   stateFilter = "",
   cityFilter = "",
@@ -162,10 +164,22 @@ export function POIMap({
     })
   }, [selectedFeatures])
 
-  // Handle POI click
+  // Store mapping of transformed POI IDs to original features
+  const [poiIdToFeatureMap, setPoiIdToFeatureMap] = useState<Map<string, SimpleOSMPOI>>(new Map())
+
+  // Handle POI click - if onPOIClick is provided, use it; otherwise toggle selection
   const handlePOIClick = useCallback((poi: any) => {
-    onToggleSelection(poi.id)
-  }, [onToggleSelection])
+    if (onPOIClick) {
+      // Find the original feature by ID
+      const originalFeature = poiIdToFeatureMap.get(poi.id)
+      if (originalFeature) {
+        onPOIClick(originalFeature)
+      }
+    } else {
+      // Fallback to selection toggle
+      onToggleSelection(poi.id)
+    }
+  }, [onToggleSelection, onPOIClick, poiIdToFeatureMap])
 
   // Transform features when they change - optimized for performance
   useEffect(() => {
@@ -182,9 +196,20 @@ export function POIMap({
         transformedPois: transformedPois.slice(0, 3) // Log first 3 for debugging
       })
       setMapPois(transformedPois)
+      
+      // Create mapping from POI ID to original feature
+      const idMap = new Map<string, SimpleOSMPOI>()
+      features.forEach(feature => {
+        const isDbData = !feature.properties && !feature.geometry
+        const poiId = isDbData ? (feature as any).id : feature._id
+        idMap.set(poiId, feature)
+      })
+      setPoiIdToFeatureMap(idMap)
+      
       setIsLoading(false)
     } else {
       setMapPois([])
+      setPoiIdToFeatureMap(new Map())
       setIsLoading(false)
     }
   }, [features, transformFeaturesToPOIs])

@@ -1,14 +1,14 @@
 /**
  * Unified Parser Types
  * 
- * Common interfaces for both GeoJSON and PBF parsing
+ * Common interfaces for GeoJSON, PBF, and CSV parsing
  * 
  * @module types/parser-types
  */
 
 import { OSMFeature } from './osm-importer'
 
-export type FileType = 'geojson' | 'pbf'
+export type FileType = 'geojson' | 'pbf' | 'csv'
 
 export interface FileInfo {
   size: number

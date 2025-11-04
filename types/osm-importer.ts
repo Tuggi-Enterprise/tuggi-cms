@@ -29,7 +29,7 @@ export interface OSMCategory {
 export interface ImportBatch {
   id: string
   source_file: string
-  file_type: 'pbf' | 'geojson'
+  file_type: 'pbf' | 'geojson' | 'csv'
   total_processed: number
   successful_imports: number
   skipped_duplicates: number
@@ -58,7 +58,7 @@ export interface OSMFile {
   filename: string
   original_filename?: string
   file_path: string
-  file_type: 'pbf' | 'geojson'
+  file_type: 'pbf' | 'geojson' | 'csv'
   file_size_bytes?: number
   source_type: 'raw' | 'processed' | 'uploaded'
   category?: string

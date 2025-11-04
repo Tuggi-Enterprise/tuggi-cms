@@ -11,18 +11,168 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Table2, Map, Download, Upload, CheckSquare, Square, Trash2, Database, RefreshCw, X, Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useOSMImporterSimple } from '@/lib/hooks/use-osm-importer-simple'
+import { useOSMImporterSimple, SimpleOSMPOI } from '@/lib/hooks/use-osm-importer-simple'
 import { useUploadProgress } from '@/lib/hooks/use-upload-progress'
 import { FileUpload } from './FileUpload'
 import { POITable } from './POITable'
 import { POIMap } from './POIMap'
+import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
 
 interface OSMImporterSimpleProps {
   initialHasData?: boolean | null
 }
 
+// Transform SimpleOSMPOI to POI format for POIDetailsModal
+// Maps all fields from homolog.pois table
+function transformOSMPOIToPOI(osmPoi: SimpleOSMPOI): POI {
+  const isDbData = !osmPoi.properties && !osmPoi.geometry
+  const dbPoi = isDbData ? (osmPoi as any) : null
+  const poiId = isDbData ? dbPoi.id || dbPoi.uuid_id : osmPoi._id
+  
+  // Extract coordinates
+  let latitude = 0
+  let longitude = 0
+  
+  if (dbPoi?.lat !== undefined && dbPoi?.lon !== undefined) {
+    latitude = Number(dbPoi.lat)
+    longitude = Number(dbPoi.lon)
+  } else if (dbPoi?.latitude !== undefined && dbPoi?.longitude !== undefined) {
+    latitude = Number(dbPoi.latitude)
+    longitude = Number(dbPoi.longitude)
+  } else if (osmPoi.geometry?.coordinates) {
+    longitude = Number(osmPoi.geometry.coordinates[0])
+    latitude = Number(osmPoi.geometry.coordinates[1])
+  }
+  
+  // Extract location data
+  const name = dbPoi?.name || osmPoi.properties?.name || 'Unnamed POI'
+  const city = dbPoi?.city || osmPoi.properties?.city || 'Unknown'
+  const state = dbPoi?.state || osmPoi.properties?.state || null
+  const country = dbPoi?.country || osmPoi.properties?.country || 'Unknown'
+  const category = dbPoi?.primary_category || dbPoi?.category || osmPoi.properties?.primary_category || osmPoi.properties?.category || 'point_of_interest'
+  
+  // Extract categories
+  let categories: string[] = []
+  if (dbPoi?.categories) {
+    categories = Array.isArray(dbPoi.categories) ? dbPoi.categories : []
+  } else if (osmPoi.properties?.categories) {
+    categories = Array.isArray(osmPoi.properties.categories) ? osmPoi.properties.categories : []
+  }
+  
+  // Transform to POI format with all homolog.pois fields
+  return {
+    id: poiId,
+    name,
+    city,
+    country,
+    state,
+    category,
+    approved: dbPoi?.approved || false,
+    approved_by: null,
+    approved_at: null,
+    rating: null,
+    image_url: null,
+    created_at: dbPoi?.created_at || new Date().toISOString(),
+    updated_at: dbPoi?.updated_at || new Date().toISOString(),
+    user_ratings_total: null,
+    formatted_address: dbPoi?.formatted_address || null,
+    vicinity: null,
+    website: dbPoi?.website || null,
+    formatted_phone_number: dbPoi?.contact_phone || null,
+    business_status: null,
+    price_level: null,
+    opening_hours: dbPoi?.opening_hours || null,
+    google_types: null,
+    photos_references: null,
+    google_place_id: null,
+    user_id: null,
+    coordinates: latitude && longitude ? {
+      latitude,
+      longitude
+    } : undefined,
+    has_description: false,
+    has_audio: false,
+    description_count: 0,
+    audio_count: 0,
+    available_languages: [],
+    trigger_points_count: 0,
+    active_trigger_points_count: 0,
+    reference_links: [],
+    descriptions: [],
+    verification_score: null,
+    // Additional homolog.pois fields stored as any for now
+    // Will be displayed in modal sections
+    _homologData: isDbData ? {
+      // OSM fields
+      osm_id: dbPoi.osm_id,
+      osm_type: dbPoi.osm_type,
+      place_id: dbPoi.place_id,
+      // Categories
+      primary_category: dbPoi.primary_category,
+      primary_category_type: dbPoi.primary_category_type,
+      categories: categories,
+      // Address details
+      description: dbPoi.description,
+      neighborhood: dbPoi.neighborhood,
+      street_name: dbPoi.street_name,
+      house_number: dbPoi.house_number,
+      postal_code: dbPoi.postal_code,
+      // Contact
+      contact_phone: dbPoi.contact_phone,
+      contact_email: dbPoi.contact_email,
+      operator_name: dbPoi.operator_name,
+      // Brand
+      brand: dbPoi.brand,
+      brand_wikidata: dbPoi.brand_wikidata,
+      brand_wikipedia: dbPoi.brand_wikipedia,
+      // Accessibility
+      wheelchair_accessible: dbPoi.wheelchair_accessible,
+      wheelchair_toilets: dbPoi.wheelchair_toilets,
+      accessibility_notes: dbPoi.accessibility_notes,
+      // Physical
+      height: dbPoi.height,
+      building_material: dbPoi.building_material,
+      building_colour: dbPoi.building_colour,
+      architectural_style: dbPoi.architectural_style,
+      // Historical
+      historic_period: dbPoi.historic_period,
+      landmark_type: dbPoi.landmark_type,
+      architect: dbPoi.architect,
+      heritage_status: dbPoi.heritage_status,
+      unesco_status: dbPoi.unesco_status,
+      unesco_inscription_date: dbPoi.unesco_inscription_date,
+      landmark_level: dbPoi.landmark_level,
+      start_date: dbPoi.start_date,
+      // Type-specific
+      museum_type: dbPoi.museum_type,
+      leisure_type: dbPoi.leisure_type,
+      monument_type: dbPoi.monument_type,
+      // Infrastructure
+      parking_capacity: dbPoi.parking_capacity,
+      entrance_fee: dbPoi.entrance_fee,
+      // Flags
+      is_historic: dbPoi.is_historic,
+      is_touristic: dbPoi.is_touristic,
+      has_wheelchair_access: dbPoi.has_wheelchair_access,
+      is_building: dbPoi.is_building,
+      // Metadata
+      importance: dbPoi.importance,
+      importance_level: dbPoi.importance_level,
+      source_file: dbPoi.source_file,
+      source_type: dbPoi.source_type,
+      processing_status: dbPoi.processing_status,
+      is_complete: dbPoi.is_complete,
+      osm_properties: dbPoi.osm_properties
+    } : null
+  } as any
+}
+
 export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimpleProps = {}) {
   console.log('🏗️ [COMPONENT] OSMImporterSimple rendering', { initialHasData })
+  
+  // Modal state
+  const [selectedPOI, setSelectedPOI] = useState<POI | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
   
   // KISS: Single hook call with all functionality and state
   const {
@@ -287,6 +437,24 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
     }
   }
 
+  // Handle POI click to open modal
+  const handlePOIClick = (poi: SimpleOSMPOI) => {
+    const transformedPOI = transformOSMPOIToPOI(poi)
+    setSelectedPOI(transformedPOI)
+    setIsModalOpen(true)
+  }
+
+  // Handle modal close
+  const handleModalClose = () => {
+    setIsModalOpen(false)
+    setSelectedPOI(null)
+  }
+
+  // Handle POI update (refresh data after update)
+  const handlePOIUpdate = () => {
+    loadDataForMode(viewMode)
+  }
+
   return (
     <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
       {/* Header */}
@@ -383,7 +551,7 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
                     No Data Found
                   </h2>
                   <p className="text-gray-600 dark:text-gray-400 mb-8">
-                    No POIs found in the local database. Upload a GeoJSON file to get started.
+                    No POIs found in the local database. Upload a GeoJSON or CSV file to get started.
                   </p>
                 </div>
               ) : null}
@@ -642,6 +810,7 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
                       features={paginatedFeatures}
                       selectedFeatures={selectedFeatures}
                       onToggleSelection={toggleSelection}
+                      onPOIClick={handlePOIClick}
                     />
                     
                     {/* Pagination */}
@@ -694,6 +863,7 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
                     features={filteredFeatures}
                     selectedFeatures={selectedFeatures}
                     onToggleSelection={toggleSelection}
+                    onPOIClick={handlePOIClick}
                     searchTerm={searchTerm}
                     stateFilter={stateFilter}
                     cityFilter={cityFilter}
@@ -737,7 +907,7 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
             <div className="bg-white dark:bg-gray-900 rounded-lg p-6 max-w-2xl w-full mx-4">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Add More GeoJSON Data
+                  Add More Data
                 </h3>
                 <button
                   onClick={() => setShowUploadModal(false)}
@@ -749,12 +919,12 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
               
               <div className="mb-4">
                 <p className="text-gray-600 dark:text-gray-400 mb-2">
-                  Upload additional GeoJSON data to merge with existing POIs in the database.
+                  Upload additional GeoJSON or CSV data to merge with existing POIs in the database.
                 </p>
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
                   <p className="text-sm text-blue-800 dark:text-blue-200">
                     <strong>Note:</strong> New data will be added to the existing database. 
-                    Duplicate POIs will be handled automatically.
+                    Duplicate POIs will be handled automatically. CSV files must contain latitude and longitude columns.
                   </p>
                 </div>
               </div>
@@ -770,6 +940,16 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
               />
             </div>
           </div>
+        )}
+
+        {/* POI Details Modal */}
+        {selectedPOI && isModalOpen && (
+          <POIDetailsModal
+            poi={selectedPOI}
+            isOpen={isModalOpen}
+            onClose={handleModalClose}
+            onUpdate={handlePOIUpdate}
+          />
         )}
       </div>
     </div>
