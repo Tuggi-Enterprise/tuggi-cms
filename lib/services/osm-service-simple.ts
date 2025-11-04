@@ -1179,7 +1179,7 @@ export class OSMService {
       city: poi.properties.city || 'Unknown',
       state: poi.properties.state || 'Unknown',
       country: poi.properties.country || 'Unknown',
-      category: poi.properties.category || 'Unknown'
+      category: poi.properties.primary_category || poi.properties.category || 'Unknown'
     }
   }
 }

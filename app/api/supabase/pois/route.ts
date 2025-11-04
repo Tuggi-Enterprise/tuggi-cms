@@ -407,34 +407,46 @@ export async function GET(request: NextRequest) {
     const city = searchParams.get('city') || null
     const state = searchParams.get('state') || null
     const category = searchParams.get('category') || null
-    const onlyComplete = searchParams.get('onlyComplete') === 'true' ? true : null
+    // Explicitly set only_complete to false when not specified to avoid filtering by default
+    const onlyComplete = searchParams.get('onlyComplete') === 'true' ? true : false
 
     const offset = (page - 1) * limit
 
-    console.log(`📊 [SUPABASE] Fetching POIs: page=${page}, limit=${limit}`)
+    console.log(`📊 [SUPABASE] Fetching POIs: page=${page}, limit=${limit}, only_complete=${onlyComplete}`)
 
     // Use the custom function for pagination
+    // IMPORTANT: Pass parameters in the exact order defined in the SQL function to avoid parameter mismatch
     const { data, error } = await supabase
       .schema('homolog')
       .rpc('get_pois_paginated', {
+        category_filter: category,
+        city_filter: city,
+        only_complete: onlyComplete, // Explicitly set to false to return all POIs
         page_limit: limit,
         page_offset: offset,
         search_term: search,
-        city_filter: city,
-        state_filter: state,
-        category_filter: category,
-        only_complete: onlyComplete
+        state_filter: state
       })
 
     if (error) {
       console.error('❌ [SUPABASE] Error fetching POIs:', error)
+      console.error('❌ [SUPABASE] Error details:', JSON.stringify(error, null, 2))
       return NextResponse.json({ 
         success: false, 
         error: error.message 
       }, { status: 500 })
     }
 
-    const totalCount = data?.[0]?.total_count || 0
+    // Log detailed response for debugging
+    console.log(`📊 [SUPABASE] RPC response:`, {
+      dataLength: data?.length || 0,
+      firstItem: data?.[0] ? Object.keys(data[0]) : null,
+      hasTotalCount: data?.[0]?.total_count !== undefined
+    })
+
+    // Note: get_pois_paginated doesn't return total_count, we need to get it from stats
+    // For now, use the actual data length as indication
+    const totalCount = data?.[0]?.total_count || data?.length || 0
     const totalPages = Math.ceil(totalCount / limit)
 
     console.log(`✅ [SUPABASE] Fetched ${data?.length || 0} POIs (total: ${totalCount})`)

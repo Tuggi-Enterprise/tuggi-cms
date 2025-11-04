@@ -52,15 +52,21 @@ export function POIMap({
       let latitude = 0
       let longitude = 0
       
-      if ((feature as any).latitude !== undefined && (feature as any).longitude !== undefined) {
-        // Database format
-        latitude = (feature as any).latitude
-        longitude = (feature as any).longitude
-        console.log('📍 [POIMap] Using database coordinates:', { latitude, longitude })
+      // Try database format first (lat/lon from homolog.pois table)
+      if ((feature as any).lat !== undefined && (feature as any).lon !== undefined) {
+        // Database format from homolog.pois (returns lat/lon)
+        latitude = Number((feature as any).lat)
+        longitude = Number((feature as any).lon)
+        console.log('📍 [POIMap] Using database lat/lon coordinates:', { latitude, longitude })
+      } else if ((feature as any).latitude !== undefined && (feature as any).longitude !== undefined) {
+        // Alternative database format (latitude/longitude)
+        latitude = Number((feature as any).latitude)
+        longitude = Number((feature as any).longitude)
+        console.log('📍 [POIMap] Using database latitude/longitude coordinates:', { latitude, longitude })
       } else if (feature.geometry?.coordinates) {
         // GeoJSON format
-        longitude = feature.geometry.coordinates[0]
-        latitude = feature.geometry.coordinates[1]
+        longitude = Number(feature.geometry.coordinates[0])
+        latitude = Number(feature.geometry.coordinates[1])
         console.log('📍 [POIMap] Using GeoJSON coordinates:', { latitude, longitude })
       } else {
         console.warn('⚠️ [POIMap] No coordinates found for feature:', feature)
@@ -68,9 +74,25 @@ export function POIMap({
       }
 
       // Validate coordinates
-      if (latitude === 0 && longitude === 0) {
-        console.warn('⚠️ [POIMap] Invalid coordinates (0,0) for feature:', feature)
+      if (latitude === null || latitude === undefined || 
+          longitude === null || longitude === undefined ||
+          isNaN(latitude) || isNaN(longitude) ||
+          latitude < -90 || latitude > 90 ||
+          longitude < -180 || longitude > 180) {
+        console.warn('⚠️ [POIMap] Invalid coordinates for feature:', { 
+          feature, 
+          latitude, 
+          longitude,
+          hasLat: latitude !== null && latitude !== undefined,
+          hasLon: longitude !== null && longitude !== undefined
+        })
         return null // Skip this feature
+      }
+      
+      // Also skip if coordinates are exactly (0,0) which is in the ocean off Africa - unlikely to be a real POI
+      if (latitude === 0 && longitude === 0) {
+        console.warn('⚠️ [POIMap] Skipping POI with coordinates (0,0) - likely invalid:', feature)
+        return null
       }
 
       // Get name from different formats
@@ -127,7 +149,17 @@ export function POIMap({
       })
       
       return transformedPOI
-    }).filter(poi => poi !== null && poi.coordinates.latitude !== 0 && poi.coordinates.longitude !== 0)
+    }).filter(poi => {
+      // Filter out null POIs and ensure coordinates are valid
+      if (!poi) return false
+      const { latitude, longitude } = poi.coordinates
+      return latitude !== null && latitude !== undefined &&
+             longitude !== null && longitude !== undefined &&
+             !isNaN(latitude) && !isNaN(longitude) &&
+             latitude >= -90 && latitude <= 90 &&
+             longitude >= -180 && longitude <= 180 &&
+             !(latitude === 0 && longitude === 0) // Skip (0,0) which is unlikely to be a real POI
+    })
   }, [selectedFeatures])
 
   // Handle POI click

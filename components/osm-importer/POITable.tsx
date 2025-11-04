@@ -81,7 +81,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
             city: (poi as any).city || 'Unknown',
             state: (poi as any).state || 'Unknown',
             country: (poi as any).country || 'Unknown',
-            category: (poi as any).primary_category || 'Unknown'
+            category: (poi as any).primary_category || (poi as any).category || 'Unknown'
           } : OSMService.extractLocation(poi)
           
           const poiId = isDbData ? (poi as any).id : poi._id

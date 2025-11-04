@@ -7,8 +7,11 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- Step 1b: Drop existing tables if they exist (to ensure clean recreation)
-DROP TABLE IF EXISTS homolog.coordinates CASCADE;
-DROP TABLE IF EXISTS homolog.pois CASCADE;
+-- ⚠️ PERIGO: Essas linhas apagam todos os dados! 
+-- ⚠️ NUNCA DESCOMENTAR - Esta migration cria tabelas, mas NÃO deve dropar dados existentes
+-- ⚠️ Se precisar recriar tabelas, faça manualmente ou use uma migration específica e segura
+-- DROP TABLE IF EXISTS homolog.coordinates CASCADE;
+-- DROP TABLE IF EXISTS homolog.pois CASCADE;
 
 -- Step 2: Create pois table with UUID as primary key and all fields
 CREATE TABLE homolog.pois (
@@ -231,7 +234,7 @@ CREATE TABLE homolog.coordinates (
   distance_from_rio_km DECIMAL(8,2),
   
   -- Boundary information
-  boundary_geometry TEXT, -- GeoJSON string
+  boundary_geometry GEOGRAPHY, -- PostGIS GEOGRAPHY type (converted from GeoJSON)
   boundary_type TEXT, -- 'polygon', 'circle', 'point'
   boundary_source TEXT, -- 'osm', 'nominatim', 'manual'
   boundary_confidence DECIMAL(3,2) CHECK (boundary_confidence >= 0 AND boundary_confidence <= 1),
@@ -291,6 +294,7 @@ CREATE INDEX IF NOT EXISTS idx_pois_osm_id_type ON homolog.pois (osm_id, osm_typ
 CREATE INDEX IF NOT EXISTS idx_coordinates_poi_uuid ON homolog.coordinates (poi_uuid_id);
 CREATE INDEX IF NOT EXISTS idx_coordinates_location ON homolog.coordinates USING GIST (ST_Point(longitude, latitude));
 CREATE INDEX IF NOT EXISTS idx_coordinates_lat_lng ON homolog.coordinates (latitude, longitude);
+CREATE INDEX IF NOT EXISTS idx_coordinates_boundary_geometry ON homolog.coordinates USING GIST (boundary_geometry) WHERE boundary_geometry IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_coordinates_boundary_type ON homolog.coordinates (boundary_type);
 CREATE INDEX IF NOT EXISTS idx_coordinates_show_in_map ON homolog.coordinates (show_in_map);
 CREATE INDEX IF NOT EXISTS idx_coordinates_created_at ON homolog.coordinates (created_at);
@@ -453,7 +457,10 @@ SELECT
   c.elevation_m,
   c.distance_from_sao_paulo_km,
   c.distance_from_rio_km,
-  c.boundary_geometry,
+  CASE 
+    WHEN c.boundary_geometry IS NOT NULL THEN ST_AsGeoJSON(c.boundary_geometry::geometry)::TEXT
+    ELSE NULL
+  END AS boundary_geometry,
   c.boundary_type,
   c.boundary_source,
   c.boundary_confidence,
@@ -519,6 +526,7 @@ RETURNS TABLE (
   state TEXT,
   country TEXT,
   category TEXT,
+  primary_category TEXT,
   lat DECIMAL(10,8),
   lon DECIMAL(11,8),
   osm_id BIGINT,
@@ -546,6 +554,7 @@ BEGIN
     p.state,
     p.country,
     p.category,
+    p.primary_category,
     p.lat,
     p.lon,
     p.osm_id,
@@ -618,7 +627,10 @@ BEGIN
     c.elevation_m,
     c.distance_from_sao_paulo_km,
     c.distance_from_rio_km,
-    c.boundary_geometry,
+    CASE 
+      WHEN c.boundary_geometry IS NOT NULL THEN ST_AsGeoJSON(c.boundary_geometry::geometry)::TEXT
+      ELSE NULL
+    END AS boundary_geometry,
     c.boundary_type,
     c.boundary_source,
     c.boundary_confidence,
@@ -681,7 +693,7 @@ COMMENT ON COLUMN homolog.pois.osm_geometry IS 'Spatial geometry data for mappin
 
 COMMENT ON TABLE homolog.coordinates IS 'Coordinate data for POIs with spatial information and boundary data';
 COMMENT ON COLUMN homolog.coordinates.poi_uuid_id IS 'Foreign key reference to pois.uuid_id';
-COMMENT ON COLUMN homolog.coordinates.boundary_geometry IS 'GeoJSON string containing boundary geometry';
+COMMENT ON COLUMN homolog.coordinates.boundary_geometry IS 'PostGIS GEOGRAPHY type containing boundary geometry (converted from GeoJSON)';
 COMMENT ON COLUMN homolog.coordinates.boundary_confidence IS 'Confidence score for boundary data (0.0 to 1.0)';
 COMMENT ON COLUMN homolog.coordinates.distance_from_sao_paulo_km IS 'Distance from São Paulo in kilometers';
 COMMENT ON COLUMN homolog.coordinates.distance_from_rio_km IS 'Distance from Rio de Janeiro in kilometers';

@@ -17,8 +17,12 @@ import { FileUpload } from './FileUpload'
 import { POITable } from './POITable'
 import { POIMap } from './POIMap'
 
-export function OSMImporterSimple() {
-  console.log('🏗️ [COMPONENT] OSMImporterSimple rendering')
+interface OSMImporterSimpleProps {
+  initialHasData?: boolean | null
+}
+
+export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimpleProps = {}) {
+  console.log('🏗️ [COMPONENT] OSMImporterSimple rendering', { initialHasData })
   
   // KISS: Single hook call with all functionality and state
   const {
@@ -80,13 +84,17 @@ export function OSMImporterSimple() {
     setCategoryFilter,
     setCurrentPage,
     setIsDeleting
-  } = useOSMImporterSimple()
+  } = useOSMImporterSimple(initialHasData)
 
   // KISS: Simple derived state
   const currentFeatures = useMemo(() => features || [], [features])
-  const currentFeaturesCount = dbPagination?.total || 0
-  const hasData = currentFeaturesCount > 0
-  const isInitialLoad = !isLoading && currentFeaturesCount === 0 && !error
+  // Use actual features count if pagination total is not available (RPC issue)
+  const currentFeaturesCount = dbPagination?.total || currentFeatures.length || 0
+  // hasData is true if we have loaded features OR if we know there's data in DB (initialHasData === true)
+  // This ensures we show loading state when we know data exists but haven't loaded it yet
+  const hasData = currentFeaturesCount > 0 || currentFeatures.length > 0 || initialHasData === true
+  // isInitialLoad is true when we've confirmed there's no data and we're not loading
+  const isInitialLoad = !isLoading && currentFeaturesCount === 0 && currentFeatures.length === 0 && !error && initialHasData === false
 
   // Filter logic - reusing POI Management pattern
   const filteredFeatures = useMemo(() => {
@@ -100,13 +108,13 @@ export function OSMImporterSimple() {
         city: (feature as any).city || 'Unknown',
         state: (feature as any).state || 'Unknown',
         country: (feature as any).country || 'Unknown',
-        category: (feature as any).primary_category || 'Unknown'
+        category: (feature as any).primary_category || (feature as any).category || 'Unknown'
       } : {
         name: feature.properties?.name || 'Unnamed POI',
         city: feature.properties?.city || 'Unknown',
         state: feature.properties?.state || 'Unknown',
         country: feature.properties?.country || 'Unknown',
-        category: feature.properties?.category || 'Unknown'
+        category: feature.properties?.primary_category || feature.properties?.category || 'Unknown'
       }
 
       // Search filter
