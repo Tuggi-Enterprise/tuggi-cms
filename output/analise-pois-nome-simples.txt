@@ -1,0 +1,93 @@
+
+============================================================
+📊 RELATÓRIO DE ANÁLISE - POIs COM NOME DE 1 PALAVRA
+============================================================
+
+📈 RESUMO GERAL:
+   Total: 1,908 POIs (3.12% do total)
+   Com referências externas (Wikipedia/Wikidata): 56 (2.94%)
+   Com descrição: 100 (5.24%)
+
+📋 DISTRIBUIÇÃO POR CATEGORIA:
+   • natural: 567 (29.7%)
+   • leisure: 538 (28.2%)
+   • tourism: 522 (27.4%)
+   • historic: 293 (15.4%)
+   • amenity: 30 (1.6%)
+
+🔤 NOMES MAIS COMUNS (Top 20):
+    1. "barraginha": 139 POIs (7.3%)
+    2. "açude": 112 POIs (5.9%)
+    3. "pracinha": 68 POIs (3.6%)
+    4. "piscina": 35 POIs (1.8%)
+    5. "canteiro": 30 POIs (1.6%)
+    6. "cristo": 29 POIs (1.5%)
+    7. "coreto": 28 POIs (1.5%)
+    8. "obelisco": 25 POIs (1.3%)
+    9. "fonte": 20 POIs (1.0%)
+   10. "bosque": 20 POIs (1.0%)
+   11. "cruz": 19 POIs (1.0%)
+   12. "prainha": 16 POIs (0.8%)
+   13. "parquinho": 16 POIs (0.8%)
+   14. "lagoinha": 15 POIs (0.8%)
+   15. "piscinão": 12 POIs (0.6%)
+   16. "chafariz": 12 POIs (0.6%)
+   17. "jardim": 11 POIs (0.6%)
+   18. "cruzeiro": 9 POIs (0.5%)
+   19. "cascata": 8 POIs (0.4%)
+   20. "calçadão": 8 POIs (0.4%)
+
+💡 EXEMPLOS DE POIs COM VALOR (com referências/descrição):
+
+   1. "Piumhi"
+      Categoria: natural=tree
+      Wikipedia: pt:Piumhi
+      Wikidata: Q1755744
+
+   2. "Juatuba"
+      Wikipedia: pt:Juatuba
+      Wikidata: Q1790670
+
+   3. "Gália"
+      Categoria: tourism=attraction
+      Wikipedia: pt:Gália (São Paulo)
+      Wikidata: Q1795526
+
+   4. "Cristo"
+      Categoria: historic=monument
+      Descrição: Localizado na entrada da cidade de Anhumas, abençoa e da as boas-vindas aos visitantes
+
+   5. "Saint-Exupéry"
+      Wikidata: Q31205851
+
+   6. "Garça"
+      Wikidata: Q20460406
+
+   7. "Mococa"
+      Wikidata: Q20451290
+
+   8. "Matão"
+      Wikidata: Q31202833
+
+   9. "Atena"
+      Wikidata: Q12694480
+
+   10. "Junqueira"
+      Wikidata: Q31205585
+
+============================================================
+💭 ANÁLISE E RECOMENDAÇÕES:
+============================================================
+
+📌 POIs com nomes genéricos comuns: 141 (7.4%)
+📌 POIs com referências externas: 56 (2.9%)
+📌 POIs com descrição: 100 (5.2%)
+
+💡 RECOMENDAÇÕES:
+   • POIs com valor identificável: 156 (8.2%)
+   • POIs sem valor identificável: 1,752 (91.8%)
+
+   ⚠️  ATENÇÃO: Mais de 50% dos POIs com nome de 1 palavra
+      não têm referências externas ou descrição.
+      Considere remover POIs genéricos sem contexto.
+

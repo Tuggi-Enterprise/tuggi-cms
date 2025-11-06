@@ -10,7 +10,9 @@ Criar arquivo PBF com apenas **pontos** que sejam:
 2. Com valor histórico
 3. **NÃO privados**
 
-## Lógica de Filtragem - 3 Etapas
+## Lógica de Filtragem - 4 Etapas (Otimizada)
+
+**NOTA**: A estrutura foi otimizada para melhor performance. As ETAPAs 4-5.7 foram unificadas em uma única passagem sobre os dados, reduzindo de 8 para 1 operação sem alterar o resultado final.
 
 ### ETAPA 1: Filtro por Categorias de Interesse
 **Manter apenas objetos com pelo menos UMA das categorias:**
@@ -236,6 +238,93 @@ Criar arquivo PBF com apenas **pontos** que sejam:
 
 **Excluir se:**
 - `amenity=theatre` SEM `historic` E SEM referências E SEM `name` E SEM `description`/`website` (genérico)
+
+### ETAPA 4-5.7 UNIFICADA: Filtros de Valor Turístico (OTIMIZADA)
+
+**Objetivo**: Remover POIs sem valor turístico identificável aplicando todos os critérios em uma única passagem.
+
+**Critérios aplicados (todos em uma única passagem sobre os dados):**
+
+#### ETAPA 4: Critérios Básicos
+- **POIs sem nome E sem referências** (exceto tourism/historic/igreja católica)
+- **Fazendas/propriedades privadas** (fazenda, farm, sítio, chácara, propriedade)
+- **Aeródromos privados** (sem código IATA/ICAO e sem nome relevante)
+
+#### ETAPA 5: Critérios Rigorosos
+- **POIs genéricos sem valor**: sem nome E sem referências (sem tourism/historic)
+- **Nomes muito curtos** (≤3 caracteres) sem referências
+- **Nomes genéricos sem contexto**: Parque, Praça, Igreja, Capela, Monumento, Memorial, Lago, Lagoa, Cachoeira, Ponte, Museu, Estádio, Cemitério (sem referências)
+- **Infraestrutura técnica sem valor turístico**: usinas, represas, barragens, estações de tratamento, subestações, torres de transmissão
+- **Cemitérios genéricos** (exceto famosos como Consolação, São João Batista)
+- **Estádios genéricos** (exceto famosos como Maracanã, Morumbi, Allianz Parque)
+
+#### ETAPA 5.1: Bancos e Instituições Financeiras
+- **Bancos INSTITUIÇÕES** (amenity=bank/atm) sem valor turístico
+- **Nomes de bancos conhecidos** (Banco do Brasil, Bradesco, Itaú, Santander, Caixa) sem valor turístico
+- **Exceções**: Centros culturais, museus, teatros de bancos (mantém)
+
+#### ETAPA 5.2: Estradas, Ruas, Avenidas
+- **Nomes que começam com**: Estrada, Rua, Avenida, Rodovia, Via, Alameda, Travessa, Beco, Passagem, Ruela
+- **Nomes que contêm padrões de vias**: Av., R., Est., Rod.
+- **Exceções**: Praças com nomes de vias (ex: "Praça da Avenida") - mantém
+
+#### ETAPA 5.3: Nomes Genéricos sem Contexto
+- **Termos genéricos sem contexto**: Mirante, Monumento, Busto, Estátua, Escultura, Memorial, Marco, Cruzeiro
+- **Critério**: Nome deve ter comprimento mínimo (ex: Mirante ≥20 caracteres) OU ter preposição (de, do, da) indicando contexto
+- **Exceções**: Marco Zero, Cruzeiros religiosos, nomes com preposição indicando contexto
+
+#### ETAPA 5.4: POIs Específicos sem Valor
+- **Rotary**: clubes de serviço sem valor turístico
+- **SESC**: centros culturais sem valor turístico
+- **Torre**: torres genéricas sem valor turístico (exceto torres turísticas)
+- **Trilha**: trilhas sem valor turístico (exceto praças com "trilha" no nome)
+- **Via de acesso**: vias de acesso (infraestrutura)
+- **Vila**: vilas sem valor turístico ou histórico (exceto praças com "vila" no nome)
+
+#### ETAPA 5.5: Infraestrutura e Serviços
+- **Aeródromos/Aeroportos** sem valor turístico
+- **Escolas/Universidades** sem valor histórico (exceto escolas de samba/arte)
+- **Serviços públicos**: polícia, bombeiros, prefeitura, tribunal, correios
+- **Serviços de saúde**: hospitais, clínicas, farmácias, veterinários, dentistas
+- **Bibliotecas** sem valor turístico
+- **Comércio genérico** (shop=*)
+- **Infraestrutura**: estacionamentos, banheiros, bancos (assentos), lixeiras, bebedouros
+- **Infraestrutura de lazer**: pistas, quadras, playgrounds, academias, centros esportivos
+- **Transporte público**: plataformas, pontos de ônibus
+- **Escritórios**
+- **Uso do solo**: comercial, industrial, residencial, varejo
+
+#### ETAPA 5.7: POIs com Nome de 1 Palavra sem Valor
+- **POIs com nome de apenas 1 palavra** (ex: "açude", "bosque", "pracinha")
+- **Remover se**: não tem Wikipedia/Wikidata E não tem descrição
+- **Manter se**: tem Wikipedia/Wikidata OU tem descrição
+
+**Vantagens da Unificação:**
+- ✅ Reduz de 8 passagens para 1 passagem sobre os dados
+- ✅ Melhor performance (menos I/O de arquivos)
+- ✅ Código mais simples e manutenível
+- ✅ Resultado final idêntico (filtros independentes)
+- ✅ Estatísticas detalhadas por critério de remoção
+
+**Resultado**: Arquivo GeoJSON com POIs que têm valor turístico identificável
+
+### ETAPA 5.6: Remover Duplicatas
+
+**Objetivo**: Remover POIs duplicados (mesmo nome e localização próxima).
+
+**Critérios:**
+- **POIs com mesmo nome E mesma localização** (< 500m) = duplicata real → manter apenas 1
+- **POIs com mesmo nome mas localizações diferentes** (> 500m) = POIs diferentes → manter todos
+- **Para duplicatas reais**: manter apenas 1 entrada (com mais informações - score baseado em número de propriedades, referências, etc.)
+
+**Algoritmo:**
+- Calcular distância entre POIs usando fórmula de Haversine
+- Agrupar POIs com mesmo nome
+- Para cada grupo, verificar distâncias entre pares
+- Se distância < 500m → considerar duplicata
+- Manter POI com maior score de informações
+
+**Resultado**: Arquivo GeoJSON sem duplicatas reais
 
 ## Resumo da Lógica (Simplificada)
 

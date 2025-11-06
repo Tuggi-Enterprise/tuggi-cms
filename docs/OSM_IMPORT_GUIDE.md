@@ -164,7 +164,7 @@ $DENO_PATH run \
 
 **Saída Esperada:**
 ```
-🗺️  PBF Tourism Filter - 3 Etapas
+🗺️  PBF Tourism Filter - 4 Etapas (Otimizadas)
 ============================================================
 📁 Input file: omsData/sudeste-251012.osm.pbf
 📁 Output directory: output
@@ -172,9 +172,9 @@ $DENO_PATH run \
 
 ✅ osmium-tool is available
 
-📋 ETAPA 1: Filtro por Categorias de Interesse
+📋 ETAPA 1: Filtro Consolidado
 ============================================================
-🎯 Tags: tourism=attraction, tourism=museum, ...
+🎯 Objetivo: Filtrar categorias + incluir igrejas católicas + excluir highways
 [... processo continua ...]
 ✅ ETAPA 1 concluída!
 
@@ -186,10 +186,31 @@ $DENO_PATH run \
 [... processo continua ...]
 ✅ ETAPA 3 concluída!
 
+📋 ETAPA 4-5.7 UNIFICADA: Filtros de Valor Turístico
+============================================================
+🎯 Objetivo: Remover POIs sem valor turístico identificável
+📊 Critérios aplicados (todos em uma única passagem):
+   • ETAPA 4: POIs sem nome E sem refs, fazendas, aeródromos privados
+   • ETAPA 5: POIs genéricos sem valor (infraestrutura, nomes genéricos)
+   • ETAPA 5.1: Bancos e instituições financeiras
+   • ETAPA 5.2: Estradas, ruas, avenidas e vias de trâfego
+   • ETAPA 5.3: Nomes genéricos sem contexto
+   • ETAPA 5.4: POIs específicos (Rotary, SESC, Torre, etc.)
+   • ETAPA 5.5: Infraestrutura e serviços
+   • ETAPA 5.7: POIs com nome de 1 palavra sem valor
+[... processo continua ...]
+✅ ETAPA 4-5.7 UNIFICADA concluída!
+
+📋 ETAPA 5.6: Remover Duplicatas
+[... processo continua ...]
+✅ ETAPA 5.6 concluída!
+
 📊 Resumo Final:
-   Arquivo ETAPA 1: output/etapa1-categories-*.osm.pbf
+   Arquivo ETAPA 1: output/etapa1-final-*.osm.pbf
    Arquivo ETAPA 2: output/etapa2-access-filtered-*.osm.pbf
    Arquivo ETAPA 3: output/etapa3-importance-filtered-*.osm.pbf
+   Arquivo ETAPA 4-5.7 (UNIFICADA): output/etapa4_5-unified-filtered-*.geojson
+   Arquivo ETAPA 5.6: output/etapa5_6-deduped-*.geojson
 ```
 
 **Ou executar etapas individuais:**
@@ -206,7 +227,7 @@ $DENO_PATH run \
 
 # ETAPA 2: Remover POIs privados (usando arquivo da ETAPA 1)
 # Primeiro, encontrar o arquivo mais recente da ETAPA 1
-ETAPA1_FILE=$(ls -t output/etapa1-categories-*.osm.pbf | head -1)
+ETAPA1_FILE=$(ls -t output/etapa1-final-*.osm.pbf | head -1)
 $DENO_PATH run \
   --allow-read --allow-write --allow-run \
   scripts/filter-pbf-tourism.ts \
@@ -219,15 +240,35 @@ $DENO_PATH run \
   --allow-read --allow-write --allow-run \
   scripts/filter-pbf-tourism.ts \
   "$ETAPA2_FILE"
+
+# ETAPA 4-5.7 UNIFICADA: Filtros de valor turístico (usando arquivo da ETAPA 3)
+# Primeiro, encontrar o arquivo mais recente da ETAPA 3
+ETAPA3_FILE=$(ls -t output/etapa3-importance-filtered-*.osm.pbf | head -1)
+$DENO_PATH run \
+  --allow-read --allow-write --allow-run \
+  scripts/filter-pbf-tourism.ts \
+  "$ETAPA3_FILE"
+
+# ETAPA 5.6: Remover duplicatas (usando arquivo da ETAPA 4-5.7)
+# Primeiro, encontrar o arquivo mais recente da ETAPA 4-5.7
+ETAPA4_5_FILE=$(ls -t output/etapa4_5-unified-filtered-*.geojson | head -1)
+$DENO_PATH run \
+  --allow-read --allow-write --allow-run \
+  scripts/filter-pbf-tourism.ts \
+  "$ETAPA4_5_FILE" --fase-5-only
 ```
+
+**NOTA IMPORTANTE**: A ETAPA 4-5.7 foi unificada para melhor performance. Todas as 8 fases anteriores (4, 5, 5.1, 5.2, 5.3, 5.4, 5.5, 5.7) são executadas em uma única passagem sobre os dados, reduzindo significativamente o tempo de processamento sem alterar o resultado final.
 
 #### 2.3. Arquivos Gerados
 
 Após a execução, você terá na pasta `output/`:
 
-- `etapa1-categories-*.osm.pbf` - POIs das categorias de interesse
+- `etapa1-final-*.osm.pbf` - POIs das categorias de interesse (inclui igrejas católicas, exclui highways)
 - `etapa2-access-filtered-*.osm.pbf` - POIs sem restrições de acesso
-- `etapa3-importance-filtered-*.osm.pbf` - POIs importantes (FINAL)
+- `etapa3-importance-filtered-*.osm.pbf` - POIs importantes (refinamento por categoria)
+- `etapa4_5-unified-filtered-*.geojson` - POIs com valor turístico (filtros unificados)
+- `etapa5_6-deduped-*.geojson` - POIs sem duplicatas (FINAL)
 
 **Encontrar arquivos gerados:**
 
@@ -236,29 +277,35 @@ Após a execução, você terá na pasta `output/`:
 ls -lt output/etapa*-*.osm.pbf | head -5
 
 # Encontrar arquivo mais recente de cada etapa
-ETAPA1_LATEST=$(ls -t output/etapa1-categories-*.osm.pbf | head -1)
+ETAPA1_LATEST=$(ls -t output/etapa1-final-*.osm.pbf | head -1)
 ETAPA2_LATEST=$(ls -t output/etapa2-access-filtered-*.osm.pbf | head -1)
 ETAPA3_LATEST=$(ls -t output/etapa3-importance-filtered-*.osm.pbf | head -1)
+ETAPA4_5_LATEST=$(ls -t output/etapa4_5-unified-filtered-*.geojson | head -1)
+ETAPA5_6_LATEST=$(ls -t output/etapa5_6-deduped-*.geojson | head -1)
 
 echo "ETAPA 1: $ETAPA1_LATEST"
 echo "ETAPA 2: $ETAPA2_LATEST"
 echo "ETAPA 3: $ETAPA3_LATEST"
+echo "ETAPA 4-5.7 (UNIFICADA): $ETAPA4_5_LATEST"
+echo "ETAPA 5.6: $ETAPA5_6_LATEST"
 ```
 
 #### 2.4. Verificar Resultados
 
 ```bash
-# Encontrar arquivo final mais recente
-ETAPA3_FILE=$(ls -t output/etapa3-importance-filtered-*.osm.pbf | head -1)
+# Encontrar arquivo final mais recente (ETAPA 5.6 - após deduplicação)
+ETAPA5_6_FILE=$(ls -t output/etapa5_6-deduped-*.geojson | head -1)
 
-# Verificar tamanho e informações
-osmium fileinfo "$ETAPA3_FILE"
+# OU usar ETAPA 4-5.7 (antes da deduplicação)
+ETAPA4_5_FILE=$(ls -t output/etapa4_5-unified-filtered-*.geojson | head -1)
 
-# Verificar tags principais (top 30)
-osmium tags-count "$ETAPA3_FILE" | head -30
+# Verificar tamanho do arquivo GeoJSON final
+ls -lh "$ETAPA5_6_FILE"
 
-# Verificar se categorias esperadas estão presentes
-osmium tags-count "$ETAPA3_FILE" | grep -E "(tourism|historic|natural|leisure|aeroway|amenity)"
+# Verificar número de POIs no arquivo final
+# (GeoJSON não pode ser verificado com osmium, usar script ou jq)
+# Exemplo com jq (se disponível):
+# jq '.features | length' "$ETAPA5_6_FILE"
 
 # Exemplo de saída esperada:
 # 5889	"tourism"
@@ -272,36 +319,55 @@ osmium tags-count "$ETAPA3_FILE" | grep -E "(tourism|historic|natural|leisure|ae
 #### 2.5. Validar POIs Específicos
 
 ```bash
-# Verificar se POIs importantes foram mantidos
-ETAPA3_FILE=$(ls -t output/etapa3-importance-filtered-*.osm.pbf | head -1)
+# Verificar se POIs importantes foram mantidos (usando jq ou grep)
+ETAPA5_6_FILE=$(ls -t output/etapa5_6-deduped-*.geojson | head -1)
 
 # Pão de Açúcar
-osmium tags-filter "$ETAPA3_FILE" 'nwr/name=*Pão*' -o /tmp/test-pao.osm.pbf
-PAO_SIZE=$(osmium fileinfo /tmp/test-pao.osm.pbf 2>/dev/null | grep 'Size' | awk '{print $2}')
-if [ "$PAO_SIZE" -gt 0 ]; then echo "✅ Pão de Açúcar encontrado"; else echo "❌ Pão de Açúcar não encontrado"; fi
+if grep -q "Pão de Açúcar\|Pao de Acucar" "$ETAPA5_6_FILE"; then 
+  echo "✅ Pão de Açúcar encontrado"; 
+else 
+  echo "❌ Pão de Açúcar não encontrado"; 
+fi
 
 # Cristo Redentor
-osmium tags-filter "$ETAPA3_FILE" 'nwr/name=*Cristo*' -o /tmp/test-cristo.osm.pbf
-CRISTO_SIZE=$(osmium fileinfo /tmp/test-cristo.osm.pbf 2>/dev/null | grep 'Size' | awk '{print $2}')
-if [ "$CRISTO_SIZE" -gt 0 ]; then echo "✅ Cristo Redentor encontrado"; else echo "❌ Cristo Redentor não encontrado"; fi
+if grep -q "Cristo Redentor" "$ETAPA5_6_FILE"; then 
+  echo "✅ Cristo Redentor encontrado"; 
+else 
+  echo "❌ Cristo Redentor não encontrado"; 
+fi
 
 # Parque Ibirapuera
-osmium tags-filter "$ETAPA3_FILE" 'nwr/name=*Ibirapuera*' -o /tmp/test-ibirapuera.osm.pbf
-IBIRAPUERA_SIZE=$(osmium fileinfo /tmp/test-ibirapuera.osm.pbf 2>/dev/null | grep 'Size' | awk '{print $2}')
-if [ "$IBIRAPUERA_SIZE" -gt 0 ]; then echo "✅ Parque Ibirapuera encontrado"; else echo "❌ Parque Ibirapuera não encontrado"; fi
+if grep -q "Ibirapuera" "$ETAPA5_6_FILE"; then 
+  echo "✅ Parque Ibirapuera encontrado"; 
+else 
+  echo "❌ Parque Ibirapuera não encontrado"; 
+fi
+
+# OU usar jq (se disponível) para busca mais precisa:
+# jq '.features[] | select(.properties.name | contains("Pão de Açúcar"))' "$ETAPA5_6_FILE"
 ```
 
-### ETAPA 3: Converter PBF para GeoJSON
+### ETAPA 3: Usar Arquivo Final GeoJSON
 
-#### 3.1. Conversão Básica
+**NOTA**: O script já gera arquivos GeoJSON nas ETAPAs 4-5.7 e 5.6. Não é necessário converter manualmente.
+
+O arquivo final está em:
+- `output/etapa5_6-deduped-*.geojson` - Arquivo final pronto para importação
+
+**OU** se precisar do arquivo antes da deduplicação:
+- `output/etapa4_5-unified-filtered-*.geojson` - Arquivo após filtros de valor turístico
+
+#### 3.1. Verificar Arquivo Final
 
 ```bash
-# Converter usando osmium
-osmium export \
-  output/etapa3-importance-filtered-*.osm.pbf \
-  -f geojson \
-  -o output/tourism-filtered.geojson \
-  --overwrite
+# Encontrar arquivo final mais recente
+FINAL_FILE=$(ls -t output/etapa5_6-deduped-*.geojson | head -1)
+
+# Verificar tamanho
+ls -lh "$FINAL_FILE"
+
+# Verificar número de POIs (usando jq se disponível)
+# jq '.features | length' "$FINAL_FILE"
 ```
 
 #### 3.2. Conversão com Método do Projeto (Recomendado)
