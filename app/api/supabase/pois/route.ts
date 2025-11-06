@@ -230,10 +230,66 @@ export async function POST(request: NextRequest) {
     // Insert POIs using RPC function for UUID generation
     const results = []
     
+    // Check blacklist for all POIs at once (batch check)
+    // This prevents re-importing POIs that were previously deleted
+    const osmIds = transformedPOIs
+      .filter(p => p.osm_id && p.osm_type)
+      .map(p => ({ osm_id: p.osm_id, osm_type: p.osm_type }))
+    
+    let blacklistedPOIs = new Set<string>()
+    if (osmIds.length > 0) {
+      // Use the composite index for efficient lookup
+      // Query by both osm_id and osm_type to match exactly
+      const uniqueOsmIds = [...new Set(osmIds.map(o => o.osm_id))]
+      const uniqueOsmTypes = [...new Set(osmIds.map(o => o.osm_type))]
+      
+      const { data: blacklistData, error: blacklistError } = await supabase
+        .schema('homolog')
+        .from('pois_blacklist')
+        .select('osm_id, osm_type, name, reason')
+        .in('osm_id', uniqueOsmIds)
+        .in('osm_type', uniqueOsmTypes)
+      
+      if (!blacklistError && blacklistData) {
+        // Create set of blacklisted OSM IDs (format: "osm_type:osm_id")
+        blacklistedPOIs = new Set(
+          blacklistData.map(b => `${b.osm_type}:${b.osm_id}`)
+        )
+        console.log(`🚫 [SUPABASE] Found ${blacklistData.length} blacklisted POIs (by OSM ID), skipping them to prevent re-import`)
+        
+        // Log some examples for debugging
+        if (blacklistData.length > 0) {
+          const examples = blacklistData.slice(0, 3).map(b => `${b.name || 'Unknown'} (${b.osm_type}:${b.osm_id})`).join(', ')
+          console.log(`🚫 [SUPABASE] Examples: ${examples}`)
+        }
+      } else if (blacklistError) {
+        console.error('⚠️ [SUPABASE] Error checking blacklist:', blacklistError)
+        // Continue with import even if blacklist check fails
+      }
+    }
+    
     for (let i = 0; i < pois.length; i++) {
       const originalPOI = pois[i]
       const poi = transformedPOIs[i]
       const coords = extractCoordinates(originalPOI.geometry)
+      
+      // Check if POI is blacklisted by OSM ID (primary check)
+      // This prevents re-importing POIs that were previously deleted
+      if (poi.osm_id && poi.osm_type) {
+        const osmKey = `${poi.osm_type}:${poi.osm_id}`
+        if (blacklistedPOIs.has(osmKey)) {
+          console.log(`🚫 [SUPABASE] Skipping blacklisted POI: ${poi.name} (${poi.osm_type}:${poi.osm_id}) - This POI was previously deleted and will not be re-imported`)
+          results.push({
+            success: false,
+            skipped: true,
+            reason: 'blacklisted',
+            poi: poi.name,
+            osm_id: poi.osm_id,
+            osm_type: poi.osm_type
+          })
+          continue
+        }
+      }
       
       // Prepare coordinate data
       const coordinateData = {

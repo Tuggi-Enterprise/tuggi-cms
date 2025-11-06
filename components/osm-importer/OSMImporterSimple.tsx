@@ -224,6 +224,8 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
     loadDBCities,
     loadDBCategories,
     loadDataForMode,
+    removePOIsFromState,
+    updatePOIInState,
     
     // State Setters
     setViewMode,
@@ -354,27 +356,64 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
       const featureIds = Array.from(selectedFeatures)
       console.log('🗑️ [COMPONENT] Deleting selected features:', { count: featureIds.length })
       
-      const response = await fetch('/api/local-db/delete-selected', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ featureIds }),
-      })
+      // Determine if we're deleting from SQLite local DB or Supabase
+      // Check if current features are from database (no properties/geometry) or from file
+      const isDbData = currentFeatures.length > 0 && 
+                       currentFeatures[0] && 
+                       !currentFeatures[0].properties && 
+                       !currentFeatures[0].geometry
       
-      const result = await response.json()
+      let response
+      let result
       
-      if (result.success) {
-        console.log('✅ [COMPONENT] Features deleted successfully:', result)
-        // Clear selection and refresh data
-        clearSelection()
-        // Reload data to reflect changes
-        loadDataForMode(viewMode)
-        // Show success message
-        alert(`${result.deleted} features deleted successfully`)
+      if (isDbData) {
+        // Data is from Supabase (homolog.pois) - use Supabase delete API
+        console.log('🗑️ [COMPONENT] Deleting from Supabase (homolog.pois)')
+        response = await fetch('/api/supabase/pois/delete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ids: featureIds }),
+        })
+        
+        result = await response.json()
+        
+        if (result.success) {
+          console.log('✅ [COMPONENT] POIs deleted from Supabase successfully:', result)
+          // Optimistically update UI - remove deleted POIs from state immediately
+          removePOIsFromState(featureIds)
+          clearSelection()
+          // Show success message
+          alert(`${result.deleted} POIs deleted successfully and added to blacklist`)
+        } else {
+          console.error('❌ [COMPONENT] Error deleting POIs from Supabase:', result.error)
+          alert(`Error deleting POIs: ${result.error}`)
+        }
       } else {
-        console.error('❌ [COMPONENT] Error deleting features:', result.error)
-        alert(`Error deleting features: ${result.error}`)
+        // Data is from local SQLite file - use local DB delete API
+        console.log('🗑️ [COMPONENT] Deleting from local SQLite database')
+        response = await fetch('/api/local-db/delete-selected', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ featureIds }),
+        })
+        
+        result = await response.json()
+        
+        if (result.success) {
+          console.log('✅ [COMPONENT] Features deleted from SQLite successfully:', result)
+          // Optimistically update UI - remove deleted features from state immediately
+          removePOIsFromState(featureIds)
+          clearSelection()
+          // Show success message
+          alert(`${result.deleted} features deleted successfully`)
+        } else {
+          console.error('❌ [COMPONENT] Error deleting features from SQLite:', result.error)
+          alert(`Error deleting features: ${result.error}`)
+        }
       }
     } catch (error) {
       console.error('❌ [COMPONENT] Error deleting features:', error)
@@ -450,9 +489,16 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
     setSelectedPOI(null)
   }
 
-  // Handle POI update (refresh data after update)
-  const handlePOIUpdate = () => {
-    loadDataForMode(viewMode)
+  // Handle POI update (optimistic update without reload)
+  const handlePOIUpdate = (updatedPOI?: any) => {
+    if (updatedPOI) {
+      // Update the POI in state immediately
+      updatePOIInState(updatedPOI)
+      console.log('✅ [COMPONENT] POI updated in state:', updatedPOI.name)
+    } else {
+      // Fallback: reload if no updated POI provided
+      loadDataForMode(viewMode)
+    }
   }
 
   return (
@@ -949,6 +995,12 @@ export function OSMImporterSimple({ initialHasData = null }: OSMImporterSimplePr
             isOpen={isModalOpen}
             onClose={handleModalClose}
             onUpdate={handlePOIUpdate}
+            onPOIUpdated={(updatedPOI) => handlePOIUpdate(updatedPOI)}
+            onPOIDeleted={(deletedId) => {
+              // Remove deleted POI from state immediately
+              removePOIsFromState([deletedId])
+              handleModalClose()
+            }}
           />
         )}
       </div>

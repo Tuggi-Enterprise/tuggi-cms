@@ -110,8 +110,8 @@ export class PBFProcessor {
       console.log(`📄 Using expressions file (${tags.length} tags): ${expressionsFilePath}`);
     } else {
       // Use command line arguments for small number of tags
-      const tagFilter = tags.map(tag => `nwr/${tag}`).join(",");
-      
+    const tagFilter = tags.map(tag => `nwr/${tag}`).join(",");
+    
       args = [
         "tags-filter"
       ];

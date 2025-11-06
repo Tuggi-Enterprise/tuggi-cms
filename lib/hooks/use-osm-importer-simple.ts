@@ -603,6 +603,50 @@ export function useOSMImporterSimple(initialHasData: boolean | null = null) {
     loadDBFeatures: (page = 1, limit = 50000) => loadAllData(page, limit),
     loadDBCities: () => loadAllData(), // Cities are loaded with all data
     loadDBCategories: () => loadAllData(), // Categories are loaded with all data
-    loadDataForMode // New optimized loading function
+    loadDataForMode, // New optimized loading function
+    
+    // Optimistic update functions (no page reload needed)
+    removePOIsFromState: (ids: string[]) => {
+      setState(prev => {
+        const idsSet = new Set(ids)
+        const filteredFeatures = (prev.features || []).filter(f => {
+          const featureId = f.id || (f as any).uuid_id || (f as any)._id
+          return !idsSet.has(featureId)
+        })
+        
+        // Update pagination total
+        const newTotal = (prev.pagination?.total || 0) - ids.length
+        
+        return {
+          ...prev,
+          features: filteredFeatures,
+          pagination: {
+            ...prev.pagination,
+            total: Math.max(0, newTotal)
+          },
+          selectedFeatures: new Set() // Clear selection after delete
+        }
+      })
+    },
+    
+    updatePOIInState: (updatedPOI: any) => {
+      setState(prev => {
+        const features = (prev.features || []).map(f => {
+          const featureId = f.id || (f as any).uuid_id || (f as any)._id
+          const updatedId = updatedPOI.id || updatedPOI.uuid_id
+          
+          if (featureId === updatedId) {
+            // Merge updated POI with existing feature
+            return { ...f, ...updatedPOI }
+          }
+          return f
+        })
+        
+        return {
+          ...prev,
+          features
+        }
+      })
+    }
   }
 }

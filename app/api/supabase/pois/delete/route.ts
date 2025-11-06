@@ -17,6 +17,66 @@ export async function POST(request: NextRequest) {
       )
     }
     
+    console.log(`🗑️ [API] Deleting ${ids.length} POIs and adding to blacklist`)
+    
+    // First, get POI data before deleting (for blacklist)
+    const { data: poisToDelete, error: fetchError } = await supabase
+      .schema('homolog')
+      .from('pois')
+      .select('uuid_id, name, city, state, country, category, primary_category, osm_id, osm_type, source_file')
+      .in('uuid_id', ids)
+    
+    if (fetchError) {
+      console.error('❌ [API] Error fetching POIs for blacklist:', fetchError)
+      throw fetchError
+    }
+    
+    // Add POIs to blacklist before deleting
+    if (poisToDelete && poisToDelete.length > 0) {
+      const blacklistEntries = poisToDelete.map(poi => ({
+        poi_uuid_id: poi.uuid_id,
+        osm_id: poi.osm_id,
+        osm_type: poi.osm_type,
+        name: poi.name,
+        city: poi.city,
+        state: poi.state,
+        country: poi.country,
+        category: poi.category,
+        primary_category: poi.primary_category,
+        reason: 'user_deleted',
+        excluded_by: 'user',
+        source_file: poi.source_file,
+        metadata: {
+          deleted_at: new Date().toISOString(),
+          deleted_from: 'homolog.pois',
+          original_uuid_id: poi.uuid_id // Store original UUID for reference
+        }
+      }))
+      
+      // Insert into blacklist, ignoring duplicates
+      // The UNIQUE index on (osm_id, osm_type) will prevent duplicates
+      // If POI is already blacklisted, that's OK - we just want to ensure it stays blacklisted
+      const { error: blacklistError } = await supabase
+        .schema('homolog')
+        .from('pois_blacklist')
+        .insert(blacklistEntries)
+      
+      // If error is about duplicate key, that's OK - POI is already blacklisted
+      if (blacklistError) {
+        const isDuplicateError = blacklistError.message.includes('duplicate') || 
+                                  blacklistError.message.includes('unique') ||
+                                  blacklistError.code === '23505' // PostgreSQL unique violation
+        if (isDuplicateError) {
+          console.log(`ℹ️ [API] Some POIs were already in blacklist (this is OK)`)
+        } else {
+          console.error('⚠️ [API] Error adding to blacklist (continuing with delete):', blacklistError)
+          // Don't throw - continue with deletion even if blacklist fails
+        }
+      } else {
+        console.log(`✅ [API] Added ${blacklistEntries.length} POIs to blacklist (OSM IDs saved for future import prevention)`)
+      }
+    }
+    
     // Delete from homolog.pois (cascade will delete coordinates)
     const { error } = await supabase
       .schema('homolog')
@@ -25,6 +85,8 @@ export async function POST(request: NextRequest) {
       .in('uuid_id', ids)
     
     if (error) throw error
+    
+    console.log(`✅ [API] Successfully deleted ${ids.length} POIs`)
     
     return NextResponse.json({
       success: true,

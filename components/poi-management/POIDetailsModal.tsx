@@ -646,23 +646,64 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      const { error } = await supabase
-        .schema('core')
-        .from('attractions')
-        .update({
+      // Check if this is a homolog POI (from homolog.pois table)
+      const isHomologPOI = !!(poi as any)._homologData
+      
+      if (isHomologPOI) {
+        // Use API route for homolog POIs
+        // Note: homolog.pois has both 'category' and 'primary_category' fields
+        // We'll update both to keep them in sync
+        const updates: any = {
           name: editedPoi.name,
-          category: editedPoi.category,
           city: editedPoi.city,
           country: editedPoi.country,
-          updated_at: new Date().toISOString(),
-          reference_links: referenceLinks.filter(link => !!link.trim()) // Save only non-empty links
+          state: editedPoi.state,
+          updated_at: new Date().toISOString()
+        }
+        
+        // Update category field (primary_category is the main field, but category is also used)
+        if (editedPoi.category) {
+          updates.category = editedPoi.category
+          updates.primary_category = editedPoi.category
+        } else if ((poi as any)._homologData?.primary_category) {
+          // Keep existing primary_category if category is not provided
+          updates.primary_category = (poi as any)._homologData.primary_category
+        }
+        
+        const response = await fetch('/api/supabase/pois/update', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: poi.id, updates })
         })
-        .eq('id', poi.id)
+        
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Update failed')
+        }
+      } else {
+        // Use direct Supabase for core.attractions POIs
+        const { error } = await supabase
+          .schema('core')
+          .from('attractions')
+          .update({
+            name: editedPoi.name,
+            category: editedPoi.category,
+            city: editedPoi.city,
+            country: editedPoi.country,
+            updated_at: new Date().toISOString(),
+            reference_links: referenceLinks.filter(link => !!link.trim()) // Save only non-empty links
+          })
+          .eq('id', poi.id)
 
-      if (error) throw error
+        if (error) throw error
+      }
 
       // Update local state instead of reloading all data
-      const updatedPOI = { ...editedPoi, updated_at: new Date().toISOString() }
+      const updatedPOI = { 
+        ...poi, // Keep original POI data
+        ...editedPoi, // Merge with edited fields
+        updated_at: new Date().toISOString() 
+      }
       if (onPOIUpdated) {
         onPOIUpdated(updatedPOI)
       } else {
@@ -671,6 +712,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       onClose()
     } catch (error) {
       console.error('Error saving POI:', error)
+      alert(`Erro ao salvar POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
     } finally {
       setIsSaving(false)
     }
@@ -689,19 +731,42 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         isApproved: poi.approved
       })
       
-      const { error } = await supabase
-        .schema('core')
-        .from('attractions')
-        .update({
-          approved: true,
-          approved_by: user?.id,
-          approved_at: new Date().toISOString()
+      // Check if this is a homolog POI (from homolog.pois table)
+      const isHomologPOI = !!(poi as any)._homologData
+      
+      if (isHomologPOI) {
+        // Use API route for homolog POIs
+        // Note: homolog.pois only has 'approved' field (boolean), not approved_by or approved_at
+        const updates = {
+          approved: true
+        }
+        
+        const response = await fetch('/api/supabase/pois/update', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: poi.id, updates })
         })
-        .eq('id', poi.id)
+        
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Update failed')
+        }
+      } else {
+        // Use direct Supabase for core.attractions POIs
+        const { error } = await supabase
+          .schema('core')
+          .from('attractions')
+          .update({
+            approved: true,
+            approved_by: user?.id,
+            approved_at: new Date().toISOString()
+          })
+          .eq('id', poi.id)
 
-      if (error) {
-        console.error('❌ Supabase error:', error)
-        throw error
+        if (error) {
+          console.error('❌ Supabase error:', error)
+          throw error
+        }
       }
 
       console.log('✅ POI approved successfully')
@@ -735,13 +800,31 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
     setIsSaving(true)
     try {
-      const { error } = await supabase
-        .schema('core')
-        .from('attractions')
-        .delete()
-        .eq('id', poi.id)
+      // Check if this is a homolog POI (from homolog.pois table)
+      const isHomologPOI = !!(poi as any)._homologData
+      
+      if (isHomologPOI) {
+        // Use API route for homolog POIs
+        const response = await fetch('/api/supabase/pois/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: [poi.id] })
+        })
+        
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Delete failed')
+        }
+      } else {
+        // Use direct Supabase for core.attractions POIs
+        const { error } = await supabase
+          .schema('core')
+          .from('attractions')
+          .delete()
+          .eq('id', poi.id)
 
-      if (error) throw error
+        if (error) throw error
+      }
 
       // Notify parent component about deletion instead of reloading all data
       if (onPOIDeleted) {
@@ -752,6 +835,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       onClose()
     } catch (error) {
       console.error('Error deleting POI:', error)
+      alert(`Erro ao excluir POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
     } finally {
       setIsSaving(false)
     }

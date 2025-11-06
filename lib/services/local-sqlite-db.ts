@@ -208,7 +208,7 @@ export class LocalSQLiteDB {
       return { deleted: 0, errors: [] }
     }
 
-    console.log('🗑️ [SQLite] Moving selected features to blacklist:', { count: featureIds.length })
+    console.log('🗑️ [SQLite] Moving selected features to blacklist:', { count: featureIds.length, featureIds: featureIds.slice(0, 5) })
     
     const errors: string[] = []
     let movedCount = 0
@@ -224,53 +224,89 @@ export class LocalSQLiteDB {
         FROM geojson_features 
         WHERE id IN (${featuresPlaceholders})
       `)
-      const features = getFeaturesStmt.all(...featureIds)
+      const features = getFeaturesStmt.all(...featureIds) as any[]
+      
+      console.log(`🔍 [SQLite] Found ${features.length} features to delete (requested ${featureIds.length})`)
+      
+      if (features.length === 0) {
+        console.warn('⚠️ [SQLite] No features found with provided IDs. Checking if IDs exist in database...')
+        // Check if any features exist at all
+        const allFeaturesStmt = this.db.prepare(`SELECT COUNT(*) as count FROM geojson_features`)
+        const totalCount = allFeaturesStmt.get() as { count: number }
+        console.log(`📊 [SQLite] Total features in database: ${totalCount.count}`)
+        
+        // Check a few sample IDs to see what format they have
+        if (featureIds.length > 0) {
+          const sampleId = featureIds[0]
+          const sampleStmt = this.db.prepare(`SELECT id, typeof(id) as id_type FROM geojson_features LIMIT 1`)
+          const sample = sampleStmt.get() as any
+          console.log(`🔍 [SQLite] Sample feature ID format: ${sample?.id} (type: ${sample?.id_type})`)
+          console.log(`🔍 [SQLite] Requested ID format: ${sampleId} (type: ${typeof sampleId})`)
+        }
+      }
       
       // Move features to excluded_features table
       const insertExcludedStmt = this.db.prepare(`
         INSERT INTO excluded_features (
           id, feature_id, name, reason, excluded_by, source_file, metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ? ? ? ? ? ? ? ? ? ? ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
       `)
       
-      for (const feature of features as any[]) {
-        const excludedId = `excluded-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-        const metadata = JSON.stringify({
-          city: feature.city,
-          state: feature.state,
-          country: feature.country,
-          primary_category: feature.primary_category,
-          osm_id: feature.osm_id,
-          osm_type: feature.osm_type,
-          original_id: feature.id
-        })
-        
-        insertExcludedStmt.run(
-          excludedId,
-          feature.id,
-          feature.name,
-          'user_deleted',
-          'user',
-          feature.source_file,
-          metadata
-        )
+      for (const feature of features) {
+        try {
+          const excludedId = `excluded-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          const metadata = JSON.stringify({
+            city: feature.city,
+            state: feature.state,
+            country: feature.country,
+            primary_category: feature.primary_category,
+            osm_id: feature.osm_id,
+            osm_type: feature.osm_type,
+            original_id: feature.id
+          })
+          
+          insertExcludedStmt.run(
+            excludedId,
+            feature.id,
+            feature.name || 'Unnamed',
+            'user_deleted',
+            'user',
+            feature.source_file || 'unknown',
+            metadata
+          )
+          console.log(`✅ [SQLite] Added feature to blacklist: ${feature.name || feature.id}`)
+        } catch (err) {
+          console.error(`❌ [SQLite] Error adding feature ${feature.id} to blacklist:`, err)
+          errors.push(`Failed to add feature ${feature.id} to blacklist: ${err instanceof Error ? err.message : 'Unknown error'}`)
+        }
       }
       
-      // Delete coordinates first (due to foreign key constraint)
-      const deleteCoordinatesStmt = this.db.prepare(`
-        DELETE FROM geojson_coordinates 
-        WHERE feature_id IN (${featuresPlaceholders})
-      `)
-      deleteCoordinatesStmt.run(...featureIds)
-      
-      // Delete features from main table
-      const deleteFeaturesStmt = this.db.prepare(`
-        DELETE FROM geojson_features 
-        WHERE id IN (${featuresPlaceholders})
-      `)
-      const result = deleteFeaturesStmt.run(...featureIds)
-      
-      movedCount = result.changes || 0
+      if (features.length > 0) {
+        // Use the actual feature IDs found (not the requested ones)
+        const foundFeatureIds = features.map(f => f.id)
+        const foundPlaceholders = foundFeatureIds.map(() => '?').join(',')
+        
+        // Delete coordinates first (due to foreign key constraint)
+        const deleteCoordinatesStmt = this.db.prepare(`
+          DELETE FROM geojson_coordinates 
+          WHERE feature_id IN (${foundPlaceholders})
+        `)
+        const coordResult = deleteCoordinatesStmt.run(...foundFeatureIds)
+        console.log(`🗑️ [SQLite] Deleted ${coordResult.changes || 0} coordinate records`)
+        
+        // Delete features from main table
+        const deleteFeaturesStmt = this.db.prepare(`
+          DELETE FROM geojson_features 
+          WHERE id IN (${foundPlaceholders})
+        `)
+        const result = deleteFeaturesStmt.run(...foundFeatureIds)
+        
+        movedCount = result.changes || 0
+        console.log(`🗑️ [SQLite] Deleted ${movedCount} features from main table`)
+      } else {
+        console.warn('⚠️ [SQLite] No features found to delete. IDs may not match.')
+        errors.push(`No features found with the provided IDs. Check if IDs match the database format.`)
+      }
       
       this.db.exec('COMMIT')
       
