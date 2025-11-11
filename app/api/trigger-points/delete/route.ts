@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabase } from '../../../../lib/core/supabase-client'
-
-const supabase = getSupabase('service')
+import { TriggerPointSavingService } from '@/lib/services/trigger-point-saving'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { trigger_point_id } = body
+    const { trigger_point_id, attraction_id } = body
 
     if (!trigger_point_id) {
       return NextResponse.json(
@@ -15,30 +13,34 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('🗑️ Deleting trigger point with service role:', trigger_point_id)
-
-    // Delete trigger point using service role (bypasses RLS issues)
-    const { data, error } = await supabase
-      .schema('core')
-      .from('attraction_trigger_points')
-      .delete()
-      .eq('id', trigger_point_id)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('❌ Error deleting trigger point:', error)
+    if (!attraction_id) {
       return NextResponse.json(
-        { error: 'Failed to delete trigger point', details: error },
+        { error: 'Missing required field: attraction_id' },
+        { status: 400 }
+      )
+    }
+
+    console.log('🗑️ Deleting trigger point using unified service:', trigger_point_id)
+
+    // Use unified service to delete
+    const result = await TriggerPointSavingService.deleteTriggerPoints(
+      attraction_id,
+      [trigger_point_id]
+    )
+
+    if (result.error) {
+      console.error('❌ Error deleting trigger point:', result.error)
+      return NextResponse.json(
+        { error: result.error || 'Failed to delete trigger point' },
         { status: 500 }
       )
     }
 
-    console.log('✅ Trigger point deleted successfully:', data?.id)
+    console.log('✅ Trigger point deleted successfully:', trigger_point_id)
 
     return NextResponse.json({
       success: true,
-      data
+      deleted: result.deleted
     })
 
   } catch (error) {

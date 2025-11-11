@@ -40,8 +40,7 @@ export async function GET(request: NextRequest) {
         pov_quality_score,
         verification_status,
         approved,
-        last_processed_at,
-        trigger_points_count:attraction_trigger_points(count)
+        last_processed_at
       `)
       .eq('approved', true) // Only approved POIs
 
@@ -61,10 +60,11 @@ export async function GET(request: NextRequest) {
     }
 
     // Note: Processing type filters will be applied after fetching data
+    // We need to fetch more than limit to account for filtering
+    // Fetch 3x the limit to ensure we have enough after filtering
+    const fetchLimit = limit * 3
 
-    query = query.limit(limit)
-
-    const { data: attractions, error } = await query
+    const { data: attractions, error } = await query.limit(fetchLimit)
 
     if (error) {
       console.error('❌ Error fetching attractions:', error)
@@ -120,6 +120,13 @@ export async function GET(request: NextRequest) {
       case 'without_trigger_points':
         processedPois = processedPois.filter(poi => poi.trigger_points_count === 0)
         break
+      case 'with_trigger_points':
+        // POIs that have at least one trigger point
+        processedPois = processedPois.filter(poi => poi.trigger_points_count > 0)
+        break
+      case 'all':
+        // No additional filtering needed - return all approved POIs
+        break
       case 'with_few_trigger_points':
         processedPois = processedPois.filter(poi => poi.trigger_points_count > 0 && poi.trigger_points_count < 3)
         break
@@ -136,9 +143,15 @@ export async function GET(request: NextRequest) {
           return lastProcessed < thirtyDaysAgo // Older than 30 days
         })
         break
+      default:
+        // Unknown processing type, default to without_trigger_points
+        console.warn(`⚠️ Unknown processing type: ${processingType}, defaulting to without_trigger_points`)
+        processedPois = processedPois.filter(poi => poi.trigger_points_count === 0)
+        break
     }
 
     // Sort by priority: heritage sites first, then by name
+    // IMPORTANT: Sort BEFORE applying limit to ensure best POIs are returned
     processedPois.sort((a, b) => {
       // Heritage sites first
       const aHeritage = a.heritage_status || a.unesco_status
@@ -150,6 +163,11 @@ export async function GET(request: NextRequest) {
       // Then by name
       return a.name.localeCompare(b.name)
     })
+
+    // Apply limit AFTER filtering and sorting by processingType
+    if (processedPois.length > limit) {
+      processedPois = processedPois.slice(0, limit)
+    }
 
     console.log(`✅ Loaded ${processedPois.length} POIs for trigger point generation`)
 

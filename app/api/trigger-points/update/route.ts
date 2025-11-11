@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { TriggerPointSavingService, TriggerPointSaveData } from '@/lib/services/trigger-point-saving'
 import { getSupabase } from '../../../../lib/core/supabase-client'
 
 const supabase = getSupabase('service')
@@ -51,10 +52,8 @@ export async function POST(request: NextRequest) {
       type,
       priority,
       is_active,
-      direction,
       access,
-      name,
-      description
+      custom_description_id
     } = body
 
     if (!trigger_point_id) {
@@ -68,37 +67,27 @@ export async function POST(request: NextRequest) {
     const authUserId = getUserIdFromRequest(request)
     const cmsUserId = authUserId ? await mapAuthUserToCmsUser(authUserId) : null
     
-    console.log('🔧 Updating trigger point with service role:', {
+    console.log('🔧 Updating trigger point using unified service:', {
       trigger_point_id,
       lat,
       lng,
       access,
-      name,
-      description,
       auth_user_id: authUserId,
       cms_user_id: cmsUserId
     })
 
-    // Prepare update data with user tracking
-    const updateData: any = {
-      updated_at: new Date().toISOString(),
-      // Use EWKT with SRID for PostGIS geography
-      ...(lat && lng && { location: `SRID=4326;POINT(${lng} ${lat})` }),
+    // Prepare update data using unified service
+    const updateData: Partial<TriggerPointSaveData> = {
+      ...(lat != null && lng != null && { lat, lng }),
       ...(radius_meters !== undefined && { radius_meters }),
       ...(expected_bearing !== undefined && { expected_bearing }),
       ...(bearing_threshold !== undefined && { bearing_threshold }),
-      ...(type && { type }),
+      ...(type && { type: type as 'primary' | 'secondary' | 'fallback' | 'special' | 'testing' }),
       ...(priority !== undefined && { priority }),
       ...(is_active !== undefined && { is_active }),
-      ...(direction !== undefined && { direction }),
-      ...(access && { access }),
-      ...(name && { name }),
-      ...(description && { description })
-    }
-
-    // Add user tracking if cms user ID is available
-    if (cmsUserId) {
-      updateData.updated_by = cmsUserId
+      ...(access && { access: access as 'walk' | 'car' | 'both' }),
+      ...(custom_description_id !== undefined && { custom_description_id }),
+      ...(cmsUserId && { updated_by: cmsUserId })
     }
 
     // Proactively disable learning trigger to avoid POI-related exceptions
@@ -113,23 +102,17 @@ export async function POST(request: NextRequest) {
       console.log('🛑 Learning trigger disabled temporarily for safe update')
     }
 
-    // Update trigger point using service role (bypasses RLS issues)
-    const { data, error } = await supabase
-      .schema('core')
-      .from('attraction_trigger_points')
-      .update(updateData)
-      .eq('id', trigger_point_id)
-      .select()
-      .single()
+    // Use unified service to update
+    const result = await TriggerPointSavingService.updateSingle(trigger_point_id, updateData)
 
-    if (error) {
-      console.error('❌ Error updating trigger point:', error)
+    if (!result.success) {
+      console.error('❌ Error updating trigger point:', result.error)
       // Handle Postgres RAISE EXCEPTION (P0001) with clearer message
-      if ((error as any)?.code === 'P0001') {
+      if (result.error?.includes('P0001') || result.error?.includes('RAISE EXCEPTION')) {
         return NextResponse.json(
           {
             error: 'Database validation failed while updating trigger point',
-            details: error,
+            details: result.error,
             hint:
               'A database trigger raised an exception (likely from the learning system). The learning trigger was disabled, but your database may still have another validation. Please ensure attraction exists and has coordinates.'
           },
@@ -137,16 +120,16 @@ export async function POST(request: NextRequest) {
         )
       }
       return NextResponse.json(
-        { error: 'Failed to update trigger point', details: error },
+        { error: result.error || 'Failed to update trigger point' },
         { status: 500 }
       )
     }
 
-    console.log('✅ Trigger point updated successfully:', data.id)
+    console.log('✅ Trigger point updated successfully:', result.data?.id)
 
     return NextResponse.json({
       success: true,
-      data
+      data: result.data
     })
 
   } catch (error) {

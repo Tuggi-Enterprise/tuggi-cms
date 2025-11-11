@@ -20,9 +20,6 @@ export interface TriggerPointForDB {
   score_factors: any
   generation_method: string
   validation_notes?: string
-  name?: string
-  description?: string
-  direction?: 'front' | 'right' | 'left' | 'back'
   access?: 'walk' | 'car' | 'both'
 }
 

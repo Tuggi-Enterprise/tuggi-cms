@@ -490,167 +490,450 @@ export class BoundaryDetector {
   }
   
   /**
-   * Query OSM por nome exato (simplificada para evitar timeout)
+   * Gera variações do nome do POI para busca no OSM
+   * Extrai partes do nome, remove parênteses, traços, etc.
+   */
+  private generateNameVariations(name: string): string[] {
+    const variations: string[] = [];
+    const nameLower = name.toLowerCase();
+    
+    // 1. Nome original (primeira tentativa)
+    variations.push(name);
+    
+    // 2. Remover conteúdo entre parênteses (ex: "Estádio Nabi Abi Chedid (Arena Red Bull)" -> "Estádio Nabi Abi Chedid")
+    const withoutParens = name.replace(/\s*\([^)]*\)\s*/g, '').trim();
+    if (withoutParens !== name && withoutParens.length > 3) {
+      variations.push(withoutParens);
+    }
+    
+    // 3. Remover conteúdo entre colchetes
+    const withoutBrackets = name.replace(/\s*\[[^\]]*\]\s*/g, '').trim();
+    if (withoutBrackets !== name && withoutBrackets.length > 3) {
+      variations.push(withoutBrackets);
+    }
+    
+    // 4. Remover tudo após traço (ex: "Nome - Sufixo" -> "Nome")
+    const withoutDash = name.split(' - ')[0].split(' – ')[0].trim();
+    if (withoutDash !== name && withoutDash.length > 3) {
+      variations.push(withoutDash);
+    }
+    
+    // 5. Variações específicas por tipo de POI
+    if (nameLower.includes('estádio') || nameLower.includes('stadium') || nameLower.includes('arena')) {
+      // Para estádios: remover prefixo "Estádio" ou "Arena"
+      variations.push(
+        name.replace(/estádio\s+/gi, '').trim(),
+        name.replace(/stadium\s+/gi, '').trim(),
+        name.replace(/arena\s+/gi, '').trim()
+      );
+      // Pegar parte principal (ex: "Nabi Abi Chedid")
+      const words = name.split(' ').filter(w => 
+        w.length > 2 && 
+        !w.match(/^(estádio|stadium|arena|red|bull)$/gi)
+      );
+      if (words.length > 0) {
+        variations.push(words.join(' '));
+        if (words.length > 1) {
+          variations.push(words.slice(0, 2).join(' ')); // Primeiras 2 palavras
+        }
+      }
+    } else if (nameLower.includes('museu') || nameLower.includes('museum')) {
+      variations.push(
+        name.replace(/museu\s+/gi, '').trim(),
+        name.replace(/museum\s+/gi, '').trim()
+      );
+    } else if (nameLower.includes('parque') || nameLower.includes('park')) {
+      variations.push(
+        name.replace(/parque\s+/gi, '').trim(),
+        name.replace(/park\s+/gi, '').trim()
+      );
+    } else if (nameLower.includes('igreja') || nameLower.includes('church') || nameLower.includes('catedral') || nameLower.includes('cathedral')) {
+      variations.push(
+        name.replace(/igreja\s+/gi, '').trim(),
+        name.replace(/church\s+/gi, '').trim(),
+        name.replace(/catedral\s+/gi, '').trim(),
+        name.replace(/cathedral\s+/gi, '').trim()
+      );
+    }
+    
+    // 6. Variações genéricas: primeiras palavras, últimas palavras
+    const words = name.split(' ').filter(w => w.length > 2);
+    if (words.length > 1) {
+      variations.push(
+        words[0], // Primeira palavra
+        words.slice(0, 2).join(' '), // Primeiras 2 palavras
+        words.slice(-2).join(' '), // Últimas 2 palavras
+        words[words.length - 1] // Última palavra
+      );
+    }
+    
+    // Remover duplicatas, strings vazias e muito curtas
+    const uniqueVariations = [...new Set(variations)]
+      .filter(term => term && term.trim().length > 2)
+      .slice(0, 10); // Limitar a 10 variações para evitar muitas requisições
+    
+    return uniqueVariations;
+  }
+  
+  /**
+   * Extrai categoria do resultado do Nominatim
+   * Retorna a categoria normalizada (ex: "stadium", "park", "museum")
+   */
+  private extractCategoryFromNominatim(result: any): string | null {
+    try {
+      const extratags = result.extratags || {};
+      const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'railway', 'public_transport', 'shop', 'highway', 'building'];
+      
+      // Primeiro: buscar tags específicas (não *=yes)
+      for (const tag of priorityTags) {
+        if (extratags[tag] && extratags[tag] !== 'yes') {
+          return extratags[tag]; // Retorna apenas o valor (ex: "stadium", "park")
+        }
+      }
+      
+      // Segundo: se não encontrou, buscar tags com valor "yes" mas usar o tipo da tag
+      for (const tag of priorityTags) {
+        if (extratags[tag] === 'yes') {
+          // Se o tipo da tag é válido, usar ele como categoria
+          if (tag !== 'building' && tag !== 'highway') { // building e highway são muito genéricos
+            return tag;
+          }
+        }
+      }
+      
+      // Terceiro: se ainda não encontrou, usar class/type do Nominatim
+      if (result.class && result.type) {
+        // Se type não for genérico, usar type
+        if (result.type !== 'yes' && result.type !== 'no') {
+          return result.type;
+        } else if (result.class !== 'place' && result.class !== 'boundary') {
+          // Caso contrário, usar class se não for muito genérico
+          if (result.class !== 'building' && result.class !== 'highway') {
+            return result.class;
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('Error extracting category from Nominatim:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Normaliza categoria do POI (Google type) para comparar com categoria OSM
+   * Mapeia tipos do Google para categorias OSM equivalentes
+   */
+  private normalizePOICategory(poiType: string): string[] {
+    const normalized = poiType.toLowerCase();
+    const equivalentCategories: string[] = [];
+    
+    // Mapeamento de tipos Google para categorias OSM
+    const categoryMap: Record<string, string[]> = {
+      'stadium': ['stadium', 'sports_centre', 'arena'],
+      'park': ['park', 'recreation_ground', 'garden'],
+      'museum': ['museum', 'gallery'],
+      'church': ['church', 'cathedral', 'place_of_worship'],
+      'restaurant': ['restaurant', 'cafe', 'fast_food'],
+      'hotel': ['hotel', 'hostel', 'motel'],
+      'tourist_attraction': ['attraction', 'viewpoint', 'monument'],
+      'shopping_mall': ['mall', 'shopping_centre'],
+      'hospital': ['hospital', 'clinic'],
+      'school': ['school', 'university', 'college'],
+      'zoo': ['zoo', 'wildlife_park'],
+      'aquarium': ['aquarium'],
+      'library': ['library'],
+      'theater': ['theatre', 'cinema'],
+      'amusement_park': ['theme_park', 'amusement_ride'],
+      'beach': ['beach'],
+      'mountain': ['peak', 'volcano'],
+      'lake': ['lake', 'reservoir'],
+      'airport': ['airport', 'aerodrome'],
+      'train_station': ['station', 'halt'],
+      'bus_station': ['bus_station', 'bus_stop']
+    };
+    
+    // Buscar mapeamento direto
+    if (categoryMap[normalized]) {
+      equivalentCategories.push(...categoryMap[normalized]);
+    }
+    
+    // Adicionar o tipo original também (caso seja compatível)
+    if (!equivalentCategories.includes(normalized)) {
+      equivalentCategories.push(normalized);
+    }
+    
+    return equivalentCategories;
+  }
+  
+  /**
+   * Compara categoria do POI com categoria do Nominatim
+   * Retorna true se as categorias são compatíveis
+   */
+  private compareCategories(poiType: string, osmCategory: string | null): boolean {
+    if (!osmCategory) {
+      // Se não encontrou categoria no OSM, não rejeitar (pode ser um POI sem categoria definida)
+      return true;
+    }
+    
+    const normalizedOsmCategory = osmCategory.toLowerCase();
+    const equivalentCategories = this.normalizePOICategory(poiType);
+    
+    // Verificar se a categoria OSM está na lista de categorias equivalentes
+    const isCompatible = equivalentCategories.some(cat => 
+      normalizedOsmCategory === cat.toLowerCase() ||
+      normalizedOsmCategory.includes(cat.toLowerCase()) ||
+      cat.toLowerCase().includes(normalizedOsmCategory)
+    );
+    
+    return isCompatible;
+  }
+  
+  /**
+   * Valida resultado do Nominatim pela distância, localidade e categoria
+   * Retorna true se o resultado é válido para o POI
+   */
+  private validateNominatimResult(
+    result: any,
+    poiData: POIData,
+    maxDistance: number = 10 // metros - raio muito restritivo para evitar falsos positivos
+  ): boolean {
+    try {
+      const resultLat = parseFloat(result.lat);
+      const resultLng = parseFloat(result.lon);
+      
+      if (isNaN(resultLat) || isNaN(resultLng)) {
+        return false;
+      }
+      
+      // 1. Validar distância (muito restritivo: 10 metros)
+      const distance = this.calculateDistance(
+        { lat: poiData.location.lat, lng: poiData.location.lng },
+        { lat: resultLat, lng: resultLng }
+      );
+      
+      if (distance > maxDistance) {
+        console.log(`⚠️ Result too far: ${distance.toFixed(0)}m (max: ${maxDistance}m)`);
+        return false;
+      }
+      
+      // 2. Validar categoria (NOVO - evita falsos positivos)
+      const osmCategory = this.extractCategoryFromNominatim(result);
+      if (!this.compareCategories(poiData.type, osmCategory)) {
+        console.log(`⚠️ Category mismatch: POI=${poiData.type}, OSM=${osmCategory || 'unknown'}`);
+        return false; // Categoria incompatível - rejeitar
+      }
+      
+      // 3. Validar localidade (cidade/estado)
+      const osmCity = result.address?.city || result.extratags?.['addr:city'];
+      const osmState = result.address?.state || result.extratags?.['is_in:state'];
+      
+      if (poiData.city && osmCity) {
+        const cityMatch = poiData.city.toLowerCase().includes(osmCity.toLowerCase()) ||
+                         osmCity.toLowerCase().includes(poiData.city.toLowerCase());
+        if (!cityMatch) {
+          console.log(`⚠️ City mismatch: POI=${poiData.city}, OSM=${osmCity}`);
+          // Não rejeitar por cidade, apenas logar (cidades podem ter nomes diferentes)
+        }
+      }
+      
+      if (poiData.state && osmState) {
+        const stateMatch = poiData.state.toLowerCase() === osmState.toLowerCase();
+        if (!stateMatch) {
+          console.log(`⚠️ State mismatch: POI=${poiData.state}, OSM=${osmState}`);
+          return false; // Estado deve ser exato
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.warn('Error validating Nominatim result:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Query OSM por nome com variações (restrito a região próxima)
    */
   private async queryOSMByName(poiData: POIData, context: GeographicContext): Promise<ProcessingResult<BoundaryData>> {
-    console.log(`🔍 OSM name search for: "${poiData.name}" using Nominatim API`);
+    console.log(`🔍 OSM name search for: "${poiData.name}" using Nominatim API with name variations`);
     
     try {
-      // USAR NOMINATIM API (igual ao sistema legado que funciona)
-      const encodedName = encodeURIComponent(poiData.name);
       const lat = poiData.location.lat;
       const lng = poiData.location.lng;
       
-      const nominatimUrl = `https://nominatim.openstreetmap.org/search?` +
-        `q=${encodedName}&` +
-        `lat=${lat}&lon=${lng}&` +
-        `bounded=1&viewbox=${lng-0.01},${lat+0.01},${lng+0.01},${lat-0.01}&` +
-        `format=json&polygon_geojson=1&addressdetails=1&extratags=1&limit=5`;
-
-      console.log(`🌐 Nominatim URL: ${nominatimUrl}`);
+      // Gerar variações do nome
+      const nameVariations = this.generateNameVariations(poiData.name);
+      console.log(`🔍 Generated ${nameVariations.length} name variations: ${nameVariations.slice(0, 5).join(', ')}${nameVariations.length > 5 ? '...' : ''}`);
       
-      const response = await fetch(nominatimUrl, {
-        headers: {
-          'User-Agent': 'TuggiCMS/1.0 (boundary-detection)'
-        }
-      });
+      // Viewbox restritivo: 0.01 graus = ~1.1km (muito próximo)
+      // Isso evita encontrar POIs com mesmo nome mas em outras cidades
+      const viewboxSize = 0.01; // ~1.1km
+      const viewbox = `${lng-viewboxSize},${lat+viewboxSize},${lng+viewboxSize},${lat-viewboxSize}`;
+      
+      // Tentar cada variação sequencialmente até encontrar um resultado válido
+      for (let i = 0; i < nameVariations.length; i++) {
+        const searchTerm = nameVariations[i];
+        console.log(`🔍 Trying variation ${i + 1}/${nameVariations.length}: "${searchTerm}"`);
+        
+        const encodedName = encodeURIComponent(searchTerm);
+        const nominatimUrl = `https://nominatim.openstreetmap.org/search?` +
+          `q=${encodedName}&` +
+          `lat=${lat}&lon=${lng}&` +
+          `bounded=1&viewbox=${viewbox}&` +
+          `format=json&polygon_geojson=1&addressdetails=1&extratags=1&limit=5`;
 
-      if (!response.ok) {
-        console.error(`❌ Nominatim API error: ${response.status}`);
-        return { success: false, error: `Nominatim API error: ${response.status}`, processingTime: 0 };
-      }
+        try {
+          const response = await fetch(nominatimUrl, {
+            headers: {
+              'User-Agent': 'TuggiCMS/1.0 (boundary-detection)'
+            }
+          });
 
-      const results = await response.json();
-      console.log(`📍 Nominatim found ${results.length} results`);
+          if (!response.ok) {
+            console.warn(`⚠️ Nominatim API error ${response.status} for variation "${searchTerm}"`);
+            continue; // Tentar próxima variação
+          }
 
-      if (results.length === 0) {
-        return { success: false, error: 'No results found in Nominatim', processingTime: 0 };
-      }
+          const results = await response.json();
+          console.log(`📍 Nominatim found ${results.length} results for "${searchTerm}"`);
 
-      // Processar resultados do Nominatim
-      for (const result of results) {
-        if (result.geojson && result.geojson.coordinates) {
-          console.log(`🔍 Processing Nominatim result: ${result.display_name} (type: ${result.geojson.type})`);
-          
-          const processed = await this.processNominatimGeometry(result.geojson, lat, lng);
-          if (processed.success && processed.coordinates.length > 2) {
-            const center = this.calculatePolygonCenter(processed.coordinates);
-            const area = this.calculatePolygonArea(processed.coordinates);
+          if (results.length === 0) {
+            continue; // Tentar próxima variação
+          }
+
+          // Validar e processar resultados
+          for (const result of results) {
+            // Validar distância, categoria e localidade (raio de 10m)
+            if (!this.validateNominatimResult(result, poiData, 10)) {
+              console.log(`⚠️ Result rejected for "${searchTerm}": validation failed`);
+              continue;
+            }
             
-            console.log(`✅ Nominatim boundary: ${processed.coordinates.length} points, area: ${area.toFixed(0)}m²`);
-            
-            // NOVA LÓGICA: Extrair elevação e altura para resultados do Nominatim
-            let elevationData;
-            let poiHeight;
-            let consolidatedStreets: any[] = [];
-            let consolidatedBuildings: any[] = [];
-            let consolidatedVegetation: any[] = [];
-            let consolidatedBarriers: any[] = [];
-            let poiClassification: any = undefined;
-            
-            try {
-              console.log(`🏗️ Extracting POI elevation and height for Nominatim result...`);
-              console.log(`📍 POI center: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`);
-              console.log(`🏷️ Nominatim result type: ${result.geojson.type}, osm_type: ${result.osm_type}, osm_id: ${result.osm_id}`);
+            if (result.geojson && result.geojson.coordinates) {
+              console.log(`✅ Valid result found with variation "${searchTerm}": ${result.display_name}`);
+              console.log(`🔍 Processing Nominatim result: ${result.display_name} (type: ${result.geojson.type})`);
               
-              // 🎯 NOVA ESTRATÉGIA: Classificar POI ANTES de buscar ruas
-              // PASSO 1: Buscar tags do POI (query pequena)
-              // PASSO 2: Extrair altura e elevação
-              // PASSO 3: Classificar POI
-              // PASSO 4: Query consolidada COM RAIO CORRETO
-              if (result.osm_id && result.osm_type) {
-                console.log(`🔍 Step 1: Getting POI tags from OSM ID: ${result.osm_type}(${result.osm_id})`);
+              const processed = await this.processNominatimGeometry(result.geojson, lat, lng);
+              if (processed.success && processed.coordinates.length > 2) {
+                const center = this.calculatePolygonCenter(processed.coordinates);
+                const area = this.calculatePolygonArea(processed.coordinates);
+                
+                console.log(`✅ Nominatim boundary: ${processed.coordinates.length} points, area: ${area.toFixed(0)}m²`);
+                
+                // NOVA LÓGICA: Extrair elevação e altura para resultados do Nominatim
+                let elevationData;
+                let poiHeight;
+                let consolidatedStreets: any[] = [];
+                let consolidatedBuildings: any[] = [];
+                let consolidatedVegetation: any[] = [];
+                let consolidatedBarriers: any[] = [];
+                let poiClassification: any = undefined;
+                
                 try {
-                  // ===============================================
-                  // STEP 1: Query PEQUENA apenas para tags do POI
-                  // ===============================================
-                  const poiTagsQuery = `
+                  console.log(`🏗️ Extracting POI elevation and height for Nominatim result...`);
+                  console.log(`📍 POI center: ${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}`);
+                  console.log(`🏷️ Nominatim result type: ${result.geojson.type}, osm_type: ${result.osm_type}, osm_id: ${result.osm_id}`);
+                  
+                  // 🎯 NOVA ESTRATÉGIA: Classificar POI ANTES de buscar ruas
+                  // PASSO 1: Buscar tags do POI (query pequena)
+                  // PASSO 2: Extrair altura e elevação
+                  // PASSO 3: Classificar POI
+                  // PASSO 4: Query consolidada COM RAIO CORRETO
+                  if (result.osm_id && result.osm_type) {
+                    console.log(`🔍 Step 1: Getting POI tags from OSM ID: ${result.osm_type}(${result.osm_id})`);
+                    try {
+                      // ===============================================
+                      // STEP 1: Query PEQUENA apenas para tags do POI
+                      // ===============================================
+                      const poiTagsQuery = `
 [out:json][timeout:30];
 ${result.osm_type}(${result.osm_id});
 out tags;
 `;
-                  
-                  const poiTagsResponse = await fetch('https://overpass-api.de/api/interpreter', {
-                    method: 'POST',
-                    body: poiTagsQuery,
-                    headers: { 'Content-Type': 'text/plain' },
-                    signal: AbortSignal.timeout(40000)
-                  });
-                  
-                  let poiTags: any = {};
-                  if (poiTagsResponse.ok) {
-                    const poiTagsData = await poiTagsResponse.json();
-                    const poiElement = poiTagsData.elements[0];
-                    if (poiElement && poiElement.tags) {
-                      poiTags = poiElement.tags;
-                      console.log(`✅ Retrieved POI tags from OSM`);
-                    }
-                  }
-                  
-                  // ===============================================
-                  // STEP 2: Extrair altura e elevação
-                  // ===============================================
-                  console.log(`🔍 Step 2: Extracting height and elevation...`);
-                  
-                  // Extrair altura dos tags
-                  poiHeight = this.extractOSMHeight({ tags: poiTags });
-                  if (poiHeight) {
-                    console.log(`📏 POI height from tags: ${poiHeight}m`);
-                  } else {
-                    console.log(`⚠️ No height found in tags`);
-                  }
-                  
-                  // Buscar elevação
-                  const elevation = await this.elevationService.getElevation(center, undefined, { tags: poiTags });
-                  if (elevation && elevation.confidence > 0.5) {
-                    elevationData = {
-                      min: elevation.ground - 10,
-                      max: elevation.ground + 10,
-                      average: elevation.ground,
-                      center: elevation.total
-                    };
-                    console.log(`⛰️ POI elevation: ${elevation.total.toFixed(1)}m (ground: ${elevation.ground.toFixed(1)}m)`);
-                  } else {
-                    console.log(`⚠️ Low confidence elevation or no data`);
-                  }
-                  
-                  // ===============================================
-                  // STEP 3: CLASSIFICAR POI (NOVO!)
-                  // ===============================================
-                  console.log(`🔍 Step 3: Classifying POI to determine search strategy...`);
-                  
-                  const POIClassifierService = (await import('../services/poi-classifier.service')).POIClassifierService;
-                  const classifier = new POIClassifierService();
-                  
-                  const classification = await classifier.classifyPOI(
-                    poiData,
-                    poiHeight || undefined,
-                    elevationData ? { center: elevationData.center } : undefined,
-                    area,
-                    context,
-                    poiTags
-                  );
-                  
-                  console.log(`✅ POI Classification: ${classification.group.toUpperCase()}`);
-                  console.log(`📏 Search radius: ${classification.searchRadius}m (${classification.metadata.reasoning})`);
-                  
-                  // Armazenar classificação para retorno
-                  poiClassification = classification;
-                  
-                  // ===============================================
-                  // STEP 4: Query consolidada COM RAIO CORRETO
-                  // ===============================================
-                  const searchRadius = classification.searchRadius;
-                  
-                  console.log(`🔍 Step 4: Fetching consolidated data with optimized radius: ${searchRadius}m`);
-                  
-                  // 🎯 NOVO: Calcular boundary expandido (raio para FORA do boundary)
-                  const expandedBoundary = this.expandBoundary(processed.coordinates, searchRadius);
-                  const expandedPolygon = expandedBoundary.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
-                  
-                  console.log(`🎯 Using expanded boundary polygon (${searchRadius}m outside boundary): ${expandedBoundary.length} points`);
-                  
-                  const consolidatedQuery = `
+                      
+                      const poiTagsResponse = await fetch('https://overpass-api.de/api/interpreter', {
+                        method: 'POST',
+                        body: poiTagsQuery,
+                        headers: { 'Content-Type': 'text/plain' },
+                        signal: AbortSignal.timeout(40000)
+                      });
+                      
+                      let poiTags: any = {};
+                      if (poiTagsResponse.ok) {
+                        const poiTagsData = await poiTagsResponse.json();
+                        const poiElement = poiTagsData.elements[0];
+                        if (poiElement && poiElement.tags) {
+                          poiTags = poiElement.tags;
+                          console.log(`✅ Retrieved POI tags from OSM`);
+                        }
+                      }
+                      
+                      // ===============================================
+                      // STEP 2: Extrair altura e elevação
+                      // ===============================================
+                      console.log(`🔍 Step 2: Extracting height and elevation...`);
+                      
+                      // Extrair altura dos tags
+                      poiHeight = this.extractOSMHeight({ tags: poiTags });
+                      if (poiHeight) {
+                        console.log(`📏 POI height from tags: ${poiHeight}m`);
+                      } else {
+                        console.log(`⚠️ No height found in tags`);
+                      }
+                      
+                      // Buscar elevação
+                      const elevation = await this.elevationService.getElevation(center, undefined, { tags: poiTags });
+                      if (elevation && elevation.confidence > 0.5) {
+                        elevationData = {
+                          min: elevation.ground - 10,
+                          max: elevation.ground + 10,
+                          average: elevation.ground,
+                          center: elevation.total
+                        };
+                        console.log(`⛰️ POI elevation: ${elevation.total.toFixed(1)}m (ground: ${elevation.ground.toFixed(1)}m)`);
+                      } else {
+                        console.log(`⚠️ Low confidence elevation or no data`);
+                      }
+                      
+                      // ===============================================
+                      // STEP 3: CLASSIFICAR POI (NOVO!)
+                      // ===============================================
+                      console.log(`🔍 Step 3: Classifying POI to determine search strategy...`);
+                      
+                      const POIClassifierService = (await import('../services/poi-classifier.service')).POIClassifierService;
+                      const classifier = new POIClassifierService();
+                      
+                      const classification = await classifier.classifyPOI(
+                        poiData,
+                        poiHeight || undefined,
+                        elevationData ? { center: elevationData.center } : undefined,
+                        area,
+                        context,
+                        poiTags
+                      );
+                      
+                      console.log(`✅ POI Classification: ${classification.group.toUpperCase()}`);
+                      console.log(`📏 Search radius: ${classification.searchRadius}m (${classification.metadata.reasoning})`);
+                      
+                      // Armazenar classificação para retorno
+                      poiClassification = classification;
+                      
+                      // ===============================================
+                      // STEP 4: Query consolidada COM RAIO CORRETO
+                      // ===============================================
+                      const searchRadius = classification.searchRadius;
+                      
+                      console.log(`🔍 Step 4: Fetching consolidated data with optimized radius: ${searchRadius}m`);
+                      
+                      // 🎯 NOVO: Calcular boundary expandido (raio para FORA do boundary)
+                      const expandedBoundary = this.expandBoundary(processed.coordinates, searchRadius);
+                      const expandedPolygon = expandedBoundary.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
+                      
+                      console.log(`🎯 Using expanded boundary polygon (${searchRadius}m outside boundary): ${expandedBoundary.length} points`);
+                      
+                      const consolidatedQuery = `
 [out:json][timeout:180];
 (
   ${result.osm_type}(${result.osm_id});
@@ -662,100 +945,100 @@ out tags;
 );
 out geom tags;
 `;
-                  
-                  //console.log(`🔍 DEBUG: OSM Consolidated Query:`, consolidatedQuery);
-                  
-                  const osmTagsResponse = await fetch('https://overpass-api.de/api/interpreter', {
-                    method: 'POST',
-                    body: consolidatedQuery,
-                    headers: { 'Content-Type': 'text/plain' },
-                    signal: AbortSignal.timeout(200000) // 200 segundos timeout
-                  });
-                  
-                  // console.log(`🔍 DEBUG: OSM Tags Response status:`, osmTagsResponse.status);
-                  
-                  if (osmTagsResponse.ok) {
-                    const consolidatedData = await osmTagsResponse.json();
-                    // console.log(`🔍 DEBUG: OSM Consolidated Data:`, JSON.stringify(consolidatedData, null, 2));
-                    
-                    if (consolidatedData.elements && consolidatedData.elements.length > 0) {
-                      // Separar elementos por tipo
-                      const poiElement = consolidatedData.elements.find((el: any) => el.id === result.osm_id);
-                      const streetElements = consolidatedData.elements.filter((el: any) => 
-                        el.tags?.highway && el.geometry && el.geometry.length > 1
-                      );
-                      const buildingElements = consolidatedData.elements.filter((el: any) => 
-                        el.tags?.building && el.geometry
-                      );
-                      const vegetationElements = consolidatedData.elements.filter((el: any) => 
-                        el.tags?.natural && el.geometry
-                      );
-                      const barrierElements = consolidatedData.elements.filter((el: any) => 
-                        el.tags?.barrier && el.geometry
-                      );
                       
-                      console.log(`🚀 CONSOLIDATION SUCCESS: ${streetElements.length} streets, ${buildingElements.length} buildings, ${vegetationElements.length} vegetation, ${barrierElements.length} barriers`);
+                      //console.log(`🔍 DEBUG: OSM Consolidated Query:`, consolidatedQuery);
                       
-                      // Extrair altura do POI
-                      if (poiElement) {
-                        poiHeight = this.extractOSMHeight(poiElement);
-                        if (poiHeight) {
-                          console.log(`✅ Found height from OSM ID: ${poiHeight}m`);
+                      const osmTagsResponse = await fetch('https://overpass-api.de/api/interpreter', {
+                        method: 'POST',
+                        body: consolidatedQuery,
+                        headers: { 'Content-Type': 'text/plain' },
+                        signal: AbortSignal.timeout(200000) // 200 segundos timeout
+                      });
+                      
+                      // console.log(`🔍 DEBUG: OSM Tags Response status:`, osmTagsResponse.status);
+                      
+                      if (osmTagsResponse.ok) {
+                        const consolidatedData = await osmTagsResponse.json();
+                        // console.log(`🔍 DEBUG: OSM Consolidated Data:`, JSON.stringify(consolidatedData, null, 2));
+                        
+                        if (consolidatedData.elements && consolidatedData.elements.length > 0) {
+                          // Separar elementos por tipo
+                          const poiElement = consolidatedData.elements.find((el: any) => el.id === result.osm_id);
+                          const streetElements = consolidatedData.elements.filter((el: any) => 
+                            el.tags?.highway && el.geometry && el.geometry.length > 1
+                          );
+                          const buildingElements = consolidatedData.elements.filter((el: any) => 
+                            el.tags?.building && el.geometry
+                          );
+                          const vegetationElements = consolidatedData.elements.filter((el: any) => 
+                            el.tags?.natural && el.geometry
+                          );
+                          const barrierElements = consolidatedData.elements.filter((el: any) => 
+                            el.tags?.barrier && el.geometry
+                          );
+                          
+                          console.log(`🚀 CONSOLIDATION SUCCESS: ${streetElements.length} streets, ${buildingElements.length} buildings, ${vegetationElements.length} vegetation, ${barrierElements.length} barriers`);
+                          
+                          // Extrair altura do POI
+                          if (poiElement) {
+                            poiHeight = this.extractOSMHeight(poiElement);
+                            if (poiHeight) {
+                              console.log(`✅ Found height from OSM ID: ${poiHeight}m`);
+                            } else {
+                              console.log(`⚠️ No height found in OSM ID tags`);
+                            }
+                          }
+                          
+                          // Processar ruas encontradas
+                          const streets = this.processOSMStreets(streetElements, processed.coordinates);
+                          // Processar buildings encontrados
+                          const buildings = this.processOSMBuildings(buildingElements);
+
+                          // Processar vegetação encontrada
+                          const vegetation = this.processOSMVegetation(vegetationElements);
+
+                          // Processar barreiras encontradas
+                          const barriers = this.processOSMBarriers(barrierElements);
+                          
+                          console.log(`🛣️ Processed ${streets.length} streets, ${buildings.length} buildings, ${vegetation.length} vegetation, ${barriers.length} barriers`);
+
+                          // Armazenar dados consolidados para uso posterior
+                          consolidatedStreets = streets;
+                          consolidatedBuildings = buildings;
+                          consolidatedVegetation = vegetation;
+                          consolidatedBarriers = barriers;
                         } else {
-                          console.log(`⚠️ No height found in OSM ID tags`);
+                          console.log(`⚠️ No elements found in OSM consolidated response`);
                         }
+                      } else {
+                        console.log(`⚠️ OSM Consolidated Response not OK: ${osmTagsResponse.status}`);
                       }
-                      
-                      // Processar ruas encontradas
-                      const streets = this.processOSMStreets(streetElements, processed.coordinates);
-                      // Processar buildings encontrados
-                      const buildings = this.processOSMBuildings(buildingElements);
-
-                      // Processar vegetação encontrada
-                      const vegetation = this.processOSMVegetation(vegetationElements);
-
-                      // Processar barreiras encontradas
-                      const barriers = this.processOSMBarriers(barrierElements);
-                      
-                      console.log(`🛣️ Processed ${streets.length} streets, ${buildings.length} buildings, ${vegetation.length} vegetation, ${barriers.length} barriers`);
-
-                      // Armazenar dados consolidados para uso posterior
-                      consolidatedStreets = streets;
-                      consolidatedBuildings = buildings;
-                      consolidatedVegetation = vegetation;
-                      consolidatedBarriers = barriers;
-                    } else {
-                      console.log(`⚠️ No elements found in OSM consolidated response`);
+                    } catch (error) {
+                      console.warn(`⚠️ Failed to get tags from OSM ID:`, error);
                     }
-                  } else {
-                    console.log(`⚠️ OSM Consolidated Response not OK: ${osmTagsResponse.status}`);
                   }
-                } catch (error) {
-                  console.warn(`⚠️ Failed to get tags from OSM ID:`, error);
-                }
-              }
-              
-              // SISTEMA ESCALÁVEL: Se não encontrou altura via OSM ID, usar dados consolidados primeiro
-              if (!poiHeight) {
-                // 🚀 NOVA LÓGICA: Usar dados consolidados se disponíveis
-                if (consolidatedBuildings && consolidatedBuildings.length > 0) {
-                  console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated buildings data for height analysis (${consolidatedBuildings.length} buildings)`);
-                  poiHeight = this.extractHeightFromMultipleElements(consolidatedBuildings, center, {
-                    coordinates: processed.coordinates,
-                    center,
-                    area,
-                    confidence: 0.8,
-                    source: 'osm'
-                  });
-                }
-                
-                // Se ainda não encontrou altura, buscar elementos arquitetônicos dentro do boundary
-                if (!poiHeight) {
-                  console.log(`🔄 No height from consolidated data, searching for related architectural elements around Nominatim result...`);
-              
-              // SOLUÇÃO SIMPLES: Buscar apenas elementos dentro do boundary
-              const boundaryPolygon = processed.coordinates.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
-              const architecturalQuery = `
+                  
+                  // SISTEMA ESCALÁVEL: Se não encontrou altura via OSM ID, usar dados consolidados primeiro
+                  if (!poiHeight) {
+                    // 🚀 NOVA LÓGICA: Usar dados consolidados se disponíveis
+                    if (consolidatedBuildings && consolidatedBuildings.length > 0) {
+                      console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated buildings data for height analysis (${consolidatedBuildings.length} buildings)`);
+                      poiHeight = this.extractHeightFromMultipleElements(consolidatedBuildings, center, {
+                        coordinates: processed.coordinates,
+                        center,
+                        area,
+                        confidence: 0.8,
+                        source: 'osm'
+                      });
+                    }
+                    
+                    // Se ainda não encontrou altura, buscar elementos arquitetônicos dentro do boundary
+                    if (!poiHeight) {
+                      console.log(`🔄 No height from consolidated data, searching for related architectural elements around Nominatim result...`);
+                  
+                      // SOLUÇÃO SIMPLES: Buscar apenas elementos dentro do boundary
+                      const boundaryPolygon = processed.coordinates.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
+                      const architecturalQuery = `
 [out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
 (
   way["building:part"~"^(tower|spire|dome|cupola|minaret)$"](poly:"${boundaryPolygon}");
@@ -766,98 +1049,105 @@ out geom tags;
 );
 out tags;
 `;
-              
-              try {
-                const response = await fetch('https://overpass-api.de/api/interpreter', {
-                  method: 'POST',
-                  body: architecturalQuery,
-                  headers: { 'Content-Type': 'text/plain' }
-                });
-                
-                if (response.ok) {
-                  const data = await response.json();
-                  if (data.elements && data.elements.length > 0) {
-                    // console.log(`🏗️ Found ${data.elements.length} architectural elements, analyzing for height...`);
-                    // Criar boundary temporário para verificação
-                    const tempBoundary: BoundaryData = {
-                      coordinates: processed.coordinates,
-                      center,
-                      area,
-                      confidence: 0.8,
-                      source: 'osm'
+                      
+                      try {
+                        const response = await fetch('https://overpass-api.de/api/interpreter', {
+                          method: 'POST',
+                          body: architecturalQuery,
+                          headers: { 'Content-Type': 'text/plain' }
+                        });
+                        
+                        if (response.ok) {
+                          const data = await response.json();
+                          if (data.elements && data.elements.length > 0) {
+                            // console.log(`🏗️ Found ${data.elements.length} architectural elements, analyzing for height...`);
+                            // Criar boundary temporário para verificação
+                            const tempBoundary: BoundaryData = {
+                              coordinates: processed.coordinates,
+                              center,
+                              area,
+                              confidence: 0.8,
+                              source: 'osm'
+                            };
+                            poiHeight = this.extractHeightFromMultipleElements(data.elements, center, tempBoundary);
+                          } else {
+                            console.log(`⚠️ No architectural elements found around Nominatim result`);
+                          }
+                        } else {
+                          console.warn(`⚠️ Architectural elements search failed: ${response.status}`);
+                        }
+                      } catch (error) {
+                        console.warn('⚠️ Architectural elements search failed (non-blocking):', error);
+                      }
+                    } // Fechamento do bloco if (!poiHeight) - busca arquitetônica
+                  } // Fechamento do bloco if (!poiHeight) - principal
+                  
+                  // Para Nominatim, não temos tags OSM, então pular direto para Google Elevation
+                  const elevation = await this.elevationService.getElevation(center, undefined, result);
+                  console.log(`📊 Elevation service returned:`, { 
+                    elevation: elevation ? elevation.total : null, 
+                    confidence: elevation?.confidence,
+                    source: elevation?.source 
+                  });
+                  
+                  if (elevation && elevation.confidence > 0.5) {
+                    elevationData = {
+                      min: elevation.ground - 10,
+                      max: elevation.ground + 10,
+                      average: elevation.ground,
+                      center: elevation.total
                     };
-                    poiHeight = this.extractHeightFromMultipleElements(data.elements, center, tempBoundary);
+                    console.log(`⛰️ POI elevation: ${elevation.total.toFixed(1)}m (ground: ${elevation.ground.toFixed(1)}m)`);
                   } else {
-                    console.log(`⚠️ No architectural elements found around Nominatim result`);
+                    console.log(`⚠️ Low confidence elevation or no data: confidence=${elevation?.confidence}`);
                   }
-                } else {
-                  console.warn(`⚠️ Architectural elements search failed: ${response.status}`);
+                } catch (error) {
+                  console.warn('⚠️ Elevation/height extraction failed for Nominatim (non-blocking):', error);
+                  if (error instanceof Error) {
+                    console.warn('⚠️ Error details:', error.message);
+                  }
                 }
-              } catch (error) {
-                console.warn('⚠️ Architectural elements search failed (non-blocking):', error);
-              }
-                } // Fechamento do bloco if (!poiHeight) - busca arquitetônica
-              } // Fechamento do bloco if (!poiHeight) - principal
-              
-              // Para Nominatim, não temos tags OSM, então pular direto para Google Elevation
-              const elevation = await this.elevationService.getElevation(center, undefined, result);
-              console.log(`📊 Elevation service returned:`, { 
-                elevation: elevation ? elevation.total : null, 
-                confidence: elevation?.confidence,
-                source: elevation?.source 
-              });
-              
-              if (elevation && elevation.confidence > 0.5) {
-                elevationData = {
-                  min: elevation.ground - 10,
-                  max: elevation.ground + 10,
-                  average: elevation.ground,
-                  center: elevation.total
+            
+                // Extrair informações de endereço do POI (usando dados do Nominatim já disponíveis)
+                const address = this.extractAddressFromNominatimResult(result); // Passar resultado completo do Nominatim
+                if (address) {
+                  console.log(`🏠 POI address from OSM: ${address.street || 'unknown street'}, ${address.number || 'no number'}`);
+                }
+                
+                // NOVO: Verificar entradas usando lógica existente (DRY)
+                const entranceData = this.determineAccessPointsFromTags(result);
+                if (entranceData && entranceData.length > 0) {
+                  console.log(`🚪 Found access points: ${entranceData.join(', ')}`);
+                }
+                
+                // Retornar sucesso com o primeiro resultado válido encontrado
+                return {
+                  success: true,
+                  data: {
+                    coordinates: processed.coordinates,
+                    center,
+                    area,
+                    confidence: 0.9, // Alta confiança para Nominatim
+                    source: 'osm' as const,
+                    elevation: elevationData,
+                    height: poiHeight || undefined,
+                    address: address || undefined, // Adicionar endereço ao boundary
+                    streets: consolidatedStreets.length > 0 ? consolidatedStreets : undefined, // NOVO: ruas consolidadas
+                    buildings: consolidatedBuildings.length > 0 ? consolidatedBuildings : undefined, // NOVO: buildings consolidados
+                    vegetation: consolidatedVegetation.length > 0 ? consolidatedVegetation : undefined, // NOVO: vegetação consolidada
+                    barriers: consolidatedBarriers.length > 0 ? consolidatedBarriers : undefined, // NOVO: barreiras consolidadas
+                    classification: poiClassification || undefined, // NOVO: classificação do POI
+                    osmTags: undefined // NOVO: tags OSM para classificação (será preenchido se disponível)
+                  },
+                  processingTime: 0
                 };
-                console.log(`⛰️ POI elevation: ${elevation.total.toFixed(1)}m (ground: ${elevation.ground.toFixed(1)}m)`);
-              } else {
-                console.log(`⚠️ Low confidence elevation or no data: confidence=${elevation?.confidence}`);
-              }
-            } catch (error) {
-              console.warn('⚠️ Elevation/height extraction failed for Nominatim (non-blocking):', error);
-              if (error instanceof Error) {
-                console.warn('⚠️ Error details:', error.message);
               }
             }
-            
-            // Extrair informações de endereço do POI (usando dados do Nominatim já disponíveis)
-            const address = this.extractAddressFromNominatimResult(result); // Passar resultado completo do Nominatim
-            if (address) {
-              console.log(`🏠 POI address from OSM: ${address.street || 'unknown street'}, ${address.number || 'no number'}`);
-            }
-            
-            // NOVO: Verificar entradas usando lógica existente (DRY)
-            const entranceData = this.determineAccessPointsFromTags(result);
-            if (entranceData && entranceData.length > 0) {
-              console.log(`🚪 Found access points: ${entranceData.join(', ')}`);
-            }
-            
-            return {
-              success: true,
-              data: {
-                coordinates: processed.coordinates,
-                center,
-                area,
-                confidence: 0.9, // Alta confiança para Nominatim
-                source: 'osm' as const,
-                elevation: elevationData,
-                height: poiHeight || undefined,
-                address: address || undefined, // Adicionar endereço ao boundary
-                streets: consolidatedStreets.length > 0 ? consolidatedStreets : undefined, // NOVO: ruas consolidadas
-                buildings: consolidatedBuildings.length > 0 ? consolidatedBuildings : undefined, // NOVO: buildings consolidados
-                vegetation: consolidatedVegetation.length > 0 ? consolidatedVegetation : undefined, // NOVO: vegetação consolidada
-                barriers: consolidatedBarriers.length > 0 ? consolidatedBarriers : undefined, // NOVO: barreiras consolidadas
-                classification: poiClassification || undefined, // NOVO: classificação do POI
-                osmTags: undefined // NOVO: tags OSM para classificação (será preenchido se disponível)
-              },
-              processingTime: 0
-            };
           }
+        } catch (error) {
+          // Erro ao processar esta variação - tentar próxima
+          console.warn(`⚠️ Error processing variation "${searchTerm}":`, error);
+          continue; // Tentar próxima variação
         }
       }
 

@@ -508,8 +508,12 @@ class POIService {
         .select(`
           *,
           attraction_descriptions(id, language, description),
-          attraction_groups(id, name, role),
-          attraction_trigger_points(id, is_active)
+          attraction_group_members(
+            group_role,
+            attraction_groups(id, name)
+          ),
+          attraction_trigger_points(id, is_active),
+          coordinates:attraction_coordinate(latitude, longitude)
         `)
         .eq('id', id)
         .single()
@@ -525,7 +529,19 @@ class POIService {
         }
       }
       
+      // Debug: Log the raw data structure
+      console.log('🔍 Raw POI data structure:', JSON.stringify({
+        id: data.id,
+        has_coordinates: !!data.coordinates,
+        coordinates_type: typeof data.coordinates,
+        coordinates_length: Array.isArray(data.coordinates) ? data.coordinates.length : 'not array',
+        coordinates_value: data.coordinates
+      }, null, 2))
+      
       const poi = this.transformToPOI(data)
+      
+      // Debug: Log transformed coordinates
+      console.log('🔍 Transformed POI coordinates:', poi.coordinates)
       
       // Cache the result
       this.cache.set(cacheKey, { data: poi, timestamp: startTime })
@@ -700,9 +716,9 @@ class POIService {
       photos_references: data.photos_references,
       google_place_id: data.google_place_id,
       user_id: data.user_id,
-      coordinates: data.latitude && data.longitude ? {
-        latitude: data.latitude,
-        longitude: data.longitude
+      coordinates: data.coordinates?.latitude && data.coordinates?.longitude ? {
+        latitude: data.coordinates.latitude,
+        longitude: data.coordinates.longitude
       } : undefined,
       has_description: (data.attraction_descriptions?.length || 0) > 0,
       has_audio: false, // TODO: Implement audio detection
@@ -713,12 +729,12 @@ class POIService {
       active_trigger_points_count: data.attraction_trigger_points?.filter((tp: any) => tp.is_active)?.length || 0,
       reference_links: [],
       descriptions: data.attraction_descriptions,
-      group_status: data.attraction_groups?.[0] ? {
+      group_status: data.attraction_group_members?.[0] ? {
         is_in_group: true,
-        group_id: data.attraction_groups[0].id,
-        group_name: data.attraction_groups[0].name,
-        group_role: data.attraction_groups[0].role || 'main',
-        group_member_count: 1
+        group_id: data.attraction_group_members[0].attraction_groups?.id,
+        group_name: data.attraction_group_members[0].attraction_groups?.name,
+        group_role: data.attraction_group_members[0].group_role || 'main',
+        group_member_count: data.attraction_group_members.length
       } : undefined,
       verification_score: data.verification_score,
       processing_status: data.processing_status,

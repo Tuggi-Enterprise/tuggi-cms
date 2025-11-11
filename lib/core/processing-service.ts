@@ -92,7 +92,6 @@ class ProcessingService {
       // Import utilities dynamically to avoid circular dependencies
       const { convertTriggerPointsToDB } = await import('@/lib/services/trigger-points-google/utils/conversion')
       const { validateTriggerPoints } = await import('@/lib/services/trigger-points-google/utils/validation')
-      const { TriggerPointSavingService } = await import('@/lib/services/trigger-point-saving')
       const { updateAttractionWithTPMetadata } = await import('@/lib/services/trigger-points-google/utils/attraction-update')
       const { poiService } = await import('./poi-service')
       
@@ -163,12 +162,12 @@ class ProcessingService {
               }
             }
             
-            // 6. Salvar TPs válidos usando TriggerPointSavingService
+            // 6. Salvar TPs válidos através de API route (para ter acesso à service role key)
             let saved = 0
             let skipped = 0
             
             if (validation.validItems.length > 0) {
-              // Converter para formato esperado pelo TriggerPointSavingService
+              // Converter para formato esperado pela API route
               const tpsForSaving = validation.validItems.map(tp => ({
                 lat: tp.lat,
                 lng: tp.lng,
@@ -178,25 +177,59 @@ class ProcessingService {
                 final_status: tp.final_status,
                 radius_meters: tp.radius_meters,
                 expected_bearing: tp.expected_bearing,
+                bearing_threshold: tp.bearing_threshold || 30,
+                priority: tp.priority,
                 score_factors: tp.score_factors,
                 generation_method: tp.generation_method,
-                reasoning: tp.validation_notes
+                validation_notes: tp.validation_notes,
+                access: tp.access || 'both'
               }))
               
-              const saveResult = await TriggerPointSavingService.saveTriggerPointsBatch(
-                poiId,
-                tpsForSaving,
-                boundarySource
-              )
+              // Call generate-batch API route which already handles saving with service role key
+              // Pass pre-generated trigger points - the route will skip generation and just save (DRY principle)
+              const saveResponse = await fetch('/api/trigger-points/generate-batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  pre_generated_tps: tpsForSaving.map(tp => ({
+                    attraction_id: poiId,
+                    lat: tp.lat,
+                    lng: tp.lng,
+                    type: tp.type,
+                    confidence: tp.confidence,
+                    auto_status: tp.auto_status,
+                    final_status: tp.final_status,
+                    radius_meters: tp.radius_meters || 20,
+                    expected_bearing: tp.expected_bearing,
+                    bearing_threshold: tp.bearing_threshold || 30,
+                    priority: tp.priority,
+                    score_factors: tp.score_factors,
+                    generation_method: tp.generation_method,
+                    validation_notes: tp.validation_notes,
+                    access: tp.access || 'both'
+                  })),
+                  boundary_source: boundarySource
+                })
+              })
               
-              saved = saveResult.saved
-              skipped = saveResult.skipped + (convertedTPs.length - validation.validItems.length)
+              const saveResult = await saveResponse.json()
+              
+              if (!saveResponse.ok || !saveResult.success) {
+                throw new Error(saveResult.error || 'Failed to save trigger points')
+              }
+              
+              // Extract saved count from result
+              const poiResult = saveResult.results?.[0]
+              saved = poiResult?.trigger_points_saved || 0
+              // Skipped = validation errors + save errors (não há mais duplicatas)
+              skipped = (convertedTPs.length - validation.validItems.length) + (validation.validItems.length - saved)
             } else {
               skipped = convertedTPs.length
             }
             
-            // 7. Atualizar attraction com metadata
-            await updateAttractionWithTPMetadata(
+            // 7. Atualizar attraction com metadata (só se salvou TPs)
+            if (saved > 0) {
+              await updateAttractionWithTPMetadata(
               poiId,
               {
                 boundarySource,
@@ -210,7 +243,8 @@ class ProcessingService {
                 finalPoints: metadata.finalPoints
               },
               boundary
-            )
+              )
+            }
             
             const processingTime = Date.now() - startTime
             

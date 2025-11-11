@@ -11,6 +11,25 @@ interface BatchGenerationRequest {
   city?: string
   attraction_ids?: string[]
   batch_size?: number
+  // Optional: pre-generated trigger points to save (skips generation)
+  pre_generated_tps?: Array<{
+    attraction_id: string
+    lat: number
+    lng: number
+    type: string
+    confidence: number
+    auto_status: string
+    final_status: string
+    radius_meters?: number
+    expected_bearing?: number
+    bearing_threshold?: number
+    priority?: number
+    score_factors?: any
+    generation_method: string
+    validation_notes?: string
+    access?: string
+  }>
+  boundary_source?: string
 }
 
 interface BatchGenerationResult {
@@ -45,7 +64,106 @@ interface BatchGenerationResult {
 export async function POST(request: NextRequest) {
   try {
     const body: BatchGenerationRequest = await request.json()
-    const { country, city, attraction_ids, batch_size = 50 } = body
+    const { country, city, attraction_ids, batch_size = 50, pre_generated_tps, boundary_source } = body
+
+    // If pre-generated TPs are provided, skip generation and just save
+    if (pre_generated_tps && pre_generated_tps.length > 0) {
+      console.log(`💾 Saving ${pre_generated_tps.length} pre-generated trigger points`)
+      
+      // Group TPs by attraction_id
+      const tpsByAttraction = new Map<string, typeof pre_generated_tps>()
+      for (const tp of pre_generated_tps) {
+        if (!tpsByAttraction.has(tp.attraction_id)) {
+          tpsByAttraction.set(tp.attraction_id, [])
+        }
+        tpsByAttraction.get(tp.attraction_id)!.push(tp)
+      }
+
+      const results = {
+        success: true,
+        processed: tpsByAttraction.size,
+        successful: 0,
+        failed: 0,
+        errors: [] as Array<{ attraction_id: string; attraction_name: string; error: string }>,
+        summary: { approved_tps: 0, review_tps: 0, rejected_tps: 0 },
+        results: [] as Array<{
+          poi_id: string
+          poi_name: string
+          success: boolean
+          message: string
+          trigger_points_generated: number
+          trigger_points_saved: number
+          trigger_points_skipped: number
+          boundary_source?: string
+          processing_time?: number
+          errors?: string[]
+        }>
+      }
+
+      // Save TPs for each attraction
+      for (const [attractionId, tps] of tpsByAttraction.entries()) {
+        try {
+          // Get POI name for logging
+          const { data: poi } = await supabase
+            .schema('core')
+            .from('attractions')
+            .select('name')
+            .eq('id', attractionId)
+            .single()
+
+          const tpsForSaving = tps.map(tp => ({
+            lat: tp.lat,
+            lng: tp.lng,
+            type: tp.type,
+            confidence: tp.confidence,
+            auto_status: tp.auto_status,
+            final_status: tp.final_status,
+            radius_meters: tp.radius_meters || 20,
+            expected_bearing: tp.expected_bearing,
+            bearing_threshold: tp.bearing_threshold || 30,
+            priority: tp.priority || (tp.type === 'primary' ? 1 : tp.type === 'secondary' ? 2 : 3),
+            score_factors: tp.score_factors || null,
+            generation_method: tp.generation_method,
+            validation_notes: tp.validation_notes,
+            access: tp.access || 'both'
+          }))
+
+          const { TriggerPointSavingService } = await import('@/lib/services/trigger-point-saving')
+          const saveResult = await TriggerPointSavingService.saveTriggerPointsBatch(
+            attractionId,
+            tpsForSaving,
+            boundary_source || 'unknown'
+          )
+
+          if (saveResult.errors.length > 0) {
+            throw new Error(`Save failed: ${saveResult.errors.join('; ')}`)
+          }
+
+          results.successful++
+          results.summary.approved_tps += saveResult.saved
+          results.results.push({
+            poi_id: attractionId,
+            poi_name: poi?.name || 'Unknown',
+            success: true,
+            message: `Successfully saved ${saveResult.saved} trigger points`,
+            trigger_points_generated: tps.length,
+            trigger_points_saved: saveResult.saved,
+            trigger_points_skipped: saveResult.skipped,
+            boundary_source: boundary_source || 'unknown',
+            errors: []
+          })
+        } catch (error: any) {
+          results.failed++
+          results.errors.push({
+            attraction_id: attractionId,
+            attraction_name: 'Unknown',
+            error: error.message || 'Unknown error'
+          })
+        }
+      }
+
+      return NextResponse.json(results)
+    }
 
     console.log(`🚀 Starting batch trigger point generation...`)
     console.log(`📍 Filters: country=${country}, city=${city}, batch_size=${batch_size}`)
@@ -218,109 +336,39 @@ export async function POST(request: NextRequest) {
           console.log(`📊 ${poi.name}: Generated ${triggerPointsArray.length} TPs (${approvedTPs.length} approved primary/secondary, ${fallbackTPs.length} fallback excluded)`)
 
           if (approvedTPs.length > 0) {
-            // Validate for duplicates before saving
-            console.log(`🔍 ${poi.name}: Validating ${approvedTPs.length} TPs for duplicates`)
+            // Use unified service to save TPs (DELETE + INSERT)
+            console.log(`💾 ${poi.name}: Saving ${approvedTPs.length} TPs using unified service`)
             
-            const tpsForValidation = approvedTPs.map((tp: any) => ({
+            // Convert to format expected by TriggerPointSavingService
+            const tpsForSaving = approvedTPs.map((tp: any) => ({
               lat: tp.lat,
               lng: tp.lng,
               type: tp.type,
               confidence: tp.individual_confidence_score,
               auto_status: tp.auto_status,
-              reasoning: tp.reasoning,
-              radius_meters: tp.radius_meters || 20,
-              expected_bearing: tp.expected_bearing,
-              score_factors: tp.score_factors || null,
-              generation_method: tp.generation_method,
-              final_status: tp.final_status
-            }))
-            
-            const { data: validatedTPs, error: validationError } = await supabase
-              .schema('core')
-              .rpc('validate_trigger_points_batch', {
-                p_attraction_id: poi.id,
-                p_trigger_points: tpsForValidation,
-                p_distance_threshold: 20.0
-              })
-            
-            if (validationError) {
-              throw new Error(`Validation failed: ${validationError.message}`)
-            }
-            
-            // validatedTPs is a JSONB array, need to parse it properly
-            const validatedTPsArray = Array.isArray(validatedTPs) ? validatedTPs : []
-            const duplicatesSkipped = approvedTPs.length - validatedTPsArray.length
-            
-            if (validatedTPsArray.length === 0) {
-              console.log(`⚠️ ${poi.name}: All ${approvedTPs.length} TPs were duplicates - skipping`)
-              
-              // Mark POI as processed even though no new TPs were created
-              await supabase
-                .schema('core')
-                .from('attractions')
-                .update({ last_processed_at: new Date().toISOString() })
-                .eq('id', poi.id)
-              
-              console.log(`✅ ${poi.name}: Marked as processed (duplicates only)`)
-              
-              // Add detailed result for frontend
-              results.results.push({
-                poi_id: poi.id,
-                poi_name: poi.name,
-                success: true,
-                message: `Processed successfully - ${approvedTPs.length} trigger points already exist (duplicates)`,
-                trigger_points_generated: triggerPointsArray.length,
-                trigger_points_saved: 0,
-                trigger_points_skipped: approvedTPs.length,
-                boundary_source: result.boundary_source,
-                processing_time: result.processing_time,
-                errors: []
-              })
-              
-              results.successful++
-              continue
-            }
-            
-            // Save validated TPs to database
-            const tpsForDB = validatedTPsArray.map((tp: any) => ({
-              attraction_id: poi.id,
-              location: `POINT(${tp.lng} ${tp.lat})`,
+              final_status: tp.final_status,
               radius_meters: tp.radius_meters || 20,
               expected_bearing: tp.expected_bearing,
               bearing_threshold: 30,
-              type: tp.type,
               priority: tp.type === 'primary' ? 1 : tp.type === 'secondary' ? 2 : 3,
-              is_active: true,
-              confidence_score: tp.confidence,
-              auto_status: tp.auto_status,
-              manual_status: 'pending',
-              final_status: tp.final_status,
               score_factors: tp.score_factors || null,
               generation_method: tp.generation_method,
               validation_notes: tp.reasoning,
-              access: 'both', // Default access type
-              name: tp.name || null,
-              description: tp.description || tp.reasoning || null,
-              direction: tp.direction || null
+              access: 'both'
             }))
+            
+            const { TriggerPointSavingService } = await import('@/lib/services/trigger-point-saving')
+            const saveResult = await TriggerPointSavingService.saveTriggerPointsBatch(
+              poi.id,
+              tpsForSaving,
+              result.boundary_source || 'unknown'
+            )
 
-            const { error: insertError } = await supabase
-              .schema('core')
-              .from('attraction_trigger_points')
-              .insert(tpsForDB)
-
-            if (insertError) {
-              throw new Error(`Database insert failed: ${insertError.message}`)
+            if (saveResult.errors.length > 0) {
+              throw new Error(`Save failed: ${saveResult.errors.join('; ')}`)
             }
 
-            // Mark POI as processed after successful TP creation
-            await supabase
-              .schema('core')
-              .from('attractions')
-              .update({ last_processed_at: new Date().toISOString() })
-              .eq('id', poi.id)
-
-            console.log(`✅ ${poi.name}: ${validatedTPsArray.length} validated TPs saved (${duplicatesSkipped} duplicates skipped)`)
+            console.log(`✅ ${poi.name}: Saved ${saveResult.saved} TPs (${saveResult.skipped} skipped)`)
             console.log(`✅ ${poi.name}: Marked as processed`)
             
             // Add detailed result for frontend
@@ -328,10 +376,10 @@ export async function POST(request: NextRequest) {
               poi_id: poi.id,
               poi_name: poi.name,
               success: true,
-              message: `Successfully generated ${validatedTPsArray.length} trigger points`,
+              message: `Successfully generated ${saveResult.saved} trigger points`,
               trigger_points_generated: triggerPointsArray.length,
-              trigger_points_saved: validatedTPsArray.length,
-              trigger_points_skipped: duplicatesSkipped,
+              trigger_points_saved: saveResult.saved,
+              trigger_points_skipped: saveResult.skipped,
               boundary_source: result.boundary_source,
               processing_time: result.processing_time,
               errors: []

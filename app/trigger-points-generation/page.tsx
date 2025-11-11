@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Play, Target, MapPin, Filter, Database, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -51,24 +51,38 @@ export default function TriggerPointsGenerationPage() {
     }
   }, [locationData.countries, country]);
 
+  // Track previous country to detect actual changes (not just initial load)
+  const prevCountryRef = useRef<string>('');
+
   // Load states when country changes
   useEffect(() => {
     if (country) {
+      // Only reset state and city if country actually changed (not on initial load)
+      if (prevCountryRef.current && prevCountryRef.current !== country) {
+        setState(''); // Reset state when country changes
+        setCity(''); // Reset city when country changes
+      }
+      
+      // Load states for the country
       locationData.loadStates(country);
-      setState(''); // Reset state when country changes
-      setCity(''); // Reset city when country changes
+      prevCountryRef.current = country;
+    } else {
+      // If country is cleared, also clear state and city
+      setState('');
+      setCity('');
+      prevCountryRef.current = '';
     }
-  }, [country, locationData]);
+  }, [country]); // Only depend on country to prevent unnecessary re-runs
 
   // Load cities when country or state changes
   useEffect(() => {
     if (country) {
-      locationData.loadCities(country, state);
-      if (state) {
-        setCity(''); // Reset city when state changes
-      }
+      // Load cities with current state filter
+      locationData.loadCities(country, state || undefined);
+    } else {
+      setCity('');
     }
-  }, [country, state, locationData]);
+  }, [country, state]); // Removed locationData.loadCities from dependencies to prevent loops
 
   // Load POIs using centralized service
   const loadPOIs = async () => {
@@ -365,6 +379,8 @@ export default function TriggerPointsGenerationPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 min="1000"
                 max="10000"
+                autoComplete="off"
+                data-form-type="other"
               />
             </div>
                   </div>
@@ -558,3 +574,4 @@ export default function TriggerPointsGenerationPage() {
     </div>
   );
 }
+

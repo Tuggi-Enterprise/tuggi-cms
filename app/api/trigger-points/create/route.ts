@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabase } from '../../../../lib/core/supabase-client'
-
-const supabase = getSupabase('service')
+import { TriggerPointSavingService, TriggerPointSaveData } from '@/lib/services/trigger-point-saving'
 
 // Helper function to get user ID from request headers
 function getUserIdFromRequest(request: NextRequest): string | null {
@@ -53,10 +51,8 @@ export async function POST(request: NextRequest) {
       type = 'primary',
       priority = 1,
       is_active = true,
-      direction = null,
       access = 'both',
-      name,
-      description
+      custom_description_id
     } = body
 
     if (!attraction_id || !lat || !lng) {
@@ -70,63 +66,52 @@ export async function POST(request: NextRequest) {
     const authUserId = getUserIdFromRequest(request)
     const cmsUserId = authUserId ? await mapAuthUserToCmsUser(authUserId) : null
     
-    console.log('🔧 Creating trigger point with service role:', {
+    console.log('🔧 Creating trigger point using unified service:', {
       attraction_id,
       lat,
       lng,
       access,
-      name,
-      description,
       auth_user_id: authUserId,
       cms_user_id: cmsUserId
     })
 
-    // Prepare insert data with user tracking
-    const insertData: any = {
+    // Prepare trigger point data using unified service
+    const triggerPointData: TriggerPointSaveData = {
       attraction_id,
-      // Use EWKT with SRID for PostGIS geography
-      location: `SRID=4326;POINT(${lng} ${lat})`,
+      lat,
+      lng,
       radius_meters,
       expected_bearing,
       bearing_threshold,
-      type,
+      type: type as 'primary' | 'secondary' | 'fallback' | 'special' | 'testing',
       priority,
       is_active,
-      direction,
-      // For manual TPs, set appropriate confidence system values
-      confidence_score: 0.8, // Manual TPs get high confidence
+      access: access as 'walk' | 'car' | 'both',
+      confidence: 0.8, // Manual TPs get high confidence
       manual_status: 'approved', // Manual TPs are approved by default
+      final_status: 'approved',
       generation_method: 'manual',
-      validation_notes: `Manually created by ${cmsUserId ? 'user' : 'system'}`
+      validation_notes: `Manually created by ${cmsUserId ? 'user' : 'system'}`,
+      custom_description_id,
+      ...(cmsUserId && { created_by: cmsUserId, updated_by: cmsUserId })
     }
 
-    // Add user tracking if cms user ID is available
-    if (cmsUserId) {
-      insertData.created_by = cmsUserId
-      insertData.updated_by = cmsUserId
-    }
+    // Use unified service to save
+    const result = await TriggerPointSavingService.saveSingle(triggerPointData, { mode: 'append' })
 
-    // Insert trigger point using service role (bypasses RLS issues)
-    const { data, error } = await supabase
-      .schema('core')
-      .from('attraction_trigger_points')
-      .insert(insertData)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('❌ Error inserting trigger point:', error)
+    if (!result.success) {
+      console.error('❌ Error creating trigger point:', result.error)
       return NextResponse.json(
-        { error: 'Failed to insert trigger point', details: error },
+        { error: result.error || 'Failed to create trigger point' },
         { status: 500 }
       )
     }
 
-    console.log('✅ Trigger point created successfully:', data.id)
+    console.log('✅ Trigger point created successfully:', result.data?.id)
 
     return NextResponse.json({
       success: true,
-      data
+      data: result.data
     })
 
   } catch (error) {

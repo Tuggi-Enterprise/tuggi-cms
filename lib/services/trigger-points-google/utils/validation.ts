@@ -119,18 +119,6 @@ export function validateTriggerPointForDB(tp: TriggerPointForDB): ValidationResu
     })
   }
 
-  // Validate direction if provided
-  if (tp.direction != null) {
-    const validDirections = ['front', 'right', 'left', 'back']
-    if (!validDirections.includes(tp.direction)) {
-      errors.push({
-        field: 'direction',
-        message: `direction must be one of ${validDirections.join(', ')}, got ${tp.direction}`,
-        value: tp.direction
-      })
-    }
-  }
-
   // Validate access if provided
   if (tp.access != null) {
     const validAccess = ['walk', 'car', 'both']
