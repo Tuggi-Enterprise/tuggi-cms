@@ -19,7 +19,7 @@ export interface TriggerPointSaveData {
   radius_meters?: number
   expected_bearing?: number
   bearing_threshold?: number
-  type: 'primary' | 'secondary' | 'fallback'
+  type: 'primary' | 'secondary' | 'fallback' | 'special' | 'testing'
   priority?: number
   is_active?: boolean
   confidence?: number

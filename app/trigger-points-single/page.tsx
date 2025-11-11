@@ -21,7 +21,7 @@ interface POIInfo {
   state?: string
 }
 
-export default function TestTriggerPointsGooglePage() {
+export default function TriggerPointsSinglePage() {
   const supabase = useSupabaseClient()
   const {
     generate: generateTriggerPoints,
@@ -186,10 +186,10 @@ export default function TestTriggerPointsGooglePage() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Teste - Trigger Points Google APIs
+            Trigger Points - Teste Individual
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Teste o sistema de geração de trigger points migrado para Google APIs
+            Teste o sistema de geração de trigger points para um único POI
           </p>
         </div>
 

@@ -73,10 +73,16 @@ const navigation = [
     category: 'verification'
   },
   {
-    name: 'Trigger Points',
+    name: 'Generation',
     href: '/trigger-points-generation',
     icon: Target,
-    category: 'advanced'
+    category: 'trigger_points'
+  },
+  {
+    name: 'Single Test',
+    href: '/trigger-points-single',
+    icon: Target,
+    category: 'trigger_points'
   },
   {
     name: 'Reviews',
@@ -226,6 +232,12 @@ export function Header({ className }: HeaderProps) {
               return renderDropdown('verification', verificationItems, 'Verification')
             })()}
 
+            {/* Trigger Points - Dropdown */}
+            {(() => {
+              const triggerPointsItems = navigation.filter(item => item.category === 'trigger_points')
+              return renderDropdown('trigger_points', triggerPointsItems, 'Trigger Points')
+            })()}
+
             {/* Advanced Tools - Single items */}
             {navigation.filter(item => item.category === 'advanced').map((item) => {
               const isActive = pathname === item.href
@@ -314,6 +326,19 @@ export function Header({ className }: HeaderProps) {
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'verification').map((item) => {
+                    const isActive = pathname === item.href
+                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
+                  })}
+                </div>
+              </div>
+
+              {/* Trigger Points */}
+              <div>
+                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Trigger Points
+                </h4>
+                <div className="space-y-1">
+                  {navigation.filter(item => item.category === 'trigger_points').map((item) => {
                     const isActive = pathname === item.href
                     return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
                   })}

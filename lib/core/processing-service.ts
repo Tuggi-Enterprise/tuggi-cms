@@ -77,7 +77,7 @@ class ProcessingService {
   private static activeProcesses: Map<string, AbortController> = new Map()
   
   /**
-   * Process POIs for trigger points generation
+   * Process POIs for trigger points generation using new motor
    */
   static async processTriggerPoints(
     poiIds: string[],
@@ -87,32 +87,162 @@ class ProcessingService {
     const processId = this.generateProcessId(operation)
     
     try {
-      console.log(`🎯 Starting trigger points processing for ${poiIds.length} POIs`)
+      console.log(`🎯 Starting trigger points processing for ${poiIds.length} POIs using new motor`)
+      
+      // Import utilities dynamically to avoid circular dependencies
+      const { convertTriggerPointsToDB } = await import('@/lib/services/trigger-points-google/utils/conversion')
+      const { validateTriggerPoints } = await import('@/lib/services/trigger-points-google/utils/validation')
+      const { TriggerPointSavingService } = await import('@/lib/services/trigger-point-saving')
+      const { updateAttractionWithTPMetadata } = await import('@/lib/services/trigger-points-google/utils/attraction-update')
+      const { poiService } = await import('./poi-service')
       
       const result = await this.processBatch(
         processId,
         operation,
         poiIds,
         async (poiId: string) => {
-          const response = await fetch('/api/trigger-points/generate-batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              attraction_ids: [poiId],
-              batch_size: 1
+          const startTime = Date.now()
+          
+          try {
+            // 1. Buscar dados do POI
+            const poiResult = await poiService.getById(poiId)
+            if (!poiResult.success || !poiResult.data) {
+              throw new Error(`Failed to load POI: ${poiResult.error || 'POI not found'}`)
+            }
+            
+            const poi = poiResult.data
+            if (!poi.coordinates) {
+              throw new Error('POI has no coordinates')
+            }
+            
+            // 2. Preparar POIData para o novo motor
+            const poiData = {
+              id: poi.id,
+              name: poi.name,
+              location: {
+                lat: poi.coordinates.latitude,
+                lng: poi.coordinates.longitude
+              },
+              type: poi.google_types?.[0] || 'point_of_interest',
+              country: poi.country,
+              city: poi.city,
+              state: poi.state
+            }
+            
+            // 3. Chamar novo motor
+            const response = await fetch('/api/trigger-points/google/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ poiData })
             })
-          })
-          
-          const result = await response.json()
-          
-          return {
-            success: result.success,
-            message: result.results?.[0]?.message || result.message || 'Unknown result',
-            data: result.results?.[0],
-            triggerPointsSaved: result.results?.[0]?.trigger_points_saved || 0,
-            triggerPointsSkipped: result.results?.[0]?.trigger_points_skipped || 0,
-            triggerPointsGenerated: result.results?.[0]?.trigger_points_generated || 0,
-            boundarySource: result.results?.[0]?.boundary_source
+            
+            const responseData = await response.json()
+            
+            if (!response.ok || !responseData.success) {
+              throw new Error(responseData.error || 'Failed to generate trigger points')
+            }
+            
+            const triggerPointResult = responseData.data
+            const metadata = responseData.metadata || {}
+            const boundary = responseData.boundary || null
+            const boundarySource = metadata.boundarySource || 'unknown'
+            
+            // 4. Converter para formato do banco
+            const convertedTPs = convertTriggerPointsToDB(
+              triggerPointResult.triggerPoints,
+              boundarySource
+            )
+            
+            // 5. Validar antes de salvar
+            const validation = validateTriggerPoints(convertedTPs)
+            
+            if (validation.validItems.length === 0) {
+              console.warn(`⚠️ No valid trigger points for POI ${poiId} after validation`)
+              if (validation.errors.length > 0) {
+                console.warn('Validation errors:', validation.errors)
+              }
+            }
+            
+            // 6. Salvar TPs válidos usando TriggerPointSavingService
+            let saved = 0
+            let skipped = 0
+            
+            if (validation.validItems.length > 0) {
+              // Converter para formato esperado pelo TriggerPointSavingService
+              const tpsForSaving = validation.validItems.map(tp => ({
+                lat: tp.lat,
+                lng: tp.lng,
+                type: tp.type,
+                confidence: tp.confidence_score,
+                auto_status: tp.auto_status,
+                final_status: tp.final_status,
+                radius_meters: tp.radius_meters,
+                expected_bearing: tp.expected_bearing,
+                score_factors: tp.score_factors,
+                generation_method: tp.generation_method,
+                reasoning: tp.validation_notes
+              }))
+              
+              const saveResult = await TriggerPointSavingService.saveTriggerPointsBatch(
+                poiId,
+                tpsForSaving,
+                boundarySource
+              )
+              
+              saved = saveResult.saved
+              skipped = saveResult.skipped + (convertedTPs.length - validation.validItems.length)
+            } else {
+              skipped = convertedTPs.length
+            }
+            
+            // 7. Atualizar attraction com metadata
+            await updateAttractionWithTPMetadata(
+              poiId,
+              {
+                boundarySource,
+                boundaryConfidence: metadata.boundaryConfidence,
+                searchRadius: metadata.searchRadius,
+                streetCount: metadata.streetCount,
+                elevationAnalysis: metadata.elevationAnalysis,
+                optimalPointsFound: metadata.optimalPointsFound,
+                streetValidatedCandidates: metadata.streetValidatedCandidates,
+                validatedPoints: metadata.validatedPoints,
+                finalPoints: metadata.finalPoints
+              },
+              boundary
+            )
+            
+            const processingTime = Date.now() - startTime
+            
+            return {
+              success: true,
+              message: `Generated ${triggerPointResult.count} TPs, saved ${saved}, skipped ${skipped}`,
+              data: {
+                trigger_points_generated: triggerPointResult.count,
+                trigger_points_saved: saved,
+                trigger_points_skipped: skipped,
+                boundary_source: boundarySource,
+                processing_time: processingTime
+              },
+              triggerPointsSaved: saved,
+              triggerPointsSkipped: skipped,
+              triggerPointsGenerated: triggerPointResult.count,
+              boundarySource
+            }
+            
+          } catch (error) {
+            const processingTime = Date.now() - startTime
+            throw {
+              success: false,
+              message: error instanceof Error ? error.message : 'Unknown error',
+              data: {
+                trigger_points_generated: 0,
+                trigger_points_saved: 0,
+                trigger_points_skipped: 0,
+                processing_time: processingTime
+              },
+              error: error instanceof Error ? error.message : 'Unknown error'
+            }
           }
         },
         options
