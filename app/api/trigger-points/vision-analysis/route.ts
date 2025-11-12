@@ -130,7 +130,7 @@ async function analyzeMapWithGeminiVision(imageBase64: string, poiLat: number, p
   }
 
   const genAI = new GoogleGenerativeAI(apiKey)
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-vision-latest' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' })
 
   const prompt = `
 Você é um especialista em análise geográfica e posicionamento de trigger points para áudio-guias.

@@ -79,16 +79,16 @@ export function setCache<T>(key: string, data: T, ttlMs: number): void {
 
 // Configurações específicas para Gemini API
 export const GEMINI_RATE_LIMITS = {
-  // Gemini 1.5 Flash: 10 RPM, 250 RPD
-  'gemini-1.5-flash': {
+  // Gemini 2.5 Flash: 10 RPM, 250 RPD
+  'gemini-2.5-flash': {
     capacity: 10,
     refillRate: 10 / 60, // 10 tokens por minuto = 0.167 tokens/segundo
     cacheTTL: 24 * 60 * 60 * 1000 // 24 horas
   },
-  // Gemini 1.5 Pro: 5 RPM, 100 RPD  
-  'gemini-1.5-pro': {
-    capacity: 5,
-    refillRate: 5 / 60, // 5 tokens por minuto = 0.083 tokens/segundo
+  // Gemini 2.5 Flash-Lite: 15 RPM, 300 RPD
+  'gemini-2.5-flash-lite': {
+    capacity: 15,
+    refillRate: 15 / 60, // 15 tokens por minuto = 0.25 tokens/segundo
     cacheTTL: 24 * 60 * 60 * 1000 // 24 horas
   }
 };
@@ -124,7 +124,7 @@ export async function callGeminiAPI(
     throw new Error('GEMINI_API_KEY not configured');
   }
   
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
   
   const response = await fetch(url, {
     method: 'POST',

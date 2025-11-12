@@ -443,8 +443,8 @@ OUTPUT: Only the final Portuguese text, no additional commentary or metadata.`
 
     // Call Google Gemini API - try AI Studio endpoint first, fallback to Cloud API
     const endpoints = [
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`
     ]
 
     let geminiResponse = null

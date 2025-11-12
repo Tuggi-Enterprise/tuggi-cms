@@ -139,44 +139,72 @@ Target Language:
 Expected output:
 Translated description text only (no labels, no explanations, no tags).`;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
+  // Try Flash-Lite first, then Flash as fallback
+  const models = [
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash'
+  ];
+
+  let lastError: Error | null = null;
+
+  for (const model of models) {
+    try {
+      console.log(`[Translation] Trying model: ${model} for language: ${targetLanguage}`);
+      
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
               {
-                text: prompt
+                parts: [
+                  {
+                    text: prompt
+                  }
+                ]
               }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0.4,
-          topK: 32,
-          topP: 1,
-          maxOutputTokens: 2048,
+            ],
+            generationConfig: {
+              temperature: 0.4,
+              topK: 32,
+              topP: 1,
+              maxOutputTokens: 2048,
+            }
+          })
         }
-      })
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }));
+        const errorMessage = errorData.error?.message || response.statusText;
+        console.error(`[Translation] Model ${model} failed: ${response.status} - ${errorMessage}`);
+        lastError = new Error(`Gemini API error (${model}): ${response.status} ${errorMessage}`);
+        continue; // Try next model
+      }
+
+      const data = await response.json();
+      
+      if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        console.error(`[Translation] Model ${model} returned invalid response:`, data);
+        lastError = new Error(`Invalid response from Gemini API (${model})`);
+        continue; // Try next model
+      }
+
+      console.log(`[Translation] Successfully translated using ${model}`);
+      return data.candidates[0].content.parts[0].text.trim();
+    } catch (error) {
+      console.error(`[Translation] Error with model ${model}:`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue; // Try next model
     }
-  );
-
-  if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.statusText}`);
   }
 
-  const data = await response.json();
-  
-  if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-    throw new Error('Invalid response from Gemini API');
-  }
-
-  return data.candidates[0].content.parts[0].text.trim();
+  // If all models failed, throw the last error
+  throw lastError || new Error('All Gemini models failed');
 };
 
 // Generate audio using Google Cloud TTS

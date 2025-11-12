@@ -58,13 +58,13 @@ export async function checkClaimWithEscalation(
       throw new Error('GEMINI_API_KEY not configured');
     }
 
-    // First attempt with Gemini Flash
-    const result = await checkClaimWithModel(claim, context, 'gemini-1.5-flash', apiKey);
+    // First attempt with Gemini Flash-Lite (primary)
+    const result = await checkClaimWithModel(claim, context, 'gemini-2.5-flash-lite', apiKey);
     
-    // Escalate to Gemini Pro if confidence is low
+    // Escalate to Flash if confidence is low
     if (result.confidence < escalateThreshold) {
-      console.log(`Escalating claim "${claim}" to Gemini Pro (confidence: ${result.confidence})`);
-      const escalatedResult = await checkClaimWithModel(claim, context, 'gemini-1.5-pro', apiKey);
+      console.log(`Escalating claim "${claim}" to Flash (confidence: ${result.confidence})`);
+      const escalatedResult = await checkClaimWithModel(claim, context, 'gemini-2.5-flash', apiKey);
       escalatedResult.escalated = true;
       return escalatedResult;
     }
@@ -88,7 +88,7 @@ async function checkClaimWithModel(
   model: string,
   apiKey: string
 ): Promise<ClaimCheckResult> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
   
   const prompt = CHECK_CLAIM_PROMPT
     .replace('{claim}', claim)

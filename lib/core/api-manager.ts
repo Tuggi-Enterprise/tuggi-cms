@@ -142,7 +142,7 @@ export class APIManager {
     
     // Google AI APIs
     this.configs.set('google-gemini', {
-      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1',
       apiKey: process.env.GEMINI_API_KEY,
       rateLimit: { requests: 60, window: 60000 }, // 60 requests per minute
       retry: { attempts: 3, delay: 2000 },
@@ -407,7 +407,7 @@ export class APIManager {
   }
   
   // AI APIs
-  async getGeminiResponse(prompt: string, model: string = 'gemini-1.5-flash') {
+  async getGeminiResponse(prompt: string, model: string = 'gemini-2.5-flash-lite') {
     return this.request('google-gemini', `models/${model}:generateContent`, {
       method: 'POST',
       body: {

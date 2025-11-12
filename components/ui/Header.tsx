@@ -24,7 +24,8 @@ import {
   Eye,
   Database,
   Target,
-  ChevronDown
+  ChevronDown,
+  ArrowRightLeft
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -52,6 +53,12 @@ const navigation = [
     name: 'OSM Importer',
     href: '/osm-importer',
     icon: Database,
+    category: 'poi'
+  },
+  {
+    name: 'POI Migration',
+    href: '/poi-migration',
+    icon: ArrowRightLeft,
     category: 'poi'
   },
   {

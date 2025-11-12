@@ -1283,22 +1283,17 @@ OUTPUT: Only the final Portuguese text.
    * Generate description using Gemini API with intelligent model selection
    */
   private static async generateWithGemini(prompt: string, apiKey: string, sourcesSection: string, enrichedPOISection: string, scrapedContentSection?: string, poiData?: any): Promise<string | null> {
-    const modelType = this.determineGeminiModel(sourcesSection, enrichedPOISection, scrapedContentSection, poiData)
-    
-    const endpoints = modelType === 'pro' ? [
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`
-    ] : [
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}` // Fallback
+    // Always use Flash models (2.5 Flash-Lite as primary, 2.5 Flash as fallback)
+    const endpoints = [
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`
     ]
     
-    console.log(`🤖 Using Gemini ${modelType.toUpperCase()} for ${modelType === 'pro' ? 'data-rich' : 'limited-data'} POI`)
+    console.log(`🤖 Using Gemini Flash models for POI description generation`)
 
     for (const endpoint of endpoints) {
       try {
-        const modelName = endpoint.includes('pro-latest') ? 'Pro Latest' : 
-                         endpoint.includes('flash') ? 'Flash' : 'Pro'
+        const modelName = endpoint.includes('flash-lite') ? 'Flash-Lite' : 'Flash'
         console.log(`🤖 Calling Gemini API: ${modelName}`)
         
         const response = await fetch(endpoint, {
@@ -1395,7 +1390,7 @@ RESPONDA EM JSON:
 }`
 
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

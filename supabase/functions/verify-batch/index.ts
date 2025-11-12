@@ -364,7 +364,7 @@ serve(async (req) => {
         subscores: verificationScores.subscores,
         flags: flags,
         verifier_version: 'v2.0',
-        llm_model: 'gemini-2.0-flash-thinking',
+        llm_model: 'gemini-2.5-flash-lite',
         confidence: verificationScores.confidence
       })
       .select()

@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
               ...(verificationResult.fatos_verificaveis?.length > 0 ? ['has_facts'] : [])
             ].filter(Boolean),
             verifier_version: 'v2.0',
-            llm_model: 'gemini-1.5-flash',
+            llm_model: 'gemini-2.5-flash-lite',
             confidence: Math.min(1.0, Math.max(0.3, verificationResult.pontuacao / 100)) // Baseado na pontuação real
           })
           .select('id')
@@ -1268,7 +1268,7 @@ RESPOND IN JSON:
 `
 
   try {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
+    const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`
     
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -1340,15 +1340,15 @@ RESPOND IN JSON:
  * Call Gemini API with optimized configuration
  */
 async function callGeminiAPI(prompt: string, apiKey: string, qualityMode: boolean = false): Promise<{ response: Response; model: string }> {
-  // Strategy: Use 1.5 Pro for description generation, 1.5 Flash as fallback for quality assurance
+  // Strategy: Use 2.5 Flash-Lite as primary, 2.5 Flash as fallback
   const endpoints = qualityMode 
     ? [
-        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`, model: 'gemini-1.5-pro' },
-        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, model: 'gemini-1.5-flash' }
+        { url: `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, model: 'gemini-2.5-flash-lite' },
+        { url: `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`, model: 'gemini-2.5-flash' }
       ]
     : [
-        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`, model: 'gemini-1.5-pro' },
-        { url: `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, model: 'gemini-1.5-flash' }
+        { url: `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, model: 'gemini-2.5-flash-lite' },
+        { url: `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`, model: 'gemini-2.5-flash' }
       ]
 
   for (const endpoint of endpoints) {

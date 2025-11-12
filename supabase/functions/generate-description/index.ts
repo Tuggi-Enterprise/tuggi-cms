@@ -155,9 +155,6 @@ class EdgeDescriptionService {
 
       // Calculate quality score
       const qualityScore = this.calculateQualityScore(description, poiData)
-      
-      // Determine model used
-      const modelUsed = this.determineModel(poiData.google_types || [])
 
       const result: DescriptionResult = {
         success: true,
@@ -167,12 +164,12 @@ class EdgeDescriptionService {
           quality_analysis: {
             overall_score: qualityScore,
             confidence_level: qualityScore >= 80 ? 'high' : qualityScore >= 60 ? 'medium' : 'low',
-            model_used: modelUsed
+            model_used: 'gemini-2.5-flash-lite'
           }
         },
         metadata: {
           step: 'description_generation',
-          model_used: modelUsed,
+          model_used: 'gemini-2.5-flash-lite',
           quality_score: qualityScore,
           progress: 100,
           status: 'completed',
@@ -250,17 +247,13 @@ OUTPUT: Only the final Portuguese text.
    * Generate description using Gemini API
    */
   private async generateWithGemini(prompt: string, apiKey: string, poiData: POIData): Promise<string | null> {
-    const modelType = this.determineModel(poiData.google_types || [])
-    
-    const endpoints = modelType === 'pro' ? [
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`
-    ] : [
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`
+    // Always use Flash models (2.5 Flash-Lite as primary, 2.5 Flash as fallback)
+    const endpoints = [
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`
     ]
     
-    console.log(`🤖 Using Gemini ${modelType.toUpperCase()} for ${modelType === 'pro' ? 'data-rich' : 'limited-data'} POI`)
+    console.log(`🤖 Using Gemini Flash models for POI description generation`)
 
     for (const endpoint of endpoints) {
       try {

@@ -2,15 +2,15 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 
 // Rate limiting configuration
 const RATE_LIMITS = {
-  'gemini-1.5-pro': {
-    requestsPerMinute: 8, // Reduzido drasticamente para evitar cooldown
-    requestsPerHour: 1000,
-    cooldownMs: 8000 // Aumentado para 8 segundos entre requests
-  },
-  'gemini-1.5-flash': {
+  'gemini-2.5-flash': {
     requestsPerMinute: 15, // Flash é mais rápido e permite mais requests
     requestsPerHour: 1500,
     cooldownMs: 4000 // Menos cooldown para Flash
+  },
+  'gemini-2.5-flash-lite': {
+    requestsPerMinute: 20, // Flash-Lite permite ainda mais requests
+    requestsPerHour: 2000,
+    cooldownMs: 3000
   }
 }
 
