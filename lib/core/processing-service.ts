@@ -292,6 +292,7 @@ class ProcessingService {
   
   /**
    * Process POIs for description generation/improvement
+   * Now uses DescriptionService directly for better performance and consistency
    */
   static async processDescriptions(
     poiIds: string[],
@@ -307,52 +308,92 @@ class ProcessingService {
     try {
       console.log(`📝 Starting description processing for ${poiIds.length} POIs`)
       
+      // Import DescriptionService
+      const { DescriptionService } = await import('@/lib/services/poi-processing/description.service')
+      const { getSupabase } = await import('@/lib/core/supabase-client')
+      const supabase = getSupabase('service')
+      
       const result = await this.processBatch(
         processId,
         operation,
         poiIds,
         async (poiId: string) => {
-          // Get POI data first
-          const poiResponse = await fetch(`/api/pois/${poiId}`)
-          const poiData = await poiResponse.json()
+          // Get POI data from database
+          const { data: poi, error: poiError } = await supabase
+            .schema('core')
+            .from('attractions')
+            .select(`
+              id,
+              name,
+              city,
+              state,
+              country,
+              formatted_address,
+              google_types,
+              rating,
+              user_ratings_total,
+              website,
+              google_place_id,
+              reference_links,
+              osm_tags,
+              attraction_coordinate!inner(latitude, longitude)
+            `)
+            .eq('id', poiId)
+            .single()
           
-          if (!poiData.success) {
-            throw new Error(`Failed to load POI data: ${poiData.error}`)
+          if (poiError || !poi) {
+            throw new Error(`Failed to load POI data: ${poiError?.message || 'POI not found'}`)
           }
           
-          const poi = poiData.data
           const existingDescription = options.existingDescriptions?.get(poiId)
           
-          // Prepare request body
-          let requestBody: any = {
+          // Prepare POI data for DescriptionService
+          const poiData = {
             id: poi.id,
             name: poi.name,
             city: poi.city,
+            state: poi.state,
             country: poi.country,
+            formatted_address: poi.formatted_address,
+            google_types: poi.google_types || [],
+            rating: poi.rating,
+            user_ratings_total: poi.user_ratings_total,
+            website: poi.website,
+            google_place_id: poi.google_place_id,
+            reference_links: poi.reference_links || [],
+            osm_tags: poi.osm_tags,
+            lat: poi.attraction_coordinate[0]?.latitude,
+            lng: poi.attraction_coordinate[0]?.longitude
+          }
+          
+          // Prepare options for DescriptionService
+          const descriptionOptions = {
+            language: options.language || 'pt-br',
             persist_verification: true,
-            auto_generate_audio: options.autoGenerateAudio || false
+            auto_generate_audio: options.autoGenerateAudio || false,
+            existing_description: existingDescription?.description,
+            description_id: existingDescription?.id,
+            use_dynamic_sources: true,
+            optimization_mode: true,
+            enrich_with_osm: true,
+            skip_enrichment_if_exists: true
           }
           
-          if (existingDescription) {
-            // Improve existing description
-            requestBody.existing_description = existingDescription.description
-            requestBody.description_id = existingDescription.id
-          }
-          
-          const response = await fetch('/api/descriptions/generate-optimized', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-          })
-          
-          const result = await response.json()
+          // Call DescriptionService directly
+          const serviceResult = await DescriptionService.generate(poiData, descriptionOptions)
           
           return {
-            success: result.success,
-            message: result.message || 'Description processed',
-            data: result,
-            descriptionGenerated: result.description_generated,
-            audioGenerated: result.audio_generation?.success || false
+            success: serviceResult.success,
+            message: serviceResult.success ? 'Description processed' : serviceResult.error,
+            data: {
+              description: serviceResult.data?.description,
+              verification: serviceResult.data?.verification,
+              description_id: serviceResult.data?.description_id,
+              audio_generation: serviceResult.data?.audio_generation,
+              quality_analysis: serviceResult.data?.quality_analysis
+            },
+            descriptionGenerated: !!serviceResult.data?.description,
+            audioGenerated: serviceResult.data?.audio_generation?.success || false
           }
         },
         options

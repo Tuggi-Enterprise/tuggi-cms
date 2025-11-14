@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useLocationData } from '@/lib/hooks/use-location-data'
 import { Loader2, AlertCircle, CheckCircle2, Play, Filter, Database, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -14,9 +13,13 @@ interface MigrationResult {
   steps?: any[]
 }
 
-export default function PoiMigrationPage() {
-  const locationData = useLocationData({ autoLoadCountries: true })
+interface LocationOption {
+  value: string
+  label: string
+  count?: number
+}
 
+export default function PoiMigrationPage() {
   // Form state
   const [country, setCountry] = useState('')
   const [state, setState] = useState('')
@@ -27,6 +30,14 @@ export default function PoiMigrationPage() {
   const [autoGenerateAudio, setAutoGenerateAudio] = useState(true)
   const [autoApprove, setAutoApprove] = useState(false)
   const [skipIfExists, setSkipIfExists] = useState(true)
+
+  // Location data from homolog.pois
+  const [countries, setCountries] = useState<LocationOption[]>([])
+  const [states, setStates] = useState<LocationOption[]>([])
+  const [cities, setCities] = useState<LocationOption[]>([])
+  const [loadingCountries, setLoadingCountries] = useState(false)
+  const [loadingStates, setLoadingStates] = useState(false)
+  const [loadingCities, setLoadingCities] = useState(false)
 
   // Data state
   const [previewCount, setPreviewCount] = useState<number | null>(null)
@@ -43,27 +54,81 @@ export default function PoiMigrationPage() {
     percentage: number
   } | null>(null)
 
-  // Auto-load countries
+  // Load countries from homolog.pois
   useEffect(() => {
-    if (locationData.countries.length > 0 && !country) {
-      setCountry(locationData.countries[0].name)
+    const loadCountries = async () => {
+      setLoadingCountries(true)
+      try {
+        const response = await fetch('/api/migration/locations?type=countries')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.data) {
+            setCountries(data.data)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading countries:', error)
+      } finally {
+        setLoadingCountries(false)
+      }
     }
-  }, [locationData.countries, country])
+    loadCountries()
+  }, [])
 
   // Load states when country changes
   useEffect(() => {
-    if (country) {
-      locationData.loadStates(country)
+    if (country && country !== 'all') {
+      setLoadingStates(true)
       setState('')
       setCity('')
+      setCities([])
+      
+      const loadStates = async () => {
+        try {
+          const response = await fetch(`/api/migration/locations?type=states&country=${encodeURIComponent(country)}`)
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success && data.data) {
+              setStates(data.data)
+            }
+          }
+        } catch (error) {
+          console.error('Error loading states:', error)
+        } finally {
+          setLoadingStates(false)
+        }
+      }
+      loadStates()
+    } else {
+      setStates([])
+      setCities([])
     }
   }, [country])
 
   // Load cities when state changes
   useEffect(() => {
-    if (country && state) {
-      locationData.loadCities(country, state)
+    if (country && country !== 'all' && state && state !== 'all') {
+      setLoadingCities(true)
       setCity('')
+      
+      const loadCities = async () => {
+        try {
+          const response = await fetch(`/api/migration/locations?type=cities&country=${encodeURIComponent(country)}&state=${encodeURIComponent(state)}`)
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success && data.data) {
+              setCities(data.data)
+            }
+          }
+        } catch (error) {
+          console.error('Error loading cities:', error)
+        } finally {
+          setLoadingCities(false)
+        }
+      }
+      loadCities()
+    } else {
+      setCities([])
     }
   }, [country, state])
 
@@ -196,14 +261,18 @@ export default function PoiMigrationPage() {
               value={country}
               onChange={(e) => setCountry(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              disabled={isMigrating}
+              disabled={isMigrating || loadingCountries}
             >
               <option value="">All Countries</option>
-              {locationData.countries.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
+              {loadingCountries ? (
+                <option disabled>Loading...</option>
+              ) : (
+                countries.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label} {c.count ? `(${c.count})` : ''}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 
@@ -216,14 +285,18 @@ export default function PoiMigrationPage() {
               value={state}
               onChange={(e) => setState(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              disabled={isMigrating || !country}
+              disabled={isMigrating || !country || country === 'all' || loadingStates}
             >
               <option value="">All States</option>
-              {locationData.states.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
+              {loadingStates ? (
+                <option disabled>Loading...</option>
+              ) : (
+                states.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label} {s.count ? `(${s.count})` : ''}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 
@@ -236,14 +309,18 @@ export default function PoiMigrationPage() {
               value={city}
               onChange={(e) => setCity(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              disabled={isMigrating || !state}
+              disabled={isMigrating || !state || state === 'all' || loadingCities}
             >
               <option value="">All Cities</option>
-              {locationData.cities.map((c) => (
-                <option key={c.name || ''} value={c.name || ''}>
-                  {c.name}
-                </option>
-              ))}
+              {loadingCities ? (
+                <option disabled>Loading...</option>
+              ) : (
+                cities.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label} {c.count ? `(${c.count})` : ''}
+                  </option>
+                ))
+              )}
             </select>
           </div>
 

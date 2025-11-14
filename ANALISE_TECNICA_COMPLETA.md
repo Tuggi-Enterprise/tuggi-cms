@@ -256,3 +256,4 @@
 - ✅ Logging completo
 - ✅ Rollback funcionando
 
+
