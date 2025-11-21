@@ -115,7 +115,7 @@ export class TrailVisualizationService {
       // Build optimized query with spatial filtering
       // Note: We don't use count: 'exact' to avoid timeout on large datasets
       // Select only necessary fields to reduce data transfer
-      const fieldsToSelect = 'id,user_id,trip_session_id,latitude,longitude,timestamp,sequence_order,is_moving,speed'
+      const fieldsToSelect = 'id,user_id,trip_session_id,latitude,longitude,timestamp,sequence_order,is_moving,speed,accuracy,heading'
       let query = supabase
         .schema('drive')
         .from('route_trail')
@@ -150,16 +150,15 @@ export class TrailVisualizationService {
         query = query.eq('is_moving', true)
       }
 
-      // Order by trip and sequence for proper line rendering
-      query = query
-        .order('trip_session_id', { ascending: true })
-        .order('sequence_order', { ascending: true })
-
-      // Apply pagination with reasonable limits to avoid timeout
-      // Reduce default limit to prevent timeout
+      // Apply pagination WITHOUT ordering to avoid timeout
+      // Ordering large datasets before limiting causes timeout
+      // We'll sort in memory after fetching
       const limit = Math.min(params.limit || 2000, 2000) // Max 2000 points per query
       const offset = params.offset || 0
       query = query.range(offset, offset + limit - 1)
+
+      // DO NOT order here - it causes timeout on large datasets
+      // We'll sort the results in memory after fetching
 
       // Set a timeout for the query (Supabase default is 60s, but we want to fail faster)
       const { data, error } = await query
@@ -209,12 +208,23 @@ export class TrailVisualizationService {
         })
       })
 
-      // Convert to array format
-      const trails = Array.from(trailsMap.entries()).map(([trip_session_id, points]) => ({
-        user_id: points[0].user_id,
-        trip_session_id,
-        points: points.sort((a, b) => a.sequence_order - b.sequence_order)
-      }))
+      // Convert to array format and sort in memory
+      // Sort by trip_session_id first, then by sequence_order within each trip
+      const trails = Array.from(trailsMap.entries())
+        .map(([trip_session_id, points]) => ({
+          user_id: points[0].user_id,
+          trip_session_id,
+          points: points.sort((a, b) => a.sequence_order - b.sequence_order)
+        }))
+        .sort((a, b) => {
+          // Sort by trip_session_id, then by first sequence_order
+          if (a.trip_session_id !== b.trip_session_id) {
+            return a.trip_session_id.localeCompare(b.trip_session_id)
+          }
+          const aFirstSeq = a.points[0]?.sequence_order || 0
+          const bFirstSeq = b.points[0]?.sequence_order || 0
+          return aFirstSeq - bFirstSeq
+        })
 
       // Calculate stats
       const uniqueUsers = new Set(trails.map(t => t.user_id))
@@ -440,17 +450,17 @@ export class TrailVisualizationService {
     try {
       const supabase = getSupabase('server')
 
-      // Optimize: Get distinct users with trail counts
-      // Use a more efficient approach - get recent users first, then aggregate
+      // Optimize: Use a simpler approach without ordering to avoid timeout
+      // Get a sample of trails without ordering (much faster)
       const limit = Math.min(params?.limit || 500, 500) // Limit to 500 users max
       
-      // First, get distinct user_ids from recent trails (more efficient)
+      // Get a sample of trails without ordering to avoid timeout
+      // We'll sort in memory after fetching
       const { data: recentTrails, error: trailsError } = await supabase
         .schema('drive')
         .from('route_trail')
         .select('user_id, timestamp, trip_session_id')
-        .order('timestamp', { ascending: false })
-        .limit(5000) // Sample recent 5k trails to get user list
+        .limit(5000) // Sample 5k trails to get user list
 
       if (trailsError) {
         return {
@@ -493,9 +503,16 @@ export class TrailVisualizationService {
         }
       })
 
+      // Sort by last activity in memory (after fetching)
+      const sortedUsers = Array.from(userMap.entries()).sort((a, b) => {
+        const timeA = a[1].last_activity ? new Date(a[1].last_activity).getTime() : 0
+        const timeB = b[1].last_activity ? new Date(b[1].last_activity).getTime() : 0
+        return timeB - timeA // Most recent first
+      })
+
       // Try to get user emails from auth.users (if accessible)
       // Limit to first 100 users to avoid query timeout
-      const userIds = Array.from(userMap.keys()).slice(0, 100)
+      const userIds = sortedUsers.slice(0, 100).map(([id]) => id)
       let userEmails: Map<string, string> = new Map()
 
       try {
@@ -520,7 +537,7 @@ export class TrailVisualizationService {
         console.log('Could not fetch user emails, continuing without them')
       }
 
-      const users: UserInfo[] = Array.from(userMap.entries()).map(([id, data]) => ({
+      const users: UserInfo[] = sortedUsers.map(([id, data]) => ({
         id,
         email: userEmails.get(id),
         trail_count: data.trail_count,
@@ -538,8 +555,8 @@ export class TrailVisualizationService {
         )
       }
 
-      // Sort by trail count descending
-      filteredUsers.sort((a, b) => b.trail_count - a.trail_count)
+      // Already sorted by last activity, but we can re-sort by trail count if needed
+      // Keep the current sort (by last activity) as it's more useful
 
       return {
         success: true,

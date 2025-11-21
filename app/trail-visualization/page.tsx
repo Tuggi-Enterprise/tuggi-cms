@@ -107,12 +107,14 @@ export default function TrailVisualizationPage() {
   // Fetch trails when bounds change
   useEffect(() => {
     if (mapBounds && showTrails) {
+      // Increase debounce time to avoid too many requests
       const timeoutId = setTimeout(() => {
         fetchTrails()
-      }, 500) // Debounce
+      }, 1000) // Increased debounce to 1 second
       return () => clearTimeout(timeoutId)
     }
-  }, [mapBounds, showTrails, fetchTrails])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapBounds, showTrails]) // fetchTrails is stable via useCallback
 
   // Fetch heat map when bounds change and heat map is enabled
   useEffect(() => {
