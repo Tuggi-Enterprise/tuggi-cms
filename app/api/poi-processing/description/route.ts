@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/core/auth-helpers'
 import { DescriptionService } from '@/lib/services/poi-processing/description.service'
 
 /**
@@ -15,19 +14,13 @@ export async function POST(request: NextRequest) {
   try {
     console.log('🚀 Starting modular description processing...')
     
-    // Authentication check
-    const supabase = createRouteHandlerClient({ cookies })
-    const { data: { session }, error: authError } = await supabase.auth.getSession()
-    
-    if (authError || !session) {
-      console.log('❌ Authentication failed')
-      return NextResponse.json(
-        { error: 'Unauthorized - Authentication required' },
-        { status: 401 }
-      )
+    // Authentication check (DRY - using centralized helper)
+    const authResult = await requireAuth(request)
+    if (authResult instanceof NextResponse) {
+      return authResult // Return error response
     }
     
-    console.log('✅ User authenticated:', session.user.email)
+    const { user_id } = authResult
     
     const body = await request.json()
     const { action = 'generate', poi_data, options = {} } = body
@@ -41,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Add user context to options
-    options.user_id = session.user.id
+    options.user_id = user_id!
 
     let result
     

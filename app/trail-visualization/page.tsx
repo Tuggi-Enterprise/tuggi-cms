@@ -12,12 +12,23 @@ interface TrailStats {
   date_range?: { start: string; end: string }
 }
 
+// SSOT: Single utility functions (DRY)
+const getDaysAgoDate = (days: string): string => {
+  const date = new Date()
+  date.setDate(date.getDate() - parseInt(days))
+  return date.toISOString()
+}
+
+const buildBoundsParam = (bounds: { north: number; south: number; east: number; west: number }): string => {
+  return `${bounds.north},${bounds.south},${bounds.east},${bounds.west}`
+}
+
 export default function TrailVisualizationPage() {
   const [trails, setTrails] = useState<Trail[]>([])
   const [heatMapData, setHeatMapData] = useState<HeatMapPoint[]>([])
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [showTrails, setShowTrails] = useState(true)
-  const [showHeatMap, setShowHeatMap] = useState(false)
+  const [showHeatMap, setShowHeatMap] = useState(true) // Default to true for business insights
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [stats, setStats] = useState<TrailStats | null>(null)
@@ -29,36 +40,47 @@ export default function TrailVisualizationPage() {
   } | null>(null)
   const [timeRange, setTimeRange] = useState('30') // days
   const [onlyMoving, setOnlyMoving] = useState(false)
-  
+
   const mapCenterRef = useRef<{ lat: number; lng: number }>({ lat: -23.5505, lng: -46.6333 })
   const mapZoomRef = useRef<number>(13)
 
+  // Race condition protection: AbortController refs
+  const trailsAbortControllerRef = useRef<AbortController | null>(null)
+  const heatMapAbortControllerRef = useRef<AbortController | null>(null)
+  const trailsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const heatMapTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
   const fetchTrails = useCallback(async () => {
-    if (!mapBounds) return
+    if (!mapBounds || !showTrails) return
+
+    // Cancel previous request (race condition protection)
+    if (trailsAbortControllerRef.current) {
+      trailsAbortControllerRef.current.abort()
+    }
+    trailsAbortControllerRef.current = new AbortController()
 
     try {
       setIsLoading(true)
       setError(null)
 
       const params = new URLSearchParams()
-      params.append('bounds', `${mapBounds.north},${mapBounds.south},${mapBounds.east},${mapBounds.west}`)
-      
+      params.append('bounds', buildBoundsParam(mapBounds)) // DRY: Use utility
+
       if (selectedUserIds.length > 0) {
         params.append('userIds', selectedUserIds.join(','))
       }
 
-      // Add time range filter
-      const daysAgo = new Date()
-      daysAgo.setDate(daysAgo.getDate() - parseInt(timeRange))
-      params.append('startDate', daysAgo.toISOString())
+      params.append('startDate', getDaysAgoDate(timeRange)) // DRY: Use utility
 
       if (onlyMoving) {
         params.append('onlyMoving', 'true')
       }
 
-      params.append('limit', '2000') // Reduced to prevent timeout
+      params.append('limit', '50000') // Increased limit to fetch more data (will be chunked in service)
 
-      const response = await fetch(`/api/trail-visualization/trails?${params.toString()}`)
+      const response = await fetch(`/api/trail-visualization/trails?${params.toString()}`, {
+        signal: trailsAbortControllerRef.current.signal
+      })
       const result = await response.json()
 
       if (!result.success) {
@@ -68,28 +90,36 @@ export default function TrailVisualizationPage() {
       setTrails(result.data?.trails || [])
       setStats(result.data?.stats || null)
     } catch (err) {
+      // Ignore abort errors
+      if (err instanceof Error && err.name === 'AbortError') {
+        return
+      }
       console.error('Error fetching trails:', err)
       setError(err instanceof Error ? err.message : 'Failed to load trails')
     } finally {
       setIsLoading(false)
+      trailsAbortControllerRef.current = null
     }
-  }, [mapBounds, selectedUserIds, timeRange, onlyMoving])
+  }, [mapBounds, selectedUserIds, timeRange, onlyMoving, showTrails])
 
   const fetchHeatMap = useCallback(async () => {
     if (!mapBounds || !showHeatMap) return
 
+    // Cancel previous request (race condition protection)
+    if (heatMapAbortControllerRef.current) {
+      heatMapAbortControllerRef.current.abort()
+    }
+    heatMapAbortControllerRef.current = new AbortController()
+
     try {
       const params = new URLSearchParams()
-      params.append('bounds', `${mapBounds.north},${mapBounds.south},${mapBounds.east},${mapBounds.west}`)
-      
-      // Add time range filter
-      const daysAgo = new Date()
-      daysAgo.setDate(daysAgo.getDate() - parseInt(timeRange))
-      params.append('startDate', daysAgo.toISOString())
-
+      params.append('bounds', buildBoundsParam(mapBounds)) // DRY: Use utility
+      params.append('startDate', getDaysAgoDate(timeRange)) // DRY: Use utility
       params.append('gridSize', '0.001') // ~100m grid
 
-      const response = await fetch(`/api/trail-visualization/heatmap?${params.toString()}`)
+      const response = await fetch(`/api/trail-visualization/heatmap?${params.toString()}`, {
+        signal: heatMapAbortControllerRef.current.signal
+      })
       const result = await response.json()
 
       if (!result.success) {
@@ -98,40 +128,57 @@ export default function TrailVisualizationPage() {
 
       setHeatMapData(result.data?.heatmap || [])
     } catch (err) {
+      // Ignore abort errors
+      if (err instanceof Error && err.name === 'AbortError') {
+        return
+      }
       console.error('Error fetching heat map:', err)
-      // Don't set error state for heat map, just log it
-      console.error(err)
+    } finally {
+      heatMapAbortControllerRef.current = null
     }
   }, [mapBounds, showHeatMap, timeRange])
 
-  // Fetch trails when bounds change
+  // KISS: Single unified useEffect for trails (observes all dependencies)
   useEffect(() => {
+    // Clear previous timeout
+    if (trailsTimeoutRef.current) {
+      clearTimeout(trailsTimeoutRef.current)
+    }
+
     if (mapBounds && showTrails) {
-      // Increase debounce time to avoid too many requests
-      const timeoutId = setTimeout(() => {
+      // Debounce to avoid too many requests
+      trailsTimeoutRef.current = setTimeout(() => {
         fetchTrails()
-      }, 1000) // Increased debounce to 1 second
-      return () => clearTimeout(timeoutId)
+      }, 500)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapBounds, showTrails]) // fetchTrails is stable via useCallback
 
-  // Fetch heat map when bounds change and heat map is enabled
+    return () => {
+      if (trailsTimeoutRef.current) {
+        clearTimeout(trailsTimeoutRef.current)
+      }
+    }
+  }, [mapBounds, showTrails, selectedUserIds, timeRange, onlyMoving, fetchTrails])
+
+  // KISS: Single unified useEffect for heatmap
   useEffect(() => {
+    // Clear previous timeout
+    if (heatMapTimeoutRef.current) {
+      clearTimeout(heatMapTimeoutRef.current)
+    }
+
     if (mapBounds && showHeatMap) {
-      const timeoutId = setTimeout(() => {
+      // Debounce to avoid too many requests
+      heatMapTimeoutRef.current = setTimeout(() => {
         fetchHeatMap()
-      }, 500) // Debounce
-      return () => clearTimeout(timeoutId)
+      }, 500)
     }
-  }, [mapBounds, showHeatMap, fetchHeatMap])
 
-  // Fetch trails when filters change
-  useEffect(() => {
-    if (mapBounds && showTrails) {
-      fetchTrails()
+    return () => {
+      if (heatMapTimeoutRef.current) {
+        clearTimeout(heatMapTimeoutRef.current)
+      }
     }
-  }, [selectedUserIds, timeRange, onlyMoving])
+  }, [mapBounds, showHeatMap, timeRange, fetchHeatMap])
 
   const handleBoundsChange = useCallback((bounds: {
     north: number

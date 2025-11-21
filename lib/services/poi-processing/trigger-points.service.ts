@@ -412,11 +412,21 @@ export class TriggerPointsService {
     const startTime = Date.now()
     
     try {
+      // Validate required fields
+      if (!poiData.lat || !poiData.lng || !poiData.name) {
+        return {
+          success: false,
+          error: 'Missing required fields: lat, lng, or name',
+          processing_time: Date.now() - startTime,
+          metadata: { step: 'validation', status: 'failed', timestamp: new Date().toISOString() }
+        }
+      }
+      
       console.log(`🌍 Detecting REAL OSM boundary for: ${poiData.name}`)
       
       // STRATEGY 1: OSM Nominatim search by name (highest confidence)
       console.log('🔍 Strategy 1: OSM Nominatim search by name...')
-      const nominatimResult = await this.searchOSMByName(poiData.lat!, poiData.lng!, poiData.name)
+      const nominatimResult = await this.searchOSMByName(poiData.lat, poiData.lng, poiData.name)
       
       if (nominatimResult.success && nominatimResult.boundary) {
         console.log('✅ Found precise boundary from OSM Nominatim')
@@ -437,7 +447,7 @@ export class TriggerPointsService {
       
       // STRATEGY 2: OSM Reverse Geocoding (medium confidence)
       console.log('🔍 Strategy 2: OSM Reverse Geocoding...')
-      const reverseResult = await this.searchOSMByCoordinates(poiData.lat!, poiData.lng!)
+      const reverseResult = await this.searchOSMByCoordinates(poiData.lat, poiData.lng)
       
       if (reverseResult.success && reverseResult.boundary) {
         console.log('✅ Found boundary from OSM Reverse Geocoding')
@@ -458,7 +468,7 @@ export class TriggerPointsService {
       
       // STRATEGY 3: Unified Overpass API (comprehensive search)
       console.log('🔍 Strategy 3: Unified Overpass API search...')
-      const overpassResult = await this.queryUnifiedOverpassData(poiData.lat!, poiData.lng!, poiData.name)
+      const overpassResult = await this.queryUnifiedOverpassData(poiData.lat, poiData.lng, poiData.name)
       
       if (overpassResult.success && overpassResult.boundary) {
         console.log('✅ Found boundary from Unified Overpass')
@@ -479,7 +489,7 @@ export class TriggerPointsService {
       
       // STRATEGY 4: Fallback Street Analysis (street-based boundary)
       console.log('🔍 Strategy 4: Fallback Street Analysis...')
-      const fallbackResult = await this.createFallbackBoundaryFromStreets(poiData.lat!, poiData.lng!, poiData.name)
+      const fallbackResult = await this.createFallbackBoundaryFromStreets(poiData.lat, poiData.lng, poiData.name)
       
       if (fallbackResult.success && fallbackResult.boundary) {
         console.log('✅ Created boundary from street analysis')
@@ -501,7 +511,7 @@ export class TriggerPointsService {
       // FINAL FALLBACK: Estimated boundary (as per memory requirement)
       // Memory: "If a POI is not found in OSM, it must use the existing monolith fallback to create a virtual boundary and proceed"
       console.log('⚠️ All OSM strategies failed - using estimated boundary as FINAL fallback (following monolith behavior)')
-      const estimatedBoundary = this.createEstimatedBoundary(poiData.lat!, poiData.lng!, poiData.name)
+      const estimatedBoundary = this.createEstimatedBoundary(poiData.lat, poiData.lng, poiData.name)
       
       return {
         success: true,

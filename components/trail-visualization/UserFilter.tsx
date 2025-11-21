@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Users, X, Check } from 'lucide-react'
+import { Search, Users, X, Check, Loader2 } from 'lucide-react'
 
 export interface User {
   id: string
@@ -20,20 +20,31 @@ interface UserFilterProps {
 export function UserFilter({ selectedUserIds, onSelectionChange, className }: UserFilterProps) {
   const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [isOpen, setIsOpen] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [offset, setOffset] = useState(0)
+  const [loadingProgress, setLoadingProgress] = useState<{ current: number; total: number } | null>(null)
 
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (loadMore = false) => {
     try {
-      setIsLoading(true)
+      if (loadMore) {
+        setIsLoadingMore(true)
+      } else {
+        setIsLoading(true)
+        setOffset(0)
+      }
       setError(null)
 
       const params = new URLSearchParams()
       if (searchTerm) {
         params.append('search', searchTerm)
       }
-      params.append('limit', '100')
+
+      // Fetch all users at once using fetchAll parameter
+      params.append('fetchAll', 'true')
 
       const response = await fetch(`/api/trail-visualization/users?${params.toString()}`)
       const result = await response.json()
@@ -43,11 +54,13 @@ export function UserFilter({ selectedUserIds, onSelectionChange, className }: Us
       }
 
       setUsers(result.data?.users || [])
+      setHasMore(result.data?.hasMore || false)
     } catch (err) {
       console.error('Error fetching users:', err)
       setError(err instanceof Error ? err.message : 'Failed to load users')
     } finally {
       setIsLoading(false)
+      setIsLoadingMore(false)
     }
   }, [searchTerm])
 
@@ -64,10 +77,10 @@ export function UserFilter({ selectedUserIds, onSelectionChange, className }: Us
   }
 
   const handleSelectAll = () => {
-    if (selectedUserIds.length === users.length) {
+    if (selectedUserIds.length === filteredUsers.length) {
       onSelectionChange([])
     } else {
-      onSelectionChange(users.map(u => u.id))
+      onSelectionChange(filteredUsers.map(u => u.id))
     }
   }
 
@@ -112,7 +125,7 @@ export function UserFilter({ selectedUserIds, onSelectionChange, className }: Us
                 onClick={handleSelectAll}
                 className="text-sm text-tuggi-blue hover:text-blue-600 dark:text-blue-400"
               >
-                {selectedUserIds.length === users.length ? 'Deselect All' : 'Select All'}
+                {selectedUserIds.length === filteredUsers.length ? 'Deselect All' : 'Select All'}
               </button>
               <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
                 ({selectedUserIds.length} of {users.length} selected)
@@ -127,55 +140,72 @@ export function UserFilter({ selectedUserIds, onSelectionChange, className }: Us
             )}
 
             {isLoading ? (
-              <div className="space-y-2">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-12 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-                ))}
-              </div>
-            ) : (
-              <div className="max-h-96 overflow-y-auto space-y-2">
-                {filteredUsers.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-                    No users found
-                  </p>
-                ) : (
-                  filteredUsers.map((user) => {
-                    const isSelected = selectedUserIds.includes(user.id)
-                    return (
-                      <div
-                        key={user.id}
-                        onClick={() => handleToggleUser(user.id)}
-                        className={`
-                          flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors
-                          ${isSelected
-                            ? 'bg-tuggi-blue/10 border-2 border-tuggi-blue'
-                            : 'bg-gray-50 dark:bg-gray-800 border-2 border-transparent hover:border-gray-300 dark:hover:border-gray-600'
-                          }
-                        `}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-tuggi-text dark:text-white truncate">
-                            {user.email || user.id.substring(0, 8) + '...'}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {user.trail_count} trails
-                            {user.trip_count && ` • ${user.trip_count} trips`}
-                          </p>
-                        </div>
-                        <div className="ml-3">
-                          {isSelected ? (
-                            <div className="h-5 w-5 rounded bg-tuggi-blue flex items-center justify-center">
-                              <Check className="h-3 w-3 text-white" />
-                            </div>
-                          ) : (
-                            <div className="h-5 w-5 rounded border-2 border-gray-300 dark:border-gray-600" />
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })
+              <div className="flex flex-col items-center justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-tuggi-blue mb-4" />
+                <span className="text-gray-600 dark:text-gray-400">
+                  {loadingProgress 
+                    ? `Loading users... ${loadingProgress.current.toLocaleString()} / ${loadingProgress.total > 0 ? loadingProgress.total.toLocaleString() : '?'}`
+                    : 'Loading all users...'}
+                </span>
+                {loadingProgress && loadingProgress.total > 0 && (
+                  <div className="w-full mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                    <div 
+                      className="bg-tuggi-blue h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min((loadingProgress.current / loadingProgress.total) * 100, 100)}%` }}
+                    />
+                  </div>
                 )}
               </div>
+            ) : (
+              <>
+                <div className="max-h-96 overflow-y-auto space-y-2">
+                  {filteredUsers.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
+                      No users found
+                    </p>
+                  ) : (
+                    filteredUsers.map((user) => {
+                      const isSelected = selectedUserIds.includes(user.id)
+                      return (
+                        <div
+                          key={user.id}
+                          onClick={() => handleToggleUser(user.id)}
+                          className={`
+                            flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors
+                            ${isSelected
+                              ? 'bg-tuggi-blue/10 border-2 border-tuggi-blue'
+                              : 'bg-gray-50 dark:bg-gray-800 border-2 border-transparent hover:border-gray-300 dark:hover:border-gray-600'
+                            }
+                          `}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-tuggi-text dark:text-white truncate">
+                              {user.email || user.id.substring(0, 8) + '...'}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {user.trail_count} trails · {user.trip_count || 0} trips
+                            </p>
+                          </div>
+                          <div className="ml-3">
+                            {isSelected ? (
+                              <div className="h-5 w-5 rounded bg-tuggi-blue flex items-center justify-center">
+                                <Check className="h-3 w-3 text-white" />
+                              </div>
+                            ) : (
+                              <div className="h-5 w-5 rounded border-2 border-gray-300 dark:border-gray-600" />
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+
+                {/* Total count indicator */}
+                <div className="mt-3 text-center text-sm text-gray-500 dark:text-gray-400">
+                  Showing {filteredUsers.length} of {users.length} total users
+                </div>
+              </>
             )}
           </>
         )}

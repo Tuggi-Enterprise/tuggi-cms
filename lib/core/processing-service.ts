@@ -347,23 +347,10 @@ class ProcessingService {
           
           const existingDescription = options.existingDescriptions?.get(poiId)
           
-          // Prepare POI data for DescriptionService
+          // SSOT: DescriptionService will fetch ALL data from database when ID is provided
+          // Only pass ID - service will fetch complete data from core.attractions
           const poiData = {
-            id: poi.id,
-            name: poi.name,
-            city: poi.city,
-            state: poi.state,
-            country: poi.country,
-            formatted_address: poi.formatted_address,
-            google_types: poi.google_types || [],
-            rating: poi.rating,
-            user_ratings_total: poi.user_ratings_total,
-            website: poi.website,
-            google_place_id: poi.google_place_id,
-            reference_links: poi.reference_links || [],
-            osm_tags: poi.osm_tags,
-            lat: poi.attraction_coordinate[0]?.latitude,
-            lng: poi.attraction_coordinate[0]?.longitude
+            id: poi.id // This triggers SSOT - all data fetched from database
           }
           
           // Prepare options for DescriptionService

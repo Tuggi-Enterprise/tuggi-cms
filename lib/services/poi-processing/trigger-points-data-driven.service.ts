@@ -161,7 +161,11 @@ export class DataDrivenTriggerPointsService {
       
       // STEP 3: Generate trigger points using UNIFIED approach (boundaries + streets in ONE call)
       console.log('🔄 Making UNIFIED Overpass API call for trigger point data...')
-      const unifiedData = await this.queryUnifiedOverpassData(poiData.lat!, poiData.lng!, poiData.name, landmarkInfo)
+      // Validate required fields (lat, lng, name are required for trigger points)
+      if (!poiData.lat || !poiData.lng || !poiData.name) {
+        return this.createErrorResult('Missing required fields: lat, lng, or name', startTime, options)
+      }
+      const unifiedData = await this.queryUnifiedOverpassData(poiData.lat, poiData.lng, poiData.name, landmarkInfo)
       
       let triggerPoints: TriggerPoint[] = []
       
@@ -182,7 +186,7 @@ export class DataDrivenTriggerPointsService {
           boundaryResult.data!,
           poiData.lat!,
           poiData.lng!,
-          poiData.name
+          poiData.name!
         )
         console.log(`📐 Generated ${triggerPoints.length} trigger points from boundary`)
       }
@@ -248,9 +252,19 @@ export class DataDrivenTriggerPointsService {
     try {
       console.log(`🌍 REAL BOUNDARY DETECTION for: ${poiData.name}`)
       
+      // Validate required fields
+      if (!poiData.lat || !poiData.lng || !poiData.name) {
+        return {
+          success: false,
+          error: 'Missing required fields: lat, lng, or name',
+          processing_time: 0,
+          metadata: { step: 'validation', status: 'failed', timestamp: new Date().toISOString() }
+        }
+      }
+      
       // STRATEGY 1: OSM Nominatim search by name (confidence: 0.95)
       console.log('🔍 Strategy 1: OSM Nominatim search by name...')
-      const nominatimResult = await this.searchOSMByName(poiData.lat!, poiData.lng!, poiData.name)
+      const nominatimResult = await this.searchOSMByName(poiData.lat, poiData.lng, poiData.name)
       if (nominatimResult.success) {
         console.log('✅ SUCCESS: Found boundary via Nominatim')
         return { 
@@ -267,7 +281,7 @@ export class DataDrivenTriggerPointsService {
       
       // STRATEGY 2: OSM Reverse Geocoding (confidence: 0.85)
       console.log('🔍 Strategy 2: OSM Reverse Geocoding...')
-      const reverseResult = await this.searchOSMByCoordinates(poiData.lat!, poiData.lng!)
+      const reverseResult = await this.searchOSMByCoordinates(poiData.lat, poiData.lng)
       if (reverseResult.success) {
         console.log('✅ SUCCESS: Found boundary via Reverse Geocoding')
         return { 
@@ -284,7 +298,7 @@ export class DataDrivenTriggerPointsService {
       
       // STRATEGY 3: Unified Overpass API (confidence: 0.85)
       console.log('🔍 Strategy 3: Unified Overpass comprehensive search...')
-      const overpassResult = await this.searchOSMNearbyFeatures(poiData.lat!, poiData.lng!, poiData.name)
+      const overpassResult = await this.searchOSMNearbyFeatures(poiData.lat, poiData.lng, poiData.name)
       if (overpassResult.success) {
         console.log('✅ SUCCESS: Found boundary via Overpass')
         return { 
@@ -301,7 +315,7 @@ export class DataDrivenTriggerPointsService {
       
       // STRATEGY 4: Fallback Street Analysis (confidence: 0.65)
       console.log('🔍 Strategy 4: Fallback Street Analysis...')
-      const fallbackResult = await this.createFallbackBoundaryFromStreets(poiData.lat!, poiData.lng!, poiData.name)
+      const fallbackResult = await this.createFallbackBoundaryFromStreets(poiData.lat, poiData.lng, poiData.name)
       if (fallbackResult.success) {
         console.log('✅ SUCCESS: Created boundary via Street Analysis')
         return { 
@@ -318,7 +332,7 @@ export class DataDrivenTriggerPointsService {
       
       // FINAL FALLBACK: Estimated boundary (per memory requirement - monolith behavior)
       console.log('⚠️ ALL OSM STRATEGIES FAILED - using estimated boundary (monolith fallback)')
-      const estimatedBoundary = this.createEstimatedBoundaryFromName(poiData.lat!, poiData.lng!, poiData.name)
+      const estimatedBoundary = this.createEstimatedBoundaryFromName(poiData.lat, poiData.lng, poiData.name)
       return { 
         success: true, 
         data: { 

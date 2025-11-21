@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
-import { cookies } from 'next/headers'
+import { requireAuth } from '@/lib/core/auth-helpers'
 import { DescriptionService } from '@/lib/services/poi-processing/description.service'
 
 /**
@@ -22,86 +21,30 @@ export async function POST(request: NextRequest) {
   try {
     console.log('🚀 Starting OPTIMIZED description generation (using DescriptionService)...')
     
-    // Authentication check
-    const supabase = createRouteHandlerClient({ cookies })
-    const { data: { session }, error: authError } = await supabase.auth.getSession()
-    
-    if (authError || !session) {
-      console.log('❌ Authentication failed')
-      return NextResponse.json(
-        { error: 'Unauthorized - Authentication required' },
-        { status: 401 }
-      )
+    // Authentication check (DRY - using centralized helper)
+    const authResult = await requireAuth(request)
+    if (authResult instanceof NextResponse) {
+      return authResult // Return error response
     }
     
-    console.log('✅ User authenticated:', session.user.email)
+    const { user_id, user_email } = authResult
     
     const body = await request.json()
     const {
-      name,
-      city,
-      country,
-      state,
-      formatted_address,
-      vicinity,
-      google_types,
-      category,
-      rating,
-      user_ratings_total,
+      id: attractionId,
+      description_id,
+      existing_description,
       use_dynamic_sources = true,
       optimization_mode = true,
-      price_level,
-      business_status,
-      opening_hours,
-      website,
-      formatted_phone_number,
-      photos_references,
-      existing_description,
-      image_url,
-      id: attractionId,
-      google_place_id,
-      lat: providedLat,
-      lng: providedLng,
-      reference_links,
-      osm_tags,
-      description_id,
       persist_verification = true, // Default to true for API endpoint
       auto_generate_audio = false
     } = body
 
-    console.log('✅ Required parameters check:', { name: !!name, city: !!city, country: !!country })
-    
-    if (!name || !city || !country) {
-      return NextResponse.json(
-        { error: 'Missing required parameters: name, city, country' },
-        { status: 400 }
-      )
-    }
-
-    // Prepare POI data for DescriptionService
+    // SSOT: If attractionId exists, DescriptionService will fetch ALL data from database
+    // Validation is done inside DescriptionService.validatePOIData() (DRY)
+    // Only pass ID - service will fetch complete data from core.attractions
     const poiData = {
-      id: attractionId,
-      name,
-      city,
-      state,
-      country,
-      formatted_address,
-      vicinity,
-      google_types: google_types || (category ? [category] : []),
-      rating,
-      user_ratings_total,
-      price_level,
-      business_status,
-      opening_hours,
-      website,
-      formatted_phone_number,
-      photos_references,
-      image_url,
-      google_place_id,
-      lat: providedLat,
-      lng: providedLng,
-      reference_links: reference_links || [],
-      osm_tags
+      id: attractionId // This triggers SSOT - all data fetched from database
     }
 
     // Prepare options for DescriptionService
@@ -115,7 +58,7 @@ export async function POST(request: NextRequest) {
       auto_generate_audio: auto_generate_audio || false,
       enrich_with_osm: true,
       skip_enrichment_if_exists: true,
-      user_id: session.user.id,
+      user_id: user_id!,
       request_id: `api_${Date.now()}`
     }
 
@@ -156,7 +99,7 @@ export async function POST(request: NextRequest) {
     // Prepare response (maintaining compatibility with existing clients)
     return NextResponse.json({
       success: true,
-      description: description,
+              description: description,
       description_id: description_id_result,
       verification: {
         applied: true,

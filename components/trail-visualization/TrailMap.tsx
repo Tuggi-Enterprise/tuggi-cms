@@ -15,9 +15,13 @@ export interface TrailPoint {
 }
 
 export interface Trail {
+  unified_trip_id: string
   user_id: string
-  trip_session_id: string
+  session_ids: string[]
   points: TrailPoint[]
+  start_time: string
+  end_time: string
+  duration_minutes: number
 }
 
 export interface HeatMapPoint {
@@ -148,8 +152,18 @@ function TrailMapContent({
     filteredTrails.forEach((trail, index) => {
       if (trail.points.length < 2) return // Need at least 2 points for a line
 
+      // Points are already sorted by timestamp/sequence in unified trail
+      // But ensure they're in correct order for rendering
       const path = trail.points
-        .sort((a, b) => a.sequence_order - b.sequence_order)
+        .sort((a, b) => {
+          // Sort by timestamp first, then sequence_order
+          const timeA = new Date(a.timestamp).getTime()
+          const timeB = new Date(b.timestamp).getTime()
+          if (timeA !== timeB) {
+            return timeA - timeB
+          }
+          return a.sequence_order - b.sequence_order
+        })
         .map(point => ({
           lat: point.latitude,
           lng: point.longitude
@@ -164,19 +178,12 @@ function TrailMapContent({
       })
 
       polyline.setMap(map)
-      polylinesRef.current.set(trail.trip_session_id, polyline)
+      // Use unified_trip_id as key (fallback to first session_id for compatibility)
+      const trailKey = (trail as any).unified_trip_id || (trail as any).session_ids?.[0] || (trail as any).trip_session_id || `trail_${index}`
+      polylinesRef.current.set(trailKey, polyline)
     })
 
-    // Fit bounds to show all trails
-    if (filteredTrails.length > 0) {
-      const bounds = new google.maps.LatLngBounds()
-      filteredTrails.forEach(trail => {
-        trail.points.forEach(point => {
-          bounds.extend(new google.maps.LatLng(point.latitude, point.longitude))
-        })
-      })
-      map.fitBounds(bounds)
-    }
+    // Note: Removed automatic fitBounds to give users full control over zoom
   }, [trails, showTrails, selectedUserIds])
 
   // Render heat map

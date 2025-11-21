@@ -6,6 +6,7 @@
  */
 
 import { getSupabase } from '@/lib/core/supabase-client'
+import { memoryCache } from '@/lib/cache/memory-cache'
 
 export interface TrailQueryParams {
   bounds?: {
@@ -21,6 +22,7 @@ export interface TrailQueryParams {
   onlyMoving?: boolean
   limit?: number
   offset?: number
+  fetchAll?: boolean // If true, fetch ALL available data (no limit)
 }
 
 export interface TrailPoint {
@@ -97,6 +99,12 @@ export interface UserInfo {
   trail_count: number
   trip_count?: number
   last_activity?: string
+}
+
+interface DistinctUser {
+  user_id: string
+  first_seen?: string
+  last_seen?: string
 }
 
 export class TrailVisualizationService {
@@ -436,137 +444,243 @@ export class TrailVisualizationService {
   /**
    * Get user list with trail counts
    */
+  /**
+   * Get user list - SOLUÇÃO REAL
+   * 
+   * Estratégia:
+   * 1. Buscar DISTINCT user_id diretamente da tabela (muito mais rápido que view)
+   * 2. Usar cache em memória para evitar queries repetidas
+   * 3. Buscar stats da view trail_trips_unified (mais leve que trail_users_from_trips)
+   * 
+   * Funciona no Vercel: Memory cache funciona (não persiste entre deployments, mas OK para este caso)
+   */
   static async getUsers(params?: {
     search?: string
     limit?: number
+    offset?: number
+    fetchAll?: boolean
   }): Promise<{
     success: boolean
     data?: {
       users: UserInfo[]
       total: number
+      hasMore: boolean
     }
     error?: string
   }> {
     try {
-      const supabase = getSupabase('server')
+      const supabase = getSupabase('service')
+      const CACHE_KEY = 'trail-users:all'
+      const CACHE_TTL = 10 // 10 minutos
 
-      // Optimize: Use a simpler approach without ordering to avoid timeout
-      // Get a sample of trails without ordering (much faster)
-      const limit = Math.min(params?.limit || 500, 500) // Limit to 500 users max
-      
-      // Get a sample of trails without ordering to avoid timeout
-      // We'll sort in memory after fetching
-      const { data: recentTrails, error: trailsError } = await supabase
-        .schema('drive')
-        .from('route_trail')
-        .select('user_id, timestamp, trip_session_id')
-        .limit(5000) // Sample 5k trails to get user list
-
-      if (trailsError) {
-        return {
-          success: false,
-          error: trailsError.message
-        }
-      }
-
-      if (!recentTrails || recentTrails.length === 0) {
-        return {
-          success: true,
-          data: {
-            users: [],
-            total: 0
+      // 1. Verificar cache primeiro (se fetchAll e sem search)
+      if (params?.fetchAll && !params?.search) {
+        const cached = memoryCache.get<UserInfo[]>(CACHE_KEY)
+        if (cached) {
+          console.log(`[getUsers] ✅ Cache hit: ${cached.length} users`)
+          return {
+            success: true,
+            data: {
+              users: cached,
+              total: cached.length,
+              hasMore: false
+            }
           }
         }
       }
 
-      // Aggregate by user from the sample
-      const userMap = new Map<string, {
-        trail_count: number
-        trips: Set<string>
-        last_activity?: string
-      }>()
-
-      recentTrails.forEach(point => {
-        if (!userMap.has(point.user_id)) {
-          userMap.set(point.user_id, {
-            trail_count: 0,
-            trips: new Set(),
-            last_activity: point.timestamp
-          })
-        }
-
-        const user = userMap.get(point.user_id)!
-        user.trail_count++
-        user.trips.add(point.trip_session_id)
-        if (point.timestamp && (!user.last_activity || point.timestamp > user.last_activity)) {
-          user.last_activity = point.timestamp
-        }
-      })
-
-      // Sort by last activity in memory (after fetching)
-      const sortedUsers = Array.from(userMap.entries()).sort((a, b) => {
-        const timeA = a[1].last_activity ? new Date(a[1].last_activity).getTime() : 0
-        const timeB = b[1].last_activity ? new Date(b[1].last_activity).getTime() : 0
-        return timeB - timeA // Most recent first
-      })
-
-      // Try to get user emails from auth.users (if accessible)
-      // Limit to first 100 users to avoid query timeout
-      const userIds = sortedUsers.slice(0, 100).map(([id]) => id)
-      let userEmails: Map<string, string> = new Map()
-
+      console.log('[getUsers] 🔍 Fetching distinct users using RPC (optimized)...')
+      
+      // SOLUÇÃO REAL: Usar RPC com DISTINCT/GROUP BY no banco
+      // Muito mais eficiente que buscar 10k+ linhas e deduplicar em memória
+      let userIds: string[] = []
+      let lastSeenMap = new Map<string, string>()
+      
       try {
-        // Note: This might not work if we don't have access to auth.users
-        // In that case, we'll just use user IDs
-        if (userIds.length > 0) {
+        const { data: distinctUsers, error: rpcError } = await supabase
+          .schema('drive')
+          .rpc('get_trail_users_distinct', {
+            user_limit: 10000 // Limite alto para pegar todos (são apenas 7 usuários)
+          })
+
+        if (rpcError) {
+          throw rpcError
+        }
+
+        if (!distinctUsers || distinctUsers.length === 0) {
+          console.log('[getUsers] No users found')
+          return {
+            success: true,
+            data: {
+              users: [],
+              total: 0,
+              hasMore: false
+            }
+          }
+        }
+
+        const usersList = distinctUsers as DistinctUser[]
+        userIds = usersList.map((u: DistinctUser) => u.user_id)
+        console.log(`[getUsers] ✅ Found ${userIds.length} unique users via RPC`)
+
+        // Criar map de last_seen para ordenação
+        usersList.forEach((u: DistinctUser) => {
+          if (u.last_seen) {
+            lastSeenMap.set(u.user_id, u.last_seen)
+          }
+        })
+      } catch (rpcError) {
+        console.warn('[getUsers] RPC not available, falling back to chunked approach:', rpcError)
+        
+        // FALLBACK: Buscar em chunks (método anterior)
+        let allUserIds: Set<string> = new Set()
+        let currentOffset = 0
+        const chunkSize = 1000
+        let hasMore = true
+        let chunkCount = 0
+
+        while (hasMore) {
+          chunkCount++
+          const { data: chunkData, error: chunkError } = await supabase
+            .schema('drive')
+            .from('route_trail')
+            .select('user_id')
+            .range(currentOffset, currentOffset + chunkSize - 1)
+
+          if (chunkError) {
+            console.error(`[getUsers] Error in chunk ${chunkCount}:`, chunkError)
+            break
+          }
+
+          if (!chunkData || chunkData.length === 0) {
+            hasMore = false
+            break
+          }
+
+          chunkData.forEach(row => {
+            if (row.user_id) {
+              allUserIds.add(row.user_id)
+            }
+          })
+
+          currentOffset += chunkData.length
+
+          if (chunkData.length < chunkSize) {
+            hasMore = false
+          }
+
+          if (currentOffset >= 100000) {
+            console.warn('[getUsers] Reached safety limit of 100k rows')
+            hasMore = false
+          }
+        }
+
+        userIds = Array.from(allUserIds)
+        console.log(`[getUsers] ✅ Found ${userIds.length} unique users from ${chunkCount} chunks (fallback)`)
+      }
+
+      // 3. Buscar emails em chunks
+      const emailMap = new Map<string, string>()
+      for (let i = 0; i < userIds.length; i += 1000) {
+        const userIdsChunk = userIds.slice(i, i + 1000)
+        try {
           const { data: usersData } = await supabase
             .schema('auth')
             .from('users')
             .select('id, email')
-            .in('id', userIds)
-            .limit(100) // Additional safety limit
+            .in('id', userIdsChunk)
 
-          if (usersData) {
-            usersData.forEach(user => {
-              userEmails.set(user.id, user.email)
-            })
-          }
+          usersData?.forEach(user => {
+            emailMap.set(user.id, user.email)
+          })
+        } catch (emailError) {
+          console.log(`[getUsers] Could not fetch emails for chunk ${i / 1000 + 1}`)
         }
-      } catch (emailError) {
-        // If we can't access auth.users, continue without emails
-        console.log('Could not fetch user emails, continuing without them')
       }
 
-      const users: UserInfo[] = sortedUsers.map(([id, data]) => ({
-        id,
-        email: userEmails.get(id),
-        trail_count: data.trail_count,
-        trip_count: data.trips.size,
-        last_activity: data.last_activity
-      }))
+      // 4. Buscar stats da view trail_trips_unified (mais leve que trail_users_from_trips)
+      const userStatsMap = new Map<string, { trip_count: number; total_points: number; last_activity?: string }>()
+      
+      // Buscar stats em chunks para evitar timeout
+      for (let i = 0; i < userIds.length; i += 1000) {
+        const userIdsChunk = userIds.slice(i, i + 1000)
+        try {
+          const { data: tripsData } = await supabase
+            .schema('drive')
+            .from('trail_trips_unified')
+            .select('user_id, point_count, trip_end')
+            .in('user_id', userIdsChunk)
 
-      // Apply search filter if provided
-      let filteredUsers = users
+          if (tripsData) {
+            tripsData.forEach(trip => {
+              const existing = userStatsMap.get(trip.user_id) || { trip_count: 0, total_points: 0 }
+              userStatsMap.set(trip.user_id, {
+                trip_count: existing.trip_count + 1,
+                total_points: existing.total_points + (Number(trip.point_count) || 0),
+                last_activity: trip.trip_end || existing.last_activity
+              })
+            })
+          }
+        } catch (statsError) {
+          console.log(`[getUsers] Could not fetch stats for chunk ${i / 1000 + 1}, continuing...`)
+        }
+      }
+
+      // 5. Montar lista de usuários
+      let users: UserInfo[] = userIds.map(id => {
+        const stats = userStatsMap.get(id)
+        return {
+          id,
+          email: emailMap.get(id),
+          trail_count: stats?.total_points || 0,
+          trip_count: stats?.trip_count || 0,
+          last_activity: stats?.last_activity
+        }
+      })
+
+      // Ordenar por last_activity (mais recente primeiro)
+      // Usar last_seen do RPC se disponível
+      users.sort((a, b) => {
+        const aTime = a.last_activity || lastSeenMap.get(a.id)
+        const bTime = b.last_activity || lastSeenMap.get(b.id)
+        if (!aTime && !bTime) return 0
+        if (!aTime) return 1
+        if (!bTime) return -1
+        return new Date(bTime).getTime() - new Date(aTime).getTime()
+      })
+
+      // 6. Aplicar filtro de busca
       if (params?.search) {
         const searchLower = params.search.toLowerCase()
-        filteredUsers = users.filter(user =>
+        users = users.filter(user =>
           user.id.toLowerCase().includes(searchLower) ||
           (user.email && user.email.toLowerCase().includes(searchLower))
         )
       }
 
-      // Already sorted by last activity, but we can re-sort by trail count if needed
-      // Keep the current sort (by last activity) as it's more useful
+      // 7. Aplicar paginação se não for fetchAll
+      if (!params?.fetchAll) {
+        const limit = params?.limit || 1000
+        const offset = params?.offset || 0
+        users = users.slice(offset, offset + limit)
+      }
+
+      // 8. Cachear resultado se fetchAll
+      if (params?.fetchAll && !params?.search) {
+        memoryCache.set(CACHE_KEY, users, CACHE_TTL)
+        console.log(`[getUsers] 💾 Cached ${users.length} users for ${CACHE_TTL} minutes`)
+      }
 
       return {
         success: true,
         data: {
-          users: filteredUsers,
-          total: filteredUsers.length
+          users,
+          total: users.length,
+          hasMore: false
         }
       }
     } catch (error) {
-      console.error('Error in getUsers:', error)
+      console.error('[getUsers] Error:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'

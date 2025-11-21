@@ -1,10 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 import { TrailVisualizationService, HeatMapParams } from '@/lib/services/trail-visualization.service'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const cookieStore = cookies()
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
+    const { data: { session } } = await supabase.auth.getSession()
+
+    if (!session) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Check CMS permissions
+    const { data: cmsUser } = await supabase
+      .schema('core')
+      .from('cms_users')
+      .select('role')
+      .eq('email', session.user.email)
+      .single()
+
+    if (!cmsUser || !['admin', 'editor'].includes(cmsUser.role)) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden' },
+        { status: 403 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
 
     // Parse bounds (required)

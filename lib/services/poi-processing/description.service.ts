@@ -97,9 +97,11 @@ export interface ProcessingStatus {
 
 export interface POIData {
   id?: string
-  name: string
-  city: string
-  country: string
+  // When id is provided, these fields are optional (will be fetched from database - SSOT)
+  // When id is not provided, name, city, and country are required
+  name?: string
+  city?: string
+  country?: string
   state?: string
   formatted_address?: string
   vicinity?: string
@@ -117,6 +119,7 @@ export interface POIData {
   lng?: number
   reference_links?: string[]
   image_url?: string
+  osm_tags?: any
 }
 
 export interface DescriptionOptions {
@@ -198,15 +201,164 @@ export interface DescriptionResult extends ProcessingResult<DescriptionData> {
 export class DescriptionService {
   
   /**
+   * Acquire processing lock to prevent race conditions
+   */
+  private static async acquireProcessingLock(poiId: string, userId: string = 'description-service'): Promise<boolean> {
+    try {
+      const { data: existing, error: checkError } = await getSupabaseAdmin()
+        .schema('core')
+        .from('attractions')
+        .select('processing_lock_by, processing_lock_at')
+        .eq('id', poiId)
+        .single()
+
+      if (checkError) {
+        console.warn(`⚠️ Error checking lock: ${checkError.message}`)
+        return false
+      }
+
+      // Check if already locked
+      if (existing?.processing_lock_by && existing?.processing_lock_at) {
+        const lockTime = new Date(existing.processing_lock_at)
+        const now = new Date()
+        const lockAge = now.getTime() - lockTime.getTime()
+        const lockTimeout = 10 * 60 * 1000 // 10 minutes
+
+        // If lock is still valid, reject
+        if (lockAge < lockTimeout) {
+          console.log(`🚫 POI ${poiId} is locked by ${existing.processing_lock_by} (locked ${Math.round(lockAge / 1000)}s ago)`)
+          return false
+        }
+        // Lock expired, we can proceed
+        console.log(`⏰ Lock expired for POI ${poiId}, proceeding...`)
+      }
+
+      // Acquire lock
+      const { error: lockError } = await getSupabaseAdmin()
+        .schema('core')
+        .from('attractions')
+        .update({
+          processing_lock_by: userId,
+          processing_lock_at: new Date().toISOString()
+        })
+        .eq('id', poiId)
+
+      if (lockError) {
+        console.warn(`⚠️ Error acquiring lock: ${lockError.message}`)
+        return false
+      }
+
+      console.log(`🔒 Lock acquired for POI ${poiId}`)
+      return true
+
+    } catch (error) {
+      console.warn(`⚠️ Error in acquireProcessingLock: ${error}`)
+      return false
+    }
+  }
+
+  /**
+   * Release processing lock
+   */
+  private static async releaseProcessingLock(poiId: string): Promise<void> {
+    try {
+      await getSupabaseAdmin()
+        .schema('core')
+        .from('attractions')
+        .update({
+          processing_lock_by: null,
+          processing_lock_at: null
+        })
+        .eq('id', poiId)
+
+      console.log(`🔓 Lock released for POI ${poiId}`)
+    } catch (error) {
+      console.warn(`⚠️ Error releasing lock: ${error}`)
+    }
+  }
+
+  /**
+   * Check if description already exists
+   */
+  private static async getExistingDescription(poiId: string, language: string = 'pt-br'): Promise<any | null> {
+    try {
+      const { data, error } = await getSupabaseAdmin()
+        .schema('core')
+        .from('attraction_descriptions')
+        .select('id, description, verification_status')
+        .eq('attraction_id', poiId)
+        .eq('language', language)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (error && error.code !== 'PGRST116') {
+        console.warn(`⚠️ Error checking existing description: ${error.message}`)
+        return null
+      }
+
+      return data || null
+    } catch (error) {
+      console.warn(`⚠️ Error in getExistingDescription: ${error}`)
+      return null
+    }
+  }
+
+  /**
    * Generate new description for POI
+   * SSOT: All data comes from core.attractions when poiData.id exists
    */
   static async generate(
     poiData: POIData, 
     options: DescriptionOptions = {}
   ): Promise<DescriptionResult> {
     const startTime = Date.now()
+    let lockAcquired = false
     
     try {
+      // SSOT: If ID exists, fetch ALL data from database
+      if (poiData.id) {
+        console.log(`📊 Fetching complete POI data from database (SSOT)...`)
+        const dbPOI = await this.fetchCompletePOIData(poiData.id)
+        
+        if (!dbPOI || !dbPOI.name || !dbPOI.city || !dbPOI.country) {
+          return {
+            success: false,
+            error: `POI not found in database or missing required fields: ${poiData.id}`,
+            processing_time: Date.now() - startTime,
+            metadata: {
+              step: 'data_fetch',
+              status: 'failed',
+              user_id: options.user_id,
+              request_id: options.request_id || `desc_${Date.now()}`,
+              timestamp: new Date().toISOString()
+            }
+          }
+        }
+        
+        // Override poiData with database data (database is source of truth)
+        // At this point, name, city, country are guaranteed to exist
+        poiData = { ...dbPOI } as POIData & { name: string; city: string; country: string }
+        console.log(`✅ Using POI data from database (SSOT): ${poiData.name}`)
+      }
+
+      // At this point, if no ID was provided, name/city/country must be provided
+      // If ID was provided, they were fetched from database
+      if (!poiData.name || !poiData.city || !poiData.country) {
+        return {
+          success: false,
+          error: 'Missing required parameters: name, city, country (or provide id to fetch from database)',
+          processing_time: Date.now() - startTime,
+          metadata: {
+            step: 'validation',
+            status: 'failed',
+            user_id: options.user_id,
+            request_id: options.request_id || `desc_${Date.now()}`,
+            timestamp: new Date().toISOString()
+          }
+        }
+      }
+
       console.log(`🚀 Generating description for: ${poiData.name}`)
       
       // Validate required parameters
@@ -222,6 +374,58 @@ export class DescriptionService {
             user_id: options.user_id,
             request_id: options.request_id || `desc_${Date.now()}`,
             timestamp: new Date().toISOString()
+          }
+        }
+      }
+
+      // Check if description already exists (avoid unnecessary processing)
+      if (poiData.id && !options.existing_description) {
+        const existing = await this.getExistingDescription(poiData.id, options.language || 'pt-br')
+        if (existing) {
+          console.log(`ℹ️ Description already exists for POI ${poiData.id}, returning existing`)
+          return {
+            success: true,
+            processing_time: Date.now() - startTime,
+            data: {
+              description: existing.description,
+              description_id: existing.id,
+              verification: {
+                aprovada: existing.verification_status === 'approved',
+                pontuacao: 0,
+                datas_detectadas: [],
+                fatos_verificaveis: [],
+                problemas: [],
+                sugestoes_melhoria: ''
+              }
+            },
+            metadata: {
+              step: 'existing_description',
+              status: 'completed',
+              user_id: options.user_id,
+              request_id: options.request_id || `desc_${Date.now()}`,
+              timestamp: new Date().toISOString()
+            }
+          }
+        }
+      }
+
+      // Acquire processing lock to prevent race conditions
+      if (poiData.id) {
+        const userId = options.user_id || 'description-service'
+        lockAcquired = await this.acquireProcessingLock(poiData.id, userId)
+        
+        if (!lockAcquired) {
+          return {
+            success: false,
+            error: 'Description generation already in progress for this POI. Please wait and try again.',
+            processing_time: Date.now() - startTime,
+            metadata: {
+              step: 'lock_acquisition',
+              status: 'failed',
+              user_id: options.user_id,
+              request_id: options.request_id || `desc_${Date.now()}`,
+              timestamp: new Date().toISOString()
+            }
           }
         }
       }
@@ -246,7 +450,7 @@ export class DescriptionService {
       let osmEnrichmentResult = null
       let enrichedData: EnrichedPOIData | null = null
 
-      // Step 0: Fetch enriched POI data from database (including OSM fields)
+      // Fetch enriched POI data from database (including OSM fields)
       console.log(`📊 Fetching enriched POI data from database...`)
       const enrichedPOIData = await this.fetchEnrichedPOIData(poiData.id || '')
 
@@ -260,14 +464,15 @@ export class DescriptionService {
         if (needsEnrichment) {
           console.log(`🔄 Enriching POI with OSM data...`)
           
+          // Use data from database (SSOT)
           const enrichmentInput = {
             poi_id: poiData.id,
-            name: poiData.name,
-            city: poiData.city,
-            country: poiData.country,
-            google_place_id: poiData.google_place_id,
-            lat: poiData.lat,
-            lng: poiData.lng
+            name: poiData.name, // From database
+            city: poiData.city, // From database
+            country: poiData.country, // From database
+            google_place_id: poiData.google_place_id, // From database
+            lat: poiData.lat, // From database
+            lng: poiData.lng // From database
           }
 
           osmEnrichmentResult = await OSMEnrichmentService.enrichPOI(enrichmentInput)
@@ -291,17 +496,17 @@ export class DescriptionService {
       
       if (options.use_dynamic_sources ?? true) {
         // Full RAG enabled - get sources and scrape content
-        // Get layered sources
+        // Get layered sources (name, city, country guaranteed at this point)
         const layeredSources = await this.getLayeredSources(
-          poiData.city, 
-          poiData.country, 
+          poiData.city!, 
+          poiData.country!, 
           options.use_dynamic_sources ?? true
         )
         
         console.log(`📚 Found ${layeredSources.length} layered sources for ${poiData.city}, ${poiData.country}`)
 
         // Check city cache first (FASE 3)
-        const cityCache = await this.getCityRAGCache(poiData.city, poiData.country)
+        const cityCache = await this.getCityRAGCache(poiData.city!, poiData.country!)
         finalSources = layeredSources
 
         if (cityCache && this.isCacheValid(cityCache)) {
@@ -326,7 +531,7 @@ export class DescriptionService {
           await this.saveScrapedContent(poiData.id || '', scrapedContent)
           
           // Update city cache
-          await this.updateCityCache(poiData.city, poiData.country, poiData.state, layeredSources, scrapedContent)
+          await this.updateCityCache(poiData.city!, poiData.country!, poiData.state, layeredSources, scrapedContent)
         }
         }
       } else {
@@ -334,8 +539,8 @@ export class DescriptionService {
         console.log('🔗 RAG scraping disabled - providing sources for AI analysis only')
         
         const layeredSources = await this.getLayeredSources(
-          poiData.city, 
-          poiData.country, 
+          poiData.city!, 
+          poiData.country!, 
           false // Don't use dynamic sources for scraping
         )
         
@@ -358,10 +563,11 @@ export class DescriptionService {
       } else {
         // ❌ FALLBACK: Use traditional URL-based approach
         console.log('🔗 Using traditional URL-based sources (fallback)')
+        // SSOT: Use only database data (no fallback to frontend)
         sourcesSection = this.buildSourcesSection(
           finalSources, 
-          enrichedPOIData.website || poiData.website, 
-          enrichedPOIData.reference_links || poiData.reference_links
+          enrichedPOIData.website, // Only from database
+          enrichedPOIData.reference_links || [] // Only from database
         )
       }
       
@@ -422,8 +628,8 @@ export class DescriptionService {
         scrapedContent
       )
 
-      // Verify generated description
-      const verification = await this.verifyGeneratedDescription(description, poiData.name, apiKey)
+      // Verify generated description (name guaranteed at this point)
+      const verification = await this.verifyGeneratedDescription(description, poiData.name!, apiKey)
 
       const result: DescriptionResult = {
         success: true,
@@ -490,6 +696,11 @@ export class DescriptionService {
           timestamp: new Date().toISOString()
         }
       }
+    } finally {
+      // Always release lock if acquired
+      if (lockAcquired && poiData.id) {
+        await this.releaseProcessingLock(poiData.id)
+      }
     }
   }
 
@@ -532,6 +743,12 @@ export class DescriptionService {
    * Validate POI data has required fields
    */
   private static validatePOIData(poiData: POIData): { valid: boolean; missing: string[] } {
+    // If ID exists, validation will happen after fetching from database (SSOT)
+    if (poiData.id) {
+      return { valid: true, missing: [] }
+    }
+    
+    // If no ID, require name, city, and country
     const required = ['name', 'city', 'country']
     const missing = required.filter(field => !poiData[field as keyof POIData])
     
@@ -635,6 +852,79 @@ export class DescriptionService {
     } catch (error) {
       console.warn('⚠️ Error in getLayeredSources:', error)
       return this.getFallbackSources(country)
+    }
+  }
+
+  /**
+   * Fetch complete POI data from database (SSOT - Single Source of Truth)
+   * When poiId is provided, ALL data comes from core.attractions table
+   */
+  private static async fetchCompletePOIData(poiId: string): Promise<POIData | null> {
+    try {
+      const { data: poi, error } = await getSupabaseAdmin()
+        .schema('core')
+        .from('attractions')
+        .select(`
+          id,
+          name,
+          city,
+          country,
+          state,
+          formatted_address,
+          vicinity,
+          website,
+          reference_links,
+          google_place_id,
+          google_types,
+          rating,
+          user_ratings_total,
+          price_level,
+          business_status,
+          formatted_phone_number,
+          international_phone_number,
+          opening_hours,
+          image_url,
+          photos_references,
+          osm_tags,
+          attraction_coordinate!inner(latitude, longitude)
+        `)
+        .eq('id', poiId)
+        .single()
+
+      if (error || !poi) {
+        console.warn(`⚠️ Error fetching complete POI data: ${error?.message || 'POI not found'}`)
+        return null
+      }
+
+      // Map database data to POIData interface
+      return {
+        id: poi.id,
+        name: poi.name,
+        city: poi.city,
+        country: poi.country,
+        state: poi.state,
+        formatted_address: poi.formatted_address,
+        vicinity: poi.vicinity,
+        website: poi.website,
+        reference_links: poi.reference_links || [],
+        google_place_id: poi.google_place_id,
+        google_types: poi.google_types || [],
+        rating: poi.rating,
+        user_ratings_total: poi.user_ratings_total,
+        price_level: poi.price_level,
+        business_status: poi.business_status,
+        formatted_phone_number: poi.formatted_phone_number,
+        opening_hours: poi.opening_hours,
+        image_url: poi.image_url,
+        photos_references: poi.photos_references,
+        osm_tags: poi.osm_tags,
+        lat: poi.attraction_coordinate?.[0]?.latitude,
+        lng: poi.attraction_coordinate?.[0]?.longitude
+      }
+
+    } catch (error) {
+      console.warn(`⚠️ Error in fetchCompletePOIData: ${error}`)
+      return null
     }
   }
 
@@ -829,88 +1119,154 @@ export class DescriptionService {
 
   /**
    * Build enriched POI data section for prompt
+   * Optimized to include only valid, non-null fields from homolog.pois schema
    */
   private static buildEnrichedPOIDataSection(enrichedData: any): string {
     const sections: string[] = []
 
-    // 🌐 OFFICIAL SOURCES FROM DATABASE
-    if (enrichedData.website || enrichedData.osm_wikipedia_url) {
-      sections.push('🌐 OFFICIAL POI SOURCES:')
+    // Helper to check if value is valid (not null, not empty, not 'none')
+    const isValid = (value: any): boolean => {
+      if (value === null || value === undefined) return false
+      if (typeof value === 'string' && (value.trim() === '' || value === 'none')) return false
+      return true
+    }
+
+    // 🌐 OFFICIAL SOURCES FROM DATABASE (Priority 1)
+    if (enrichedData.website || enrichedData.osm_wikipedia_url || enrichedData.wikipedia) {
+      sections.push('🌐 FONTES OFICIAIS:')
       if (enrichedData.website) {
-        sections.push(`- Official Website: ${enrichedData.website}`)
+        sections.push(`- Site oficial: ${enrichedData.website}`)
       }
-      if (enrichedData.osm_wikipedia_url) {
-        sections.push(`- Wikipedia: ${enrichedData.osm_wikipedia_url}`)
+      if (enrichedData.osm_wikipedia_url || enrichedData.wikipedia) {
+        sections.push(`- Wikipedia: ${enrichedData.osm_wikipedia_url || enrichedData.wikipedia}`)
+      }
+      if (enrichedData.wikidata) {
+        sections.push(`- Wikidata: ${enrichedData.wikidata}`)
       }
     }
 
-    // 🏛️ HERITAGE & UNESCO STATUS
-    if (enrichedData.heritage_status !== 'none' && enrichedData.heritage_status) {
-      sections.push('🏛️ HERITAGE STATUS:')
-      sections.push(`- Heritage Level: ${enrichedData.heritage_status}`)
+    // 📅 DATAS E PERÍODOS HISTÓRICOS (Priority 2 - Critical for descriptions)
+    const temporalInfo = []
+    if (isValid(enrichedData.start_date)) {
+      temporalInfo.push(`Data de construção/inauguração: ${enrichedData.start_date}`)
+    }
+    if (isValid(enrichedData.historic_period)) {
+      temporalInfo.push(`Período histórico: ${enrichedData.historic_period}`)
+    }
+    if (isValid(enrichedData.completion_estimated_year)) {
+      temporalInfo.push(`Ano de conclusão: ${enrichedData.completion_estimated_year}`)
+    }
+    if (isValid(enrichedData.unesco_inscription_date)) {
+      temporalInfo.push(`Inscrição UNESCO: ${enrichedData.unesco_inscription_date}`)
+    }
+    
+    if (temporalInfo.length > 0) {
+      sections.push('📅 INFORMAÇÕES TEMPORAIS:')
+      temporalInfo.forEach(info => sections.push(`- ${info}`))
+    }
+
+    // 🏛️ HERITAGE & UNESCO STATUS (Priority 3 - Only if confirmed)
+    if (isValid(enrichedData.heritage_status)) {
+      sections.push('🏛️ STATUS PATRIMONIAL:')
+      sections.push(`- Nível: ${enrichedData.heritage_status}`)
       
-      if (enrichedData.unesco_status !== 'none' && enrichedData.unesco_status) {
-        sections.push(`- UNESCO Status: ${enrichedData.unesco_status}`)
-        if (enrichedData.unesco_inscription_date) {
-          sections.push(`- UNESCO Inscription: ${enrichedData.unesco_inscription_date}`)
-        }
+      if (isValid(enrichedData.unesco_status)) {
+        sections.push(`- UNESCO: ${enrichedData.unesco_status}`)
       }
     }
 
-    // 🏗️ ARCHITECTURAL DETAILS
+    // 🏗️ DETALHES ARQUITETÔNICOS (Priority 4)
     const architecturalInfo = []
-    if (enrichedData.architectural_style) architecturalInfo.push(`Style: ${enrichedData.architectural_style}`)
-    if (enrichedData.architect) architecturalInfo.push(`Architect: ${enrichedData.architect}`)
-    if (enrichedData.historical_period) architecturalInfo.push(`Period: ${enrichedData.historical_period}`)
-    if (enrichedData.completion_estimated_year) architecturalInfo.push(`Built: ${enrichedData.completion_estimated_year}`)
+    if (isValid(enrichedData.architectural_style)) {
+      architecturalInfo.push(`Estilo: ${enrichedData.architectural_style}`)
+    }
+    if (isValid(enrichedData.architect)) {
+      architecturalInfo.push(`Arquiteto: ${enrichedData.architect}`)
+    }
+    if (isValid(enrichedData.historical_period)) {
+      architecturalInfo.push(`Período: ${enrichedData.historical_period}`)
+    }
+    if (isValid(enrichedData.building_material)) {
+      architecturalInfo.push(`Material: ${enrichedData.building_material}`)
+    }
+    if (isValid(enrichedData.height)) {
+      architecturalInfo.push(`Altura: ${enrichedData.height}m`)
+    }
     
     if (architecturalInfo.length > 0) {
-      sections.push('🏗️ ARCHITECTURAL INFO:')
+      sections.push('🏗️ INFORMAÇÕES ARQUITETÔNICAS:')
       architecturalInfo.forEach(info => sections.push(`- ${info}`))
     }
 
-    // 🎭 CULTURAL & MONUMENT INFO
-    if (enrichedData.cultural_significance && enrichedData.cultural_significance !== 'low') {
-      sections.push('🎭 CULTURAL SIGNIFICANCE:')
-      sections.push(`- Level: ${enrichedData.cultural_significance}`)
-      
-      if (enrichedData.monument_type) {
-        sections.push(`- Type: ${enrichedData.monument_type}`)
-      }
-      if (enrichedData.commemorated_event) {
-        sections.push(`- Commemorates: ${enrichedData.commemorated_event}`)
-      }
-      if (enrichedData.commemorated_person) {
-        sections.push(`- Person: ${enrichedData.commemorated_person}`)
-      }
+    // 🎭 INFORMAÇÕES CULTURAIS E MONUMENTOS (Priority 5)
+    const culturalInfo = []
+    if (isValid(enrichedData.cultural_significance) && enrichedData.cultural_significance !== 'low') {
+      culturalInfo.push(`Significância cultural: ${enrichedData.cultural_significance}`)
+    }
+    if (isValid(enrichedData.monument_type)) {
+      culturalInfo.push(`Tipo de monumento: ${enrichedData.monument_type}`)
+    }
+    if (isValid(enrichedData.monument_event)) {
+      culturalInfo.push(`Evento: ${enrichedData.monument_event}`)
+    }
+    if (isValid(enrichedData.monument_person)) {
+      culturalInfo.push(`Homenageado: ${enrichedData.monument_person}`)
+    }
+    if (isValid(enrichedData.landmark_type)) {
+      culturalInfo.push(`Tipo de marco: ${enrichedData.landmark_type}`)
+    }
+    
+    if (culturalInfo.length > 0) {
+      sections.push('🎭 INFORMAÇÕES CULTURAIS:')
+      culturalInfo.forEach(info => sections.push(`- ${info}`))
     }
 
-    // 🎨 PHYSICAL CHARACTERISTICS
+    // 🏛️ TIPOS ESPECÍFICOS POR CATEGORIA (Priority 6)
+    const typeSpecificInfo = []
+    if (isValid(enrichedData.museum_type)) {
+      typeSpecificInfo.push(`Tipo de museu: ${enrichedData.museum_type}`)
+    }
+    if (isValid(enrichedData.museum_collection)) {
+      typeSpecificInfo.push(`Coleção: ${enrichedData.museum_collection}`)
+    }
+    if (isValid(enrichedData.leisure_type)) {
+      typeSpecificInfo.push(`Tipo de lazer: ${enrichedData.leisure_type}`)
+    }
+    if (isValid(enrichedData.natural_type)) {
+      typeSpecificInfo.push(`Tipo natural: ${enrichedData.natural_type}`)
+    }
+    if (isValid(enrichedData.natural_water)) {
+      typeSpecificInfo.push(`Tipo de água: ${enrichedData.natural_water}`)
+    }
+    
+    if (typeSpecificInfo.length > 0) {
+      sections.push('🏛️ TIPOS ESPECÍFICOS:')
+      typeSpecificInfo.forEach(info => sections.push(`- ${info}`))
+    }
+
+    // 🎨 CARACTERÍSTICAS FÍSICAS (Priority 7 - Lower priority)
     const physicalInfo = []
-    if (enrichedData.building_colour) physicalInfo.push(`Building Color: ${enrichedData.building_colour}`)
-    if (enrichedData.roof_colour) physicalInfo.push(`Roof Color: ${enrichedData.roof_colour}`)
-    if (enrichedData.building_material) physicalInfo.push(`Material: ${enrichedData.building_material}`)
+    if (isValid(enrichedData.building_colour)) {
+      physicalInfo.push(`Cor do edifício: ${enrichedData.building_colour}`)
+    }
+    if (isValid(enrichedData.roof_colour)) {
+      physicalInfo.push(`Cor do telhado: ${enrichedData.roof_colour}`)
+    }
     
     if (physicalInfo.length > 0) {
-      sections.push('🎨 PHYSICAL DETAILS:')
+      sections.push('🎨 CARACTERÍSTICAS FÍSICAS:')
       physicalInfo.forEach(info => sections.push(`- ${info}`))
     }
 
-    // 📞 CONTACT INFO (if available)
-    if (enrichedData.contact_phone || enrichedData.contact_email) {
-      sections.push('📞 CONTACT INFO AVAILABLE:')
-      if (enrichedData.contact_phone) sections.push(`- Phone: Available`)
-      if (enrichedData.contact_email) sections.push(`- Email: Available`)
-    }
-
-    // 🗺️ OSM DESCRIPTION (if available)
-    if (enrichedData.osm_description) {
-      sections.push('🗺️ OSM DESCRIPTION:')
+    // 🗺️ DESCRIÇÃO OSM (Priority 8 - Direct factual content)
+    if (isValid(enrichedData.osm_description) && enrichedData.osm_description.length > 20) {
+      sections.push('🗺️ INFORMAÇÃO OSM:')
       sections.push(`- ${enrichedData.osm_description}`)
     }
 
+    // Return formatted sections or empty message
     if (sections.length === 0) {
-      return 'No enriched data available from database.'
+      return 'Nenhum dado enriquecido disponível no banco de dados.'
     }
 
     return sections.join('\n')
@@ -918,10 +1274,133 @@ export class DescriptionService {
 
   /**
    * Build location details string
+   * Note: city and country are guaranteed at this point (validated in generate())
    */
   private static buildLocationDetails(poiData: POIData): string {
-    const parts = [poiData.city, poiData.state, poiData.country].filter(Boolean)
+    const parts = [poiData.city!, poiData.state, poiData.country!].filter(Boolean)
     return parts.join(', ')
+  }
+
+  /**
+   * Build POI data section for prompt (optimized from homolog.pois schema)
+   * Only includes valid, non-null fields relevant for descriptions
+   */
+  private static buildPOIDataSection(poiData: any): string {
+    const sections: string[] = []
+    
+    // Helper to check if value is valid
+    const isValid = (value: any): boolean => {
+      if (value === null || value === undefined) return false
+      if (typeof value === 'string' && value.trim() === '') return false
+      return true
+    }
+
+    // Basic info (always included if available)
+    sections.push(`Nome: ${poiData.name || 'N/A'}`)
+    
+    const locationParts = [poiData.city, poiData.state, poiData.country].filter(Boolean)
+    if (locationParts.length > 0) {
+      sections.push(`Local: ${locationParts.join(', ')}`)
+    }
+    
+    if (isValid(poiData.neighborhood)) {
+      sections.push(`Bairro: ${poiData.neighborhood}`)
+    }
+
+    // Category info
+    if (isValid(poiData.primary_category)) {
+      sections.push(`Categoria: ${poiData.primary_category}`)
+    } else if (isValid(poiData.category)) {
+      sections.push(`Categoria: ${poiData.category}`)
+    }
+
+    // Historical/temporal data (high priority)
+    if (isValid(poiData.start_date)) {
+      sections.push(`Data de construção/inauguração: ${poiData.start_date}`)
+    }
+    if (isValid(poiData.historic_period)) {
+      sections.push(`Período histórico: ${poiData.historic_period}`)
+    }
+
+    // Architectural data (if building/structure)
+    if (isValid(poiData.architectural_style)) {
+      sections.push(`Estilo arquitetônico: ${poiData.architectural_style}`)
+    }
+    if (isValid(poiData.architect)) {
+      sections.push(`Arquiteto: ${poiData.architect}`)
+    }
+    if (isValid(poiData.building_material)) {
+      sections.push(`Material: ${poiData.building_material}`)
+    }
+    if (isValid(poiData.height)) {
+      sections.push(`Altura: ${poiData.height}m`)
+    }
+
+    // Type-specific data (only if relevant to category)
+    if (poiData.category === 'monument' || poiData.primary_category === 'monument') {
+      if (isValid(poiData.monument_type)) {
+        sections.push(`Tipo de monumento: ${poiData.monument_type}`)
+      }
+      if (isValid(poiData.monument_event)) {
+        sections.push(`Evento: ${poiData.monument_event}`)
+      }
+      if (isValid(poiData.monument_person)) {
+        sections.push(`Homenageado: ${poiData.monument_person}`)
+      }
+    }
+
+    if (poiData.category === 'museum' || poiData.primary_category === 'museum') {
+      if (isValid(poiData.museum_type)) {
+        sections.push(`Tipo de museu: ${poiData.museum_type}`)
+      }
+      if (isValid(poiData.museum_collection)) {
+        sections.push(`Coleção: ${poiData.museum_collection}`)
+      }
+    }
+
+    if (poiData.category === 'park' || poiData.primary_category === 'park' || poiData.category === 'leisure') {
+      if (isValid(poiData.leisure_type)) {
+        sections.push(`Tipo de lazer: ${poiData.leisure_type}`)
+      }
+    }
+
+    if (poiData.category === 'natural' || poiData.primary_category === 'natural') {
+      if (isValid(poiData.natural_type)) {
+        sections.push(`Tipo natural: ${poiData.natural_type}`)
+      }
+      if (isValid(poiData.natural_water)) {
+        sections.push(`Tipo de água: ${poiData.natural_water}`)
+      }
+    }
+
+    // Cultural significance
+    if (isValid(poiData.cultural_significance) && poiData.cultural_significance !== 'low') {
+      sections.push(`Significância cultural: ${poiData.cultural_significance}`)
+    }
+
+    // Heritage status (only if confirmed)
+    if (isValid(poiData.heritage_status) && poiData.heritage_status !== 'none') {
+      sections.push(`Status patrimonial: ${poiData.heritage_status}`)
+    }
+    if (isValid(poiData.unesco_status) && poiData.unesco_status !== 'none') {
+      sections.push(`UNESCO: ${poiData.unesco_status}`)
+      if (isValid(poiData.unesco_inscription_date)) {
+        sections.push(`Inscrição UNESCO: ${poiData.unesco_inscription_date}`)
+      }
+    }
+
+    // Reference sources (always include if available)
+    if (isValid(poiData.website)) {
+      sections.push(`Site oficial: ${poiData.website}`)
+    }
+    if (isValid(poiData.wikipedia)) {
+      sections.push(`Wikipedia: ${poiData.wikipedia}`)
+    }
+    if (isValid(poiData.wikidata)) {
+      sections.push(`Wikidata: ${poiData.wikidata}`)
+    }
+
+    return sections.join('\n')
   }
 
   /**
@@ -1165,96 +1644,64 @@ export class DescriptionService {
     const hasTokens = existingTokens && existingTokens.length > 0
     const hasExisting = existingDescription && existingDescription.trim()
     
-    // Determine audio time based on POI types (same logic as model selection)
-    const poiTypes = poiData?.google_types || []
-    const proTypes = ['tourist_attraction', 'locality', 'political', 'point_of_interest']
-    const hasProType = poiTypes.some((type: string) => proTypes.includes(type))
-    const audioTime = hasProType ? '40s' : '20s'
-    const isDataRich = hasProType // PRO types are considered data-rich
+    // Fixed 25-second audio format (max 85 words)
+    const audioTime = '25s'
+    const maxWords = 85
 
-    return `You are an expert travel guide writer. Produce a ${isDataRich ? 'detailed, engaging' : 'concise, factual'} description in Brazilian Portuguese.
+    return `Gere descrição narrativa contemplativa (máx. ${maxWords} palavras, ${audioTime} áudio) em português brasileiro.
 
-CRITICAL RULES (BALANCED):
-- Use well-known historical facts and verifiable information about the location
-- PRIORITIZE the sources below when available, but you may supplement with established historical knowledge
-- NEVER INVENT physical features, functions, or services (e.g., "serves as viewpoint", "offers panoramic views")
-- NEVER SPECULATE with words like "aproximadamente", "cerca de", "provavelmente", "pode ter"
-- ABSOLUTELY FORBIDDEN: "patrimônio histórico", "tombado", "IPHAN", "Ministério da Cultura" unless explicitly in sources
-- AVOID unverified claims about current heritage status, specific IPHAN/UNESCO designations, or active government programs
-- SOURCE PRIORITY ORDER:
-  1. Official website (if available)
-  2. User-provided references  
-  3. City/municipal sources
-  4. National sources
-  5. Well-established historical facts (periods/centuries, regional context, common architectural styles)
-- PRIORITIZE DATES: construction/inauguration/foundation; include restoration if documented. Aim to include one temporal anchor (year/century/decade) when accurate.
-- Prefer short sentences for TTS. No lists.
-- FORBIDDEN: addresses, directions, hours, prices, contacts, invented features, speculation.
+ESTILO: Tom calmo, contemplativo, descritivo. Inspirado em "Brasil Visto de Cima", adaptado para solo. Sem exageros, superlativos ou ritmo de leitura.
 
-STRUCTURE & FLOW:
-- Start with the POI name; never start with the city.
-- Include 1–2 visible/observable elements when certain (e.g., material, style, era, original use).
-- End with a natural closing line that connects the visitor to the place (no hyperbole).
+ESTRUTURA FIXA (4 partes):
+1. ABERTURA SITUACIONAL (1 frase): Localize no espaço urbano. Ex: "No centro de ${poiData?.city || 'Campinas'}, ergue-se ${name}..."
+2. CONTEXTO HISTÓRICO (1-2 frases): Origem, data ou evento marcante com base real.
+3. CURIOSIDADE (1 frase): Fato concreto, verificável, de interesse público.
+4. ENCERRAMENTO (1 frase): Imagem sensorial ou reflexão breve, sem conexão com outro ponto.
 
-TONE & ENGAGEMENT (GUIDE STYLE):
-- Friendly, knowledgeable tour guide voice
-- Share interesting historical facts, cultural significance, or local traditions
-- Include curious details about architecture, founding, notable events, or local characteristics
-- Vivid but factual language; avoid hype; focus on authentic stories
-- Warm, engaging tone while maintaining accuracy
+REGRAS CRÍTICAS:
+- NUNCA invente dados históricos, nomes, curiosidades ou datas
+- NUNCA especule ("dizem que", "reza a lenda", "provavelmente", "pode ter")
+- NUNCA faça convites ("venha conhecer", "vale a visita")
+- NUNCA use vocabulário técnico ou adjetivos vazios ("belíssimo", "impressionante")
+- PROIBIDO: "patrimônio histórico", "tombado", "IPHAN" sem confirmação explícita nas fontes
+- PROIBIDO: endereços, horários, preços, contatos, direções
 
-SOURCES:
+ÁUDIO DIRECIONAL PRÉVIO:
+O usuário ouvirá ANTES: "À sua direita", "À sua esquerda" ou "Logo à frente". 
+Sua descrição começa IMEDIATAMENTE após, sem repetir a direção. 
+Inicie com o nome do POI ou localização natural. Ex: "${name} foi construído..." ou "Em ${poiData?.city || 'Campinas'}, ${name}..."
+
+FONTES (prioridade):
 ${sourcesSection}
 
-KNOWLEDGE POLICY:
-- You may use established historical knowledge about Brazilian cities, regions, and landmarks.
-- The sources below are trusted references - you may draw reasonable conclusions about the POI based on these source types and contexts.
-- Do NOT name or cite institutions/sources in the output text.
-- Use the source context (official websites, government sources, cultural institutions) to inform your description.
-- Distinguish general historical context (allowed) from specific current claims that require source verification.
+${scrapedContentSection ? `CONTEÚDO DAS FONTES:\n${scrapedContentSection}\n` : ''}
 
-TASK (${isDataRich ? `PRO - detailed description for ${audioTime} audio` : `FLASH - concise description for ${audioTime} audio`}):
-- Start with: POI name + primary verifiable DATE (year preferred; century/decade if no year).
-${isDataRich ? 
-  `- Then 2–4 verified or well-established facts (architect/style/events/cultural significance/historical context) if documented; develop engaging narratives.
-- Include rich local context, regional characteristics, cultural elements, and historical significance when accurate.
-- Explore connections between historical periods, architectural styles, and cultural movements.
-- Target length: 80-150 words for ${audioTime} audio coverage.` :
-  `- Then 1–2 verified or well-established facts if documented; keep it simple and direct.
-- Include basic local context when historically accurate.
-- Target length: 30-70 words for ${audioTime} audio.`
-}
-- Optionally current function/significance if officially recorded.
-- Avoid generic fillers (e.g., "importante cidade", "rica história"); prefer concrete facts.
+POLÍTICA DE DADOS:
+- Use APENAS informações das fontes acima ou conhecimento histórico estabelecido
+- Se não houver dados confirmados, use apenas o que está disponível - NUNCA invente
+- Datas: inclua ano apenas se confirmado. Caso contrário, use século/década
+- Não cite fontes no texto final
 
-DATE POLICY:
-- Include a year only if confirmed. Otherwise use century/decade.
-- Never use "aproximadamente", "cerca de", "provavelmente".
+DADOS DO POI:
+${poiData ? this.buildPOIDataSection(poiData) : `Nome: ${name}\nLocal: ${locationDetails}`}
+${googleData ? `\nGoogle: ${googleData}` : ''}
 
-ATTRACTION DATA:
-- Name: ${name}
-- Location: ${locationDetails}
-- Google: ${googleData}
+${enrichedPOISection ? `INFO DO BANCO:\n${enrichedPOISection}\n` : ''}
 
-POI DATABASE INFORMATION:
-${enrichedPOISection}
+${enrichedData ? this.buildOSMDataSection(enrichedData) + '\n' : ''}
 
-${scrapedContentSection ? scrapedContentSection + '\n' : ''}
+${hasTokens ? `TOKENS:\n${existingTokens.map((t: any) => `- ${t.token} (${t.weight})`).join('\n')}\n` : ''}
+${hasExisting ? `DESCRIÇÃO EXISTENTE (melhorar):\n${existingDescription}\n` : ''}
 
-${enrichedData ? this.buildOSMDataSection(enrichedData) : ''}
-
-${hasTokens ? `TOKENS:\n${existingTokens.map((t: any) => `- ${t.token} (${t.weight})`).join('\n')}` : ''}
-${hasExisting ? `EXISTING (for improvement):\n${existingDescription}` : ''}
-
-OUTPUT: Only the final Portuguese text.
-
-[Generation ID: ${Date.now()}-${Math.random().toString(36).substr(2, 9)}]`
+SAÍDA: Apenas o texto final em português, sem comentários ou metadados.`
   }
 
   /**
    * Determine which Gemini model to use based on specific Google types
-   * PRO: tourist_attraction, locality, political, point_of_interest (40s audio)
-   * FLASH: all others (20s audio)
+   * Note: All descriptions now use fixed 25s audio format (max 85 words)
+   * Model selection is based on data richness, not audio duration
+   * PRO: tourist_attraction, locality, political, point_of_interest
+   * FLASH: all others
    */
   private static determineGeminiModel(sourcesSection: string, enrichedPOISection: string, scrapedContentSection?: string, poiData?: any): 'pro' | 'flash' {
     const poiTypes = poiData?.google_types || []
@@ -1805,7 +2252,8 @@ RESPONDA EM JSON:
         }
         
         const html = await response.text()
-        const extractedContent = this.extractRelevantContent(html, poiData.name, poiData.city)
+        // name and city are guaranteed at this point (validated above)
+        const extractedContent = this.extractRelevantContent(html, poiData.name!, poiData.city!)
         
         if (extractedContent.relevantText) {
           scrapedResults.push({
