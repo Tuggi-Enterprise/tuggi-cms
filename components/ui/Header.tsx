@@ -25,7 +25,8 @@ import {
   Database,
   Target,
   ChevronDown,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Route
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -96,6 +97,12 @@ const navigation = [
     href: '/reviews',
     icon: MessageSquare,
     category: 'feedback'
+  },
+  {
+    name: 'Trail Visualization',
+    href: '/trail-visualization',
+    icon: Route,
+    category: 'analytics'
   },
 ]
 
@@ -253,6 +260,12 @@ export function Header({ className }: HeaderProps) {
 
             {/* Feedback - Single items */}
             {navigation.filter(item => item.category === 'feedback').map((item) => {
+              const isActive = pathname === item.href
+              return renderNavItem(item, isActive)
+            })}
+
+            {/* Analytics - Single items */}
+            {navigation.filter(item => item.category === 'analytics').map((item) => {
               const isActive = pathname === item.href
               return renderNavItem(item, isActive)
             })}
