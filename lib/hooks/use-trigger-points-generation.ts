@@ -11,6 +11,10 @@ interface POIInfo {
   country: string
   city: string
   state?: string
+  // 🆕 Campos opcionais para OSM ID
+  osm_id?: string | number
+  osm_type?: 'node' | 'way' | 'relation'
+  osm_tags?: any
 }
 
 interface TriggerPointResult {

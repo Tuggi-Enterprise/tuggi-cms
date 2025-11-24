@@ -23,8 +23,9 @@ export class GeographicContextAnalyzer {
     
     try {
       // Análise paralela de diferentes aspectos
+      // 🆕 Passar boundary para calculateUrbanDensity para fallback OSM
       const [urbanDensity, elevationContext, streetPattern, infrastructure] = await Promise.all([
-        this.calculateUrbanDensity(analysisPoint),
+        this.calculateUrbanDensity(analysisPoint, boundary),
         this.analyzeElevation(analysisPoint),
         this.analyzeStreetPattern(analysisPoint),
         this.analyzeInfrastructure(analysisPoint)
@@ -55,8 +56,9 @@ export class GeographicContextAnalyzer {
   
   /**
    * Calcula a densidade urbana automaticamente
+   * NOVO: Fallback usando dados OSM quando Google Places retorna 0
    */
-  private async calculateUrbanDensity(location: { lat: number; lng: number }) {
+  private async calculateUrbanDensity(location: { lat: number; lng: number }, boundary?: BoundaryData) {
     try {
       console.log(`🏙️ Calculating urban density for: ${location.lat}, ${location.lng}`);
       
@@ -91,6 +93,16 @@ export class GeographicContextAnalyzer {
       console.log(`📊 Urban density analysis: ${totalEstablishments} establishments in ${areaKm2.toFixed(2)}km² = ${density.toFixed(1)}/km²`);
       console.log(`🏪 Business: ${businessCount}, 🚇 Transit: ${transitCount}, 🏢 Total: ${totalEstablishments}`);
       
+      // 🆕 FALLBACK: Se Google Places retornou 0, usar dados do OSM (boundary detection)
+      if (totalEstablishments === 0 && boundary) {
+        console.log(`🔄 Google Places returned 0 establishments, using OSM fallback...`);
+        const osmDensity = this.calculateUrbanDensityFromOSM(boundary, location);
+        if (osmDensity) {
+          console.log(`✅ OSM fallback: ${osmDensity.level} (${osmDensity.score})`);
+          return osmDensity;
+        }
+      }
+      
       // Classificar densidade com thresholds ajustados para realidade brasileira
       let level: 'very_dense' | 'dense' | 'medium' | 'low' | 'rural';
       let score: number;
@@ -118,6 +130,66 @@ export class GeographicContextAnalyzer {
     } catch (error) {
       console.warn('Error calculating urban density:', error);
       return { level: 'medium' as const, score: 0.5 };
+    }
+  }
+  
+  /**
+   * 🆕 Calcula densidade urbana usando dados do OSM (fallback quando Google Places retorna 0)
+   * Usa dados já obtidos do boundary detection (buildings, streets)
+   */
+  private calculateUrbanDensityFromOSM(boundary: BoundaryData, location: { lat: number; lng: number }): { level: 'very_dense' | 'dense' | 'medium' | 'low' | 'rural'; score: number } | null {
+    try {
+      // Usar dados já obtidos do boundary detection
+      const buildingCount = boundary.buildings?.length || 0;
+      const streetCount = boundary.streets?.length || 0;
+      const surroundingBuildingCount = boundary.surroundingHeight?.buildingCount || 0;
+      
+      // Calcular score baseado em prédios encontrados
+      // Área de análise: raio de 500m = ~0.785 km²
+      const analysisAreaKm2 = Math.PI * Math.pow(0.5, 2); // 0.785 km²
+      
+      // Contar total de prédios (boundary + surrounding)
+      const totalBuildings = buildingCount + surroundingBuildingCount;
+      const buildingDensity = totalBuildings / analysisAreaKm2;
+      
+      console.log(`🏗️ OSM fallback analysis:`);
+      console.log(`   Buildings in boundary: ${buildingCount}`);
+      console.log(`   Surrounding buildings: ${surroundingBuildingCount}`);
+      console.log(`   Streets found: ${streetCount}`);
+      console.log(`   Total buildings: ${totalBuildings}`);
+      console.log(`   Building density: ${buildingDensity.toFixed(1)}/km²`);
+      
+      // Classificar baseado em densidade de prédios (thresholds ajustados para OSM)
+      // OSM geralmente tem menos dados que Google Places, então thresholds são mais baixos
+      let level: 'very_dense' | 'dense' | 'medium' | 'low' | 'rural';
+      let score: number;
+      
+      if (buildingDensity > 200 || totalBuildings > 50 || streetCount > 15) {
+        // Muitos prédios e ruas = área muito densa
+        level = 'very_dense';
+        score = 0.85;
+      } else if (buildingDensity > 100 || totalBuildings > 25 || streetCount > 10) {
+        // Muitos prédios = área densa
+        level = 'dense';
+        score = 0.7;
+      } else if (buildingDensity > 50 || totalBuildings > 10 || streetCount > 5) {
+        // Prédios moderados = área média
+        level = 'medium';
+        score = 0.5;
+      } else if (buildingDensity > 10 || totalBuildings > 3 || streetCount > 2) {
+        // Poucos prédios = área baixa
+        level = 'low';
+        score = 0.3;
+      } else {
+        // Muito poucos prédios = área rural
+        level = 'rural';
+        score = 0.1;
+      }
+      
+      return { level, score };
+    } catch (error) {
+      console.warn('Error calculating urban density from OSM:', error);
+      return null;
     }
   }
   

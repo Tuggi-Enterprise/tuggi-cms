@@ -11,6 +11,10 @@ export interface POIData {
   country: string;
   city: string;
   state?: string;
+  // 🆕 Campos opcionais para OSM ID (quando disponível)
+  osm_id?: string | number;
+  osm_type?: 'node' | 'way' | 'relation';
+  osm_tags?: any; // Tags OSM do POI
 }
 
 export interface GeographicContext {

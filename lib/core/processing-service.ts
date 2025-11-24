@@ -122,7 +122,7 @@ class ProcessingService {
                 lat: poi.coordinates.latitude,
                 lng: poi.coordinates.longitude
               },
-              type: poi.google_types?.[0] || 'point_of_interest',
+              type: poi.category || 'point_of_interest',
               country: poi.country,
               city: poi.city,
               state: poi.state
@@ -329,7 +329,7 @@ class ProcessingService {
               state,
               country,
               formatted_address,
-              google_types,
+              category,
               rating,
               user_ratings_total,
               website,

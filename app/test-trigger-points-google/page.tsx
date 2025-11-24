@@ -69,7 +69,7 @@ export default function TestTriggerPointsGooglePage() {
         .select(`
           id, 
           name, 
-          google_types, 
+          category, 
           country, 
           city, 
           state,
@@ -93,7 +93,7 @@ export default function TestTriggerPointsGooglePage() {
           lat: (data.coordinates as any).latitude, 
           lng: (data.coordinates as any).longitude 
         },
-        type: data.google_types?.[0] || 'unknown',
+        type: data.category || 'unknown',
         country: data.country,
         city: data.city,
         state: data.state

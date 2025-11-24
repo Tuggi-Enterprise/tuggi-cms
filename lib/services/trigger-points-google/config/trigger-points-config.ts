@@ -319,7 +319,7 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
       min: 3000,   // Mínimo 3km
       max: 15000   // Máximo 15km
     },
-    maxTriggerPoints: 50,
+    maxTriggerPoints: 70,
     minDistanceBetweenTPs: 100,
     visibilityThreshold: 0.3,  // Menos restritivo (visível de longe)
     strategy: 'circular',
@@ -384,7 +384,7 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
       areaMin: 10000          // OU área grande (parques, etc.)
     },
     searchRadius: {
-      fixed: 180  // Raio fixo de 150m (limitado ao entorno)
+      fixed: 120  // Raio fixo de 120m (limitado ao entorno imediato)
     },
     maxTriggerPoints: 40,
     minDistanceBetweenTPs: 40,

@@ -239,6 +239,7 @@ export class TriggerPointValidator {
   
   /**
    * NOVO: Seleciona TPs garantindo distância mínima entre eles
+   * 🆕 Ajusta distância mínima baseado no tamanho do POI
    */
   private selectTriggerPointsWithMinDistance(
     rankedCandidates: TriggerPointCandidate[],
@@ -250,7 +251,30 @@ export class TriggerPointValidator {
     const selectedTPs: TriggerPoint[] = [];
     let rejectedCount = 0;
     
-    console.log(`🔍 Selecting TPs with ${minDistance}m minimum distance...`);
+    // 🆕 Ajustar distância mínima baseado no tamanho do POI e altura
+    const poiHeight = boundary.height || 0;
+    const isSmallPOI = boundary.area < 10000;
+    const isDenseZone = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
+    const isFlatPOI = poiHeight === 0 || poiHeight < 5;
+    
+    let adjustedMinDistance = minDistance;
+    
+    // POIs pequenos (< 10000m²) precisam de distância mínima maior
+    if (isSmallPOI) {
+      adjustedMinDistance = Math.max(adjustedMinDistance, 60); // Mínimo 60m para POIs pequenos
+    }
+    
+    // POIs FLAT em áreas densas precisam de distância mínima maior para evitar TPs próximos sem visão
+    if (isFlatPOI && isDenseZone) {
+      adjustedMinDistance = Math.max(adjustedMinDistance, 80); // Mínimo 80m para POIs FLAT em áreas densas
+      console.log(`📏 FLAT POI in dense zone: increasing min distance to ${adjustedMinDistance}m (POI height: ${poiHeight}m)`);
+    }
+    
+    if (adjustedMinDistance > minDistance) {
+      console.log(`📏 Adjusted min distance from ${minDistance}m to ${adjustedMinDistance}m (small: ${isSmallPOI}, flat: ${isFlatPOI}, dense: ${isDenseZone})`);
+    }
+    
+    console.log(`🔍 Selecting TPs with ${adjustedMinDistance}m minimum distance...`);
     
     for (const candidate of rankedCandidates) {
       // Verificar se já temos o máximo de TPs
@@ -260,9 +284,10 @@ export class TriggerPointValidator {
       }
       
       // Verificar distância mínima com TPs já selecionados
-      // KISS: Distância mínima muito reduzida para ruas da frente (TPs muito próximos = OK)
+      // REMOVIDO: Exceção para front streets - todos os TPs devem respeitar a distância mínima do grupo
       const isFrontStreet = this.isTPOnFrontStreet(candidate, boundary);
-      const effectiveMinDistance = isFrontStreet ? TRIGGER_POINTS_CONSTANTS.limits.minTPDistance : minDistance; // Distância configurável para ruas da frente
+      // Usar sempre a distância ajustada baseada no tamanho do POI e grupo de classificação
+      const effectiveMinDistance = adjustedMinDistance;
       
       let closestDistance = Infinity;
       let closestTP: any = null;
@@ -618,27 +643,45 @@ out geom tags;
       const nearestBoundaryPoint = this.findNearestBoundaryPoint(candidate.location, boundary.coordinates);
       const distance = calculateDistance(candidate.location, nearestBoundaryPoint);
 
-      // ✅ REGRA CRÍTICA: TPs na rua da frente do POI são SEMPRE aprovados
+      // 🎯 VALIDAÇÃO RIGOROSA: Considerar altura do POI para auto-aprovação
+      const poiHeight = boundary.height || 0;
       const isFrontStreet = this.isTPOnFrontStreet(candidate, boundary);
-      if (isFrontStreet) {
-        //console.log(`🏠 TP on FRONT STREET of POI (${distance.toFixed(0)}m) - AUTO APPROVED (guaranteed visibility)`);
-        return true;
-      }
-      
-      // ✅ REGRA AJUSTADA: TPs muito próximos do boundary são automaticamente aprovados
-      // EXCETO em canyon urbano onde mesmo próximos podem ter obstruções
       const isUrbanCanyon = this.isPOIInUrbanCanyon(boundary, context);
       
-      if (distance < TRIGGER_POINTS_CONSTANTS.distances.frontStreetDistance && !isUrbanCanyon) {
-        console.log(`✅ TP very close to boundary (${distance.toFixed(0)}m < ${TRIGGER_POINTS_CONSTANTS.distances.frontStreetDistance}m) - AUTO APPROVED (street in front)`);
-        return true;
+      // ✅ CORREÇÃO 3: Remover auto-aprovação para POIs com altura
+      // TODOS os TPs devem passar por validação de visibilidade, independente da altura
+      // Apenas TPs muito próximos de POIs FLAT podem ser auto-aprovados (validação mais simples)
+      
+      // REGRA CRÍTICA: TPs na rua da frente do POI
+      // APENAS para POIs FLAT muito próximos (< 30m) - auto-aprovar
+      if (isFrontStreet) {
+        if (poiHeight === 0 || poiHeight < 5) {
+          // POI FLAT: só auto-aprovar se muito próximo
+          if (distance < 30) {
+            console.log(`🏠 TP on FRONT STREET of FLAT POI (${distance.toFixed(0)}m) - AUTO APPROVED (very close, FLAT POI)`);
+            return true;
+          }
+          // Continuar com validação completa para POIs FLAT mais distantes
+        }
+        // POI com altura: SEMPRE validar visibilidade (não auto-aprovar)
       }
       
-      // 🏙️ NOVO: Auto-aprovação para canyons urbanos (1m-60m)
-      if (isUrbanCanyon && distance >= TRIGGER_POINTS_CONSTANTS.distances.urbanCanyonAutoApprovalMin && distance <= TRIGGER_POINTS_CONSTANTS.distances.urbanCanyonAutoApprovalMax) {
-        console.log(`🏙️ TP in URBAN CANYON (${distance.toFixed(0)}m, range: ${TRIGGER_POINTS_CONSTANTS.distances.urbanCanyonAutoApprovalMin}-${TRIGGER_POINTS_CONSTANTS.distances.urbanCanyonAutoApprovalMax}m) - AUTO APPROVED (canyon visibility)`);
-        return true;
+      // REGRA AJUSTADA: TPs muito próximos do boundary
+      // APENAS para POIs FLAT muito próximos e não em zona densa
+      if (distance < TRIGGER_POINTS_CONSTANTS.distances.frontStreetDistance && !isUrbanCanyon) {
+        if (poiHeight === 0 || poiHeight < 5) {
+          // POI FLAT: só auto-aprovar se muito próximo (< 25m) e não em zona densa
+          if (distance < 25 && context.urbanDensity.level !== 'very_dense' && context.urbanDensity.level !== 'dense') {
+            console.log(`✅ TP very close to FLAT POI (${distance.toFixed(0)}m) - AUTO APPROVED (low density, FLAT POI)`);
+            return true;
+          }
+          // Continuar com validação completa
+        }
+        // POI com altura: SEMPRE validar visibilidade (não auto-aprovar)
       }
+      
+      // Auto-aprovação para canyons urbanos REMOVIDA
+      // TODOS os TPs devem passar por validação completa, independente de canyon
       
       if (distance < 75 && isUrbanCanyon) {
         console.log(`🏙️ TP close to boundary in URBAN CANYON (${distance.toFixed(0)}m) - checking obstructions despite proximity`);
@@ -653,15 +696,17 @@ out geom tags;
         distance
       );
       
+      // Usar poiHeight já definido acima para validação correta
       const blockedByBuildings = this.checkCachedBuildingsBlocking(
         candidate.location,
         nearestBoundaryPoint,
         relevantBuildings,
-        context
+        context,
+        poiHeight
       );
       
-      if (!blockedByBuildings) {
-        console.log(`🚫 BLOCKED: Buildings block line of sight (${relevantBuildings.length} buildings analyzed)`);
+      if (blockedByBuildings) {
+        console.log(`🚫 BLOCKED: Buildings block line of sight (${relevantBuildings.length} buildings analyzed, POI height: ${poiHeight}m)`);
         return false;
       }
       
@@ -791,19 +836,38 @@ out geom tags;
 
   /**
    * 🔥 NOVA: Usa a lógica ORIGINAL de validação com buildings já carregados (sem API calls)
+   * Agora considera altura do POI para validação correta
    */
   private checkCachedBuildingsBlocking(
     tpLocation: { lat: number; lng: number },
     boundaryPoint: { lat: number; lng: number },
     buildings: any[],
-    context: GeographicContext
+    context: GeographicContext,
+    poiHeight: number = 0
   ): boolean {
     try {
       const distance = calculateDistance(tpLocation, boundaryPoint);
       const isDenseZone = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
       
-      // console.log(`🏗️ Checking ${buildings.length} cached buildings for blocking (distance: ${distance.toFixed(0)}m, dense: ${isDenseZone})`);
+      // 🎯 VALIDAÇÃO RIGOROSA PARA POIs BAIXOS (FLAT)
+      // Para POIs com 0m de altura, qualquer building entre TP e POI bloqueia
+      if (poiHeight === 0 || poiHeight < 5) {
+        for (const building of buildings) {
+          const buildingHeight = extractBuildingHeight(building);
+          if (!buildingHeight || buildingHeight <= 0) continue;
+          
+          const intersects = this.checkBuildingIntersectsLine(building, tpLocation, boundaryPoint);
+          if (intersects) {
+            // Para POI FLAT, qualquer building > 3m bloqueia
+            if (buildingHeight > 3) {
+              console.log(`🚫 FLAT POI BLOCKED: Building (${buildingHeight}m) blocks FLAT POI (${poiHeight}m) - TP REJECTED`);
+              return true; // BLOQUEADO
+            }
+          }
+        }
+      }
       
+      // Validação normal para POIs com altura
       for (const building of buildings) {
         const buildingHeight = extractBuildingHeight(building);
         
@@ -816,27 +880,39 @@ out geom tags;
           const buildingCenter = this.calculateBuildingCentroid(building);
           const distanceFromTP = calculateDistance(tpLocation, buildingCenter);
           
-          // 🔥 VALIDAÇÃO ORIGINAL RIGOROSA
+          // 🎯 VALIDAÇÃO CONSIDERANDO ALTURA DO POI
+          if (poiHeight > 0) {
+            // Se POI tem altura conhecida, comparar com building
+            const blockingRatio = TRIGGER_POINTS_CONSTANTS.obstructions.buildingBlockingRatio; // 0.6 (60%)
+            if (buildingHeight >= poiHeight * blockingRatio) {
+              console.log(`🚫 BLOCKED: Building (${buildingHeight}m) blocks POI (${poiHeight}m) view - TP REJECTED`);
+              return true; // BLOQUEADO
+            }
+            // Se building é menor que 60% da altura do POI, pode ver por cima
+            continue;
+          }
+          
+          // 🔥 VALIDAÇÃO ORIGINAL RIGOROSA (POI sem altura conhecida)
           if (isDenseZone) {
             // Em zonas densas, ser mais rigoroso
             if (buildingHeight > 8) {
               console.log(`🏢 DENSE ZONE BLOCKED: Tall building (${buildingHeight}m) blocks line of sight`);
-              return false; // BLOQUEADO
+              return true; // BLOQUEADO
             }
           } else {
             // Em zonas normais, usar altura mínima
             if (buildingHeight > 15) {
               console.log(`🚫 BLOCKED: Tall building (${buildingHeight}m) blocks unknown POI height - TP REJECTED`);
-              return false; // BLOQUEADO
+              return true; // BLOQUEADO
             } else if (buildingHeight > TRIGGER_POINTS_CONSTANTS.obstructions.mediumBuildingHeight && distanceFromTP < TRIGGER_POINTS_CONSTANTS.obstructions.closeDistanceThreshold) {
               console.log(`🚫 BLOCKED: Medium building (${buildingHeight}m) too close (${distanceFromTP.toFixed(0)}m) - TP REJECTED`);
-              return false; // BLOQUEADO
+              return true; // BLOQUEADO
             }
           }
         }
       }
       
-      return true; // NÃO BLOQUEADO
+      return false; // NÃO BLOQUEADO
       
     } catch (error) {
       console.warn('Cached buildings blocking check failed:', error);

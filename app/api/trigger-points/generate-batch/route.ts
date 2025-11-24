@@ -177,6 +177,9 @@ export async function POST(request: NextRequest) {
         name,
         city,
         country,
+        state,
+        category,
+        osm_tags,
         attraction_coordinate!inner(latitude, longitude)
       `)
       .not('attraction_coordinate', 'is', null)

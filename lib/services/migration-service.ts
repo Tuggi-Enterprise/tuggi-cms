@@ -215,6 +215,23 @@ export class MigrationService {
   }
 
   /**
+   * Convert TEXT to BOOLEAN for specific fields
+   */
+  static convertTextToBoolean(value: any): boolean | null {
+    if (value === null || value === undefined) {
+      return null
+    }
+    if (typeof value === 'boolean') {
+      return value
+    }
+    if (typeof value === 'string') {
+      const lower = value.toLowerCase().trim()
+      return lower === 'yes' || lower === 'true' || lower === '1' || lower === 'sim'
+    }
+    return Boolean(value)
+  }
+
+  /**
    * Map POI data from homolog to core format
    */
   static mapHomologToCore(poi: any, coord: any): any {
@@ -231,8 +248,8 @@ export class MigrationService {
       website: poi.website,
       approved: false, // Start as not approved
       
-      // OSM fields
-      osm_id: poi.osm_id,
+      // OSM fields - Convert BIGINT to TEXT
+      osm_id: poi.osm_id?.toString() || null,
       osm_type: poi.osm_type,
       place_id: poi.place_id,
       importance: poi.importance,
@@ -277,14 +294,32 @@ export class MigrationService {
       // Dates
       start_date: poi.start_date,
       
-      // Museum fields
-      museum_collection: poi.museum_collection,
-      museum_audience: poi.museum_audience,
-      museum_education: poi.museum_education,
+      // Museum fields - Map to core field names
+      collection_focus: poi.museum_collection,
+      target_audience: poi.museum_audience,
+      educational_programs: this.convertTextToBoolean(poi.museum_education),
       
-      // Park/Natural fields
-      natural_water: poi.natural_water,
+      // Park/Natural fields - Convert TEXT to BOOLEAN
+      water_features: this.convertTextToBoolean(poi.natural_water),
       entrance_fee: poi.entrance_fee,
+      
+      // Height - Convert NUMERIC(8,2) to NUMERIC(6,2) with validation
+      estimated_height_m: poi.height && parseFloat(String(poi.height)) <= 9999.99 
+        ? parseFloat(String(poi.height)) 
+        : null,
+      
+      // Architectural and heritage fields
+      architectural_style: poi.architectural_style,
+      historical_period: poi.historic_period,
+      landmark_type: poi.landmark_type,
+      architect: poi.architect,
+      construction_status: poi.construction_status,
+      heritage_status: poi.heritage_status,
+      unesco_status: poi.unesco_status,
+      unesco_inscription_date: poi.unesco_inscription_date,
+      unesco_reference: poi.unesco_reference,
+      landmark_level: poi.landmark_level,
+      importance_level: poi.importance_level,
       
       // Boolean flags
       is_historic: poi.is_historic || false,
@@ -417,6 +452,13 @@ export class MigrationService {
         }
       }
 
+      if (!poi.city || poi.city.trim() === '') {
+        return {
+          success: false,
+          error: 'POI city is required and cannot be empty'
+        }
+      }
+
       if (!coord.latitude || !coord.longitude) {
         return {
           success: false,
@@ -545,6 +587,14 @@ export class MigrationService {
       }
 
       // 8. Create coordinate in core.attraction_coordinate
+      // First check if coordinate already exists (UNIQUE constraint on attraction_id)
+      const { data: existingCoord } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('id')
+        .eq('attraction_id', createdPOI.id)
+        .maybeSingle()
+
       const mappedCoord: any = {
         attraction_id: createdPOI.id,
         latitude: coord.latitude,
@@ -562,12 +612,33 @@ export class MigrationService {
         updated_at: coord.updated_at || new Date().toISOString()
       }
 
-      const { data: createdCoord, error: coordCreateError } = await supabase
-        .schema('core')
-        .from('attraction_coordinate')
-        .insert(mappedCoord)
-        .select('id')
-        .single()
+      let createdCoord
+      let coordCreateError
+
+      if (existingCoord) {
+        // Update existing coordinate
+        const { data: updatedCoord, error: updateError } = await supabase
+          .schema('core')
+          .from('attraction_coordinate')
+          .update(mappedCoord)
+          .eq('id', existingCoord.id)
+          .select('id')
+          .single()
+
+        createdCoord = updatedCoord
+        coordCreateError = updateError
+      } else {
+        // Insert new coordinate
+        const { data: insertedCoord, error: insertError } = await supabase
+          .schema('core')
+          .from('attraction_coordinate')
+          .insert(mappedCoord)
+          .select('id')
+          .single()
+
+        createdCoord = insertedCoord
+        coordCreateError = insertError
+      }
 
       if (coordCreateError) {
         // Rollback: delete the POI we just created
@@ -579,7 +650,7 @@ export class MigrationService {
 
         return {
           success: false,
-          error: `Failed to create coordinate: ${coordCreateError.message}`
+          error: `Failed to create/update coordinate: ${coordCreateError.message}`
         }
       }
 
@@ -627,6 +698,251 @@ export class MigrationService {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error during migration'
       }
+    }
+  }
+
+  /**
+   * Rollback migration: Remove POI from core in case of error
+   * This deletes the attraction, which cascades to:
+   * - attraction_coordinate
+   * - attraction_descriptions
+   * - attraction_trigger_points
+   * - attraction_images
+   * - etc.
+   */
+  static async rollbackMigration(attraction_id: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log(`🔄 Rolling back migration for attraction: ${attraction_id}`)
+      
+      const { error } = await supabase
+        .schema('core')
+        .from('attractions')
+        .delete()
+        .eq('id', attraction_id)
+
+      if (error) {
+        console.error('❌ Rollback error:', error)
+        return {
+          success: false,
+          error: `Failed to rollback migration: ${error.message}`
+        }
+      }
+
+      console.log(`✅ Rollback successful for attraction: ${attraction_id}`)
+      return { success: true }
+    } catch (error) {
+      console.error('❌ Rollback exception:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error during rollback'
+      }
+    }
+  }
+
+  /**
+   * Safely delete POI from homolog (only after successful approval)
+   * Does NOT add to blacklist - POIs migrated successfully don't need blacklist
+   */
+  static async safeDeleteFromHomolog(uuid_id: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log(`🗑️  Safely deleting POI from homolog: ${uuid_id}`)
+      
+      // Verify POI is approved in core before deleting from homolog
+      const { data: corePOI } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, approved')
+        .eq('id', uuid_id)
+        .single()
+
+      if (!corePOI) {
+        return {
+          success: false,
+          error: `POI ${uuid_id} not found in core.attractions`
+        }
+      }
+
+      if (!corePOI.approved) {
+        return {
+          success: false,
+          error: `POI ${uuid_id} is not approved in core. Cannot delete from homolog.`
+        }
+      }
+
+      // Delete from homolog.coordinates (cascade will handle it, but we can be explicit)
+      // Actually, coordinates has foreign key with CASCADE, so deleting pois will delete coordinates
+      // But let's delete coordinates first to be safe
+      const { error: coordError } = await supabase
+        .schema('homolog')
+        .from('coordinates')
+        .delete()
+        .eq('poi_uuid_id', uuid_id)
+
+      if (coordError) {
+        console.warn('⚠️  Error deleting coordinates (may not exist):', coordError.message)
+        // Continue anyway - coordinates might not exist
+      }
+
+      // Delete from homolog.pois
+      const { error: poiError } = await supabase
+        .schema('homolog')
+        .from('pois')
+        .delete()
+        .eq('uuid_id', uuid_id)
+
+      if (poiError) {
+        return {
+          success: false,
+          error: `Failed to delete POI from homolog: ${poiError.message}`
+        }
+      }
+
+      console.log(`✅ Successfully deleted POI from homolog: ${uuid_id}`)
+      return { success: true }
+    } catch (error) {
+      console.error('❌ Error deleting from homolog:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error deleting from homolog'
+      }
+    }
+  }
+
+  /**
+   * Check if POI should be processed
+   * Returns true if POI should be processed, false if it should be skipped
+   */
+  static async shouldProcessPOI(uuid_id: string): Promise<{ should_process: boolean; reason?: string }> {
+    try {
+      // 1. Check if UUID already exists in core (already migrated)
+      const { data: existingInCore } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id')
+        .eq('id', uuid_id)
+        .maybeSingle()
+
+      if (existingInCore) {
+        return {
+          should_process: false,
+          reason: 'POI already exists in core.attractions (already migrated)'
+        }
+      }
+
+      // 2. Check processing status in homolog
+      const { data: poi } = await supabase
+        .schema('homolog')
+        .from('pois')
+        .select('processing_status, migration_attempts, last_migration_attempt_at')
+        .eq('uuid_id', uuid_id)
+        .maybeSingle()
+
+      if (!poi) {
+        return {
+          should_process: false,
+          reason: 'POI not found in homolog.pois'
+        }
+      }
+
+      // 3. Check if already migrated
+      if (poi.processing_status === 'migrated') {
+        return {
+          should_process: false,
+          reason: 'POI marked as migrated in homolog'
+        }
+      }
+
+      // 4. Check if skipped
+      if (poi.processing_status === 'skipped') {
+        return {
+          should_process: false,
+          reason: 'POI marked as skipped'
+        }
+      }
+
+      // 5. Check if failed with too many attempts
+      if (poi.processing_status === 'failed' && (poi.migration_attempts || 0) >= 3) {
+        return {
+          should_process: false,
+          reason: 'POI failed migration 3+ times (permanent failure)'
+        }
+      }
+
+      // 6. Check if processing (locked)
+      if (poi.processing_status === 'processing') {
+        const lockTime = poi.last_migration_attempt_at ? new Date(poi.last_migration_attempt_at) : null
+        if (lockTime) {
+          const now = new Date()
+          const lockAge = now.getTime() - lockTime.getTime()
+          const lockTimeout = 10 * 60 * 1000 // 10 minutes
+
+          // If lock is still valid (less than 10 minutes old), skip
+          if (lockAge < lockTimeout) {
+            return {
+              should_process: false,
+              reason: `POI is currently being processed (locked at ${poi.last_migration_attempt_at})`
+            }
+          }
+          // Lock expired, can reprocess
+        }
+      }
+
+      // 7. Should process (pending or processing with expired lock)
+      return {
+        should_process: true
+      }
+    } catch (error) {
+      console.error('Error checking if should process POI:', error)
+      // On error, allow processing (fail open)
+      return {
+        should_process: true,
+        reason: 'Error checking status, allowing processing'
+      }
+    }
+  }
+
+  /**
+   * Update processing status in homolog
+   */
+  static async updateProcessingStatus(
+    uuid_id: string,
+    status: 'pending' | 'processing' | 'migrated' | 'failed' | 'skipped',
+    error?: string
+  ): Promise<void> {
+    try {
+      const updateData: any = {
+        processing_status: status,
+        last_migration_attempt_at: new Date().toISOString()
+      }
+
+      if (error) {
+        updateData.migration_error = error
+      }
+
+      if (status === 'failed') {
+        // Increment attempts
+        const { data: poi } = await supabase
+          .schema('homolog')
+          .from('pois')
+          .select('migration_attempts')
+          .eq('uuid_id', uuid_id)
+          .single()
+
+        updateData.migration_attempts = (poi?.migration_attempts || 0) + 1
+      }
+
+      if (status === 'processing') {
+        updateData.last_migration_attempt_at = new Date().toISOString()
+      }
+
+      await supabase
+        .schema('homolog')
+        .from('pois')
+        .update(updateData)
+        .eq('uuid_id', uuid_id)
+    } catch (error) {
+      console.error('Error updating processing status:', error)
+      // Don't throw - status update is not critical
     }
   }
 }

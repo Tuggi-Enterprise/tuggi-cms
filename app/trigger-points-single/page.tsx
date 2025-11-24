@@ -19,6 +19,10 @@ interface POIInfo {
   country: string
   city: string
   state?: string
+  // 🆕 Campos opcionais para OSM ID
+  osm_id?: string | number
+  osm_type?: 'node' | 'way' | 'relation'
+  osm_tags?: any
 }
 
 export default function TriggerPointsSinglePage() {
@@ -69,10 +73,13 @@ export default function TriggerPointsSinglePage() {
         .select(`
           id, 
           name, 
-          google_types, 
+          category, 
           country, 
           city, 
           state,
+          osm_id,
+          osm_type,
+          osm_tags,
           coordinates:attraction_coordinate!inner(latitude, longitude)
         `)
         .eq('id', poiId)
@@ -86,6 +93,36 @@ export default function TriggerPointsSinglePage() {
         throw new Error('POI não encontrado')
       }
 
+      // 🆕 Extrair OSM ID e tipo (prioridade: colunas diretas > osm_tags)
+      // 1. Tentar colunas diretas da tabela (mais confiável)
+      let osmId = data.osm_id;
+      let osmType = data.osm_type;
+      
+      // 2. Se não tiver nas colunas, tentar extrair de osm_tags
+      if (!osmId || !osmType) {
+        const osmTags = data.osm_tags || {};
+        osmId = osmId || osmTags['@id'] || osmTags.id || osmTags.osm_id;
+        // Para osm_type, normalizar valores (ex: "way" de "way/8100248" ou de @type)
+        if (!osmType) {
+          const rawType = osmTags['@type'] || osmTags.type || osmTags.osm_type;
+          // Normalizar: se vier "way/8100248", extrair "way"
+          if (typeof rawType === 'string' && rawType.includes('/')) {
+            osmType = rawType.split('/')[0] as 'node' | 'way' | 'relation';
+          } else if (rawType && ['node', 'way', 'relation'].includes(rawType.toLowerCase())) {
+            osmType = rawType.toLowerCase() as 'node' | 'way' | 'relation';
+          }
+        }
+      }
+      
+      // Normalizar osm_type para garantir que seja válido
+      if (osmType && !['node', 'way', 'relation'].includes(osmType.toLowerCase())) {
+        console.warn(`⚠️ Invalid osm_type: ${osmType}, ignoring OSM ID lookup`);
+        osmId = undefined;
+        osmType = undefined;
+      }
+      
+      const osmTags = data.osm_tags || {};
+      
       const poi: POIInfo = {
         id: data.id,
         name: data.name,
@@ -93,10 +130,14 @@ export default function TriggerPointsSinglePage() {
           lat: (data.coordinates as any).latitude, 
           lng: (data.coordinates as any).longitude 
         },
-        type: data.google_types?.[0] || 'unknown',
+        type: data.category || 'unknown',
         country: data.country,
         city: data.city,
-        state: data.state
+        state: data.state,
+        // 🆕 Incluir OSM ID se disponível
+        ...(osmId && { osm_id: osmId }),
+        ...(osmType && { osm_type: osmType as 'node' | 'way' | 'relation' }),
+        ...(osmTags && Object.keys(osmTags).length > 0 && { osm_tags: osmTags })
       }
 
       setPoiInfo(poi)

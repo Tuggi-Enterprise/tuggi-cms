@@ -3,6 +3,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { PoiMigrationPipeline, PipelineOptions } from '@/lib/services/poi-migration-pipeline'
+import { MigrationService } from '@/lib/services/migration-service'
 
 const supabase = getSupabase('service')
 
@@ -98,9 +99,13 @@ export async function POST(request: NextRequest) {
         query = query.eq('category', filters.category)
       }
 
-      // Limit to pending or not migrated
-      query = query.in('processing_status', ['pending', 'processing'])
-      query = query.limit(batch_size)
+      // Query for POIs that should be processed:
+      // - processing_status = 'pending' OR
+      // - processing_status = 'processing' AND last_migration_attempt_at < NOW() - 10 minutes (timeout)
+      // - NOT already in core.attractions
+      // We'll filter in-memory after fetching to check core.attractions
+      query = query.or('processing_status.eq.pending,processing_status.eq.processing')
+      query = query.limit(batch_size * 2) // Fetch more to account for filtering
     }
 
     const { data: pois, error: poisError } = await query
@@ -119,19 +124,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         total_pois: 0,
-        queued_pois: [],
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        results: [],
         message: 'No POIs found matching filters'
       })
     }
 
-    console.log(`📊 Found ${pois.length} POIs to migrate`)
+    // Filter POIs that should be processed (using shouldProcessPOI logic)
+    const poisToProcess: typeof pois = []
+    for (const poi of pois) {
+      const shouldProcess = await MigrationService.shouldProcessPOI(poi.uuid_id)
+      if (shouldProcess.should_process) {
+        poisToProcess.push(poi)
+        if (poisToProcess.length >= batch_size) {
+          break // Limit to batch_size
+        }
+      }
+    }
 
-    // Generate job ID
-    const job_id = `migration_${Date.now()}_${Math.random().toString(36).substring(7)}`
+    if (poisToProcess.length === 0) {
+      return NextResponse.json({
+        success: true,
+        total_pois: pois.length,
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        results: [],
+        message: 'No POIs need processing (all already migrated or failed permanently)'
+      })
+    }
 
-    // Return immediately with job_id (async processing)
-    // In a real implementation, you'd use a job queue system
-    // For now, we'll process synchronously but return job_id for tracking
+    console.log(`📊 Found ${poisToProcess.length} POIs to migrate (filtered from ${pois.length} total)`)
 
     const pipelineOptions: PipelineOptions = {
       auto_generate_audio,
@@ -141,10 +166,11 @@ export async function POST(request: NextRequest) {
       mode
     }
 
-    // Process POIs (in production, this should be done in background)
+    // Process POIs SEQUENTIALLY (1 at a time) - CRITICAL for timeout prevention
     const results = []
-    for (const poi of pois) {
+    for (const poi of poisToProcess) {
       try {
+        console.log(`🔄 Processing POI ${poi.uuid_id} (${poi.name})...`)
         const result = await PoiMigrationPipeline.executePipeline(poi.uuid_id, pipelineOptions)
         results.push({
           poi_uuid_id: poi.uuid_id,
@@ -152,9 +178,12 @@ export async function POST(request: NextRequest) {
           success: result.success,
           attraction_id: result.attraction_id,
           error: result.error,
-          steps: result.steps
+          steps: result.steps,
+          warnings: result.warnings
         })
+        console.log(`✅ Completed POI ${poi.uuid_id}: ${result.success ? 'SUCCESS' : 'FAILED'}`)
       } catch (error) {
+        console.error(`❌ Error processing POI ${poi.uuid_id}:`, error)
         results.push({
           poi_uuid_id: poi.uuid_id,
           poi_name: poi.name,
@@ -162,12 +191,13 @@ export async function POST(request: NextRequest) {
           error: error instanceof Error ? error.message : 'Unknown error'
         })
       }
+      // Small delay between POIs to avoid overwhelming the system
+      await new Promise(resolve => setTimeout(resolve, 100))
     }
 
     return NextResponse.json({
       success: true,
-      job_id,
-      total_pois: pois.length,
+      total_pois: poisToProcess.length,
       processed: results.length,
       successful: results.filter(r => r.success).length,
       failed: results.filter(r => !r.success).length,

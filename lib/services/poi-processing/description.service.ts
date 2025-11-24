@@ -590,36 +590,25 @@ export class DescriptionService {
         )
       }
       
-      // Build location details
-      const locationDetails = this.buildLocationDetails(poiData)
-      
-      // Build Google data section
-      const googleData = this.buildGoogleDataSection(poiData)
-
-      // Build enriched POI data section
-      const enrichedPOISection = this.buildEnrichedPOIDataSection(enrichedPOIData)
-
-      // Create optimized prompt
+      // Create optimized prompt (KISS: Direct data passing, no intermediate formatting)
       const prompt = this.createOptimizedPrompt({
         name: poiData.name,
-        locationDetails,
+        poiData, // SSOT: All data comes from database when id exists
         sourcesSection,
-        googleData,
-        enrichedPOISection,
-        poiData, // Pass POI data for model selection
-        scrapedContentSection, // NOVO: Conteúdo real das fontes!
+        scrapedContentSection,
         existingDescription: options.existing_description,
         existingTokens: [], // TODO: Implement token system if needed
         optimizationMode: options.optimization_mode ?? true,
         enrichedData,
-        layeredSources: finalSources // Pass layered sources for compact format
+        layeredSources: finalSources, // Pass layered sources for compact format
+        enrichedPOIData // Pass enriched data for prompt building
       })
 
       // Log prompt summary
       console.log(`📝 Generated prompt: ${prompt.length} characters`)
 
       // Generate description using Gemini (with intelligent model selection)
-      const description = await this.generateWithGemini(prompt, apiKey, sourcesSection, enrichedPOISection, scrapedContentSection, poiData)
+      const description = await this.generateWithGemini(prompt, apiKey, sourcesSection, enrichedPOIData, scrapedContentSection, poiData)
       
       // Log Gemini response summary
       console.log(`🤖 Gemini response: ${description?.length || 0} characters`)
@@ -760,6 +749,16 @@ export class DescriptionService {
   // =====================================
 
   /**
+   * Shared utility: Check if a value is valid (not null, undefined, or empty string)
+   * DRY: Single source for validation logic used across all build functions
+   */
+  private static isValid(value: any): boolean {
+    if (value === null || value === undefined) return false
+    if (typeof value === 'string' && value.trim() === '') return false
+    return true
+  }
+
+  /**
    * Validate POI data has required fields
    */
   private static validatePOIData(poiData: POIData): { valid: boolean; missing: string[] } {
@@ -877,6 +876,7 @@ export class DescriptionService {
 
   /**
    * Fetch complete POI data from database (SSOT - Single Source of Truth)
+   * SSOT: Unified function that fetches ALL POI data in a single query
    * When poiId is provided, ALL data comes from core.attractions table
    */
   private static async fetchCompletePOIData(poiId: string): Promise<POIData | null> {
@@ -906,6 +906,29 @@ export class DescriptionService {
           image_url,
           photos_references,
           osm_tags,
+          osm_wikipedia_url,
+          contact_phone,
+          contact_email,
+          heritage_status,
+          unesco_status,
+          unesco_inscription_date,
+          architectural_style,
+          historical_period,
+          landmark_type,
+          architect,
+          construction_status,
+          completion_estimated_year,
+          landmark_level,
+          importance_level,
+          cultural_significance,
+          osm_category,
+          osm_description,
+          monument_type,
+          commemorated_event,
+          commemorated_person,
+          building_colour,
+          roof_colour,
+          building_material,
           attraction_coordinate!inner(latitude, longitude)
         `)
         .eq('id', poiId)
@@ -916,7 +939,7 @@ export class DescriptionService {
         return null
       }
 
-      // Map database data to POIData interface
+      // Map database data to POIData interface (SSOT: single mapping point)
       return {
         id: poi.id,
         name: poi.name,
@@ -950,9 +973,12 @@ export class DescriptionService {
 
   /**
    * Fetch enriched POI data from database (including OSM fields)
+   * SSOT: Single query fetches all data (basic + enriched) to avoid duplication
+   * Returns enriched data with OSM fields for prompt building
    */
   private static async fetchEnrichedPOIData(poiId: string): Promise<any> {
     try {
+      // SSOT: Single query for all data (basic + enriched fields)
       const { data: enrichedPOI, error } = await getSupabaseAdmin()
         .schema('core')
         .from('attractions')
@@ -1001,8 +1027,8 @@ export class DescriptionService {
         .eq('id', poiId)
         .single()
 
-      if (error) {
-        console.warn(`⚠️ Error fetching enriched POI data: ${error.message}`)
+      if (error || !enrichedPOI) {
+        console.warn(`⚠️ Error fetching enriched POI data: ${error?.message || 'POI not found'}`)
         return {}
       }
 
@@ -1173,9 +1199,10 @@ export class DescriptionService {
     const sections: string[] = []
 
     // Helper to check if value is valid (not null, not empty, not 'none')
+    // DRY: Uses shared isValid utility
     const isValid = (value: any): boolean => {
-      if (value === null || value === undefined) return false
-      if (typeof value === 'string' && (value.trim() === '' || value === 'none')) return false
+      if (!this.isValid(value)) return false
+      if (typeof value === 'string' && value === 'none') return false
       return true
     }
 
@@ -1336,12 +1363,7 @@ export class DescriptionService {
   private static buildPOIDataSection(poiData: any): string {
     const sections: string[] = []
     
-    // Helper to check if value is valid
-    const isValid = (value: any): boolean => {
-      if (value === null || value === undefined) return false
-      if (typeof value === 'string' && value.trim() === '') return false
-      return true
-    }
+    // DRY: Uses shared isValid utility
 
     // Basic info (always included if available)
     sections.push(`Nome: ${poiData.name || 'N/A'}`)
@@ -1351,100 +1373,100 @@ export class DescriptionService {
       sections.push(`Local: ${locationParts.join(', ')}`)
     }
     
-    if (isValid(poiData.neighborhood)) {
+    if (this.isValid(poiData.neighborhood)) {
       sections.push(`Bairro: ${poiData.neighborhood}`)
     }
 
     // Category info
-    if (isValid(poiData.primary_category)) {
+    if (this.isValid(poiData.primary_category)) {
       sections.push(`Categoria: ${poiData.primary_category}`)
-    } else if (isValid(poiData.category)) {
+    } else if (this.isValid(poiData.category)) {
       sections.push(`Categoria: ${poiData.category}`)
     }
 
     // Historical/temporal data (high priority)
-    if (isValid(poiData.start_date)) {
+    if (this.isValid(poiData.start_date)) {
       sections.push(`Data de construção/inauguração: ${poiData.start_date}`)
     }
-    if (isValid(poiData.historic_period)) {
+    if (this.isValid(poiData.historic_period)) {
       sections.push(`Período histórico: ${poiData.historic_period}`)
     }
 
     // Architectural data (if building/structure)
-    if (isValid(poiData.architectural_style)) {
+    if (this.isValid(poiData.architectural_style)) {
       sections.push(`Estilo arquitetônico: ${poiData.architectural_style}`)
     }
-    if (isValid(poiData.architect)) {
+    if (this.isValid(poiData.architect)) {
       sections.push(`Arquiteto: ${poiData.architect}`)
     }
-    if (isValid(poiData.building_material)) {
+    if (this.isValid(poiData.building_material)) {
       sections.push(`Material: ${poiData.building_material}`)
     }
-    if (isValid(poiData.height)) {
+    if (this.isValid(poiData.height)) {
       sections.push(`Altura: ${poiData.height}m`)
     }
 
     // Type-specific data (only if relevant to category)
     if (poiData.category === 'monument' || poiData.primary_category === 'monument') {
-      if (isValid(poiData.monument_type)) {
+      if (this.isValid(poiData.monument_type)) {
         sections.push(`Tipo de monumento: ${poiData.monument_type}`)
       }
-      if (isValid(poiData.monument_event)) {
+      if (this.isValid(poiData.monument_event)) {
         sections.push(`Evento: ${poiData.monument_event}`)
       }
-      if (isValid(poiData.monument_person)) {
+      if (this.isValid(poiData.monument_person)) {
         sections.push(`Homenageado: ${poiData.monument_person}`)
       }
     }
 
     if (poiData.category === 'museum' || poiData.primary_category === 'museum') {
-      if (isValid(poiData.museum_type)) {
+      if (this.isValid(poiData.museum_type)) {
         sections.push(`Tipo de museu: ${poiData.museum_type}`)
       }
-      if (isValid(poiData.museum_collection)) {
+      if (this.isValid(poiData.museum_collection)) {
         sections.push(`Coleção: ${poiData.museum_collection}`)
       }
     }
 
     if (poiData.category === 'park' || poiData.primary_category === 'park' || poiData.category === 'leisure') {
-      if (isValid(poiData.leisure_type)) {
+      if (this.isValid(poiData.leisure_type)) {
         sections.push(`Tipo de lazer: ${poiData.leisure_type}`)
       }
     }
 
     if (poiData.category === 'natural' || poiData.primary_category === 'natural') {
-      if (isValid(poiData.natural_type)) {
+      if (this.isValid(poiData.natural_type)) {
         sections.push(`Tipo natural: ${poiData.natural_type}`)
       }
-      if (isValid(poiData.natural_water)) {
+      if (this.isValid(poiData.natural_water)) {
         sections.push(`Tipo de água: ${poiData.natural_water}`)
       }
     }
 
     // Cultural significance
-    if (isValid(poiData.cultural_significance) && poiData.cultural_significance !== 'low') {
+    if (this.isValid(poiData.cultural_significance) && poiData.cultural_significance !== 'low') {
       sections.push(`Significância cultural: ${poiData.cultural_significance}`)
     }
 
     // Heritage status (only if confirmed)
-    if (isValid(poiData.heritage_status) && poiData.heritage_status !== 'none') {
+    if (this.isValid(poiData.heritage_status) && poiData.heritage_status !== 'none') {
       sections.push(`Status patrimonial: ${poiData.heritage_status}`)
     }
-    if (isValid(poiData.unesco_status) && poiData.unesco_status !== 'none') {
+    if (this.isValid(poiData.unesco_status) && poiData.unesco_status !== 'none') {
       sections.push(`UNESCO: ${poiData.unesco_status}`)
-      if (isValid(poiData.unesco_inscription_date)) {
+      if (this.isValid(poiData.unesco_inscription_date)) {
         sections.push(`Inscrição UNESCO: ${poiData.unesco_inscription_date}`)
       }
     }
 
     // Reference sources (always include if available)
-    if (isValid(poiData.website)) {
+    if (this.isValid(poiData.website)) {
       sections.push(`Site oficial: ${poiData.website}`)
     }
-    if (isValid(poiData.wikipedia)) {
+    if (this.isValid(poiData.wikipedia)) {
       sections.push(`Wikipedia: ${poiData.wikipedia}`)
     }
-    if (isValid(poiData.wikidata)) {
+    if (this.isValid(poiData.wikidata)) {
       sections.push(`Wikidata: ${poiData.wikidata}`)
     }
 
@@ -1556,50 +1578,46 @@ export class DescriptionService {
   private static buildPOIDataSectionCompact(poiData: any): string {
     const data: any = {}
     
-    const isValid = (value: any): boolean => {
-      if (value === null || value === undefined) return false
-      if (typeof value === 'string' && value.trim() === '') return false
-      return true
-    }
+    // DRY: Uses shared isValid utility
 
     // Use short keys to save tokens
-    if (isValid(poiData.name)) data.n = poiData.name
-    if (isValid(poiData.city)) data.c = poiData.city
-    if (isValid(poiData.state)) data.s = poiData.state
-    if (isValid(poiData.country)) data.co = poiData.country
-    if (isValid(poiData.neighborhood)) data.b = poiData.neighborhood
-    if (isValid(poiData.primary_category)) data.cat = poiData.primary_category
-    else if (isValid(poiData.category)) data.cat = poiData.category
+    if (this.isValid(poiData.name)) data.n = poiData.name
+    if (this.isValid(poiData.city)) data.c = poiData.city
+    if (this.isValid(poiData.state)) data.s = poiData.state
+    if (this.isValid(poiData.country)) data.co = poiData.country
+    if (this.isValid(poiData.neighborhood)) data.b = poiData.neighborhood
+    if (this.isValid(poiData.primary_category)) data.cat = poiData.primary_category
+    else if (this.isValid(poiData.category)) data.cat = poiData.category
     
     // Historical/temporal (high priority)
-    if (isValid(poiData.start_date)) data.d = poiData.start_date
-    if (isValid(poiData.historic_period)) data.p = poiData.historic_period
+    if (this.isValid(poiData.start_date)) data.d = poiData.start_date
+    if (this.isValid(poiData.historic_period)) data.p = poiData.historic_period
     
     // Architectural
-    if (isValid(poiData.architectural_style)) data.st = poiData.architectural_style
-    if (isValid(poiData.architect)) data.arch = poiData.architect
-    if (isValid(poiData.building_material)) data.mat = poiData.building_material
-    if (isValid(poiData.height)) data.h = poiData.height
+    if (this.isValid(poiData.architectural_style)) data.st = poiData.architectural_style
+    if (this.isValid(poiData.architect)) data.arch = poiData.architect
+    if (this.isValid(poiData.building_material)) data.mat = poiData.building_material
+    if (this.isValid(poiData.height)) data.h = poiData.height
     
     // Heritage
-    if (isValid(poiData.heritage_status) && poiData.heritage_status !== 'none') data.her = poiData.heritage_status
-    if (isValid(poiData.unesco_status) && poiData.unesco_status !== 'none') data.unesco = poiData.unesco_status
-    if (isValid(poiData.unesco_inscription_date)) data.ud = poiData.unesco_inscription_date
+    if (this.isValid(poiData.heritage_status) && poiData.heritage_status !== 'none') data.her = poiData.heritage_status
+    if (this.isValid(poiData.unesco_status) && poiData.unesco_status !== 'none') data.unesco = poiData.unesco_status
+    if (this.isValid(poiData.unesco_inscription_date)) data.ud = poiData.unesco_inscription_date
     
     // References
-    if (isValid(poiData.website)) data.w = poiData.website
-    if (isValid(poiData.wikipedia)) data.wiki = poiData.wikipedia
-    if (isValid(poiData.wikidata)) data.wd = poiData.wikidata
+    if (this.isValid(poiData.website)) data.w = poiData.website
+    if (this.isValid(poiData.wikipedia)) data.wiki = poiData.wikipedia
+    if (this.isValid(poiData.wikidata)) data.wd = poiData.wikidata
 
     // Type-specific (only if relevant)
     if (poiData.category === 'monument' || poiData.primary_category === 'monument') {
-      if (isValid(poiData.monument_type)) data.mt = poiData.monument_type
-      if (isValid(poiData.monument_event)) data.me = poiData.monument_event
-      if (isValid(poiData.monument_person)) data.mp = poiData.monument_person
+      if (this.isValid(poiData.monument_type)) data.mt = poiData.monument_type
+      if (this.isValid(poiData.monument_event)) data.me = poiData.monument_event
+      if (this.isValid(poiData.monument_person)) data.mp = poiData.monument_person
     }
     if (poiData.category === 'museum' || poiData.primary_category === 'museum') {
-      if (isValid(poiData.museum_type)) data.mut = poiData.museum_type
-      if (isValid(poiData.museum_collection)) data.mc = poiData.museum_collection
+      if (this.isValid(poiData.museum_type)) data.mut = poiData.museum_type
+      if (this.isValid(poiData.museum_collection)) data.mc = poiData.museum_collection
     }
 
     return Object.keys(data).length > 0 ? JSON.stringify(data) : '{}'
@@ -1856,9 +1874,9 @@ export class DescriptionService {
    * Create optimized prompt for Gemini with model-specific instructions
    */
   private static createOptimizedPrompt({
-    name, locationDetails, sourcesSection, googleData, enrichedPOISection, scrapedContentSection,
+    name, sourcesSection, scrapedContentSection,
     existingDescription, existingTokens, optimizationMode = true,
-    enrichedData = null, poiData = null, layeredSources = []
+    enrichedData = null, poiData = null, layeredSources = [], enrichedPOIData = null
   }: any): string {
     const hasTokens = existingTokens && existingTokens.length > 0
     const hasExisting = existingDescription && existingDescription.trim()
@@ -1958,9 +1976,9 @@ Priority order (highest to lowest):
 <context>
 <data format="compact_json">
 {
-  "loc": ${this.buildLocationDetailsCompact(poiData || { name, city: locationDetails?.split(',')[0]?.trim(), state: locationDetails?.split(',')[1]?.trim(), country: locationDetails?.split(',').pop()?.trim() })},
-  "poi": ${this.buildPOIDataSectionCompact(poiData || { name })},
-  "google": ${this.buildGoogleDataSectionCompact(poiData || {})},
+  "loc": ${poiData ? this.buildLocationDetailsCompact(poiData) : JSON.stringify({ n: name })},
+  "poi": ${poiData ? this.buildPOIDataSectionCompact(poiData) : JSON.stringify({ n: name })},
+  "google": ${poiData ? this.buildGoogleDataSectionCompact(poiData) : '{}'},
   "osm": ${enrichedData ? this.buildOSMDataSectionCompact(enrichedData) : '{}'},
   "sources": ${this.buildSourcesSectionCompact(layeredSources || [], poiData?.website, poiData?.reference_links)}
 }
@@ -2019,7 +2037,7 @@ Generate ONLY the final Portuguese text. No commentary, metadata, explanations, 
   /**
    * Generate description using Gemini API with intelligent model selection
    */
-  private static async generateWithGemini(prompt: string, apiKey: string, sourcesSection: string, enrichedPOISection: string, scrapedContentSection?: string, poiData?: any): Promise<string | null> {
+  private static async generateWithGemini(prompt: string, apiKey: string, sourcesSection: string, enrichedPOIData: any, scrapedContentSection?: string, poiData?: any): Promise<string | null> {
     // Always use Flash models (2.5 Flash-Lite as primary, 2.5 Flash as fallback)
     const endpoints = [
       `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,

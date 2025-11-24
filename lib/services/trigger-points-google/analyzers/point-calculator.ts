@@ -43,25 +43,57 @@ export class OptimalPointCalculator {
     
     const group = classification.group;
     const strategy = classification.strategy;
+    const searchRadius = classification.searchRadius || 300; // Raio calculado após classificação
     
     console.log(`🎯 Using ${group.toUpperCase()} strategy: ${strategy}`);
+    console.log(`📏 Classification search radius: ${searchRadius}m`);
+    
+    // ✅ CORREÇÃO 4: Filtrar ruas internamente após classificação
+    // Usar apenas ruas dentro do raio calculado (não todas as ruas do raio inicial de 500m)
+    const filteredStreets = this.filterStreetsByRadius(streets, boundary, searchRadius);
+    console.log(`🔍 Filtered streets: ${filteredStreets.length}/${streets.length} within ${searchRadius}m radius (from initial 500m query)`);
     
     const candidates: TriggerPointCandidate[] = [];
     
     // 🏔️ ESTRATÉGIA CIRCULAR: Para HIGH e MEDIUM (múltiplas ruas, múltiplas distâncias)
     if (strategy === 'circular') {
       console.log(`🔄 CIRCULAR STRATEGY: Using multiple streets with multiple distances`);
-      candidates.push(...await this.calculateMultipleStreetsStrategy(streets, poiData, boundary, context, classification));
+      candidates.push(...await this.calculateMultipleStreetsStrategy(filteredStreets, poiData, boundary, context, classification));
     } 
     // 🏙️ ESTRATÉGIA LINEAR: Para CANYON (front street priority, single distance)
     else if (strategy === 'linear') {
       console.log(`📍 LINEAR STRATEGY: Prioritizing front street`);
-      candidates.push(...await this.calculateCanyonStrategy(streets, poiData, boundary, context, classification));
+      candidates.push(...await this.calculateCanyonStrategy(filteredStreets, poiData, boundary, context, classification));
     }
     // 🏞️ ESTRATÉGIA PADRÃO: Para FLAT (standard approach)
     else {
       console.log(`🌟 STANDARD STRATEGY: One point per street`);
-      for (const street of streets) {
+      
+      // 🆕 Limitar número de ruas processadas para POIs pequenos
+      // POIs pequenos (< 10000m²) em área densa devem processar menos ruas
+      const isSmallPOI = boundary.area < 10000;
+      const isDenseArea = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
+      
+      let streetsToProcess = filteredStreets;
+      if (isSmallPOI && isDenseArea) {
+        // Para POIs pequenos em área densa, priorizar apenas as ruas mais próximas
+        // Ordenar por proximidade ao boundary center
+        const sortedStreets = [...streets].sort((a, b) => {
+          const distA = calculateMinDistanceToCenter(a.coordinates || [], boundary.center);
+          const distB = calculateMinDistanceToCenter(b.coordinates || [], boundary.center);
+          return distA - distB;
+        });
+        
+        // Limitar a 5 ruas mais próximas para POIs pequenos
+        streetsToProcess = sortedStreets.slice(0, 5);
+        console.log(`📏 Small POI (${boundary.area.toFixed(0)}m²) in dense area: limiting to ${streetsToProcess.length} closest streets (from ${streets.length} total)`);
+      } else if (isSmallPOI) {
+        // Para POIs pequenos em área não densa, limitar a 8 ruas
+        streetsToProcess = streets.slice(0, 8);
+        console.log(`📏 Small POI (${boundary.area.toFixed(0)}m²): limiting to ${streetsToProcess.length} streets (from ${streets.length} total)`);
+      }
+      
+      for (const street of streetsToProcess) {
         const optimalPoint = await this.calculateOptimalPointOnStreet(street, poiData, boundary, context);
         
         if (optimalPoint) {
@@ -75,6 +107,47 @@ export class OptimalPointCalculator {
     
     console.log(`✅ Generated ${candidates.length} optimal point candidates (Group: ${group.toUpperCase()})`);
     return candidates;
+  }
+  
+  /**
+   * ✅ CORREÇÃO 4: Filtra ruas baseado no raio calculado após classificação
+   * Remove ruas que estão fora do raio de busca calculado (ex: 180m para FLAT)
+   * mas que foram incluídas na query inicial de 500m
+   * 
+   * IMPORTANTE: Usa distância ao BOUNDARY (perímetro), não ao centro
+   * Para POIs grandes (parques, estádios), o centro pode estar muito longe das ruas
+   * mas as ruas podem estar próximas do perímetro do boundary
+   */
+  private filterStreetsByRadius(
+    streets: StreetData[],
+    boundary: BoundaryData,
+    searchRadius: number
+  ): StreetData[] {
+    if (!streets || streets.length === 0) return streets;
+    if (!boundary.coordinates || boundary.coordinates.length === 0) return streets;
+    
+    const filtered: StreetData[] = [];
+    
+    for (const street of streets) {
+      if (!street.coordinates || street.coordinates.length === 0) continue;
+      
+      // Calcular distância mínima da rua ao BOUNDARY (perímetro), não ao centro
+      // Para cada ponto da rua, calcular distância ao boundary e pegar o mínimo
+      let minDistanceToBoundary = Infinity;
+      
+      for (const streetPoint of street.coordinates) {
+        const distanceToBoundary = calculateDistanceToBoundary(streetPoint, boundary.coordinates);
+        minDistanceToBoundary = Math.min(minDistanceToBoundary, distanceToBoundary);
+      }
+      
+      // Incluir apenas ruas dentro do raio calculado a partir do boundary
+      // Adicionar margem de 20m para incluir ruas que passam perto do limite
+      if (minDistanceToBoundary <= searchRadius + 20) {
+        filtered.push(street);
+      }
+    }
+    
+    return filtered;
   }
   
   /**

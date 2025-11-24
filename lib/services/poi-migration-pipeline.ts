@@ -10,6 +10,18 @@ import { getSupabase } from '@/lib/core/supabase-client'
 
 const supabase = getSupabase('service')
 
+// Get Supabase URL and service role key for Edge Functions
+const getSupabaseConfig = () => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables')
+  }
+  
+  return { supabaseUrl, serviceRoleKey }
+}
+
 export interface PipelineOptions {
   auto_generate_audio?: boolean
   auto_approve_if_satisfactory?: boolean
@@ -56,11 +68,27 @@ export class PoiMigrationPipeline {
     } = options
 
     try {
+      // Pre-flight check: Should this POI be processed?
+      const shouldProcess = await MigrationService.shouldProcessPOI(uuid_id)
+      if (!shouldProcess.should_process) {
+        return {
+          success: false,
+          steps,
+          total_time: Date.now() - startTime,
+          error: shouldProcess.reason || 'POI should not be processed'
+        }
+      }
+
+      // Mark as processing
+      await MigrationService.updateProcessingStatus(uuid_id, 'processing')
+
       // Step 1: Migration (homolog → core)
       const migrationStep = await this.executeMigrationStep(uuid_id, { skip_if_exists, update_if_exists })
       steps.push(migrationStep)
 
       if (!migrationStep.success) {
+        // Mark as failed
+        await MigrationService.updateProcessingStatus(uuid_id, 'failed', migrationStep.error)
         return {
           success: false,
           steps,
@@ -93,8 +121,12 @@ export class PoiMigrationPipeline {
       const descriptionStep = await this.executeDescriptionStep(attraction_id, { auto_generate_audio })
       steps.push(descriptionStep)
 
-      // If description fails, stop pipeline (critical step)
+      // If description fails, rollback and stop pipeline (critical step)
       if (!descriptionStep.success) {
+        // Rollback: remove POI from core
+        await MigrationService.rollbackMigration(attraction_id)
+        // Mark as failed
+        await MigrationService.updateProcessingStatus(uuid_id, 'failed', descriptionStep.error)
         return {
           success: false,
           attraction_id,
@@ -117,12 +149,24 @@ export class PoiMigrationPipeline {
       }
 
       // Step 3: Audio is generated automatically if auto_generate_audio is true
-      // Check if audio was generated
+      // Check if audio was generated (pt-br)
       const audioStep = await this.checkAudioStep(attraction_id)
       steps.push(audioStep)
 
+      // Step 3b: Generate multi-language audios (en-us, es-es)
+      if (audioStep.success && auto_generate_audio) {
+        const multiLanguageAudioStep = await this.executeMultiLanguageAudioStep(attraction_id)
+        steps.push(multiLanguageAudioStep)
+        // Don't fail if multi-language audio fails, just warn
+        if (!multiLanguageAudioStep.success) {
+          warnings.push(`Multi-language audio generation failed: ${multiLanguageAudioStep.error}`)
+        }
+      }
+
       // If mode is migration_description_audio, stop here
       if (mode === 'migration_description_audio') {
+        // Mark as migrated (but not approved yet)
+        await MigrationService.updateProcessingStatus(uuid_id, 'migrated')
         return {
           success: true,
           attraction_id,
@@ -136,9 +180,20 @@ export class PoiMigrationPipeline {
       const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id)
       steps.push(triggerPointsStep)
 
-      // If trigger points fail, continue but don't auto-approve
+      // If trigger points fail, rollback and stop (critical for approval)
       if (!triggerPointsStep.success) {
-        warnings.push(`Trigger points generation failed: ${triggerPointsStep.error}`)
+        // Rollback: remove POI from core
+        await MigrationService.rollbackMigration(attraction_id)
+        // Mark as failed
+        await MigrationService.updateProcessingStatus(uuid_id, 'failed', triggerPointsStep.error)
+        return {
+          success: false,
+          attraction_id,
+          steps,
+          total_time: Date.now() - startTime,
+          error: `Trigger points generation failed: ${triggerPointsStep.error}`,
+          warnings
+        }
       }
 
       // Step 5: Auto-approve if criteria met
@@ -147,8 +202,33 @@ export class PoiMigrationPipeline {
         steps.push(approvalStep)
 
         if (!approvalStep.success) {
-          warnings.push(`Auto-approval failed: ${approvalStep.error}`)
+          // Rollback: remove POI from core
+          await MigrationService.rollbackMigration(attraction_id)
+          // Mark as failed
+          await MigrationService.updateProcessingStatus(uuid_id, 'failed', approvalStep.error)
+          return {
+            success: false,
+            attraction_id,
+            steps,
+            total_time: Date.now() - startTime,
+            error: `Approval failed: ${approvalStep.error}`,
+            warnings
+          }
         }
+
+        // Step 6: Remove from homolog (only if approved)
+        if (approvalStep.success && approvalStep.data?.approved) {
+          const deleteStep = await this.executeDeleteFromHomologStep(uuid_id)
+          steps.push(deleteStep)
+          
+          if (!deleteStep.success) {
+            warnings.push(`Failed to delete from homolog: ${deleteStep.error}`)
+            // Don't fail the whole migration if delete fails - POI is already in core and approved
+          }
+        }
+      } else {
+        // Even if not auto-approved, mark as migrated (manual approval later)
+        await MigrationService.updateProcessingStatus(uuid_id, 'migrated')
       }
 
       return {
@@ -477,6 +557,107 @@ export class PoiMigrationPipeline {
     } catch (error) {
       return {
         step: 'approval',
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        processing_time: Date.now() - stepStart
+      }
+    }
+  }
+
+  /**
+   * Step 3b: Generate multi-language audios (en-us, es-es)
+   */
+  private static async executeMultiLanguageAudioStep(attraction_id: string): Promise<PipelineStepResult> {
+    const stepStart = Date.now()
+
+    try {
+      const languages = ['en-us', 'es-es']
+      const results: string[] = []
+      const { supabaseUrl, serviceRoleKey } = getSupabaseConfig()
+
+      for (const lang of languages) {
+        try {
+          console.log(`🎙️  Generating ${lang} audio for attraction: ${attraction_id}`)
+          
+          const response = await fetch(`${supabaseUrl}/functions/v1/generate-translated-audio`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${serviceRoleKey}`
+            },
+            body: JSON.stringify({
+              attractionId: attraction_id,
+              targetLanguage: lang,
+              voiceGender: 'male'
+            })
+          })
+
+          if (!response.ok) {
+            const errorText = await response.text()
+            let errorData
+            try {
+              errorData = JSON.parse(errorText)
+            } catch {
+              errorData = { error: errorText }
+            }
+            throw new Error(`HTTP ${response.status}: ${errorData.error || errorText}`)
+          }
+
+          await response.json()
+          results.push(`✅ ${lang}: generated successfully`)
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+          results.push(`❌ ${lang}: failed - ${errorMsg}`)
+          // Continue with next language even if one fails
+        }
+      }
+
+      const allSuccess = results.every(r => r.startsWith('✅'))
+      
+      return {
+        step: 'multi_language_audio',
+        success: allSuccess,
+        error: allSuccess ? undefined : 'Some languages failed to generate audio',
+        data: { results },
+        processing_time: Date.now() - stepStart
+      }
+    } catch (error) {
+      return {
+        step: 'multi_language_audio',
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        processing_time: Date.now() - stepStart
+      }
+    }
+  }
+
+  /**
+   * Step 6: Delete from homolog (only after successful approval)
+   */
+  private static async executeDeleteFromHomologStep(uuid_id: string): Promise<PipelineStepResult> {
+    const stepStart = Date.now()
+
+    try {
+      const result = await MigrationService.safeDeleteFromHomolog(uuid_id)
+
+      if (!result.success) {
+        return {
+          step: 'delete_from_homolog',
+          success: false,
+          error: result.error,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      return {
+        step: 'delete_from_homolog',
+        success: true,
+        data: { deleted: true },
+        processing_time: Date.now() - stepStart
+      }
+    } catch (error) {
+      return {
+        step: 'delete_from_homolog',
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
         processing_time: Date.now() - stepStart

@@ -136,11 +136,13 @@ export class StreetAnalyzer {
         return Math.round(maxRange);
       }
       
-      // 🏞️ NOVA LÓGICA: POIs FLAT (baixa elevação) - limitar a 100m do boundary
-      if (elevationDiff <= 50) {
+      // 🏞️ NOVA LÓGICA: POIs FLAT (baixa elevação) - usar configuração do grupo
+      // 🆕 CORRIGIDO: Usar raio da configuração do grupo ao invés de valor hardcoded
+      if (elevationDiff <= 50 && boundary.classification?.group === 'flat') {
+        const flatRadius = boundary.classification.searchRadius || 120; // Usar da configuração, fallback 120m
         console.log(`🏞️ FLAT POI DETECTED: ${elevationDiff.toFixed(0)}m elevation difference`);
-        console.log(`🎯 Limiting search radius to 100m from boundary (not center)`);
-        return 100; // Limite fixo de 100m para POIs flat
+        console.log(`🎯 Using FLAT group radius: ${flatRadius}m (from classification config)`);
+        return flatRadius;
       }
       // Moderate elevation bonus for smaller differences
       else if (elevationDiff > 50) {
