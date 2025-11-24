@@ -85,6 +85,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [originalDescription, setOriginalDescription] = useState('')
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSavingDescription, setIsSavingDescription] = useState(false)
+  const [isSavingReferenceLinks, setIsSavingReferenceLinks] = useState(false)
   const [descriptionStats, setDescriptionStats] = useState({ play_count: 0, last_played_at: null })
   
   // Audio narration state
@@ -1032,6 +1033,48 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       alert('Failed to generate description. Please try again.')
     } finally {
       setIsGenerating(false)
+    }
+  }
+
+  const saveReferenceLinks = async () => {
+    setIsSavingReferenceLinks(true)
+    try {
+      // Check if this is a homolog POI (from homolog.pois table)
+      const isHomologPOI = !!(poi as any)._homologData
+      
+      if (isHomologPOI) {
+        showFeedback('Reference links can only be saved for core attractions, not homolog POIs.', 'error')
+        return
+      }
+
+      const validLinks = referenceLinks.filter(link => !!link.trim())
+      
+      if (validLinks.length === 0) {
+        showFeedback('Please add at least one reference link before saving.', 'error')
+        return
+      }
+
+      console.log('💾 Saving reference links:', validLinks)
+      const { error: refLinksError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .update({
+          reference_links: validLinks
+        })
+        .eq('id', poi.id)
+
+      if (refLinksError) {
+        console.error('⚠️ Error saving reference links:', refLinksError)
+        showFeedback('Failed to save reference links. Please try again.', 'error')
+      } else {
+        console.log('✅ Reference links saved successfully')
+        showFeedback(`${validLinks.length} reference link(s) saved successfully!`, 'success')
+      }
+    } catch (error) {
+      console.error('Error saving reference links:', error)
+      showFeedback('Failed to save reference links. Please try again.', 'error')
+    } finally {
+      setIsSavingReferenceLinks(false)
     }
   }
 
@@ -2847,6 +2890,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </button>
                       </div>
                     ))}
+                    <div className="flex items-center space-x-2">
                     <button
                       type="button"
                       className="inline-flex items-center px-3 py-2 text-sm text-tuggi-blue hover:text-tuggi-blue/80 border border-tuggi-blue/30 rounded-md hover:bg-tuggi-blue/10"
@@ -2854,6 +2898,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     >
                       + Add Reference Link
                     </button>
+                      <button
+                        type="button"
+                        onClick={saveReferenceLinks}
+                        disabled={isSavingReferenceLinks || !!(poi as any)._homologData}
+                        className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Save className="h-4 w-4 mr-2" />
+                        {isSavingReferenceLinks ? 'Saving...' : 'Save Reference Links'}
+                      </button>
+                    </div>
+                    {(poi as any)._homologData && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                        Note: Reference links can only be saved for core attractions, not homolog POIs.
+                      </p>
+                    )}
                   </div>
                 </div>
 

@@ -303,7 +303,7 @@ export class DescriptionService {
       return null
     }
   }
-
+  
   /**
    * Generate new description for POI
    * SSOT: All data comes from core.attractions when poiData.id exists
@@ -522,15 +522,34 @@ export class DescriptionService {
           await this.saveRAGSources(poiData.id || '', layeredSources, enrichedPOIData)
         }
 
-        // FASE 1: RAG ATIVO - Scrape content from discovered sources
-        if (layeredSources.length > 0) {
-          console.log(`🌐 Starting active RAG - scraping content from ${layeredSources.length} sources`)
-          scrapedContent = await this.scrapeSourcesContent(layeredSources, poiData)
+        // FASE 1: RAG ATIVO - Scrape content from discovered sources + reference links
+        const allSourcesToScrape = [...layeredSources]
+        
+        // Add reference links as high-priority sources
+        if (enrichedPOIData.reference_links && enrichedPOIData.reference_links.length > 0) {
+          const referenceLinkSources = enrichedPOIData.reference_links
+            .filter((link: string) => link && link.trim())
+            .slice(0, 3) // Limit to 3 reference links
+            .map((link: string, index: number) => ({
+              source_name: `User Reference Link ${index + 1}`,
+              source_type: 'reference',
+              layer: 'user',
+              base_url: link.trim(),
+              priority: 1 // Highest priority
+            }))
+          
+          console.log(`🔗 Adding ${referenceLinkSources.length} reference link(s) to scraping queue`)
+          allSourcesToScrape.unshift(...referenceLinkSources) // Add at the beginning (highest priority)
+        }
+        
+        if (allSourcesToScrape.length > 0) {
+          console.log(`🌐 Starting active RAG - scraping content from ${allSourcesToScrape.length} sources (${layeredSources.length} layered + ${allSourcesToScrape.length - layeredSources.length} reference links)`)
+          scrapedContent = await this.scrapeSourcesContent(allSourcesToScrape, poiData)
           
           // Save scraped content
           await this.saveScrapedContent(poiData.id || '', scrapedContent)
           
-          // Update city cache
+          // Update city cache (only with layered sources, not reference links)
           await this.updateCityCache(poiData.city!, poiData.country!, poiData.state, layeredSources, scrapedContent)
         }
         }
@@ -592,7 +611,8 @@ export class DescriptionService {
         existingDescription: options.existing_description,
         existingTokens: [], // TODO: Implement token system if needed
         optimizationMode: options.optimization_mode ?? true,
-        enrichedData
+        enrichedData,
+        layeredSources: finalSources // Pass layered sources for compact format
       })
 
       // Log prompt summary
@@ -988,6 +1008,8 @@ export class DescriptionService {
 
       console.log(`📊 Fetched enriched POI data:`, {
         has_website: !!enrichedPOI.website,
+        has_reference_links: !!(enrichedPOI.reference_links && enrichedPOI.reference_links.length > 0),
+        reference_links_count: enrichedPOI.reference_links?.length || 0,
         has_osm_wikipedia: !!enrichedPOI.osm_wikipedia_url,
         has_contact_info: !!(enrichedPOI.contact_phone || enrichedPOI.contact_email),
         heritage_status: enrichedPOI.heritage_status,
@@ -996,6 +1018,11 @@ export class DescriptionService {
         landmark_level: enrichedPOI.landmark_level,
         cultural_significance: enrichedPOI.cultural_significance
       })
+      
+      // Log reference links if available
+      if (enrichedPOI.reference_links && enrichedPOI.reference_links.length > 0) {
+        console.log(`🔗 Reference links from DB:`, enrichedPOI.reference_links)
+      }
 
       return enrichedPOI || {}
 
@@ -1062,11 +1089,14 @@ export class DescriptionService {
       lines.push(`- ${website} (primary source)`)
     }
 
-    // 2. User references
+    // 2. User references (from POI reference_links field in database)
     const validLinks = (referenceLinks || []).filter(link => link && link.trim()).slice(0, 3)
     if (validLinks.length) {
+      console.log(`🔗 Using ${validLinks.length} reference link(s) from database:`, validLinks)
       lines.push('🔗 USER REFERENCES (HIGH PRIORITY):')
       validLinks.forEach(link => lines.push(`- ${link}`))
+    } else if (referenceLinks && referenceLinks.length > 0) {
+      console.log(`⚠️ Reference links found but all empty/invalid:`, referenceLinks)
     }
 
     if (layeredSources.length > 0) {
@@ -1094,11 +1124,25 @@ export class DescriptionService {
         ], 2)
       }
       
-      // 4. National sources
-      add('🏛️ NATIONAL HERITAGE & GOV:', [
-        ...byTypeAndLayer('heritage', 'national'),
-        ...byTypeAndLayer('government', 'national')
-      ], 2)
+      // 4. National sources (HIGHEST PRIORITY - IPHAN, UNESCO, IBRAM, etc.)
+      const nationalHeritage = byTypeAndLayer('heritage', 'national')
+      const nationalGov = byTypeAndLayer('government', 'national')
+      
+      // Prioritize well-known heritage/government sources
+      const prioritySources = ['IPHAN', 'UNESCO', 'IBRAM', 'Ministério do Turismo', 'Patrimônio Nacional']
+      const prioritizedHeritage = [
+        ...nationalHeritage.filter((s: any) => prioritySources.some(p => s.source_name?.includes(p))),
+        ...nationalHeritage.filter((s: any) => !prioritySources.some(p => s.source_name?.includes(p)))
+      ]
+      const prioritizedGov = [
+        ...nationalGov.filter((s: any) => prioritySources.some(p => s.source_name?.includes(p))),
+        ...nationalGov.filter((s: any) => !prioritySources.some(p => s.source_name?.includes(p)))
+      ]
+      
+      add('🏛️ NATIONAL HERITAGE & GOV (HIGHEST PRIORITY - IPHAN, UNESCO, IBRAM):', [
+        ...prioritizedHeritage,
+        ...prioritizedGov
+      ], 3)
       
       // Other national sources
       const byType = (t: string) => layeredSources
@@ -1109,11 +1153,15 @@ export class DescriptionService {
     }
 
     if (!lines.length) {
-      lines.push('📚 SOURCES: UNESCO, Wikipedia, official tourism, government heritage')
+      lines.push('📚 SOURCES: UNESCO, IPHAN, IBRAM, government heritage, official tourism, Wikipedia')
     }
 
     lines.push('')
-    lines.push('⚠️ VERIFY: Use only facts that these sources confirm. If unsure, omit.')
+    lines.push('⚠️ CRITICAL VERIFICATION:')
+    lines.push('- Use ONLY facts explicitly confirmed by the sources above')
+    lines.push('- Government and heritage sources (IPHAN, UNESCO, IBRAM) are MOST RELIABLE - prioritize them')
+    lines.push('- If a fact is not in these sources, OMIT it entirely - never invent or assume')
+    lines.push('- Every date, fact, or curiosity MUST be traceable to a source listed above')
     return lines.join('\n')
   }
 
@@ -1205,13 +1253,13 @@ export class DescriptionService {
     }
     if (isValid(enrichedData.monument_type)) {
       culturalInfo.push(`Tipo de monumento: ${enrichedData.monument_type}`)
-    }
+      }
     if (isValid(enrichedData.monument_event)) {
       culturalInfo.push(`Evento: ${enrichedData.monument_event}`)
     }
     if (isValid(enrichedData.monument_person)) {
       culturalInfo.push(`Homenageado: ${enrichedData.monument_person}`)
-    }
+      }
     if (isValid(enrichedData.landmark_type)) {
       culturalInfo.push(`Tipo de marco: ${enrichedData.landmark_type}`)
     }
@@ -1234,7 +1282,7 @@ export class DescriptionService {
     }
     if (isValid(enrichedData.natural_type)) {
       typeSpecificInfo.push(`Tipo natural: ${enrichedData.natural_type}`)
-    }
+      }
     if (isValid(enrichedData.natural_water)) {
       typeSpecificInfo.push(`Tipo de água: ${enrichedData.natural_water}`)
     }
@@ -1488,6 +1536,177 @@ export class DescriptionService {
   }
 
   /**
+   * Build compact JSON format for location data (token optimization)
+   */
+  private static buildLocationDetailsCompact(poiData: POIData): string {
+    const data: any = {
+      n: poiData.name,
+      c: poiData.city,
+      s: poiData.state,
+      co: poiData.country
+    }
+    // Remove null/undefined values
+    Object.keys(data).forEach(key => data[key] == null && delete data[key])
+    return JSON.stringify(data)
+  }
+
+  /**
+   * Build compact JSON format for POI database data (token optimization)
+   */
+  private static buildPOIDataSectionCompact(poiData: any): string {
+    const data: any = {}
+    
+    const isValid = (value: any): boolean => {
+      if (value === null || value === undefined) return false
+      if (typeof value === 'string' && value.trim() === '') return false
+      return true
+    }
+
+    // Use short keys to save tokens
+    if (isValid(poiData.name)) data.n = poiData.name
+    if (isValid(poiData.city)) data.c = poiData.city
+    if (isValid(poiData.state)) data.s = poiData.state
+    if (isValid(poiData.country)) data.co = poiData.country
+    if (isValid(poiData.neighborhood)) data.b = poiData.neighborhood
+    if (isValid(poiData.primary_category)) data.cat = poiData.primary_category
+    else if (isValid(poiData.category)) data.cat = poiData.category
+    
+    // Historical/temporal (high priority)
+    if (isValid(poiData.start_date)) data.d = poiData.start_date
+    if (isValid(poiData.historic_period)) data.p = poiData.historic_period
+    
+    // Architectural
+    if (isValid(poiData.architectural_style)) data.st = poiData.architectural_style
+    if (isValid(poiData.architect)) data.arch = poiData.architect
+    if (isValid(poiData.building_material)) data.mat = poiData.building_material
+    if (isValid(poiData.height)) data.h = poiData.height
+    
+    // Heritage
+    if (isValid(poiData.heritage_status) && poiData.heritage_status !== 'none') data.her = poiData.heritage_status
+    if (isValid(poiData.unesco_status) && poiData.unesco_status !== 'none') data.unesco = poiData.unesco_status
+    if (isValid(poiData.unesco_inscription_date)) data.ud = poiData.unesco_inscription_date
+    
+    // References
+    if (isValid(poiData.website)) data.w = poiData.website
+    if (isValid(poiData.wikipedia)) data.wiki = poiData.wikipedia
+    if (isValid(poiData.wikidata)) data.wd = poiData.wikidata
+
+    // Type-specific (only if relevant)
+    if (poiData.category === 'monument' || poiData.primary_category === 'monument') {
+      if (isValid(poiData.monument_type)) data.mt = poiData.monument_type
+      if (isValid(poiData.monument_event)) data.me = poiData.monument_event
+      if (isValid(poiData.monument_person)) data.mp = poiData.monument_person
+    }
+    if (poiData.category === 'museum' || poiData.primary_category === 'museum') {
+      if (isValid(poiData.museum_type)) data.mut = poiData.museum_type
+      if (isValid(poiData.museum_collection)) data.mc = poiData.museum_collection
+    }
+
+    return Object.keys(data).length > 0 ? JSON.stringify(data) : '{}'
+  }
+
+  /**
+   * Build compact JSON format for Google data (token optimization)
+   */
+  private static buildGoogleDataSectionCompact(poiData: POIData): string {
+    const data: any = {}
+    
+    if (poiData.google_types && poiData.google_types.length > 0) {
+      data.t = poiData.google_types
+    }
+    if (poiData.rating) data.r = poiData.rating
+    if (poiData.user_ratings_total) data.rev = poiData.user_ratings_total
+    if (poiData.price_level) data.p = poiData.price_level
+    
+    return Object.keys(data).length > 0 ? JSON.stringify(data) : '{}'
+  }
+
+  /**
+   * Build compact JSON format for OSM data (token optimization)
+   */
+  private static buildOSMDataSectionCompact(enrichedData: EnrichedPOIData): string {
+    const data: any = {}
+    
+    if (enrichedData.heritage_status && enrichedData.heritage_status !== 'none') {
+      data.her = enrichedData.heritage_status
+    }
+    if (enrichedData.unesco_status && enrichedData.unesco_status !== 'none') {
+      data.unesco = enrichedData.unesco_status
+    }
+    if (enrichedData.completion_estimated_year) {
+      data.y = enrichedData.completion_estimated_year
+    }
+    if (enrichedData.architectural_style) {
+      data.st = enrichedData.architectural_style
+    }
+    if (enrichedData.architect) {
+      data.arch = enrichedData.architect
+    }
+    if (enrichedData.landmark_type && !['building', 'structure', 'place'].includes(enrichedData.landmark_type)) {
+      data.lt = enrichedData.landmark_type
+    }
+    if (enrichedData.landmark_level && enrichedData.landmark_level >= 6) {
+      data.imp = enrichedData.landmark_level >= 8 ? 'intl' : 'nat'
+    }
+    if (enrichedData.osm_description && enrichedData.osm_description.length > 20) {
+      data.desc = enrichedData.osm_description
+    }
+    if (enrichedData.osm_wikipedia_url) {
+      data.wiki = enrichedData.osm_wikipedia_url
+    }
+    
+    return Object.keys(data).length > 0 ? JSON.stringify(data) : '{}'
+  }
+
+  /**
+   * Build compact format for sources (token optimization)
+   * Uses minimal formatting while maintaining priority information
+   */
+  private static buildSourcesSectionCompact(
+    layeredSources: any[], 
+    website?: string, 
+    referenceLinks?: string[]
+  ): string {
+    const sources: any = {}
+    
+    // Priority 1: Official website
+    if (website) sources.official = [website]
+    
+    // Priority 2: User references
+    const validLinks = (referenceLinks || []).filter(link => link && link.trim()).slice(0, 3)
+    if (validLinks.length) sources.user = validLinks
+    
+    // Priority 3: City sources (heritage, government)
+    const cityHeritage = layeredSources
+      .filter((s: any) => s.layer === 'city' && (s.source_type === 'heritage' || s.source_type === 'government'))
+      .slice(0, 3)
+      .map((s: any) => s.source_name)
+    if (cityHeritage.length) sources.city = cityHeritage
+    
+    // Priority 4: National sources (heritage, government) - HIGHEST PRIORITY
+    const prioritySources = ['IPHAN', 'UNESCO', 'IBRAM', 'Ministério do Turismo', 'Patrimônio Nacional']
+    const nationalHeritage = layeredSources
+      .filter((s: any) => s.layer === 'national' && (s.source_type === 'heritage' || s.source_type === 'government'))
+      .sort((a: any, b: any) => {
+        const aPriority = prioritySources.some(p => a.source_name?.includes(p))
+        const bPriority = prioritySources.some(p => b.source_name?.includes(p))
+        if (aPriority && !bPriority) return -1
+        if (!aPriority && bPriority) return 1
+        return (a.priority || 10) - (b.priority || 10)
+      })
+      .slice(0, 3)
+      .map((s: any) => s.source_name)
+    if (nationalHeritage.length) sources.national = nationalHeritage
+    
+    // If no sources, provide fallback
+    if (Object.keys(sources).length === 0) {
+      sources.fallback = ['UNESCO', 'IPHAN', 'IBRAM', 'government heritage', 'official tourism', 'Wikipedia']
+    }
+    
+    return JSON.stringify(sources)
+  }
+
+  /**
    * Calculate description quality score and provide detailed justifications
    */
   private static calculateDescriptionQualityScore(
@@ -1639,7 +1858,7 @@ export class DescriptionService {
   private static createOptimizedPrompt({
     name, locationDetails, sourcesSection, googleData, enrichedPOISection, scrapedContentSection,
     existingDescription, existingTokens, optimizationMode = true,
-    enrichedData = null, poiData = null 
+    enrichedData = null, poiData = null, layeredSources = []
   }: any): string {
     const hasTokens = existingTokens && existingTokens.length > 0
     const hasExisting = existingDescription && existingDescription.trim()
@@ -1647,53 +1866,124 @@ export class DescriptionService {
     // Fixed 25-second audio format (max 85 words)
     const audioTime = '25s'
     const maxWords = 85
+    const isDataRich = false // Simplified: all descriptions follow same format
 
-    return `Gere descrição narrativa contemplativa (máx. ${maxWords} palavras, ${audioTime} áudio) em português brasileiro.
+    return `<role>
+You are an expert travel guide writer specializing in Brazilian cultural heritage and landmarks.
+</role>
 
-ESTILO: Tom calmo, contemplativo, descritivo. Inspirado em "Brasil Visto de Cima", adaptado para solo. Sem exageros, superlativos ou ritmo de leitura.
+<task>
+Generate a concise, factual description in Brazilian Portuguese for a ${audioTime} audio narration (maximum ${maxWords} words).
+</task>
 
-ESTRUTURA FIXA (4 partes):
-1. ABERTURA SITUACIONAL (1 frase): Localize no espaço urbano. Ex: "No centro de ${poiData?.city || 'Campinas'}, ergue-se ${name}..."
-2. CONTEXTO HISTÓRICO (1-2 frases): Origem, data ou evento marcante com base real.
-3. CURIOSIDADE (1 frase): Fato concreto, verificável, de interesse público.
-4. ENCERRAMENTO (1 frase): Imagem sensorial ou reflexão breve, sem conexão com outro ponto.
+<constraints>
+<constraint id="accuracy">
+- Use ONLY well-known historical facts and verifiable information
+- PRIORITIZE sources provided below, but may supplement with established historical knowledge
+- NEVER INVENT: physical features, functions, services, dates, or events
+- NEVER SPECULATE: avoid words like "aproximadamente", "cerca de", "provavelmente", "pode ter"
+</constraint>
 
-REGRAS CRÍTICAS:
-- NUNCA invente dados históricos, nomes, curiosidades ou datas
-- NUNCA especule ("dizem que", "reza a lenda", "provavelmente", "pode ter")
-- NUNCA faça convites ("venha conhecer", "vale a visita")
-- NUNCA use vocabulário técnico ou adjetivos vazios ("belíssimo", "impressionante")
-- PROIBIDO: "patrimônio histórico", "tombado", "IPHAN" sem confirmação explícita nas fontes
-- PROIBIDO: endereços, horários, preços, contatos, direções
+<constraint id="prohibited_content">
+- FORBIDDEN unless explicitly in sources: "patrimônio histórico", "tombado", "IPHAN", "Ministério da Cultura"
+- AVOID unverified claims about heritage status, IPHAN/UNESCO designations, or government programs
+- FORBIDDEN: addresses, directions, hours, prices, contacts, invented features, speculation
+</constraint>
 
-ÁUDIO DIRECIONAL PRÉVIO:
-O usuário ouvirá ANTES: "À sua direita", "À sua esquerda" ou "Logo à frente". 
-Sua descrição começa IMEDIATAMENTE após, sem repetir a direção. 
-Inicie com o nome do POI ou localização natural. Ex: "${name} foi construído..." ou "Em ${poiData?.city || 'Campinas'}, ${name}..."
+<constraint id="source_priority">
+Priority order (highest to lowest):
+1. Official website (if available)
+2. User-provided references
+3. City/municipal sources
+4. National sources
+5. Well-established historical facts (periods/centuries, regional context, architectural styles)
+</constraint>
 
-FONTES (prioridade):
-${sourcesSection}
+<constraint id="dates">
+- Include dates ONLY if confirmed in sources
+- Prefer: year (YYYY) > century > decade
+- NEVER use: "aproximadamente", "cerca de", "provavelmente"
+- If no confirmed date: omit temporal references, use present tense only
+</constraint>
 
-${scrapedContentSection ? `CONTEÚDO DAS FONTES:\n${scrapedContentSection}\n` : ''}
+<constraint id="format">
+- Prefer short sentences for text-to-speech
+- No lists or bullet points
+- Maximum ${maxWords} words
+- Target: 30-85 words for ${audioTime} audio
+</constraint>
+</constraints>
 
-POLÍTICA DE DADOS:
-- Use APENAS informações das fontes acima ou conhecimento histórico estabelecido
-- Se não houver dados confirmados, use apenas o que está disponível - NUNCA invente
-- Datas: inclua ano apenas se confirmado. Caso contrário, use século/década
-- Não cite fontes no texto final
+<structure>
+<sentence_1>
+- Start with POI name (never start with city name)
+- Include 1-2 visible/observable elements when certain (material, style, era, original use)
+</sentence_1>
 
-DADOS DO POI:
-${poiData ? this.buildPOIDataSection(poiData) : `Nome: ${name}\nLocal: ${locationDetails}`}
-${googleData ? `\nGoogle: ${googleData}` : ''}
+<sentence_2>
+- Include primary verifiable DATE if available (year preferred; century/decade if no year)
+- If no date: describe current primary function/status
+</sentence_2>
 
-${enrichedPOISection ? `INFO DO BANCO:\n${enrichedPOISection}\n` : ''}
+<sentence_3>
+- Include 1-2 verified or well-established facts
+- Focus on: architecture, founding, notable events, local characteristics, cultural significance
+- Keep it simple and direct
+</sentence_3>
 
-${enrichedData ? this.buildOSMDataSection(enrichedData) + '\n' : ''}
+<sentence_4>
+- End with natural closing line connecting visitor to the place
+- Describe visual/atmospheric element visible now
+- No hyperbole or invitations
+- if any, add a funfact about the place to keep peeople encharted
+</sentence_4>
+</structure>
 
-${hasTokens ? `TOKENS:\n${existingTokens.map((t: any) => `- ${t.token} (${t.weight})`).join('\n')}\n` : ''}
-${hasExisting ? `DESCRIÇÃO EXISTENTE (melhorar):\n${existingDescription}\n` : ''}
+<tone>
+- Friendly, knowledgeable tour guide voice
+- Warm, engaging tone while maintaining accuracy
+- Vivid but factual language
+- Avoid hype; focus on authentic stories
+- Share interesting historical facts, cultural significance, or local traditions
+</tone>
 
-SAÍDA: Apenas o texto final em português, sem comentários ou metadados.`
+<knowledge_policy>
+- You may use established historical knowledge about Brazilian cities, regions, and landmarks
+- Sources below are trusted references - draw reasonable conclusions based on source types and contexts
+- Do NOT name or cite institutions/sources in the output text
+- Use source context (official websites, government sources, cultural institutions) to inform description
+- Distinguish: general historical context (allowed) vs. specific current claims (require source verification)
+</knowledge_policy>
+
+<context>
+<data format="compact_json">
+{
+  "loc": ${this.buildLocationDetailsCompact(poiData || { name, city: locationDetails?.split(',')[0]?.trim(), state: locationDetails?.split(',')[1]?.trim(), country: locationDetails?.split(',').pop()?.trim() })},
+  "poi": ${this.buildPOIDataSectionCompact(poiData || { name })},
+  "google": ${this.buildGoogleDataSectionCompact(poiData || {})},
+  "osm": ${enrichedData ? this.buildOSMDataSectionCompact(enrichedData) : '{}'},
+  "sources": ${this.buildSourcesSectionCompact(layeredSources || [], poiData?.website, poiData?.reference_links)}
+}
+</data>
+
+${scrapedContentSection ? `<scraped_content>
+${scrapedContentSection}
+</scraped_content>` : ''}
+
+${hasTokens ? `<tokens>
+${JSON.stringify(existingTokens.map((t: any) => ({ t: t.token, w: t.weight })))}
+</tokens>` : ''}
+
+<data_legend>
+Key abbreviations: n=name, c=city, s=state, co=country, b=neighborhood, cat=category, d=date, p=period, st=style, arch=architect, mat=material, h=height, her=heritage, unesco=unesco_status, w=website, wiki=wikipedia, wd=wikidata, t=types, r=rating, rev=reviews, y=year, lt=landmark_type, imp=importance, desc=description
+</data_legend>
+</context>
+
+<output_format>
+Generate ONLY the final Portuguese text. No commentary, metadata, explanations, or source citations.
+</output_format>
+
+[Generation ID: ${Date.now()}-${Math.random().toString(36).substr(2, 9)}]`
   }
 
   /**
@@ -1797,44 +2087,62 @@ SAÍDA: Apenas o texto final em português, sem comentários ou metadados.`
   ): Promise<VerificationResult> {
     console.log('🔍 Verificando qualidade da descrição gerada...')
     
-    const verificationPrompt = `
-Você é um verificador especializado em qualidade de descrições turísticas curtas (áudio de 25 segundos). Analise a descrição abaixo para o ponto turístico "${name}" e avalie com critérios brandos:
+    const verificationPrompt = `<role>
+Quality verification specialist for 25s tourist audio descriptions. Evaluate objectively using measurable criteria.
+</role>
 
-DESCRIÇÃO A SER VERIFICADA:
-"""
-${description}
-"""
+<task>
+Analyze description for "${name}" and provide structured quality assessment with scoring.
+</task>
 
-CONTEXTO IMPORTANTE:
-- Esta é uma descrição CURTA para áudio de 25 segundos (máximo 300-350 caracteres)
-- Nem todos os lugares têm informações detalhadas disponíveis
-- O objetivo é fornecer pelo menos 1-2 fatos interessantes, não uma descrição completa
-- Algumas atrações podem ter informações limitadas ou genéricas
+<context>
+<desc>${description}</desc>
+<constraints>
+25s audio (max 85 words). Goal: 1-2 facts. Be generous considering length limit.
+</constraints>
+</context>
 
-CRITÉRIOS DE VERIFICAÇÃO (BRANDOS):
-1. PRESENÇA DE DATAS: A descrição contém pelo menos uma data OU período histórico? (Não é obrigatório, mas desejável)
-2. FATOS VERIFICÁVEIS: Há pelo menos 1 fato que parece verificável? (Mesmo que genérico)
-3. ESTILO DE GUIA: A descrição tem tom minimamente amigável?
-4. PROIBIÇÕES: Contém endereços, horários, preços ou direções específicas? (Único critério rígido)
-5. ADEQUAÇÃO PARA ÁUDIO: As frases são adequadas para TTS?
-6. PORTUGUÊS BRASILEIRO: O texto está em português brasileiro correto?
+<criteria>
+<crit id="dates" w="15">
+Check: date (year) OR period? Extract all. Score: 0=none|10=period|15=year
+</crit>
 
-PONTUAÇÃO BRANDA (SEJA VARIADO):
-- Aprove a descrição se tiver pelo menos 1 fato e estiver em português correto
-- Pontuação mínima de 60 se tiver pelo menos um fato verificável
-- Use pontuações variadas: 65, 70, 75, 80, 85, 90, 95 baseado na qualidade real
-- Seja generoso na avaliação, considerando o limite de 25 segundos
-- NÃO use sempre a mesma pontuação - varie baseado na qualidade específica
+<crit id="facts" w="30" req="true">
+Check: ≥1 verifiable fact? Types: history, architecture, culture, founding, characteristics. Generic OK. Extract all. Score: 0=none|15=1 generic|25=1-2 specific|30=multiple. REQUIRED for approval.
+</crit>
 
-RESPONDA EM JSON:
-{
-  "aprovada": true/false,
-  "pontuacao": 0-100,
-  "datas_detectadas": ["lista", "de", "datas"],
-  "fatos_verificaveis": ["fato 1", "fato 2"],
-  "problemas": ["problema 1", "problema 2"],
-  "sugestoes_melhoria": "sugestão concisa e realista para o limite de 25 segundos"
-}`
+<crit id="style" w="15">
+Check: friendly guide tone? Look: engaging, warm, factual. Avoid: marketing, hype. Score: 0=poor|8=ok|15=excellent
+</crit>
+
+<crit id="prohibited" w="20" req="true" block="true">
+Check: prohibited content? Prohibited: addresses, hours, prices, contacts, directions. BLOCKING: auto-reject if found. Score: 0=has|20=clean
+</crit>
+
+<crit id="tts" w="10">
+Check: TTS suitable? Look: short sentences, natural flow. Avoid: run-ons, complex punctuation. Score: 0=poor|5=ok|10=excellent
+</crit>
+
+<crit id="lang" w="10" req="true">
+Check: correct Brazilian Portuguese? Look: grammar, spelling, BR (not EU), natural. Score: 0=major errors|5=minor|10=perfect. REQUIRED for approval.
+</crit>
+</criteria>
+
+<scoring>
+<approve>
+"aprovada":true IF: ≥1 fact AND no prohibited AND correct PT-BR AND score≥60
+"aprovada":false IF: no facts OR prohibited OR major errors OR score<60
+</approve>
+
+<calc>
+Sum all scores (max 100). Use VARIED: 65,70,75,80,85,90,95. Min:60, Max:100.
+</calc>
+</scoring>
+
+<output>
+Respond ONLY with valid JSON:
+{"aprovada":boolean,"pontuacao":0-100,"datas_detectadas":string[],"fatos_verificaveis":string[],"problemas":string[],"sugestoes_melhoria":string}
+</output>`
 
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, {
@@ -2409,54 +2717,65 @@ RESPONDA EM JSON:
       curiousFacts: []
     }
     
-    // Extract factual elements from scraped content
-    successfulScrapes.forEach((scrape: any) => {
+    // Separate reference links from other sources for priority handling
+    const referenceLinkScrapes = successfulScrapes.filter((s: any) => s.source_name?.includes('Reference Link'))
+    const otherScrapes = successfulScrapes.filter((s: any) => !s.source_name?.includes('Reference Link'))
+    
+    // Extract factual elements from scraped content (prioritize reference links)
+    const processScrape = (scrape: any, isReferenceLink: boolean) => {
       if (scrape.extracted_content?.relevantText) {
         const text = scrape.extracted_content.relevantText.toLowerCase()
+        const sourceLabel = isReferenceLink ? `${scrape.source_name} [HIGHEST PRIORITY]` : scrape.source_name
         
         // Categorize content for factual description
         if (text.includes('conhecida por') || text.includes('famosa por') || text.includes('terra da') || text.includes('capital da')) {
           factualElements.localCharacteristics.push({
-            source: scrape.source_name,
+            source: sourceLabel,
             text: scrape.extracted_content.relevantText.substring(0, 120)
           })
         }
-        if (text.includes('fundad') || text.includes('origin') || text.includes('criação') || text.includes('estabelecid')) {
+        if (text.includes('fundad') || text.includes('origin') || text.includes('criação') || text.includes('estabelecid') || text.includes('inaugurad')) {
           factualElements.foundationFacts.push({
-            source: scrape.source_name,
+            source: sourceLabel,
             text: scrape.extracted_content.relevantText.substring(0, 150)
           })
         }
         if (text.includes('tradição') || text.includes('festa') || text.includes('cultura') || text.includes('típico')) {
           factualElements.culturalFacts.push({
-            source: scrape.source_name, 
+            source: sourceLabel, 
             text: scrape.extracted_content.relevantText.substring(0, 150)
           })
         }
         if (text.includes('arquitet') || text.includes('construção') || text.includes('estilo') || text.includes('projetad')) {
           factualElements.architecturalFacts.push({
-            source: scrape.source_name,
+            source: sourceLabel,
             text: scrape.extracted_content.relevantText.substring(0, 150)
           })
         }
         if (text.includes('curioso') || text.includes('interessante') || text.includes('único') || text.includes('especial')) {
           factualElements.curiousFacts.push({
-            source: scrape.source_name,
+            source: sourceLabel,
             text: scrape.extracted_content.relevantText.substring(0, 120)
           })
         }
       }
       
-      // Extract dates for historical timeline
+      // Extract dates for historical timeline (prioritize reference links)
       if (scrape.extracted_content?.extractedDates) {
         scrape.extracted_content.extractedDates.forEach((date: string) => {
           const year = parseInt(date)
           if (year >= 1500 && year <= 2000) { // Focus on historical dates
-            factualElements.historicalDates.push(`${date}`)
+            const dateLabel = isReferenceLink ? `${date} [EXPLICIT FROM REFERENCE LINK - HIGHEST PRIORITY]` : `${date} [EXPLICIT]`
+            factualElements.historicalDates.push(dateLabel)
           }
         })
       }
-    })
+    }
+    
+    // Process reference links first (highest priority)
+    referenceLinkScrapes.forEach((scrape: any) => processScrape(scrape, true))
+    // Then process other sources
+    otherScrapes.forEach((scrape: any) => processScrape(scrape, false))
     
     // Add enriched POI data for factual content
     if (enrichedPOIData.completion_estimated_year) {
@@ -2496,15 +2815,38 @@ RESPONDA EM JSON:
     }
     
     if (factualElements.foundationFacts.length > 0) {
+      // Prioritize foundation facts from reference links
+      const referenceLinkFacts = factualElements.foundationFacts.filter((f: any) => f.source.includes('[HIGHEST PRIORITY]'))
+      const factsToShow = referenceLinkFacts.length > 0 ? referenceLinkFacts : factualElements.foundationFacts
+      
       lines.push('🏛️ FOUNDATION/ORIGIN:')
-      factualElements.foundationFacts.slice(0, 1).forEach((fact: any) => {
+      factsToShow.slice(0, 1).forEach((fact: any) => {
         lines.push(`"${fact.text}" (${fact.source})`)
       })
     }
     
     if (factualElements.historicalDates.length > 0) {
-      const uniqueDates = [...new Set(factualElements.historicalDates)].sort()
-      lines.push(`📅 HISTORICAL DATES: ${uniqueDates.slice(0, 4).join(', ')}`)
+      // Separate explicit dates from reference links (highest priority)
+      const referenceLinkDates = factualElements.historicalDates.filter((d: string) => d.includes('[EXPLICIT FROM REFERENCE LINK'))
+      const otherExplicitDates = factualElements.historicalDates.filter((d: string) => d.includes('[EXPLICIT]') && !d.includes('REFERENCE LINK'))
+      
+      // Log extracted dates for debugging
+      console.log('📅 Dates extracted from scraped content:', {
+        allDates: factualElements.historicalDates,
+        referenceLinkDates: referenceLinkDates.map((d: string) => d.replace(' [EXPLICIT FROM REFERENCE LINK - HIGHEST PRIORITY]', '')),
+        otherExplicitDates: otherExplicitDates.map((d: string) => d.replace(' [EXPLICIT]', ''))
+      })
+      
+      if (referenceLinkDates.length > 0) {
+        const dates = referenceLinkDates.map((d: string) => d.replace(' [EXPLICIT FROM REFERENCE LINK - HIGHEST PRIORITY]', '')).slice(0, 3)
+        lines.push(`📅 EXPLICIT DATES FROM REFERENCE LINKS (USE THESE - HIGHEST PRIORITY): ${dates.join(', ')}`)
+      }
+      if (otherExplicitDates.length > 0 && referenceLinkDates.length === 0) {
+        const dates = otherExplicitDates.map((d: string) => d.replace(' [EXPLICIT]', '')).slice(0, 3)
+        lines.push(`📅 EXPLICIT DATES FROM SOURCES: ${dates.join(', ')}`)
+      }
+    } else {
+      console.log('📅 No dates extracted from scraped content - description should use present tense only')
     }
     
     if (enrichedPOIData.architectural_style) {
