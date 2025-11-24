@@ -92,6 +92,8 @@ export async function POST(request: NextRequest) {
       if (filters.processing_status && filters.processing_status !== 'all') {
         query = query.eq('processing_status', filters.processing_status)
       }
+      // If 'all' or no filter specified, don't filter by status
+      // The shouldProcessPOI() function will handle the intelligent filtering
       if (filters.approved !== undefined) {
         query = query.eq('approved', filters.approved)
       }
@@ -99,18 +101,15 @@ export async function POST(request: NextRequest) {
         query = query.eq('category', filters.category)
       }
 
-      // Query for POIs that should be processed:
-      // - processing_status = 'pending' OR
-      // - processing_status = 'processing' AND last_migration_attempt_at < NOW() - 10 minutes (timeout)
-      // - NOT already in core.attractions
-      // We'll filter in-memory after fetching to check core.attractions
-      query = query.or('processing_status.eq.pending,processing_status.eq.processing')
-      query = query.limit(batch_size * 2) // Fetch more to account for filtering
+      // Fetch more POIs to account for filtering by shouldProcessPOI()
+      // This ensures we get enough POIs after the intelligent filtering
+      query = query.limit(batch_size * 2)
     }
 
     const { data: pois, error: poisError } = await query
 
     if (poisError) {
+      console.error('❌ Error fetching POIs:', poisError)
       return NextResponse.json(
         {
           success: false,
@@ -119,6 +118,8 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    console.log(`📋 Found ${pois?.length || 0} POIs from query`)
 
     if (!pois || pois.length === 0) {
       return NextResponse.json({
@@ -134,6 +135,8 @@ export async function POST(request: NextRequest) {
 
     // Filter POIs that should be processed (using shouldProcessPOI logic)
     const poisToProcess: typeof pois = []
+    const skippedReasons: Record<string, number> = {}
+    
     for (const poi of pois) {
       const shouldProcess = await MigrationService.shouldProcessPOI(poi.uuid_id)
       if (shouldProcess.should_process) {
@@ -141,7 +144,16 @@ export async function POST(request: NextRequest) {
         if (poisToProcess.length >= batch_size) {
           break // Limit to batch_size
         }
+      } else {
+        // Track why POIs were skipped
+        const reason = shouldProcess.reason || 'Unknown reason'
+        skippedReasons[reason] = (skippedReasons[reason] || 0) + 1
       }
+    }
+
+    console.log(`✅ ${poisToProcess.length} POIs to process, ${pois.length - poisToProcess.length} skipped`)
+    if (Object.keys(skippedReasons).length > 0) {
+      console.log('📊 Skip reasons:', skippedReasons)
     }
 
     if (poisToProcess.length === 0) {
@@ -152,7 +164,8 @@ export async function POST(request: NextRequest) {
         successful: 0,
         failed: 0,
         results: [],
-        message: 'No POIs need processing (all already migrated or failed permanently)'
+        message: `No POIs need processing. Found ${pois.length} POIs but all were skipped. Reasons: ${JSON.stringify(skippedReasons)}`,
+        skipped_reasons: skippedReasons
       })
     }
 
@@ -172,6 +185,27 @@ export async function POST(request: NextRequest) {
       try {
         console.log(`🔄 Processing POI ${poi.uuid_id} (${poi.name})...`)
         const result = await PoiMigrationPipeline.executePipeline(poi.uuid_id, pipelineOptions)
+        
+        // Log detailed step results
+        if (result.steps && result.steps.length > 0) {
+          console.log(`📋 Pipeline steps for ${poi.name}:`)
+          result.steps.forEach((step, idx) => {
+            const status = step.success ? '✅' : '❌'
+            const time = `${step.processing_time}ms`
+            console.log(`  ${idx + 1}. ${status} ${step.step} (${time})`)
+            if (!step.success && step.error) {
+              console.log(`     Error: ${step.error}`)
+            }
+          })
+        }
+        
+        if (!result.success) {
+          console.error(`❌ POI ${poi.name} failed: ${result.error}`)
+          if (result.warnings && result.warnings.length > 0) {
+            console.warn(`⚠️  Warnings:`, result.warnings)
+          }
+        }
+        
         results.push({
           poi_uuid_id: poi.uuid_id,
           poi_name: poi.name,
@@ -183,7 +217,10 @@ export async function POST(request: NextRequest) {
         })
         console.log(`✅ Completed POI ${poi.uuid_id}: ${result.success ? 'SUCCESS' : 'FAILED'}`)
       } catch (error) {
-        console.error(`❌ Error processing POI ${poi.uuid_id}:`, error)
+        console.error(`❌ Exception processing POI ${poi.uuid_id} (${poi.name}):`, error)
+        if (error instanceof Error) {
+          console.error(`   Stack:`, error.stack)
+        }
         results.push({
           poi_uuid_id: poi.uuid_id,
           poi_name: poi.name,

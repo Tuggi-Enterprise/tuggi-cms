@@ -83,10 +83,12 @@ export class PoiMigrationPipeline {
       await MigrationService.updateProcessingStatus(uuid_id, 'processing')
 
       // Step 1: Migration (homolog → core)
+      console.log(`🔄 Step 1: Migrating POI ${uuid_id} from homolog to core...`)
       const migrationStep = await this.executeMigrationStep(uuid_id, { skip_if_exists, update_if_exists })
       steps.push(migrationStep)
 
       if (!migrationStep.success) {
+        console.error(`❌ Migration failed for ${uuid_id}: ${migrationStep.error}`)
         // Mark as failed
         await MigrationService.updateProcessingStatus(uuid_id, 'failed', migrationStep.error)
         return {
@@ -96,6 +98,7 @@ export class PoiMigrationPipeline {
           error: migrationStep.error || 'Migration failed'
         }
       }
+      console.log(`✅ Migration successful for ${uuid_id}, attraction_id: ${migrationStep.data?.attraction_id}`)
 
       const attraction_id = migrationStep.data?.attraction_id
       if (!attraction_id) {
@@ -118,11 +121,13 @@ export class PoiMigrationPipeline {
       }
 
       // Step 2: Generate Description
+      console.log(`📝 Step 2: Generating description for ${attraction_id}...`)
       const descriptionStep = await this.executeDescriptionStep(attraction_id, { auto_generate_audio })
       steps.push(descriptionStep)
 
       // If description fails, rollback and stop pipeline (critical step)
       if (!descriptionStep.success) {
+        console.error(`❌ Description generation failed for ${attraction_id}: ${descriptionStep.error}`)
         // Rollback: remove POI from core
         await MigrationService.rollbackMigration(attraction_id)
         // Mark as failed
@@ -136,6 +141,7 @@ export class PoiMigrationPipeline {
           warnings
         }
       }
+      console.log(`✅ Description generated successfully for ${attraction_id}`)
 
       // If mode is migration_description, stop here
       if (mode === 'migration_description') {
@@ -177,11 +183,13 @@ export class PoiMigrationPipeline {
       }
 
       // Step 4: Generate Trigger Points
+      console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
       const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id)
       steps.push(triggerPointsStep)
 
       // If trigger points fail, rollback and stop (critical for approval)
       if (!triggerPointsStep.success) {
+        console.error(`❌ Trigger points generation failed for ${attraction_id}: ${triggerPointsStep.error}`)
         // Rollback: remove POI from core
         await MigrationService.rollbackMigration(attraction_id)
         // Mark as failed
@@ -195,6 +203,7 @@ export class PoiMigrationPipeline {
           warnings
         }
       }
+      console.log(`✅ Trigger points generated successfully for ${attraction_id}`)
 
       // Step 5: Auto-approve if criteria met
       if (auto_approve_if_satisfactory) {
@@ -216,7 +225,18 @@ export class PoiMigrationPipeline {
           }
         }
 
-        // Step 6: Remove from homolog (only if approved)
+        // Step 6: Remove duplicate POIs by coordinates (only if approved)
+        if (approvalStep.success && approvalStep.data?.approved) {
+          const cleanupStep = await this.executeRemoveDuplicatesStep(attraction_id)
+          steps.push(cleanupStep)
+          
+          if (!cleanupStep.success) {
+            warnings.push(`Failed to remove duplicate POIs: ${cleanupStep.error}`)
+            // Don't fail the whole migration if cleanup fails
+          }
+        }
+
+        // Step 7: Remove from homolog (only if approved)
         if (approvalStep.success && approvalStep.data?.approved) {
           const deleteStep = await this.executeDeleteFromHomologStep(uuid_id)
           steps.push(deleteStep)
@@ -239,7 +259,12 @@ export class PoiMigrationPipeline {
         warnings: warnings.length > 0 ? warnings : undefined
       }
     } catch (error) {
-      console.error('Pipeline error:', error)
+      console.error('❌ Pipeline exception for POI:', uuid_id)
+      console.error('   Error:', error)
+      if (error instanceof Error) {
+        console.error('   Stack:', error.stack)
+      }
+      console.error('   Steps completed before error:', steps.length)
       return {
         success: false,
         steps,
@@ -280,7 +305,15 @@ export class PoiMigrationPipeline {
       }
 
       // Execute migration
+      console.log(`   Executing MigrationService.migratePOI(${uuid_id})...`)
       const result = await MigrationService.migratePOI(uuid_id)
+      
+      if (!result.success) {
+        console.error(`   Migration error: ${result.error}`)
+        if (result.warnings && result.warnings.length > 0) {
+          console.warn(`   Warnings:`, result.warnings)
+        }
+      }
 
       return {
         step: 'migration',
@@ -290,6 +323,10 @@ export class PoiMigrationPipeline {
         processing_time: Date.now() - stepStart
       }
     } catch (error) {
+      console.error(`   Migration exception:`, error)
+      if (error instanceof Error) {
+        console.error(`   Stack:`, error.stack)
+      }
       return {
         step: 'migration',
         success: false,
@@ -327,31 +364,27 @@ export class PoiMigrationPipeline {
         }
       }
 
-      // Get POI data for description generation
-      const { data: poi, error: poiError } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select(`
-          id,
-          name,
-          city,
-          state,
-          country,
-          attraction_coordinate!inner(latitude, longitude)
-        `)
-        .eq('id', attraction_id)
-        .single()
+      // Get POI data for description generation (using SSOT function)
+      console.log(`   Loading POI data from core.attractions...`)
+      const poiResult = await MigrationService.loadPOIWithCoordinates(attraction_id)
 
-      if (poiError || !poi) {
+      if (!poiResult.success || !poiResult.data) {
+        console.error(`   Failed to load POI: ${poiResult.error}`)
         return {
           step: 'description',
           success: false,
-          error: `Failed to load POI: ${poiError?.message || 'POI not found'}`,
+          error: `Failed to load POI: ${poiResult.error}`,
           processing_time: Date.now() - stepStart
         }
       }
 
+      const { poi, coordinate } = poiResult.data
+
+      console.log(`   POI loaded: ${poi.name} (${poi.city}, ${poi.state})`)
+      console.log(`   Coordinates: ${coordinate.latitude}, ${coordinate.longitude}`)
+
       // Use DescriptionService directly (better than API call)
+      console.log(`   Calling DescriptionService.generate()...`)
       const { DescriptionService } = await import('./poi-processing/description.service')
       
       const poiData = {
@@ -360,8 +393,8 @@ export class PoiMigrationPipeline {
         city: poi.city,
         state: poi.state,
         country: poi.country,
-        lat: poi.attraction_coordinate[0].latitude,
-        lng: poi.attraction_coordinate[0].longitude
+        lat: coordinate.latitude,
+        lng: coordinate.longitude
       }
 
       const result = await DescriptionService.generate(poiData, {
@@ -371,6 +404,7 @@ export class PoiMigrationPipeline {
       })
 
       if (!result.success) {
+        console.error(`   DescriptionService.generate() failed: ${result.error}`)
         return {
           step: 'description',
           success: false,
@@ -378,6 +412,8 @@ export class PoiMigrationPipeline {
           processing_time: Date.now() - stepStart
         }
       }
+      
+      console.log(`   Description generated successfully`)
 
       // Extract verification result from description service
       const verification = result.data?.verification
@@ -404,32 +440,56 @@ export class PoiMigrationPipeline {
 
   /**
    * Step 3: Check Audio (generated automatically if auto_generate_audio was true)
+   * Note: Audio generation is currently a placeholder in DescriptionService
+   * This step checks if audio exists but doesn't fail the pipeline if it doesn't
    */
   private static async checkAudioStep(attraction_id: string): Promise<PipelineStepResult> {
     const stepStart = Date.now()
 
     try {
+      console.log(`🎵 Step 3: Checking audio for ${attraction_id}...`)
+      
       // Check if audio exists
-      const { data: description } = await supabase
+      const { data: description, error: descError } = await supabase
         .schema('core')
         .from('attraction_descriptions')
         .select('audio_url')
         .eq('attraction_id', attraction_id)
         .eq('language', 'pt-br')
-        .not('audio_url', 'is', null)
-        .single()
+        .maybeSingle()
 
+      if (descError) {
+        console.warn(`⚠️  Error checking audio: ${descError.message}`)
+        // Don't fail - audio is optional
+        return {
+          step: 'audio',
+          success: false,
+          data: { audio_url: null, note: 'Audio check failed, but continuing' },
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      const hasAudio = !!description?.audio_url
+      console.log(`   Audio status: ${hasAudio ? '✅ Found' : '⚠️  Not found (will be generated later)'}`)
+      
+      // Audio is optional - don't fail pipeline if it doesn't exist
+      // It will be generated later via AudioService or Edge Function
       return {
         step: 'audio',
-        success: !!description?.audio_url,
-        data: { audio_url: description?.audio_url },
+        success: true, // Always return success - audio is optional
+        data: { 
+          audio_url: description?.audio_url || null,
+          note: hasAudio ? 'Audio exists' : 'Audio not yet generated (will be generated later)'
+        },
         processing_time: Date.now() - stepStart
       }
     } catch (error) {
+      console.warn(`⚠️  Exception checking audio:`, error)
+      // Don't fail pipeline for audio check errors
       return {
         step: 'audio',
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        success: true, // Return success even on error - audio is optional
+        data: { audio_url: null, note: 'Audio check failed, but continuing' },
         processing_time: Date.now() - stepStart
       }
     }
@@ -442,25 +502,133 @@ export class PoiMigrationPipeline {
     const stepStart = Date.now()
 
     try {
-      // Use ProcessingService to generate trigger points
-      const result = await ProcessingService.processTriggerPoints(
-        [attraction_id],
+      console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
+      
+      // First, verify POI exists and load it with coordinates (using SSOT function)
+      console.log(`   Loading POI data...`)
+      const poiResult = await MigrationService.loadPOIWithCoordinates(attraction_id)
+      
+      if (!poiResult.success || !poiResult.data) {
+        console.error(`   ❌ Failed to load POI: ${poiResult.error}`)
+        return {
+          step: 'trigger_points',
+          success: false,
+          error: `Failed to load POI: ${poiResult.error}`,
+          processing_time: Date.now() - stepStart
+        }
+      }
+      
+      const { poi, coordinate } = poiResult.data
+      console.log(`   ✅ POI loaded: ${poi.name} (${poi.city}, ${poi.state})`)
+      console.log(`   📍 Coordinates: ${coordinate.latitude}, ${coordinate.longitude}`)
+      
+      const lat = coordinate.latitude
+      const lng = coordinate.longitude
+
+      // Prepare POI data for trigger points generation (same format as /trigger-points-single)
+      const poiData = {
+        id: poi.id,
+        name: poi.name,
+        location: {
+          lat: lat,
+          lng: lng
+        },
+        type: poi.category || 'point_of_interest',
+        country: poi.country,
+        city: poi.city,
+        state: poi.state
+      }
+
+      // Use CoreTriggerPointPredictor (same motor as /trigger-points-single page)
+      console.log(`   🎯 Calling CoreTriggerPointPredictor (new motor - same as /trigger-points-single)...`)
+      const { CoreTriggerPointPredictor } = await import('./trigger-points-google/core/trigger-point-predictor')
+      
+      const predictor = new CoreTriggerPointPredictor()
+      const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
+        maxSearchRadius: 1000,
+        minQuality: 0.4
+      })
+
+      if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {
+        const errorMsg = 'No trigger points generated'
+        console.error(`   ❌ Trigger points generation failed: ${errorMsg}`)
+        return {
+          step: 'trigger_points',
+          success: false,
+          error: errorMsg,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      const triggerPointsCount = predictionResult.triggerPoints.length
+      console.log(`   ✅ Generated ${triggerPointsCount} trigger points`)
+
+      // Save trigger points to database using TriggerPointSavingService
+      console.log(`   💾 Saving trigger points to database...`)
+      const { TriggerPointSavingService } = await import('./trigger-point-saving')
+      
+      // Convert TriggerPoint[] to TriggerPointSaveData[]
+      const triggerPointsToSave = predictionResult.triggerPoints.map(tp => ({
+        attraction_id,
+        lat: tp.location.lat,
+        lng: tp.location.lng,
+        radius_meters: tp.radius || 50,
+        expected_bearing: tp.expectedBearing,
+        bearing_threshold: tp.bearingThreshold || 30,
+        type: tp.type,
+        priority: tp.priority || 1,
+        is_active: true,
+        access: 'both' as 'walk' | 'car' | 'both',
+        confidence: tp.confidence || 0.5,
+        generation_method: tp.generationMethod || 'google_apis',
+        boundary_source: predictionResult.boundary?.source || 'unknown'
+      }))
+      
+      const saveResult = await TriggerPointSavingService.saveTriggerPoints(
+        attraction_id,
+        triggerPointsToSave,
         {
-          batchSize: 1,
-          delayBetweenCalls: 0
+          mode: 'replace_all',
+          boundarySource: predictionResult.boundary?.source || 'unknown'
         }
       )
 
-      const poiResult = result.results?.[0]
+      if (saveResult.errors && saveResult.errors.length > 0 && saveResult.saved === 0) {
+        const errorMsg = saveResult.errors.join('; ')
+        console.error(`   ❌ Failed to save trigger points: ${errorMsg}`)
+        return {
+          step: 'trigger_points',
+          success: false,
+          error: errorMsg,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      const savedCount = saveResult.saved || 0
+      console.log(`   ✅ Saved ${savedCount} trigger points to database`)
+
+      // Calculate max confidence from saved trigger points
+      const maxConfidence = predictionResult.triggerPoints.length > 0
+        ? Math.max(...predictionResult.triggerPoints.map(tp => tp.confidence || 0))
+        : 0
 
       return {
         step: 'trigger_points',
-        success: poiResult?.success || false,
-        error: poiResult?.message && !poiResult.success ? poiResult.message : undefined,
-        data: poiResult?.data,
+        success: true,
+        data: {
+          trigger_points_generated: triggerPointsCount,
+          trigger_points_saved: savedCount,
+          trigger_points_skipped: saveResult.skipped || 0,
+          confidence_score: maxConfidence,
+          boundary_source: predictionResult.boundary?.source || 'unknown'
+        },
         processing_time: Date.now() - stepStart
       }
     } catch (error) {
+      console.error(`   ❌ Exception in trigger points generation:`, error)
+      if (error instanceof Error) {
+        console.error(`   Stack:`, error.stack)
+      }
       return {
         step: 'trigger_points',
         success: false,
@@ -632,12 +800,74 @@ export class PoiMigrationPipeline {
   }
 
   /**
-   * Step 6: Delete from homolog (only after successful approval)
+   * Step 6: Remove duplicate POIs by coordinates (only after successful approval)
+   */
+  private static async executeRemoveDuplicatesStep(attraction_id: string): Promise<PipelineStepResult> {
+    const stepStart = Date.now()
+
+    try {
+      console.log(`🧹 Step 6: Removing duplicate POIs for ${attraction_id}...`)
+      
+      // Get coordinates for the current POI
+      const { data: coordinate } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('latitude, longitude')
+        .eq('attraction_id', attraction_id)
+        .maybeSingle()
+
+      if (!coordinate) {
+        return {
+          step: 'remove_duplicates',
+          success: false,
+          error: 'Could not find coordinates for attraction',
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      const result = await MigrationService.removeDuplicatePOIsByCoordinates(
+        attraction_id,
+        coordinate.latitude,
+        coordinate.longitude
+      )
+
+      if (result.errors.length > 0 && result.removed_count === 0) {
+        return {
+          step: 'remove_duplicates',
+          success: false,
+          error: result.errors.join('; '),
+          data: result,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      console.log(`✅ Removed ${result.removed_count} duplicate POI(s)`)
+      
+      return {
+        step: 'remove_duplicates',
+        success: true,
+        data: result,
+        processing_time: Date.now() - stepStart
+      }
+    } catch (error) {
+      console.error(`❌ Error removing duplicates:`, error)
+      return {
+        step: 'remove_duplicates',
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        processing_time: Date.now() - stepStart
+      }
+    }
+  }
+
+  /**
+   * Step 7: Delete from homolog (only after successful approval)
    */
   private static async executeDeleteFromHomologStep(uuid_id: string): Promise<PipelineStepResult> {
     const stepStart = Date.now()
 
     try {
+      console.log(`🗑️  Step 7: Removing POI ${uuid_id} from homolog...`)
       const result = await MigrationService.safeDeleteFromHomolog(uuid_id)
 
       if (!result.success) {
@@ -649,6 +879,7 @@ export class PoiMigrationPipeline {
         }
       }
 
+      console.log(`✅ Removed POI ${uuid_id} from homolog`)
       return {
         step: 'delete_from_homolog',
         success: true,

@@ -502,6 +502,21 @@ class POIService {
       
       const supabase = getSupabase('server')
       
+      // First, check if there are multiple rows with the same ID (should never happen, but let's be safe)
+      const { count: duplicateCount } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id', { count: 'exact', head: true })
+        .eq('id', id)
+      
+      if (duplicateCount && duplicateCount > 1) {
+        console.error(`❌ CRITICAL: Found ${duplicateCount} duplicate rows for POI ${id} in core.attractions`)
+        // This should never happen, but if it does, we need to handle it
+        // For now, we'll try to get the first one
+      }
+      
+      // Use maybeSingle() instead of single() to handle edge cases
+      // PostgREST should aggregate relations into arrays automatically
       const { data, error } = await supabase
         .schema('core')
         .from('attractions')
@@ -516,9 +531,45 @@ class POIService {
           coordinates:attraction_coordinate(latitude, longitude)
         `)
         .eq('id', id)
-        .single()
+        .maybeSingle()
       
       if (error) {
+        // If error is about multiple rows, try a different approach
+        if (error.code === 'PGRST116' || error.message.includes('multiple')) {
+          console.warn(`⚠️  Multiple rows detected for POI ${id}, trying alternative query...`)
+          // Try without relations first, then load relations separately
+          const { data: baseData, error: baseError } = await supabase
+            .schema('core')
+            .from('attractions')
+            .select('*')
+            .eq('id', id)
+            .limit(1)
+            .maybeSingle()
+          
+          if (baseError || !baseData) {
+            throw new Error(`Database error: ${baseError?.message || error.message}`)
+          }
+          
+          // Load relations separately
+          const [descriptions, groupMembers, triggerPoints, coordinates] = await Promise.all([
+            supabase.schema('core').from('attraction_descriptions').select('id, language, description').eq('attraction_id', id),
+            supabase.schema('core').from('attraction_group_members').select('group_role, attraction_groups(id, name)').eq('attraction_id', id),
+            supabase.schema('core').from('attraction_trigger_points').select('id, is_active').eq('attraction_id', id),
+            supabase.schema('core').from('attraction_coordinate').select('latitude, longitude').eq('attraction_id', id).maybeSingle()
+          ])
+          
+          const data = {
+            ...baseData,
+            attraction_descriptions: descriptions.data || [],
+            attraction_group_members: groupMembers.data || [],
+            attraction_trigger_points: triggerPoints.data || [],
+            coordinates: coordinates.data || null
+          }
+          
+          const poi = this.transformToPOI(data)
+          this.cache.set(cacheKey, { data: poi, timestamp: startTime })
+          return { success: true, data: poi }
+        }
         throw new Error(`Database error: ${error.message}`)
       }
       

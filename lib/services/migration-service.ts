@@ -26,6 +26,85 @@ export interface DuplicateCheckResult {
 
 export class MigrationService {
   /**
+   * Validate coordinates
+   */
+  static validateCoordinates(latitude: number, longitude: number): { valid: boolean; error?: string } {
+    if (latitude === null || latitude === undefined || longitude === null || longitude === undefined) {
+      return { valid: false, error: 'POI coordinates are required' }
+    }
+
+    if (latitude < -90 || latitude > 90) {
+      return { valid: false, error: `Invalid latitude: ${latitude}` }
+    }
+
+    if (longitude < -180 || longitude > 180) {
+      return { valid: false, error: `Invalid longitude: ${longitude}` }
+    }
+
+    return { valid: true }
+  }
+
+  /**
+   * Load POI with coordinates from core (SSOT)
+   */
+  static async loadPOIWithCoordinates(attraction_id: string): Promise<{
+    success: boolean
+    data?: { poi: any; coordinate: { latitude: number; longitude: number } }
+    error?: string
+  }> {
+    try {
+      // Load POI
+      const { data: poi, error: poiError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, name, city, state, country, category')
+        .eq('id', attraction_id)
+        .maybeSingle()
+
+      if (poiError || !poi) {
+        return {
+          success: false,
+          error: poiError?.message || 'POI not found'
+        }
+      }
+
+      // Load coordinates
+      const { data: coordinate, error: coordError } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('latitude, longitude')
+        .eq('attraction_id', attraction_id)
+        .maybeSingle()
+
+      if (coordError || !coordinate) {
+        return {
+          success: false,
+          error: coordError?.message || 'Coordinates not found'
+        }
+      }
+
+      // Validate coordinates
+      const coordValidation = this.validateCoordinates(coordinate.latitude, coordinate.longitude)
+      if (!coordValidation.valid) {
+        return {
+          success: false,
+          error: coordValidation.error
+        }
+      }
+
+      return {
+        success: true,
+        data: { poi, coordinate }
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error loading POI'
+      }
+    }
+  }
+
+  /**
    * Check for duplicates before migration
    */
   static async checkDuplicates(
@@ -74,55 +153,11 @@ export class MigrationService {
       }
 
       // Check by coordinates (within ~50m radius)
-      // Using PostGIS ST_DWithin for geographic distance
-      const { data: existingByCoords } = await supabase
-        .schema('core')
-        .from('attraction_coordinate')
-        .select('attraction_id')
-        .limit(1)
-
-      if (existingByCoords && existingByCoords.length > 0) {
-        // Check distance using PostGIS (if available)
-        // For now, we'll do a simple lat/lng check with tolerance
-        const { data: nearbyCoords } = await supabase
-          .rpc('check_nearby_coordinates', {
-            p_lat: latitude,
-            p_lng: longitude,
-            p_radius_m: 50
-          })
-          .single()
-
-        // If RPC doesn't exist, do manual check with tolerance
-        if (!nearbyCoords) {
-          const tolerance = 0.0005 // ~50m at equator
-          const { data: nearby } = await supabase
-            .schema('core')
-            .from('attraction_coordinate')
-            .select('attraction_id')
-            .gte('latitude', latitude - tolerance)
-            .lte('latitude', latitude + tolerance)
-            .gte('longitude', longitude - tolerance)
-            .lte('longitude', longitude + tolerance)
-            .limit(1)
-            .maybeSingle()
-
-          if (nearby && nearby.attraction_id) {
-            return {
-              is_duplicate: true,
-              duplicate_type: 'coordinates',
-              existing_id: nearby.attraction_id,
-              message: `POI with similar coordinates (${latitude}, ${longitude}) already exists`
-            }
-          }
-        } else if (nearbyCoords && typeof nearbyCoords === 'object' && 'attraction_id' in nearbyCoords && nearbyCoords.attraction_id) {
-          return {
-            is_duplicate: true,
-            duplicate_type: 'coordinates',
-            existing_id: (nearbyCoords as { attraction_id: string }).attraction_id,
-            message: `POI with similar coordinates (${latitude}, ${longitude}) already exists`
-          }
-        }
-      }
+      // NOTE: We no longer block migration for coordinate duplicates
+      // The user wants to import even if coordinates are similar, removing existing POIs
+      // We only check for UUID duplicates to prevent ID conflicts
+      // Coordinate duplicates are allowed and will replace existing POIs
+      // The removal of duplicate POIs happens at the end of the pipeline after approval
 
       return {
         is_duplicate: false
@@ -466,22 +501,16 @@ export class MigrationService {
         }
       }
 
-      // Validate coordinate ranges
-      if (coord.latitude < -90 || coord.latitude > 90) {
+      // Validate coordinate ranges (using centralized function)
+      const coordValidation = this.validateCoordinates(coord.latitude, coord.longitude)
+      if (!coordValidation.valid) {
         return {
           success: false,
-          error: `Invalid latitude: ${coord.latitude}`
+          error: coordValidation.error || 'Invalid coordinates'
         }
       }
 
-      if (coord.longitude < -180 || coord.longitude > 180) {
-        return {
-          success: false,
-          error: `Invalid longitude: ${coord.longitude}`
-        }
-      }
-
-      // 4. Check for duplicates
+      // 4. Check for duplicates (only by UUID and OSM ID - coordinates are allowed to be similar)
       const duplicateCheck = await this.checkDuplicates(
         uuid_id,
         poi.osm_id,
@@ -490,7 +519,9 @@ export class MigrationService {
         coord.longitude
       )
 
-      if (duplicateCheck.is_duplicate) {
+      // Only block if UUID or OSM ID duplicate (same POI)
+      // Coordinate duplicates are allowed - we'll remove the existing POI
+      if (duplicateCheck.is_duplicate && duplicateCheck.duplicate_type !== 'coordinates') {
         return {
           success: false,
           error: duplicateCheck.message || 'Duplicate POI detected',
@@ -498,7 +529,25 @@ export class MigrationService {
         }
       }
 
-      // 4.5. Check if POI already exists in core (for duplicate and lock check)
+      // NOTE: We don't remove duplicate POIs during migration
+      // This will be done at the end of the pipeline after approval
+      // to ensure we only remove duplicates if the new POI is successfully processed
+
+      // 4.5. Try to acquire lock atomically (prevents race conditions)
+      // Use INSERT ... ON CONFLICT to handle both creation and lock acquisition atomically
+      const lockUserId = 'migration-service'
+      const lockTimestamp = new Date().toISOString()
+      
+      // 5. Map homolog data to core format
+      const mappedPOI = this.mapHomologToCore(poi, coord)
+      migrated_fields.push(...Object.keys(mappedPOI).filter(k => mappedPOI[k] !== null && mappedPOI[k] !== undefined))
+      
+      // Set lock fields
+      mappedPOI.processing_lock_by = lockUserId
+      mappedPOI.processing_lock_at = lockTimestamp
+
+      // 6. Try to create POI atomically with lock
+      // If POI already exists, check if we can acquire lock
       const { data: existingPOI } = await supabase
         .schema('core')
         .from('attractions')
@@ -506,83 +555,95 @@ export class MigrationService {
         .eq('id', uuid_id)
         .maybeSingle()
 
+      let finalPOI: { id: string } | null = null
+
       if (existingPOI) {
-        // POI already exists - check lock if processing
+        // POI already exists - check lock
         if (existingPOI.processing_lock_by && existingPOI.processing_lock_at) {
           const lockTime = new Date(existingPOI.processing_lock_at)
           const now = new Date()
           const lockAge = now.getTime() - lockTime.getTime()
           const lockTimeout = 10 * 60 * 1000 // 10 minutes
 
-          // If lock is still valid (less than 10 minutes old), skip
+          // If lock is still valid, skip
           if (lockAge < lockTimeout) {
             return {
               success: false,
               error: `POI is currently being processed by another process (locked at ${existingPOI.processing_lock_at})`
             }
           }
-          // Lock expired, we can proceed
-        }
-        
-        // POI exists but no lock or lock expired - this is a duplicate
-        // Return error (skip_if_exists is handled at pipeline level)
-        return {
-          success: false,
-          error: `POI with UUID ${uuid_id} already exists in core.attractions`
-        }
-      }
+          // Lock expired - try to acquire lock atomically
+          const { data: lockAcquired, error: lockError } = await supabase
+            .schema('core')
+            .from('attractions')
+            .update({
+              processing_lock_by: lockUserId,
+              processing_lock_at: lockTimestamp
+            })
+            .eq('id', uuid_id)
+            .eq('processing_lock_by', existingPOI.processing_lock_by) // Only update if lock hasn't changed
+            .select('id')
+            .maybeSingle()
 
-      // 5. Map homolog data to core format
-      const mappedPOI = this.mapHomologToCore(poi, coord)
-      migrated_fields.push(...Object.keys(mappedPOI).filter(k => mappedPOI[k] !== null && mappedPOI[k] !== undefined))
-
-      // 6. Set lock before creating POI (if POI already exists, update lock)
-      const lockUserId = 'migration-service'
-      if (existingPOI) {
-        // Update lock on existing POI
-        const { error: lockError } = await supabase
-          .schema('core')
-          .from('attractions')
-          .update({
-            processing_lock_by: lockUserId,
-            processing_lock_at: new Date().toISOString()
-          })
-          .eq('id', uuid_id)
-
-        if (lockError) {
-          console.warn('Failed to set processing lock:', lockError)
-        }
-      }
-
-      // 7. Create POI in core.attractions (with lock set)
-      mappedPOI.processing_lock_by = lockUserId
-      mappedPOI.processing_lock_at = new Date().toISOString()
-
-      const { data: createdPOI, error: createError } = await supabase
-        .schema('core')
-        .from('attractions')
-        .insert(mappedPOI)
-        .select('id')
-        .single()
-
-      if (createError) {
-        // If it's a duplicate key error, it means UUID already exists
-        if (createError.code === '23505') {
+          if (lockError || !lockAcquired) {
+            // Another process acquired the lock, or error occurred
+            return {
+              success: false,
+              error: `Failed to acquire lock: POI may be locked by another process`
+            }
+          }
+        } else {
+          // POI exists but no lock - this is a duplicate (already migrated)
           return {
             success: false,
             error: `POI with UUID ${uuid_id} already exists in core.attractions`
           }
         }
-        return {
-          success: false,
-          error: `Failed to create POI in core: ${createError.message}`
+      } else {
+        // POI doesn't exist - create with lock atomically
+        // This INSERT is atomic and will fail if another process creates it first
+        const { data: createdPOI, error: createError } = await supabase
+          .schema('core')
+          .from('attractions')
+          .insert(mappedPOI)
+          .select('id')
+          .single()
+
+        if (createError) {
+          // If it's a duplicate key error, it means UUID already exists (race condition)
+          if (createError.code === '23505') {
+            return {
+              success: false,
+              error: `POI with UUID ${uuid_id} already exists in core.attractions (created by another process)`
+            }
+          }
+          return {
+            success: false,
+            error: `Failed to create POI in core: ${createError.message}`
+          }
         }
+
+        if (!createdPOI) {
+          return {
+            success: false,
+            error: 'Failed to create POI: No data returned'
+          }
+        }
+
+        // Use createdPOI for rest of the function
+        finalPOI = createdPOI
       }
 
-      if (!createdPOI) {
+      // If we got here and existingPOI exists, we acquired the lock
+      // If existingPOI doesn't exist, we created finalPOI above
+      if (!finalPOI && existingPOI) {
+        finalPOI = { id: existingPOI.id }
+      }
+
+      if (!finalPOI) {
         return {
           success: false,
-          error: 'Failed to create POI: No data returned'
+          error: 'Failed to create or acquire lock for POI'
         }
       }
 
@@ -592,11 +653,11 @@ export class MigrationService {
         .schema('core')
         .from('attraction_coordinate')
         .select('id')
-        .eq('attraction_id', createdPOI.id)
+        .eq('attraction_id', finalPOI.id)
         .maybeSingle()
 
       const mappedCoord: any = {
-        attraction_id: createdPOI.id,
+        attraction_id: finalPOI.id,
         latitude: coord.latitude,
         longitude: coord.longitude,
         elevation_m: coord.elevation_m,
@@ -646,7 +707,7 @@ export class MigrationService {
           .schema('core')
           .from('attractions')
           .delete()
-          .eq('id', createdPOI.id)
+          .eq('id', finalPOI.id)
 
         return {
           success: false,
@@ -669,11 +730,11 @@ export class MigrationService {
           processing_lock_by: null,
           processing_lock_at: null
         })
-        .eq('id', createdPOI.id)
+        .eq('id', finalPOI.id)
 
       return {
         success: true,
-        attraction_id: createdPOI.id,
+        attraction_id: finalPOI.id,
         warnings: warnings.length > 0 ? warnings : undefined,
         migrated_fields
       }
@@ -943,6 +1004,108 @@ export class MigrationService {
     } catch (error) {
       console.error('Error updating processing status:', error)
       // Don't throw - status update is not critical
+    }
+  }
+
+  /**
+   * Find and remove duplicate POIs by coordinates (within ~50m radius)
+   * This is called after successful approval to clean up old duplicates
+   */
+  static async removeDuplicatePOIsByCoordinates(
+    attraction_id: string,
+    latitude: number,
+    longitude: number
+  ): Promise<{ removed_count: number; removed_ids: string[]; errors: string[] }> {
+    const removed_ids: string[] = []
+    const errors: string[] = []
+
+    try {
+      console.log(`🔍 Searching for duplicate POIs near (${latitude}, ${longitude})...`)
+
+      // Get the coordinate for the new POI
+      const { data: newCoord } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('latitude, longitude')
+        .eq('attraction_id', attraction_id)
+        .maybeSingle()
+
+      if (!newCoord) {
+        console.warn(`⚠️  Could not find coordinates for attraction ${attraction_id}`)
+        return { removed_count: 0, removed_ids: [], errors: ['Could not find coordinates'] }
+      }
+
+      // Find POIs with similar coordinates (within ~50m tolerance)
+      const tolerance = 0.0005 // ~50m at equator
+      const { data: nearbyCoords, error: coordError } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('attraction_id, latitude, longitude')
+        .gte('latitude', newCoord.latitude - tolerance)
+        .lte('latitude', newCoord.latitude + tolerance)
+        .gte('longitude', newCoord.longitude - tolerance)
+        .lte('longitude', newCoord.longitude + tolerance)
+
+      if (coordError) {
+        console.error(`❌ Error finding nearby coordinates: ${coordError.message}`)
+        return { removed_count: 0, removed_ids: [], errors: [coordError.message] }
+      }
+
+      if (!nearbyCoords || nearbyCoords.length === 0) {
+        console.log(`✅ No duplicate POIs found near (${newCoord.latitude}, ${newCoord.longitude})`)
+        return { removed_count: 0, removed_ids: [], errors: [] }
+      }
+
+      // Filter out the current POI and remove duplicates
+      const duplicateIds = nearbyCoords
+        .filter(coord => coord.attraction_id !== attraction_id)
+        .map(coord => coord.attraction_id)
+
+      if (duplicateIds.length === 0) {
+        console.log(`✅ No duplicate POIs to remove (only current POI found)`)
+        return { removed_count: 0, removed_ids: [], errors: [] }
+      }
+
+      console.log(`🗑️  Found ${duplicateIds.length} duplicate POI(s) to remove: ${duplicateIds.join(', ')}`)
+
+      // Remove each duplicate POI
+      for (const duplicateId of duplicateIds) {
+        try {
+          const { error: deleteError } = await supabase
+            .schema('core')
+            .from('attractions')
+            .delete()
+            .eq('id', duplicateId)
+
+          if (deleteError) {
+            const errorMsg = `Failed to remove duplicate POI ${duplicateId}: ${deleteError.message}`
+            console.error(`❌ ${errorMsg}`)
+            errors.push(errorMsg)
+          } else {
+            console.log(`✅ Removed duplicate POI: ${duplicateId}`)
+            removed_ids.push(duplicateId)
+          }
+        } catch (error) {
+          const errorMsg = `Exception removing duplicate POI ${duplicateId}: ${error instanceof Error ? error.message : 'Unknown error'}`
+          console.error(`❌ ${errorMsg}`)
+          errors.push(errorMsg)
+        }
+      }
+
+      console.log(`✅ Removed ${removed_ids.length} duplicate POI(s), ${errors.length} error(s)`)
+      return {
+        removed_count: removed_ids.length,
+        removed_ids,
+        errors
+      }
+    } catch (error) {
+      const errorMsg = `Exception in removeDuplicatePOIsByCoordinates: ${error instanceof Error ? error.message : 'Unknown error'}`
+      console.error(`❌ ${errorMsg}`)
+      return {
+        removed_count: removed_ids.length,
+        removed_ids,
+        errors: [...errors, errorMsg]
+      }
     }
   }
 }

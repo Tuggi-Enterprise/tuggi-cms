@@ -224,7 +224,17 @@ export default function PoiMigrationPage() {
         percentage: data.total_pois > 0 ? Math.round((data.processed / data.total_pois) * 100) : 0
       })
 
-      setSuccess(`Migration completed! ${data.successful} successful, ${data.failed} failed`)
+      // Show detailed message
+      if (data.message) {
+        setSuccess(data.message)
+      } else {
+        setSuccess(`Migration completed! ${data.successful} successful, ${data.failed} failed`)
+      }
+      
+      // Log skip reasons if available
+      if (data.skipped_reasons) {
+        console.log('📊 Skip reasons:', data.skipped_reasons)
+      }
     } catch (error) {
       console.error('Migration error:', error)
       setError(error instanceof Error ? error.message : 'Unknown error')
@@ -335,10 +345,12 @@ export default function PoiMigrationPage() {
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               disabled={isMigrating}
             >
+              <option value="all">All Status</option>
               <option value="pending">Pending</option>
-              <option value="processing">Processing</option>
-              <option value="completed">Completed</option>
+              <option value="processing">Processing (with timeout check)</option>
+              <option value="migrated">Migrated</option>
               <option value="failed">Failed</option>
+              <option value="skipped">Skipped</option>
             </select>
           </div>
         </div>

@@ -272,168 +272,106 @@ export async function POST(request: NextRequest) {
         const processingStart = Date.now()
         console.log(`🎯 Processing: ${poi.name} (${poi.city}, ${poi.country})`)
 
-        // Call the boundary detection API directly (more reliable than HTTP fetch)
-        const { POST: detectBoundaryHandler } = await import('@/app/api/poi-boundaries/detect/route')
-        
-        // Create a proper NextRequest object
-        const mockRequest = new Request('http://localhost/api/poi-boundaries/detect', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        // Use new motor (CoreTriggerPointPredictor) - same as /trigger-points-single
+        const poiData = {
+          id: poi.id,
+          name: poi.name,
+          location: {
+            lat: coordinate.latitude,
+            lng: coordinate.longitude
           },
-          body: JSON.stringify({
-            attraction_id: poi.id,
-            poi_lat: coordinate.latitude,
-            poi_lng: coordinate.longitude,
-            poi_name: poi.name
-          })
-        }) as any
+          type: poi.category || 'point_of_interest',
+          country: poi.country,
+          city: poi.city,
+          state: poi.state
+        }
 
-        const response = await detectBoundaryHandler(mockRequest)
-        const result = await response.json()
+        // Call new trigger points generation API
+        const { CoreTriggerPointPredictor } = await import('@/lib/services/trigger-points-google/core/trigger-point-predictor')
+        const { TriggerPointSavingService } = await import('@/lib/services/trigger-point-saving')
+        
+        const predictor = new CoreTriggerPointPredictor()
+        const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
+          maxSearchRadius: 1000,
+          minQuality: 0.4
+        })
 
-        if (result.success && result.trigger_points && Array.isArray(result.trigger_points) && result.trigger_points.length > 0) {
-          // Check if TPs were already saved by auto-save
-          if (result.auto_save_result && result.auto_save_result.saved > 0) {
-            console.log(`✅ ${poi.name}: Auto-save already processed ${result.auto_save_result.saved} TPs, skipping duplicate save`)
-            
-            // Count the auto-saved TPs in our summary
-            const triggerPointsArray = result.trigger_points
-            const approvedTPs = triggerPointsArray.filter((tp: any) => 
-              tp.auto_status === 'approved' && 
-              (tp.type === 'primary' || tp.type === 'secondary')
-            )
-            
-            results.summary.approved_tps += approvedTPs.length
-            results.successful++
-            
-            results.results.push({
-              poi_id: poi.id,
-              poi_name: poi.name,
-              success: true,
-              trigger_points_generated: triggerPointsArray.length,
-              trigger_points_saved: result.auto_save_result.saved,
-              trigger_points_skipped: result.auto_save_result.skipped,
-              message: `Successfully processed via auto-save: ${result.auto_save_result.saved} TPs saved`,
-              boundary_source: result.boundary_source || 'unknown',
-              processing_time: Date.now() - processingStart
-            })
-            
-            continue
-          }
-          
-          // Filter trigger points: only approved primary and secondary types
-          const triggerPointsArray = result.trigger_points
-          const approvedTPs = triggerPointsArray.filter((tp: any) => 
-            tp.auto_status === 'approved' && 
-            (tp.type === 'primary' || tp.type === 'secondary')
-          )
-          const reviewTPs = triggerPointsArray.filter((tp: any) => tp.auto_status === 'review')
-          const rejectedTPs = triggerPointsArray.filter((tp: any) => tp.auto_status === 'rejected')
-          const fallbackTPs = triggerPointsArray.filter((tp: any) => tp.type === 'fallback')
-          
-          results.summary.approved_tps += approvedTPs.length
-          results.summary.review_tps += reviewTPs.length
-          results.summary.rejected_tps += rejectedTPs.length
-
-          console.log(`📊 ${poi.name}: Generated ${triggerPointsArray.length} TPs (${approvedTPs.length} approved primary/secondary, ${fallbackTPs.length} fallback excluded)`)
-
-          if (approvedTPs.length > 0) {
-            // Use unified service to save TPs (DELETE + INSERT)
-            console.log(`💾 ${poi.name}: Saving ${approvedTPs.length} TPs using unified service`)
-            
-            // Convert to format expected by TriggerPointSavingService
-            const tpsForSaving = approvedTPs.map((tp: any) => ({
-              lat: tp.lat,
-              lng: tp.lng,
-              type: tp.type,
-              confidence: tp.individual_confidence_score,
-              auto_status: tp.auto_status,
-              final_status: tp.final_status,
-              radius_meters: tp.radius_meters || 20,
-              expected_bearing: tp.expected_bearing,
-              bearing_threshold: 30,
-              priority: tp.type === 'primary' ? 1 : tp.type === 'secondary' ? 2 : 3,
-              score_factors: tp.score_factors || null,
-              generation_method: tp.generation_method,
-              validation_notes: tp.reasoning,
-              access: 'both'
-            }))
-            
-            const { TriggerPointSavingService } = await import('@/lib/services/trigger-point-saving')
-            const saveResult = await TriggerPointSavingService.saveTriggerPointsBatch(
-              poi.id,
-              tpsForSaving,
-              result.boundary_source || 'unknown'
-            )
-
-            if (saveResult.errors.length > 0) {
-              throw new Error(`Save failed: ${saveResult.errors.join('; ')}`)
-            }
-
-            console.log(`✅ ${poi.name}: Saved ${saveResult.saved} TPs (${saveResult.skipped} skipped)`)
-            console.log(`✅ ${poi.name}: Marked as processed`)
-            
-            // Add detailed result for frontend
-            results.results.push({
-              poi_id: poi.id,
-              poi_name: poi.name,
-              success: true,
-              message: `Successfully generated ${saveResult.saved} trigger points`,
-              trigger_points_generated: triggerPointsArray.length,
-              trigger_points_saved: saveResult.saved,
-              trigger_points_skipped: saveResult.skipped,
-              boundary_source: result.boundary_source,
-              processing_time: result.processing_time,
-              errors: []
-            })
-            
-            results.successful++
-          } else {
-            // Mark POI as having no approved primary/secondary TPs
-            await markPOIAsNoTPs(poi.id, 'no_approved_primary_secondary_tps', `Generated ${triggerPointsArray.length} TPs but none were approved primary/secondary types`)
-            console.log(`⚠️ ${poi.name}: No approved primary/secondary TPs (${fallbackTPs.length} fallback TPs excluded)`)
-            
-            // Add detailed result for frontend
-            results.results.push({
-              poi_id: poi.id,
-              poi_name: poi.name,
-              success: true,
-              message: `Generated ${triggerPointsArray.length} trigger points but none were approved (${fallbackTPs.length} fallback excluded)`,
-              trigger_points_generated: triggerPointsArray.length,
-              trigger_points_saved: 0,
-              trigger_points_skipped: triggerPointsArray.length,
-              boundary_source: result.boundary_source,
-              processing_time: result.processing_time,
-              errors: []
-            })
-            
-            results.successful++ // Still count as processed successfully
-          }
-        } else {
-          // Generation failed completely
-          await markPOIAsNoTPs(poi.id, 'generation_failed', result.error || 'Unknown generation error')
-          console.log(`❌ ${poi.name}: Generation failed - ${result.error}`)
-          
-          // Add detailed result for frontend
+        if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {
+          // No trigger points generated
+          results.failed++
           results.results.push({
             poi_id: poi.id,
             poi_name: poi.name,
             success: false,
-            message: result.error || 'Unknown generation error',
+            message: 'No trigger points generated',
             trigger_points_generated: 0,
             trigger_points_saved: 0,
             trigger_points_skipped: 0,
-            boundary_source: result.boundary_source,
-            processing_time: result.processing_time,
-            errors: [result.error || 'Unknown generation error']
+            processing_time: Date.now() - processingStart
           })
+          continue
+        }
+
+        // Convert and save trigger points
+        const triggerPointsToSave = predictionResult.triggerPoints.map(tp => ({
+          attraction_id: poi.id,
+          lat: tp.location.lat,
+          lng: tp.location.lng,
+          radius_meters: tp.radius || 50,
+          expected_bearing: tp.expectedBearing,
+          bearing_threshold: tp.bearingThreshold || 30,
+          type: tp.type,
+          priority: tp.priority || 1,
+          is_active: true,
+          access: 'both' as 'walk' | 'car' | 'both',
+          confidence: tp.confidence || 0.5,
+          generation_method: tp.generationMethod || 'google_apis',
+          boundary_source: predictionResult.boundary?.source || 'unknown'
+        }))
+
+        const saveResult = await TriggerPointSavingService.saveTriggerPoints(
+          poi.id,
+          triggerPointsToSave,
+          {
+            mode: 'replace_all',
+            boundarySource: predictionResult.boundary?.source || 'unknown'
+          }
+        )
+
+        if (saveResult.saved > 0) {
+          console.log(`✅ ${poi.name}: Generated and saved ${saveResult.saved} TPs`)
           
+          const approvedTPs = predictionResult.triggerPoints.filter(tp => 
+            (tp.confidence || 0) >= 0.7 && 
+            (tp.type === 'primary' || tp.type === 'secondary')
+          )
+          
+          results.summary.approved_tps += approvedTPs.length
+          results.successful++
+          
+          results.results.push({
+            poi_id: poi.id,
+            poi_name: poi.name,
+            success: true,
+            trigger_points_generated: predictionResult.triggerPoints.length,
+            trigger_points_saved: saveResult.saved,
+            trigger_points_skipped: saveResult.skipped || 0,
+            message: `Successfully processed: ${saveResult.saved} TPs saved`,
+            boundary_source: predictionResult.boundary?.source || 'unknown',
+            processing_time: Date.now() - processingStart
+          })
+        } else {
+          // No trigger points saved
           results.failed++
-          results.errors.push({
-            attraction_id: poi.id,
-            attraction_name: poi.name,
-            error: result.error || 'Unknown generation error'
+          results.results.push({
+            poi_id: poi.id,
+            poi_name: poi.name,
+            success: false,
+            message: 'No trigger points saved',
+            trigger_points_generated: predictionResult.triggerPoints.length,
+            trigger_points_saved: 0,
+            trigger_points_skipped: predictionResult.triggerPoints.length,
+            processing_time: Date.now() - processingStart
           })
         }
 
@@ -499,7 +437,8 @@ async function markPOIAsNoTPs(attractionId: string, reason: string, details: str
     
     // Alternative: Update the attraction record with processing metadata
     // This avoids RLS issues with trigger_points table
-    const { error } = await supabase
+    const supabaseClient = getSupabase('service')
+    const { error } = await supabaseClient
       .schema('core')
       .from('attractions')
       .update({
