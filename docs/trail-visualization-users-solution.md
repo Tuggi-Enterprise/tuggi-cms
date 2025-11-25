@@ -127,3 +127,4 @@ memoryCache.set('trail-users:all', users, 10) // 10 minutos
 - ✅ Stats opcionais (não bloqueia se falhar)
 
 
+

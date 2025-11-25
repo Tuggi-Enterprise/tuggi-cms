@@ -120,3 +120,4 @@ Se RPC não estiver disponível, usa método anterior (chunked).
 4. ⏳ Testar no frontend
 
 
+

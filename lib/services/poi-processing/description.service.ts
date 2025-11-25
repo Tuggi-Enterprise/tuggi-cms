@@ -609,6 +609,7 @@ export class DescriptionService {
       console.log(`📝 Generated prompt: ${prompt.length} characters`)
 
       // Generate description using Gemini (with intelligent model selection)
+      // System instructions are sent separately via system_instruction parameter
       const description = await this.generateWithGemini(prompt, apiKey, sourcesSection, enrichedPOIData, scrapedContentSection, poiData)
       
       // Log Gemini response summary
@@ -1872,22 +1873,10 @@ export class DescriptionService {
   }
 
   /**
-   * Create optimized prompt for Gemini with model-specific instructions
+   * System instructions template - these are sent as systemInstruction parameter
+   * This separates static instructions from dynamic context, improving organization
    */
-  private static createOptimizedPrompt({
-    name, sourcesSection, scrapedContentSection,
-    existingDescription, existingTokens, optimizationMode = true,
-    enrichedData = null, poiData = null, layeredSources = [], enrichedPOIData = null
-  }: any): string {
-    const hasTokens = existingTokens && existingTokens.length > 0
-    const hasExisting = existingDescription && existingDescription.trim()
-    
-    // Fixed 25-second audio format (max 85 words)
-    const audioTime = '25s'
-    const maxWords = 85
-    const isDataRich = false // Simplified: all descriptions follow same format
-
-    return `<role>
+  private static readonly SYSTEM_INSTRUCTIONS_TEMPLATE = (audioTime: string, maxWords: number) => `<role>
 You are an expert travel guide writer specializing in Brazilian cultural heritage and landmarks.
 </role>
 
@@ -1900,14 +1889,17 @@ Generate a concise, factual description in Brazilian Portuguese for a ${audioTim
 - Use ONLY well-known historical facts and verifiable information
 - PRIORITIZE sources provided below, but may supplement with established historical knowledge
 - NEVER INVENT: physical features, functions, services, dates, events, curiosities, or biographical information about people
-- NEVER INVENT information about people: titles, roles, historical positions, or biographical facts (e.g., don't say someone was "president" unless explicitly confirmed in sources)
+- NEVER INVENT information about people: titles, roles, historical positions, or biographical facts - only use what is explicitly confirmed in sources
+- AVOID generic descriptions that could apply to any POI - use specific, verifiable facts instead
 - NEVER SPECULATE: avoid words like "aproximadamente", "cerca de", "provavelmente", "pode ter"
+- When in doubt about a fact, OMIT it rather than risk inaccuracy
 </constraint>
 
 <constraint id="prohibited_content">
 - FORBIDDEN unless explicitly in sources: "patrimônio histórico", "tombado", "IPHAN", "Ministério da Cultura"
 - AVOID unverified claims about heritage status, IPHAN/UNESCO designations, or government programs
 - FORBIDDEN: addresses, directions, hours, prices, contacts, invented features, speculation
+- FORBIDDEN: city names, state names, geographic locations (e.g., "em São Paulo", "em Bragança Paulista", "localizado em")
 </constraint>
 
 <constraint id="source_priority">
@@ -1917,6 +1909,8 @@ Priority order (highest to lowest):
 3. City/municipal sources
 4. National sources
 5. Well-established historical facts (periods/centuries, regional context, architectural styles)
+
+MAXIMIZE use of verifiable facts from sources above - don't use generic descriptions when specific facts are available.
 </constraint>
 
 <constraint id="dates">
@@ -1924,6 +1918,19 @@ Priority order (highest to lowest):
 - Prefer: year (YYYY) > century > decade
 - NEVER use: "aproximadamente", "cerca de", "provavelmente"
 - If no confirmed date: omit temporal references, use present tense only
+- Use current date (provided in context) as reference to determine if events are past, present, or future
+- If an event date is in the past relative to current date, use appropriate past tense
+- If an event date matches or is before current date, it already happened - use past tense, not future tense
+- Verify temporal context using current date before describing events
+</constraint>
+
+<constraint id="temporal_coherence" req="true">
+- CRITICAL: Verify temporal coherence across all information in the description
+- Before mentioning current characteristics (capacity, features, status, physical attributes), verify the POI's current status using current date and sources
+- If sources indicate the POI has been demolished, closed, significantly changed, or no longer exists, do NOT mention characteristics that no longer exist
+- Order information chronologically when possible (past events before current status)
+- Ensure all statements are temporally consistent - don't say something exists if it was destroyed, closed, or changed
+- If sources mention demolition, closure, major renovation, or significant changes, adjust all related information accordingly
 </constraint>
 
 <constraint id="format">
@@ -1931,20 +1938,24 @@ Priority order (highest to lowest):
 - No lists or bullet points
 - Maximum ${maxWords} words
 - Target: 30-85 words for ${audioTime} audio
+- If limit allows more words, use available space to include more verifiable facts rather than generic descriptions
+- Don't stop at minimum - use available space to maximize informative content with specific, verifiable facts
 </constraint>
 
 <constraint id="location" req="true" block="true">
-- CRITICAL: The POI location is specified in the "loc" field of the data section below
-- You MUST use ONLY the city and state from "loc" data - NEVER mention a different city or state
-- If sources or historical knowledge mention a different city, IGNORE that information completely
-- BLOCKING: Auto-reject if description mentions any city other than the one in "loc" data
-- Example: If "loc" shows "c":"Rio de Janeiro", description MUST say "Rio de Janeiro" (never "Curitiba" or any other city)
+- CRITICAL: The POI location is specified in the "loc" field of the data section below - use it ONLY for internal validation
+- FORBIDDEN: Do NOT mention city name, state name, or any geographic location in the description text
+- NEVER include phrases like "em [cidade]", "em [estado]", "localizado em", "situado em", or any location references
+- The description should focus on the POI itself, not its location
+- If sources mention a different city, IGNORE that information completely
+- BLOCKING: Auto-reject if description mentions any city, state, or geographic location
 </constraint>
 </constraints>
 
 <structure>
 <sentence_1>
-- Start with POI name (never start with city name)
+- Start with POI name (never start with city name or location)
+- NEVER mention city, state, or geographic location
 - Include 1-2 visible/observable elements when certain (material, style, era, original use)
 </sentence_1>
 
@@ -1955,7 +1966,11 @@ Priority order (highest to lowest):
 
 <sentence_3>
 - Include 1-2 verified or well-established facts
+- PRIORITIZE specific, unique, and memorable facts over generic descriptions
+- Use facts from scraped content and reference links when available (dates, events, numbers, historical moments)
+- AVOID generic phrases that could apply to any similar POI - use specific, verifiable facts instead
 - Focus on: architecture, founding, notable events, local characteristics, cultural significance
+- If specific facts are not available, keep description factual and avoid generic embellishments
 - Keep it simple and direct
 </sentence_3>
 
@@ -1963,9 +1978,9 @@ Priority order (highest to lowest):
 - End with natural closing line connecting visitor to the place
 - Describe visual/atmospheric element visible now
 - No hyperbole or invitations
-- Optional funfact/curiosity: ONLY if verifiable in sources provided above
+- If a verifiable curiosity/funfact is available in sources, INCLUDE it (don't omit if available)
 - CRITICAL for funfacts: NEVER invent information about people (titles, roles, biographical facts, historical positions)
-- If sources mention a person, verify their actual role/title in sources - do NOT assume or infer (e.g., don't say "president" unless explicitly confirmed in sources)
+- If sources mention a person, verify their actual role/title in sources - do NOT assume or infer
 - If no verifiable curiosity is available in sources, OMIT it completely - never invent one
 </sentence_4>
 </structure>
@@ -1989,7 +2004,50 @@ Priority order (highest to lowest):
 - Distinguish: general historical context (allowed) vs. specific current claims (require source verification)
 </knowledge_policy>
 
+<output_format>
+Generate ONLY the final Portuguese text. No commentary, metadata, explanations, or source citations.
+</output_format>`
+
+  /**
+   * Get system instructions for Gemini API
+   * These are sent as systemInstruction parameter, separate from the dynamic prompt
+   */
+  private static getSystemInstructions(audioTime: string = '25s', maxWords: number = 85): string {
+    return this.SYSTEM_INSTRUCTIONS_TEMPLATE(audioTime, maxWords)
+  }
+
+  /**
+   * Create optimized prompt for Gemini - returns only dynamic context
+   * System instructions are sent separately via systemInstruction parameter
+   */
+  private static createOptimizedPrompt({
+    name, sourcesSection, scrapedContentSection,
+    existingDescription, existingTokens, optimizationMode = true,
+    enrichedData = null, poiData = null, layeredSources = [], enrichedPOIData = null
+  }: any): string {
+    const hasTokens = existingTokens && existingTokens.length > 0
+    const hasExisting = existingDescription && existingDescription.trim()
+    
+    // Fixed 25-second audio format (max 85 words)
+    const audioTime = '30s'
+    const maxWords = 120
+    const isDataRich = false // Simplified: all descriptions follow same format
+
+    // Build full prompt with system instructions + dynamic context
+    // Note: REST API /v1/models/gemini-2.5-flash:generateContent does NOT support system_instruction parameter
+    // So we include instructions in the prompt text itself
+    const staticInstructions = this.SYSTEM_INSTRUCTIONS_TEMPLATE(audioTime, maxWords)
+    
+    // Return full prompt with instructions + dynamic context (no duplicates)
+    return `${staticInstructions}
+
 <context>
+<reference_date>
+Current date: ${new Date().toISOString().split('T')[0]} (YYYY-MM-DD format)
+Current year: ${new Date().getFullYear()}
+Use this date as reference to determine if events mentioned in sources are past, present, or future.
+</reference_date>
+
 <data format="compact_json">
 {
   "loc": ${poiData ? this.buildLocationDetailsCompact(poiData) : JSON.stringify({ n: name })},
@@ -2012,10 +2070,6 @@ ${JSON.stringify(existingTokens.map((t: any) => ({ t: t.token, w: t.weight })))}
 Key abbreviations: n=name, c=city, s=state, co=country, b=neighborhood, cat=category, d=date, p=period, st=style, arch=architect, mat=material, h=height, her=heritage, unesco=unesco_status, w=website, wiki=wikipedia, wd=wikidata, t=types, r=rating, rev=reviews, y=year, lt=landmark_type, imp=importance, desc=description
 </data_legend>
 </context>
-
-<output_format>
-Generate ONLY the final Portuguese text. No commentary, metadata, explanations, or source citations.
-</output_format>
 
 [Generation ID: ${Date.now()}-${Math.random().toString(36).substr(2, 9)}]`
   }
@@ -2052,54 +2106,144 @@ Generate ONLY the final Portuguese text. No commentary, metadata, explanations, 
 
   /**
    * Generate description using Gemini API with intelligent model selection
+   * @param prompt - Dynamic context (POI data, scraped content, etc.)
+   * System instructions are sent separately via system_instruction parameter (REST API uses underscore)
    */
   private static async generateWithGemini(prompt: string, apiKey: string, sourcesSection: string, enrichedPOIData: any, scrapedContentSection?: string, poiData?: any): Promise<string | null> {
-    // Always use Flash models (2.5 Flash-Lite as primary, 2.5 Flash as fallback)
+    // Using Flash 2.5 only - investigating why Flash-Lite works but Flash doesn't
     const endpoints = [
-      `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
       `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`
     ]
     
-    console.log(`🤖 Using Gemini Flash models for POI description generation`)
+    console.log(`🤖 Using Gemini Flash 2.5 model for POI description generation`)
+    console.log(`📊 Full prompt length: ${prompt.length} characters`)
+    console.log(`\n📝 FULL PROMPT BEING SENT:\n${'='.repeat(80)}`)
+    console.log(prompt)
+    console.log(`${'='.repeat(80)}\n`)
 
     for (const endpoint of endpoints) {
       try {
-        const modelName = endpoint.includes('flash-lite') ? 'Flash-Lite' : 'Flash'
+        const modelName = 'Flash 2.5'
         console.log(`🤖 Calling Gemini API: ${modelName}`)
+        console.log(`🔗 Endpoint: ${endpoint.replace(apiKey, 'API_KEY_HIDDEN')}`)
+        
+        // Build request body
+        // Note: The REST API endpoint /v1/models/gemini-2.5-flash:generateContent does NOT support system_instruction
+        // System instructions must be included in the prompt text itself
+        const requestBody = {
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.8,
+            maxOutputTokens: 8192, // Maximum for Flash 2.5 (8192 tokens) - increased to handle large prompts
+            candidateCount: 1
+          }
+        }
+        
+        console.log(`📤 Request config:`, {
+          temperature: requestBody.generationConfig.temperature,
+          topK: requestBody.generationConfig.topK,
+          topP: requestBody.generationConfig.topP,
+          maxOutputTokens: requestBody.generationConfig.maxOutputTokens,
+          promptLength: prompt.length
+        })
+        
+        // Log request body structure (without full text content for readability)
+        console.log(`📤 Request body structure:`, {
+          hasContents: !!requestBody.contents,
+          contentsLength: requestBody.contents?.[0]?.parts?.[0]?.text?.length || 0,
+          hasGenerationConfig: !!requestBody.generationConfig
+        })
         
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: prompt
-              }]
-            }],
-            generationConfig: {
-              temperature: 0.7,        // Reduced for more consistency
-              topK: 40,               // Reduced for more focused responses  
-              topP: 0.8,              // Reduced for better factual accuracy
-              maxOutputTokens: 350,
-              candidateCount: 1       // Ensure single response
-            }
-          })
+          body: JSON.stringify(requestBody)
         })
 
+        console.log(`📥 Response status: ${response.status} ${response.statusText}`)
+        console.log(`📥 Response headers:`, Object.fromEntries(response.headers.entries()))
+
         if (!response.ok) {
+          // Try to get error details from response body
+          let errorBody = null
+          let errorJson = null
+          try {
+            errorBody = await response.text()
+            console.log(`❌ Gemini API error body (raw):`, errorBody)
+            // Try to parse as JSON if possible
+            try {
+              errorJson = JSON.parse(errorBody)
+              console.log(`❌ Gemini API error (parsed JSON):`, JSON.stringify(errorJson, null, 2))
+            } catch (e) {
+              console.log(`⚠️ Error body is not JSON, keeping as text`)
+            }
+          } catch (e) {
+            console.log(`❌ Could not read error body:`, e)
+          }
+          
           console.log(`❌ Gemini API error: ${response.status} ${response.statusText}`)
-          continue
+          console.log(`❌ Full error details:`, {
+            status: response.status,
+            statusText: response.statusText,
+            url: endpoint.replace(apiKey, 'API_KEY_HIDDEN'),
+            model: 'gemini-2.5-flash',
+            errorBody: errorBody,
+            errorJson: errorJson
+          })
+          
+          // Throw error with details to understand the problem
+          throw new Error(`Gemini Flash API error ${response.status}: ${errorJson?.error?.message || errorBody || response.statusText}`)
         }
 
         const data = await response.json()
         
-        if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-          const description = data.candidates[0].content.parts[0].text.trim()
-          return description
+        // Log response for debugging if needed
+        if (!data.candidates || !data.candidates[0]) {
+          console.log('⚠️ No candidates in Gemini response:', JSON.stringify(data, null, 2))
+          continue
+        }
+        
+        const candidate = data.candidates[0]
+        
+        // Check finish reason
+        if (candidate.finishReason === 'MAX_TOKENS') {
+          console.log(`⚠️ Response hit MAX_TOKENS limit. Current maxOutputTokens: ${requestBody.generationConfig.maxOutputTokens}`)
+          console.log(`⚠️ Prompt length: ${prompt.length} characters`)
+          console.log(`⚠️ Candidate data:`, JSON.stringify(candidate, null, 2))
+          
+          // Try to extract partial text if available
+          if (candidate.content && candidate.content.parts && candidate.content.parts[0] && candidate.content.parts[0].text) {
+            const partialDescription = candidate.content.parts[0].text.trim()
+            console.log(`⚠️ Partial description extracted (${partialDescription.length} chars):`, partialDescription)
+            // Still return it, but log warning
+            return partialDescription
+          }
+          
+          // If no text at all, the prompt might be too large consuming all input tokens
+          console.log(`❌ No text content available. Prompt might be too large (${prompt.length} chars).`)
+          console.log(`❌ Consider reducing prompt size or increasing maxOutputTokens further.`)
+          throw new Error(`Gemini Flash hit MAX_TOKENS limit with ${requestBody.generationConfig.maxOutputTokens} tokens. Prompt size: ${prompt.length} chars. No text generated.`)
+        }
+        
+        if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
+          const description = candidate.content.parts[0].text?.trim()
+          if (description) {
+            console.log(`✅ Successfully generated description (${description.length} characters)`)
+            return description
+          } else {
+            console.log('⚠️ No text content in Gemini response parts:', JSON.stringify(candidate, null, 2))
+          }
         } else {
-          console.log('⚠️ No valid content in Gemini response:', data)
+          console.log('⚠️ No valid content structure in Gemini response:', JSON.stringify(candidate, null, 2))
+          console.log(`⚠️ Finish reason: ${candidate.finishReason || 'unknown'}`)
         }
 
       } catch (error) {
@@ -2794,12 +2938,68 @@ Respond ONLY with valid JSON:
         }
       }
       
-      // Extract dates for historical timeline (prioritize reference links)
-      if (scrape.extracted_content?.extractedDates) {
+      // Extract dates with context for historical timeline (prioritize reference links)
+      if (scrape.extracted_content?.extractedDates && scrape.extracted_content?.relevantText) {
+        const text = scrape.extracted_content.relevantText
         scrape.extracted_content.extractedDates.forEach((date: string) => {
           const year = parseInt(date)
-          if (year >= 1500 && year <= 2000) { // Focus on historical dates
-            const dateLabel = isReferenceLink ? `${date} [EXPLICIT FROM REFERENCE LINK - HIGHEST PRIORITY]` : `${date} [EXPLICIT]`
+          if (year >= 1500 && year <= 2100) { // Extended range to include recent dates
+            // Try to extract context around the date
+            const datePattern = new RegExp(`([^.]{0,100}${date}[^.]{0,100})`, 'i')
+            const match = text.match(datePattern)
+            let context = ''
+            
+            if (match) {
+              // Extract meaningful context around the date
+              const contextText = match[1].trim()
+              
+              // Extract key action words near the date (before or after)
+              const actionPattern = /\b(inaugurad|fundad|construíd|criad|estabelecid|renomead|demolid|reformad|tombad|inscrit|abert|fechad|transferid|vendid|comprad|adquirid|inauguracao|fundacao|construcao|criacao|estabelecimento|renomeacao|demolicao|reforma|tombamento|inscricao|abertura|fechamento|transferencia|venda|compra|aquisicao|nomead|batizad|homenagead)\w*/i
+              const actionMatch = contextText.match(actionPattern)
+              
+              if (actionMatch) {
+                const actionWord = actionMatch[1].toLowerCase()
+                // Normalize common variations to standard terms
+                if (actionWord.includes('inaugurad') || actionWord.includes('inauguracao')) context = 'inauguração'
+                else if (actionWord.includes('fundad') || actionWord.includes('fundacao')) context = 'fundação'
+                else if (actionWord.includes('construíd') || actionWord.includes('construcao')) context = 'construção'
+                else if (actionWord.includes('renomead') || actionWord.includes('renomeacao')) context = 'renomeação'
+                else if (actionWord.includes('demolid') || actionWord.includes('demolicao')) context = 'demolição'
+                else if (actionWord.includes('reformad') || actionWord.includes('reforma')) context = 'reforma'
+                else if (actionWord.includes('tombad') || actionWord.includes('tombamento')) context = 'tombamento'
+                else if (actionWord.includes('inscrit') || actionWord.includes('inscricao')) context = 'inscrição'
+                else if (actionWord.includes('nomead') || actionWord.includes('batizad')) context = 'nomeação'
+                else if (actionWord.includes('homenagead')) context = 'homenagem'
+                else context = actionWord // Use as-is if not in our normalization list
+              } else {
+                // Try to extract a short, meaningful phrase (max 50 chars)
+                // Remove common stop words and get key phrase
+                const cleaned = contextText
+                  .replace(/\b(em|no|na|de|do|da|por|para|com|a|o|e|que|foi|foi|sendo|está|estava)\b/gi, ' ')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+                
+                if (cleaned.length > 10 && cleaned.length < 80) {
+                  // Extract the most relevant part (prefer text before the date)
+                  const beforeDate = contextText.substring(0, contextText.indexOf(date)).trim()
+                  if (beforeDate.length > 5 && beforeDate.length < 50) {
+                    context = beforeDate.substring(Math.max(0, beforeDate.length - 40)).trim()
+                  } else {
+                    context = cleaned.substring(0, 50).trim()
+                  }
+                }
+              }
+            }
+            
+            // Build date entry with context
+            const dateEntry = context 
+              ? `${date} - ${context}`
+              : date
+            
+            const dateLabel = isReferenceLink 
+              ? `${dateEntry} [EXPLICIT FROM REFERENCE LINK - HIGHEST PRIORITY]` 
+              : `${dateEntry} [EXPLICIT]`
+            
             factualElements.historicalDates.push(dateLabel)
           }
         })
@@ -2872,12 +3072,22 @@ Respond ONLY with valid JSON:
       })
       
       if (referenceLinkDates.length > 0) {
-        const dates = referenceLinkDates.map((d: string) => d.replace(' [EXPLICIT FROM REFERENCE LINK - HIGHEST PRIORITY]', '')).slice(0, 3)
-        lines.push(`📅 EXPLICIT DATES FROM REFERENCE LINKS (USE THESE - HIGHEST PRIORITY): ${dates.join(', ')}`)
+        const datesWithContext = referenceLinkDates
+          .map((d: string) => d.replace(' [EXPLICIT FROM REFERENCE LINK - HIGHEST PRIORITY]', ''))
+          .slice(0, 5) // Show more dates since they have context now
+        lines.push(`📅 HISTORICAL TIMELINE FROM REFERENCE LINKS (USE THESE - HIGHEST PRIORITY):`)
+        datesWithContext.forEach((dateEntry: string) => {
+          lines.push(`- ${dateEntry}`)
+        })
       }
       if (otherExplicitDates.length > 0 && referenceLinkDates.length === 0) {
-        const dates = otherExplicitDates.map((d: string) => d.replace(' [EXPLICIT]', '')).slice(0, 3)
-        lines.push(`📅 EXPLICIT DATES FROM SOURCES: ${dates.join(', ')}`)
+        const datesWithContext = otherExplicitDates
+          .map((d: string) => d.replace(' [EXPLICIT]', ''))
+          .slice(0, 5)
+        lines.push(`📅 HISTORICAL TIMELINE FROM SOURCES:`)
+        datesWithContext.forEach((dateEntry: string) => {
+          lines.push(`- ${dateEntry}`)
+        })
       }
     } else {
       console.log('📅 No dates extracted from scraped content - description should use present tense only')
@@ -2926,7 +3136,16 @@ Respond ONLY with valid JSON:
     
     lines.push('')
     lines.push('📋 AUDIO STRUCTURE: [Local Context] + [Main Description] + [Fato curioso: ...] + [Fato curioso: ...]')
-    return lines.join('\n')
+    
+    const content = lines.join('\n')
+    // Limit scraped content section to 2000 characters to prevent prompt from becoming too large
+    // This ensures there's enough space for output tokens (prompt + response)
+    if (content.length > 2000) {
+      console.warn(`⚠️ Scraped content section too large (${content.length} chars), truncating to 2000 chars`)
+      return content.substring(0, 2000) + '\n[... content truncated to fit prompt size limits ...]'
+    }
+    
+    return content
   }
 
   /**
