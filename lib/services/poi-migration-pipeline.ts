@@ -10,16 +10,16 @@ import { getSupabase } from '@/lib/core/supabase-client'
 
 const supabase = getSupabase('service')
 
-// Get Supabase URL and service role key for Edge Functions
+// Get Supabase URL and anon key for Edge Functions (same as frontend)
 const getSupabaseConfig = () => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables')
+  if (!supabaseUrl || !anonKey) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables')
   }
   
-  return { supabaseUrl, serviceRoleKey }
+  return { supabaseUrl, anonKey }
 }
 
 export interface PipelineOptions {
@@ -155,12 +155,23 @@ export class PoiMigrationPipeline {
       }
 
       // Step 3: Audio is generated automatically if auto_generate_audio is true
+      // Wait a moment for audio to be persisted to database
+      if (auto_generate_audio) {
+        console.log(`⏳ Waiting 1s for pt-br audio to be persisted...`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+      
       // Check if audio was generated (pt-br)
       const audioStep = await this.checkAudioStep(attraction_id)
       steps.push(audioStep)
 
       // Step 3b: Generate multi-language audios (en-us, es-es)
+      // IMPORTANT: These use the pt-br description from database to translate
       if (audioStep.success && auto_generate_audio) {
+        // Wait a moment to ensure description and audio are fully persisted
+        console.log(`⏳ Waiting 500ms before generating multi-language audios...`)
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
         const multiLanguageAudioStep = await this.executeMultiLanguageAudioStep(attraction_id)
         steps.push(multiLanguageAudioStep)
         // Don't fail if multi-language audio fails, just warn
@@ -593,9 +604,14 @@ export class PoiMigrationPipeline {
         }
       )
 
-      if (saveResult.errors && saveResult.errors.length > 0 && saveResult.saved === 0) {
-        const errorMsg = saveResult.errors.join('; ')
-        console.error(`   ❌ Failed to save trigger points: ${errorMsg}`)
+      const savedCount = saveResult.saved || 0
+
+      // Validate that at least one trigger point was saved
+      if (savedCount === 0) {
+        const errorMsg = saveResult.errors && saveResult.errors.length > 0
+          ? `Failed to save trigger points: ${saveResult.errors.join('; ')}`
+          : 'No trigger points were saved to database (generated but not persisted)'
+        console.error(`   ❌ ${errorMsg}`)
         return {
           step: 'trigger_points',
           success: false,
@@ -604,7 +620,11 @@ export class PoiMigrationPipeline {
         }
       }
 
-      const savedCount = saveResult.saved || 0
+      // Log warnings if there were errors but some TPs were saved
+      if (saveResult.errors && saveResult.errors.length > 0) {
+        console.warn(`   ⚠️  Some errors occurred but ${savedCount} trigger points were saved: ${saveResult.errors.join('; ')}`)
+      }
+
       console.log(`   ✅ Saved ${savedCount} trigger points to database`)
 
       // Calculate max confidence from saved trigger points
@@ -653,9 +673,24 @@ export class PoiMigrationPipeline {
       const descriptionScore = descriptionStep?.data?.verification?.pontuacao
       const descriptionApproved = descriptionStep?.data?.verification?.aprovada
 
-      // Get audio step result
+      // Get audio step result (pt-br)
       const audioStep = previousSteps.find(s => s.step === 'audio')
-      const audioGenerated = audioStep?.success && audioStep?.data?.audio_url
+      // Check if audio URL exists and is a valid string (not just truthy)
+      const audioGenerated = !!(audioStep?.success && audioStep?.data?.audio_url && typeof audioStep.data.audio_url === 'string' && audioStep.data.audio_url.length > 0)
+
+      // Get multi-language audio step result (en-us, es-es)
+      const multiLanguageAudioStep = previousSteps.find(s => s.step === 'multi_language_audio')
+      
+      // Check if multi-language audios actually exist in database (more reliable than step result)
+      const { data: multiLangDescriptions } = await supabase
+        .schema('core')
+        .from('attraction_descriptions')
+        .select('language, audio_url')
+        .eq('attraction_id', attraction_id)
+        .in('language', ['en-us', 'es-es'])
+      
+      const multiLanguageAudioSuccess = multiLangDescriptions && multiLangDescriptions.length >= 1 && 
+        multiLangDescriptions.some(d => d.audio_url) // At least one has audio URL
 
       // Get trigger points step result
       const triggerPointsStep = previousSteps.find(s => s.step === 'trigger_points')
@@ -674,13 +709,27 @@ export class PoiMigrationPipeline {
       const maxConfidence = triggerPoints?.[0]?.confidence_score || 0
 
       // Criteria for auto-approval (from plan decisions)
+      // Now requires: description, pt-br audio, multi-language audios (en-us, es-es), and trigger points
       const shouldApprove =
         descriptionScore !== undefined &&
-        descriptionScore > 75 && // Score > 75 (not >=)
+        descriptionScore >= 75 && // Score >= 75 (approved descriptions start at 75)
         descriptionApproved === true &&
-        audioGenerated === true &&
+        audioGenerated === true && // pt-br audio must be generated
+        multiLanguageAudioSuccess === true && // Multi-language audios (en-us, es-es) must be generated
         triggerPointsCount >= 1 && // At least 1 trigger point
         maxConfidence > 0.4 // Max confidence > 0.4
+
+      // Log criteria for debugging
+      console.log(`   📊 Approval criteria check:`)
+      console.log(`      - description_score: ${descriptionScore} (required: >= 75) - ${descriptionScore !== undefined && descriptionScore >= 75 ? '✅' : '❌'}`)
+      console.log(`      - description_approved: ${descriptionApproved} (required: true) - ${descriptionApproved === true ? '✅' : '❌'}`)
+      const audioUrlValue = audioStep?.data?.audio_url
+      console.log(`      - audio_generated: ${audioUrlValue || 'false'} (required: true) - ${audioGenerated === true ? '✅' : '❌'}`)
+      console.log(`         (audioStep.success: ${audioStep?.success}, audio_url type: ${typeof audioUrlValue}, audio_url length: ${audioUrlValue?.length || 0})`)
+      console.log(`      - multi_language_audio_success: ${multiLanguageAudioSuccess} (required: true) - ${multiLanguageAudioSuccess === true ? '✅' : '❌'}`)
+      console.log(`      - trigger_points_count: ${triggerPointsCount} (required: >= 1) - ${triggerPointsCount >= 1 ? '✅' : '❌'}`)
+      console.log(`      - max_confidence: ${maxConfidence} (required: > 0.4) - ${maxConfidence > 0.4 ? '✅' : '❌'}`)
+      console.log(`   🔍 shouldApprove evaluation: ${shouldApprove}`)
 
       if (!shouldApprove) {
         return {
@@ -692,6 +741,7 @@ export class PoiMigrationPipeline {
               description_score: descriptionScore,
               description_approved: descriptionApproved,
               audio_generated: audioGenerated,
+              multi_language_audio_success: multiLanguageAudioSuccess,
               trigger_points_count: triggerPointsCount,
               max_confidence: maxConfidence
             }
@@ -739,9 +789,50 @@ export class PoiMigrationPipeline {
     const stepStart = Date.now()
 
     try {
+      // CRITICAL: Verify that pt-br description exists before generating translations
+      // The Edge Function needs the original Portuguese description to translate
+      console.log(`🔍 Verifying pt-br description exists before generating multi-language audios...`)
+      
+      let ptBrDescription = null
+      let retries = 3
+      while (retries > 0 && !ptBrDescription) {
+        const { data: desc, error: descError } = await supabase
+          .schema('core')
+          .from('attraction_descriptions')
+          .select('description, language')
+          .eq('attraction_id', attraction_id)
+          .in('language', ['pt-br', 'pt'])
+          .order('language', { ascending: true }) // Prefer pt-br over pt
+          .limit(1)
+          .maybeSingle()
+
+        if (descError) {
+          console.error(`   ❌ Error checking pt-br description: ${descError.message}`)
+          throw new Error(`Failed to verify pt-br description: ${descError.message}`)
+        }
+
+        if (desc?.description) {
+          ptBrDescription = desc.description
+          console.log(`   ✅ Found pt-br description (${desc.language}, ${ptBrDescription.length} chars)`)
+          break
+        }
+
+        retries--
+        if (retries > 0) {
+          console.log(`   ⏳ pt-br description not found, waiting 1s before retry (${retries} retries left)...`)
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+      }
+
+      if (!ptBrDescription) {
+        const errorMsg = 'Portuguese (pt-br) description not found in database. Cannot generate translations without original description.'
+        console.error(`   ❌ ${errorMsg}`)
+        throw new Error(errorMsg)
+      }
+
       const languages = ['en-us', 'es-es']
       const results: string[] = []
-      const { supabaseUrl, serviceRoleKey } = getSupabaseConfig()
+      const { supabaseUrl, anonKey } = getSupabaseConfig()
 
       for (const lang of languages) {
         try {
@@ -751,7 +842,7 @@ export class PoiMigrationPipeline {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${serviceRoleKey}`
+              'Authorization': `Bearer ${anonKey}`
             },
             body: JSON.stringify({
               attractionId: attraction_id,
@@ -768,13 +859,26 @@ export class PoiMigrationPipeline {
             } catch {
               errorData = { error: errorText }
             }
-            throw new Error(`HTTP ${response.status}: ${errorData.error || errorText}`)
+            const errorMsg = errorData.error || errorText
+            console.error(`   ❌ ${lang} audio generation failed: HTTP ${response.status} - ${errorMsg}`)
+            throw new Error(`HTTP ${response.status}: ${errorMsg}`)
           }
 
-          await response.json()
+          const result = await response.json()
+          console.log(`   ✅ ${lang} audio generated successfully`)
+          if (result.data?.audioUrl) {
+            console.log(`   📍 Audio URL: ${result.data.audioUrl}`)
+          }
           results.push(`✅ ${lang}: generated successfully`)
+          
+          // Add small delay between languages to avoid rate limiting
+          if (lang === 'en-us' && languages.indexOf('es-es') > -1) {
+            console.log(`   ⏳ Waiting 500ms before generating next language...`)
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+          console.error(`   ❌ ${lang} audio generation error: ${errorMsg}`)
           results.push(`❌ ${lang}: failed - ${errorMsg}`)
           // Continue with next language even if one fails
         }

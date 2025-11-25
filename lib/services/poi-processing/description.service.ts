@@ -14,6 +14,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { OSMEnrichmentService, type EnrichedPOIData } from './osm-enrichment.service'
+import { generateAudioWithGoogleTTS } from '../../providers/googleTTS'
 
 // Service role client for database operations - Edge Functions compatible
 const getSupabaseClient = () => {
@@ -1898,7 +1899,8 @@ Generate a concise, factual description in Brazilian Portuguese for a ${audioTim
 <constraint id="accuracy">
 - Use ONLY well-known historical facts and verifiable information
 - PRIORITIZE sources provided below, but may supplement with established historical knowledge
-- NEVER INVENT: physical features, functions, services, dates, or events
+- NEVER INVENT: physical features, functions, services, dates, events, curiosities, or biographical information about people
+- NEVER INVENT information about people: titles, roles, historical positions, or biographical facts (e.g., don't say someone was "president" unless explicitly confirmed in sources)
 - NEVER SPECULATE: avoid words like "aproximadamente", "cerca de", "provavelmente", "pode ter"
 </constraint>
 
@@ -1930,6 +1932,14 @@ Priority order (highest to lowest):
 - Maximum ${maxWords} words
 - Target: 30-85 words for ${audioTime} audio
 </constraint>
+
+<constraint id="location" req="true" block="true">
+- CRITICAL: The POI location is specified in the "loc" field of the data section below
+- You MUST use ONLY the city and state from "loc" data - NEVER mention a different city or state
+- If sources or historical knowledge mention a different city, IGNORE that information completely
+- BLOCKING: Auto-reject if description mentions any city other than the one in "loc" data
+- Example: If "loc" shows "c":"Rio de Janeiro", description MUST say "Rio de Janeiro" (never "Curitiba" or any other city)
+</constraint>
 </constraints>
 
 <structure>
@@ -1953,7 +1963,10 @@ Priority order (highest to lowest):
 - End with natural closing line connecting visitor to the place
 - Describe visual/atmospheric element visible now
 - No hyperbole or invitations
-- if any, add a funfact about the place to keep peeople encharted
+- Optional funfact/curiosity: ONLY if verifiable in sources provided above
+- CRITICAL for funfacts: NEVER invent information about people (titles, roles, biographical facts, historical positions)
+- If sources mention a person, verify their actual role/title in sources - do NOT assume or infer (e.g., don't say "president" unless explicitly confirmed in sources)
+- If no verifiable curiosity is available in sources, OMIT it completely - never invent one
 </sentence_4>
 </structure>
 
@@ -1967,6 +1980,9 @@ Priority order (highest to lowest):
 
 <knowledge_policy>
 - You may use established historical knowledge about Brazilian cities, regions, and landmarks
+- HOWEVER: If location data ("loc" field) is provided, you MUST use ONLY the city/state from that data
+- NEVER use historical knowledge to infer or mention a different city than the one in location data
+- If sources mention a different city, IGNORE that reference - use ONLY the city from "loc" data
 - Sources below are trusted references - draw reasonable conclusions based on source types and contexts
 - Do NOT name or cite institutions/sources in the output text
 - Use source context (official websites, government sources, cultural institutions) to inform description
@@ -3110,7 +3126,8 @@ Respond ONLY with valid JSON:
   }
 
   /**
-   * Generate audio for description (placeholder - will be implemented in AudioService)
+   * Generate audio for description using Google TTS and Edge Function store-poi-audio
+   * Uses the same approach as /api/audio/generate to avoid duplication
    */
   private static async generateAudio(
     attractionId: string,
@@ -3118,15 +3135,107 @@ Respond ONLY with valid JSON:
     language: string = 'pt-br'
   ): Promise<{ success: boolean; audio_url?: string; error?: string }> {
     console.log(`🎵 Audio generation requested for ${attractionId} in ${language}`)
-    console.log('ℹ️ Audio generation will be implemented in AudioService')
     
-    // TODO: This will be moved to AudioService
-    // Return success without implementation for now
-    return {
-      success: true,
-      audio_url: undefined,
-      error: undefined
+    try {
+      // For pt-br, generate audio using Google TTS (same as /api/audio/generate)
+      if (language === 'pt-br') {
+        // Preprocess text for TTS (same logic as /api/audio/generate)
+        const processedText = this.preprocessTextForTTS(description)
+        
+        // Generate audio using Google TTS (same function used by /api/audio/generate)
+        const ttsResult = await generateAudioWithGoogleTTS({
+          text: processedText,
+          voice: 'pt-BR-Wavenet-A', // Professional male voice
+          speed: 1.0 // Normal speed
+        })
+        const audioBuffer = ttsResult.audioBuffer
+        
+        // Convert buffer to base64 (same format expected by store-poi-audio Edge Function)
+        const audioData = audioBuffer.toString('base64')
+        const mimeType = ttsResult.mimeType || 'audio/mpeg'
+        
+        // Upload audio using Edge Function store-poi-audio (same as /api/audio/generate)
+        const { supabaseUrl, serviceRoleKey } = this.getSupabaseConfig()
+        const uploadResponse = await fetch(`${supabaseUrl}/functions/v1/store-poi-audio`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceRoleKey}`
+          },
+          body: JSON.stringify({
+            attractionId: attractionId,
+            audioData: audioData,
+            mimeType: mimeType,
+            language: 'pt-br'
+          })
+        })
+
+        if (!uploadResponse.ok) {
+          const errorText = await uploadResponse.text()
+          throw new Error(`Audio upload failed: ${uploadResponse.status} ${errorText}`)
+        }
+
+        const uploadData = await uploadResponse.json()
+        
+        // Edge Function already updates attraction_descriptions table, so we just return the URL
+        console.log(`✅ Audio generated and uploaded: ${uploadData.audio.url}`)
+        return {
+          success: true,
+          audio_url: uploadData.audio.url
+        }
+      }
+      
+      // For other languages, return success but note that they should be generated via Edge Function
+      return {
+        success: true,
+        audio_url: undefined,
+        error: undefined
+      }
+    } catch (error) {
+      console.error(`❌ Error generating audio:`, error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
     }
+  }
+
+  /**
+   * Preprocess text for TTS narration
+   */
+  private static preprocessTextForTTS(text: string): string {
+    let processedText = text
+
+    // Add natural pauses for better flow
+    processedText = processedText.replace(/\. /g, '. ')
+    processedText = processedText.replace(/\, /g, ', ')
+    
+    // Improve pronunciation of common Portuguese terms
+    processedText = processedText.replace(/\bséc\./g, 'século')
+    processedText = processedText.replace(/\bSéc\./g, 'Século')
+    processedText = processedText.replace(/\bd\.C\./g, 'depois de Cristo')
+    processedText = processedText.replace(/\ba\.C\./g, 'antes de Cristo')
+    
+    // Handle numbers and dates better
+    processedText = processedText.replace(/\b(\d{4})\b/g, (match, year) => {
+      return `ano ${year}`
+    })
+    
+    // Ensure proper sentence endings for natural flow
+    processedText = processedText.replace(/([.!?])\s*/g, '$1 ')
+    
+    return processedText.trim()
+  }
+
+  private static getSupabaseConfig(): { supabaseUrl: string; serviceRoleKey: string } {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error('Missing required Supabase environment variables')
+    }
+
+    return { supabaseUrl, serviceRoleKey }
   }
 
   /**

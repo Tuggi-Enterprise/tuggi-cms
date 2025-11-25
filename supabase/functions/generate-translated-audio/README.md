@@ -28,7 +28,8 @@ In your Supabase Dashboard > Edge Functions > generate-translated-audio > Settin
 - `PROJECT_URL`: Your Supabase project URL (or `SUPABASE_URL`)
 - `SERVICE_ROLE_KEY`: Your Supabase service role key
 - `GEMINI_API_KEY`: Your Google Gemini API key
-- `GOOGLE_CLOUD_API_KEY`: Your Google Cloud API key (or fallback to `GEMINI_API_KEY`)
+- `GOOGLE_TTS_API_KEY`: Your Google Cloud TTS API key (recommended - same as Next.js, has billing enabled)
+- `GOOGLE_CLOUD_API_KEY`: Fallback Google Cloud API key (or fallback to `GEMINI_API_KEY`)
 
 ## Supported Languages
 
@@ -171,7 +172,8 @@ The RPC function provides a SQL interface that calls this Edge Function internal
    - Ensure the attraction has a description with language 'pt' or 'pt-br'
 
 2. **"Missing required API keys"**
-   - Check that `GEMINI_API_KEY` and `GOOGLE_CLOUD_API_KEY` are set
+   - Check that `GEMINI_API_KEY` and `GOOGLE_TTS_API_KEY` (or `GOOGLE_CLOUD_API_KEY`) are set
+   - **Note**: Use `GOOGLE_TTS_API_KEY` (same as Next.js) to ensure billing is enabled
 
 3. **"Failed to upload audio"**
    - Verify `travel-app-audios` bucket exists and is accessible

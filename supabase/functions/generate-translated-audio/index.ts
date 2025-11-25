@@ -12,7 +12,8 @@ const corsHeaders = {
 const PROJECT_URL = Deno.env.get('PROJECT_URL') || Deno.env.get('SUPABASE_URL') || '';
 const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || '';
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || '';
-const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_CLOUD_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
+// Use GOOGLE_TTS_API_KEY (same as Next.js) or fallback to GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY
+const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_TTS_API_KEY') || Deno.env.get('GOOGLE_CLOUD_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
 
 // Use service role for admin operations
 const supabaseAdmin = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
@@ -88,29 +89,33 @@ const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
 
 // Fetch original Portuguese description
 const getOriginalDescription = async (attractionId: string): Promise<string> => {
-  const { data, error } = await supabaseAdmin
+  // First try pt-br (most common)
+  let { data, error } = await supabaseAdmin
     .schema('core')
     .from('attraction_descriptions')
     .select('description')
     .eq('attraction_id', attractionId)
-    .eq('language', 'pt')
-    .single();
+    .eq('language', 'pt-br')
+    .maybeSingle();
 
   if (error || !data?.description) {
-    // Fallback to pt-br if pt not found
-    const { data: fallbackData, error: fallbackError } = await supabaseAdmin
+    // Fallback to pt if pt-br not found
+    const { data: ptData, error: ptError } = await supabaseAdmin
       .schema('core')
       .from('attraction_descriptions')
       .select('description')
       .eq('attraction_id', attractionId)
-      .eq('language', 'pt-br')
-      .single();
-
-    if (fallbackError || !fallbackData?.description) {
-      throw new Error('Original Portuguese description not found');
-    }
+      .eq('language', 'pt')
+      .maybeSingle();
     
-    return fallbackData.description;
+    if (!ptError && ptData?.description) {
+      data = ptData;
+      error = null;
+    }
+  }
+
+  if (error || !data?.description) {
+    throw new Error(`Original Portuguese description not found for attraction ${attractionId}. Tried: pt-br, pt`);
   }
 
   return data.description;
@@ -118,6 +123,19 @@ const getOriginalDescription = async (attractionId: string): Promise<string> => 
 
 // Translate text using Gemini API
 const translateWithGemini = async (text: string, targetLanguage: string): Promise<string> => {
+  // Validate and sanitize input text
+  if (!text || typeof text !== 'string' || text.trim().length === 0) {
+    throw new Error('Invalid or empty text provided for translation');
+  }
+  
+  // Log input text details for debugging
+  console.log(`[Translation] Input text details:`, {
+    length: text.length,
+    firstChars: text.substring(0, 100),
+    lastChars: text.substring(Math.max(0, text.length - 100)),
+    hasSpecialChars: /[^\w\s.,!?;:()\-'"]/g.test(text)
+  });
+  
   const prompt = `You are a professional travel assistant specialized in tourism translation.
 
 Translate the following POI (Point of Interest) description originally written for Brazilian Portuguese tourists, and rewrite it in a natural and culturally appropriate way for international tourists who speak the target language below.
@@ -138,6 +156,9 @@ Target Language:
 
 Expected output:
 Translated description text only (no labels, no explanations, no tags).`;
+  
+  // Log prompt length for debugging
+  console.log(`[Translation] Prompt length: ${prompt.length} characters`);
 
   // Try Flash-Lite first, then Flash as fallback
   const models = [
@@ -188,9 +209,29 @@ Translated description text only (no labels, no explanations, no tags).`;
 
       const data = await response.json();
       
+      // Log full response for debugging
+      console.log(`[Translation] Model ${model} response structure:`, {
+        hasCandidates: !!data.candidates,
+        candidatesLength: data.candidates?.length || 0,
+        hasContent: !!data.candidates?.[0]?.content,
+        hasParts: !!data.candidates?.[0]?.content?.parts,
+        partsLength: data.candidates?.[0]?.content?.parts?.length || 0,
+        hasText: !!data.candidates?.[0]?.content?.parts?.[0]?.text,
+        safetyRatings: data.candidates?.[0]?.safetyRatings,
+        finishReason: data.candidates?.[0]?.finishReason,
+        fullResponse: JSON.stringify(data).substring(0, 500) // First 500 chars for debugging
+      });
+      
+      // Check for safety filters or blocked content
+      if (data.candidates?.[0]?.finishReason && data.candidates[0].finishReason !== 'STOP') {
+        console.error(`[Translation] Model ${model} blocked content. Finish reason: ${data.candidates[0].finishReason}`);
+        lastError = new Error(`Gemini API blocked content (${model}): ${data.candidates[0].finishReason}`);
+        continue; // Try next model
+      }
+      
       if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-        console.error(`[Translation] Model ${model} returned invalid response:`, data);
-        lastError = new Error(`Invalid response from Gemini API (${model})`);
+        console.error(`[Translation] Model ${model} returned invalid response:`, JSON.stringify(data, null, 2));
+        lastError = new Error(`Invalid response from Gemini API (${model}): No text in response. Finish reason: ${data.candidates?.[0]?.finishReason || 'unknown'}`);
         continue; // Try next model
       }
 
