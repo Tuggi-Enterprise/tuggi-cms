@@ -15,6 +15,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { OSMEnrichmentService, type EnrichedPOIData } from './osm-enrichment.service'
 import { generateAudioWithGoogleTTS } from '../../providers/googleTTS'
+import { GeminiDescriptionService } from '../gemini-descriptions/gemini-description.service'
 
 // Service role client for database operations - Edge Functions compatible
 const getSupabaseClient = () => {
@@ -605,20 +606,35 @@ export class DescriptionService {
         enrichedPOIData // Pass enriched data for prompt building
       })
 
-      // Log prompt summary
-      console.log(`📝 Generated prompt: ${prompt.length} characters`)
-
-      // Generate description using Gemini (with intelligent model selection)
-      // System instructions are sent separately via system_instruction parameter
-      const description = await this.generateWithGemini(prompt, apiKey, sourcesSection, enrichedPOIData, scrapedContentSection, poiData)
+      // Generate description using NEW Gemini Description Service
+      console.log(`📝 Using new Gemini Description Service...`)
       
-      // Log Gemini response summary
-      console.log(`🤖 Gemini response: ${description?.length || 0} characters`)
+      // Prepare additional context from scraped content and OSM data
+      let additionalContext = ''
+      if (scrapedContentSection) {
+        additionalContext += scrapedContentSection + '\n\n'
+      }
+      if (sourcesSection) {
+        additionalContext += `Fontes de referência:\n${sourcesSection}\n\n`
+      }
       
-      if (!description) {
+      // Use new Gemini Description Service
+      const geminiResult = await GeminiDescriptionService.generate(poiData, {
+        language: options.language || 'pt-br',
+        style: 'touristic', // Default style, can be made configurable later
+        maxWords: 120, // Default, can be made configurable later
+        audioDuration: '30s',
+        additionalContext: additionalContext.trim() || undefined,
+        user_id: options.user_id,
+        request_id: options.request_id || `desc_${Date.now()}`,
+        validate: true
+      })
+      
+      if (!geminiResult.success || !geminiResult.description) {
+        console.error(`❌ New Gemini Description Service failed: ${geminiResult.error}`)
         return {
           success: false,
-          error: 'Failed to generate description with Gemini API',
+          error: geminiResult.error || 'Failed to generate description with new Gemini Description Service',
           processing_time: Date.now() - startTime,
           metadata: {
             step: 'generation',
@@ -630,6 +646,9 @@ export class DescriptionService {
         }
       }
       
+      const description = geminiResult.description
+      console.log(`✅ New Gemini Description Service generated: ${description.length} characters`)
+      
       // Calculate description quality score and justifications
       const qualityAnalysis = this.calculateDescriptionQualityScore(
         description, 
@@ -639,8 +658,24 @@ export class DescriptionService {
         scrapedContent
       )
 
-      // Verify generated description (name guaranteed at this point)
-      const verification = await this.verifyGeneratedDescription(description, poiData.name!, apiKey)
+      // Use verification from new service if available, otherwise fallback to old verification
+      let verification: VerificationResult
+      if (geminiResult.validation) {
+        // Convert new service validation format to old format
+        verification = {
+          aprovada: geminiResult.validation.aprovada,
+          pontuacao: geminiResult.validation.pontuacao,
+          datas_detectadas: [], // New service doesn't extract dates yet
+          fatos_verificaveis: [], // New service doesn't extract facts yet
+          problemas: geminiResult.validation.problemas || [],
+          sugestoes_melhoria: geminiResult.validation.sugestoes_melhoria || ''
+        }
+        console.log(`✅ Using verification from new Gemini Description Service`)
+      } else {
+        // Fallback to old verification system
+        console.log(`⚠️ No validation from new service, using old verification system`)
+        verification = await this.verifyGeneratedDescription(description, poiData.name!, apiKey)
+      }
 
       const result: DescriptionResult = {
         success: true,

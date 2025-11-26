@@ -857,7 +857,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
   // Description management functions
   const generateDescription = async () => {
-    console.log('🚀 POI MODAL: Starting enhanced description generation with country/city sources...')
+    console.log('🚀 POI MODAL: Starting description generation with new Gemini Description Service...')
     setIsGenerating(true)
     try {
       // Buscar ID da descrição existente para persistir verificação
@@ -876,39 +876,56 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         existingDescriptionId = existingDesc.id;
       }
       
-      console.log('📡 POI MODAL: Making request to /api/descriptions/generate-optimized')
-      const response = await fetch('/api/descriptions/generate-optimized', {
+      // Prepare POI data for new Gemini Description Service
+      const poiData = {
+        id: poi.id,
+        name: poi.name,
+        city: poi.city,
+        country: poi.country,
+        state: poi.state || undefined,
+        formatted_address: poi.formatted_address || undefined,
+        vicinity: poi.vicinity || undefined,
+        google_types: poi.google_types || (poi.category ? [poi.category] : ['tourist_attraction']),
+        rating: poi.rating || undefined,
+        user_ratings_total: poi.user_ratings_total || undefined,
+        price_level: poi.price_level || undefined,
+        business_status: poi.business_status || undefined,
+        opening_hours: poi.opening_hours || undefined,
+        website: poi.website || undefined,
+        formatted_phone_number: poi.formatted_phone_number || undefined,
+        photos_references: poi.photos_references || undefined,
+        image_url: poi.image_url || undefined,
+        reference_links: referenceLinks.filter(link => !!link.trim()) || undefined,
+        google_place_id: poi.google_place_id || undefined,
+        lat: poi.coordinates?.latitude || undefined,
+        lng: poi.coordinates?.longitude || undefined
+      }
+      
+      // Prepare additional context from reference links
+      let additionalContext = ''
+      if (referenceLinks.filter(link => !!link.trim()).length > 0) {
+        additionalContext = `Links de referência fornecidos:\n${referenceLinks.filter(link => !!link.trim()).join('\n')}\n\n`
+      }
+      if (currentDescription) {
+        additionalContext += `Descrição existente para referência:\n${currentDescription}\n\n`
+      }
+      
+      console.log('📡 POI MODAL: Making request to /api/gemini-descriptions/generate (NEW SERVICE)')
+      const response = await fetch('/api/gemini-descriptions/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          id: poi.id, // Add attraction id for coordinate lookup
-          google_place_id: poi.google_place_id, // Add google_place_id for coordinate lookup
-          lat: poi.coordinates?.latitude, // Add coordinates directly from UI
-          lng: poi.coordinates?.longitude, // Add coordinates directly from UI
-          name: poi.name,
-          city: poi.city,
-          country: poi.country,
-          state: poi.state,
-          formatted_address: poi.formatted_address,
-          vicinity: poi.vicinity,
-          description_id: existingDescriptionId, // ID da descrição para persistir verificação
-          persist_verification: true, // Ativar persistência de verificação
-          google_types: poi.google_types || (poi.category ? [poi.category] : ['tourist_attraction']), // Prioritize google_types over category
-          rating: poi.rating,
-          user_ratings_total: poi.user_ratings_total,
-          price_level: poi.price_level,
-          business_status: poi.business_status,
-          opening_hours: poi.opening_hours,
-          website: poi.website,
-          formatted_phone_number: poi.formatted_phone_number,
-          photos_references: poi.photos_references?.length || 0,
-          existing_description: currentDescription, // Current description for improvement
-          image_url: poi.image_url,
-          reference_links: referenceLinks.filter(link => !!link.trim()), // Add reference links
-          use_dynamic_sources: true, // Enable dynamic country/city sources
-          optimization_mode: true // Enable verification-optimized prompts
+          poi_data: poiData,
+          options: {
+            language: 'pt-br',
+            style: 'touristic', // Default style, can be made configurable
+            maxWords: 120,
+            audioDuration: '30s',
+            additionalContext: additionalContext.trim() || undefined,
+            validate: true
+          }
         })
       })
 
@@ -931,79 +948,46 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
       const data = await response.json()
-      console.log('✅ POI MODAL: Enhanced description generated successfully:', data)
+      console.log('✅ POI MODAL: Description generated successfully with new Gemini Service:', data)
       
-      // Show detailed information about sources used if available
-      if (data.sources_used && data.sources_used > 0) {
-        console.log('📚 Sources used for generation:', data.sources_info)
-        
-        let feedbackMessage = `Description generated using ${data.sources_used} verified sources`
-        
-        // Add details about verification mode and dynamic sources
-        if (data.verification_mode === 'maximum') {
-          feedbackMessage += ' (Maximum verification mode)'
-        }
-        
-        if (data.dynamic_sources_enabled) {
-          feedbackMessage += ' with enhanced country/city data'
-        }
-        
-        // Show heritage sources count if available
-        if (data.sources_info) {
-          const heritageSources = data.sources_info.filter((s: any) => s.type === 'heritage' || s.type === 'government').length
-          if (heritageSources > 0) {
-            feedbackMessage += ` (${heritageSources} heritage/government sources)`
-          }
-        }
-        
-        showFeedback(feedbackMessage, 'success')
-        
-        // Store sources information for display
-        if (data.sources_info) {
-          setLastGenerationSources(data.sources_info)
-        }
-        
-        // Store verification information
-        setVerificationInfo({
-          mode: data.verification_mode || 'standard',
-          dynamicSourcesEnabled: data.dynamic_sources_enabled || false,
-          sourcesCount: data.sources_used || 0
-        })
+      // Show feedback about generation
+      if (data.metadata) {
+        const modelUsed = data.metadata.model_used || 'gemini-2.5-flash-lite'
+        const wordCount = data.metadata.word_count || 'N/A'
+        showFeedback(`✅ Descrição gerada com sucesso usando ${modelUsed} (${wordCount} palavras)`, 'success')
+      } else {
+        showFeedback('✅ Descrição gerada com sucesso', 'success')
       }
       
-      // Armazenar resultados da verificação se disponíveis
+      // Armazenar resultados da verificação se disponíveis (novo formato)
       if (data.verification) {
         console.log('🔍 Resultados da verificação:', data.verification)
         const verificationData = {
-          applied: data.verification.applied || false,
-          approved: data.verification.approved || false,
-          score: data.verification.score || 0,
-          detected_dates: data.verification.detected_dates || [],
-          verifiable_facts: data.verification.verifiable_facts || [],
-          issues: data.verification.issues || [],
-          improvement_suggestion: data.verification.improvement_suggestion || '',
-          improvement_applied: data.verification.improvement_applied || false
+          applied: true,
+          approved: data.verification.aprovada || false,
+          score: data.verification.pontuacao || 0,
+          detected_dates: [], // New service doesn't extract dates yet
+          verifiable_facts: [], // New service doesn't extract facts yet
+          issues: data.verification.problemas || [],
+          improvement_suggestion: data.verification.sugestoes_melhoria || '',
+          improvement_applied: false
         }
         console.log('📊 Setting verification result:', verificationData)
         setVerificationResult(verificationData)
         
         // Mostrar feedback sobre a verificação
-        if (data.verification.applied) {
-          const score = data.verification.score || 0
-          const scoreEmoji = score >= 80 ? '🌟' : score >= 60 ? '✅' : '⚠️'
-          
-          let verificationMessage = `${scoreEmoji} Verificação: ${score}/100 pontos`
-          
-          if (data.verification.approved) {
-            verificationMessage += ' - Descrição aprovada!'
-          } else if (data.verification.improvement_applied) {
-            verificationMessage += ' - Melhorias aplicadas automaticamente'
-          } else {
-            verificationMessage += ' - Verificar sugestões de melhoria'
-          }
-          
-          showFeedback(verificationMessage, data.verification.approved ? 'success' : 'error')
+        const score = verificationData.score
+        const scoreEmoji = score >= 80 ? '🌟' : score >= 60 ? '✅' : '⚠️'
+        
+        let verificationMessage = `${scoreEmoji} Verificação: ${score}/100 pontos`
+        
+        if (verificationData.approved) {
+          verificationMessage += ' - Descrição aprovada!'
+        } else {
+          verificationMessage += ' - Verificar sugestões de melhoria'
         }
+        
+        showFeedback(verificationMessage, verificationData.approved ? 'success' : 'error')
       }
       
       // Analyze historical dates in the generated description

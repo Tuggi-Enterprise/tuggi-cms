@@ -1,14 +1,12 @@
 // Analisador de contexto geográfico automático
+// REMOVIDO: Dependência do Google Places API - usando apenas OSM e valores padrão
 
-import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, GeographicContext, BoundaryData } from '../types/interfaces';
-import { calculateVariance, generateCircleSamplePoints, calculateBearing, calculateDistance } from '../utils/calculations';
+import { calculateVariance, calculateBearing, calculateDistance } from '../utils/calculations';
 
 export class GeographicContextAnalyzer {
-  private googleAPIs: GoogleAPIsService;
-  
   constructor() {
-    this.googleAPIs = new GoogleAPIsService();
+    // GoogleAPIsService removido - não é mais necessário
   }
   
   /**
@@ -55,77 +53,25 @@ export class GeographicContextAnalyzer {
   }
   
   /**
-   * Calcula a densidade urbana automaticamente
-   * NOVO: Fallback usando dados OSM quando Google Places retorna 0
+   * Calcula a densidade urbana usando apenas dados OSM
+   * REMOVIDO: Google Places API - usando apenas OSM (boundary detection)
    */
   private async calculateUrbanDensity(location: { lat: number; lng: number }, boundary?: BoundaryData) {
     try {
-      console.log(`🏙️ Calculating urban density for: ${location.lat}, ${location.lng}`);
+      console.log(`🏙️ Calculating urban density for: ${location.lat}, ${location.lng} (OSM only)`);
       
-      // Buscar múltiplos tipos de estabelecimentos em raio de 500m
-      const [businessResponse, transitResponse, residentialResponse] = await Promise.all([
-        this.googleAPIs.searchPlacesNearby({
-          location,
-          radius: 500,
-          type: 'store'
-        }),
-        this.googleAPIs.searchPlacesNearby({
-          location,
-          radius: 500,
-          type: 'transit_station'
-        }),
-        this.googleAPIs.searchPlacesNearby({
-          location,
-          radius: 1000,
-          type: 'establishment'
-        })
-      ]);
-      
-      // Contar diferentes tipos de estabelecimentos
-      const businessCount = businessResponse.data?.results?.length || 0;
-      const transitCount = transitResponse.data?.results?.length || 0;
-      const totalEstablishments = residentialResponse.data?.results?.length || 0;
-      
-      // Calcular densidade por km² (área = π * r²)
-      const areaKm2 = Math.PI * Math.pow(1.0, 2); // 1km radius = 3.14 km²
-      const density = totalEstablishments / areaKm2;
-      
-      console.log(`📊 Urban density analysis: ${totalEstablishments} establishments in ${areaKm2.toFixed(2)}km² = ${density.toFixed(1)}/km²`);
-      console.log(`🏪 Business: ${businessCount}, 🚇 Transit: ${transitCount}, 🏢 Total: ${totalEstablishments}`);
-      
-      // 🆕 FALLBACK: Se Google Places retornou 0, usar dados do OSM (boundary detection)
-      if (totalEstablishments === 0 && boundary) {
-        console.log(`🔄 Google Places returned 0 establishments, using OSM fallback...`);
+      // Usar dados OSM diretamente (boundary detection já fornece buildings e streets)
+      if (boundary) {
         const osmDensity = this.calculateUrbanDensityFromOSM(boundary, location);
         if (osmDensity) {
-          console.log(`✅ OSM fallback: ${osmDensity.level} (${osmDensity.score})`);
+          console.log(`✅ OSM density: ${osmDensity.level} (${osmDensity.score})`);
           return osmDensity;
         }
       }
       
-      // Classificar densidade com thresholds ajustados para realidade brasileira
-      let level: 'very_dense' | 'dense' | 'medium' | 'low' | 'rural';
-      let score: number;
-      
-      if (density > 400 || businessCount > 15) { // Centro de SP, RJ
-        level = 'very_dense';
-        score = 0.9;
-      } else if (density > 200 || businessCount > 10) { // Bairros centrais
-        level = 'dense';
-        score = 0.7;
-      } else if (density > 80 || businessCount > 5) { // Bairros residenciais
-        level = 'medium';
-        score = 0.5;
-      } else if (density > 20 || businessCount > 2) { // Periferia
-        level = 'low';
-        score = 0.3;
-      } else { // Área rural
-        level = 'rural';
-        score = 0.1;
-      }
-      
-      console.log(`✅ Urban density classified as: ${level} (score: ${score})`);
-      return { level, score };
+      // Se não houver boundary, retornar classificação padrão
+      console.log(`⚠️ No boundary data available, using default medium density`);
+      return { level: 'medium' as const, score: 0.5 };
       
     } catch (error) {
       console.warn('Error calculating urban density:', error);
@@ -134,7 +80,7 @@ export class GeographicContextAnalyzer {
   }
   
   /**
-   * 🆕 Calcula densidade urbana usando dados do OSM (fallback quando Google Places retorna 0)
+   * Calcula densidade urbana usando dados do OSM
    * Usa dados já obtidos do boundary detection (buildings, streets)
    */
   private calculateUrbanDensityFromOSM(boundary: BoundaryData, location: { lat: number; lng: number }): { level: 'very_dense' | 'dense' | 'medium' | 'low' | 'rural'; score: number } | null {
@@ -195,33 +141,13 @@ export class GeographicContextAnalyzer {
   
   /**
    * Analisa o contexto de elevação
+   * REMOVIDO: Google Elevation API - retorna valores padrão
    */
   private async analyzeElevation(location: { lat: number; lng: number }) {
-    try {
-      // Buscar elevação em múltiplos pontos em raio de 5km
-      const elevationPoints = generateCircleSamplePoints(location, 5000, 20);
-      
-      const elevationResponse = await this.googleAPIs.getElevation(elevationPoints);
-      
-      if (!elevationResponse.success || !elevationResponse.data) {
-        return { type: 'flat' as const, variance: 0 };
-      }
-      
-      const elevations = elevationResponse.data.results?.map((r: any) => r.elevation) || [];
-      const variance = calculateVariance(elevations);
-      
-      // Classificar baseado na variância
-      if (variance > 200) {
-        return { type: 'mountainous' as const, variance };
-      } else if (variance > 50) {
-        return { type: 'hilly' as const, variance };
-      } else {
-        return { type: 'flat' as const, variance };
-      }
-    } catch (error) {
-      console.warn('Error analyzing elevation:', error);
-      return { type: 'flat' as const, variance: 0 };
-    }
+    // REMOVIDO: Google Elevation API
+    // Retornar valores padrão (flat) - análise de elevação não é crítica para trigger points
+    console.log(`⛰️ Elevation analysis: using default (flat) - Google Elevation API removed`);
+    return { type: 'flat' as const, variance: 0 };
   }
   
   /**
@@ -284,63 +210,17 @@ out geom;
   
   /**
    * Analisa a infraestrutura local
+   * REMOVIDO: Google Places API - retorna valores padrão
    */
   private async analyzeInfrastructure(location: { lat: number; lng: number }) {
-    try {
-      // Buscar diferentes tipos de infraestrutura
-      const [transitResponse, parkingResponse] = await Promise.all([
-        this.googleAPIs.searchPlacesNearby({
-          location,
-          radius: 1000,
-          type: 'transit_station'
-        }),
-        this.googleAPIs.searchPlacesNearby({
-          location,
-          radius: 1000,
-          type: 'parking'
-        })
-      ]);
-      
-      const transitTypes: string[] = [];
-      let parkingAvailability = 0;
-      let infrastructureDensity = 0;
-      
-      // Analisar tipos de transporte público
-      if (transitResponse.success && transitResponse.data?.results) {
-        transitResponse.data.results.forEach((place: any) => {
-          if (place.types) {
-            place.types.forEach((type: any) => {
-              if (['subway_station', 'bus_station', 'train_station', 'airport'].includes(type)) {
-                if (!transitTypes.includes(type)) {
-                  transitTypes.push(type);
-                }
-              }
-            });
-          }
-        });
-      }
-      
-      // Calcular disponibilidade de estacionamento
-      if (parkingResponse.success && parkingResponse.data?.results) {
-        parkingAvailability = Math.min(parkingResponse.data.results.length / 10, 1); // Normalizar para 0-1
-      }
-      
-      // Calcular densidade de infraestrutura
-      infrastructureDensity = (transitTypes.length * 2) + (parkingAvailability * 5);
-      
-      return {
-        transitTypes,
-        parkingAvailability,
-        infrastructureDensity
-      };
-    } catch (error) {
-      console.warn('Error analyzing infrastructure:', error);
-      return {
-        transitTypes: [],
-        parkingAvailability: 0,
-        infrastructureDensity: 0
-      };
-    }
+    // REMOVIDO: Google Places API
+    // Retornar valores padrão - análise de infraestrutura não é crítica para trigger points
+    console.log(`🏗️ Infrastructure analysis: using default values - Google Places API removed`);
+    return {
+      transitTypes: [],
+      parkingAvailability: 0,
+      infrastructureDensity: 0
+    };
   }
   
   /**
