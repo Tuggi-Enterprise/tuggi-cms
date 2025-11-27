@@ -14,6 +14,7 @@
  */
 
 import { getSupabase } from '../../core/supabase-client'
+import { ReverseGeocodingService } from '../reverse-geocoding.service'
 
 // Service role client for database operations
 const getSupabaseClient = () => {
@@ -133,56 +134,20 @@ const geonamesLimiter = new RateLimiter(1000, 90000)  // ~1000/day, ~1 per 90s
 
 class NominatimService {
   static async reverseGeocode(lat: number, lng: number): Promise<any> {
-    await nominatimLimiter.waitForNextRequest()
+    // Use centralized service to avoid code duplication
+    const result = await ReverseGeocodingService.reverseGeocode(lat, lng)
     
-    try {
-      const url = `https://nominatim.openstreetmap.org/reverse?` +
-        `lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=10`
-      
-      console.log(`🌍 Nominatim reverse geocoding: ${lat}, ${lng}`)
-      
-      const response = await fetch(url, {
-        headers: {
-          'User-Agent': 'TuggiCMS/1.0 (city-correction-service)'
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error(`Nominatim API error: ${response.status}`)
-      }
-      
-      const data = await response.json()
-      
-      if (!data.address) {
-        return null
-      }
-      
-      // Extract city information from address components
-      const address = data.address
-      const city = address.city || 
-                  address.town || 
-                  address.municipality || 
-                  address.village || 
-                  address.hamlet ||
-                  address.county
-      
-      const state = address.state || 
-                   address.province || 
-                   address.region
-      
-      const country = address.country
-      
-      return {
-        city,
-        state,
-        country,
-        confidence: 85, // Fixed confidence for Nominatim
-        raw_data: data
-      }
-      
-    } catch (error) {
-      console.error('❌ Nominatim error:', error)
+    if (!result) {
       return null
+    }
+    
+    // Return in format expected by city-correction service
+    return {
+      city: result.city,
+      state: result.state,
+      country: result.country,
+      confidence: result.confidence || 85,
+      raw_data: result.raw_data
     }
   }
 }

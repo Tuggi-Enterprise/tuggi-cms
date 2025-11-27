@@ -27,21 +27,12 @@ export interface DuplicateCheckResult {
 export class MigrationService {
   /**
    * Validate coordinates
+   * @deprecated Use validateCoordinates from lib/utils/coordinate-validation instead
+   * Kept for backward compatibility
    */
   static validateCoordinates(latitude: number, longitude: number): { valid: boolean; error?: string } {
-    if (latitude === null || latitude === undefined || longitude === null || longitude === undefined) {
-      return { valid: false, error: 'POI coordinates are required' }
-    }
-
-    if (latitude < -90 || latitude > 90) {
-      return { valid: false, error: `Invalid latitude: ${latitude}` }
-    }
-
-    if (longitude < -180 || longitude > 180) {
-      return { valid: false, error: `Invalid longitude: ${longitude}` }
-    }
-
-    return { valid: true }
+    const { validateCoordinates } = require('../utils/coordinate-validation')
+    return validateCoordinates(latitude, longitude)
   }
 
   /**

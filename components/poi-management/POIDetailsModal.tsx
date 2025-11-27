@@ -64,21 +64,198 @@ export interface POI {
 }
 
 interface POIDetailsModalProps {
-  poi: POI
+  poi: POI | null
   isOpen: boolean
   onClose: () => void
   onUpdate: () => void
   onPOIUpdated?: (updatedPOI: POI) => void
   onPOIDeleted?: (poiId: string) => void
+  mode?: 'view' | 'create'
 }
 
-export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, onPOIDeleted }: POIDetailsModalProps) {
-  const [editedPoi, setEditedPoi] = useState<POI>(poi)
+export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, onPOIDeleted, mode = 'view' }: POIDetailsModalProps) {
+  // Determine if we're in create mode: no POI or POI without ID
+  const isCreateMode = !poi || !poi.id || mode === 'create'
+  const [currentPoi, setCurrentPoi] = useState<POI | null>(poi)
+  const [editedPoi, setEditedPoi] = useState<POI | null>(poi)
+  
+  // Helper to get the current POI (for editing) or null (for creation)
+  // Memoized to prevent infinite loops in useEffect dependencies
+  const getPoi = useCallback((): POI | null => currentPoi || poi, [currentPoi, poi])
+  
+  // Helper to assert POI exists (throws if null)
+  const requirePoi = (): POI => {
+    const p = getPoi()
+    if (!p) throw new Error('POI is required but is null')
+    return p
+  }
+  
+  // Initialize reference links from poi if available
+  const [referenceLinks, setReferenceLinks] = useState<string[]>(poi?.reference_links || [])
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [descriptions, setDescriptions] = useState<any[]>([])
   const [images, setImages] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'details' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois' | 'review'>('details')
+  const [activeTab, setActiveTab] = useState<'create' | 'details' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois' | 'review'>(isCreateMode ? 'create' : 'details')
+  
+  // Create mode state
+  const [createName, setCreateName] = useState('')
+  const [createCoordinates, setCreateCoordinates] = useState<{ lat: number; lng: number } | null>(null)
+  const [createLocation, setCreateLocation] = useState<{ city: string | null; state: string | null; country: string | null; formatted_address?: string | null } | null>(null)
+  const [isCreating, setIsCreating] = useState(false)
+  const [isGeocoding, setIsGeocoding] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [isEnrichingOSM, setIsEnrichingOSM] = useState(false)
+  
+  // Boundary drawing state
+  const [boundaryPolygon, setBoundaryPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
+  const [isSavingBoundary, setIsSavingBoundary] = useState(false)
+  const [existingBoundary, setExistingBoundary] = useState<Array<{ lat: number; lng: number }> | null>(null)
+
+  // Update state when poi changes
+  useEffect(() => {
+    if (poi) {
+      setCurrentPoi(poi)
+      setEditedPoi(poi)
+    } else {
+      setCurrentPoi(null)
+      setEditedPoi(null)
+    }
+  }, [poi])
+
+  // Reverse geocoding when coordinates change in create mode (with debounce)
+  useEffect(() => {
+    if (!isCreateMode || !createCoordinates || !createCoordinates.lat || !createCoordinates.lng) {
+      return
+    }
+
+    // Debounce reverse geocoding to avoid race conditions
+    const timeoutId = setTimeout(() => {
+      handleReverseGeocode(createCoordinates.lat, createCoordinates.lng)
+    }, 500) // 500ms debounce
+
+    return () => clearTimeout(timeoutId)
+  }, [createCoordinates, isCreateMode])
+
+  const handleReverseGeocode = async (lat: number, lng: number) => {
+    setIsGeocoding(true)
+    setCreateError(null)
+    try {
+      const response = await fetch('/api/pois/reverse-geocode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setCreateLocation(data)
+      } else {
+        console.warn('Reverse geocoding failed')
+      }
+    } catch (error) {
+      console.error('Reverse geocoding error:', error)
+    } finally {
+      setIsGeocoding(false)
+    }
+  }
+
+  const handleCreatePOI = async () => {
+    if (!createName.trim()) {
+      setCreateError('Nome é obrigatório')
+      return
+    }
+
+    if (!createCoordinates) {
+      setCreateError('Por favor, selecione uma localização no mapa')
+      return
+    }
+
+    setIsCreating(true)
+    setCreateError(null)
+
+    try {
+      const response = await fetch('/api/pois/create-manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: createName.trim(),
+          lat: createCoordinates.lat,
+          lng: createCoordinates.lng
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Falha ao criar POI')
+      }
+
+      // Update modal with created POI
+      const createdPOI: POI = {
+        ...result.data,
+        has_description: false,
+        has_audio: false,
+        description_count: 0,
+        audio_count: 0,
+        available_languages: [],
+        trigger_points_count: 0,
+        active_trigger_points_count: 0
+      }
+
+      setCurrentPoi(createdPOI)
+      setEditedPoi(createdPOI)
+      setActiveTab('details')
+      
+      // Call update callbacks
+      if (onUpdate) onUpdate()
+      if (onPOIUpdated) onPOIUpdated(createdPOI)
+
+      // Reset create mode state
+      setCreateName('')
+      setCreateCoordinates(null)
+      setCreateLocation(null)
+    } catch (error) {
+      console.error('Error creating POI:', error)
+      setCreateError(error instanceof Error ? error.message : 'Erro ao criar POI')
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  const handleReEnrichOSM = async () => {
+    if (!currentPoi) return
+
+    setIsEnrichingOSM(true)
+    try {
+      const response = await fetch('/api/pois/enrich-osm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          poi_id: currentPoi.id,
+          name: currentPoi.name,
+          city: currentPoi.city,
+          country: currentPoi.country,
+          google_place_id: currentPoi.google_place_id || undefined
+        })
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.success) {
+        // Refresh POI data
+        if (onUpdate) onUpdate()
+        alert('POI enriquecido com sucesso!')
+      } else {
+        throw new Error(result.error || 'Falha ao enriquecer POI')
+      }
+    } catch (error) {
+      console.error('Error enriching POI:', error)
+      alert(error instanceof Error ? error.message : 'Erro ao enriquecer POI')
+    } finally {
+      setIsEnrichingOSM(false)
+    }
+  }
   
   // Description editing state
   const [currentDescription, setCurrentDescription] = useState('')
@@ -115,7 +292,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [errorMessage, setErrorMessage] = useState('')
   
   // Add to the state
-  const [referenceLinks, setReferenceLinks] = useState<string[]>(poi.reference_links || []);
 
   // Sources information state
   const [lastGenerationSources, setLastGenerationSources] = useState<any[]>([])
@@ -153,7 +329,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [selectedPOIs, setSelectedPOIs] = useState<string[]>([])
   const [groupInfo, setGroupInfo] = useState<any>(null)
   const [groupLoading, setGroupLoading] = useState(false)
-  const [groupName, setGroupName] = useState(poi.name) // Default to main POI name
+  const [groupName, setGroupName] = useState(poi?.name || '') // Default to main POI name
   const [drawnPolygon, setDrawnPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
 
   const supabase = useSupabaseClient()
@@ -228,6 +404,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }
 
   const fetchAdditionalData = useCallback(async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi) return // Skip if no POI (creation mode)
+    
     setIsLoading(true)
     try {
       // Fetch descriptions with cache busting
@@ -235,7 +414,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_descriptions')
         .select('*')
-        .or(`attraction_id.eq.${poi.id},group_id.in.(${groupInfo?.id || ''})`)
+        .or(`attraction_id.eq.${currentPoi.id},group_id.in.(${groupInfo?.id || ''})`)
         .order('updated_at', { ascending: false })
         .order('created_at', { ascending: false })
 
@@ -255,7 +434,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setTranslatedDescriptions(allAudiosAvailable)
       
       // Debug: Log the fetched descriptions
-      console.log('🔍 Fetched descriptions for POI:', poi.id, descriptionsData?.length || 0)
+      console.log('🔍 Fetched descriptions for POI:', currentPoi.id, descriptionsData?.length || 0)
       descriptionsData?.forEach((desc, index) => {
         console.log(`  ${index + 1}. ID: ${desc.id}, Language: ${desc.language}, Attraction: ${desc.attraction_id}, Updated: ${desc.updated_at}`)
       })
@@ -270,7 +449,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
       if (!currentDesc) {
         // Fallback to individual POI description - get the most recently updated one
-        const individualDescriptions = portugueseDescriptions?.filter(desc => desc.attraction_id === poi.id) || []
+        const individualDescriptions = portugueseDescriptions?.filter(desc => desc.attraction_id === currentPoi.id) || []
         console.log('🔍 Found individual descriptions:', individualDescriptions.length)
         individualDescriptions.forEach((desc, index) => {
           console.log(`  ${index + 1}. ID: ${desc.id}, Updated: ${desc.updated_at}, Created: ${desc.created_at}`)
@@ -342,7 +521,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         }
       } else {
         // No description record found at all
-        console.log('❌ No description record found for POI:', poi.id)
+        console.log('❌ No description record found for POI:', currentPoi.id)
         setCurrentDescription('')
         setOriginalDescription('')
         setDescriptionStats({ play_count: 0, last_played_at: null })
@@ -355,7 +534,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_image')
         .select('*')
-        .eq('attraction_id', poi.id)
+        .eq('attraction_id', currentPoi.id)
         .order('created_at', { ascending: false })
 
       setImages(imagesData || [])
@@ -364,7 +543,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     } finally {
       setIsLoading(false)
     }
-  }, [poi.id, groupInfo?.id, supabase])
+  }, [getPoi, groupInfo?.id, supabase])
 
   const fetchNearbyPOIs = useCallback(async () => {
     console.log('🔍 MODAL: fetchNearbyPOIs called');
@@ -375,43 +554,49 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }, [])
 
   const fetchGroupInfo = useCallback(async () => {
-    console.log('🔍 MODAL: fetchGroupInfo called for POI:', poi.id);
+    const currentPoi = getPoi()
+    if (!currentPoi) return // Skip if no POI (creation mode)
+    
+    console.log('🔍 MODAL: fetchGroupInfo called for POI:', currentPoi.id);
     setGroupLoading(true)
     try {
-      const res = await fetch(`/api/attraction-groups/of-poi?poiId=${poi.id}`)
+      const res = await fetch(`/api/attraction-groups/of-poi?poiId=${currentPoi.id}`)
       const data = await res.json()
       
       console.log('🔍 MODAL: API response:', data);
       
       setGroupInfo(data.group)
-      setGroupName(data.group?.name || poi.name) // Use main POI name as default
+      setGroupName(data.group?.name || currentPoi.name) // Use main POI name as default
       
       // Always include the main POI in selectedPOIs, plus any existing group members
       const members = data.members || []
-      const selectedPOIsList = members.includes(poi.id) ? members : [poi.id, ...members]
+      const selectedPOIsList = members.includes(currentPoi.id) ? members : [currentPoi.id, ...members]
       
       console.log('🔍 MODAL: Setting selectedPOIs to:', selectedPOIsList);
       setSelectedPOIs(selectedPOIsList)
     } catch (error) {
       console.error('❌ MODAL: Error in fetchGroupInfo:', error);
       // Fallback: at least include the main POI
-      setSelectedPOIs([poi.id])
+      setSelectedPOIs([currentPoi.id])
     } finally {
       setGroupLoading(false)
     }
-  }, [poi.id, poi.name])
+  }, [getPoi])
 
   // Função para buscar dados de verificação da descrição
   const fetchVerificationData = useCallback(async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi) return // Skip if no POI (creation mode)
+    
     try {
-      console.log('🔍 Buscando dados de verificação para POI:', poi.id);
+      console.log('🔍 Buscando dados de verificação para POI:', currentPoi.id);
       
       // Usar a view existente v_descriptions_with_last_score que já consolida os dados
       const { data: descData, error: descError } = await supabase
         .schema('core')
         .from('v_descriptions_with_last_score')
         .select('*')
-        .eq('attraction_id', poi.id)
+        .eq('attraction_id', currentPoi.id)
         .eq('language', 'pt-BR')
         .eq('is_original', true)
         .maybeSingle();
@@ -541,7 +726,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     } catch (error) {
       console.error('❌ Erro ao buscar dados de verificação:', error);
     }
-  }, [supabase, poi.id]);
+  }, [supabase, getPoi]);
 
   // useEffect hooks after function declarations
   useEffect(() => {
@@ -562,13 +747,91 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }, [poi, isOpen, fetchAdditionalData, fetchVerificationData])
 
+  // Fetch existing boundary from database
+  const fetchBoundary = useCallback(async () => {
+    const currentPoi = getPoi();
+    if (!currentPoi?.id) return;
+
+    try {
+      // Use RPC or raw query to convert GEOGRAPHY to GeoJSON
+      // Since Supabase client doesn't directly support ST_AsGeoJSON, we'll use a workaround
+      const { data: coordData, error } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('boundary_type, boundary_area_m2, boundary_centroid_lat, boundary_centroid_lng')
+        .eq('attraction_id', currentPoi.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching boundary metadata:', error);
+        return;
+      }
+
+      // If boundary exists, fetch the geometry using a custom query
+      if (coordData?.boundary_type) {
+        try {
+          // Use RPC function to get boundary as GeoJSON
+          const { data: geoJsonData, error: geoJsonError } = await supabase
+            .rpc('get_boundary_geometry', { p_attraction_id: currentPoi.id });
+
+          if (!geoJsonError && geoJsonData) {
+            const geoJson = typeof geoJsonData === 'string' ? JSON.parse(geoJsonData) : geoJsonData;
+            
+            // Extract coordinates from GeoJSON Polygon
+            if (geoJson?.type === 'Polygon' && geoJson.coordinates?.[0]) {
+              const coords = geoJson.coordinates[0].map(([lng, lat]: [number, number]) => ({
+                lat,
+                lng
+              }));
+              setExistingBoundary(coords);
+              setBoundaryPolygon(coords);
+              console.log('✅ Loaded existing boundary:', coords.length, 'points');
+            }
+          } else {
+            // Fallback: Try direct query (may not work if boundary_geometry is GEOGRAPHY)
+            const { data: directData } = await supabase
+              .schema('core')
+              .from('attraction_coordinate')
+              .select('boundary_geometry')
+              .eq('attraction_id', currentPoi.id)
+              .single();
+
+            if (directData?.boundary_geometry) {
+              let geoJson: any;
+              if (typeof directData.boundary_geometry === 'string') {
+                geoJson = JSON.parse(directData.boundary_geometry);
+              } else {
+                geoJson = directData.boundary_geometry;
+              }
+
+              if (geoJson?.type === 'Polygon' && geoJson.coordinates?.[0]) {
+                const coords = geoJson.coordinates[0].map(([lng, lat]: [number, number]) => ({
+                  lat,
+                  lng
+                }));
+                setExistingBoundary(coords);
+                setBoundaryPolygon(coords);
+                console.log('✅ Loaded existing boundary (fallback):', coords.length, 'points');
+              }
+            }
+          }
+        } catch (parseError) {
+          console.error('Error parsing boundary geometry:', parseError);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching boundary:', error);
+    }
+  }, [getPoi]);
+
   // Fetch nearby POIs and group info on open
   useEffect(() => {
-    if (isOpen && poi.coordinates) {
+    if (isOpen && poi?.id && poi?.coordinates) {
       fetchNearbyPOIs()
       fetchGroupInfo()
+      fetchBoundary()
     }
-  }, [isOpen, poi.id, poi.coordinates, fetchNearbyPOIs, fetchGroupInfo])
+  }, [isOpen, poi?.id, fetchNearbyPOIs, fetchGroupInfo, fetchBoundary])
 
   // Debug effect for Group POIs tab
   useEffect(() => {
@@ -582,7 +845,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         groupName 
       });
     }
-  }, [activeTab, poi.coordinates, nearbyPOIs, selectedPOIs, groupInfo, groupName])
+  }, [activeTab, poi?.coordinates, nearbyPOIs, selectedPOIs, groupInfo, groupName])
 
   const handleTogglePOI = (id: string) => {
     console.log('🔍 MODAL: handleTogglePOI called with id:', id);
@@ -694,16 +957,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
             updated_at: new Date().toISOString(),
             reference_links: referenceLinks.filter(link => !!link.trim()) // Save only non-empty links
           })
-          .eq('id', poi.id)
+          .eq('id', getPoi()?.id)
 
         if (error) throw error
       }
 
       // Update local state instead of reloading all data
-      const updatedPOI = { 
-        ...poi, // Keep original POI data
+      const currentPoiData = getPoi()
+      if (!currentPoiData || !editedPoi) return
+      
+      const updatedPOI: POI = { 
+        ...currentPoiData, // Keep original POI data
         ...editedPoi, // Merge with edited fields
-        updated_at: new Date().toISOString() 
+        updated_at: new Date().toISOString(),
+        id: currentPoiData.id // Ensure id is always present
       }
       if (onPOIUpdated) {
         onPOIUpdated(updatedPOI)
@@ -866,7 +1133,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_descriptions')
         .select('id')
-        .eq('attraction_id', poi.id)
+        .eq('attraction_id', currentPoi.id)
         .eq('language', 'pt-br')
         .order('updated_at', { ascending: false })
         .maybeSingle();
@@ -1075,7 +1342,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_descriptions')
         .select('*')
-        .eq('attraction_id', poi.id)
+        .eq('attraction_id', currentPoi.id)
         .eq('language', 'pt-br')
         .maybeSingle()
 
@@ -1211,7 +1478,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_descriptions')
         .select('*')
-        .eq('attraction_id', poi.id)
+        .eq('attraction_id', currentPoi.id)
         .eq('language', 'pt-br')
         .maybeSingle()
 
@@ -1684,6 +1951,158 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     fetchNearbyPOIsWithPolygon(coords)
   }
 
+  // Handle boundary polygon completion (for POI boundary drawing)
+  const handleBoundaryPolygonComplete = useCallback((polygon: any) => {
+    console.log('🗺️ [POIDetailsModal] handleBoundaryPolygonComplete called!', polygon);
+    const coords = extractPolygonCoordinates(polygon)
+    console.log('🗺️ Boundary coordinates extracted:', {
+      count: coords.length,
+      first: coords[0],
+      last: coords[coords.length - 1],
+      is_closed: coords.length > 0 && 
+                 coords[0].lat === coords[coords.length - 1].lat && 
+                 coords[0].lng === coords[coords.length - 1].lng,
+      all_coords: coords,
+      sample_values: coords.slice(0, 3).map(c => ({ lat: typeof c.lat, lng: typeof c.lng, lat_val: c.lat, lng_val: c.lng }))
+    });
+    
+    // Validate coordinates
+    const validCoords = coords.filter(coord => 
+      typeof coord.lat === 'number' && 
+      typeof coord.lng === 'number' && 
+      !isNaN(coord.lat) && 
+      !isNaN(coord.lng) &&
+      coord.lat >= -90 && coord.lat <= 90 &&
+      coord.lng >= -180 && coord.lng <= 180
+    )
+    
+    if (validCoords.length !== coords.length) {
+      console.error('❌ Invalid coordinates detected:', {
+        total: coords.length,
+        valid: validCoords.length,
+        invalid: coords.filter(c => !validCoords.includes(c))
+      })
+    }
+    
+    if (validCoords.length < 3) {
+      console.error('❌ Not enough valid coordinates:', validCoords.length)
+      alert(`Polígono inválido: apenas ${validCoords.length} pontos válidos (mínimo 3)`)
+      return
+    }
+    
+    console.log('✅ Valid coordinates:', validCoords.length)
+    setBoundaryPolygon(validCoords)
+  }, [])
+  
+  // Debug: Log when handleBoundaryPolygonComplete is created
+  useEffect(() => {
+    console.log('🔄 [POIDetailsModal] handleBoundaryPolygonComplete created/updated:', {
+      hasFunction: !!handleBoundaryPolygonComplete,
+      type: typeof handleBoundaryPolygonComplete,
+      isFunction: typeof handleBoundaryPolygonComplete === 'function'
+    })
+  }, [handleBoundaryPolygonComplete])
+
+  // Save boundary to database
+  const handleSaveBoundary = async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi || !boundaryPolygon || boundaryPolygon.length < 3) {
+      alert('Por favor, desenhe um polígono válido (mínimo 3 pontos)')
+      return
+    }
+
+    // Validate coordinates before sending
+    const validCoords = boundaryPolygon.filter(coord => 
+      typeof coord.lat === 'number' && 
+      typeof coord.lng === 'number' && 
+      !isNaN(coord.lat) && 
+      !isNaN(coord.lng) &&
+      coord.lat >= -90 && coord.lat <= 90 &&
+      coord.lng >= -180 && coord.lng <= 180
+    )
+    
+    if (validCoords.length < 3) {
+      alert(`Polígono inválido: apenas ${validCoords.length} pontos válidos (mínimo 3)`)
+      return
+    }
+    
+    console.log('💾 Saving boundary:', {
+      attractionId: currentPoi.id,
+      coordinates_count: boundaryPolygon.length,
+      valid_coordinates_count: validCoords.length,
+      coordinates: boundaryPolygon,
+      first_coord: boundaryPolygon[0],
+      last_coord: boundaryPolygon[boundaryPolygon.length - 1],
+      is_closed: boundaryPolygon.length > 0 && 
+                 boundaryPolygon[0].lat === boundaryPolygon[boundaryPolygon.length - 1].lat && 
+                 boundaryPolygon[0].lng === boundaryPolygon[boundaryPolygon.length - 1].lng,
+      coordinate_types: boundaryPolygon.map(c => ({ lat: typeof c.lat, lng: typeof c.lng })),
+      coordinate_values_sample: boundaryPolygon.slice(0, 3)
+    })
+
+    setIsSavingBoundary(true)
+    try {
+      const requestBody = {
+        attractionId: currentPoi.id,
+        coordinates: validCoords // Use validated coordinates
+      }
+      
+      console.log('📤 Sending request:', {
+        url: '/api/pois/update-boundary',
+        method: 'POST',
+        body: requestBody,
+        body_stringified: JSON.stringify(requestBody),
+        body_stringified_length: JSON.stringify(requestBody).length
+      })
+
+      const response = await fetch('/api/pois/update-boundary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      })
+
+      console.log('📥 Response status:', response.status, response.statusText)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ Error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        })
+        let error
+        try {
+          error = JSON.parse(errorText)
+        } catch {
+          error = { error: errorText }
+        }
+        throw new Error(error.error || error.message || 'Failed to save boundary')
+      }
+
+      const result = await response.json()
+      console.log('✅ Boundary saved:', result)
+      console.log('✅ Full response:', JSON.stringify(result, null, 2))
+
+      // Refresh POI data to show updated boundary
+      if (onPOIUpdated && result.data) {
+        // Update local POI state with boundary info
+        const updatedPoi = {
+          ...currentPoi,
+          boundary_area_m2: result.data.boundary_area_m2,
+          boundary_centroid: result.data.boundary_centroid
+        }
+        onPOIUpdated(updatedPoi as POI)
+      }
+
+      alert('Boundary salvo com sucesso!')
+    } catch (error) {
+      console.error('Error saving boundary:', error)
+      alert(`Erro ao salvar boundary: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
+    } finally {
+      setIsSavingBoundary(false)
+    }
+  }
+
   const fetchNearbyPOIsWithPolygon = async (polygonCoords: Array<{ lat: number; lng: number }>) => {
     console.log('🔍 MODAL: fetchNearbyPOIsWithPolygon called with coords:', polygonCoords);
     setGroupLoading(true)
@@ -1794,6 +2213,23 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
             {/* Tabs */}
             <div className="mt-4 border-b border-gray-200 dark:border-gray-700">
               <nav className="-mb-px flex space-x-8">
+                {/* Show 'create' tab only if POI doesn't exist or has no ID */}
+                {(!currentPoi || !currentPoi.id) && (
+                  <button
+                    onClick={() => setActiveTab('create')}
+                    className={cn(
+                      'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
+                      activeTab === 'create'
+                        ? 'border-tuggi-blue text-tuggi-blue'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                    )}
+                  >
+                    <Plus className="h-4 w-4 inline mr-2" />
+                    Create POI
+                  </button>
+                )}
+                {/* Show 'details' tab only if POI exists and has ID */}
+                {currentPoi && currentPoi.id && (
                 <button
                   onClick={() => setActiveTab('details')}
                   className={cn(
@@ -1806,6 +2242,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   <Info className="h-4 w-4 inline mr-2" />
                   POI Details
                 </button>
+                )}
+                {/* Other tabs appear always - they're part of the creation/editing flow */}
                 <button
                   onClick={() => setActiveTab('group-pois')}
                   className={cn(
@@ -1874,8 +2312,136 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
           {/* Content */}
           <div className="bg-white dark:bg-gray-800 flex-1 overflow-hidden">
-            {activeTab === 'details' ? (
+            {activeTab === 'create' ? (
               <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
+                <div className="space-y-6">
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                      <Plus className="h-5 w-5 mr-2 text-tuggi-blue" />
+                      Criar Novo POI
+                    </h3>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          Nome do POI *
+                        </label>
+                        <input
+                          type="text"
+                          value={createName}
+                          onChange={(e) => setCreateName(e.target.value)}
+                          placeholder="Digite o nome do ponto de interesse"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          Localização no Mapa *
+                        </label>
+                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                          Clique no mapa para selecionar a localização do POI
+                        </p>
+                        <div className="h-96 w-full rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
+                          <GoogleMapComponent
+                            center={createCoordinates || { lat: -23.5505, lng: -46.6333 }}
+                            zoom={createCoordinates ? 15 : 10}
+                            height="100%"
+                            markers={createCoordinates ? [{
+                              id: 'poi-location',
+                              position: createCoordinates,
+                              title: createName || 'Nova localização',
+                              color: '#FF6B35'
+                            }] : []}
+                            enableDrawing={false}
+                            showDrawingButton={false}
+                            onMapClick={(lat: number, lng: number) => {
+                              setCreateCoordinates({ lat, lng })
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {isGeocoding && (
+                        <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Detectando cidade e estado...
+                        </div>
+                      )}
+
+                      {createLocation && !isGeocoding && (
+                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                          <h4 className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
+                            Localização Detectada:
+                          </h4>
+                          <div className="space-y-1 text-sm text-blue-800 dark:text-blue-300">
+                            {createLocation.city && (
+                              <p><strong>Cidade:</strong> {createLocation.city}</p>
+                            )}
+                            {createLocation.state && (
+                              <p><strong>Estado:</strong> {createLocation.state}</p>
+                            )}
+                            {createLocation.country && (
+                              <p><strong>País:</strong> {createLocation.country}</p>
+                            )}
+                            {createLocation.formatted_address && (
+                              <p className="text-xs mt-2 text-blue-600 dark:text-blue-400">
+                                {createLocation.formatted_address}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {createError && (
+                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                          <p className="text-sm text-red-800 dark:text-red-300">{createError}</p>
+                        </div>
+                      )}
+
+                      <div className="flex justify-end gap-3 pt-4">
+                        <button
+                          onClick={onClose}
+                          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={handleCreatePOI}
+                          disabled={isCreating || !createName.trim() || !createCoordinates}
+                          className="px-4 py-2 text-sm font-medium text-white bg-tuggi-blue rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                        >
+                          {isCreating ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Criando...
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="h-4 w-4 mr-2" />
+                              Criar POI
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : activeTab === 'details' ? (
+              <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
+            {(() => {
+              console.log('🔍 [POIDetailsModal] Details tab rendering:', {
+                activeTab,
+                isLoading,
+                hasPoi: !!poi,
+                hasCurrentPoi: !!currentPoi,
+                hasEditedPoi: !!editedPoi,
+                poiId: poi?.id,
+                currentPoiId: currentPoi?.id
+              })
+              return null
+            })()}
             {isLoading ? (
               <div className="animate-pulse space-y-4">
                 <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
@@ -1886,10 +2452,31 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               <div className="space-y-6">
                 {/* SECTION 1: Basic Information & Categories - PRIORITY */}
                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
                     <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
                     Basic Information & Categories
                   </h3>
+                    {currentPoi && (
+                      <button
+                        onClick={handleReEnrichOSM}
+                        disabled={isEnrichingOSM}
+                        className="px-3 py-1.5 text-sm font-medium text-white bg-tuggi-blue rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                      >
+                        {isEnrichingOSM ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Enriquecendo...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-4 w-4 mr-2" />
+                            Enriquecer com OSM
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Left Column: Editable Fields */}
@@ -2294,6 +2881,151 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  {/* Boundary Drawing Section */}
+                  {(() => {
+                    const currentPoi = getPoi()
+                    console.log('🗺️ [POIDetailsModal] Boundary section rendering check:', {
+                      activeTab,
+                      isDetailsTab: activeTab === 'details',
+                      isLoading,
+                      hasPoi: !!currentPoi,
+                      hasCurrentPoi: !!currentPoi,
+                      poiId: currentPoi?.id,
+                      hasCoordinates: !!currentPoi?.coordinates,
+                      coordinates: currentPoi?.coordinates ? {
+                        lat: currentPoi.coordinates.latitude,
+                        lng: currentPoi.coordinates.longitude
+                      } : null,
+                      // Also check prop poi
+                      hasPropPoi: !!poi,
+                      propPoiId: poi?.id,
+                      hasPropCoordinates: !!poi?.coordinates
+                    })
+                    return null
+                  })()}
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 mt-6 col-span-full">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                        <MapPin className="h-5 w-5 mr-2 text-tuggi-blue" />
+                        POI Boundary
+                      </h3>
+                      {boundaryPolygon && boundaryPolygon.length >= 3 && (
+                        <button
+                          onClick={handleSaveBoundary}
+                          disabled={isSavingBoundary}
+                          className="px-4 py-2 text-sm font-medium text-white bg-tuggi-blue rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                        >
+                          {isSavingBoundary ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Salvando...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="h-4 w-4 mr-2" />
+                              Salvar Boundary
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                      Desenhe o boundary (fronteira) do POI no mapa abaixo. Clique no mapa para começar a desenhar um polígono.
+                    </p>
+
+                    {existingBoundary && (
+                      <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
+                        <div className="flex items-center text-sm text-blue-800 dark:text-blue-300">
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Boundary existente carregado ({existingBoundary.length} pontos)
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="w-full h-96 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                      {(() => {
+                        const currentPoi = getPoi()
+                        if (!currentPoi || !currentPoi.coordinates) {
+                          console.log('🗺️ [POIDetailsModal] Cannot render boundary map: POI or coordinates missing', {
+                            hasPoi: !!currentPoi,
+                            hasCoordinates: !!currentPoi?.coordinates
+                          })
+                          return (
+                            <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
+                              POI coordinates not available
+                            </div>
+                          )
+                        }
+                        console.log('🗺️ [POIDetailsModal] Rendering GoogleMapComponent with:', {
+                          componentId: 'boundary-drawing',
+                          hasHandleBoundaryPolygonComplete: !!handleBoundaryPolygonComplete,
+                          handleBoundaryPolygonCompleteType: typeof handleBoundaryPolygonComplete,
+                          isFunction: typeof handleBoundaryPolygonComplete === 'function',
+                          hasPoiCoordinates: !!currentPoi.coordinates,
+                          poiId: currentPoi.id,
+                          handleBoundaryPolygonCompleteValue: handleBoundaryPolygonComplete,
+                          willPassOnPolygonComplete: true
+                        })
+                        
+                        // CRITICAL: Verify the callback is actually a function before passing
+                        if (typeof handleBoundaryPolygonComplete !== 'function') {
+                          console.error('❌ CRITICAL: handleBoundaryPolygonComplete is NOT a function!', {
+                            type: typeof handleBoundaryPolygonComplete,
+                            value: handleBoundaryPolygonComplete
+                          })
+                        }
+                        
+                        return (
+                          <GoogleMapComponent
+                            componentId="boundary-drawing"
+                            center={{ lat: currentPoi.coordinates.latitude, lng: currentPoi.coordinates.longitude }}
+                            zoom={18}
+                            height="100%"
+                            markers={[
+                              { 
+                                id: currentPoi.id, 
+                                position: { lat: currentPoi.coordinates.latitude, lng: currentPoi.coordinates.longitude }, 
+                                title: currentPoi.name, 
+                                color: '#10B981' 
+                              }
+                            ]}
+                            polygon={boundaryPolygon || existingBoundary || undefined}
+                            onPolygonComplete={handleBoundaryPolygonComplete}
+                            enableDrawing={true}
+                            polygonOptions={{
+                              strokeColor: '#3B82F6',
+                              strokeOpacity: 0.8,
+                              strokeWeight: 3,
+                              fillColor: '#3B82F6',
+                              fillOpacity: 0.2
+                            }}
+                          />
+                        )
+                      })()}
+                    </div>
+
+                    {boundaryPolygon && boundaryPolygon.length >= 3 && (
+                      <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-md border border-green-200 dark:border-green-800">
+                        <div className="flex items-center justify-between text-sm">
+                          <div className="text-green-800 dark:text-green-300">
+                            <CheckCircle className="h-4 w-4 inline mr-2" />
+                            Polígono desenhado: {boundaryPolygon.length} pontos
+                          </div>
+                          <button
+                            onClick={() => {
+                              setBoundaryPolygon(null);
+                              setExistingBoundary(null);
+                            }}
+                            className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                          >
+                            Limpar
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Right Column: Image Preview */}

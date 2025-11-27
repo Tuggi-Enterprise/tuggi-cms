@@ -601,6 +601,16 @@ function POIListWithSearchParams() {
               </p>
             </div>
             <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setSelectedPoi(null)
+                  setIsModalOpen(true)
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Adicionar POI Manualmente
+              </button>
               <Link
                 href="/poi-importer"
               className="px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center"
@@ -1089,16 +1099,25 @@ function POIListWithSearchParams() {
       </div>
 
         {/* POI Details Modal */}
-      {selectedPoi && isModalOpen && (
+      {isModalOpen && (
           <POIDetailsModal
-          poi={transformPOIForModal(selectedPoi)}
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false)
-            setSelectedPoi(null)
-          }}
+            mode={selectedPoi ? 'view' : 'create'}
+            poi={selectedPoi ? transformPOIForModal(selectedPoi) : null}
+            isOpen={isModalOpen}
+            onClose={() => {
+              setIsModalOpen(false)
+              setSelectedPoi(null)
+            }}
             onUpdate={() => {
-            fetchPois()
+              fetchPois()
+            }}
+            onPOIUpdated={(updatedPOI) => {
+              // When a POI is created or updated, refresh the list and select the new/updated POI
+              fetchPois()
+              // If it's a new POI (has ID), we can optionally select it
+              if (updatedPOI?.id) {
+                setSelectedPoi(updatedPOI as any)
+              }
             }}
           />
         )}

@@ -289,14 +289,14 @@ export class OSMImporterService {
 
     if (attractionError) throw attractionError
 
-    // Insert coordinates
+    // Insert coordinates using safe RPC function (prevents duplicates, atomic)
     const { error: coordError } = await this.supabase
       .schema('core')
-      .from('attraction_coordinate')
-      .insert({
-        attraction_id: attraction.id,
-        latitude: coords[1],
-        longitude: coords[0]
+      .rpc('insert_coordinate_safe', {
+        p_attraction_id: attraction.id,
+        p_latitude: coords[1],
+        p_longitude: coords[0],
+        p_show_in_map: false
       })
 
     if (coordError) throw coordError
