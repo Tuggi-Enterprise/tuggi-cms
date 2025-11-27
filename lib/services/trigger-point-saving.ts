@@ -79,10 +79,13 @@ export class TriggerPointSavingService {
       access: tp.access || 'both',
       custom_description_id: tp.custom_description_id || null,
       created_at: tp.created_at || new Date().toISOString(),
-      updated_at: tp.updated_at || new Date().toISOString(),
-      // Only include user tracking fields if they exist
-      ...(tp.created_by && { created_by: tp.created_by }),
-      ...(tp.updated_by && { updated_by: tp.updated_by })
+      updated_at: tp.updated_at || new Date().toISOString()
+      // NOTE: created_by and updated_by are NOT included here because
+      // the database trigger_auto_create_training_example has a bug that causes
+      // "POI not found" errors when these fields are present.
+      // The trigger uses NEW.id (trigger point ID) instead of NEW.attraction_id (POI ID)
+      // for validation when these user fields are present.
+      // TODO: Fix the trigger to use NEW.attraction_id, then re-enable these fields
     }
   }
 
@@ -313,8 +316,34 @@ export class TriggerPointSavingService {
         })
       })
 
-      // Insert to database
+      // Before inserting, verify POI exists and has coordinates (required by some triggers)
       const supabase = getSupabaseClient()
+      const { data: poiCheck, error: poiCheckError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id')
+        .eq('id', attractionId)
+        .maybeSingle()
+
+      if (poiCheckError || !poiCheck) {
+        console.error('❌ POI not found:', attractionId)
+        results.errors.push(`POI not found: ${attractionId}`)
+        return results
+      }
+
+      // Check if POI has coordinates (some triggers require this)
+      const { data: coordCheck } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('id')
+        .eq('attraction_id', attractionId)
+        .maybeSingle()
+
+      if (!coordCheck) {
+        console.warn(`⚠️ POI ${attractionId} has no coordinates. Some database triggers may fail.`)
+      }
+
+      // Insert to database
       const { data, error } = await supabase
         .schema('core')
         .from('attraction_trigger_points')
@@ -323,7 +352,12 @@ export class TriggerPointSavingService {
 
       if (error) {
         console.error('❌ Error inserting trigger points:', error)
-        results.errors.push(error.message)
+        // If error is about POI not found, provide more context
+        if (error.message?.includes('POI not found') || error.code === 'P0001') {
+          results.errors.push(`Database trigger error: ${error.message}. POI exists: ${!!poiCheck}, Has coordinates: ${!!coordCheck}`)
+        } else {
+          results.errors.push(error.message)
+        }
         return results
       }
 

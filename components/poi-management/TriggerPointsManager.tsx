@@ -296,8 +296,16 @@ export function TriggerPointsManager({
         const result = await response.json()
 
         if (!response.ok || !result.success) {
-          console.error('❌ Error creating trigger point:', result.error)
-          throw new Error(result.error || 'Failed to create trigger point')
+          console.error('❌ Error creating trigger point:', result)
+          // Build a more detailed error message
+          let errorMessage = result.error || 'Failed to create trigger point'
+          if (result.details) {
+            errorMessage += `: ${result.details}`
+          }
+          if (result.hint) {
+            errorMessage += ` (${result.hint})`
+          }
+          throw new Error(errorMessage)
         }
 
         console.log('✅ Trigger point created successfully:', result.data)
@@ -307,7 +315,8 @@ export function TriggerPointsManager({
       handleCloseForm()
     } catch (err) {
       console.error('Error saving trigger point:', err)
-      setError('Failed to save trigger point')
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save trigger point'
+      setError(errorMessage)
     } finally {
       setIsLoading(false)
     }

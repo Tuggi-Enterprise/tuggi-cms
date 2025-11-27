@@ -107,7 +107,8 @@ export class GeminiDescriptionService {
             maxWords: config.maxWords,
             audioDuration: config.audioDuration,
             language: config.language,
-            additionalContext: options.additionalContext
+            additionalContext: options.additionalContext,
+            existingDescription: options.existingDescription
           })
       
       // Get system instruction

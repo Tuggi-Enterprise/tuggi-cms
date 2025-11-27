@@ -601,3 +601,5 @@ As recomendações de prioridade ALTA devem ser implementadas imediatamente para
 4. Adicionar métricas para monitorar melhorias
 
 
+
+

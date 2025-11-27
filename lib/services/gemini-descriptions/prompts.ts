@@ -1,7 +1,12 @@
 /**
  * Prompt Templates for Gemini Description Service
  * 
- * Simple and direct prompts separated from code logic
+ * Optimized prompts following Google's official best practices:
+ * - Clear structure (P.R.O.M.P.T framework)
+ * - Few-shot examples
+ * - Chain-of-thought reasoning
+ * - Reduced redundancies
+ * - All prompts in English
  */
 
 import type { POIData } from './types'
@@ -33,6 +38,7 @@ function buildPromptVariables(
     audioDuration: string
     language: string
     additionalContext?: string
+    existingDescription?: string
   }
 ): PromptVariables {
   return {
@@ -73,119 +79,333 @@ function replacePlaceholders(template: string, variables: PromptVariables): stri
 function buildDataContext(poiData: POIData): string {
   const context: string[] = []
   
-  // Altura/elevação (para montanhas, prédios, etc.)
+  // Elevation/height
   if (poiData.osm_tags?.ele) {
-    context.push(`Altura/Elevação: ${poiData.osm_tags.ele} metros`)
+    context.push(`Elevation: ${poiData.osm_tags.ele} meters`)
   }
   if (poiData.osm_tags?.['height']) {
-    context.push(`Altura: ${poiData.osm_tags['height']} metros`)
+    context.push(`Height: ${poiData.osm_tags['height']} meters`)
   }
   
-  // Datas históricas
+  // Historical dates
   if (poiData.osm_tags?.['start_date']) {
-    context.push(`Ano de fundação/construção: ${poiData.osm_tags['start_date']}`)
+    context.push(`Foundation/Construction Year: ${poiData.osm_tags['start_date']}`)
   }
   if (poiData.osm_tags?.['historic:period']) {
-    context.push(`Período histórico: ${poiData.osm_tags['historic:period']}`)
+    context.push(`Historical Period: ${poiData.osm_tags['historic:period']}`)
   }
   if (poiData.osm_tags?.['year']) {
-    context.push(`Ano: ${poiData.osm_tags['year']}`)
+    context.push(`Year: ${poiData.osm_tags['year']}`)
   }
   
-  // Dados arquitetônicos
+  // Architectural data
   if (poiData.osm_tags?.['architect']) {
-    context.push(`Arquiteto: ${poiData.osm_tags['architect']}`)
+    context.push(`Architect: ${poiData.osm_tags['architect']}`)
   }
   if (poiData.osm_tags?.['architectural_style']) {
-    context.push(`Estilo arquitetônico: ${poiData.osm_tags['architectural_style']}`)
+    context.push(`Architectural Style: ${poiData.osm_tags['architectural_style']}`)
   }
   
-  // Categoria/tipo
+  // Category/type
   if (poiData.google_types && poiData.google_types.length > 0) {
-    context.push(`Tipo: ${poiData.google_types.join(', ')}`)
+    context.push(`Type: ${poiData.google_types.join(', ')}`)
   }
   
-  // Website para referência
+  // Official website
   if (poiData.website) {
-    context.push(`Website oficial: ${poiData.website}`)
+    context.push(`Official Website: ${poiData.website}`)
   }
   
-  return context.length > 0 ? `\nDADOS DISPONÍVEIS:\n${context.join('\n')}\n` : ''
+  // Reference links (admin curated authoritative sources)
+  if (poiData.reference_links && poiData.reference_links.length > 0) {
+    context.push(`\nREFERENCE LINKS (Authoritative Sources - Read and understand these):`)
+    poiData.reference_links.forEach((link, index) => {
+      context.push(`Reference ${index + 1}: ${link}`)
+    })
+    context.push(`\nNOTE: These reference links may contain relevant information about this POI.`)
+    context.push(`Read and understand the content of these links - they may include dates, numbers, historical events, architectural details, or cultural significance that could enrich the description.`)
+    context.push(`Use information from these links when relevant, but maintain your freedom to use your knowledge and judgment.`)
+  }
+  
+  return context.length > 0 ? `\nAVAILABLE DATA:\n${context.join('\n')}\n` : ''
+}
+
+/**
+ * Core rules (shared across all prompts to reduce redundancy)
+ */
+function getCoreRules(): string {
+  return `CRITICAL RULES:
+- **NO DIRECTIONAL CUES**: Never include location signals (e.g., "to your right", "to your left", "ahead", "look at", "see")
+- **DIRECTIONAL AUDIO**: Directional audio is calculated separately by the system based on user bearing
+- **START WITH POI NAME**: Begin description by naturally mentioning the POI name ({{name}})
+- **USE YOUR KNOWLEDGE**: Complement provided data with your knowledge about the POI (cultural nicknames, traditions, historical facts, dates, numbers)
+- **NO HALLUCINATION**: Never invent information you don't know. Use only well-established, verifiable facts from your knowledge or provided data
+- **CITY ACCURACY**: Use ONLY the city provided in data ({{city}}). If no city provided, do not mention city
+- **BE PRECISE**: Avoid words like "approximately", "around", "probably" - be precise or omit
+- **EXCLUDE**: Full addresses, hours, prices, phones, directions, directional signals`
+}
+
+/**
+ * Content priority guidelines (shared)
+ */
+function getContentPriority(): string {
+  return `CONTENT PRIORITY (cultural and historical information are the DIFFERENTIATOR):
+1. **CULTURAL INFORMATION AND POPULAR NICKNAMES** (HIGH PRIORITY):
+   - Popular nicknames (e.g., "sausage city", "steel city", "sugar loaf land")
+   - Colloquial or traditional designations (e.g., "coffee capital", "aviation cradle")
+   - Distinctive cultural traditions (festivals, typical gastronomy, crafts, etc.)
+   - Cultural characteristics that make the location unique
+   - Integrate naturally into text, don't just mention
+
+2. **HISTORICAL FACTS AND CURIOSITIES** (HIGH PRIORITY):
+   - Important historical events (from data or your knowledge)
+   - Associated historical personalities and what they did there
+   - Verifiable historical curiosities
+   - Historical and cultural context
+   - Historical or cultural importance
+   - Integrate into main text, don't just mention
+
+3. **Historical dates** (when available):
+   - Foundation/construction year (e.g., "founded in 1895") - from data or your knowledge
+   - Relevant historical periods
+   - Important event dates
+   - Use only confirmed dates from provided data or your knowledge
+
+4. **Specific numbers** (when relevant):
+   - Elevation/height (e.g., "at 1,135 meters altitude")
+   - Dimensions, capacity, or other relevant numbers
+   - Use exact numbers from provided data or your knowledge
+
+5. **Physical or architectural characteristics**:
+   - Architectural style (when relevant)
+   - Distinctive features
+   - Architect or builder (when known)`
 }
 
 /**
  * Get few-shot examples for description generation
  * Based on Google's official recommendation for few-shot prompting
+ * Includes examples for improving existing descriptions
  */
-function getFewShotExamples(): string {
-  return `EXEMPLOS DE DESCRIÇÕES CORRETAS (siga este formato e estilo):
+function getFewShotExamples(existingDescription?: string): string {
+  const baseExamples = `CORRECT DESCRIPTION EXAMPLES (follow this format and style):
 
-<exemplo>
+<example>
 <poi>Museu do Telefone</poi>
-<descricao>O Museu do Telefone guarda um pedaço fascinante da história das comunicações. Foi aqui que Dom Pedro Primeiro realizou a primeira ligação telefônica do estado de São Paulo, um marco que revolucionou a forma como as pessoas se conectavam. Este local celebra a evolução tecnológica e a importância das redes de comunicação em nossa sociedade.</descricao>
-</exemplo>
+<description>The Museu do Telefone preserves a fascinating piece of communication history. It was here that Dom Pedro Primeiro made the first telephone call in the state of São Paulo, a milestone that revolutionized how people connected. This place celebrates technological evolution and the importance of communication networks in our society.</description>
+</example>
 
-<exemplo>
+<example>
 <poi>Pico do Jaraguá</poi>
-<descricao>O Pico do Jaraguá se eleva a 1.135 metros de altitude, sendo o ponto mais alto da cidade. O Parque Estadual do Jaraguá, criado em 1946, protege essa área de Mata Atlântica preservada, um refúgio para a fauna e flora local. Caminhe pelas trilhas e sinta a brisa refrescante enquanto descobre a importância deste lugar histórico.</descricao>
-</exemplo>
+<description>Pico do Jaraguá rises to 1,135 meters altitude, being the highest point in the city. Jaraguá State Park, created in 1946, protects this preserved Atlantic Forest area, a refuge for local fauna and flora. Walk the trails and feel the refreshing breeze while discovering the importance of this historical place.</description>
+</example>
 
-<exemplo>
+<example>
+<poi>Bragança Paulista</poi>
+<description>Bragança Paulista, known as the sausage city, is a municipality with rich gastronomic and cultural tradition. Founded in 1850, the city preserves its history while celebrating its famous artisanal sausage production, which became a symbol of local identity and attracts visitors seeking this regional delicacy.</description>
+</example>
+
+<example>
 <poi>Igreja de São Pedro</poi>
-<descricao>A Igreja de São Pedro, construída no século XVIII, representa um importante marco arquitetônico do período colonial. Sua fachada em estilo barroco e os detalhes internos preservados contam a história da fé e da arte sacra na região. Um local que conecta o passado histórico com a devoção contemporânea.</descricao>
-</exemplo>
+<description>The Igreja de São Pedro, built in the 18th century, represents an important architectural landmark from the colonial period. Its baroque-style facade and preserved interior details tell the story of faith and sacred art in the region. A place that connects historical past with contemporary devotion.</description>
+</example>`
 
-Observe que todas as descrições:
-- Começam com o nome do POI
-- Incluem fatos históricos verificáveis
-- Incluem números ou datas quando disponíveis
-- Não têm sinalizações direcionais
-- São envolventes e informativas
-- Mantêm tom amigável e acolhedor`
+  const improvementExamples = existingDescription ? `
+
+EXAMPLES OF IMPROVING EXISTING DESCRIPTIONS (when existing description is provided):
+
+<example>
+<poi>Museu do Telefone</poi>
+<existing_description>The Museu do Telefone is a museum about telephones. It has old phones and shows how phones changed over time.</existing_description>
+<improved_description>The Museu do Telefone preserves a fascinating piece of communication history. It was here that Dom Pedro Primeiro made the first telephone call in the state of São Paulo, a milestone that revolutionized how people connected. This place celebrates technological evolution and the importance of communication networks in our society.</improved_description>
+<analysis>Notice how the improved version adds: specific historical event (Dom Pedro Primeiro's call), location context (state of São Paulo), and broader significance (technological evolution). It does NOT repeat "old phones" or "shows how phones changed" - it adds NEW information.</analysis>
+</example>
+
+<example>
+<poi>Pico do Jaraguá</poi>
+<existing_description>Pico do Jaraguá is a mountain in São Paulo. It's a nice place to visit.</existing_description>
+<improved_description>Pico do Jaraguá rises to 1,135 meters altitude, being the highest point in the city. Jaraguá State Park, created in 1946, protects this preserved Atlantic Forest area, a refuge for local fauna and flora. Walk the trails and feel the refreshing breeze while discovering the importance of this historical place.</improved_description>
+<analysis>Notice how the improved version adds: specific elevation (1,135 meters), park creation date (1946), ecological context (Atlantic Forest, fauna/flora), and activity suggestion (walk trails). It does NOT repeat "mountain" or "nice place" - it adds NEW specific information.</analysis>
+</example>
+
+<example>
+<poi>Praça da Poesia Poeta Oswaldo de Camargo</poi>
+<existing_description>A Praça da Poesia Poeta Oswaldo de Camargo é um tributo à arte e à literatura em Bragança Paulista. Este espaço verde homenageia o renomado poeta Oswaldo de Camargo, conectando os visitantes à rica cultura da cidade. É um convite à leitura e ao lazer, um refúgio tranquilo para apreciar a poesia e a serenidade local.</existing_description>
+<improved_description>A Praça da Poesia Poeta Oswaldo de Camargo foi inaugurada em 2015, ocupando uma área de 2.500 metros quadrados no centro de Bragança Paulista. O espaço celebra Oswaldo de Camargo, poeta afro-brasileiro nascido em 1933, reconhecido por sua obra que aborda questões raciais e identitárias na literatura brasileira. A praça abriga esculturas temáticas, bancos com trechos de poemas e um acervo literário ao ar livre, promovendo encontros culturais e saraus poéticos mensais que reúnem a comunidade local.</improved_description>
+<analysis>CRITICAL: Notice how the improved version:
+- Uses COMPLETELY DIFFERENT structure (starts with date/area instead of "tributo")
+- Adds SPECIFIC information NOT in original: inauguration year (2015), area (2,500 m²), poet's birth year (1933), his significance (afro-brasileiro, questões raciais)
+- Includes NEW details: esculturas temáticas, bancos com poemas, acervo literário, saraus mensais
+- Uses DIFFERENT vocabulary: "foi inaugurada", "celebra", "reconhecido por" instead of "tributo", "homenageia", "renomado"
+- Focuses on DIFFERENT aspects: physical features and activities instead of general concepts
+- Does NOT repeat: "tributo", "espaço verde", "conectando", "convite à leitura", "refúgio tranquilo"</analysis>
+</example>` : ''
+
+  return baseExamples + improvementExamples + `
+
+Note that all descriptions:
+- Start with the POI name
+- Include popular nicknames or cultural traditions when known (e.g., "known as the sausage city")
+- Include verifiable historical facts
+- Include numbers or dates when available
+- Have no directional signals
+- Are engaging and informative
+- Maintain friendly and welcoming tone
+${existingDescription ? '- When improving existing descriptions: ADD new information, DO NOT repeat what is already mentioned' : ''}`
+}
+
+/**
+ * Get guidance for handling existing descriptions
+ * Based on Google's best practices for iterative improvement
+ * Enhanced to be more explicit about avoiding repetition
+ */
+function getExistingDescriptionGuidance(existingDescription: string): string {
+  return `⚠️ EXISTING DESCRIPTION PROVIDED - CRITICAL MODE ⚠️
+
+You have been provided with an EXISTING DESCRIPTION for this POI. Your task is to GENERATE A COMPLETELY NEW DESCRIPTION that:
+1. **AVOIDS REPETITION**: Do NOT reuse phrases, sentences, or concepts from the existing description
+2. **ADDS NEW INFORMATION**: Include information NOT present in the existing description
+3. **DIFFERENT PERSPECTIVE**: Use different wording, structure, and focus
+4. **SEEK UNIQUE DETAILS**: Use your knowledge to find unique facts, dates, numbers, or cultural aspects NOT mentioned
+
+EXISTING DESCRIPTION (DO NOT REPEAT THIS):
+${existingDescription}
+
+🔴 ABSOLUTE PROHIBITIONS:
+- **DO NOT** reuse the same phrases or sentences
+- **DO NOT** paraphrase the existing description
+- **DO NOT** keep the same structure or flow
+- **DO NOT** mention the same concepts in the same way
+- **DO NOT** generate a description that is essentially the same
+
+✅ WHAT YOU MUST DO:
+- **GENERATE A FRESH DESCRIPTION**: Write a completely new description from scratch
+- **USE DIFFERENT WORDS**: Use different vocabulary and expressions
+- **FOCUS ON NEW FACTS**: Prioritize information NOT in the existing description:
+  * Specific dates (foundation, inauguration, historical events)
+  * Exact numbers (dimensions, capacity, population)
+  * Cultural nicknames or designations
+  * Historical personalities and their specific contributions
+  * Architectural details or styles
+  * Cultural traditions or festivals
+  * Unique characteristics or curiosities
+- **DIFFERENT STRUCTURE**: Organize information differently
+- **NEW PERSPECTIVE**: Approach the description from a different angle
+
+🎯 YOUR KNOWLEDGE IS KEY:
+Use your knowledge about this POI to find information that is:
+- NOT mentioned in the existing description
+- More specific (dates, numbers, names)
+- More culturally rich (nicknames, traditions)
+- More historically detailed (events, personalities)
+- More contextually informative (significance, importance)
+
+EXAMPLE OF WHAT TO AVOID:
+If existing says: "homenageia o renomado poeta Oswaldo de Camargo"
+DO NOT say: "homenageia o poeta Oswaldo de Camargo" or "é uma homenagem ao poeta Oswaldo de Camargo"
+INSTEAD say: "celebra a obra de Oswaldo de Camargo, poeta nascido em [year] que [specific contribution]" or add: "inaugurada em [date]" or "com [specific feature]"
+
+Generate a COMPLETELY NEW description that adds substantial new information.`
 }
 
 /**
  * Get chain-of-thought reasoning structure
  * Based on Google's recommendation for step-by-step reasoning
+ * Enhanced to handle existing descriptions
  */
-function getChainOfThought(): string {
-  return `PROCESSO DE GERAÇÃO (siga estes passos em ordem):
+function getChainOfThought(existingDescription?: string): string {
+  const existingDescSection = existingDescription ? `
+STEP 0: ANALYZE EXISTING DESCRIPTION (if provided) - ⚠️ CRITICAL STEP
+- Read the existing description carefully and identify ALL information mentioned
+- **MANDATORY**: Create a mental list of what is ALREADY covered:
+  * Concepts mentioned (e.g., "tributo à arte", "espaço verde", "homenageia poeta")
+  * Facts mentioned (e.g., "Oswaldo de Camargo", "Bragança Paulista")
+  * Themes mentioned (e.g., "literatura", "cultura", "leitura", "lazer")
+- **CRITICAL**: You MUST generate a description that:
+  * Uses COMPLETELY DIFFERENT wording
+  * Includes information NOT in the existing description
+  * Has a DIFFERENT structure and flow
+  * Focuses on DIFFERENT aspects or details
+- **FORBIDDEN**: Do NOT reuse phrases, sentences, or paraphrased versions
+- **YOUR MISSION**: Find NEW information from your knowledge:
+  * Specific dates (when was it inaugurated? when was the poet born?)
+  * Exact numbers (dimensions, area, number of elements)
+  * Cultural context (why is this poet important? what is his significance?)
+  * Historical events (what happened here? what is the history?)
+  * Architectural details (what features does it have?)
+  * Cultural traditions (any festivals or events?)
+- **APPROACH**: Think "What would someone who hasn't read the existing description want to know?"` : ''
 
-PASSO 1: ANALISE OS DADOS FORNECIDOS E SEU CONHECIMENTO
-- Identifique fatos históricos disponíveis nos dados fornecidos
-- Identifique números e datas disponíveis (altura, ano de fundação, etc.)
-- Identifique características do POI (tipo, estilo arquitetônico, etc.)
-- **IMPORTANTE**: Use seu conhecimento sobre o POI para complementar os dados fornecidos
-- **IMPORTANTE**: Se você conhece fatos históricos, datas, números ou curiosidades sobre este local, USE-OS
-- Combine dados fornecidos com seu conhecimento para criar uma descrição rica
-- Verifique se há contexto adicional fornecido
+  return `GENERATION PROCESS (follow these steps in order):${existingDescSection}
 
-PASSO 2: VERIFIQUE PRECISÃO
-- Use dados fornecidos como base, mas complemente com seu conhecimento quando relevante
-- Use fatos históricos bem estabelecidos e verificáveis (de seu conhecimento ou dos dados)
-- Se não houver dados históricos, use seu conhecimento sobre o local se disponível
-- Seja preciso: use informações concretas quando souber, seja genérico quando não souber
-- NÃO use palavras como "aproximadamente", "cerca de", "provavelmente" - seja preciso ou omita
+STEP 1: ANALYZE PROVIDED DATA AND YOUR KNOWLEDGE
+- **IF REFERENCE LINKS ARE PROVIDED**: Read and understand them - they may contain relevant information about dates, numbers, architectural details, historical events, or cultural activities
+- Identify popular nicknames, colloquial designations, or known cultural traditions about this location
+- Identify historical facts available in provided data
+- Identify numbers and dates available (elevation, foundation year, etc.)
+- Identify POI characteristics (type, architectural style, etc.)
+- **IMPORTANT**: Use your knowledge about the POI to complement provided data
+- **IMPORTANT**: If you know popular nicknames, cultural traditions, historical facts, dates, numbers, or curiosities about this location, USE THEM
+${existingDescription ? '- **IMPORTANT**: Prioritize information NOT already mentioned in the existing description' : ''}
+- **COMBINE SOURCES**: Use information from reference links, your knowledge, and provided structured data - combine them intelligently
+- Combine provided data with your knowledge to create a rich description
+- Check if there is additional context provided
 
-PASSO 3: ESTRUTURE A DESCRIÇÃO
-- Comece com o nome do POI de forma natural (ex: "O Museu do Telefone...")
-- Integre fatos históricos de forma natural no texto
-- Inclua números/datas quando disponíveis (ex: "1.135 metros", "fundado em 1946")
-- Mantenha tom amigável e envolvente
-- Priorize informações históricas como diferencial
+STEP 2: VERIFY ACCURACY
+- Use provided data as base, but complement with your knowledge when relevant
+- Use well-established and verifiable historical facts (from your knowledge or data)
+- If no historical data available, use your knowledge about the location if available
+- Be precise: use concrete information when you know it, be generic when you don't
+- DO NOT use words like "approximately", "around", "probably" - be precise or omit
 
-PASSO 4: GERE TEXTO FINAL
-- Máximo de palavras especificado
-- Frases curtas para narração de áudio
-- Sem sinalizações direcionais (à sua direita, etc.)
-- Apenas texto puro, sem metadados ou comentários
-- Verifique que começa com nome do POI`
+STEP 3: STRUCTURE THE DESCRIPTION
+- Start with POI name naturally (e.g., "The Museu do Telefone...")
+- Integrate popular nicknames or cultural traditions naturally when known (e.g., "known as the sausage city")
+${existingDescription ? `- **CRITICAL**: Use COMPLETELY DIFFERENT structure than the existing description
+- **CRITICAL**: Start with a DIFFERENT aspect (if existing starts with "tributo", start with date, location, or specific feature)
+- **CRITICAL**: Use DIFFERENT connecting words and phrases
+- Integrate NEW information that is NOT in the existing description
+- Focus on specific details: dates, numbers, names, events NOT mentioned before` : '- Integrate historical facts naturally into text'}
+- Include numbers/dates when available (e.g., "1,135 meters", "founded in 1946")
+- Maintain friendly and engaging tone
+- Prioritize cultural and historical information as differentiator
+
+STEP 4: GENERATE FINAL TEXT
+- Maximum specified words
+- Short sentences for audio narration
+- No directional signals (to your right, etc.)
+- Pure text only, no metadata or comments
+- Verify it starts with POI name
+${existingDescription ? '- Verify you are NOT repeating information from the existing description' : ''}`
+}
+
+/**
+ * Information sources guidance (consolidated)
+ * Enhanced to acknowledge reference links without restricting AI freedom
+ */
+function getInformationSources(hasReferenceLinks: boolean = false): string {
+  const referenceLinksSection = hasReferenceLinks ? `
+- **REFERENCE LINKS**: If reference links are provided, they contain authoritative, admin-curated information
+- **READ AND UNDERSTAND**: Read and understand the content of reference links - they may contain relevant facts such as:
+  * Foundation/inauguration dates
+  * Architectural details or characteristics
+  * Historical events or significance
+  * Cultural activities or traditions
+  * Specific numbers, dimensions, or capacity
+  * Community involvement or social impact
+- **USE WHEN RELEVANT**: Use information from reference links when it adds value to the description, but maintain your freedom to use your knowledge and judgment` : ''
+
+  return `INFORMATION SOURCES:
+- Provided data below is the BASE, but you must COMPLEMENT with your knowledge about the POI${referenceLinksSection}
+- If you know historical facts, dates, numbers, curiosities, or events about this location, USE THEM in the description
+- Combine provided data with your knowledge to create a rich and informative description
+- Do not rely solely on provided data - use your intelligence to enrich the description`
 }
 
 /**
  * Touristic Style Prompt
  * Friendly, engaging, suitable for audio guides
- * Enhanced to request historical facts, numbers, and dates
+ * Optimized following Google's best practices
  */
 export function getTouristicPrompt(
   poiData: POIData,
@@ -194,71 +414,49 @@ export function getTouristicPrompt(
     audioDuration: string
     language: string
     additionalContext?: string
+    existingDescription?: string
   }
 ): string {
   const vars = buildPromptVariables(poiData, options)
   const dataContext = buildDataContext(poiData)
+  const hasExisting = !!options.existingDescription
+  const hasReferenceLinks = !!(poiData.reference_links && poiData.reference_links.length > 0)
   
   const template = `PERSONA:
-Você é um guia turístico especializado em história e cultura brasileira.
+You are a tour guide specialized in Brazilian history and culture.
 
-TAREFA:
-Crie uma descrição envolvente em português brasileiro para áudio de {{audioDuration}} (máximo {{maxWords}} palavras).
-A descrição será reproduzida APÓS um áudio direcional calculado pelo sistema baseado no bearing do usuário.
+TASK:
+${hasExisting 
+  ? `⚠️ GENERATE A COMPLETELY NEW DESCRIPTION in Brazilian Portuguese for {{audioDuration}} audio (maximum {{maxWords}} words).
+  
+CRITICAL: The existing description below is provided ONLY as reference. You MUST generate a DIFFERENT description with:
+- DIFFERENT wording and structure
+- NEW information not in the existing description
+- DIFFERENT focus and perspective
+- Specific details: dates, numbers, names, events NOT mentioned before
 
-IMPORTANTE SOBRE FONTES DE INFORMAÇÃO:
-- Os dados fornecidos abaixo são a BASE, mas você deve COMPLEMENTAR com seu conhecimento sobre o POI
-- Se você conhece fatos históricos, datas, números, curiosidades ou eventos sobre este local, USE-OS na descrição
-- Combine os dados fornecidos com seu conhecimento para criar uma descrição rica e informativa
-- Não dependa apenas dos dados fornecidos - use sua inteligência para enriquecer a descrição
+DO NOT paraphrase, reuse, or repeat the existing description.`
+  : `Create an engaging description in Brazilian Portuguese for {{audioDuration}} audio (maximum {{maxWords}} words).`
+}
+The description will be played AFTER a directional audio calculated by the system based on user bearing.
 
-${getChainOfThought()}
+${hasExisting ? getExistingDescriptionGuidance(options.existingDescription!) : ''}
 
-${getFewShotExamples()}
+${getInformationSources(hasReferenceLinks)}
 
-REGRAS CRÍTICAS:
-- **CRÍTICO**: NÃO inclua sinalizações de localização (ex: "à sua direita", "à sua esquerda", "à frente", "olhe para", "veja")
-- **CRÍTICO**: O áudio direcional será calculado separadamente pelo sistema
-- **OBRIGATÓRIO**: Comece a descrição mencionando o nome do POI ({{name}}) de forma natural
-- **GENÉRICO**: Funciona para qualquer tipo de POI (museus, igrejas, monumentos, parques, edifícios, etc.), conhecidos ou desconhecidos
-- **USE SEU CONHECIMENTO**: Use seu conhecimento sobre o POI para complementar os dados fornecidos. Se você conhece fatos históricos, datas, números ou curiosidades sobre este local, USE-OS na descrição
-- **COMBINE DADOS E CONHECIMENTO**: Os dados fornecidos são a base, mas você deve usar seu conhecimento para enriquecer a descrição quando relevante
-- **NÃO ALUCINE**: NUNCA invente informações que você não conhece. Use apenas fatos históricos bem estabelecidos e verificáveis (de seu conhecimento ou dos dados)
-- **NÃO CONFUNDA CIDADES**: Use APENAS a cidade fornecida nos dados ({{city}}). Se não houver cidade, NÃO mencione cidade
-- NÃO use palavras como "aproximadamente", "cerca de", "provavelmente" - seja preciso ou omita
-- NÃO inclua: endereços completos, horários, preços, telefones, direções, sinalizações direcionais
+${getChainOfThought(options.existingDescription)}
 
-PRIORIDADE DE CONTEÚDO (informações históricas são o DIFERENCIAL):
-1. **FATOS HISTÓRICOS E CURIOSIDADES** (ALTA PRIORIDADE):
-   - **USE SEU CONHECIMENTO**: Se você conhece eventos históricos, personalidades ou curiosidades sobre este local, inclua-os
-   - Eventos históricos importantes que aconteceram no local (dos dados ou de seu conhecimento)
-   - Personalidades históricas associadas e o que fizeram ali (dos dados ou de seu conhecimento)
-   - Curiosidades históricas verificáveis (dos dados ou de seu conhecimento)
-   - Contexto histórico e cultural
-   - Importância histórica ou cultural
-   - Curiosidades históricas devem fazer parte do texto principal, não apenas mencionadas
+${getFewShotExamples(options.existingDescription)}
 
-2. **Datas históricas** (quando disponíveis):
-   - Ano de fundação/construção (ex: "fundado em 1895") - dos dados ou de seu conhecimento
-   - Períodos históricos relevantes
-   - Datas de eventos importantes
-   - Use datas dos dados fornecidos ou de seu conhecimento (apenas datas bem estabelecidas)
+${getCoreRules()}
 
-3. **Números específicos** (quando relevantes):
-   - Altura/elevação (ex: "com 1.135 metros de altitude") - dos dados ou de seu conhecimento
-   - Dimensões, capacidade, ou outros números relevantes
-   - Use números exatos dos dados fornecidos ou de seu conhecimento (apenas números bem estabelecidos)
+${getContentPriority()}
 
-4. **Características físicas ou arquitetônicas**:
-   - Estilo arquitetônico (quando relevante)
-   - Características distintivas
-   - Arquiteto ou construtor (quando conhecido)
+${dataContext}${vars.context ? `\nADDITIONAL CONTEXT:\n${vars.context}\n` : ''}
 
-${dataContext}${vars.context ? `\nCONTEXTO ADICIONAL:\n${vars.context}\n` : ''}
+Reference Date: {{currentDate}} (year {{currentYear}})
 
-Data de referência: {{currentDate}} (ano {{currentYear}})
-
-Gere APENAS o texto da descrição seguindo os exemplos acima, sem comentários ou metadados.`
+Generate ONLY the description text following the examples above, without comments or metadata.`
 
   return replacePlaceholders(template, vars)
 }
@@ -266,7 +464,6 @@ Gere APENAS o texto da descrição seguindo os exemplos acima, sem comentários 
 /**
  * Historical Style Prompt
  * Focus on historical facts and significance
- * Enhanced to prioritize dates, numbers, and historical context
  */
 export function getHistoricalPrompt(
   poiData: POIData,
@@ -275,70 +472,64 @@ export function getHistoricalPrompt(
     audioDuration: string
     language: string
     additionalContext?: string
+    existingDescription?: string
   }
 ): string {
   const vars = buildPromptVariables(poiData, options)
   const dataContext = buildDataContext(poiData)
+  const hasExisting = !!options.existingDescription
+  const hasReferenceLinks = !!(poiData.reference_links && poiData.reference_links.length > 0)
   
   const template = `PERSONA:
-Você é um historiador especializado em história brasileira.
+You are a historian specialized in Brazilian history.
 
-TAREFA:
-Crie uma descrição histórica em português brasileiro para áudio de {{audioDuration}} (máximo {{maxWords}} palavras).
-A descrição será reproduzida APÓS um áudio direcional calculado pelo sistema.
+TASK:
+${hasExisting 
+  ? `IMPROVE and ENRICH an existing historical description in Brazilian Portuguese for {{audioDuration}} audio (maximum {{maxWords}} words).`
+  : `Create a historical description in Brazilian Portuguese for {{audioDuration}} audio (maximum {{maxWords}} words).`
+}
+The description will be played AFTER a directional audio calculated by the system.
 
-IMPORTANTE SOBRE FONTES DE INFORMAÇÃO:
-- Os dados fornecidos abaixo são a BASE, mas você deve COMPLEMENTAR com seu conhecimento sobre o POI
-- Se você conhece fatos históricos, datas, números, curiosidades ou eventos sobre este local, USE-OS na descrição
-- Combine os dados fornecidos com seu conhecimento para criar uma descrição rica e informativa
-- Não dependa apenas dos dados fornecidos - use sua inteligência para enriquecer a descrição
+${hasExisting ? getExistingDescriptionGuidance(options.existingDescription!) : ''}
 
-${getChainOfThought()}
+${getInformationSources(hasReferenceLinks)}
 
-${getFewShotExamples()}
+${getChainOfThought(options.existingDescription)}
 
-REGRAS CRÍTICAS:
-- **CRÍTICO**: NÃO inclua sinalizações direcionais (ex: "à sua direita", "olhe para")
-- **OBRIGATÓRIO**: Comece mencionando o nome do POI ({{name}}) de forma natural
-- **GENÉRICO**: Funciona para qualquer tipo de POI, conhecido ou desconhecido
-- **USE SEU CONHECIMENTO**: Use seu conhecimento sobre o POI para complementar os dados fornecidos. Se você conhece fatos históricos, datas, números ou curiosidades sobre este local, USE-OS na descrição
-- **COMBINE DADOS E CONHECIMENTO**: Os dados fornecidos são a base, mas você deve usar seu conhecimento para enriquecer a descrição quando relevante
-- **NÃO ALUCINE**: NUNCA invente informações que você não conhece. Use apenas fatos históricos bem estabelecidos e verificáveis (de seu conhecimento ou dos dados)
-- **NÃO CONFUNDA CIDADES**: Use APENAS a cidade fornecida ({{city}}). Se não houver cidade, NÃO mencione cidade
-- NÃO use: "aproximadamente", "cerca de", "provavelmente" - seja preciso ou omita
-- NÃO inclua: endereços completos, horários, preços, telefones
+${getFewShotExamples(options.existingDescription)}
 
-PRIORIDADE DE CONTEÚDO (sempre que disponível):
-1. **Datas históricas** (ALTA PRIORIDADE):
-   - Ano de fundação/construção (ex: "fundado em 1895") - dos dados ou de seu conhecimento
-   - Períodos históricos (ex: "século XVIII", "década de 1920")
-   - Datas de eventos importantes
-   - Use datas dos dados fornecidos ou de seu conhecimento (apenas datas bem estabelecidas)
+${getCoreRules()}
 
-2. **Números e dimensões** (quando relevante):
-   - Altura, elevação, dimensões - dos dados ou de seu conhecimento
-   - Capacidade, população histórica
-   - Outros números que contextualizem historicamente
-   - Use números dos dados fornecidos ou de seu conhecimento (apenas números bem estabelecidos)
+CONTENT PRIORITY (whenever available):
+1. **Historical dates** (HIGH PRIORITY):
+   - Foundation/construction year (e.g., "founded in 1895") - from data or your knowledge
+   - Historical periods (e.g., "18th century", "1920s")
+   - Important event dates
+   - Use dates from provided data or your knowledge (only well-established dates)
 
-3. **Fatos históricos verificáveis**:
-   - **USE SEU CONHECIMENTO**: Se você conhece eventos históricos, personalidades ou curiosidades sobre este local, inclua-os
-   - Eventos históricos importantes (dos dados ou de seu conhecimento)
-   - Personalidades históricas associadas (dos dados ou de seu conhecimento)
-   - Contexto histórico e político
-   - Importância histórica e cultural
-   - Mudanças ao longo do tempo
+2. **Numbers and dimensions** (when relevant):
+   - Height, elevation, dimensions - from data or your knowledge
+   - Capacity, historical population
+   - Other numbers that provide historical context
+   - Use numbers from provided data or your knowledge (only well-established numbers)
 
-4. **Características arquitetônicas históricas**:
-   - Estilo arquitetônico e período
-   - Arquiteto ou construtor histórico
-   - Características distintivas da época
+3. **Verifiable historical facts**:
+   - Important historical events (from data or your knowledge)
+   - Associated historical personalities (from data or your knowledge)
+   - Historical and political context
+   - Historical and cultural importance
+   - Changes over time
 
-${dataContext}${vars.context ? `\nCONTEXTO ADICIONAL:\n${vars.context}\n` : ''}
+4. **Historical architectural characteristics**:
+   - Architectural style and period
+   - Historical architect or builder
+   - Distinctive features of the era
 
-Data de referência: {{currentDate}} (ano {{currentYear}})
+${dataContext}${vars.context ? `\nADDITIONAL CONTEXT:\n${vars.context}\n` : ''}
 
-Gere APENAS o texto da descrição seguindo os exemplos acima, sem comentários ou metadados.`
+Reference Date: {{currentDate}} (year {{currentYear}})
+
+Generate ONLY the description text following the examples above, without comments or metadata.`
 
   return replacePlaceholders(template, vars)
 }
@@ -354,49 +545,44 @@ export function getCulturalPrompt(
     audioDuration: string
     language: string
     additionalContext?: string
+    existingDescription?: string
   }
 ): string {
   const vars = buildPromptVariables(poiData, options)
+  const hasExisting = !!options.existingDescription
+  const hasReferenceLinks = !!(poiData.reference_links && poiData.reference_links.length > 0)
   
   const template = `PERSONA:
-Você é um especialista em patrimônio cultural brasileiro.
+You are a specialist in Brazilian cultural heritage.
 
-TAREFA:
-Crie uma descrição sobre o significado cultural em português brasileiro para áudio de {{audioDuration}} (máximo {{maxWords}} palavras).
-A descrição será reproduzida APÓS um áudio direcional calculado pelo sistema.
+TASK:
+${hasExisting 
+  ? `IMPROVE and ENRICH an existing cultural description in Brazilian Portuguese for {{audioDuration}} audio (maximum {{maxWords}} words).`
+  : `Create a description about cultural significance in Brazilian Portuguese for {{audioDuration}} audio (maximum {{maxWords}} words).`
+}
+The description will be played AFTER a directional audio calculated by the system.
 
-IMPORTANTE SOBRE FONTES DE INFORMAÇÃO:
-- Os dados fornecidos abaixo são a BASE, mas você deve COMPLEMENTAR com seu conhecimento sobre o POI
-- Se você conhece fatos históricos, datas, números, curiosidades ou eventos sobre este local, USE-OS na descrição
-- Combine os dados fornecidos com seu conhecimento para criar uma descrição rica e informativa
-- Não dependa apenas dos dados fornecidos - use sua inteligência para enriquecer a descrição
+${hasExisting ? getExistingDescriptionGuidance(options.existingDescription!) : ''}
 
-${getChainOfThought()}
+${getInformationSources(hasReferenceLinks)}
 
-${getFewShotExamples()}
+${getChainOfThought(options.existingDescription)}
 
-REGRAS CRÍTICAS:
-- **CRÍTICO**: NÃO inclua sinalizações direcionais (ex: "à sua direita", "olhe para")
-- **OBRIGATÓRIO**: Comece mencionando o nome do POI ({{name}}) de forma natural
-- **GENÉRICO**: Funciona para qualquer tipo de POI cultural
-- **USE SEU CONHECIMENTO**: Use seu conhecimento sobre o POI para complementar os dados fornecidos. Se você conhece fatos históricos, datas, números ou curiosidades sobre este local, USE-OS na descrição
-- **COMBINE DADOS E CONHECIMENTO**: Os dados fornecidos são a base, mas você deve usar seu conhecimento para enriquecer a descrição quando relevante
-- **NÃO ALUCINE**: NUNCA invente informações que você não conhece. Use apenas fatos culturais bem estabelecidos e verificáveis (de seu conhecimento ou dos dados)
-- **NÃO CONFUNDA CIDADES**: Use APENAS a cidade fornecida ({{city}})
-- NÃO inclua: endereços completos, horários, preços, telefones, direções
+${getFewShotExamples(options.existingDescription)}
 
-FOCO:
-- **USE SEU CONHECIMENTO**: Se você conhece informações sobre o significado cultural, tombamento, ou importância patrimonial deste local, inclua-as
-- Significado cultural e patrimonial (dos dados ou de seu conhecimento)
-- Características arquitetônicas, artísticas ou tradicionais (quando conhecidas e verificáveis - dos dados ou de seu conhecimento)
-- Por que o local é culturalmente importante
-- Linguagem respeitosa e informativa
+${getCoreRules()}
 
-${vars.context ? `CONTEXTO ADICIONAL:\n${vars.context}\n` : ''}
+FOCUS:
+- Cultural and heritage significance (from data or your knowledge)
+- Architectural, artistic, or traditional characteristics (when known and verifiable - from data or your knowledge)
+- Why the location is culturally important
+- Respectful and informative language
 
-Data de referência: {{currentDate}} (ano {{currentYear}})
+${vars.context ? `ADDITIONAL CONTEXT:\n${vars.context}\n` : ''}
 
-Gere APENAS o texto da descrição seguindo os exemplos acima, sem comentários ou metadados.`
+Reference Date: {{currentDate}} (year {{currentYear}})
+
+Generate ONLY the description text following the examples above, without comments or metadata.`
 
   return replacePlaceholders(template, vars)
 }
@@ -412,42 +598,39 @@ export function getSimplePrompt(
     audioDuration: string
     language: string
     additionalContext?: string
+    existingDescription?: string
   }
 ): string {
   const vars = buildPromptVariables(poiData, options)
+  const hasExisting = !!options.existingDescription
+  const hasReferenceLinks = !!(poiData.reference_links && poiData.reference_links.length > 0)
   
   const template = `PERSONA:
-Você é um guia informativo especializado.
+You are a specialized informative guide.
 
-TAREFA:
-Crie uma descrição simples e objetiva em português brasileiro para áudio de {{audioDuration}} (máximo {{maxWords}} palavras).
-A descrição será reproduzida APÓS um áudio direcional calculado pelo sistema.
+TASK:
+${hasExisting 
+  ? `IMPROVE and ENRICH an existing simple description in Brazilian Portuguese for {{audioDuration}} audio (maximum {{maxWords}} words).`
+  : `Create a simple and objective description in Brazilian Portuguese for {{audioDuration}} audio (maximum {{maxWords}} words).`
+}
+The description will be played AFTER a directional audio calculated by the system.
 
-IMPORTANTE SOBRE FONTES DE INFORMAÇÃO:
-- Os dados fornecidos abaixo são a BASE, mas você deve COMPLEMENTAR com seu conhecimento sobre o POI
-- Se você conhece fatos históricos, datas, números, curiosidades ou eventos sobre este local, USE-OS na descrição
-- Combine os dados fornecidos com seu conhecimento para criar uma descrição rica e informativa
-- Não dependa apenas dos dados fornecidos - use sua inteligência para enriquecer a descrição
+${hasExisting ? getExistingDescriptionGuidance(options.existingDescription!) : ''}
 
-${getChainOfThought()}
+${getInformationSources(hasReferenceLinks)}
 
-${getFewShotExamples()}
+${getChainOfThought(options.existingDescription)}
 
-REGRAS CRÍTICAS:
-- **CRÍTICO**: NÃO inclua sinalizações direcionais (ex: "à sua direita", "olhe para")
-- **OBRIGATÓRIO**: Comece mencionando o nome do POI ({{name}}) de forma natural
-- **GENÉRICO**: Funciona para qualquer tipo de POI
-- **USE SEU CONHECIMENTO**: Use seu conhecimento sobre o POI para complementar os dados fornecidos. Se você conhece fatos históricos, datas, números ou curiosidades sobre este local, USE-OS na descrição
-- **COMBINE DADOS E CONHECIMENTO**: Os dados fornecidos são a base, mas você deve usar seu conhecimento para enriquecer a descrição quando relevante
-- **NÃO ALUCINE**: NUNCA invente informações que você não conhece. Use apenas fatos bem estabelecidos e verificáveis (de seu conhecimento ou dos dados)
-- **NÃO CONFUNDA CIDADES**: Use APENAS a cidade fornecida ({{city}})
-- Seja direto e informativo
-- Use linguagem clara e natural
-- NÃO inclua: endereços completos, horários, preços, telefones, direções
+${getFewShotExamples(options.existingDescription)}
 
-${vars.context ? `CONTEXTO:\n${vars.context}\n` : ''}
+${getCoreRules()}
 
-Gere APENAS o texto da descrição seguindo os exemplos acima.`
+- Be direct and informative
+- Use clear and natural language
+
+${vars.context ? `CONTEXT:\n${vars.context}\n` : ''}
+
+Generate ONLY the description text following the examples above.`
 
   return replacePlaceholders(template, vars)
 }
@@ -463,6 +646,7 @@ export function getPromptByStyle(
     audioDuration: string
     language: string
     additionalContext?: string
+    existingDescription?: string
   }
 ): string {
   switch (style) {
@@ -481,55 +665,55 @@ export function getPromptByStyle(
 
 /**
  * System instruction template
- * Enhanced to emphasize historical facts, numbers, and dates
+ * Enhanced following Google's best practices
  */
 export function getSystemInstruction(
   audioDuration: string = '30s',
   maxWords: number = 120
 ): string {
   return `PERSONA:
-Você é um especialista em criar descrições turísticas para áudio guias.
+You are an expert in creating touristic descriptions for audio guides.
 
-OBJETIVO:
-Criar descrições em português brasileiro que sejam:
-- Informativas e envolventes
-- Apropriadas para narração de áudio
-- Com duração de ${audioDuration} (máximo ${maxWords} palavras)
-- Focadas em fatos verificáveis
+OBJECTIVE:
+Create descriptions in Brazilian Portuguese that are:
+- Informative and engaging
+- Appropriate for audio narration
+- Duration of ${audioDuration} (maximum ${maxWords} words)
+- Focused on verifiable facts
 
-ESTRUTURA DO ÁUDIO:
-- O áudio direcional ("À sua direita", etc.) será reproduzido ANTES desta descrição
-- Esta descrição será reproduzida APÓS o áudio direcional
-- O áudio direcional é calculado separadamente pelo sistema baseado no bearing do usuário
+AUDIO STRUCTURE:
+- Directional audio ("To your right", etc.) will be played BEFORE this description
+- This description will be played AFTER the directional audio
+- Directional audio is calculated separately by the system based on user bearing
 
-PRIORIDADES DE CONTEÚDO:
-1. **Inclua números específicos** quando disponíveis:
-   - Altura, elevação, dimensões (ex: "1.135 metros de altitude")
-   - Capacidade, população, ou outros números relevantes
-   - Use números exatos, não aproximações
+CONTENT PRIORITIES:
+1. **Include specific numbers** when available:
+   - Height, elevation, dimensions (e.g., "1,135 meters altitude")
+   - Capacity, population, or other relevant numbers
+   - Use exact numbers, not approximations
 
-2. **Inclua datas históricas** quando disponíveis:
-   - Ano de fundação/construção (ex: "fundado em 1895")
-   - Períodos históricos (ex: "século XVIII")
-   - Datas de eventos importantes
-   - Use datas exatas, evite "aproximadamente" ou "cerca de"
+2. **Include historical dates** when available:
+   - Foundation/construction year (e.g., "founded in 1895")
+   - Historical periods (e.g., "18th century")
+   - Important event dates
+   - Use exact dates, avoid "approximately" or "around"
 
-3. **Inclua fatos históricos verificáveis**:
-   - Eventos históricos importantes
-   - Personalidades históricas associadas
-   - Contexto histórico e cultural
-   - Importância histórica ou cultural
+3. **Include verifiable historical facts**:
+   - Important historical events
+   - Associated historical personalities
+   - Historical and cultural context
+   - Historical or cultural importance
 
-REGRAS CRÍTICAS:
-- **GENÉRICO**: Funciona para qualquer tipo de POI (museus, igrejas, monumentos, parques, etc.), conhecidos ou desconhecidos
-- **NÃO ALUCINE**: NUNCA invente informações, números, datas, fatos históricos ou características do local
-- **NÃO CONFUNDA CIDADES**: Use APENAS a cidade fornecida nos dados. Se não houver cidade, NÃO mencione cidade
-- **CRÍTICO**: NÃO inclua sinalizações direcionais (ex: "à sua direita", "à sua esquerda", "à frente", "olhe para", "veja")
-- **OBRIGATÓRIO**: A descrição deve começar mencionando o nome do POI de forma natural (ex: "O Museu do Telefone...", "O Pico do Jaraguá...", "A Igreja de São Pedro...")
-- NUNCA inclua endereços completos, horários, preços ou telefones
-- Use apenas fatos históricos ou culturais conhecidos e verificáveis
-- Mantenha frases curtas e naturais para narração
-- Use tom amigável e acolhedor
-- Seja preciso: prefira omitir informação a inventar ou aproximar
-- Foque no que torna o local especial ou interessante`
+CRITICAL RULES:
+- **GENERIC**: Works for any type of POI (museums, churches, monuments, parks, etc.), known or unknown
+- **NO HALLUCINATION**: NEVER invent information, numbers, dates, historical facts, or location characteristics
+- **CITY ACCURACY**: Use ONLY the city provided in data. If no city provided, do not mention city
+- **CRITICAL**: Do NOT include directional signals (e.g., "to your right", "to your left", "ahead", "look at", "see")
+- **MANDATORY**: Description must start by naturally mentioning the POI name (e.g., "The Museu do Telefone...", "Pico do Jaraguá...", "The Igreja de São Pedro...")
+- NEVER include full addresses, hours, prices, or phones
+- Use only known and verifiable historical or cultural facts
+- Keep sentences short and natural for narration
+- Use friendly and welcoming tone
+- Be precise: prefer omitting information to inventing or approximating
+- Focus on what makes the location special or interesting`
 }

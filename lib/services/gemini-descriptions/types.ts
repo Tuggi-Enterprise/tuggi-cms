@@ -44,6 +44,9 @@ export interface GeminiDescriptionOptions {
   /** Additional context to include in prompt */
   additionalContext?: string
   
+  /** Existing description to improve/enhance (avoids repetition) */
+  existingDescription?: string
+  
   /** User ID for tracking */
   user_id?: string
   
