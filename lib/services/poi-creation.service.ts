@@ -77,13 +77,14 @@ export class POICreationService {
       console.log(`✅ Attraction created with ID: ${attractionId}`)
 
       // Step 2: Create coordinate using safe RPC function (prevents duplicates, atomic)
+      // For manual creation, always show in map
       const { data: coordinateId, error: coordinateError } = await supabase
         .schema('core')
         .rpc('insert_coordinate_safe', {
           p_attraction_id: attractionId,
           p_latitude: data.latitude,
           p_longitude: data.longitude,
-          p_show_in_map: false
+          p_show_in_map: true
         })
 
       if (coordinateError) {

@@ -10,7 +10,15 @@ const supabase = getSupabase('service')
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, lat, lng } = body
+    const { name, lat, lng, boundary } = body
+
+    console.log('📍 [create-manual] Received request:', {
+      name,
+      lat,
+      lng,
+      hasBoundary: !!boundary,
+      boundaryLength: boundary?.length
+    })
 
     // Validate required fields
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -27,7 +35,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`🆕 Creating manual POI: ${name} at ${lat}, ${lng}`)
+    // Validate boundary if provided
+    if (boundary) {
+      if (!Array.isArray(boundary) || boundary.length < 3) {
+        return NextResponse.json(
+          { error: 'Boundary inválido: mínimo 3 pontos' },
+          { status: 400 }
+        )
+      }
+    }
+
+    console.log(`🆕 Creating manual POI: ${name} at ${lat}, ${lng}${boundary ? ` with ${boundary.length}-point boundary` : ''}`)
 
     // Step 1: Reverse geocoding to get city, state, country
     let city: string | null = null
@@ -109,7 +127,64 @@ export async function POST(request: NextRequest) {
       // Don't fail the request if enrichment fails
     }
 
-    // Step 4: Fetch complete POI data to return
+    // Step 4: Save boundary if provided
+    if (boundary && Array.isArray(boundary) && boundary.length >= 3) {
+      console.log(`💾 Saving boundary for POI ${attractionId} (${boundary.length} points)`)
+      
+      try {
+        // Convert boundary to GeoJSON
+        const geoJson = {
+          type: 'Polygon',
+          coordinates: [[
+            ...boundary.map((p: {lat: number; lng: number}) => [p.lng, p.lat]),
+            [boundary[0].lng, boundary[0].lat] // Close the polygon
+          ]]
+        }
+
+        // Calculate area using Shoelace formula (approximate)
+        let area = 0
+        for (let i = 0; i < boundary.length; i++) {
+          const j = (i + 1) % boundary.length
+          area += boundary[i].lng * boundary[j].lat
+          area -= boundary[j].lng * boundary[i].lat
+        }
+        area = Math.abs(area / 2) * 111320 * 111320 // Convert to m²
+
+        // Calculate centroid
+        const centroid = {
+          lat: boundary.reduce((sum: number, p: {lat: number}) => sum + p.lat, 0) / boundary.length,
+          lng: boundary.reduce((sum: number, p: {lng: number}) => sum + p.lng, 0) / boundary.length
+        }
+
+        // Call update_boundary_geometry RPC (function is in core schema)
+        // Note: parameter is p_geojson, not p_boundary_geometry_geojson
+        const { error: boundaryError } = await supabase
+          .schema('core')
+          .rpc(
+            'update_boundary_geometry',
+            {
+              p_attraction_id: attractionId,
+              p_geojson: JSON.stringify(geoJson),
+              p_boundary_type: 'manual',
+              p_boundary_source: 'manual_drawing',
+              p_boundary_confidence: 1.0,
+              p_boundary_area_m2: area,
+              p_boundary_centroid_lat: centroid.lat,
+              p_boundary_centroid_lng: centroid.lng
+            }
+          )
+
+        if (boundaryError) {
+          console.error('❌ Error saving boundary:', boundaryError.message)
+        } else {
+          console.log('✅ Boundary saved successfully')
+        }
+      } catch (boundaryErr) {
+        console.error('❌ Error processing boundary:', boundaryErr)
+      }
+    }
+
+    // Step 5: Fetch complete POI data to return
     const { data: completePOI, error: fetchError } = await supabase
       .schema('core')
       .from('attractions')
@@ -117,7 +192,10 @@ export async function POST(request: NextRequest) {
         *,
         attraction_coordinate (
           latitude,
-          longitude
+          longitude,
+          boundary_area_m2,
+          boundary_centroid_lat,
+          boundary_centroid_lng
         )
       `)
       .eq('id', attractionId)
@@ -125,7 +203,6 @@ export async function POST(request: NextRequest) {
 
     if (fetchError || !completePOI) {
       console.error('❌ Error fetching created POI:', fetchError)
-      // Still return success since POI was created
     }
 
     return NextResponse.json({
@@ -134,10 +211,14 @@ export async function POST(request: NextRequest) {
         ...completePOI,
         coordinates: completePOI?.attraction_coordinate?.[0] ? {
           latitude: completePOI.attraction_coordinate[0].latitude,
-          longitude: completePOI.attraction_coordinate[0].longitude
+          longitude: completePOI.attraction_coordinate[0].longitude,
+          boundary_area_m2: completePOI.attraction_coordinate[0].boundary_area_m2,
+          boundary_centroid_lat: completePOI.attraction_coordinate[0].boundary_centroid_lat,
+          boundary_centroid_lng: completePOI.attraction_coordinate[0].boundary_centroid_lng
         } : { latitude: lat, longitude: lng },
         enrichment_result: enrichmentResult
-      }
+      },
+      message: `POI criado com sucesso${boundary ? ' com boundary' : ''}`
     })
 
   } catch (error) {

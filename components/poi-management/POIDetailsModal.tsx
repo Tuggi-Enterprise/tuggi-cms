@@ -105,6 +105,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [isCreating, setIsCreating] = useState(false)
   const [isGeocoding, setIsGeocoding] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+  const [createBoundary, setCreateBoundary] = useState<Array<{ lat: number; lng: number }> | null>(null)
   const [isEnrichingOSM, setIsEnrichingOSM] = useState(false)
   
   // Boundary drawing state
@@ -181,7 +182,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         body: JSON.stringify({
           name: createName.trim(),
           lat: createCoordinates.lat,
-          lng: createCoordinates.lng
+          lng: createCoordinates.lng,
+          boundary: createBoundary // Enviar boundary se foi desenhado
         })
       })
 
@@ -770,8 +772,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // If boundary exists, fetch the geometry using a custom query
       if (coordData?.boundary_type) {
         try {
-          // Use RPC function to get boundary as GeoJSON
+          // Use RPC function to get boundary as GeoJSON (function is in core schema)
           const { data: geoJsonData, error: geoJsonError } = await supabase
+            .schema('core')
             .rpc('get_boundary_geometry', { p_attraction_id: currentPoi.id });
 
           if (!geoJsonError && geoJsonData) {
@@ -836,8 +839,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   // Debug effect for Group POIs tab
   useEffect(() => {
     if (activeTab === 'group-pois') {
+      const currentPoi = getPoi()
       console.log('🔍 MODAL: Group POIs tab active');
-      console.log('🔍 MODAL: POI coordinates:', poi.coordinates);
+      console.log('🔍 MODAL: POI coordinates:', currentPoi?.coordinates);
       console.log('🔍 MODAL: Current state:', { 
         nearbyPOIs: nearbyPOIs.length, 
         selectedPOIs, 
@@ -845,7 +849,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         groupName 
       });
     }
-  }, [activeTab, poi?.coordinates, nearbyPOIs, selectedPOIs, groupInfo, groupName])
+  }, [activeTab, getPoi, nearbyPOIs, selectedPOIs, groupInfo, groupName])
 
   const handleTogglePOI = (id: string) => {
     console.log('🔍 MODAL: handleTogglePOI called with id:', id);
@@ -859,8 +863,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }
 
   const handleSaveGroup = async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi) {
+      alert('POI não encontrado')
+      return
+    }
+    
     console.log('🔍 MODAL: handleSaveGroup called');
-    console.log('🔍 MODAL: Current state:', { groupInfo, groupName, selectedPOIs, poiId: poi.id });
+    console.log('🔍 MODAL: Current state:', { groupInfo, groupName, selectedPOIs, poiId: currentPoi.id });
     
     setGroupLoading(true)
     try {
@@ -868,12 +878,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       console.log('🔍 MODAL: Current user:', user?.id);
       
       // Always include the main POI in the group
-      const poiIds = [poi.id, ...selectedPOIs.filter(id => id !== poi.id)]
+      const poiIds = [currentPoi.id, ...selectedPOIs.filter(id => id !== currentPoi.id)]
       console.log('🔍 MODAL: POI IDs to save:', poiIds);
       
       const requestBody = {
         groupId: groupInfo?.id,
-        name: groupName || poi.name,
+        name: groupName || currentPoi.name,
         poiIds: poiIds,
         userId: user?.id
       }
@@ -913,6 +923,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // Check if this is a homolog POI (from homolog.pois table)
       const isHomologPOI = !!(poi as any)._homologData
       
+      const currentPoi = getPoi()
+      if (!currentPoi || !editedPoi) {
+        alert('POI não encontrado')
+        return
+      }
+      
       if (isHomologPOI) {
         // Use API route for homolog POIs
         // Note: homolog.pois has both 'category' and 'primary_category' fields
@@ -929,15 +945,15 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         if (editedPoi.category) {
           updates.category = editedPoi.category
           updates.primary_category = editedPoi.category
-        } else if ((poi as any)._homologData?.primary_category) {
+        } else if ((currentPoi as any)._homologData?.primary_category) {
           // Keep existing primary_category if category is not provided
-          updates.primary_category = (poi as any)._homologData.primary_category
+          updates.primary_category = (currentPoi as any)._homologData.primary_category
         }
         
         const response = await fetch('/api/supabase/pois/update', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: poi.id, updates })
+          body: JSON.stringify({ id: currentPoi.id, updates })
         })
         
         if (!response.ok) {
@@ -987,16 +1003,22 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }
 
   const handleApprove = async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi) {
+      alert('POI não encontrado')
+      return
+    }
+    
     setIsSaving(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
       
       console.log('🔍 Approving POI:', {
-        poiId: poi.id,
-        poiName: poi.name,
+        poiId: currentPoi.id,
+        poiName: currentPoi.name,
         currentUserId: user?.id,
-        poiUserId: poi.user_id,
-        isApproved: poi.approved
+        poiUserId: currentPoi.user_id,
+        isApproved: currentPoi.approved
       })
       
       // Check if this is a homolog POI (from homolog.pois table)
@@ -1012,7 +1034,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         const response = await fetch('/api/supabase/pois/update', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: poi.id, updates })
+          body: JSON.stringify({ id: currentPoi.id, updates })
         })
         
         if (!response.ok) {
@@ -1029,7 +1051,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
             approved_by: user?.id,
             approved_at: new Date().toISOString()
           })
-          .eq('id', poi.id)
+          .eq('id', currentPoi.id)
 
         if (error) {
           console.error('❌ Supabase error:', error)
@@ -1062,6 +1084,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }
 
   const handleDelete = async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi) {
+      alert('POI não encontrado')
+      return
+    }
+    
     if (!window.confirm('Are you sure you want to delete this POI? This action cannot be undone.')) {
       return
     }
@@ -1069,14 +1097,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     setIsSaving(true)
     try {
       // Check if this is a homolog POI (from homolog.pois table)
-      const isHomologPOI = !!(poi as any)._homologData
+      const isHomologPOI = !!(currentPoi as any)._homologData
       
       if (isHomologPOI) {
         // Use API route for homolog POIs
         const response = await fetch('/api/supabase/pois/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: [poi.id] })
+          body: JSON.stringify({ ids: [currentPoi.id] })
         })
         
         if (!response.ok) {
@@ -1089,14 +1117,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           .schema('core')
           .from('attractions')
           .delete()
-          .eq('id', poi.id)
+          .eq('id', currentPoi.id)
 
         if (error) throw error
       }
 
       // Notify parent component about deletion instead of reloading all data
       if (onPOIDeleted) {
-        onPOIDeleted(poi.id)
+        onPOIDeleted(currentPoi.id)
       } else {
         await onUpdate()
       }
@@ -1110,20 +1138,28 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }
 
   const openInGoogleMaps = () => {
-    if (poi.coordinates) {
-      const url = `https://www.google.com/maps/search/?api=1&query=${poi.coordinates.latitude},${poi.coordinates.longitude}`
+    const currentPoi = getPoi()
+    if (currentPoi?.coordinates) {
+      const url = `https://www.google.com/maps/search/?api=1&query=${currentPoi.coordinates.latitude},${currentPoi.coordinates.longitude}`
       window.open(url, '_blank')
     }
   }
 
   const openWebsite = () => {
-    if (poi.website) {
-      window.open(poi.website, '_blank')
+    const currentPoi = getPoi()
+    if (currentPoi?.website) {
+      window.open(currentPoi.website, '_blank')
     }
   }
 
   // Description management functions
   const generateDescription = async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi) {
+      alert('POI não encontrado')
+      return
+    }
+    
     console.log('🚀 POI MODAL: Starting description generation with new Gemini Description Service...')
     setIsGenerating(true)
     try {
@@ -1145,23 +1181,23 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       
       // Prepare POI data for new Gemini Description Service
       const poiData = {
-        id: poi.id,
-        name: poi.name,
-        city: poi.city,
-        country: poi.country,
-        state: poi.state || undefined,
-        formatted_address: poi.formatted_address || undefined,
-        vicinity: poi.vicinity || undefined,
-        google_types: poi.google_types || (poi.category ? [poi.category] : ['tourist_attraction']),
-        rating: poi.rating || undefined,
-        user_ratings_total: poi.user_ratings_total || undefined,
-        price_level: poi.price_level || undefined,
-        business_status: poi.business_status || undefined,
-        opening_hours: poi.opening_hours || undefined,
-        website: poi.website || undefined,
-        formatted_phone_number: poi.formatted_phone_number || undefined,
-        photos_references: poi.photos_references || undefined,
-        image_url: poi.image_url || undefined,
+        id: currentPoi.id,
+        name: currentPoi.name,
+        city: currentPoi.city,
+        country: currentPoi.country,
+        state: currentPoi.state || undefined,
+        formatted_address: currentPoi.formatted_address || undefined,
+        vicinity: currentPoi.vicinity || undefined,
+        google_types: currentPoi.google_types || (currentPoi.category ? [currentPoi.category] : ['tourist_attraction']),
+        rating: currentPoi.rating || undefined,
+        user_ratings_total: currentPoi.user_ratings_total || undefined,
+        price_level: currentPoi.price_level || undefined,
+        business_status: currentPoi.business_status || undefined,
+        opening_hours: currentPoi.opening_hours || undefined,
+        website: currentPoi.website || undefined,
+        formatted_phone_number: currentPoi.formatted_phone_number || undefined,
+        photos_references: currentPoi.photos_references || undefined,
+        image_url: currentPoi.image_url || undefined,
         reference_links: referenceLinks.filter(link => !!link.trim()) || undefined,
         google_place_id: poi.google_place_id || undefined,
         lat: poi.coordinates?.latitude || undefined,
@@ -2337,15 +2373,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Localização no Mapa *
+                          Localização e Boundary do POI *
                         </label>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                          Clique no mapa para selecionar a localização do POI
+                          1. Clique no mapa para definir a localização central do POI<br/>
+                          2. Use o botão "🔸 Draw Polygon" para desenhar o boundary (opcional)
                         </p>
                         <div className="h-96 w-full rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
                           <GoogleMapComponent
+                            componentId="create-poi-map"
                             center={createCoordinates || { lat: -23.5505, lng: -46.6333 }}
-                            zoom={createCoordinates ? 15 : 10}
+                            zoom={createCoordinates ? 18 : 10}
                             height="100%"
                             markers={createCoordinates ? [{
                               id: 'poi-location',
@@ -2353,13 +2391,33 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               title: createName || 'Nova localização',
                               color: '#FF6B35'
                             }] : []}
-                            enableDrawing={false}
-                            showDrawingButton={false}
+                            polygon={createBoundary || undefined}
+                            enableDrawing={true}
                             onMapClick={(lat: number, lng: number) => {
                               setCreateCoordinates({ lat, lng })
                             }}
+                            onPolygonComplete={(polygon: any) => {
+                              const coords = extractPolygonCoordinates(polygon)
+                              console.log('🗺️ [Create POI] Boundary drawn:', coords.length, 'points')
+                              setCreateBoundary(coords)
+                            }}
+                            polygonOptions={{
+                              strokeColor: '#FF6B35',
+                              strokeOpacity: 0.8,
+                              strokeWeight: 3,
+                              fillColor: '#FF6B35',
+                              fillOpacity: 0.2
+                            }}
                           />
                         </div>
+                        {createBoundary && createBoundary.length >= 3 && (
+                          <div className="mt-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-md border border-green-200 dark:border-green-800">
+                            <div className="flex items-center text-sm text-green-800 dark:text-green-300">
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Boundary desenhado: {createBoundary.length} pontos
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {isGeocoding && (
