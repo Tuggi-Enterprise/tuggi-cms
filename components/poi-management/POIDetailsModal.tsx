@@ -2383,10 +2383,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Localização e Boundary do POI *
                         </label>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                          1. Clique no mapa para definir a localização central do POI<br/>
-                          2. Use o botão "🔸 Draw Polygon" para desenhar o boundary (opcional)
-                        </p>
+
                         <div className="h-96 w-full rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
                           <GoogleMapComponent
                             componentId="create-poi-map"
