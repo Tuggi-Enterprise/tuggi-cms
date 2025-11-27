@@ -536,7 +536,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_image')
         .select('*')
-        .eq('attraction_id', currentPoi.id)
+        .eq('attraction_id', getPoi()?.id || '')
         .order('created_at', { ascending: false })
 
       setImages(imagesData || [])
@@ -598,7 +598,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('v_descriptions_with_last_score')
         .select('*')
-        .eq('attraction_id', currentPoi.id)
+        .eq('attraction_id', getPoi()?.id || '')
         .eq('language', 'pt-BR')
         .eq('is_original', true)
         .maybeSingle();
@@ -761,7 +761,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_coordinate')
         .select('boundary_type, boundary_area_m2, boundary_centroid_lat, boundary_centroid_lng')
-        .eq('attraction_id', currentPoi.id)
+        .eq('attraction_id', getPoi()?.id || '')
         .single();
 
       if (error && error.code !== 'PGRST116') {
@@ -796,7 +796,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               .schema('core')
               .from('attraction_coordinate')
               .select('boundary_geometry')
-              .eq('attraction_id', currentPoi.id)
+              .eq('attraction_id', getPoi()?.id || '')
               .single();
 
             if (directData?.boundary_geometry) {
@@ -1062,6 +1062,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       console.log('✅ POI approved successfully')
       
       // Update local state instead of reloading all data
+      if (!editedPoi || !editedPoi.id) {
+        throw new Error('Cannot approve POI: missing POI data')
+      }
       const updatedPOI = { 
         ...editedPoi, 
         approved: true, 
@@ -1069,7 +1072,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         approved_at: new Date().toISOString() 
       }
       if (onPOIUpdated) {
-        onPOIUpdated(updatedPOI)
+        onPOIUpdated(updatedPOI as POI)
       } else {
         await onUpdate()
       }
@@ -1169,7 +1172,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_descriptions')
         .select('id')
-        .eq('attraction_id', currentPoi.id)
+        .eq('attraction_id', getPoi()?.id || '')
         .eq('language', 'pt-br')
         .order('updated_at', { ascending: false })
         .maybeSingle();
@@ -1199,9 +1202,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         photos_references: currentPoi.photos_references || undefined,
         image_url: currentPoi.image_url || undefined,
         reference_links: referenceLinks.filter(link => !!link.trim()) || undefined,
-        google_place_id: poi.google_place_id || undefined,
-        lat: poi.coordinates?.latitude || undefined,
-        lng: poi.coordinates?.longitude || undefined
+        google_place_id: poi?.google_place_id || undefined,
+        lat: poi?.coordinates?.latitude || undefined,
+        lng: poi?.coordinates?.longitude || undefined
       }
       
       // Prepare additional context from reference links
@@ -1348,7 +1351,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .update({
           reference_links: validLinks
         })
-        .eq('id', poi.id)
+        .eq('id', getPoi()?.id || '')
 
       if (refLinksError) {
         console.error('⚠️ Error saving reference links:', refLinksError)
@@ -1378,7 +1381,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_descriptions')
         .select('*')
-        .eq('attraction_id', currentPoi.id)
+        .eq('attraction_id', getPoi()?.id || '')
         .eq('language', 'pt-br')
         .maybeSingle()
 
@@ -1393,7 +1396,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       console.log('🔄 Description changed:', descriptionChanged)
       
       if (existingDescs) {
-        console.log('🔄 Updating existing description for POI:', poi.id)
+        console.log('🔄 Updating existing description for POI:', getPoi()?.id)
         console.log('📝 New description:', currentDescription.substring(0, 100) + '...')
         console.log('🔍 Updating description ID:', existingDescs.id)
         
@@ -1429,14 +1432,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           console.log('🔍 Verification - Updated description:', verifyData?.description?.substring(0, 100) + '...')
         }
       } else {
-        console.log('🆕 Creating new description for POI:', poi.id)
+        const currentPoiForDesc = getPoi()
+        if (!currentPoiForDesc) return
+        console.log('🆕 Creating new description for POI:', currentPoiForDesc.id)
         console.log('📝 New description:', currentDescription.substring(0, 100) + '...')
         // Create new Portuguese description
         const { error } = await supabase
           .schema('core')
           .from('attraction_descriptions')
           .insert({
-            attraction_id: poi.id,
+            attraction_id: currentPoiForDesc.id,
             language: 'pt-br', // Brazilian Portuguese
             description: currentDescription,
             play_count: 0
@@ -1514,7 +1519,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_descriptions')
         .select('*')
-        .eq('attraction_id', currentPoi.id)
+        .eq('attraction_id', getPoi()?.id || '')
         .eq('language', 'pt-br')
         .maybeSingle()
 
@@ -1634,7 +1639,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     if (!textForAudio) {
       if (currentAudioUrl) {
         // If audio exists but no description, create fallback text
-        textForAudio = `${poi.name} é uma atração localizada em ${poi.city}, ${poi.country}.`
+        const fallbackPoi = getPoi()
+        if (fallbackPoi) {
+          textForAudio = `${fallbackPoi.name} é uma atração localizada em ${fallbackPoi.city}, ${fallbackPoi.country}.`
+        }
         const proceed = window.confirm(
           `No description found. Using fallback text: "${textForAudio}"\n\n` +
           'For better audio quality, please add a proper description in the Description tab first.\n\n' +
@@ -2545,8 +2553,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </label>
                         <input
                           type="text"
-                          value={editedPoi.name}
-                          onChange={(e) => setEditedPoi(prev => ({ ...prev, name: e.target.value }))}
+                          value={editedPoi?.name || ''}
+                          onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, name: e.target.value }) : null)}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                         />
                       </div>
@@ -2556,8 +2564,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           Category
                         </label>
                         <select
-                          value={editedPoi.category || ''}
-                          onChange={(e) => setEditedPoi(prev => ({ ...prev, category: e.target.value }))}
+                          value={editedPoi?.category || ''}
+                          onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, category: e.target.value }) : null)}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                         >
                           <option value="">Select Category</option>
@@ -2576,8 +2584,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           </label>
                           <input
                             type="text"
-                            value={editedPoi.city}
-                            onChange={(e) => setEditedPoi(prev => ({ ...prev, city: e.target.value }))}
+                            value={editedPoi?.city || ''}
+                            onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, city: e.target.value }) : null)}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                           />
                         </div>
@@ -2587,8 +2595,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           </label>
                           <input
                             type="text"
-                            value={editedPoi.state || ''}
-                            onChange={(e) => setEditedPoi(prev => ({ ...prev, state: e.target.value || null }))}
+                            value={editedPoi?.state || ''}
+                            onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, state: e.target.value || null }) : null)}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                           />
                         </div>
@@ -2598,8 +2606,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           </label>
                           <input
                             type="text"
-                            value={editedPoi.country}
-                            onChange={(e) => setEditedPoi(prev => ({ ...prev, country: e.target.value }))}
+                            value={editedPoi?.country || ''}
+                            onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, country: e.target.value }) : null)}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                           />
                         </div>
@@ -2609,10 +2617,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {/* Right Column: Categories Display */}
                     <div className="space-y-4">
                       {/* Google Types */}
-                      {poi.google_types && poi.google_types.length > 0 && (
+                      {getPoi()?.google_types && getPoi()!.google_types!.length > 0 && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Google Types ({poi.google_types.length})
+                            Google Types ({getPoi()!.google_types!.length})
                           </label>
                           <div className="flex flex-wrap gap-2 p-3 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
                             {poi.google_types.map((type, index) => (
