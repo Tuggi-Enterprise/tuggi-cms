@@ -1455,9 +1455,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setOriginalDescription(currentDescription)
       
       // Update the descriptions array locally to reflect the change
+      const currentPoiForDescUpdate = getPoi()
+      if (!currentPoiForDescUpdate) return
       setDescriptions(prevDescriptions => {
         const updatedDescriptions = prevDescriptions.map(desc => {
-          if (desc.attraction_id === poi.id && desc.language === 'pt-br') {
+          if (desc.attraction_id === currentPoiForDescUpdate.id && desc.language === 'pt-br') {
             return {
               ...desc,
               description: currentDescription,
@@ -1538,11 +1540,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         if (error) throw error
       } else {
         // Create new Portuguese description
+        const currentPoiForAudioInsert = getPoi()
+        if (!currentPoiForAudioInsert) {
+          alert('POI não encontrado. Por favor, recarregue a página.')
+          return
+        }
         const { error } = await supabase
           .schema('core')
           .from('attraction_descriptions')
           .insert({
-            attraction_id: poi.id,
+            attraction_id: currentPoiForAudioInsert.id,
             language: 'pt-br',
             description: currentDescription,
             play_count: 0
@@ -1555,9 +1562,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setOriginalDescription(currentDescription)
       
       // Update the descriptions array locally
+      const currentPoiForDescUpdate2 = getPoi()
+      if (!currentPoiForDescUpdate2) return
       setDescriptions(prevDescriptions => {
         const updatedDescriptions = prevDescriptions.map(desc => {
-          if (desc.attraction_id === poi.id && desc.language === 'pt-br') {
+          if (desc.attraction_id === currentPoiForDescUpdate2.id && desc.language === 'pt-br') {
             return {
               ...desc,
               description: currentDescription,
@@ -1677,7 +1686,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         },
         body: JSON.stringify({
           text: textForAudio,
-          attractionId: poi.id,
+          attractionId: getPoi()?.id || '',
           voice: voiceToSend,
           speed: audioSpeed,
           provider: audioProvider
@@ -1703,7 +1712,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
-          attractionId: poi.id,
+          attractionId: getPoi()?.id || '',
           audioData: ttsData.audioData,
           mimeType: ttsData.mimeType,
           language: 'pt-br'
@@ -1780,8 +1789,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         throw new Error('No active session')
       }
 
+      const currentPoiForTranslation = getPoi()
+      if (!currentPoiForTranslation) {
+        alert('POI não encontrado. Por favor, recarregue a página.')
+        return
+      }
       const requestBody = {
-        attractionId: poi.id,
+        attractionId: currentPoiForTranslation.id,
         targetLanguage: selectedLanguage,
         voiceGender: selectedGender
       }
@@ -1904,8 +1918,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       throw new Error('No active session')
     }
 
+    const currentPoiForTranslation2 = getPoi()
+    if (!currentPoiForTranslation2) {
+      alert('POI não encontrado. Por favor, recarregue a página.')
+      return
+    }
     const requestBody = {
-      attractionId: poi.id,
+      attractionId: currentPoiForTranslation2.id,
       targetLanguage: language,
       voiceGender: gender
     }
@@ -2620,7 +2639,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             Google Types ({getPoi()!.google_types!.length})
                           </label>
                           <div className="flex flex-wrap gap-2 p-3 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
-                            {poi.google_types.map((type, index) => (
+                            {getPoi()?.google_types?.map((type, index) => (
                               <span 
                                 key={index}
                                 className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20"
@@ -2642,28 +2661,28 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             <FileText className="h-4 w-4 text-gray-400" />
                             <div>
                               <div className="text-xs text-gray-500 dark:text-gray-400">Descriptions</div>
-                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi.description_count || 0}</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.description_count || 0}</div>
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
                             <Volume2 className="h-4 w-4 text-gray-400" />
                             <div>
                               <div className="text-xs text-gray-500 dark:text-gray-400">Audio Files</div>
-                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi.audio_count || 0}</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.audio_count || 0}</div>
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
                             <Target className="h-4 w-4 text-gray-400" />
                             <div>
                               <div className="text-xs text-gray-500 dark:text-gray-400">Trigger Points</div>
-                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi.trigger_points_count || 0}</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.trigger_points_count || 0}</div>
                             </div>
                           </div>
                           <div className="flex items-center space-x-2">
                             <CheckCircle className="h-4 w-4 text-gray-400" />
                             <div>
                               <div className="text-xs text-gray-500 dark:text-gray-400">Active TPs</div>
-                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi.active_trigger_points_count || 0}</div>
+                              <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.active_trigger_points_count || 0}</div>
                             </div>
                           </div>
                         </div>
@@ -2687,11 +2706,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Approval Status</div>
                         <span className={cn(
                           'inline-flex items-center px-3 py-1 text-sm font-medium rounded-full',
-                          poi.approved
+                          getPoi()?.approved
                             ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
                             : 'bg-tuggi-orange/10 text-tuggi-orange border border-tuggi-orange/20'
                         )}>
-                          {poi.approved ? (
+                          {getPoi()?.approved ? (
                             <>
                               <CheckCircle className="h-4 w-4 mr-1" />
                               Approved
@@ -2706,17 +2725,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       </div>
 
                       {/* Rating */}
-                      {poi.rating ? (
+                      {getPoi()?.rating ? (
                         <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Rating</div>
                           <div className="flex items-center">
                             <Star className="h-5 w-5 text-yellow-400 mr-1" />
                             <span className="text-lg font-semibold text-gray-900 dark:text-white">
-                              {poi.rating.toFixed(1)}
+                              {getPoi()!.rating!.toFixed(1)}
                             </span>
-                            {poi.user_ratings_total && (
+                            {getPoi()?.user_ratings_total && (
                               <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
-                                ({poi.user_ratings_total})
+                                ({getPoi()!.user_ratings_total})
                               </span>
                             )}
                           </div>
@@ -2729,43 +2748,43 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       )}
 
                       {/* Verification Score */}
-                      {poi.verification_score !== null && poi.verification_score !== undefined ? (
+                      {getPoi()?.verification_score !== null && getPoi()?.verification_score !== undefined ? (
                         <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Verification Score</div>
                           <div className="flex items-center">
                             <span className={cn(
                               "text-lg font-semibold",
-                              poi.verification_score >= 0.8 ? "text-green-600 dark:text-green-400" :
-                              poi.verification_score >= 0.6 ? "text-yellow-600 dark:text-yellow-400" :
+                              getPoi()!.verification_score! >= 0.8 ? "text-green-600 dark:text-green-400" :
+                              getPoi()!.verification_score! >= 0.6 ? "text-yellow-600 dark:text-yellow-400" :
                               "text-red-600 dark:text-red-400"
                             )}>
-                              {(poi.verification_score * 100).toFixed(0)}%
+                              {(getPoi()!.verification_score! * 100).toFixed(0)}%
                             </span>
                           </div>
                         </div>
                       ) : null}
 
                       {/* Group Status */}
-                      {poi.group_status && poi.group_status.is_in_group ? (
+                      {getPoi()?.group_status && getPoi()!.group_status!.is_in_group ? (
                         <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Group</div>
                           <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                            {poi.group_status.group_role === 'main' ? 'Main' : 'Member'}
+                            {getPoi()!.group_status!.group_role === 'main' ? 'Main' : 'Member'}
                           </div>
-                          {poi.group_status.group_name && (
+                          {getPoi()!.group_status!.group_name && (
                             <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              {poi.group_status.group_name}
+                              {getPoi()!.group_status!.group_name}
                             </div>
                           )}
                         </div>
                       ) : null}
 
                       {/* Business Status */}
-                      {poi.business_status ? (
+                      {getPoi()?.business_status ? (
                         <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Business Status</div>
                           <div className="text-sm font-semibold text-gray-900 dark:text-white capitalize">
-                            {poi.business_status.replace(/_/g, ' ')}
+                            {getPoi()!.business_status!.replace(/_/g, ' ')}
                           </div>
                         </div>
                       ) : null}
@@ -2899,38 +2918,38 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </h3>
                     
                     <div className="space-y-4">
-                      {poi.formatted_address && (
+                      {getPoi()?.formatted_address && (
                         <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                           <div className="flex items-start space-x-3">
                             <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                             <div className="flex-1">
                               <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Address</div>
-                              <div className="text-sm text-gray-900 dark:text-white">{poi.formatted_address}</div>
+                              <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.formatted_address}</div>
                             </div>
                           </div>
                         </div>
                       )}
 
-                      {poi.vicinity && (
+                      {getPoi()?.vicinity && (
                         <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                           <div className="flex items-start space-x-3">
                             <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                             <div className="flex-1">
                               <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vicinity</div>
-                              <div className="text-sm text-gray-900 dark:text-white">{poi.vicinity}</div>
+                              <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.vicinity}</div>
                             </div>
                           </div>
                         </div>
                       )}
 
-                      {poi.coordinates && (
+                      {getPoi()?.coordinates && (
                         <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                           <div className="flex items-start space-x-3">
                             <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                             <div className="flex-1">
                               <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Coordinates</div>
                               <div className="text-sm text-gray-900 dark:text-white font-mono">
-                                {poi.coordinates.latitude.toFixed(6)}, {poi.coordinates.longitude.toFixed(6)}
+                                {getPoi()!.coordinates!.latitude.toFixed(6)}, {getPoi()!.coordinates!.longitude.toFixed(6)}
                               </div>
                               <button
                                 onClick={openInGoogleMaps}
@@ -3094,7 +3113,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   {/* Right Column: Image Preview */}
                   <div>
                     {(() => {
-                      const fullSizeImageUrl = getFullSizeImageUrl(poi)
+                      const currentPoiForImage = getPoi()
+                      if (!currentPoiForImage) return null
+                      const fullSizeImageUrl = getFullSizeImageUrl(currentPoiForImage)
                       return (fullSizeImageUrl || images.length > 0) && (
                         <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 h-full">
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -3104,7 +3125,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             {fullSizeImageUrl && (
                               <img
                                 src={fullSizeImageUrl}
-                                alt={poi.name}
+                                alt={currentPoiForImage.name}
                                 className="w-full h-48 object-cover rounded-md border border-gray-200 dark:border-gray-700"
                                 loading="eager"
                               />
@@ -3172,7 +3193,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                               <div>
                                 <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Created</div>
-                                <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.created_at)}</div>
+                                <div className="text-sm text-gray-900 dark:text-white">{getPoi()?.created_at ? formatDate(getPoi()!.created_at) : 'N/A'}</div>
                               </div>
                             </div>
                           </div>
@@ -3182,33 +3203,38 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                               <div>
                                 <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Updated</div>
-                                <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.updated_at)}</div>
+                                <div className="text-sm text-gray-900 dark:text-white">{getPoi()?.updated_at ? formatDate(getPoi()!.updated_at) : 'N/A'}</div>
                               </div>
                             </div>
                           </div>
 
-                          {poi.approved && poi.approved_at && (
-                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="flex items-start space-x-3">
-                                <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                <div>
-                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Approved At</div>
-                                  <div className="text-sm text-gray-900 dark:text-white">{formatDate(poi.approved_at)}</div>
-                                  {poi.approved_by && (
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">By: {poi.approved_by}</div>
-                                  )}
+                          {(() => {
+                            const poi = getPoi();
+                            const approvedAt = poi?.approved_at;
+                            if (!approvedAt) return null;
+                            return (
+                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                <div className="flex items-start space-x-3">
+                                  <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                  <div>
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Approved At</div>
+                                    <div className="text-sm text-gray-900 dark:text-white">{formatDate(approvedAt)}</div>
+                                    {poi?.approved_by && (
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">By: {poi.approved_by}</div>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          )}
+                            );
+                          })()}
 
-                          {poi.google_place_id && (
+                          {getPoi()?.google_place_id && (
                             <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                               <div className="flex items-start space-x-3">
                                 <ExternalLink className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                 <div>
                                   <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Google Place ID</div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 font-mono break-all">{poi.google_place_id}</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 font-mono break-all">{getPoi()!.google_place_id}</div>
                                 </div>
                               </div>
                             </div>
@@ -3966,13 +3992,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       Factual Verification Status
                     </h5>
                     <VerificationBadge 
-                      attractionId={poi.id}
+                      attractionId={getPoi()?.id}
                       size="md"
                       showScore={true}
                       showVerifyButton={true}
                       onVerificationComplete={() => {
                         // Refresh modal data if needed
-                        console.log('Verification completed for POI:', poi.id);
+                        console.log('Verification completed for POI:', getPoi()?.id);
                       }}
                     />
                   </div>
@@ -4130,10 +4156,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         ) : activeTab === 'trigger-points' ? (
           <div className="h-[80vh]">
             <TriggerPointsManager 
-              attractionId={poi.id}
-              attractionName={poi.name}
-              attractionCoordinates={poi.coordinates ? { lat: poi.coordinates.latitude, lng: poi.coordinates.longitude } : { lat: 0, lng: 0 }}
-              attractionTypes={poi.google_types || []}
+              attractionId={getPoi()?.id || ''}
+              attractionName={getPoi()?.name || ''}
+              attractionCoordinates={getPoi()?.coordinates ? { lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude } : { lat: 0, lng: 0 }}
+              attractionTypes={getPoi()?.google_types || []}
             />
           </div>
         ) : activeTab === 'narration-audio' ? (
@@ -4774,7 +4800,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           </div>
         ) : activeTab === 'group-pois' ? (
           <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
-            {poi.coordinates ? (
+            {getPoi()?.coordinates ? (
               <div className="space-y-6">
                 {/* Header Section */}
                 <div className="flex items-center justify-between">
@@ -4833,11 +4859,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   <div className="relative">
                     <div className="w-full h-80 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm">
                       <GoogleMapComponent
-                        center={{ lat: poi.coordinates.latitude, lng: poi.coordinates.longitude }}
+                        center={{ lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude }}
                         zoom={18}
                         height="100%"
                         markers={[
-                          { id: poi.id, position: { lat: poi.coordinates.latitude, lng: poi.coordinates.longitude }, title: `${poi.name} (Main POI)`, color: '#10B981' },
+                          { id: getPoi()!.id, position: { lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude }, title: `${getPoi()!.name} (Main POI)`, color: '#10B981' },
                           ...nearbyPOIs.filter((p: any) => p.coordinates && p.coordinates.latitude && p.coordinates.longitude).map((p: any) => ({
                             id: p.id,
                             position: { lat: p.coordinates.latitude, lng: p.coordinates.longitude },
@@ -4946,7 +4972,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                       <div>
                         <p className="text-sm font-medium text-gray-900 dark:text-white">
-                          Main POI: {poi.name}
+                          Main POI: {getPoi()?.name || 'N/A'}
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
                           This POI will hold the group description
@@ -4965,11 +4991,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         <div className="space-y-1">
                           {selectedPOIs.map(id => {
                             // First check if it's the main POI
-                            if (id === poi.id) {
+                            if (id === getPoi()?.id) {
                               return (
                                 <div key={id} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
                                   <Users className="h-3 w-3" />
-                                  {poi.name} (Main)
+                                  {getPoi()?.name || 'N/A'} (Main)
                                 </div>
                               )
                             }
@@ -5089,13 +5115,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Name</p>
-                    <p className="text-gray-900 dark:text-white truncate">{poi.name}</p>
+                    <p className="text-gray-900 dark:text-white truncate">{getPoi()?.name || 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Types</p>
                     <div className="flex flex-wrap gap-1">
-                      {poi.google_types && poi.google_types.length > 0 ? (
-                        poi.google_types.slice(0, 3).map((type: string, index: number) => (
+                      {getPoi()?.google_types && getPoi()!.google_types!.length > 0 ? (
+                        getPoi()!.google_types!.slice(0, 3).map((type: string, index: number) => (
                           <span
                             key={index}
                             className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
@@ -5106,20 +5132,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       ) : (
                         <span className="text-gray-500 dark:text-gray-400 text-xs">No types</span>
                       )}
-                      {poi.google_types && poi.google_types.length > 3 && (
-                        <span className="text-xs text-gray-500 dark:text-gray-400">+{poi.google_types.length - 3} more</span>
+                      {getPoi()?.google_types && getPoi()!.google_types!.length > 3 && (
+                        <span className="text-xs text-gray-500 dark:text-gray-400">+{getPoi()!.google_types!.length - 3} more</span>
                       )}
                     </div>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Location</p>
-                    <p className="text-gray-900 dark:text-white truncate">{poi.city}, {poi.country}</p>
+                    <p className="text-gray-900 dark:text-white truncate">{getPoi()?.city || 'N/A'}, {getPoi()?.state || getPoi()?.country || 'N/A'}</p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Rating</p>
                     <div className="flex items-center gap-1">
                       <Star className="h-3 w-3 text-yellow-400" />
-                      <span className="text-gray-900 dark:text-white">{poi.rating || 'N/A'}</span>
+                      <span className="text-gray-900 dark:text-white">{getPoi()?.rating?.toFixed(1) || 'N/A'}</span>
                     </div>
                   </div>
                 </div>
@@ -5227,7 +5253,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     <div className="flex items-center gap-1">
                       <Info className="h-4 w-4 text-blue-500" />
                       <span className="text-xs text-blue-600 dark:text-blue-400">
-                        Optional ({poi.trigger_points_count || 0} configured)
+                        Optional ({translatedDescriptions.length || 0} configured)
                       </span>
                     </div>
                   </div>
@@ -5288,7 +5314,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   >
                     Cancel
                   </button>
-                  {!poi.approved && (
+                  {!getPoi()?.approved && (
                     <button
                       onClick={handleApprove}
                       disabled={isSaving || !currentDescription.trim() || translatedDescriptions.length === 0}
@@ -5298,7 +5324,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       {isSaving ? 'Approving...' : 'Approve POI'}
                     </button>
                   )}
-                  {poi.approved && (
+                  {getPoi()?.approved && (
                     <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-md">
                       <CheckCircle className="h-4 w-4 mr-2" />
                       POI Approved

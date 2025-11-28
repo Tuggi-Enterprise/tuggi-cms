@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabase } from '@/lib/core/supabase-client'
 
+export const dynamic = 'force-dynamic'
+
 // Test endpoint to diagnose RPC function issues
 export async function GET(request: NextRequest) {
   try {

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabase } from '@/lib/core/supabase-client'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * API route to explore Supabase database schema and data
  * READ-ONLY operations for database inspection

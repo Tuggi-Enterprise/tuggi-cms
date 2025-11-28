@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabase } from '@/lib/core/supabase-client'
 
+export const dynamic = 'force-dynamic'
+
 /**
  * Complete test flow for POI creation and boundary saving
  * This endpoint simulates the full user flow:

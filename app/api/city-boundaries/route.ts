@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabase } from '../../../lib/core/supabase-client'
 import { LocationResolver } from '@/lib/services/location-resolver'
 
+export const dynamic = 'force-dynamic'
+
 // Initialize Supabase client with service role key for server-side operations
 const supabase = getSupabase('service')
 

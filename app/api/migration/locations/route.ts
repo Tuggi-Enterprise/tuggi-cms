@@ -3,6 +3,8 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
 
+export const dynamic = 'force-dynamic'
+
 const supabase = getSupabase('service')
 
 /**
