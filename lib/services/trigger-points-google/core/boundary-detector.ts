@@ -534,13 +534,35 @@ out geom tags;
       console.log(`✅ POI Classification: ${classification.group.toUpperCase()}`);
       console.log(`📏 Search radius: ${classification.searchRadius}m (${classification.metadata.reasoning})`);
       
-      const requiredRadius = classification.searchRadius;
-      console.log(`📏 Required search radius: ${requiredRadius}m (initial: ${INITIAL_RADIUS}m)`);
+      // 🎯 BULLET 2: Calcular tamanho do boundary (raio máximo do centro até o ponto mais distante)
+      const maxBoundaryRadius = Math.max(
+        ...coordinates.map(coord => calculateDistance(center, coord))
+      );
+      console.log(`📏 Boundary max radius: ${maxBoundaryRadius.toFixed(0)}m (from center to farthest boundary point)`);
+      console.log(`📏 Boundary area: ${area.toFixed(0)}m²`);
       
-      // 🚀 QUERY EXPANDIDA: Se raio necessário > raio inicial, buscar apenas ruas (mais leve)
-      if (requiredRadius > INITIAL_RADIUS) {
-        console.log(`🔍 Step 2: Required radius (${requiredRadius}m) > initial (${INITIAL_RADIUS}m), fetching expanded streets only`);
+      // 🎯 BULLET 3: O raio de busca é SEMPRE a partir do BOUNDARY (perímetro), não do centro
+      // Para FLAT: 120m significa 120m FORA do boundary, não do centro
+      const requiredRadius = classification.searchRadius; // Raio a partir do boundary
+      const totalSearchRadiusFromCenter = maxBoundaryRadius + requiredRadius; // Raio total do centro
+      
+      console.log(`📏 Required search radius FROM BOUNDARY: ${requiredRadius}m`);
+      console.log(`📏 Total search radius FROM CENTER: ${totalSearchRadiusFromCenter.toFixed(0)}m (boundary: ${maxBoundaryRadius.toFixed(0)}m + search: ${requiredRadius}m)`);
+      console.log(`📏 Initial search radius: ${INITIAL_RADIUS}m`);
+      
+      // 🎯 BULLET 3: Verificar se os dados de ruas obtidos são suficientes
+      // A busca inicial expande o boundary por INITIAL_RADIUS para fora
+      // Se o boundary já tem maxBoundaryRadius, e queremos requiredRadius do boundary,
+      // precisamos buscar a (maxBoundaryRadius + requiredRadius) do centro
+      const initialSearchCovers = totalSearchRadiusFromCenter <= INITIAL_RADIUS;
+      
+      // 🚀 QUERY EXPANDIDA: Se busca inicial não foi suficiente, buscar ruas expandidas
+      if (!initialSearchCovers) {
+        console.log(`🔍 Step 4: Initial search (${INITIAL_RADIUS}m) is NOT sufficient for boundary (${maxBoundaryRadius.toFixed(0)}m) + search radius (${requiredRadius}m)`);
+        console.log(`   → Need to search ${totalSearchRadiusFromCenter.toFixed(0)}m from center, but initial was only ${INITIAL_RADIUS}m`);
+        console.log(`   → Making expanded search using BOUNDARY as reference (not center)`);
         
+        // ✅ CORRETO: Expandir o boundary por requiredRadius (a partir do perímetro)
         const expandedBoundaryFinal = this.expandBoundary(coordinates, requiredRadius);
         const expandedPolygonFinal = expandedBoundaryFinal.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
         
@@ -584,7 +606,9 @@ out geom tags;
           // Usar dados iniciais como fallback
         }
       } else {
-        console.log(`✅ Required radius (${requiredRadius}m) <= initial (${INITIAL_RADIUS}m), using initial query data`);
+        console.log(`✅ Initial search (${INITIAL_RADIUS}m) is sufficient for boundary (${maxBoundaryRadius.toFixed(0)}m) + search radius (${requiredRadius}m)`);
+        console.log(`   → Total needed: ${totalSearchRadiusFromCenter.toFixed(0)}m from center, initial covers: ${INITIAL_RADIUS}m`);
+        console.log(`   → Using initial query data`);
       }
       
       const boundary: BoundaryData = {
@@ -1827,11 +1851,29 @@ out tags;
                       // ===============================================
                       // STEP 4: Query expandida se necessário
                       // ===============================================
-                      const requiredRadius = classification.searchRadius;
+                      // 🎯 BULLET 2: Calcular tamanho do boundary (raio máximo do centro até o ponto mais distante)
+                      const maxBoundaryRadius = Math.max(
+                        ...processed.coordinates.map(coord => calculateDistance(center, coord))
+                      );
+                      console.log(`📏 Boundary max radius: ${maxBoundaryRadius.toFixed(0)}m (from center to farthest boundary point)`);
+                      console.log(`📏 Boundary area: ${area.toFixed(0)}m²`);
                       
-                      if (requiredRadius > INITIAL_RADIUS) {
-                        console.log(`🔍 Step 4: Required radius (${requiredRadius}m) > initial (${INITIAL_RADIUS}m), fetching expanded streets only`);
+                      // 🎯 BULLET 3: O raio de busca é SEMPRE a partir do BOUNDARY (perímetro), não do centro
+                      const requiredRadius = classification.searchRadius; // Raio a partir do boundary
+                      const totalSearchRadiusFromCenter = maxBoundaryRadius + requiredRadius; // Raio total do centro
+                      
+                      console.log(`📏 Required search radius FROM BOUNDARY: ${requiredRadius}m`);
+                      console.log(`📏 Total search radius FROM CENTER: ${totalSearchRadiusFromCenter.toFixed(0)}m (boundary: ${maxBoundaryRadius.toFixed(0)}m + search: ${requiredRadius}m)`);
+                      
+                      // 🎯 BULLET 3: Verificar se os dados de ruas obtidos são suficientes
+                      const initialSearchCovers = totalSearchRadiusFromCenter <= INITIAL_RADIUS;
+                      
+                      if (!initialSearchCovers) {
+                        console.log(`🔍 Step 4: Initial search (${INITIAL_RADIUS}m) is NOT sufficient for boundary (${maxBoundaryRadius.toFixed(0)}m) + search radius (${requiredRadius}m)`);
+                        console.log(`   → Need to search ${totalSearchRadiusFromCenter.toFixed(0)}m from center, but initial was only ${INITIAL_RADIUS}m`);
+                        console.log(`   → Making expanded search using BOUNDARY as reference (not center)`);
                         
+                        // ✅ CORRETO: Expandir o boundary por requiredRadius (a partir do perímetro)
                         const expandedBoundaryFinal = this.expandBoundary(processed.coordinates, requiredRadius);
                         const expandedPolygonFinal = expandedBoundaryFinal.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
                         
@@ -1874,7 +1916,9 @@ out geom tags;
                           // Usar dados iniciais como fallback
                         }
                       } else {
-                        console.log(`✅ Required radius (${requiredRadius}m) <= initial (${INITIAL_RADIUS}m), using initial query data`);
+                        console.log(`✅ Initial search (${INITIAL_RADIUS}m) is sufficient for boundary (${maxBoundaryRadius.toFixed(0)}m) + search radius (${requiredRadius}m)`);
+                        console.log(`   → Total needed: ${totalSearchRadiusFromCenter.toFixed(0)}m from center, initial covers: ${INITIAL_RADIUS}m`);
+                        console.log(`   → Using initial query data`);
                       }
                     } catch (error) {
                       console.warn(`⚠️ Failed to get consolidated data from OSM ID:`, error);

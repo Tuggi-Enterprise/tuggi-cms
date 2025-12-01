@@ -532,16 +532,46 @@ export class StreetAnalyzer {
         }
       }
       
-      // Incluir rua apenas se tem pelo menos 2 pontos válidos
-      if (validPoints.length >= 2) {
+      // ✅ REGRA: Aprovar ruas que têm pelo menos 1 ponto válido dentro do raio
+      // A função findPointAtDistanceFromBoundary funciona perfeitamente com 1 ponto,
+      // então não há necessidade de exigir 2+ pontos para "formar um segmento"
+      if (validPoints.length >= 1) {
+        // Se tem apenas 1 ponto, duplicar para manter compatibilidade (mas não é necessário)
+        const pointsToUse = validPoints.length >= 2 
+          ? validPoints 
+          : [validPoints[0], validPoints[0]]; // Duplicar ponto para manter formato de segmento
+        
         filtered.push({
           ...street,
-          coordinates: validPoints
+          coordinates: pointsToUse
         });
         
-        if (validPoints.length < street.coordinates.length) {
-          console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length})`);
+        if (validPoints.length === 1) {
+          const streetName = street.name || street.id || 'unnamed';
+          let minDistanceToBoundary = Infinity;
+          for (const point of street.coordinates) {
+            if (!isPointInPolygon(point, boundary.coordinates)) {
+              const distanceToBoundary = calculateDistanceToPolygon(point, boundary.coordinates);
+              minDistanceToBoundary = Math.min(minDistanceToBoundary, distanceToBoundary);
+            }
+          }
+          console.log(`✅ Street ${street.id} (${streetName}): Approved with 1 valid point (${minDistanceToBoundary !== Infinity ? minDistanceToBoundary.toFixed(0) : 'N/A'}m from boundary, max allowed: ${maxAllowedDistance.toFixed(0)}m)`);
+        } else if (validPoints.length < street.coordinates.length) {
+          const streetName = street.name || street.id || 'unnamed';
+          console.log(`✂️ Street ${street.id} (${streetName}): Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length})`);
         }
+      } else {
+        // Log de rejeição com nome da rua e distância mínima
+        const streetName = street.name || street.id || 'unnamed';
+        let minDistanceToBoundary = Infinity;
+        for (const point of street.coordinates) {
+          if (!isPointInPolygon(point, boundary.coordinates)) {
+            const distanceToBoundary = calculateDistanceToPolygon(point, boundary.coordinates);
+            minDistanceToBoundary = Math.min(minDistanceToBoundary, distanceToBoundary);
+          }
+        }
+        const reason = `no valid points (closest: ${minDistanceToBoundary !== Infinity ? minDistanceToBoundary.toFixed(0) : 'N/A'}m from boundary, max allowed: ${maxAllowedDistance.toFixed(0)}m)`;
+        console.log(`🚫 Street ${street.id} (${streetName}): Rejected - ${reason}`);
       }
     }
     
@@ -1809,7 +1839,8 @@ out geom tags;
       const distance = calculateDistance(poiLocation, closestStreetPoint);
       
       // Verificar se há buildings entre POI e rua
-      const hasBuildingsBlocking = this.checkBuildingsBetweenPoints(poiLocation, closestStreetPoint, buildings);
+      // Passar boundary para excluir buildings dentro do POI
+      const hasBuildingsBlocking = this.checkBuildingsBetweenPoints(poiLocation, closestStreetPoint, buildings, boundary);
       
       // Classificar rua
       let classification: 'front' | 'side' | 'back';
@@ -1863,11 +1894,13 @@ out geom tags;
   /**
    * Verifica se há buildings entre dois pontos (POI e rua)
    * Usa dados já coletados - SEM novas queries
+   * EXCLUI buildings dentro do boundary (são parte do POI)
    */
   private checkBuildingsBetweenPoints(
     point1: { lat: number; lng: number },
     point2: { lat: number; lng: number },
-    buildings: any[]
+    buildings: any[],
+    boundary?: BoundaryData
   ): boolean {
     // Verificar se algum building está entre os dois pontos
     // Usar buffer de 20m ao redor da linha entre os pontos
@@ -1878,6 +1911,13 @@ out geom tags;
       
       // Calcular centroid do building
       const buildingCenter = this.calculateBuildingCentroid(building);
+      
+      // ✅ NOVO: Excluir buildings que estão DENTRO do boundary (são parte do POI)
+      if (boundary && boundary.coordinates && boundary.coordinates.length > 0) {
+        if (isPointInPolygon(buildingCenter, boundary.coordinates)) {
+          continue; // Building é parte do POI, não bloqueia visão
+        }
+      }
       
       // Calcular distância do building à linha entre os pontos
       const distanceToLine = calculateDistanceToLineSegment( // ✅ DRY: usar função SSOT

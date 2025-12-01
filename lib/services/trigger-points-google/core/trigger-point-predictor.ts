@@ -129,10 +129,39 @@ export class CoreTriggerPointPredictor {
         };
       }
       
+      // 3.5. NOVO: Analisar estrutura do quarteirão para filtrar ruas bloqueadas por buildings
+      // Isso evita gerar candidatos em ruas onde há casas/residências bloqueando a visão do POI
+      let streetsForOptimalPoints = accessibleStreets;
+      if (boundary.buildings && boundary.buildings.length > 0) {
+        console.log('🏘️ Step 3.5: Analyzing block structure to filter streets blocked by buildings...');
+        const blockAnalysis = this.streetAnalyzer.analyzeBlockStructure(
+          boundary.center,
+          accessibleStreets,
+          boundary.buildings,
+          boundary
+        );
+        
+        // Filtrar apenas front/side streets (sem buildings bloqueando)
+        // Ruas classificadas como 'back' têm buildings bloqueando e não devem gerar candidatos
+        const validStreets = blockAnalysis
+          .filter(result => result.classification === 'front' || result.classification === 'side')
+          .map(result => result.street);
+        
+        if (validStreets.length > 0) {
+          const blockedCount = accessibleStreets.length - validStreets.length;
+          console.log(`✅ Block structure analysis: ${validStreets.length} front/side streets (${blockedCount} blocked by buildings - excluded)`);
+          streetsForOptimalPoints = validStreets;
+        } else {
+          console.log(`⚠️ Block structure analysis: All streets blocked by buildings, but continuing anyway (may have visibility issues)`);
+          // Continuar com todas as ruas, mas a validação de visibilidade depois vai filtrar
+        }
+      }
+      
       // 4. Cálculo de pontos ótimos
       // ✅ Context já tem densidade calculada corretamente a partir dos dados OSM
+      // ✅ Usar apenas ruas front/side (sem buildings bloqueando)
       console.log('🎯 Step 4: Calculating optimal points...');
-      const optimalPoints = await this.pointCalculator.calculateOptimalPoints(poiData, accessibleStreets, boundary, context);
+      const optimalPoints = await this.pointCalculator.calculateOptimalPoints(poiData, streetsForOptimalPoints, boundary, context);
       
       if (optimalPoints.length === 0) {
         console.warn('⚠️ No optimal points calculated, using fallback strategy');

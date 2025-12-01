@@ -2,6 +2,7 @@
 
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
 import { calculateDistance, calculateBearing, calculateOptimalRadius, calculateDistanceToBoundary, isPointInPolygon, calculateMinDistanceToCenter, findClosestPointOnBoundary } from '../utils/calculations';
+import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig } from '../config/trigger-points-config';
 import { POIClassifierService } from '../services/poi-classifier.service';
@@ -154,27 +155,35 @@ export class OptimalPointCalculator {
         }
       }
       
-      // Incluir rua apenas se:
-      // 1. Tem pelo menos 2 pontos válidos (para formar um segmento)
-      // 2. Pelo menos um ponto está dentro do raio
-      if (validPoints.length >= 2) {
-        // Criar nova rua com apenas os pontos válidos
+      // ✅ REGRA: Aprovar ruas que têm pelo menos 1 ponto válido dentro do raio
+      // A função findPointAtDistanceFromBoundary funciona perfeitamente com 1 ponto,
+      // então não há necessidade de exigir 2+ pontos para "formar um segmento"
+      // Se tem 1 ponto válido dentro do raio, podemos usar esse ponto diretamente
+      if (validPoints.length >= 1) {
+        // Se tem apenas 1 ponto, duplicar para manter compatibilidade (mas não é necessário)
+        const pointsToUse = validPoints.length >= 2 
+          ? validPoints 
+          : [validPoints[0], validPoints[0]]; // Duplicar ponto para manter formato de segmento
+        
+        // Criar nova rua com os pontos válidos
         const filteredStreet: StreetData = {
           ...street,
-          coordinates: validPoints
+          coordinates: pointsToUse
         };
         
         filtered.push(filteredStreet);
         
-        if (validPoints.length < street.coordinates.length) {
+        if (validPoints.length === 1) {
+          const streetName = street.name || street.id || 'unnamed';
+          console.log(`✅ Street ${street.id} (${streetName}): Approved with 1 valid point (${minDistanceToBoundary.toFixed(0)}m from boundary, max allowed: ${maxAllowedDistance.toFixed(0)}m)`);
+        } else if (validPoints.length < street.coordinates.length) {
           console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length})`);
         }
       } else {
-        // Mensagem de log mais clara
-        const reason = validPoints.length === 0 
-          ? `no valid points (all points: ${minDistanceToBoundary.toFixed(0)}m-${maxDistanceToBoundary.toFixed(0)}m from boundary, max allowed: ${maxAllowedDistance.toFixed(0)}m)`
-          : `insufficient valid points (${validPoints.length} valid, need 2+ to form segment)`;
-        console.log(`🚫 Street ${street.id}: Rejected - ${reason}`);
+        // Mensagem de log mais clara com nome da rua
+        const streetName = street.name || street.id || 'unnamed';
+        const reason = `no valid points (all points: ${minDistanceToBoundary.toFixed(0)}m-${maxDistanceToBoundary.toFixed(0)}m from boundary, max allowed: ${maxAllowedDistance.toFixed(0)}m)`;
+        console.log(`🚫 Street ${street.id} (${streetName}): Rejected - ${reason}`);
       }
     }
     
