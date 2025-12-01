@@ -2,7 +2,7 @@
 
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/interfaces';
-import { calculateDistance, isPointInPolygon, extractBuildingHeight } from '../utils/calculations';
+import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 
@@ -38,6 +38,33 @@ export class StreetAnalyzer {
       const accessibleStreets = roads.filter(road => 
         this.isStreetAccessible(road, context)
       );
+      
+      // NOVO: Para Urban Canyon, usar análise de quarteirão para identificar front/side/back streets
+      const isUrbanCanyon = this.isUrbanCanyon(boundary, context);
+      if (isUrbanCanyon && boundary.buildings && boundary.buildings.length > 0) {
+        console.log(`🏙️ Urban Canyon detected - analyzing block structure for ${accessibleStreets.length} streets`);
+        const blockAnalysis = this.analyzeBlockStructure(
+          boundary.center,
+          accessibleStreets,
+          boundary.buildings,
+          boundary
+        );
+        
+        // Filtrar apenas front/side streets (sem buildings bloqueando)
+        const validStreets = blockAnalysis
+          .filter(result => result.classification === 'front' || result.classification === 'side')
+          .map(result => result.street);
+        
+        if (validStreets.length > 0) {
+          console.log(`✅ Urban Canyon: ${validStreets.length} front/side streets (${accessibleStreets.length - validStreets.length} blocked by buildings)`);
+          const streetPoints = validStreets.map(street => 
+            this.findClosestPointToBoundary(street, boundary)
+          );
+          return streetPoints;
+        } else {
+          console.log(`⚠️ Urban Canyon: All streets blocked by buildings, using all accessible streets anyway`);
+        }
+      }
       
       // Calcular pontos mais próximos ao boundary
       const streetPoints = accessibleStreets.map(street => 
@@ -1645,6 +1672,193 @@ out geom tags;
    */
   public isStreetAccessiblePublic(road: StreetData, context: GeographicContext): boolean {
     return this.isStreetAccessible(road, context);
+  }
+
+  /**
+   * Analisa a estrutura do quarteirão ao redor do POI
+   * Classifica ruas como front, side, ou back baseado em distância e buildings bloqueando
+   * Usa dados já coletados (boundary.streets, boundary.buildings) - SEM novas queries OSM
+   */
+  analyzeBlockStructure(
+    poiLocation: { lat: number; lng: number },
+    streets: StreetData[],
+    buildings: any[],
+    boundary?: BoundaryData
+  ): Array<{ street: StreetData; classification: 'front' | 'side' | 'back'; distance: number; hasBuildingsBlocking: boolean }> {
+    console.log(`🏘️ Analyzing block structure for ${streets.length} streets and ${buildings.length} buildings`);
+    
+    const results: Array<{ street: StreetData; classification: 'front' | 'side' | 'back'; distance: number; hasBuildingsBlocking: boolean }> = [];
+    
+    for (const street of streets) {
+      if (!street.coordinates || street.coordinates.length === 0) continue;
+      
+      // Encontrar ponto mais próximo da rua ao POI
+      const closestStreetPoint = this.findClosestPointToLocation(street.coordinates, poiLocation);
+      const distance = calculateDistance(poiLocation, closestStreetPoint);
+      
+      // Verificar se há buildings entre POI e rua
+      const hasBuildingsBlocking = this.checkBuildingsBetweenPoints(poiLocation, closestStreetPoint, buildings);
+      
+      // Classificar rua
+      let classification: 'front' | 'side' | 'back';
+      if (hasBuildingsBlocking) {
+        classification = 'back'; // Buildings bloqueando = rua de trás
+      } else if (distance < 50) {
+        classification = 'front'; // Mais próxima + sem buildings = frente
+      } else if (distance < 100) {
+        classification = 'side'; // Média distância + sem buildings = lado
+      } else {
+        classification = 'back'; // Distante = trás
+      }
+      
+      results.push({
+        street,
+        classification,
+        distance,
+        hasBuildingsBlocking
+      });
+    }
+    
+    // Ordenar por distância (mais próxima primeiro)
+    results.sort((a, b) => a.distance - b.distance);
+    
+    console.log(`📊 Block structure: ${results.filter(r => r.classification === 'front').length} front, ${results.filter(r => r.classification === 'side').length} side, ${results.filter(r => r.classification === 'back').length} back`);
+    
+    return results;
+  }
+
+  /**
+   * Encontra o ponto mais próximo de uma linha de coordenadas a uma localização
+   */
+  private findClosestPointToLocation(
+    coordinates: Array<{ lat: number; lng: number }>,
+    location: { lat: number; lng: number }
+  ): { lat: number; lng: number } {
+    let closestPoint = coordinates[0];
+    let minDistance = calculateDistance(location, coordinates[0]);
+    
+    for (const point of coordinates) {
+      const distance = calculateDistance(location, point);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestPoint = point;
+      }
+    }
+    
+    return closestPoint;
+  }
+
+  /**
+   * Verifica se há buildings entre dois pontos (POI e rua)
+   * Usa dados já coletados - SEM novas queries
+   */
+  private checkBuildingsBetweenPoints(
+    point1: { lat: number; lng: number },
+    point2: { lat: number; lng: number },
+    buildings: any[]
+  ): boolean {
+    // Verificar se algum building está entre os dois pontos
+    // Usar buffer de 20m ao redor da linha entre os pontos
+    const bufferDistance = 20; // metros
+    
+    for (const building of buildings) {
+      if (!building.geometry || building.geometry.length === 0) continue;
+      
+      // Calcular centroid do building
+      const buildingCenter = this.calculateBuildingCentroid(building);
+      
+      // Calcular distância do building à linha entre os pontos
+      const distanceToLine = this.calculateDistanceToLineSegment(
+        buildingCenter,
+        point1,
+        point2
+      );
+      
+      // Se building está próximo da linha (dentro do buffer), considera bloqueando
+      if (distanceToLine <= bufferDistance) {
+        // Verificar se building está entre os pontos (não apenas próximo)
+        const distance1 = calculateDistance(point1, buildingCenter);
+        const distance2 = calculateDistance(point2, buildingCenter);
+        const lineDistance = calculateDistance(point1, point2);
+        
+        // Se building está entre os pontos (soma das distâncias ≈ distância da linha)
+        if (Math.abs(distance1 + distance2 - lineDistance) < 30) {
+          return true; // Building bloqueia
+        }
+      }
+    }
+    
+    return false; // Nenhum building bloqueando
+  }
+
+  /**
+   * Calcula centroid de um building OSM
+   */
+  private calculateBuildingCentroid(building: any): { lat: number; lng: number } {
+    if (!building.geometry || building.geometry.length === 0) {
+      return { lat: building.lat || 0, lng: building.lon || 0 };
+    }
+    
+    // Se geometry é array de coordenadas
+    if (Array.isArray(building.geometry[0])) {
+      const coords = building.geometry[0];
+      let sumLat = 0;
+      let sumLng = 0;
+      
+      for (const coord of coords) {
+        sumLat += coord[1] || coord.lat || 0;
+        sumLng += coord[0] || coord.lng || 0;
+      }
+      
+      return {
+        lat: sumLat / coords.length,
+        lng: sumLng / coords.length
+      };
+    }
+    
+    // Fallback
+    return { lat: building.lat || 0, lng: building.lon || 0 };
+  }
+
+  /**
+   * Calcula distância de um ponto a um segmento de linha
+   */
+  private calculateDistanceToLineSegment(
+    point: { lat: number; lng: number },
+    lineStart: { lat: number; lng: number },
+    lineEnd: { lat: number; lng: number }
+  ): number {
+    const A = point.lat - lineStart.lat;
+    const B = point.lng - lineStart.lng;
+    const C = lineEnd.lat - lineStart.lat;
+    const D = lineEnd.lng - lineStart.lng;
+    
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    let param = -1;
+    
+    if (lenSq !== 0) {
+      param = dot / lenSq;
+    }
+    
+    let xx: number, yy: number;
+    
+    if (param < 0) {
+      xx = lineStart.lat;
+      yy = lineStart.lng;
+    } else if (param > 1) {
+      xx = lineEnd.lat;
+      yy = lineEnd.lng;
+    } else {
+      xx = lineStart.lat + param * C;
+      yy = lineStart.lng + param * D;
+    }
+    
+    const dx = point.lat - xx;
+    const dy = point.lng - yy;
+    
+    // Converter para metros (aproximação)
+    return Math.sqrt(dx * dx + dy * dy) * 111000;
   }
 
   // Usar função centralizada do utils/calculations.ts (DRY)

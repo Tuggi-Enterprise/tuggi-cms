@@ -1,7 +1,7 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData, DirectionalAnalysis } from '../types/interfaces';
-import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference } from '../utils/calculations';
+import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon } from '../utils/calculations';
 import { VisibilityValidator } from './visibility-validator';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
@@ -274,7 +274,9 @@ export class TriggerPointValidator {
       console.log(`📏 Adjusted min distance from ${minDistance}m to ${adjustedMinDistance}m (small: ${isSmallPOI}, flat: ${isFlatPOI}, dense: ${isDenseZone})`);
     }
     
-    console.log(`🔍 Selecting TPs with ${adjustedMinDistance}m minimum distance...`);
+    const STANDARD_TP_RADIUS = 20; // metros (fixo)
+    const minDistanceBetweenCenters = (STANDARD_TP_RADIUS * 2) + adjustedMinDistance;
+    console.log(`🔍 Selecting TPs with ${adjustedMinDistance}m spacing between edges (${minDistanceBetweenCenters}m min between centers, range: ${STANDARD_TP_RADIUS}m fixed)...`);
     
     for (const candidate of rankedCandidates) {
       // Verificar se já temos o máximo de TPs
@@ -284,27 +286,26 @@ export class TriggerPointValidator {
       }
       
       // Verificar distância mínima com TPs já selecionados
-      // REMOVIDO: Exceção para front streets - todos os TPs devem respeitar a distância mínima do grupo
-      const isFrontStreet = this.isTPOnFrontStreet(candidate, boundary);
-      // Usar sempre a distância ajustada baseada no tamanho do POI e grupo de classificação
-      const effectiveMinDistance = adjustedMinDistance;
+      // REGRA: Range fixo de 20m + espaçamento entre bordas (40m, 80m, 100m conforme grupo)
+      // Fórmula: 20m (range TP1) + espaçamento + 20m (range TP2) = distância mínima entre centros
+      const STANDARD_TP_RADIUS = 20; // metros (fixo, não calcular)
+      const minSpacingBetweenEdges = adjustedMinDistance; // 40m, 80m, 100m conforme grupo
+      const minDistanceBetweenCenters = (STANDARD_TP_RADIUS * 2) + minSpacingBetweenEdges;
       
       let closestDistance = Infinity;
       let closestTP: any = null;
       const isTooClose = selectedTPs.some(existingTP => {
-        const distance = calculateDistance(candidate.location, existingTP.location);
-        if (distance < closestDistance) {
-          closestDistance = distance;
+        const distanceBetweenCenters = calculateDistance(candidate.location, existingTP.location);
+        if (distanceBetweenCenters < closestDistance) {
+          closestDistance = distanceBetweenCenters;
           closestTP = existingTP;
         }
-        return distance < effectiveMinDistance;
+        // Verificar se distância entre centros é menor que o mínimo necessário
+        return distanceBetweenCenters < minDistanceBetweenCenters;
       });
       
       if (isTooClose) {
         rejectedCount++;
-        if (isFrontStreet) {
-          // console.log(`🏠 Front street TP rejected (too close): ${candidate.location.lat.toFixed(6)}, ${candidate.location.lng.toFixed(6)}`);
-        }
         // console.log(`🚫 TP rejected (too close): ${candidate.location.lat.toFixed(6)}, ${candidate.location.lng.toFixed(6)} - Quality: ${candidate.quality.toFixed(3)}`);
         continue;
       }
@@ -689,11 +690,13 @@ out geom tags;
       }
 
       // 1. Verificar obstrução por buildings (já existente)
+      // EXCLUIR buildings dentro do boundary (são parte do POI)
       const relevantBuildings = this.filterBuildingsAlongLineOfSight(
         candidate.location,
         nearestBoundaryPoint,
         obstructions.buildings,
-        distance
+        distance,
+        boundary.coordinates // Passar boundary para excluir buildings dentro
       );
       
       // Usar poiHeight já definido acima para validação correta
@@ -760,12 +763,14 @@ out geom tags;
 
   /**
    * Filtra buildings que estão ao longo da linha de visão entre TP e boundary
+   * EXCLUI buildings que estão DENTRO do boundary (são parte do POI)
    */
   private filterBuildingsAlongLineOfSight(
     tpLocation: { lat: number; lng: number },
     boundaryPoint: { lat: number; lng: number },
     buildings: any[],
-    lineDistance: number
+    lineDistance: number,
+    boundaryCoordinates?: Array<{ lat: number; lng: number }>
   ): any[] {
     const relevantBuildings = [];
     const bufferDistance = TRIGGER_POINTS_CONSTANTS.obstructions.bufferDistance; // metros de buffer ao redor da linha
@@ -774,6 +779,14 @@ out geom tags;
       if (building.geometry && building.geometry.length > 0) {
         // Usar centroid do building para verificação rápida
         const buildingCenter = this.calculateBuildingCentroid(building);
+        
+        // NOVO: Excluir buildings que estão DENTRO do boundary (são parte do POI)
+        if (boundaryCoordinates && boundaryCoordinates.length > 0) {
+          if (isPointInPolygon(buildingCenter, boundaryCoordinates)) {
+            console.log(`🏢 Building inside POI boundary - EXCLUDED from blocking validation (part of POI)`);
+            continue; // Building é parte do POI, não bloqueia visão
+          }
+        }
         
         // Verificar se o building está próximo à linha de visão
         const distanceToLine = this.calculateDistanceToLine(
@@ -1002,7 +1015,7 @@ out geom tags;
       // Se POI é moderadamente alto (15-30m) e zona densa, verificar buildings
       if (poiHeight > 15 && isDenseZone) {
         console.log(`🏢 MEDIUM POI in dense zone: Checking building interference`);
-        return this.checkBuildingsBlockingWithPOIHeight(candidate.location, nearestBoundaryPoint, context, poiHeight);
+        return this.checkBuildingsBlockingWithPOIHeight(candidate.location, nearestBoundaryPoint, context, poiHeight, boundary.coordinates);
       }
       
       // Se muito próximo do boundary, assumir visibilidade boa
@@ -1013,13 +1026,13 @@ out geom tags;
       // POI baixo ou sem altura em zona densa = usar validação PRECISA
       if (isDenseZone && poiHeight < 15) {
         console.log(`🏠 LOW/UNKNOWN POI in dense zone: Using PRECISE line-of-sight validation`);
-        return distanceToBoundary < 60 ? true : this.checkBuildingsBlockingWithPOIHeight(candidate.location, nearestBoundaryPoint, context, poiHeight);
+        return distanceToBoundary < 60 ? true : this.checkBuildingsBlockingWithPOIHeight(candidate.location, nearestBoundaryPoint, context, poiHeight, boundary.coordinates);
       }
       
       // Verificação normal - também usar a precisa para zonas densas
       if (isDenseZone) {
         console.log(`🏙️ Dense zone: Using PRECISE validation regardless of POI height`);
-        return this.checkBuildingsBlockingWithPOIHeight(candidate.location, nearestBoundaryPoint, context, poiHeight);
+        return this.checkBuildingsBlockingWithPOIHeight(candidate.location, nearestBoundaryPoint, context, poiHeight, boundary.coordinates);
       }
       
       // Apenas zonas não-densas usam validação antiga
@@ -1038,13 +1051,15 @@ out geom tags;
     tpLocation: { lat: number; lng: number },
     boundaryPoint: { lat: number; lng: number },
     context: GeographicContext,
-    poiHeight: number
+    poiHeight: number,
+    boundaryCoordinates?: Array<{ lat: number; lng: number }>
   ): Promise<boolean> {
     try {
       const distance = calculateDistance(tpLocation, boundaryPoint);
       
       // NOVA ESTRATÉGIA: Buscar buildings ao longo da LINHA DIRETA TP → Boundary
-      const lineOfSightBuildings = await this.getBuildingsAlongLineOfSight(tpLocation, boundaryPoint, distance);
+      // Passar boundary para excluir buildings dentro (são parte do POI)
+      const lineOfSightBuildings = await this.getBuildingsAlongLineOfSight(tpLocation, boundaryPoint, distance, boundaryCoordinates);
       
       console.log(`🎯 Analyzing ${lineOfSightBuildings.length} buildings directly between TP and boundary (${distance.toFixed(0)}m)`);
       console.log(`📊 Using OSM data for building analysis along line of sight`);
@@ -1108,7 +1123,8 @@ out geom tags;
   private async getBuildingsAlongLineOfSight(
     tpLocation: { lat: number; lng: number },
     boundaryPoint: { lat: number; lng: number },
-    distance: number
+    distance: number,
+    boundaryCoordinates?: Array<{ lat: number; lng: number }>
   ): Promise<any[]> {
     // Criar múltiplos pontos ao longo da linha para busca mais precisa
     const numSamplePoints = Math.max(TRIGGER_POINTS_CONSTANTS.limits.maxSamplePoints, Math.floor(distance / TRIGGER_POINTS_CONSTANTS.limits.samplePointDistance)); // Pontos configuráveis
@@ -1937,64 +1953,10 @@ out geom meta;
    * Calcula raio do trigger point
    */
   private calculateRadius(candidate: TriggerPointCandidate, context: GeographicContext): number {
-    const baseRadius = 30; // metros
-    
-    // Ajustar baseado na qualidade
-    let qualityMultiplier = 1.0;
-    if (candidate.quality > 0.8) {
-      qualityMultiplier = 1.2; // Raio maior para pontos de alta qualidade
-    } else if (candidate.quality > 0.6) {
-      qualityMultiplier = 1.0;
-    } else {
-      qualityMultiplier = 0.8; // Raio menor para pontos de baixa qualidade
-    }
-    
-    // Ajustar baseado na densidade urbana
-    let densityMultiplier = 1.0;
-    switch (context.urbanDensity.level) {
-      case 'very_dense':
-        densityMultiplier = 0.8; // Raio menor em áreas densas
-        break;
-      case 'dense':
-        densityMultiplier = 0.9;
-        break;
-      case 'medium':
-        densityMultiplier = 1.0;
-        break;
-      case 'low':
-        densityMultiplier = 1.1;
-        break;
-      case 'rural':
-        densityMultiplier = 1.3; // Raio maior em áreas rurais
-        break;
-    }
-    
-    // Ajustar baseado no tipo de rua
-    let streetMultiplier = 1.0;
-    switch (candidate.street.type) {
-      case 'primary':
-        streetMultiplier = 1.2; // Raio maior em ruas principais
-        break;
-      case 'secondary':
-        streetMultiplier = 1.1;
-        break;
-      case 'tertiary':
-        streetMultiplier = 1.0;
-        break;
-      case 'residential':
-        streetMultiplier = 0.9;
-        break;
-      case 'living_street':
-        streetMultiplier = 0.8;
-        break;
-      default:
-        streetMultiplier = 1.0;
-    }
-    
-    const radius = Math.round(baseRadius * qualityMultiplier * densityMultiplier * streetMultiplier);
-    
-    // Limitar raio entre 20 e 100 metros
-    return Math.max(20, Math.min(100, radius));
+    // REGRA: Range fixo de 20m (não calcular dinamicamente)
+    // Conforme especificação: sempre usar 20m como range padrão
+    const STANDARD_TP_RADIUS = 20; // metros (fixo)
+    return STANDARD_TP_RADIUS;
   }
   
   /**

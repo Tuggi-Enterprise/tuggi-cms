@@ -7,7 +7,7 @@ import { OptimalPointCalculator } from '../analyzers/point-calculator';
 import { TriggerPointValidator } from '../analyzers/validator';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData } from '../types/interfaces';
-import { calculateBearing, calculateDistance } from '../utils/calculations';
+import { calculateBearing, calculateDistance, findClosestPointOnBoundary } from '../utils/calculations';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 
 export class CoreTriggerPointPredictor {
@@ -187,7 +187,7 @@ export class CoreTriggerPointPredictor {
       
       // 6. Validação e ranking com distância mínima
       console.log('✅ Step 6: Validating and ranking points with optimal spacing...');
-      const maxTPs = options.maxTriggerPoints || this.calculateDynamicTPLimit(boundary, context);
+      const maxTPs = options.maxTriggerPoints || this.calculateDynamicTPLimit(boundary, context, streetAnalysisResult.searchRadius);
       
       // 🎯 NOVO: Usar configuração do grupo se disponível, senão calcular
       let minDistance: number;
@@ -215,23 +215,60 @@ export class CoreTriggerPointPredictor {
       const processingTime = Date.now() - startTime;
       console.log(`🎉 Generated ${filteredPoints.length} trigger points in ${processingTime}ms`);
       
+      // NOVO: Documentar motivo quando 0 TPs são gerados
+      const metadata: any = {
+        boundarySource: boundary.source,
+        boundaryConfidence: boundary.confidence,
+        streetCount: accessibleStreets.length,
+        optimalPointsFound: optimalPoints.length,
+        streetValidatedCandidates: streetValidatedCandidates.length,
+        validatedPoints: validatedPoints.length,
+        finalPoints: filteredPoints.length,
+        fallbackUsed: false,
+        searchRadius: streetAnalysisResult.searchRadius,
+        elevationAnalysis: streetAnalysisResult.elevationAnalysis
+      };
+      
+      if (filteredPoints.length === 0) {
+        // Coletar motivos de rejeição
+        const rejectionReasons: string[] = [];
+        const suggestions: string[] = [];
+        
+        if (accessibleStreets.length === 0) {
+          rejectionReasons.push('No accessible streets found within search radius');
+          suggestions.push('Check if POI has accessible streets nearby');
+        } else if (optimalPoints.length === 0) {
+          rejectionReasons.push('No optimal points calculated from streets');
+          suggestions.push('Check if streets are suitable for trigger point placement');
+        } else if (streetValidatedCandidates.length === 0) {
+          rejectionReasons.push('No candidates validated on streets');
+          suggestions.push('Check if candidate points are actually on accessible streets');
+        } else if (validatedPoints.length === 0) {
+          rejectionReasons.push('All candidates failed visibility validation');
+          suggestions.push('Check if POI is visible from nearby streets (may be blocked by buildings/vegetation)');
+        } else {
+          rejectionReasons.push('All validated points were filtered out by options');
+          suggestions.push('Check filter options (minQuality, maxDistance, etc.)');
+        }
+        
+        metadata.noTPsReason = {
+          candidatesFound: optimalPoints.length,
+          candidatesAfterStreetValidation: streetValidatedCandidates.length,
+          candidatesAfterVisibility: validatedPoints.length,
+          candidatesAfterFiltering: filteredPoints.length,
+          rejectionReasons,
+          suggestions
+        };
+        
+        console.log(`⚠️ No trigger points generated. Reasons: ${rejectionReasons.join('; ')}`);
+      }
+      
       return {
         triggerPoints: filteredPoints,
         boundary,
         context,
         processingTime,
-        metadata: {
-          boundarySource: boundary.source,
-          boundaryConfidence: boundary.confidence,
-          streetCount: accessibleStreets.length,
-          optimalPointsFound: optimalPoints.length,
-          streetValidatedCandidates: streetValidatedCandidates.length,
-          validatedPoints: validatedPoints.length,
-          finalPoints: filteredPoints.length,
-          fallbackUsed: false,
-          searchRadius: streetAnalysisResult.searchRadius,
-          elevationAnalysis: streetAnalysisResult.elevationAnalysis
-        }
+        metadata
       };
       
     } catch (error) {
@@ -280,42 +317,34 @@ export class CoreTriggerPointPredictor {
         );
         
         if (accessibleStreets.length > 0) {
-          // 3. Encontrar a melhor rua (mais próxima e com melhor direção)
-          const bestStreet = this.findBestStreetForFallback(accessibleStreets, centerPoint);
+          // 3. NOVO: Analisar estrutura do quarteirão para identificar front/side/back streets
+          const buildings = boundary?.buildings || [];
+          const blockAnalysis = this.streetAnalyzer.analyzeBlockStructure(
+            centerPoint,
+            accessibleStreets,
+            buildings,
+            boundary
+          );
+          
+          // 4. Filtrar apenas front/side streets (sem buildings bloqueando)
+          const validStreets = blockAnalysis
+            .filter(result => result.classification === 'front' || result.classification === 'side')
+            .map(result => result.street);
+          
+          if (validStreets.length === 0) {
+            console.log('⚠️ No front/side streets found (all blocked by buildings), using closest street anyway');
+            // Fallback: usar a rua mais próxima mesmo que seja back
+            const closestResult = blockAnalysis[0];
+            if (closestResult) {
+              return this.createTPFromStreet(closestResult.street, centerPoint, context, boundary);
+            }
+          }
+          
+          // 5. Encontrar a melhor rua entre front/side streets
+          const bestStreet = this.findBestStreetForFallback(validStreets, centerPoint);
           
           if (bestStreet) {
-            const streetPoint = bestStreet.coordinates[0];
-            const distance = calculateDistance(centerPoint, streetPoint);
-            
-            console.log(`✅ Found best street: ${bestStreet.name || bestStreet.id} at ${distance.toFixed(0)}m from POI`);
-            
-            // 4. Criar TP na rua real com direção assertiva
-            const triggerPoint: TriggerPoint = {
-              id: 'intelligent_fallback_1',
-              location: streetPoint,
-              radius: 25, // Raio otimizado para rua real
-              expectedBearing: calculateBearing(streetPoint, centerPoint),
-              bearingThreshold: 60, // Mais assertivo para rua real
-              type: 'primary',
-              priority: 1,
-              confidence: 0.8, // Alta confiança - rua real do OSM
-              quality: 0.8,
-              street: {
-                id: bestStreet.id,
-                type: bestStreet.type,
-                coordinates: bestStreet.coordinates,
-                accessibility: bestStreet.accessibility,
-                confidence: bestStreet.confidence
-              },
-              distance,
-              generationMethod: 'google_apis',
-              contextData: context,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            };
-            
-            console.log(`✅ Created 1 INTELLIGENT TP at ${streetPoint.lat.toFixed(6)}, ${streetPoint.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
-            return [triggerPoint];
+            return this.createTPFromStreet(bestStreet, centerPoint, context, boundary);
           }
         }
       }
@@ -332,6 +361,51 @@ export class CoreTriggerPointPredictor {
       console.warn('Intelligent fallback failed:', error);
       return this.createMinimalDirectionalTP(poiData, context, boundary);
     }
+  }
+
+  /**
+   * Cria trigger point a partir de uma rua
+   */
+  private createTPFromStreet(
+    street: StreetData,
+    centerPoint: { lat: number; lng: number },
+    context: GeographicContext,
+    boundary?: BoundaryData
+  ): TriggerPoint[] {
+    const streetPoint = street.coordinates[0];
+    const distance = calculateDistance(centerPoint, streetPoint);
+    
+    // Usar boundary mais próximo para bearing, não centro
+    const closestBoundaryPoint = boundary?.coordinates 
+      ? findClosestPointOnBoundary(streetPoint, boundary.coordinates)
+      : { lat: centerPoint.lat, lng: centerPoint.lng };
+    
+    const triggerPoint: TriggerPoint = {
+      id: 'intelligent_fallback_1',
+      location: streetPoint,
+      radius: 20, // Range fixo de 20m
+      expectedBearing: calculateBearing(streetPoint, { lat: closestBoundaryPoint.lat, lng: closestBoundaryPoint.lng }),
+      bearingThreshold: 60,
+      type: 'primary',
+      priority: 1,
+      confidence: 0.8,
+      quality: 0.8,
+      street: {
+        id: street.id,
+        type: street.type,
+        coordinates: street.coordinates,
+        accessibility: street.accessibility,
+        confidence: street.confidence
+      },
+      distance,
+      generationMethod: 'google_apis',
+      contextData: context,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    console.log(`✅ Created 1 INTELLIGENT TP at ${streetPoint.lat.toFixed(6)}, ${streetPoint.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
+    return [triggerPoint];
   }
 
   /**
@@ -1134,7 +1208,32 @@ out geom tags;
    * Calcula limite dinâmico de TPs baseado em características matemáticas do POI
    * Substitui o limite fixo de 50 por cálculo baseado em área, elevação e altura
    */
-  private calculateDynamicTPLimit(boundary: BoundaryData, context: GeographicContext): number {
+  private calculateDynamicTPLimit(boundary: BoundaryData, context: GeographicContext, searchRadius?: number): number {
+    // NOVO: Calcular baseado em área de cobertura real
+    const radius = searchRadius || boundary.classification?.searchRadius || 300;
+    const coverageArea = Math.PI * radius * radius; // Área em m²
+    
+    // Calcular limites dinâmicos baseados em área
+    // 1 TP por 0.5km² (mínimo) a 1 TP por 0.1km² (máximo)
+    const minTPs = Math.max(3, Math.floor(coverageArea / 500000)); // 1 TP por 0.5km²
+    const maxTPs = Math.min(200, Math.floor(coverageArea / 100000)); // 1 TP por 0.1km²
+    
+    // Usar configuração do grupo se disponível, senão usar cálculo dinâmico
+    if (boundary.classification?.maxTriggerPoints) {
+      const groupMax = boundary.classification.maxTriggerPoints;
+      // Combinar: usar o menor entre grupo e cálculo dinâmico
+      const finalMax = Math.min(groupMax, maxTPs);
+      const finalMin = Math.min(3, minTPs);
+      
+      console.log(`📊 Dynamic TP limit: ${finalMin}-${finalMax} (coverage: ${(coverageArea / 1000000).toFixed(2)}km², group max: ${groupMax})`);
+      return Math.max(finalMin, Math.min(finalMax, groupMax));
+    }
+    
+    console.log(`📊 Dynamic TP limit: ${minTPs}-${maxTPs} (coverage: ${(coverageArea / 1000000).toFixed(2)}km²)`);
+    return Math.max(minTPs, Math.min(maxTPs, 200)); // Limitar máximo a 200
+  }
+  
+  private calculateDynamicTPLimitOld(boundary: BoundaryData, context: GeographicContext): number {
     console.log(`🎯 Calculating dynamic TP limit for POI...`);
     
     // Esta função será chamada ANTES de ter os candidatos, então usamos estimativa baseada em área

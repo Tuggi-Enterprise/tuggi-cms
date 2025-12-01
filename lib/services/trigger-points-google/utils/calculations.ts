@@ -537,3 +537,83 @@ export function calculateMinDistanceToCenter(
 export function calculateVectorLength(vector: { lat: number; lng: number }): number {
   return Math.sqrt(vector.lat * vector.lat + vector.lng * vector.lng);
 }
+
+/**
+ * Find the closest point on a boundary polygon to a given trigger point
+ * This enables accurate bearing calculation to the visible edge of the POI
+ * More precise than findNearestBoundaryPoint as it also checks points along boundary edges
+ */
+export function findClosestPointOnBoundary(
+  triggerPoint: { lat: number; lng: number },
+  boundaryCoordinates: Array<{ lat: number; lng: number }>
+): { lat: number; lng: number; distance: number } {
+  let closestPoint = boundaryCoordinates[0];
+  let minDistance = calculateDistance(triggerPoint, closestPoint);
+  
+  // Check all boundary points
+  for (const point of boundaryCoordinates) {
+    const distance = calculateDistance(triggerPoint, point);
+    if (distance < minDistance) {
+      minDistance = distance;
+      closestPoint = point;
+    }
+  }
+  
+  // Also check points along boundary edges for better precision
+  for (let i = 0; i < boundaryCoordinates.length; i++) {
+    const edgeStart = boundaryCoordinates[i];
+    const edgeEnd = boundaryCoordinates[(i + 1) % boundaryCoordinates.length];
+    
+    // Find closest point on this edge
+    const closestOnEdge = findClosestPointOnLineSegment(triggerPoint, edgeStart, edgeEnd);
+    const distanceToEdge = calculateDistance(triggerPoint, closestOnEdge);
+    
+    if (distanceToEdge < minDistance) {
+      minDistance = distanceToEdge;
+      closestPoint = closestOnEdge;
+    }
+  }
+  
+  return {
+    lat: closestPoint.lat,
+    lng: closestPoint.lng,
+    distance: minDistance
+  };
+}
+
+/**
+ * Find the closest point on a line segment to a given point
+ */
+function findClosestPointOnLineSegment(
+  point: { lat: number; lng: number },
+  lineStart: { lat: number; lng: number },
+  lineEnd: { lat: number; lng: number }
+): { lat: number; lng: number } {
+  const A = point.lat - lineStart.lat;
+  const B = point.lng - lineStart.lng;
+  const C = lineEnd.lat - lineStart.lat;
+  const D = lineEnd.lng - lineStart.lng;
+  
+  const dot = A * C + B * D;
+  const lenSq = C * C + D * D;
+  let param = -1;
+  
+  if (lenSq !== 0) {
+    param = dot / lenSq;
+  }
+  
+  let xx: number, yy: number;
+  
+  if (param < 0) {
+    xx = lineStart.lat;
+    yy = lineStart.lng;
+  } else if (param > 1) {
+    xx = lineEnd.lat;
+    yy = lineEnd.lng;
+  } else {
+    xx = lineStart.lat + param * C;
+    yy = lineStart.lng + param * D;
+  }
+  
+  return { lat: xx, lng: yy };
+}

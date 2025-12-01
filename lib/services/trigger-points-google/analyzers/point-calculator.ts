@@ -1,7 +1,7 @@
 // Calculador de pontos ótimos para trigger points
 
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
-import { calculateDistance, calculateBearing, calculateOptimalRadius, calculateDistanceToBoundary, isPointInPolygon, calculateMinDistanceToCenter } from '../utils/calculations';
+import { calculateDistance, calculateBearing, calculateOptimalRadius, calculateDistanceToBoundary, isPointInPolygon, calculateMinDistanceToCenter, findClosestPointOnBoundary } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig } from '../config/trigger-points-config';
 import { POIClassifierService } from '../services/poi-classifier.service';
@@ -200,11 +200,39 @@ export class OptimalPointCalculator {
         return null;
       }
       
-      // Calcular qualidade do ponto
-      const quality = await this.calculatePointQuality(pointOnStreet, poiData, boundary, context);
+      // Calcular qualidade do ponto (com boost de ponte se aplicável)
+      const quality = await this.calculatePointQuality(pointOnStreet, poiData, boundary, context, street);
       
-      // Calcular bearing esperado (do ponto para o centro do POI)
-      const expectedBearing = calculateBearing(pointOnStreet, boundary.center);
+      // Calcular bearing esperado
+      // Para POIs grandes (>100k m²), tentar usar entrada principal se disponível
+      let targetPoint: { lat: number; lng: number };
+      
+      if (boundary.area > 100000 && boundary.address?.street) {
+        // POI grande: tentar encontrar ponto do boundary na rua do endereço (entrada principal)
+        const addressStreet = boundary.address.street;
+        const addressStreetInBoundary = boundary.streets?.find(s => 
+          s.name?.toLowerCase().includes(addressStreet.toLowerCase()) ||
+          addressStreet.toLowerCase().includes(s.name?.toLowerCase() || '')
+        );
+        
+        if (addressStreetInBoundary && addressStreetInBoundary.coordinates.length > 0) {
+          // Encontrar ponto mais próximo do boundary na rua da entrada principal
+          const streetPoint = addressStreetInBoundary.coordinates[0];
+          const closestOnBoundary = findClosestPointOnBoundary(streetPoint, boundary.coordinates);
+          targetPoint = { lat: closestOnBoundary.lat, lng: closestOnBoundary.lng };
+          console.log(`🚪 Large POI (${(boundary.area/10000).toFixed(0)} hectares): Using main entrance street for bearing`);
+        } else {
+          // Fallback: usar ponto mais próximo do boundary
+          const closestBoundaryPoint = findClosestPointOnBoundary(pointOnStreet, boundary.coordinates);
+          targetPoint = { lat: closestBoundaryPoint.lat, lng: closestBoundaryPoint.lng };
+        }
+      } else {
+        // POI pequeno/médio: usar ponto mais próximo do boundary
+        const closestBoundaryPoint = findClosestPointOnBoundary(pointOnStreet, boundary.coordinates);
+        targetPoint = { lat: closestBoundaryPoint.lat, lng: closestBoundaryPoint.lng };
+      }
+      
+      const expectedBearing = calculateBearing(pointOnStreet, targetPoint);
       
       // Usar a distância já calculada
       const actualDistance = bestDistance;
@@ -379,7 +407,8 @@ export class OptimalPointCalculator {
     point: { lat: number; lng: number },
     poiData: POIData,
     boundary: BoundaryData,
-    context: GeographicContext
+    context: GeographicContext,
+    street?: StreetData
   ): Promise<number> {
     let quality = 0.5; // Qualidade base
     
@@ -403,6 +432,24 @@ export class OptimalPointCalculator {
     // Fator 5: Qualidade da rua (10% do peso)
     const streetQualityScore = this.calculateStreetQualityScore(point, context);
     quality += streetQualityScore * 0.1;
+    
+    // NOVO: Boost condicional para pontes
+    if (street && (street.tags?.bridge === 'yes' || (street.tags?.layer && parseInt(street.tags.layer) > 0))) {
+      const distanceToPOI = calculateDistance(point, boundary.center);
+      
+      // Boost se ponte está próxima do POI (< 500m)
+      if (distanceToPOI < 500) {
+        quality += 0.1; // Boost base de +0.1
+        
+        // Boost adicional se POI também está elevado
+        if (boundary.height && boundary.height > 20) {
+          quality += 0.05; // Boost adicional de +0.05
+          console.log(`🌉 Bridge boost applied: +0.15 (bridge near elevated POI)`);
+        } else {
+          console.log(`🌉 Bridge boost applied: +0.1 (bridge near POI)`);
+        }
+      }
+    }
     
     return Math.max(0, Math.min(1, quality));
   }

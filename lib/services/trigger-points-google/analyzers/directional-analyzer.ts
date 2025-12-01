@@ -1,7 +1,7 @@
 // Analisador direcional para trigger points - Análise por setores
 
 import { POIData, BoundaryData, GeographicContext, DirectionalAnalysis } from '../types/interfaces';
-import { calculateBearing, calculateDistance, extractBuildingHeight } from '../utils/calculations';
+import { calculateBearing, calculateDistance, extractBuildingHeight, findClosestPointOnBoundary } from '../utils/calculations';
 
 export class DirectionalAnalyzer {
   
@@ -94,8 +94,8 @@ export class DirectionalAnalyzer {
     
     try {
       // 1. Filtrar dados existentes por direção
-      const directionalStreets = existingStreets ? this.filterElementsByDirection(existingStreets, boundary, direction) : [];
-      const directionalBuildings = existingBuildings ? this.filterElementsByDirection(existingBuildings, boundary, direction) : [];
+      const directionalStreets = existingStreets ? await this.filterElementsByDirection(existingStreets, boundary, direction) : [];
+      const directionalBuildings = existingBuildings ? await this.filterElementsByDirection(existingBuildings, boundary, direction) : [];
       
       // 2. Combinar ruas e construções para análise
       const allElements = [...directionalStreets, ...directionalBuildings];
@@ -224,20 +224,24 @@ out geom tags;
   /**
    * Filtra elementos por direção (usando boundary completo)
    */
-  private filterElementsByDirection(
+  private async filterElementsByDirection(
     elements: any[],
     boundary: BoundaryData,
     direction: { name: string; angle: number; range: [number, number] }
-  ): any[] {
-    const filtered = elements.filter(element => {
-      if (!element.geometry || element.geometry.length === 0) return false;
+  ): Promise<any[]> {
+    const filteredPromises = elements.map(async element => {
+      if (!element.geometry || element.geometry.length === 0) return null;
       
       // Calcular centro do elemento
       const elementCenter = this.calculateElementCenter(element);
       
       // Verificar se o elemento está na direção correta do boundary
-      return this.isElementInDirection(elementCenter, boundary, direction);
+      const isInDirection = await this.isElementInDirection(elementCenter, boundary, direction);
+      return isInDirection ? element : null;
     });
+    
+    const filteredResults = await Promise.all(filteredPromises);
+    const filtered = filteredResults.filter(el => el !== null);
     
     console.log(`🧭 Direction ${direction.name}: filtered ${filtered.length}/${elements.length} elements`);
     return filtered;
@@ -261,13 +265,13 @@ out geom tags;
   /**
    * Verifica se um elemento está na direção correta do boundary
    */
-  private isElementInDirection(
+  private async isElementInDirection(
     elementCenter: { lat: number; lng: number },
     boundary: BoundaryData,
     direction: { name: string; angle: number; range: [number, number] }
-  ): boolean {
+  ): Promise<boolean> {
     // Encontrar o ponto mais próximo do boundary na direção desejada
-    const boundaryPoint = this.findBoundaryPointInDirection(boundary, direction);
+    const boundaryPoint = await this.findBoundaryPointInDirection(boundary, direction);
     
     // Calcular bearing do boundary point para o elemento
     const bearing = calculateBearing(boundaryPoint, elementCenter);
@@ -279,17 +283,19 @@ out geom tags;
   /**
    * Encontra o ponto do boundary mais próximo da direção desejada
    */
-  private findBoundaryPointInDirection(
+  private async findBoundaryPointInDirection(
     boundary: BoundaryData,
     direction: { name: string; angle: number; range: [number, number] }
-  ): { lat: number; lng: number } {
+  ): Promise<{ lat: number; lng: number }> {
     const targetAngle = direction.angle;
     let bestPoint = boundary.center;
     let bestAngleDiff = Infinity;
     
     // Procurar o ponto do boundary que está mais alinhado com a direção
     for (const point of boundary.coordinates) {
-      const bearing = calculateBearing(boundary.center, point);
+      // Use closest point on boundary instead of center for more accurate bearing
+      const closestBoundaryPoint = findClosestPointOnBoundary(point, boundary.coordinates);
+      const bearing = calculateBearing({ lat: closestBoundaryPoint.lat, lng: closestBoundaryPoint.lng }, point);
       const angleDiff = Math.abs(this.normalizeAngleDifference(bearing - targetAngle));
       
       if (angleDiff < bestAngleDiff) {
