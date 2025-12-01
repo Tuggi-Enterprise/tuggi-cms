@@ -91,6 +91,17 @@ export async function POST(request: NextRequest) {
           { status: 401 }
         )
       }
+      // Check CMS role - only admin allowed to update boundary
+      const { data: cmsUser, error: cmsError } = await authSupabase
+        .schema('core')
+        .from('cms_users')
+        .select('role, is_active')
+        .eq('email', user.email as string)
+        .eq('is_active', true)
+        .single()
+      if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
+        return NextResponse.json({ error: 'Unauthorized - Admin only' }, { status: 403 })
+      }
     } else {
       console.log('🔑 Using service role authentication for boundary update (test mode)')
     }

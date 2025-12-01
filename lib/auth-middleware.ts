@@ -2,7 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 
-export async function withAuth(handler: (req: NextRequest) => Promise<NextResponse>) {
+export async function withAuth(handler: (req: NextRequest) => Promise<NextResponse>, allowedRoles: string[] = ['admin', 'client']) {
   return async (req: NextRequest) => {
     try {
       console.log('🔐 AUTH MIDDLEWARE: Starting authentication check...')
@@ -53,8 +53,8 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
         )
       }
 
-      // Check if user has admin or editor role
-      if (!['admin', 'editor'].includes(cmsUser.role)) {
+      // Check if user has one of the allowed roles for this route
+      if (!allowedRoles.includes(cmsUser.role)) {
         console.log('❌ AUTH MIDDLEWARE: Insufficient privileges:', cmsUser.role)
         return NextResponse.json(
           { error: 'Unauthorized - Insufficient privileges' },

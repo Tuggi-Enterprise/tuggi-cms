@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { ReverseGeocodingService } from '@/lib/services/reverse-geocoding.service'
 import { OSMEnrichmentService } from '@/lib/services/poi-processing/osm-enrichment.service'
@@ -9,6 +11,26 @@ const supabase = getSupabase('service')
 
 export async function POST(request: NextRequest) {
   try {
+    // Authentication & role check - allow admin and client
+    const supabaseAuth = createRouteHandlerClient({ cookies })
+    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
+    if (authError || !session) {
+      return NextResponse.json({ error: 'Unauthorized - Authentication required' }, { status: 401 })
+    }
+    // Check cms user entry and active status
+    const { data: cmsUser, error: cmsError } = await supabaseAuth
+      .schema('core')
+      .from('cms_users')
+      .select('role, is_active')
+      .eq('email', session.user.email as string)
+      .eq('is_active', true)
+      .single()
+    if (cmsError || !cmsUser) {
+      return NextResponse.json({ error: 'Unauthorized - CMS access denied' }, { status: 403 })
+    }
+    if (!['admin', 'client'].includes(cmsUser.role)) {
+      return NextResponse.json({ error: 'Unauthorized - Insufficient privileges' }, { status: 403 })
+    }
     const body = await request.json()
     const { name, lat, lng, boundary } = body
 

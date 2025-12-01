@@ -7,6 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 import { OSMImporterService } from '@/lib/services/osm-importer-service'
 import { EditableOSMPOI } from '@/types/osm-importer'
 
@@ -14,6 +16,22 @@ export async function POST(request: NextRequest) {
   console.log('🚀 [API] Import request received')
   
   try {
+    // Require admin for import
+    const supabaseAuth = createRouteHandlerClient({ cookies })
+    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
+    if (authError || !session) {
+      return NextResponse.json({ error: 'Unauthorized - Authentication required' }, { status: 401 })
+    }
+    const { data: cmsUser, error: cmsError } = await supabaseAuth
+      .schema('core')
+      .from('cms_users')
+      .select('role, is_active')
+      .eq('email', session.user.email as string)
+      .eq('is_active', true)
+      .single()
+    if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized - Admin only' }, { status: 403 })
+    }
     const body = await request.json()
     console.log('📦 [API] Request body parsed:', { 
       hasPois: !!body.pois,
