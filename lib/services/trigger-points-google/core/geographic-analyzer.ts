@@ -114,22 +114,28 @@ export class GeographicContextAnalyzer {
         // Muitos prédios e ruas = área muito densa
         level = 'very_dense';
         score = 0.85;
+        console.log(`   ✅ Classified as VERY_DENSE (density: ${buildingDensity.toFixed(1)}/km², buildings: ${totalBuildings}, streets: ${streetCount})`);
       } else if (buildingDensity > 100 || totalBuildings > 25 || streetCount > 10) {
         // Muitos prédios = área densa
         level = 'dense';
         score = 0.7;
+        console.log(`   ✅ Classified as DENSE (density: ${buildingDensity.toFixed(1)}/km², buildings: ${totalBuildings}, streets: ${streetCount})`);
       } else if (buildingDensity > 50 || totalBuildings > 10 || streetCount > 5) {
         // Prédios moderados = área média
         level = 'medium';
         score = 0.5;
+        console.log(`   ⚠️ Classified as MEDIUM (density: ${buildingDensity.toFixed(1)}/km², buildings: ${totalBuildings}, streets: ${streetCount})`);
+        console.log(`      ⚠️ For CANYON classification, need DENSE or VERY_DENSE`);
       } else if (buildingDensity > 10 || totalBuildings > 3 || streetCount > 2) {
         // Poucos prédios = área baixa
         level = 'low';
         score = 0.3;
+        console.log(`   ⚠️ Classified as LOW (density: ${buildingDensity.toFixed(1)}/km², buildings: ${totalBuildings}, streets: ${streetCount})`);
       } else {
         // Muito poucos prédios = área rural
         level = 'rural';
         score = 0.1;
+        console.log(`   ⚠️ Classified as RURAL (density: ${buildingDensity.toFixed(1)}/km², buildings: ${totalBuildings}, streets: ${streetCount})`);
       }
       
       return { level, score };

@@ -42,26 +42,8 @@ export interface AttractionUpdateData {
   }
 }
 
-/**
- * Calculate boundary area from coordinates
- */
-function calculateBoundaryArea(coordinates: Array<{lat: number, lng: number}>): number {
-  if (coordinates.length < 3) return 0
-
-  // Simple shoelace formula for polygon area
-  let area = 0
-  for (let i = 0; i < coordinates.length; i++) {
-    const j = (i + 1) % coordinates.length
-    area += coordinates[i].lng * coordinates[j].lat
-    area -= coordinates[j].lng * coordinates[i].lat
-  }
-  area = Math.abs(area) / 2
-
-  // Convert from degrees² to m² (approximate)
-  // 1 degree ≈ 111,320 meters
-  const metersPerDegree = 111320
-  return area * metersPerDegree * metersPerDegree
-}
+// ✅ DRY: calculateBoundaryArea removido - usar calculatePolygonAreaInM2 de utils/calculations.ts
+import { calculatePolygonAreaInM2 } from './calculations'
 
 /**
  * Update attraction with trigger points generation metadata
@@ -95,7 +77,7 @@ export async function updateAttractionWithTPMetadata(
 
     // Calculate and update boundary_area_m2 if boundary coordinates are available
     if (boundary?.coordinates && boundary.coordinates.length >= 3) {
-      updateData.boundary_area_m2 = calculateBoundaryArea(boundary.coordinates)
+      updateData.boundary_area_m2 = calculatePolygonAreaInM2(boundary.coordinates) // ✅ DRY: usar função SSOT
     }
 
     // Update generation_strategy from classification

@@ -140,6 +140,19 @@ export class POIClassifierService {
     // Lógica: POI médio/alto cercado por outros prédios similares, visibilidade muito limitada
     // ====================================================================
     
+    // 🔍 DEBUG: Log detalhado para diagnóstico
+    console.log(`🔍 [CANYON CHECK]:`);
+    console.log(`   isLowElevation: ${isLowElevation} (elevationDiff: ${elevationDiff.toFixed(1)}m)`);
+    console.log(`   isMediumStructure: ${isMediumStructure} (height: ${height}m, range: 10-50m)`);
+    console.log(`   isHighStructure: ${isHighStructure} (height: ${height}m, >50m)`);
+    console.log(`   isDenseArea: ${isDenseArea} (urbanDensity: ${context.urbanDensity.level})`);
+    console.log(`   isLargeArea: ${isLargeArea} (area: ${area.toFixed(0)}m², threshold: 50000m²)`);
+    console.log(`   Condition 1: isLowElevation = ${isLowElevation}`);
+    console.log(`   Condition 2: (isMediumStructure || (isHighStructure && isDenseArea)) = ${isMediumStructure || (isHighStructure && isDenseArea)}`);
+    console.log(`   Condition 3: isDenseArea = ${isDenseArea}`);
+    console.log(`   Condition 4: !isLargeArea = ${!isLargeArea}`);
+    console.log(`   CANYON RESULT: ${isLowElevation && (isMediumStructure || (isHighStructure && isDenseArea)) && isDenseArea && !isLargeArea}`);
+    
     if (isLowElevation && (isMediumStructure || (isHighStructure && isDenseArea)) && isDenseArea && !isLargeArea) {
       const config = GROUP_CONFIGS[POIGroup.CANYON];
       
@@ -234,6 +247,17 @@ export class POIClassifierService {
     
     console.log(`🏞️ [FLAT GROUP] ${reasoning}`);
     console.log(`   → Radius: ${config.searchRadius.fixed}m (flat POI characteristics)`);
+    console.log(`   ⚠️ [FALLBACK REASON - Why not CANYON?]:`);
+    console.log(`      - Height check: ${isMediumStructure ? '✅ MEDIUM' : isHighStructure ? '✅ HIGH' : '❌ LOW'} (${height}m)`);
+    console.log(`      - Density check: ${isDenseArea ? '✅ DENSE' : '❌ NOT DENSE'} (${context.urbanDensity.level})`);
+    console.log(`      - Area check: ${isLargeArea ? '❌ LARGE' : '✅ OK'} (${area.toFixed(0)}m²)`);
+    console.log(`      - CANYON condition: ${isLowElevation && (isMediumStructure || (isHighStructure && isDenseArea)) && isDenseArea && !isLargeArea ? '✅ SHOULD PASS!' : '❌ FAILED'}`);
+    if (!isDenseArea) {
+      console.log(`      ⚠️ PROBLEM: Urban density is '${context.urbanDensity.level}' but should be 'dense' or 'very_dense' for CANYON`);
+    }
+    if (height === 0) {
+      console.log(`      ⚠️ PROBLEM: POI height is 0m - cannot classify as CANYON (needs 10-50m for medium, or >50m with dense area)`);
+    }
     
     return {
       group: POIGroup.FLAT,

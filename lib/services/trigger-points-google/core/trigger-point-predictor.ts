@@ -55,21 +55,21 @@ export class CoreTriggerPointPredictor {
         throw new Error(`Invalid POI data: ${validation.errors.join(', ')}`);
       }
       
-      // 1. Análise automática do contexto geográfico
-      console.log('📊 Step 1: Analyzing geographic context...');
-      const context = await this.geographicAnalyzer.analyzeGeographicContext(poiData);
-      
-      // 2. Detecção de boundary
-      console.log('🔍 Step 2: Detecting boundary...');
-      const boundaryResult = await this.boundaryDetector.detectBoundary(poiData, context);
+      // ✅ REFATORADO: Buscar dados OSM primeiro, depois calcular densidade e classificar
+      // Não fazer cálculo inicial de contexto sem dados - isso causa redundância
+      // 1. Detecção de boundary (busca dados OSM com raio padrão 500m, calcula densidade, classifica)
+      console.log('🔍 Step 1: Detecting boundary and collecting OSM data...');
+      const boundaryResult = await this.boundaryDetector.detectBoundary(poiData);
       if (!boundaryResult.success || !boundaryResult.data) {
         throw new Error(`Boundary detection failed: ${boundaryResult.error}`);
       }
       const boundary = boundaryResult.data;
       
-      // 2.1. Re-analisar contexto geográfico com boundary (para usar boundary completo)
-      console.log('📊 Step 2.1: Re-analyzing geographic context with boundary...');
-      const contextWithBoundary = await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary);
+      // 2. Criar contexto geográfico a partir do boundary (já tem densidade calculada corretamente)
+      // ✅ NOTA: Densidade urbana e classificação já foram calculadas dentro de detectBoundary
+      //    usando dados OSM reais. Aqui apenas criamos o contexto completo para etapas posteriores.
+      console.log('📊 Step 2: Creating geographic context from boundary data...');
+      const context = await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary);
       
       // NOVA LÓGICA: Se boundary é estimado (POI não encontrado), usar fallback SUPER SIMPLES
       if (boundary.source === 'estimated') {
@@ -86,7 +86,7 @@ export class CoreTriggerPointPredictor {
           context,
           processingTime,
           metadata: {
-            boundarySource: boundary.source,
+            boundarySource: boundary.source, // ✅ Agora aceita 'manual' | 'nominatim' além dos tipos originais
             boundaryConfidence: boundary.confidence,
             streetCount: 0,
             optimalPointsFound: 0,
@@ -100,6 +100,7 @@ export class CoreTriggerPointPredictor {
       }
 
       // 3. Análise de ruas acessíveis (apenas para POIs com boundary real)
+      // ✅ Context já tem densidade calculada corretamente a partir dos dados OSM
       console.log('🛣️ Step 3: Finding accessible streets...');
       const streetAnalysisResult = await this.streetAnalyzer.findAccessibleStreetsWithMetadata(poiData, boundary, context);
       const accessibleStreets = streetAnalysisResult.streets;
@@ -115,7 +116,7 @@ export class CoreTriggerPointPredictor {
           context,
           processingTime,
           metadata: {
-            boundarySource: boundary.source,
+            boundarySource: boundary.source, // ✅ Agora aceita 'manual' | 'nominatim' além dos tipos originais
             boundaryConfidence: boundary.confidence,
             streetCount: 0,
             optimalPointsFound: 0,
@@ -129,6 +130,7 @@ export class CoreTriggerPointPredictor {
       }
       
       // 4. Cálculo de pontos ótimos
+      // ✅ Context já tem densidade calculada corretamente a partir dos dados OSM
       console.log('🎯 Step 4: Calculating optimal points...');
       const optimalPoints = await this.pointCalculator.calculateOptimalPoints(poiData, accessibleStreets, boundary, context);
       
@@ -143,7 +145,7 @@ export class CoreTriggerPointPredictor {
           context,
           processingTime,
           metadata: {
-            boundarySource: boundary.source,
+            boundarySource: boundary.source, // ✅ Agora aceita 'manual' | 'nominatim' além dos tipos originais
             boundaryConfidence: boundary.confidence,
             streetCount: accessibleStreets.length,
             optimalPointsFound: 0,
@@ -171,7 +173,7 @@ export class CoreTriggerPointPredictor {
           context,
           processingTime,
           metadata: {
-            boundarySource: boundary.source,
+            boundarySource: boundary.source, // ✅ Agora aceita 'manual' | 'nominatim' além dos tipos originais
             boundaryConfidence: boundary.confidence,
             streetCount: accessibleStreets.length,
             optimalPointsFound: optimalPoints.length,
@@ -202,7 +204,7 @@ export class CoreTriggerPointPredictor {
       const validatedPoints = await this.validator.validateAndRankPoints(
         streetValidatedCandidates, 
         poiData, 
-        contextWithBoundary,
+        context,
         boundary,
         maxTPs,
         minDistance
@@ -954,7 +956,7 @@ out geom tags;
     const centerPoint = boundary?.center || poiData.location;
     
     const streetPoint = street.coordinates[0];
-    const distanceToPOI = this.calculateDistance(centerPoint, streetPoint);
+    const distanceToPOI = calculateDistance(centerPoint, streetPoint); // ✅ DRY: usar função importada
     
     console.log(`📏 Distance from POI to street: ${distanceToPOI.toFixed(0)}m (using ${boundary ? 'boundary.center' : 'poiData.location'})`);
     
@@ -992,25 +994,7 @@ out geom tags;
    */
   // Método removido - duplicado com versão atualizada que usa boundary.center
 
-  /**
-   * Calcula distância entre dois pontos
-   */
-  private calculateDistance(point1: { lat: number; lng: number }, point2: { lat: number; lng: number }): number {
-    const R = 6371e3; // Raio da Terra em metros
-    const φ1 = point1.lat * Math.PI / 180;
-    const φ2 = point2.lat * Math.PI / 180;
-    const Δφ = (point2.lat - point1.lat) * Math.PI / 180;
-    const Δλ = (point2.lng - point1.lng) * Math.PI / 180;
-
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    return R * c;
-  }
-
-  // Usar função existente do utils/calculations.ts (DRY)
+  // ✅ DRY: calculateDistance removido - usar função importada de utils/calculations.ts
   
   /**
    * Calcula ponto a uma distância e direção específicas

@@ -2,7 +2,7 @@
 
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/interfaces';
-import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing } from '../utils/calculations';
+import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing, calculateDistanceToLineSegment, calculateDistanceToPolygon, calculateDistanceToBoundary } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 
@@ -135,6 +135,59 @@ export class StreetAnalyzer {
    */
   private async calculateIntelligentRadius(boundary: BoundaryData, context: GeographicContext, poiData: POIData, config?: TriggerPointsConfig): Promise<number> {
     console.log(`🧮 Calculating intelligent search radius...`);
+    
+    // 🎯 STEP 0: PRIORIDADE MÁXIMA - Usar classificação do boundary se disponível (SSOT)
+    // A classificação já foi calculada no boundary-detector e deve ser respeitada
+    if (boundary.classification && boundary.classification.searchRadius) {
+      const classificationRadius = boundary.classification.searchRadius;
+      const classificationGroup = boundary.classification.group;
+      
+      console.log(`🎯 [CLASSIFICATION-BASED RADIUS] Using classification from boundary:`);
+      console.log(`   → Group: ${classificationGroup.toUpperCase()}`);
+      console.log(`   → Search radius: ${classificationRadius}m`);
+      console.log(`   → Reasoning: ${boundary.classification.metadata?.reasoning || 'N/A'}`);
+      console.log(`   ✅ RESPECTING CLASSIFICATION (SSOT) - ignoring dynamic calculations`);
+      
+      // 🏙️ CANYON: Raio muito limitado (visibilidade muito restrita)
+      if (classificationGroup === 'canyon') {
+        const baseCanyonRadius = classificationRadius;
+        
+        // Para POIs muito altos (>100m) em canyon, permitir pequeno aumento, mas máximo 100m
+        let canyonRadius = baseCanyonRadius;
+        if (boundary.height && boundary.height > 100) {
+          const heightAdjustment = Math.min((boundary.height - 100) * 0.3, 25);
+          canyonRadius = Math.min(baseCanyonRadius + heightAdjustment, 100);
+          console.log(`   → Tall POI (${boundary.height}m) in canyon: adjusted to ${canyonRadius}m`);
+        }
+        
+        console.log(`   → Final radius: ${canyonRadius}m (STRICTLY LIMITED - visibility blocked by surrounding buildings)`);
+        return canyonRadius;
+      }
+      
+      // Para outros grupos (HIGH, MEDIUM, FLAT), usar o raio da classificação diretamente
+      console.log(`   → Final radius: ${classificationRadius}m (from ${classificationGroup.toUpperCase()} group config)`);
+      return classificationRadius;
+    }
+    
+    // 🏙️ FALLBACK: Se não há classificação, verificar CANYON manualmente (para compatibilidade)
+    if (boundary.classification?.group === 'canyon') {
+      const baseCanyonRadius = boundary.classification.searchRadius || 75;
+      
+      let canyonRadius = baseCanyonRadius;
+      if (boundary.height && boundary.height > 100) {
+        const heightAdjustment = Math.min((boundary.height - 100) * 0.3, 25);
+        canyonRadius = Math.min(baseCanyonRadius + heightAdjustment, 100);
+        console.log(`🏙️ CANYON POI DETECTED: Tall POI (${boundary.height}m) in canyon`);
+        console.log(`   → Base radius: ${baseCanyonRadius}m + height adjustment: +${heightAdjustment.toFixed(0)}m`);
+        console.log(`   → Final radius: ${canyonRadius}m (STRICTLY LIMITED - visibility blocked by surrounding buildings)`);
+      } else {
+        console.log(`🏙️ CANYON POI DETECTED: Using FIXED radius (${canyonRadius}m) - visibility limited by surrounding buildings`);
+        console.log(`   → POI height: ${boundary.height || 'unknown'}m`);
+      }
+      console.log(`   → Even tall POIs in canyons have restricted visibility`);
+      console.log(`   → Ignoring dynamic height-based calculations (would be ${300}+m otherwise)`);
+      return canyonRadius;
+    }
     
     // 🏔️ STEP 1: Check if this is a high-visibility POI using REAL elevation data (DYNAMIC LOGIC)
     if (boundary.elevation && boundary.elevation.center > 0) {
@@ -370,23 +423,11 @@ export class StreetAnalyzer {
    * Substitui a lista hardcoded de landmarks por lógica dinâmica
    */
 
-  /**
-   * Calcula distância entre dois pontos (Haversine)
-   */
-  private calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
-    const R = 6371000; // Earth's radius in meters
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
-  }
+  // ✅ DRY: calculateDistance removido - usar função importada de utils/calculations.ts
   
   /**
    * Busca ruas ao redor do boundary do POI (ESTRATÉGIA HÍBRIDA para POIs grandes)
+   * ✅ CORREÇÃO ESTRUTURAL: Garante que todas as ruas retornadas respeitam o searchRadius
    */
   private async getRoadsAroundBoundary(boundary: BoundaryData, searchRadius: number, context?: GeographicContext): Promise<StreetData[]> {
     console.log(`🗺️ Searching roads around boundary (${boundary.coordinates.length} points, radius: ${searchRadius}m)`);
@@ -396,76 +437,118 @@ export class StreetAnalyzer {
       if (boundary.streets && boundary.streets.length > 0) {
         console.log(`✅ Using consolidated streets from boundary: ${boundary.streets.length} streets`);
         console.log(`🚀 CONSOLIDATION BENEFIT: Avoided OSM request for ${boundary.streets.length} streets`);
-        return boundary.streets;
+        
+        // ✅ CRÍTICO: Filtrar ruas consolidadas pelo raio também (podem ter sido criadas com raio maior)
+        return this.filterStreetPointsByRadius(boundary.streets, boundary, searchRadius);
       }
       
       // 🚀 ESTRATÉGIA INTELIGENTE: Usar dados do Nominatim + ruas virtuais
-            if (boundary.coordinates.length > 100) {
-              console.log(`🏗️ LARGE POI STRATEGY: ${boundary.coordinates.length} points`);
-              
-              // 1. Detectar se é canyon urbano (POI alto em área densa)
-              const isUrbanCanyon = context ? this.isUrbanCanyon(boundary, context) : false;
-              
-              if (isUrbanCanyon && context) {
-                console.log(`🏙️ URBAN CANYON DETECTED: Using OSM query for real streets around boundary`);
-                // Para canyons urbanos, usar OSM query para encontrar ruas reais
-                try {
-                  const osmStreets = await this.getStreetsFromOSMOptimizedBoundary(boundary, searchRadius);
-                  if (osmStreets && osmStreets.length > 0) {
-                    console.log(`✅ Found ${osmStreets.length} real streets via OSM for urban canyon`);
-                    return osmStreets;
-                  }
-                } catch (error) {
-                  console.warn(`⚠️ OSM query failed for urban canyon, using Nominatim fallback:`, error);
-                }
-              }
-              
-              // Fallback: Criar ruas reais dos dados do Nominatim
-              const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
-              console.log(`✅ Created ${nominatimStreets.length} real streets from Nominatim data`);
-              return nominatimStreets;
+      if (boundary.coordinates.length > 100) {
+        console.log(`🏗️ LARGE POI STRATEGY: ${boundary.coordinates.length} points`);
+        
+        // 1. Detectar se é canyon urbano (POI alto em área densa)
+        const isUrbanCanyon = context ? this.isUrbanCanyon(boundary, context) : false;
+        
+        if (isUrbanCanyon && context) {
+          console.log(`🏙️ URBAN CANYON DETECTED: Using OSM query for real streets around boundary`);
+          // Para canyons urbanos, usar OSM query para encontrar ruas reais
+          // ✅ getStreetsFromOSMOptimizedBoundary já filtra pontos pelo raio internamente
+          try {
+            const osmStreets = await this.getStreetsFromOSMOptimizedBoundary(boundary, searchRadius);
+            if (osmStreets && osmStreets.length > 0) {
+              console.log(`✅ Found ${osmStreets.length} real streets via OSM for urban canyon (already filtered by radius)`);
+              return osmStreets;
             }
+          } catch (error) {
+            console.warn(`⚠️ OSM query failed for urban canyon, using Nominatim fallback:`, error);
+          }
+        }
+        
+        // Fallback: Criar ruas reais dos dados do Nominatim
+        const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
+        console.log(`✅ Created ${nominatimStreets.length} real streets from Nominatim data`);
+        // ✅ Filtrar pontos pelo raio (ruas do Nominatim podem ser longas)
+        return this.filterStreetPointsByRadius(nominatimStreets, boundary, searchRadius);
+      }
       
       // Para boundaries médios (50-100 pontos), usar APENAS ruas reais
       if (boundary.coordinates.length > 50) {
         console.log(`⚡ MEDIUM POI: ${boundary.coordinates.length} points, using ONLY real streets (virtual streets disabled)`);
         const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
         console.log(`✅ Created ${nominatimStreets.length} real streets from Nominatim data (virtual streets disabled)`);
-        return nominatimStreets;
+        // ✅ Filtrar pontos pelo raio
+        return this.filterStreetPointsByRadius(nominatimStreets, boundary, searchRadius);
       }
       
       // Para boundaries pequenos, usar APENAS ruas reais do Nominatim
       console.log(`🎯 SMALL POI: ${boundary.coordinates.length} points, using ONLY real streets (virtual streets disabled)`);
       const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
       console.log(`✅ Created ${nominatimStreets.length} real streets from Nominatim data (virtual streets disabled)`);
-      return nominatimStreets;
+      // ✅ Filtrar pontos pelo raio
+      return this.filterStreetPointsByRadius(nominatimStreets, boundary, searchRadius);
       
     } catch (error) {
       console.error('Error finding roads around boundary:', error);
       console.log(`🔄 Fallback: Using ONLY real streets from Nominatim data (virtual streets disabled)`);
       const nominatimStreets = this.createRealStreetsFromNominatimData(boundary);
       console.log(`✅ Created ${nominatimStreets.length} real streets from Nominatim data (fallback)`);
-      return nominatimStreets;
+      // ✅ Filtrar pontos pelo raio mesmo no fallback
+      return this.filterStreetPointsByRadius(nominatimStreets, boundary, searchRadius);
     }
   }
   
   /**
-   * Calcula distância real de um ponto ao boundary (CORRIGIDO)
+   * ✅ NOVA FUNÇÃO: Filtra PONTOS das ruas pelo raio de busca
+   * Garante que apenas pontos dentro do raio sejam mantidos
    */
-  private calculateDistanceToBoundary(point: { lat: number; lng: number }, boundaryCoordinates: Array<{ lat: number; lng: number }>): number {
-    let minDistance = Infinity;
+  private filterStreetPointsByRadius(
+    streets: StreetData[],
+    boundary: BoundaryData,
+    searchRadius: number
+  ): StreetData[] {
+    if (!streets || streets.length === 0) return streets;
+    if (!boundary.coordinates || boundary.coordinates.length === 0) return streets;
     
-    for (let i = 0; i < boundaryCoordinates.length; i++) {
-      const current = boundaryCoordinates[i];
-      const next = boundaryCoordinates[(i + 1) % boundaryCoordinates.length];
+    const maxAllowedDistance = searchRadius + 20; // Margem de 20m
+    const filtered: StreetData[] = [];
+    
+    for (const street of streets) {
+      if (!street.coordinates || street.coordinates.length === 0) continue;
       
-      // Calcular distância do ponto ao segmento de linha
-      const distance = this.distancePointToLineSegment(point, current, next);
-      minDistance = Math.min(minDistance, distance);
+      // Filtrar pontos pelo raio
+      const validPoints: Array<{ lat: number; lng: number }> = [];
+      
+      for (const point of street.coordinates) {
+        // Ignorar pontos dentro do boundary
+        if (isPointInPolygon(point, boundary.coordinates)) {
+          continue;
+        }
+        
+        // Calcular distância ao boundary
+        const distanceToBoundary = calculateDistanceToPolygon(point, boundary.coordinates); // ✅ DRY: usar função SSOT
+        
+        if (distanceToBoundary <= maxAllowedDistance) {
+          validPoints.push(point);
+        }
+      }
+      
+      // Incluir rua apenas se tem pelo menos 2 pontos válidos
+      if (validPoints.length >= 2) {
+        filtered.push({
+          ...street,
+          coordinates: validPoints
+        });
+        
+        if (validPoints.length < street.coordinates.length) {
+          console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length})`);
+        }
+      }
     }
     
-    return minDistance;
+    return filtered;
   }
+  
+  // ✅ DRY: calculateDistanceToBoundary removido - usar função importada de utils/calculations.ts
   
   /**
    * Calcula distância de um ponto a um segmento de linha
@@ -652,7 +735,7 @@ export class StreetAnalyzer {
       const streetCoordinates = [streetStart, streetEnd];
       const validCoordinates = streetCoordinates.filter(coord => {
         // CORRIGIDO: Calcular distância real ao boundary, não ao centro
-        const distanceToBoundary = this.calculateDistanceToBoundary(coord, boundary.coordinates);
+        const distanceToBoundary = calculateDistanceToBoundary(coord, boundary.coordinates); // ✅ DRY: usar função SSOT
         const isOutside = distanceToBoundary > TRIGGER_POINTS_CONSTANTS.distances.realStreetValidationMargin;
         
         if (!isOutside) {
@@ -770,31 +853,56 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       
       console.log(`📍 Found ${data.elements.length} street elements from OSM`);
       
-      // Processar elementos OSM em StreetData com validação de boundary
+      // ✅ CORREÇÃO ESTRUTURAL CRÍTICA: Filtrar PONTOS das ruas pelo raio ANTES de processar
+      // PROBLEMA: OSM retorna ruas COMPLETAS (todos os pontos), não apenas segmentos dentro do raio
+      // SOLUÇÃO: Filtrar os pontos de cada rua pelo raio de busca (searchRadius)
+      // Isso garante que apenas pontos dentro do raio sejam considerados
+      
       const streets: StreetData[] = [];
+      const maxAllowedDistance = searchRadius + 20; // Margem de 20m para ruas que passam perto do limite
+      
+      console.log(`🔍 Filtering street POINTS by radius: ${searchRadius}m (max: ${maxAllowedDistance}m)`);
       
       for (const element of data.elements) {
         if (element.type === 'way' && element.geometry && element.geometry.length > 1) {
-          const streetCoordinates = element.geometry.map((point: any) => ({
+          const allStreetCoordinates = element.geometry.map((point: any) => ({
             lat: point.lat,
             lng: point.lon
           }));
           
-          // VALIDAÇÃO: Filtrar ruas que estão majoritariamente dentro do boundary
-          const validCoordinates = streetCoordinates.filter((coord: {lat: number, lng: number}) => 
+          // ✅ PASSO 1: Filtrar pontos que estão dentro do boundary (não queremos TPs dentro do POI)
+          const pointsOutsideBoundary = allStreetCoordinates.filter((coord: {lat: number, lng: number}) => 
             !isPointInPolygon(coord, boundary.coordinates)
           );
           
-          // RELAXADO: Se mais de 30% dos pontos da rua estão fora do boundary, incluir (para avenidas importantes)
-          if (validCoordinates.length > streetCoordinates.length * 0.3) {
+          if (pointsOutsideBoundary.length === 0) {
+            // Rua completamente dentro do boundary - ignorar
+            continue;
+          }
+          
+          // ✅ PASSO 2: Filtrar pontos pelo RAIO DE BUSCA (CRÍTICO!)
+          // Calcular distância de cada ponto ao boundary e manter apenas os que estão dentro do raio
+          const pointsWithinRadius: Array<{ lat: number; lng: number }> = [];
+          
+          for (const point of pointsOutsideBoundary) {
+            const distanceToBoundary = calculateDistanceToPolygon(point, boundary.coordinates); // ✅ DRY: usar função SSOT
+            
+            if (distanceToBoundary <= maxAllowedDistance) {
+              pointsWithinRadius.push(point);
+            }
+          }
+          
+          // ✅ PASSO 3: Incluir rua apenas se tem pelo menos 2 pontos válidos (para formar um segmento)
+          // E se pelo menos 30% dos pontos originais estão fora do boundary (para avenidas importantes)
+          if (pointsWithinRadius.length >= 2 && pointsOutsideBoundary.length > allStreetCoordinates.length * 0.3) {
             const street: StreetData = {
               id: `osm_way_${element.id}`,
               type: this.classifyOSMHighway(element.tags?.highway || 'unknown'),
-              name: element.tags?.name || element.tags?.ref || 'Unnamed Street', // NOVO: nome da rua
-              coordinates: validCoordinates, // Usar apenas pontos válidos
+              name: element.tags?.name || element.tags?.ref || 'Unnamed Street',
+              coordinates: pointsWithinRadius, // ✅ USAR APENAS PONTOS DENTRO DO RAIO
               accessibility: this.determineAccessibility(element.tags),
-              confidence: 0.9, // Alta confidence para OSM
-              tags: { // NOVO: armazenar tags relevantes para validação
+              confidence: 0.9,
+              tags: {
                 tunnel: element.tags?.tunnel,
                 bridge: element.tags?.bridge,
                 layer: element.tags?.layer,
@@ -811,13 +919,17 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
             };
             
             streets.push(street);
+            
+            if (pointsWithinRadius.length < allStreetCoordinates.length) {
+              console.log(`✂️ Street ${element.id} (${element.tags?.name || 'unnamed'}): Filtered ${allStreetCoordinates.length - pointsWithinRadius.length} points outside radius (kept ${pointsWithinRadius.length}/${allStreetCoordinates.length})`);
+            }
           } else {
-            // console.log(`🚫 Street mostly inside boundary filtered out: ${element.id}`);
+            console.log(`🚫 Street ${element.id}: Rejected (${pointsWithinRadius.length} valid points < 2, or mostly inside boundary)`);
           }
         }
       }
       
-      console.log(`✅ Processed ${streets.length} streets from OSM`);
+      console.log(`✅ Processed ${streets.length} streets from OSM (with radius filtering)`);
       return streets;
       
     } catch (error) {
@@ -1768,7 +1880,7 @@ out geom tags;
       const buildingCenter = this.calculateBuildingCentroid(building);
       
       // Calcular distância do building à linha entre os pontos
-      const distanceToLine = this.calculateDistanceToLineSegment(
+      const distanceToLine = calculateDistanceToLineSegment( // ✅ DRY: usar função SSOT
         buildingCenter,
         point1,
         point2
@@ -1820,46 +1932,5 @@ out geom tags;
     return { lat: building.lat || 0, lng: building.lon || 0 };
   }
 
-  /**
-   * Calcula distância de um ponto a um segmento de linha
-   */
-  private calculateDistanceToLineSegment(
-    point: { lat: number; lng: number },
-    lineStart: { lat: number; lng: number },
-    lineEnd: { lat: number; lng: number }
-  ): number {
-    const A = point.lat - lineStart.lat;
-    const B = point.lng - lineStart.lng;
-    const C = lineEnd.lat - lineStart.lat;
-    const D = lineEnd.lng - lineStart.lng;
-    
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-    let param = -1;
-    
-    if (lenSq !== 0) {
-      param = dot / lenSq;
-    }
-    
-    let xx: number, yy: number;
-    
-    if (param < 0) {
-      xx = lineStart.lat;
-      yy = lineStart.lng;
-    } else if (param > 1) {
-      xx = lineEnd.lat;
-      yy = lineEnd.lng;
-    } else {
-      xx = lineStart.lat + param * C;
-      yy = lineStart.lng + param * D;
-    }
-    
-    const dx = point.lat - xx;
-    const dy = point.lng - yy;
-    
-    // Converter para metros (aproximação)
-    return Math.sqrt(dx * dx + dy * dy) * 111000;
-  }
-
-  // Usar função centralizada do utils/calculations.ts (DRY)
+  // ✅ DRY: calculateDistanceToLineSegment removido - usar função importada de utils/calculations.ts
 }

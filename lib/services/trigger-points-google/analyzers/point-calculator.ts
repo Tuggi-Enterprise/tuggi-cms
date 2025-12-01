@@ -110,13 +110,15 @@ export class OptimalPointCalculator {
   }
   
   /**
-   * ✅ CORREÇÃO 4: Filtra ruas baseado no raio calculado após classificação
-   * Remove ruas que estão fora do raio de busca calculado (ex: 180m para FLAT)
-   * mas que foram incluídas na query inicial de 500m
+   * ✅ CORREÇÃO CRÍTICA: Filtra ruas E PONTOS baseado no raio calculado após classificação
+   * Remove ruas que estão fora do raio E também remove pontos das ruas que estão muito distantes
+   * 
+   * PROBLEMA IDENTIFICADO: Ruas do OSM contêm TODOS os pontos da rua, mesmo os muito distantes.
+   * Exemplo: Uma rua pode ter pontos a 50m do boundary (dentro do raio) e outros a 1500m (fora).
+   * 
+   * SOLUÇÃO: Filtrar não apenas as ruas, mas também os PONTOS dentro de cada rua pelo raio.
    * 
    * IMPORTANTE: Usa distância ao BOUNDARY (perímetro), não ao centro
-   * Para POIs grandes (parques, estádios), o centro pode estar muito longe das ruas
-   * mas as ruas podem estar próximas do perímetro do boundary
    */
   private filterStreetsByRadius(
     streets: StreetData[],
@@ -127,26 +129,56 @@ export class OptimalPointCalculator {
     if (!boundary.coordinates || boundary.coordinates.length === 0) return streets;
     
     const filtered: StreetData[] = [];
+    const maxAllowedDistance = searchRadius + 20; // Margem de 20m para ruas que passam perto do limite
+    
+    console.log(`🔍 Filtering streets and points by radius: ${searchRadius}m (max: ${maxAllowedDistance}m)`);
     
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length === 0) continue;
       
-      // Calcular distância mínima da rua ao BOUNDARY (perímetro), não ao centro
-      // Para cada ponto da rua, calcular distância ao boundary e pegar o mínimo
+      // ✅ NOVO: Filtrar PONTOS da rua pelo raio, não apenas a rua inteira
+      const validPoints: Array<{ lat: number; lng: number }> = [];
       let minDistanceToBoundary = Infinity;
+      let maxDistanceToBoundary = 0;
       
       for (const streetPoint of street.coordinates) {
         const distanceToBoundary = calculateDistanceToBoundary(streetPoint, boundary.coordinates);
+        
+        // Calcular distâncias min/max para debug
         minDistanceToBoundary = Math.min(minDistanceToBoundary, distanceToBoundary);
+        maxDistanceToBoundary = Math.max(maxDistanceToBoundary, distanceToBoundary);
+        
+        // Manter apenas pontos dentro do raio permitido
+        if (distanceToBoundary <= maxAllowedDistance) {
+          validPoints.push(streetPoint);
+        }
       }
       
-      // Incluir apenas ruas dentro do raio calculado a partir do boundary
-      // Adicionar margem de 20m para incluir ruas que passam perto do limite
-      if (minDistanceToBoundary <= searchRadius + 20) {
-        filtered.push(street);
+      // Incluir rua apenas se:
+      // 1. Tem pelo menos 2 pontos válidos (para formar um segmento)
+      // 2. Pelo menos um ponto está dentro do raio
+      if (validPoints.length >= 2) {
+        // Criar nova rua com apenas os pontos válidos
+        const filteredStreet: StreetData = {
+          ...street,
+          coordinates: validPoints
+        };
+        
+        filtered.push(filteredStreet);
+        
+        if (validPoints.length < street.coordinates.length) {
+          console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length})`);
+        }
+      } else {
+        // Mensagem de log mais clara
+        const reason = validPoints.length === 0 
+          ? `no valid points (all points: ${minDistanceToBoundary.toFixed(0)}m-${maxDistanceToBoundary.toFixed(0)}m from boundary, max allowed: ${maxAllowedDistance.toFixed(0)}m)`
+          : `insufficient valid points (${validPoints.length} valid, need 2+ to form segment)`;
+        console.log(`🚫 Street ${street.id}: Rejected - ${reason}`);
       }
     }
     
+    console.log(`✅ Filtered streets: ${filtered.length}/${streets.length} streets with points within ${searchRadius}m radius`);
     return filtered;
   }
   
@@ -264,19 +296,42 @@ export class OptimalPointCalculator {
     // 🎯 USAR CLASSIFICAÇÃO DO BOUNDARY (já calculada)
     if (boundary && boundary.classification) {
       const classification = boundary.classification;
+      const maxSearchRadius = classification.searchRadius || 300; // Limite máximo do raio de busca
+      
+      console.log(`📏 Classification search radius limit: ${maxSearchRadius}m`);
       
       // Usar estratégia baseada na classificação
+      let distances: number[];
       switch (classification.strategy) {
         case 'circular':
           // Para HIGH e MEDIUM, usar distâncias circulares
           if (classification.group === 'high') {
-            return this.calculateElevationStrategy(poiData, context, boundary, cfg, classification);
+            distances = this.calculateElevationStrategy(poiData, context, boundary, cfg, classification);
           } else {
-            return this.calculateHeightStrategy(poiData, context, boundary, cfg, classification);
+            distances = this.calculateHeightStrategy(poiData, context, boundary, cfg, classification);
           }
+          break;
         case 'standard':
-          return this.calculateStandardStrategy(poiData, context, boundary, cfg, classification);
+          distances = this.calculateStandardStrategy(poiData, context, boundary, cfg, classification);
+          break;
+        default:
+          // Fallback para estratégia padrão
+          distances = [maxSearchRadius];
       }
+      
+      // ✅ CRÍTICO: Filtrar e limitar distâncias pelo searchRadius da classificação
+      const filteredDistances = distances
+        .filter(d => d <= maxSearchRadius) // Remover distâncias maiores que o raio permitido
+        .filter((d, i, arr) => arr.indexOf(d) === i); // Remover duplicatas
+      
+      if (filteredDistances.length === 0) {
+        // Se todas as distâncias foram filtradas, usar o raio máximo permitido
+        console.warn(`⚠️ All distances exceeded search radius (${maxSearchRadius}m), using max radius`);
+        return [maxSearchRadius];
+      }
+      
+      console.log(`✅ Filtered distances: [${filteredDistances.map(d => d.toFixed(0)).join('m, ')}m] (from [${distances.map(d => d.toFixed(0)).join('m, ')}m], max: ${maxSearchRadius}m)`);
+      return filteredDistances;
     }
     
     // 🏔️ FALLBACK: ESTRATÉGIA CIRCULAR PARA ALTA ELEVAÇÃO (sistema legado - mantido para compatibilidade)
@@ -635,6 +690,7 @@ export class OptimalPointCalculator {
   
   /**
    * 🏗️ ESTRATÉGIA PARA POIs COM ALTURA (torres, monumentos)
+   * ✅ CORRIGIDO: Agora respeita o searchRadius da classificação
    */
   private calculateHeightStrategy(
     poiData: POIData, 
@@ -646,20 +702,29 @@ export class OptimalPointCalculator {
     console.log(`🏗️ HEIGHT STRATEGY: ${classification.metadata?.reasoning || 'Height-based POI'}`);
     
     const height = classification.metadata?.height || 0;
+    const maxSearchRadius = classification.searchRadius || 300; // Limite máximo do raio de busca
     
     // Para torres/monumentos, usar distâncias baseadas na altura
-    const baseDistance = Math.min(height * 2, 1000); // 2m por metro de altura, max 1km
+    // MAS limitar pelo searchRadius da classificação
+    const baseDistance = Math.min(height * 2, maxSearchRadius); // 2m por metro de altura, mas não exceder searchRadius
     
-    return [
+    const distances = [
       Math.round(baseDistance * 0.3),  // Próximo
       Math.round(baseDistance * 0.6),  // Médio
       Math.round(baseDistance * 1.0),  // Distante
-      Math.round(baseDistance * 1.5)   // Muito distante
+      Math.round(Math.min(baseDistance * 1.5, maxSearchRadius))   // Muito distante (limitado)
     ];
+    
+    // Remover distâncias duplicadas e garantir que não excedam o limite
+    const uniqueDistances = [...new Set(distances)].filter(d => d <= maxSearchRadius);
+    
+    console.log(`📏 Height-based distances: [${uniqueDistances.map(d => d.toFixed(0)).join('m, ')}m] (height: ${height}m, max radius: ${maxSearchRadius}m)`);
+    return uniqueDistances.length > 0 ? uniqueDistances : [maxSearchRadius];
   }
   
   /**
    * 🏔️ ESTRATÉGIA PARA POIs COM ELEVAÇÃO (picos, montanhas)
+   * ✅ CORRIGIDO: Agora respeita o searchRadius da classificação
    */
   private calculateElevationStrategy(
     poiData: POIData, 
@@ -671,31 +736,41 @@ export class OptimalPointCalculator {
     console.log(`🏔️ ELEVATION STRATEGY: ${classification.metadata?.reasoning || 'Elevation-based POI'}`);
     
     const elevation = classification.metadata?.elevation || 0;
+    const maxSearchRadius = classification.searchRadius || 300; // Limite máximo do raio de busca
     
     // Para picos/montanhas, usar estratégia circular com múltiplas distâncias
+    // MAS limitar pelo searchRadius da classificação
+    let distances: number[];
     if (elevation > 1000) {
-      // Picos muito altos: usar configuração circular
-      return [
+      // Picos muito altos: usar configuração circular, mas limitar pelo searchRadius
+      distances = [
         cfg.distanceDistribution.circular.inner,
         cfg.distanceDistribution.circular.near_medium,
         cfg.distanceDistribution.circular.medium,
         cfg.distanceDistribution.circular.medium_far,
         cfg.distanceDistribution.circular.far,
         cfg.distanceDistribution.circular.max
-      ];
+      ].map(d => Math.min(d, maxSearchRadius)); // Limitar cada distância
     } else {
-      // Picos médios: distâncias intermediárias
-      return [
+      // Picos médios: distâncias intermediárias, mas limitar pelo searchRadius
+      distances = [
         Math.round(elevation * 0.5),  // 0.5x elevação
         Math.round(elevation * 1.0),  // 1x elevação
         Math.round(elevation * 2.0),  // 2x elevação
         Math.round(elevation * 3.0)   // 3x elevação
-      ];
+      ].map(d => Math.min(d, maxSearchRadius)); // Limitar cada distância
     }
+    
+    // Remover distâncias duplicadas e garantir que não excedam o limite
+    const uniqueDistances = [...new Set(distances)].filter(d => d <= maxSearchRadius);
+    
+    console.log(`📏 Elevation-based distances: [${uniqueDistances.map(d => d.toFixed(0)).join('m, ')}m] (elevation: ${elevation}m, max radius: ${maxSearchRadius}m)`);
+    return uniqueDistances.length > 0 ? uniqueDistances : [maxSearchRadius];
   }
   
   /**
    * 🏗️🏔️ ESTRATÉGIA PARA POIs HÍBRIDOS (altura + elevação)
+   * ✅ CORRIGIDO: Agora respeita o searchRadius da classificação
    */
   private calculateHybridStrategy(
     poiData: POIData, 
@@ -708,24 +783,32 @@ export class OptimalPointCalculator {
     
     const height = classification.metadata?.height || 0;
     const elevation = classification.metadata?.elevation || 0;
+    const maxSearchRadius = classification.searchRadius || 300; // Limite máximo do raio de busca
     
     // Para híbridos, combinar estratégias de altura e elevação
     const heightBased = height * 1.5; // 1.5m por metro de altura
     const elevationBased = elevation * 0.8; // 0.8x elevação
     
-    const baseDistance = Math.max(heightBased, elevationBased);
+    const baseDistance = Math.min(Math.max(heightBased, elevationBased), maxSearchRadius);
     
-    return [
+    const distances = [
       Math.round(baseDistance * 0.4),  // Próximo
       Math.round(baseDistance * 0.7),  // Médio-próximo
       Math.round(baseDistance * 1.0),  // Médio
-      Math.round(baseDistance * 1.5),  // Distante
-      Math.round(baseDistance * 2.0)   // Muito distante
+      Math.round(Math.min(baseDistance * 1.5, maxSearchRadius)),  // Distante (limitado)
+      Math.round(Math.min(baseDistance * 2.0, maxSearchRadius))   // Muito distante (limitado)
     ];
+    
+    // Remover distâncias duplicadas e garantir que não excedam o limite
+    const uniqueDistances = [...new Set(distances)].filter(d => d <= maxSearchRadius);
+    
+    console.log(`📏 Hybrid distances: [${uniqueDistances.map(d => d.toFixed(0)).join('m, ')}m] (height: ${height}m, elevation: ${elevation}m, max radius: ${maxSearchRadius}m)`);
+    return uniqueDistances.length > 0 ? uniqueDistances : [maxSearchRadius];
   }
   
   /**
    * 🏙️ ESTRATÉGIA PADRÃO (mantém lógica existente)
+   * ✅ CORRIGIDO: Agora respeita o searchRadius da classificação
    */
   private calculateStandardStrategy(
     poiData: POIData, 
@@ -734,30 +817,35 @@ export class OptimalPointCalculator {
     cfg: TriggerPointsConfig,
     classification: any
   ): number[] {
-    console.log(`🏙️ STANDARD STRATEGY: ${classification.reason}`);
+    const maxSearchRadius = classification.searchRadius || 300; // Limite máximo do raio de busca
+    console.log(`🏙️ STANDARD STRATEGY: ${classification.metadata?.reasoning || 'Standard POI'}`);
     
-    // Usar lógica existente para POIs padrão
-    let baseDistance = cfg.distanceDistribution.standard.baseDistance;
+    // Usar lógica existente para POIs padrão, mas limitar pelo searchRadius
+    let baseDistance = Math.min(cfg.distanceDistribution.standard.baseDistance, maxSearchRadius);
     
     if (boundary && (boundary as any).elevation) {
       const poiElevation = (boundary as any).elevation.center;
       console.log(`📏 POI elevation: ${poiElevation.toFixed(1)}m`);
       
       if (poiElevation > 800) {
-        // Montanhas altas: múltiplas distâncias
-        return [
+        // Montanhas altas: múltiplas distâncias, mas limitar pelo searchRadius
+        const distances = [
           cfg.distanceDistribution.standard.mountainHigh.distances[0],
           cfg.distanceDistribution.standard.mountainHigh.distances[1],
           cfg.distanceDistribution.standard.mountainHigh.distances[2],
           cfg.distanceDistribution.standard.mountainHigh.distances[3]
-        ];
+        ].map(d => Math.min(d, maxSearchRadius)).filter((d, i, arr) => arr.indexOf(d) === i);
+        console.log(`📏 Mountain high distances (limited): [${distances.map(d => d.toFixed(0)).join('m, ')}m] (max: ${maxSearchRadius}m)`);
+        return distances.length > 0 ? distances : [maxSearchRadius];
       }
       else if (poiElevation > 400) {
-        // Colinas: duas distâncias
-        return [
+        // Colinas: duas distâncias, mas limitar pelo searchRadius
+        const distances = [
           cfg.distanceDistribution.standard.mountainMedium.distances[0],
           cfg.distanceDistribution.standard.mountainMedium.distances[1]
-        ];
+        ].map(d => Math.min(d, maxSearchRadius)).filter((d, i, arr) => arr.indexOf(d) === i);
+        console.log(`📏 Mountain medium distances (limited): [${distances.map(d => d.toFixed(0)).join('m, ')}m] (max: ${maxSearchRadius}m)`);
+        return distances.length > 0 ? distances : [maxSearchRadius];
       }
       else {
         console.log(`🏞️ LOW elevation: ${poiElevation.toFixed(0)}m → single distance`);
@@ -765,9 +853,12 @@ export class OptimalPointCalculator {
     }
     
     // Ajustes para POIs de baixa elevação
-    baseDistance = cfg.distanceDistribution.standard.urbanDensityLimits[context.urbanDensity.level];
+    baseDistance = Math.min(
+      cfg.distanceDistribution.standard.urbanDensityLimits[context.urbanDensity.level],
+      maxSearchRadius
+    );
     
-    console.log(`✅ Standard TP distance: ${Math.round(baseDistance)}m`);
+    console.log(`✅ Standard TP distance: ${Math.round(baseDistance)}m (max radius: ${maxSearchRadius}m)`);
     return [Math.round(baseDistance)];
   }
   

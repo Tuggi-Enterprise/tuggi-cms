@@ -73,7 +73,7 @@ export interface BoundaryData {
   center: {lat: number, lng: number};
   area: number;
   confidence: number;
-  source: 'google_places' | 'osm' | 'estimated';
+  source: 'google_places' | 'osm' | 'estimated' | 'manual' | 'nominatim'; // ✅ Adicionado 'manual' e 'nominatim' para boundaries do banco
   elevation?: {
     min: number;
     max: number;
@@ -170,6 +170,7 @@ export interface ProcessingResult<T> {
     status: string;
     timestamp: string;
     strategy?: string;
+    [key: string]: any; // ✅ Permitir campos extras para flexibilidade (ex: database_boundary_found, osm_boundary_found)
   };
 }
 
@@ -246,7 +247,7 @@ export interface TriggerPointPredictionResult {
   context: GeographicContext;
   processingTime: number;
   metadata: {
-    boundarySource: 'google_places' | 'osm' | 'estimated';
+    boundarySource: 'google_places' | 'osm' | 'estimated' | 'manual' | 'nominatim'; // ✅ Adicionado 'manual' e 'nominatim' para boundaries do banco
     boundaryConfidence: number;
     streetCount: number;
     optimalPointsFound: number;

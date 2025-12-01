@@ -87,6 +87,7 @@ export function extractBuildingHeight(tags: any): number {
 
 /**
  * Calcula a área de um polígono usando a fórmula de Shoelace
+ * Retorna área em graus² (não converte para m²)
  */
 export function calculatePolygonArea(coordinates: Array<{lat: number, lng: number}>): number {
   if (coordinates.length < 3) return 0;
@@ -101,6 +102,26 @@ export function calculatePolygonArea(coordinates: Array<{lat: number, lng: numbe
   }
   
   return Math.abs(area) / 2;
+}
+
+/**
+ * Converte área de graus² para metros²
+ * @param areaDegrees2 Área em graus²
+ * @returns Área em metros²
+ */
+export function convertDegrees2ToM2(areaDegrees2: number): number {
+  // 1 grau ≈ 111,320 metros (aproximação para latitude)
+  const METERS_PER_DEGREE = 111320;
+  return areaDegrees2 * METERS_PER_DEGREE * METERS_PER_DEGREE;
+}
+
+/**
+ * Calcula a área de um polígono em metros²
+ * Combina calculatePolygonArea + conversão para m²
+ */
+export function calculatePolygonAreaInM2(coordinates: Array<{lat: number, lng: number}>): number {
+  const areaDegrees2 = calculatePolygonArea(coordinates);
+  return convertDegrees2ToM2(areaDegrees2);
 }
 
 /**

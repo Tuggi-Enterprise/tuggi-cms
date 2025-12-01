@@ -19,6 +19,9 @@ export class TriggerPointValidator {
   }>();
   private static CACHE_DURATION = TRIGGER_POINTS_CONSTANTS.obstructions.cacheDuration * 60 * 1000; // minutos
   
+  // Cache para resultado de isPOIInUrbanCanyon (evita recalcular para cada candidato)
+  private urbanCanyonCache: { result: boolean; boundaryId: string } | null = null;
+  
   constructor(googleAPIs: GoogleAPIsService) {
     this.visibilityValidator = new VisibilityValidator(googleAPIs);
     this.directionalAnalyzer = new DirectionalAnalyzer();
@@ -1294,7 +1297,7 @@ out geom meta;
       console.warn('⚠️ Buildings blocking check failed (network/timeout error):', error instanceof Error ? error.message : error);
       
       // Para POIs de alta elevação (montanhas/picos), assumir que não há bloqueio
-      const distance = this.calculateDistance(tpLocation, boundaryPoint);
+      const distance = calculateDistance(tpLocation, boundaryPoint); // ✅ DRY: usar função SSOT
       const isHighElevationPOI = distance > TRIGGER_POINTS_CONSTANTS.limits.highElevation; // TPs muito distantes indicam POI de alta elevação
       
       if (isHighElevationPOI) {
@@ -1601,11 +1604,10 @@ out geom meta;
   ): 'primary' | 'secondary' | 'fallback' {
     
     // NOVO: Verificar se POI está em canyon urbano (cercado por prédios)
+    // Nota: Resultado é cacheado, então não há overhead em chamar múltiplas vezes
     const isUrbanCanyon = this.isPOIInUrbanCanyon(boundary, context);
     
     if (isUrbanCanyon) {
-      console.log(`🏙️ URBAN CANYON DETECTED: POI surrounded by tall buildings`);
-      
       // Em canyon urbano, critérios mais rigorosos
       if (index < 2 && quality > 0.8) {
         return 'primary'; // Apenas 2 primários, qualidade muito alta
@@ -1784,22 +1786,35 @@ out geom meta;
 
   /**
    * Verifica se o POI está em um canyon urbano (cercado por prédios altos)
+   * CACHEADO: Resultado é calculado apenas uma vez por POI (não recalcula para cada candidato)
    */
   private isPOIInUrbanCanyon(boundary: BoundaryData, context: GeographicContext): boolean {
-    // console.log(`🔍 CANYON CHECK: Analyzing POI...`);
-    // console.log(`   Urban density: ${context.urbanDensity.level}`);
-    // console.log(`   POI height: ${boundary.height || 'unknown'}m`);
-    // console.log(`   Surrounding: ${boundary.surroundingHeight ? `${boundary.surroundingHeight.buildingCount} buildings, avg ${boundary.surroundingHeight.average}m` : 'NO DATA'}`);
+    // Cache: usar resultado já calculado se disponível
+    const boundaryId = `${boundary.center?.lat}-${boundary.center?.lng}-${boundary.height}`;
+    if (this.urbanCanyonCache && this.urbanCanyonCache.boundaryId === boundaryId) {
+      return this.urbanCanyonCache.result;
+    }
     
+    // Calcular resultado (apenas uma vez)
+    const result = this._calculateUrbanCanyon(boundary, context);
+    
+    // Armazenar no cache
+    this.urbanCanyonCache = { result, boundaryId };
+    
+    return result;
+  }
+  
+  /**
+   * Lógica de cálculo de canyon urbano (separada para permitir cache)
+   */
+  private _calculateUrbanCanyon(boundary: BoundaryData, context: GeographicContext): boolean {
     // 1. Verificar densidade urbana
     if (context.urbanDensity.level !== 'very_dense' && context.urbanDensity.level !== 'dense') {
-      // console.log(`✅ NOT CANYON: Not a dense area (${context.urbanDensity.level})`);
       return false;
     }
     
     // 2. Verificar se há dados de altura dos vizinhos
     if (!boundary.surroundingHeight) {
-      // console.log(`✅ NOT CANYON: No surrounding height data available`);
       return false;
     }
     
@@ -1809,6 +1824,8 @@ out geom meta;
     const buildingCount = boundary.surroundingHeight.buildingCount;
     const heightDifference = poiHeight - avgSurroundingHeight;
     
+    // Log apenas uma vez (na primeira chamada)
+    console.log(`🏙️ [CANYON CHECK] Analyzing POI...`);
     console.log(`   Height diff: ${heightDifference.toFixed(1)}m (POI ${poiHeight}m - avg ${avgSurroundingHeight}m)`);
     console.log(`   Max surrounding: ${maxSurroundingHeight}m`);
     console.log(`   Building count: ${buildingCount}`);
@@ -1819,24 +1836,24 @@ out geom meta;
       // NOVO: Verificar se há prédios com altura similar ao POI
       const maxHeightDifference = Math.abs(poiHeight - maxSurroundingHeight);
       if (maxHeightDifference <= 60) {
-        console.log(`🏙️ CANYON: POI similar height to tallest nearby building (POI: ${poiHeight}m, Max nearby: ${maxSurroundingHeight}m, diff: ${maxHeightDifference.toFixed(1)}m)`);
+        console.log(`   ✅ CANYON: POI similar height to tallest nearby building (POI: ${poiHeight}m, Max nearby: ${maxSurroundingHeight}m, diff: ${maxHeightDifference.toFixed(1)}m)`);
         return true;
       }
-      // console.log(`✅ NOT CANYON: POI much taller than surroundings (+${heightDifference.toFixed(1)}m)`);
+      console.log(`   ❌ NOT CANYON: POI much taller than surroundings (+${heightDifference.toFixed(1)}m)`);
       return false;
     }
     
     // 4. Se POI é moderadamente mais alto = NÃO é canyon se área não tiver muitos prédios
     // SOMENTE se a altura do POI é real (não 0)
     if (poiHeight > 0 && heightDifference > 20 && buildingCount < 50) {
-      // console.log(`✅ NOT CANYON: POI taller with low building density (+${heightDifference.toFixed(1)}m, ${buildingCount} buildings)`);
+      console.log(`   ❌ NOT CANYON: POI taller with low building density (+${heightDifference.toFixed(1)}m, ${buildingCount} buildings)`);
       return false;
     }
     
     // 5. REGRA PRINCIPAL: Densidade ULTRA ALTA de prédios altos = CANYON
     // Copan: 1424 prédios, avg 26m, max 118m
     if (buildingCount > 1000 && avgSurroundingHeight > 20) {
-      console.log(`🏙️ CANYON: Ultra high building density with tall buildings (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
+      console.log(`   ✅ CANYON: Ultra high building density with tall buildings (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
       return true;
     }
     
@@ -1845,7 +1862,7 @@ out geom meta;
     if (maxSurroundingHeight > 0 && poiHeight > 0) {
       const heightSimilarity = Math.abs(poiHeight - maxSurroundingHeight);
       if (heightSimilarity <= 20 && buildingCount > 500) {
-        console.log(`🏙️ CANYON: Similar height buildings nearby (POI: ${poiHeight}m, Max nearby: ${maxSurroundingHeight}m, diff: ${heightSimilarity.toFixed(1)}m)`);
+        console.log(`   ✅ CANYON: Similar height buildings nearby (POI: ${poiHeight}m, Max nearby: ${maxSurroundingHeight}m, diff: ${heightSimilarity.toFixed(1)}m)`);
         return true;
       }
     }
@@ -1853,7 +1870,7 @@ out geom meta;
     // 6. Densidade MUITO ALTA + prédios muito altos = CANYON
     // Para áreas com muitos prédios E prédios muito altos
     if (buildingCount > 500 && avgSurroundingHeight > 25) {
-      console.log(`🏙️ CANYON: Very high building density with very tall buildings (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
+      console.log(`   ✅ CANYON: Very high building density with very tall buildings (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
       return true;
     }
     
@@ -1864,7 +1881,7 @@ out geom meta;
       const tallBuildingThreshold = poiHeight * 0.8; // 80% da altura do POI
       
       if (tallBuildingsRatio > 0.1 && maxSurroundingHeight > tallBuildingThreshold) {
-        console.log(`🏙️ CANYON: High ratio of tall buildings (${(tallBuildingsRatio * 100).toFixed(1)}% above ${tallBuildingThreshold.toFixed(0)}m)`);
+        console.log(`   ✅ CANYON: High ratio of tall buildings (${(tallBuildingsRatio * 100).toFixed(1)}% above ${tallBuildingThreshold.toFixed(0)}m)`);
         return true;
       }
     }
@@ -1872,25 +1889,25 @@ out geom meta;
     // 7. NOVO: Densidade ALTA + prédios moderados = CANYON (para áreas densas)
     // Museu Municipal: 18 prédios, avg 14m em área very_dense
     if (context.urbanDensity.level === 'very_dense' && buildingCount > 15 && avgSurroundingHeight > 10) {
-      console.log(`🏙️ CANYON: High building density in very dense area (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
+      console.log(`   ✅ CANYON: High building density in very dense area (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
       return true;
     }
     
     // 8. NOVO: Densidade MÉDIA + prédios moderados = CANYON (para áreas densas)
     if (context.urbanDensity.level === 'dense' && buildingCount > 30 && avgSurroundingHeight > 12) {
-      console.log(`🏙️ CANYON: Medium building density in dense area (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
+      console.log(`   ✅ CANYON: Medium building density in dense area (${buildingCount} buildings, avg ${avgSurroundingHeight}m)`);
       return true;
     }
     
     // 9. Se POI tem altura E não é significativamente mais alto + densidade alta = canyon
     // SOMENTE se POI tem altura conhecida (não fallback para 0)
     if (poiHeight > 0 && heightDifference < 10 && buildingCount > 300) {
-      console.log(`🏙️ CANYON: POI not taller than surroundings in dense area (${poiHeight}m vs avg ${avgSurroundingHeight}m, ${buildingCount} buildings)`);
+      console.log(`   ✅ CANYON: POI not taller than surroundings in dense area (${poiHeight}m vs avg ${avgSurroundingHeight}m, ${buildingCount} buildings)`);
       return true;
     }
     
     // 10. Padrão: NÃO é canyon (dar chance de validar visibilidade)
-    // console.log(`✅ NOT CANYON: Insufficient evidence (diff: ${heightDifference.toFixed(1)}m, ${buildingCount} buildings)`);
+    console.log(`   ❌ NOT CANYON: Insufficient evidence (diff: ${heightDifference.toFixed(1)}m, ${buildingCount} buildings)`);
     return false;
   }
   
@@ -2094,7 +2111,7 @@ out geom meta;
     
     for (const tp of sorted) {
       const isTooClose = optimized.some(existing => 
-        this.calculateDistance(tp.location, existing.location) < minDistance
+        calculateDistance(tp.location, existing.location) < minDistance // ✅ DRY: usar função SSOT
       );
       
       if (!isTooClose) {
@@ -2108,21 +2125,7 @@ out geom meta;
   /**
    * Calcula distância entre dois pontos
    */
-  private calculateDistance(
-    point1: { lat: number; lng: number },
-    point2: { lat: number; lng: number }
-  ): number {
-    const R = 6371000; // Raio da Terra em metros
-    const dLat = (point2.lat - point1.lat) * Math.PI / 180;
-    const dLng = (point2.lng - point1.lng) * Math.PI / 180;
-    
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(point1.lat * Math.PI / 180) * Math.cos(point2.lat * Math.PI / 180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    
-    return R * c;
-  }
+  // ✅ DRY: calculateDistance removido - usar função importada de utils/calculations.ts
 
   /**
    * NOVO: Verifica se vegetação densa bloqueia linha de visão
