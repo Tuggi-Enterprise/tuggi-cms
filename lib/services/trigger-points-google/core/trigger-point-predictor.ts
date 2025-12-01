@@ -45,7 +45,6 @@ export class CoreTriggerPointPredictor {
     poiData: POIData, 
     options: TriggerPointGenerationOptions = {}
   ): Promise<TriggerPointPredictionResult> {
-    console.log(`🚀 Starting trigger point prediction for: ${poiData.name}`);
     const startTime = Date.now();
     
     try {
@@ -58,7 +57,6 @@ export class CoreTriggerPointPredictor {
       // ✅ REFATORADO: Buscar dados OSM primeiro, depois calcular densidade e classificar
       // Não fazer cálculo inicial de contexto sem dados - isso causa redundância
       // 1. Detecção de boundary (busca dados OSM com raio padrão 500m, calcula densidade, classifica)
-      console.log('🔍 Step 1: Detecting boundary and collecting OSM data...');
       const boundaryResult = await this.boundaryDetector.detectBoundary(poiData);
       if (!boundaryResult.success || !boundaryResult.data) {
         throw new Error(`Boundary detection failed: ${boundaryResult.error}`);
@@ -68,9 +66,6 @@ export class CoreTriggerPointPredictor {
       // ✅ REGRA: Se boundary é manual (ou manual_drawing), ignorar e não processar
       // POIs manuais não devem ter TPs recalculados automaticamente
       if (boundary.source === 'manual' || boundary.source === 'manual_drawing') {
-        console.log(`⚠️ POI has manual boundary (source: ${boundary.source}) - skipping trigger points generation`);
-        console.log(`   → Manual POIs should not have TPs recalculated automatically`);
-        console.log(`   → Returning empty result`);
         
         const processingTime = Date.now() - startTime;
         return {
@@ -97,14 +92,10 @@ export class CoreTriggerPointPredictor {
       // 2. Criar contexto geográfico a partir do boundary (já tem densidade calculada corretamente)
       // ✅ NOTA: Densidade urbana e classificação já foram calculadas dentro de detectBoundary
       //    usando dados OSM reais. Aqui apenas criamos o contexto completo para etapas posteriores.
-      console.log('📊 Step 2: Creating geographic context from boundary data...');
       const context = await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary);
       
       // NOVA LÓGICA: Se boundary é estimado (POI não encontrado), usar fallback SUPER SIMPLES
       if (boundary.source === 'estimated') {
-        console.log('🎯 POI NOT FOUND (estimated boundary) - using SUPER SIMPLE fallback');
-        console.log(`📏 Estimated boundary: ${boundary.area.toFixed(0)}m² - POI likely small/irrelevant`);
-        console.log('🚀 Skipping complex street analysis - using direct lat/lng approach');
         
         const simpleFallbackPoints = await this.generateSuperSimpleFallbackTriggerPoints(poiData, context, boundary);
         const processingTime = Date.now() - startTime;
@@ -130,21 +121,8 @@ export class CoreTriggerPointPredictor {
 
       // 3. Análise de ruas acessíveis (apenas para POIs com boundary real)
       // ✅ Context já tem densidade calculada corretamente a partir dos dados OSM
-      console.log('🛣️ ========================================');
-      console.log('🛣️ Step 3: Finding accessible streets...');
-      console.log(`🛣️ [INPUT] boundary.streets: ${boundary.streets?.length || 0} consolidated streets`);
-      console.log(`🛣️ [INPUT] boundary.source: ${boundary.source}`);
-      console.log(`🛣️ [INPUT] boundary.coordinates.length: ${boundary.coordinates?.length || 0}`);
-      console.log('🛣️ ========================================');
-      
       const streetAnalysisResult = await this.streetAnalyzer.findAccessibleStreetsWithMetadata(poiData, boundary, context);
       const accessibleStreets = streetAnalysisResult.streets;
-      
-      console.log('🛣️ ========================================');
-      console.log(`📊 [STEP 3 RESULT] accessibleStreets.length: ${accessibleStreets.length}`);
-      console.log(`   → boundary.streets: ${boundary.streets?.length || 0} consolidated streets`);
-      console.log(`   → searchRadius: ${streetAnalysisResult.searchRadius}m`);
-      console.log('🛣️ ========================================');
       
       if (accessibleStreets.length === 0) {
         console.error('❌ ========================================');
@@ -178,7 +156,6 @@ export class CoreTriggerPointPredictor {
       // Isso evita gerar candidatos em ruas onde há casas/residências bloqueando a visão do POI
       let streetsForOptimalPoints = accessibleStreets;
       if (boundary.buildings && boundary.buildings.length > 0) {
-        console.log('🏘️ Step 3.5: Analyzing block structure to filter streets blocked by buildings...');
         const blockAnalysis = this.streetAnalyzer.analyzeBlockStructure(
           boundary.center,
           accessibleStreets,
@@ -197,7 +174,6 @@ export class CoreTriggerPointPredictor {
           validStreets = blockAnalysis
             .filter(result => !result.hasBuildingsBlocking) // Apenas ruas sem buildings bloqueando
             .map(result => result.street);
-          console.log(`🏔️ HIGH POI: Filtering by building obstructions only (distance ignored)`);
         } else {
           // 🏙️ POIs normais: Filtrar front/side streets (sem buildings bloqueando)
           validStreets = blockAnalysis
@@ -208,13 +184,10 @@ export class CoreTriggerPointPredictor {
         if (validStreets.length > 0) {
           const blockedCount = accessibleStreets.length - validStreets.length;
           if (isHighElevationPOI) {
-            console.log(`✅ Block structure analysis: ${validStreets.length} streets without building obstructions (${blockedCount} blocked by buildings - excluded)`);
           } else {
-            console.log(`✅ Block structure analysis: ${validStreets.length} front/side streets (${blockedCount} blocked by buildings - excluded)`);
           }
           streetsForOptimalPoints = validStreets;
         } else {
-          console.log(`⚠️ Block structure analysis: All streets blocked by buildings, but continuing anyway (may have visibility issues)`);
           // Continuar com todas as ruas, mas a validação de visibilidade depois vai filtrar
         }
       }
@@ -222,7 +195,6 @@ export class CoreTriggerPointPredictor {
       // 4. Cálculo de pontos ótimos
       // ✅ Context já tem densidade calculada corretamente a partir dos dados OSM
       // ✅ Usar apenas ruas front/side (sem buildings bloqueando)
-      console.log('🎯 Step 4: Calculating optimal points...');
       const optimalPoints = await this.pointCalculator.calculateOptimalPoints(poiData, streetsForOptimalPoints, boundary, context);
       
       if (optimalPoints.length === 0) {
@@ -250,7 +222,6 @@ export class CoreTriggerPointPredictor {
       }
       
       // 5. Validação de candidatos em ruas (NOVO PASSO)
-      console.log('🛣️ Step 5: Validating candidates are on streets...');
       const streetValidatedCandidates = await this.validateCandidatesOnStreets(optimalPoints, accessibleStreets);
       
       if (streetValidatedCandidates.length === 0) {
@@ -279,17 +250,14 @@ export class CoreTriggerPointPredictor {
       }
       
       // 6. Validação e ranking com distância mínima
-      console.log('✅ Step 6: Validating and ranking points with optimal spacing...');
       const maxTPs = options.maxTriggerPoints || this.calculateDynamicTPLimit(boundary, context, streetAnalysisResult.searchRadius);
       
       // 🎯 NOVO: Usar configuração do grupo se disponível, senão calcular
       let minDistance: number;
       if (boundary.classification?.minDistanceBetweenTPs) {
         minDistance = boundary.classification.minDistanceBetweenTPs;
-        console.log(`🎯 Using group configuration: ${minDistance}m (${boundary.classification.group.toUpperCase()})`);
       } else {
         minDistance = this.calculateMinDistance(context, boundary);
-        console.log(`🎯 Using calculated distance: ${minDistance}m (no group config)`);
       }
       
       const validatedPoints = await this.validator.validateAndRankPoints(
@@ -306,7 +274,6 @@ export class CoreTriggerPointPredictor {
       
       // 8. Otimização já foi feita em selectTriggerPointsWithMinDistance
       const processingTime = Date.now() - startTime;
-      console.log(`🎉 Generated ${filteredPoints.length} trigger points in ${processingTime}ms`);
       
       // NOVO: Documentar motivo quando 0 TPs são gerados
       const metadata: any = {
@@ -353,7 +320,6 @@ export class CoreTriggerPointPredictor {
           suggestions
         };
         
-        console.log(`⚠️ No trigger points generated. Reasons: ${rejectionReasons.join('; ')}`);
       }
       
       return {
@@ -378,7 +344,6 @@ export class CoreTriggerPointPredictor {
     context: GeographicContext,
     boundary?: BoundaryData
   ): Promise<TriggerPoint[]> {
-    console.log('🎯 INTELLIGENT fallback for unfound POI - using real OSM data');
     
     // USAR BOUNDARY.CENTER em vez de poiData.location
     const centerPoint = boundary?.center || poiData.location;
@@ -391,8 +356,6 @@ export class CoreTriggerPointPredictor {
       
       // Verificar se temos dados consolidados do boundary
       if (boundary?.streets && boundary.streets.length > 0) {
-        console.log(`✅ Using consolidated streets from boundary: ${boundary.streets.length} streets`);
-        console.log(`🚀 CONSOLIDATION BENEFIT: Avoided OSM request for ${boundary.streets.length} streets`);
         streets = boundary.streets;
       } else {
         try {
@@ -425,7 +388,6 @@ export class CoreTriggerPointPredictor {
             .map(result => result.street);
           
           if (validStreets.length === 0) {
-            console.log('⚠️ No front/side streets found (all blocked by buildings), using closest street anyway');
             // Fallback: usar a rua mais próxima mesmo que seja back
             const closestResult = blockAnalysis[0];
             if (closestResult) {
@@ -447,7 +409,6 @@ export class CoreTriggerPointPredictor {
       // return this.createGoogleRoadsFallback(poiData, context, boundary);
 
       // ✅ NEW: Fallback direto para TP direcional estimado
-      console.log('🔄 OSM found no streets, using directional TP fallback...');
       return this.createMinimalDirectionalTP(poiData, context, boundary);
       
     } catch (error) {
@@ -497,7 +458,6 @@ export class CoreTriggerPointPredictor {
       updatedAt: new Date().toISOString()
     };
     
-    console.log(`✅ Created 1 INTELLIGENT TP at ${streetPoint.lat.toFixed(6)}, ${streetPoint.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
     return [triggerPoint];
   }
 
@@ -602,11 +562,9 @@ export class CoreTriggerPointPredictor {
    * Cria 1 TP mínimo quando nem Google Roads funciona
    */
   private createMinimalDirectionalTP(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): TriggerPoint[] {
-    console.log('🎯 Creating minimal directional TP (last resort)');
     
     // USAR BOUNDARY.CENTER em vez de poiData.location
     const centerPoint = boundary?.center || poiData.location;
-    console.log(`📍 Using ${boundary ? 'boundary.center' : 'poiData.location'} for TP calculation`);
     
     const direction = 180; // Sul (direção comum de aproximação)
     const distance = 30; // Muito próximo
@@ -636,7 +594,6 @@ export class CoreTriggerPointPredictor {
       updatedAt: new Date().toISOString()
     };
 
-    console.log(`✅ Created 1 minimal TP at ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)} (${distance}m south of POI)`);
     return [triggerPoint];
   }
 
@@ -649,11 +606,9 @@ export class CoreTriggerPointPredictor {
     context: any,
     existingStreets?: any[]
   ): Promise<TriggerPoint[]> {
-    console.log('🎯 Generating SMART fallback trigger points for small/unfound POI...');
     
     // USAR BOUNDARY.CENTER em vez de poiData.location
     const centerPoint = boundary?.center || poiData.location;
-    console.log(`📍 POI location: ${poiData.name} at ${centerPoint.lat.toFixed(6)}, ${centerPoint.lng.toFixed(6)} (${boundary ? 'boundary.center' : 'poiData.location'})`);
     
     try {
       // OTIMIZADO: Usar dados já obtidos do boundary detection
@@ -661,11 +616,8 @@ export class CoreTriggerPointPredictor {
       if (!streets || streets.length === 0) {
         // Verificar se temos dados consolidados do boundary
         if (boundary?.streets && boundary.streets.length > 0) {
-          console.log(`✅ Using consolidated streets from boundary: ${boundary.streets.length} streets`);
-          console.log(`🚀 CONSOLIDATION BENEFIT: Avoided OSM request in fallback for ${boundary.streets.length} streets`);
           streets = boundary.streets;
         } else {
-          console.log('🔍 No existing streets data, using boundary data instead of OSM query...');
           // Usar dados do boundary já obtidos em vez de fazer nova consulta OSM
           streets = this.createStreetsFromBoundaryData(boundary, centerPoint);
         }
@@ -675,12 +627,10 @@ export class CoreTriggerPointPredictor {
       const nearestStreet = this.findNearestStreetToPOIFromData(centerPoint, streets || []);
       
       if (nearestStreet && nearestStreet.coordinates.length > 0) {
-        console.log(`🛣️ Found nearest street: ${nearestStreet.id || 'unnamed'}`);
         return this.createMinimalStreetTriggerPoints(poiData, nearestStreet, context, boundary);
       }
       
       // Estratégia 2: Se não encontrou rua, criar apenas 1 TP na direção da rua principal
-      console.log('⚠️ No nearby street found, creating single directional TP');
       return await this.createSingleDirectionalTP(poiData, context, boundary, streets || []);
       
     } catch (error) {
@@ -693,26 +643,21 @@ export class CoreTriggerPointPredictor {
    * Cria 1 TP direcional simples (fallback) - OTIMIZADO: usa dados OSM já obtidos
    */
   private async createSingleDirectionalTP(poiData: POIData, context: any, boundary?: BoundaryData, existingStreets?: any[]): Promise<TriggerPoint[]> {
-    console.log('🎯 Creating single directional TP (fallback) - USING EXISTING OSM DATA');
     
     // USAR BOUNDARY.CENTER em vez de poiData.location
     const centerPoint = boundary?.center || poiData.location;
-    console.log(`📍 Using ${boundary ? 'boundary.center' : 'poiData.location'} for TP calculation`);
     
     // OTIMIZADO: Usar dados de ruas já obtidos se disponíveis
     let streets = existingStreets;
     if (!streets || streets.length === 0) {
       // Verificar se temos dados consolidados do boundary
       if (boundary?.streets && boundary.streets.length > 0) {
-        console.log(`✅ Using consolidated streets from boundary: ${boundary.streets.length} streets`);
-        console.log(`🚀 CONSOLIDATION BENEFIT: Avoided OSM request for ${boundary.streets.length} streets`);
         streets = boundary.streets;
       } else {
         console.log('🔍 No existing streets data, using fallback without street validation...');
         streets = []; // Não fazer nova consulta OSM para evitar rate limiting
       }
     } else {
-      console.log(`✅ Using existing streets data: ${streets.length} streets available`);
     }
     
     // Tentar múltiplas direções até encontrar uma rua
@@ -727,7 +672,6 @@ export class CoreTriggerPointPredictor {
       const isOutsideBoundary = boundary ? this.isPointOutsideBoundary(point, boundary) : true;
       
       if (isOnStreet && isOutsideBoundary) {
-        console.log(`✅ Found valid street location at direction ${direction}° (outside boundary)`);
         return this.createTPAtPoint(point, direction, distance, poiData, context, boundary);
       } else {
         if (!isOnStreet) {
@@ -812,14 +756,12 @@ export class CoreTriggerPointPredictor {
         if (!isValidHighway) {
           console.log(`❌ Invalid street type: ${highway} (${(tags as any).name || 'unnamed'})`);
         } else {
-          console.log(`✅ Valid street: ${highway} (${(tags as any).name || 'unnamed'})`);
         }
         
         return isValidHighway;
       });
       
       const hasValidStreets = realStreets.length > 0;
-      console.log(`🛣️ Street validation: ${realStreets.length}/${streets.length} valid streets found`);
       
       return hasValidStreets;
     } catch (error) {
@@ -867,7 +809,6 @@ export class CoreTriggerPointPredictor {
       updatedAt: new Date().toISOString()
     };
     
-    console.log(`✅ Created 1 VALIDATED DIRECTIONAL TP at ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)} (${distance}m from ${boundary ? 'boundary.center' : 'POI'}, direction: ${direction}°)`);
     return [triggerPoint];
   }
 
@@ -883,7 +824,6 @@ export class CoreTriggerPointPredictor {
       return [];
     }
 
-    console.log(`✅ Using street from boundary: ${streetName}`);
     
     // Criar dados de rua baseados no boundary e rua principal
     const streetData = {
@@ -899,7 +839,6 @@ export class CoreTriggerPointPredictor {
       }
     };
 
-    console.log(`✅ Created street data from boundary: ${streetData.name} (${streetData.coordinates.length} coordinates)`);
     return [streetData];
   }
 
@@ -911,7 +850,6 @@ export class CoreTriggerPointPredictor {
       return null;
     }
     
-    console.log(`🔍 Analyzing ${streets.length} streets found by OSM...`);
     
     let nearestStreet = null;
     let minDistance = Infinity;
@@ -971,11 +909,9 @@ export class CoreTriggerPointPredictor {
     
     // Log resumido apenas
     if (streetDistances.length > 0) {
-      console.log(`📍 Found ${streetDistances.length} streets (nearest: ${streetDistances[0].distance.toFixed(0)}m, farthest: ${streetDistances[streetDistances.length - 1].distance.toFixed(0)}m)`);
     }
     
     if (nearestStreet) {
-      console.log(`✅ Selected nearest road: ${nearestStreet.name || nearestStreet.id} (${(nearestStreet.tags as any)?.highway}) at ${minDistance.toFixed(0)}m`);
     }
     
     return nearestStreet;
@@ -1017,7 +953,6 @@ out geom tags;
             lng: point.lon
           })) : [];
           
-          console.log(`✅ Found nearest road: ${nearestRoad.tags?.name || 'unnamed'} (${nearestRoad.tags?.highway})`);
           
           return {
             id: nearestRoad.id.toString(),
@@ -1055,7 +990,6 @@ out geom tags;
     const streetPoint = street.coordinates[0];
     const distanceToPOI = calculateDistance(centerPoint, streetPoint); // ✅ DRY: usar função importada
     
-    console.log(`📏 Distance from POI to street: ${distanceToPOI.toFixed(0)}m (using ${boundary ? 'boundary.center' : 'poiData.location'})`);
     
     // Criar apenas 1 TP principal na rua mais próxima
     const triggerPoint: TriggerPoint = {

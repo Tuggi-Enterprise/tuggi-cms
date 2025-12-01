@@ -48,8 +48,6 @@ export class POIClassifierService {
     context: GeographicContext,
     osmTags?: any
   ): Promise<POIClassification> {
-    console.log(`🎯 [CLASSIFICATION] Starting POI classification for: ${poiData.name}`);
-    
     // ====================================================================
     // ✅ PRIORIDADE 0: VERIFICAR CATEGORIA OSM (SIMPLICIDADE MÁXIMA)
     // ====================================================================
@@ -109,22 +107,11 @@ export class POIClassifierService {
       );
       elevationDiff = poiElevation.center - baseElevation;
       
-      console.log(`🏔️ [ELEVATION DATA AVAILABLE]:`);
-      console.log(`   POI elevation: ${poiElevation.center}m`);
-      console.log(`   Base elevation: ${baseElevation}m`);
-      console.log(`   Elevation diff: ${elevationDiff.toFixed(1)}m`);
     } else {
       console.warn(`⚠️ [NO ELEVATION DATA]: Cannot calculate elevation difference`);
     }
     
     const height = poiHeight || 0;
-    
-    console.log(`📊 [METRICS]:`);
-    console.log(`   Height: ${height}m`);
-    console.log(`   Elevation: ${poiElevation?.center || 0}m`);
-    console.log(`   Elevation diff: ${elevationDiff.toFixed(1)}m`);
-    console.log(`   Area: ${area.toFixed(0)}m²`);
-    console.log(`   Density: ${context.urbanDensity.level}`);
     
     // PASSO 2: Classificar altura do POI
     const isHighStructure = height > 50;      // Torre, edifício alto
@@ -147,12 +134,6 @@ export class POIClassifierService {
     
     // PASSO 5: Classificar área
     const isLargeArea = area > 50000;
-    
-    console.log(`📊 [CLASSIFICATION MATRIX]:`);
-    console.log(`   Elevation: ${isHighElevation ? 'HIGH' : 'LOW'} (${elevationDiff.toFixed(0)}m)`);
-    console.log(`   Height: ${isHighStructure ? 'HIGH' : isMediumStructure ? 'MEDIUM' : 'LOW'} (${height}m)`);
-    console.log(`   Density: ${isDenseArea ? 'DENSE' : 'NORMAL'} (${context.urbanDensity.level})`);
-    console.log(`   Area: ${isLargeArea ? 'LARGE' : 'NORMAL'} (${area.toFixed(0)}m²)`);
     
     // ====================================================================
     // GRUPO 1: HIGH - PRIORIDADE MÁXIMA (ELEVAÇÃO > DENSIDADE)
@@ -180,7 +161,6 @@ export class POIClassifierService {
       const calculatedRange = Math.max(theoreticalRange, config.searchRadius.min!);
       const finalRadius = Math.min(calculatedRange, config.searchRadius.max!);
       
-      console.log(`   → Radius: ${finalRadius.toFixed(0)}m (elevation-based: √${effectiveElevationDiff.toFixed(0)} × 200)`);
       
       return {
         group: POIGroup.HIGH,
@@ -213,24 +193,8 @@ export class POIClassifierService {
     // ====================================================================
     
     // 🔍 DEBUG: Log detalhado para diagnóstico
-    console.log(`🔍 [CANYON CHECK]:`);
-    console.log(`   isLowElevation: ${isLowElevation} (elevationDiff: ${elevationDiff.toFixed(1)}m)`);
-    console.log(`   isMediumStructure: ${isMediumStructure} (height: ${height}m, range: 10-50m)`);
-    console.log(`   isHighStructure: ${isHighStructure} (height: ${height}m, >50m)`);
-    console.log(`   isDenseArea: ${isDenseArea} (urbanDensity: ${context.urbanDensity.level})`);
-    console.log(`   isLargeArea: ${isLargeArea} (area: ${area.toFixed(0)}m², threshold: 50000m²)`);
-    console.log(`   Condition 1: isLowElevation = ${isLowElevation}`);
-    console.log(`   Condition 2: (isMediumStructure || (isHighStructure && isDenseArea)) = ${isMediumStructure || (isHighStructure && isDenseArea)}`);
-    console.log(`   Condition 3: isDenseArea = ${isDenseArea}`);
-    console.log(`   Condition 4: !isLargeArea = ${!isLargeArea}`);
-    console.log(`   CANYON RESULT: ${isLowElevation && (isMediumStructure || (isHighStructure && isDenseArea)) && isDenseArea && !isLargeArea}`);
-    
     if (isLowElevation && (isMediumStructure || (isHighStructure && isDenseArea)) && isDenseArea && !isLargeArea) {
       const config = GROUP_CONFIGS[POIGroup.CANYON];
-      
-      console.log(`🏙️ [CANYON GROUP] ${isHighStructure && isDenseArea ? 'Tall' : 'Medium'} structure in dense urban area`);
-      console.log(`   → Visibility heavily restricted by surrounding buildings`);
-      console.log(`   → Radius: ${config.searchRadius.fixed}m (limited by urban canyon effect)`);
       
       return {
         group: POIGroup.CANYON,
@@ -268,9 +232,6 @@ export class POIClassifierService {
         Math.min(calculatedRadius, config.searchRadius.max!)
       );
       
-      console.log(`🏗️ [MEDIUM GROUP] Tall structure at ground level`);
-      console.log(`   → Visible from medium distances due to height`);
-      console.log(`   → Radius: ${finalRadius.toFixed(0)}m (height-based: ${height}m × 15)`);
       
       return {
         group: POIGroup.MEDIUM,
@@ -317,19 +278,6 @@ export class POIClassifierService {
       reasoning = `FLAT: Default classification (low elevation ${elevationDiff.toFixed(0)}m, height ${height}m)`;
     }
     
-    console.log(`🏞️ [FLAT GROUP] ${reasoning}`);
-    console.log(`   → Radius: ${config.searchRadius.fixed}m (flat POI characteristics)`);
-    console.log(`   ⚠️ [FALLBACK REASON - Why not CANYON?]:`);
-    console.log(`      - Height check: ${isMediumStructure ? '✅ MEDIUM' : isHighStructure ? '✅ HIGH' : '❌ LOW'} (${height}m)`);
-    console.log(`      - Density check: ${isDenseArea ? '✅ DENSE' : '❌ NOT DENSE'} (${context.urbanDensity.level})`);
-    console.log(`      - Area check: ${isLargeArea ? '❌ LARGE' : '✅ OK'} (${area.toFixed(0)}m²)`);
-    console.log(`      - CANYON condition: ${isLowElevation && (isMediumStructure || (isHighStructure && isDenseArea)) && isDenseArea && !isLargeArea ? '✅ SHOULD PASS!' : '❌ FAILED'}`);
-    if (!isDenseArea) {
-      console.log(`      ⚠️ PROBLEM: Urban density is '${context.urbanDensity.level}' but should be 'dense' or 'very_dense' for CANYON`);
-    }
-    if (height === 0) {
-      console.log(`      ⚠️ PROBLEM: POI height is 0m - cannot classify as CANYON (needs 10-50m for medium, or >50m with dense area)`);
-    }
     
     return {
       group: POIGroup.FLAT,

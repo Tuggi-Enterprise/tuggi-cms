@@ -23,8 +23,6 @@ export class OptimalPointCalculator {
     boundary: BoundaryData, 
     context: GeographicContext
   ): Promise<TriggerPointCandidate[]> {
-    console.log(`🎯 Calculating optimal points for: ${poiData.name}`);
-    
     // 🎯 USAR CLASSIFICAÇÃO DO BOUNDARY (já calculada no boundary-detector)
     let classification = boundary.classification;
     
@@ -42,11 +40,6 @@ export class OptimalPointCalculator {
       );
       boundary.classification = fallbackClassification;
       classification = fallbackClassification; // ✅ CORREÇÃO: Atualizar variável local também
-      console.log(`✅ Fallback classification created: ${fallbackClassification.group.toUpperCase()}`);
-    } else {
-      console.log(`✅ Using existing classification: ${classification.group.toUpperCase()} (from boundary-detector)`);
-      console.log(`   → Reasoning: ${classification.metadata.reasoning}`);
-      console.log(`   → Search radius: ${classification.searchRadius}m`);
     }
     
     // ✅ GARANTIR: classification nunca será undefined aqui
@@ -58,8 +51,6 @@ export class OptimalPointCalculator {
     const strategy = classification.strategy;
     const searchRadius = classification.searchRadius || 300; // Raio calculado após classificação
     
-    console.log(`🎯 Using ${group.toUpperCase()} strategy: ${strategy}`);
-    console.log(`📏 Classification search radius: ${searchRadius}m`);
     
     // ✅ CORREÇÃO 4: Filtrar ruas internamente após classificação
     // Usar apenas ruas dentro do raio calculado (não todas as ruas do raio inicial de 500m)
@@ -118,7 +109,6 @@ export class OptimalPointCalculator {
     // Ordenar candidatos por qualidade
     candidates.sort((a, b) => b.quality - a.quality);
     
-    console.log(`✅ Generated ${candidates.length} optimal point candidates (Group: ${group.toUpperCase()})`);
     return candidates;
   }
   
@@ -187,7 +177,6 @@ export class OptimalPointCalculator {
         
         if (validPoints.length === 1) {
           const streetName = street.name || street.id || 'unnamed';
-          console.log(`✅ Street ${street.id} (${streetName}): Approved with 1 valid point (${minDistanceToBoundary.toFixed(0)}m from boundary, max allowed: ${maxAllowedDistance.toFixed(0)}m)`);
         } else if (validPoints.length < street.coordinates.length) {
           console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length})`);
         }
@@ -199,7 +188,6 @@ export class OptimalPointCalculator {
       }
     }
     
-    console.log(`✅ Filtered streets: ${filtered.length}/${streets.length} streets with points within ${searchRadius}m radius`);
     return filtered;
   }
   
@@ -216,7 +204,6 @@ export class OptimalPointCalculator {
       // Calcular múltiplas distâncias ótimas baseadas no contexto (CIRCULAR STRATEGY)
         const optimalDistances = await this.calculateOptimalDistances(poiData, context, boundary);
       
-      console.log(`🎯 Testing ${optimalDistances.length} distance ranges for street ${street.id}`);
       
       // Tentar encontrar ponto em qualquer uma das distâncias ótimas
       let bestPoint = null;
@@ -244,7 +231,6 @@ export class OptimalPointCalculator {
         return null;
       }
       
-      console.log(`✅ Best point found at ${bestDistance.toFixed(0)}m (target ranges: [${optimalDistances.join('m, ')}m])`);
       const pointOnStreet = bestPoint;
       
       // VALIDAÇÃO: Garantir que o ponto está FORA do boundary
@@ -351,7 +337,6 @@ export class OptimalPointCalculator {
         return [maxSearchRadius];
       }
       
-      console.log(`✅ Filtered distances: [${filteredDistances.map(d => d.toFixed(0)).join('m, ')}m] (from [${distances.map(d => d.toFixed(0)).join('m, ')}m], max: ${maxSearchRadius}m)`);
       return filteredDistances;
     }
     
@@ -470,7 +455,6 @@ export class OptimalPointCalculator {
     }
     
     const finalDistance = calculateDistanceToBoundary(bestPoint, boundary.coordinates);
-    console.log(`✅ Best point found: ${finalDistance.toFixed(0)}m from boundary (target: ${targetDistance}m)`);
     
     return bestPoint;
   }

@@ -37,7 +37,6 @@ export class TriggerPointValidator {
     existingStreets?: any[], // NOVO: ruas já encontradas
     existingBuildings?: any[] // NOVO: construções já encontradas
   ): Promise<DirectionalAnalysis[]> {
-    console.log(`🧭 Starting directional visibility analysis for ${poiData.name}...`);
     
     try {
       const directionalAnalysis = await this.directionalAnalyzer.analyzeAllDirections(
@@ -52,9 +51,6 @@ export class TriggerPointValidator {
       const allowedDirections = directionalAnalysis.filter(d => d.allowTPs);
       const blockedDirections = directionalAnalysis.filter(d => !d.allowTPs);
       
-      console.log(`🎯 Directional analysis results:`);
-      console.log(`✅ ALLOWED directions (${allowedDirections.length}): ${allowedDirections.map(d => d.direction).join(', ')}`);
-      console.log(`❌ BLOCKED directions (${blockedDirections.length}): ${blockedDirections.map(d => d.direction).join(', ')}`);
       
       return directionalAnalysis;
     } catch (error) {
@@ -86,17 +82,14 @@ export class TriggerPointValidator {
         // POIs muito altos (>100m) - muito mais permissivo
         basePercentage = cfg.maxTriggerPoints.heightAdjustments.extremely_tall.percentage;
         maxLimit = cfg.maxTriggerPoints.heightAdjustments.extremely_tall.maxLimit;
-        console.log(`🏗️ VERY TALL POI (${poiHeight}m): Using ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
       } else if (poiHeight > TRIGGER_POINTS_CONSTANTS.height.veryTallThreshold) {
         // POIs altos (50-100m) - mais permissivo
         basePercentage = cfg.maxTriggerPoints.heightAdjustments.very_tall.percentage;
         maxLimit = cfg.maxTriggerPoints.heightAdjustments.very_tall.maxLimit;
-        console.log(`🏢 TALL POI (${poiHeight}m): Using ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
       } else if (poiHeight > TRIGGER_POINTS_CONSTANTS.height.tallThreshold) {
         // POIs médios (20-50m) - moderadamente permissivo
         basePercentage = cfg.maxTriggerPoints.heightAdjustments.tall.percentage;
         maxLimit = cfg.maxTriggerPoints.heightAdjustments.tall.maxLimit;
-        console.log(`🏢 MEDIUM POI (${poiHeight}m): Using ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
       }
     }
     
@@ -106,11 +99,9 @@ export class TriggerPointValidator {
       if (area > TRIGGER_POINTS_CONSTANTS.height.veryLargeAreaThreshold) { // >1km²
         basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.areaAdjustments.very_large.percentage);
         maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.areaAdjustments.very_large.maxLimit);
-        console.log(`🏞️ VERY LARGE POI (${(area/1000000).toFixed(1)}km²): Increased to ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
       } else if (area > TRIGGER_POINTS_CONSTANTS.height.largeAreaThreshold) { // >0.5km²
         basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.areaAdjustments.large.percentage);
         maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.areaAdjustments.large.maxLimit);
-        console.log(`🏛️ LARGE POI (${(area/10000).toFixed(0)} hectares): Increased to ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
       }
     }
     
@@ -120,7 +111,6 @@ export class TriggerPointValidator {
       if (elevationDiff > TRIGGER_POINTS_CONSTANTS.height.highElevationThreshold) {
         basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.elevationAdjustments.high_landmark.percentage);
         maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.elevationAdjustments.high_landmark.maxLimit);
-        console.log(`🏔️ HIGH ELEVATION LANDMARK (+${elevationDiff.toFixed(0)}m): Increased to ${(basePercentage*100).toFixed(1)}% base, max ${maxLimit} TPs`);
       }
     }
     
@@ -131,11 +121,6 @@ export class TriggerPointValidator {
     // Removemos os multiplicadores artificiais e deixamos o sistema de validação fazer seu trabalho
     const finalLimit = Math.max(cfg.maxTriggerPoints.limits.min, baseLimit);
     
-    console.log(`🎯 TRUST-BASED Dynamic TP limit calculation:`);
-    console.log(`   📊 Candidates: ${candidates.length}`);
-    console.log(`   📐 Base (${(basePercentage*100).toFixed(1)}%): ${baseLimit}`);
-    console.log(`   🎯 Final limit: ${finalLimit} (trusting 100% in visibility/quality filtering)`);
-    console.log(`   ✅ No artificial visibility/obstruction penalties applied`);
     
     return finalLimit;
   }
@@ -156,11 +141,6 @@ export class TriggerPointValidator {
     // 🎯 USAR CONFIGURAÇÕES DO GRUPO DO POI (se disponível)
     if (boundary.classification) {
       const classification = boundary.classification;
-      console.log(`🎯 Using ${classification.group.toUpperCase()} group validation settings`);
-      console.log(`   → Visibility threshold: ${classification.visibilityThreshold}`);
-      console.log(`   → Max TPs: ${classification.maxTriggerPoints}`);
-      console.log(`   → Min distance: ${classification.minDistanceBetweenTPs}m`);
-      
       // Substituir parâmetros pelos do grupo
       maxTriggerPoints = classification.maxTriggerPoints;
       minDistanceBetweenTPs = classification.minDistanceBetweenTPs;
@@ -168,21 +148,16 @@ export class TriggerPointValidator {
     // 🚀 OTIMIZAÇÃO: Calcular elevação base UMA ÚNICA VEZ para evitar centenas de chamadas de API
     let baseElevation: number | null = null;
     if (boundary?.elevation && boundary.elevation.center > 0) {
-      console.log(`🏞️ [CACHE] Calculating base elevation once for all candidates...`);
       baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
-      console.log(`✅ [CACHE] Base elevation cached: ${baseElevation}m`);
     }
     
     // 🎯 NOVO: Confiar 100% no limite calculado pelo predictor (sem recalcular)
     // O predictor já calculou o limite baseado na área e características do POI
     const dynamicMaxTPs = maxTriggerPoints;
     
-    console.log(`🎯 Validating ${candidates.length} trigger point candidates with full validation system`);
-    console.log(`🎯 Max TPs: ${dynamicMaxTPs} (trusting predictor calculation), Min distance: ${minDistanceBetweenTPs}m`);
     
     try {
       // ✅ VALIDAÇÃO BÁSICA COMPLETA
-      console.log(`🔍 Step 1: Basic validation (distance, quality, accessibility)`);
       const basicValidCandidates = [];
       for (const candidate of candidates) {
         const isValid = await this.isValidCandidate(candidate, poiData, context, boundary, baseElevation);
@@ -191,18 +166,14 @@ export class TriggerPointValidator {
         }
       }
       
-      console.log(`📊 ${basicValidCandidates.length}/${candidates.length} candidates passed basic validation`);
       
       // M2: VALIDAÇÃO DE SENTIDO DE VIA - REMOVIDA
       // Motivo: Lógica incorreta (90°-270° não é contramão) e muito restritiva para canyons urbanos
-      console.log(`🔍 Step 1.5: Oneway direction validation - DISABLED (too restrictive for urban canyons)`);
       const onewayValidCandidates = basicValidCandidates; // Pular validação de direção
 
-      console.log(`🚦 [M2] ${onewayValidCandidates.length}/${basicValidCandidates.length} candidates (oneway validation disabled)`);
       
       // ✅ ORDENAR POR PRIORIDADE (RÁPIDO - sem verificação de visibilidade)
       // Ordenar por prioridade: FRONT STREETS primeiro, depois por qualidade
-      console.log(`🔍 Step 2: Ranking candidates (front streets + quality)`);
       const rankedCandidates = onewayValidCandidates.sort((a, b) => {
         const aIsFrontStreet = this.isTPOnFrontStreet(a, boundary);
         const bIsFrontStreet = this.isTPOnFrontStreet(b, boundary);
@@ -215,19 +186,13 @@ export class TriggerPointValidator {
         return b.quality - a.quality;
       });
       
-      console.log(`📊 ${rankedCandidates.length} candidates ranked`);
       
       // ✅ FILTRO DE DISTÂNCIA MÍNIMA COMPLETO (RÁPIDO - mantém candidatos)
-      console.log(`🔍 Step 3: Distance filtering (min ${minDistanceBetweenTPs}m between TPs)`);
       const distanceFilteredCandidates = this.selectCandidatesWithMinDistance(rankedCandidates, dynamicMaxTPs, minDistanceBetweenTPs, boundary, context);
-      console.log(`📏 ${distanceFilteredCandidates.length} candidates passed distance filtering`);
       
       // ✅ VALIDAÇÃO DE VISIBILIDADE (LENTO - ÚLTIMA LINHA DE DEFESA)
       // Aplicar apenas aos candidatos que já passaram por todos os outros filtros
-      console.log(`🔍 Step 4: Visibility validation (line of sight) - LAST DEFENSE LINE`);
-      console.log(`   → Applying to ${distanceFilteredCandidates.length} pre-approved candidates (not all ${onewayValidCandidates.length})`);
       const visibilityValidCandidates = await this.filterByVisibilityOptimized(distanceFilteredCandidates, boundary, context);
-      console.log(`👁️ ${visibilityValidCandidates.length}/${distanceFilteredCandidates.length} pre-approved candidates have clear line of sight`);
       
       // Converter candidatos validados para TriggerPoint[]
       const selectedTriggerPoints: TriggerPoint[] = [];
@@ -237,15 +202,12 @@ export class TriggerPointValidator {
         selectedTriggerPoints.push(triggerPoint);
       }
       
-      console.log(`📏 ${selectedTriggerPoints.length} trigger points selected after visibility validation`);
       
       // ✅ REMOVER DUPLICATAS FINAIS
       const finalTriggerPoints = this.removeDuplicateTriggerPoints(selectedTriggerPoints);
       if (finalTriggerPoints.length !== selectedTriggerPoints.length) {
-        console.log(`🚫 Removed ${selectedTriggerPoints.length - finalTriggerPoints.length} duplicate trigger points`);
       }
       
-      console.log(`✅ VALIDATION COMPLETE: ${finalTriggerPoints.length} high-quality trigger points selected`);
       return finalTriggerPoints;
       
     } catch (error) {
@@ -285,21 +247,17 @@ export class TriggerPointValidator {
     // POIs FLAT em áreas densas precisam de distância mínima maior para evitar TPs próximos sem visão
     if (isFlatPOI && isDenseZone) {
       adjustedMinDistance = Math.max(adjustedMinDistance, 80); // Mínimo 80m para POIs FLAT em áreas densas
-      console.log(`📏 FLAT POI in dense zone: increasing min distance to ${adjustedMinDistance}m (POI height: ${poiHeight}m)`);
     }
     
     if (adjustedMinDistance > minDistance) {
-      console.log(`📏 Adjusted min distance from ${minDistance}m to ${adjustedMinDistance}m (small: ${isSmallPOI}, flat: ${isFlatPOI}, dense: ${isDenseZone})`);
     }
     
     const STANDARD_TP_RADIUS = 20; // metros (fixo)
     const minDistanceBetweenCenters = (STANDARD_TP_RADIUS * 2) + adjustedMinDistance;
-    console.log(`🔍 Selecting candidates with ${adjustedMinDistance}m spacing between edges (${minDistanceBetweenCenters}m min between centers, range: ${STANDARD_TP_RADIUS}m fixed)...`);
     
     for (const candidate of rankedCandidates) {
       // Verificar se já temos o máximo de candidatos
       if (selectedCandidates.length >= maxTriggerPoints) {
-        console.log(`✋ Reached maximum of ${maxTriggerPoints} candidates for distance filtering`);
         break;
       }
       
@@ -318,7 +276,6 @@ export class TriggerPointValidator {
       selectedCandidates.push(candidate);
     }
     
-    console.log(`📊 Distance filtering: ${selectedCandidates.length} candidates selected, ${rejectedCount} rejected for proximity`);
     return selectedCandidates;
   }
 
@@ -370,7 +327,6 @@ export class TriggerPointValidator {
       selectedTPs.push(triggerPoint);
     }
     
-    console.log(`📊 Final selection: ${selectedTPs.length} TPs selected, ${rejectedCount} rejected for proximity`);
     return selectedTPs;
   }
   
@@ -387,7 +343,6 @@ export class TriggerPointValidator {
     let visibilityPassed = 0;
     let visibilityFailed = 0;
 
-    console.log(`🔍 Checking visibility for ${candidates.length} candidates...`);
 
     // Processar candidatos em lotes para não sobrecarregar APIs
     const batchSize = TRIGGER_POINTS_CONSTANTS.processing.batchSize;
@@ -422,11 +377,9 @@ export class TriggerPointValidator {
             };
             
             visibilityPassed++;
-            console.log(`✅ TP has clear visibility: ${candidate.location.lat.toFixed(6)}, ${candidate.location.lng.toFixed(6)} - Visibility: ${visibilityResult.visibleBoundaryPercentage.toFixed(1)}% (${visibilityResult.method})`);
             return enhancedCandidate;
           } else {
             visibilityFailed++;
-            console.log(`🚫 TP blocked by obstructions: ${candidate.location.lat.toFixed(6)}, ${candidate.location.lng.toFixed(6)} - Visibility: ${visibilityResult.visibleBoundaryPercentage.toFixed(1)}% - Obstructions: ${visibilityResult.obstructions.join(', ')}`);
             return null;
           }
           
@@ -441,11 +394,8 @@ export class TriggerPointValidator {
       validCandidates.push(...batchResults.filter(result => result !== null));
       
       // Log de progresso
-      console.log(`📊 Batch ${Math.floor(i / batchSize) + 1}: ${batchResults.filter(r => r !== null).length}/${batch.length} passed visibility`);
     }
 
-    console.log(`👁️ Visibility validation complete: ${visibilityPassed} passed, ${visibilityFailed} failed (${visibilityChecks} total)`);
-    console.log(`📈 Visibility success rate: ${((visibilityPassed / visibilityChecks) * 100).toFixed(1)}%`);
 
     return validCandidates;
   }
@@ -462,14 +412,11 @@ export class TriggerPointValidator {
     let visibilityPassed = 0;
     let visibilityFailed = 0;
 
-    console.log(`🚀 SUPER OPTIMIZED visibility check for ${candidates.length} candidates...`);
-    console.log(`🏗️ Step 1: Fetching ALL obstructions in region with SINGLE OSM call...`);
 
     // 🚀 OTIMIZAÇÃO: Buscar todas as obstruções da região em UMA ÚNICA chamada
     let obstructions;
     try {
       obstructions = await this.getAllObstructionsInRegion(candidates, boundary, context);
-      console.log(`🌳 Found ${obstructions.buildings.length} buildings, ${obstructions.vegetation.length} vegetation, ${obstructions.barriers.length} barriers, ${obstructions.peaks.length} peaks/mountains in region (1 API call instead of ${candidates.length})`);
     } catch (error) {
       console.warn(`⚠️ Failed to fetch obstructions, using buildings-only fallback: ${(error as Error).message}`);
       // Fallback: buscar apenas buildings (método original)
@@ -478,7 +425,6 @@ export class TriggerPointValidator {
       console.log(`🏢 Fallback: Found ${buildings.length} buildings only`);
     }
 
-    console.log(`🏗️ Step 2: Processing visibility for each TP using cached obstructions...`);
     
     // Processar cada candidato usando as obstruções já carregadas
     for (const candidate of candidates) {
@@ -511,9 +457,6 @@ export class TriggerPointValidator {
       }
     }
 
-    console.log(`👁️ SUPER OPTIMIZED visibility complete: ${visibilityPassed} passed, ${visibilityFailed} failed`);
-    console.log(`📈 Visibility success rate: ${((visibilityPassed / (visibilityPassed + visibilityFailed)) * 100).toFixed(1)}%`);
-    console.log(`🚀 Performance: 1 API call instead of ${candidates.length} calls (${candidates.length}x faster!)`);
 
     return validCandidates;
   }
@@ -536,8 +479,6 @@ export class TriggerPointValidator {
     
     // 🚀 NOVA LÓGICA: Usar dados consolidados se disponíveis (SSLT: reutilizar dados já coletados)
     if (boundary.buildings || boundary.vegetation || boundary.barriers || boundary.peaks) {
-      console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated obstructions data from boundary (SSLT: no redundant searches)`);
-      console.log(`🏢 Buildings: ${boundary.buildings?.length || 0}, Vegetation: ${boundary.vegetation?.length || 0}, Barriers: ${boundary.barriers?.length || 0}, Peaks: ${boundary.peaks?.length || 0}`);
       
       // ✅ SSLT: Reutilizar peaks já coletados na query consolidada do boundary-detector
       // Não fazer busca separada - violaria DRY e SSLT

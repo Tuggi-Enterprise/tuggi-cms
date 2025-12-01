@@ -28,7 +28,6 @@ export class StreetAnalyzer {
     boundary: BoundaryData, 
     context: GeographicContext
   ): Promise<StreetData[]> {
-    console.log(`🛣️ Finding accessible streets for: ${poiData.name}`);
     
     try {
       const searchRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
@@ -42,7 +41,6 @@ export class StreetAnalyzer {
       // NOVO: Para Urban Canyon, usar análise de quarteirão para identificar front/side/back streets
       const isUrbanCanyon = this.isUrbanCanyon(boundary, context);
       if (isUrbanCanyon && boundary.buildings && boundary.buildings.length > 0) {
-        console.log(`🏙️ Urban Canyon detected - analyzing block structure for ${accessibleStreets.length} streets`);
         const blockAnalysis = this.analyzeBlockStructure(
           boundary.center,
           accessibleStreets,
@@ -56,13 +54,11 @@ export class StreetAnalyzer {
           .map(result => result.street);
         
         if (validStreets.length > 0) {
-          console.log(`✅ Urban Canyon: ${validStreets.length} front/side streets (${accessibleStreets.length - validStreets.length} blocked by buildings)`);
           const streetPoints = validStreets.map(street => 
             this.findClosestPointToBoundary(street, boundary)
           );
           return streetPoints;
         } else {
-          console.log(`⚠️ Urban Canyon: All streets blocked by buildings, using all accessible streets anyway`);
         }
       }
       
@@ -71,7 +67,6 @@ export class StreetAnalyzer {
         this.findClosestPointToBoundary(street, boundary)
       );
       
-      console.log(`✅ Found ${streetPoints.length} accessible street points`);
       return streetPoints;
       
     } catch (error) {
@@ -89,15 +84,10 @@ export class StreetAnalyzer {
     boundary: BoundaryData, 
     context: GeographicContext
   ): Promise<{ streets: StreetData[]; searchRadius: number; elevationAnalysis?: any }> {
-    console.log(`🛣️ [STEP 3] Finding accessible streets for: ${poiData.name}`);
-    console.log(`📊 [INPUT] Boundary has ${boundary.streets?.length || 0} consolidated streets from OSM`);
-    
     try {
       const searchRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
-      console.log(`📏 [RADIUS] Calculated search radius: ${searchRadius}m`);
       
       const roads = await this.getRoadsAroundBoundary(boundary, searchRadius, context);
-      console.log(`🗺️ [ROADS] getRoadsAroundBoundary returned ${roads.length} roads`);
       
       if (roads.length === 0) {
         console.error(`❌ [CRITICAL] getRoadsAroundBoundary returned 0 roads despite ${boundary.streets?.length || 0} consolidated streets`);
@@ -107,7 +97,6 @@ export class StreetAnalyzer {
       const accessibleStreets = roads.filter(road => 
         this.isStreetAccessible(road, context)
       );
-      console.log(`✅ [ACCESSIBLE] ${accessibleStreets.length} accessible streets (from ${roads.length} total)`);
       
       // Calcular pontos mais próximos ao boundary
       const streetPoints = accessibleStreets.map(street => 
@@ -125,7 +114,6 @@ export class StreetAnalyzer {
         );
       }
       
-      console.log(`✅ [RESULT] Found ${streetPoints.length} accessible street points (radius: ${searchRadius}m)`);
       if (streetPoints.length === 0 && roads.length > 0) {
         console.error(`❌ [CRITICAL] ${roads.length} roads found but 0 street points after processing`);
         console.error(`   → Check: filterStreetPointsByRadius and isStreetAccessible filters`);
@@ -148,8 +136,6 @@ export class StreetAnalyzer {
    * Implementa a lógica DINÂMICA do sistema legado usando dados reais de elevação
    */
   private async calculateIntelligentRadius(boundary: BoundaryData, context: GeographicContext, poiData: POIData, config?: TriggerPointsConfig): Promise<number> {
-    console.log(`🧮 Calculating intelligent search radius...`);
-    
     // ✅ REGRA CONSERVADORA: POIs sem dados de elevação ou desconhecidos no OSM
     // Ser conservador: melhor range menor do que TPs muito longe
     const hasElevationData = boundary.elevation && boundary.elevation.center > 0;
@@ -159,10 +145,6 @@ export class StreetAnalyzer {
     
     if (!hasElevationData || isUnknownPOI) {
       const conservativeRadius = 150; // Range conservador: 150m máximo (regras FLAT)
-      console.log(`⚠️ [CONSERVATIVE RANGE] POI without elevation data or unknown in OSM`);
-      console.log(`   → Has elevation: ${hasElevationData ? 'YES' : 'NO'}`);
-      console.log(`   → Is unknown POI (manual + OSM not identified): ${isUnknownPOI ? 'YES' : 'NO'}`);
-      console.log(`   → Using FLAT group rules: ${conservativeRadius}m radius (only streets around boundary)`);
       return conservativeRadius;
     }
     
@@ -171,12 +153,6 @@ export class StreetAnalyzer {
     if (boundary.classification && boundary.classification.searchRadius) {
       const classificationRadius = boundary.classification.searchRadius;
       const classificationGroup = boundary.classification.group;
-      
-      console.log(`🎯 [CLASSIFICATION-BASED RADIUS] Using classification from boundary:`);
-      console.log(`   → Group: ${classificationGroup.toUpperCase()}`);
-      console.log(`   → Search radius: ${classificationRadius}m`);
-      console.log(`   → Reasoning: ${boundary.classification.metadata?.reasoning || 'N/A'}`);
-      console.log(`   ✅ RESPECTING CLASSIFICATION (SSOT) - ignoring dynamic calculations`);
       
       // 🏙️ CANYON: Raio muito limitado (visibilidade muito restrita)
       if (classificationGroup === 'canyon') {
@@ -187,15 +163,12 @@ export class StreetAnalyzer {
         if (boundary.height && boundary.height > 100) {
           const heightAdjustment = Math.min((boundary.height - 100) * 0.3, 25);
           canyonRadius = Math.min(baseCanyonRadius + heightAdjustment, 100);
-          console.log(`   → Tall POI (${boundary.height}m) in canyon: adjusted to ${canyonRadius}m`);
         }
         
-        console.log(`   → Final radius: ${canyonRadius}m (STRICTLY LIMITED - visibility blocked by surrounding buildings)`);
         return canyonRadius;
       }
       
       // Para outros grupos (HIGH, MEDIUM, FLAT), usar o raio da classificação diretamente
-      console.log(`   → Final radius: ${classificationRadius}m (from ${classificationGroup.toUpperCase()} group config)`);
       return classificationRadius;
     }
     
@@ -207,15 +180,8 @@ export class StreetAnalyzer {
       if (boundary.height && boundary.height > 100) {
         const heightAdjustment = Math.min((boundary.height - 100) * 0.3, 25);
         canyonRadius = Math.min(baseCanyonRadius + heightAdjustment, 100);
-        console.log(`🏙️ CANYON POI DETECTED: Tall POI (${boundary.height}m) in canyon`);
-        console.log(`   → Base radius: ${baseCanyonRadius}m + height adjustment: +${heightAdjustment.toFixed(0)}m`);
-        console.log(`   → Final radius: ${canyonRadius}m (STRICTLY LIMITED - visibility blocked by surrounding buildings)`);
       } else {
-        console.log(`🏙️ CANYON POI DETECTED: Using FIXED radius (${canyonRadius}m) - visibility limited by surrounding buildings`);
-        console.log(`   → POI height: ${boundary.height || 'unknown'}m`);
       }
-      console.log(`   → Even tall POIs in canyons have restricted visibility`);
-      console.log(`   → Ignoring dynamic height-based calculations (would be ${300}+m otherwise)`);
       return canyonRadius;
     }
     
@@ -225,10 +191,6 @@ export class StreetAnalyzer {
       const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
       const elevationDiff = poiElevation - baseElevation;
       
-      console.log(`📏 DYNAMIC elevation analysis:`);
-      console.log(`  📍 POI elevation: ${poiElevation.toFixed(1)}m (from real data)`);
-      console.log(`  🏞️ Estimated base elevation: ${baseElevation.toFixed(1)}m`);
-      console.log(`  📈 Relative difference: ${elevationDiff.toFixed(1)}m`);
       
       // 🏔️ Apply dynamic formula for high-visibility landmarks (>150m difference)
       // ✅ PRIORIDADE MÁXIMA: Este cálculo dinâmico tem precedência sobre qualquer outro
@@ -238,10 +200,6 @@ export class StreetAnalyzer {
         const calculatedRange = Math.max(theoreticalRange, 3000); // Mínimo 3km
         const maxRange = Math.min(calculatedRange, 15000); // Máximo 15km (limite físico de visibilidade)
         
-        console.log(`🏔️ HIGH-VISIBILITY LANDMARK DETECTED (dynamic calculation)`);
-        console.log(`  📏 Theoretical range (√${elevationDiff.toFixed(0)} × 200): ${theoreticalRange.toFixed(0)}m`);
-        console.log(`  🎯 Final calculated range: ${maxRange.toFixed(0)}m`);
-        console.log(`  ✅ Using DYNAMIC CALCULATION (no hardcoded limits)`);
         
         return Math.round(maxRange);
       }
@@ -250,14 +208,11 @@ export class StreetAnalyzer {
       // 🆕 CORRIGIDO: Usar raio da configuração do grupo ao invés de valor hardcoded
       if (elevationDiff <= 50 && boundary.classification?.group === 'flat') {
         const flatRadius = boundary.classification.searchRadius || 120; // Usar da configuração, fallback 120m
-        console.log(`🏞️ FLAT POI DETECTED: ${elevationDiff.toFixed(0)}m elevation difference`);
-        console.log(`🎯 Using FLAT group radius: ${flatRadius}m (from classification config)`);
         return flatRadius;
       }
       // Moderate elevation bonus for smaller differences
       else if (elevationDiff > 50) {
         const elevationBonus = elevationDiff * 8; // 8m radius per meter of elevation
-        console.log(`⛰️ Moderate elevation bonus: +${elevationBonus.toFixed(0)}m (${elevationDiff.toFixed(1)}m above base)`);
         // Continue with normal calculation but add elevation bonus later
       }
     }
@@ -267,7 +222,6 @@ export class StreetAnalyzer {
     
     let baseRadius = cfg.searchRadius.baseRadius[context.urbanDensity.level];
     
-    console.log(`🏙️ ${context.urbanDensity.level.toUpperCase()} area: using ${baseRadius}m base radius (from config)`);
     
     // 2. NOVO: Ajuste por elevação absoluta e relativa do POI
     if (boundary.elevation) {
@@ -278,19 +232,16 @@ export class StreetAnalyzer {
       if (poiElevation > 1000) {
         const extremeAltitudeBonus = Math.min((poiElevation - 1000) * 10 + 2000, 4000); // 10m raio por metro acima de 1000m + 2000m base, max 4000m
         baseRadius += extremeAltitudeBonus;
-        console.log(`🗻 EXTREME altitude bonus: ${poiElevation.toFixed(0)}m elevation → +${extremeAltitudeBonus.toFixed(0)}m radius`);
       }
       // Para POIs muito altos (>800m), usar elevação absoluta (picos, montanhas)
       else if (poiElevation > 800) {
         const highAltitudeBonus = Math.min((poiElevation - 800) * 6 + 1200, 2500); // 6m raio por metro acima de 800m + 1200m base, max 2500m
         baseRadius += highAltitudeBonus;
-        console.log(`🏔️ High altitude bonus: ${poiElevation.toFixed(0)}m elevation → +${highAltitudeBonus.toFixed(0)}m radius`);
       }
       // Para POIs moderadamente altos (>400m), usar elevação absoluta moderada
       else if (poiElevation > 400) {
         const moderateAltitudeBonus = Math.min((poiElevation - 400) * 2, 800);
         baseRadius += moderateAltitudeBonus;
-        console.log(`⛰️ Moderate altitude bonus: ${poiElevation.toFixed(0)}m elevation → +${moderateAltitudeBonus.toFixed(0)}m radius`);
       }
       
       // Ajuste adicional por elevação relativa (diferença interna do POI)
@@ -298,12 +249,10 @@ export class StreetAnalyzer {
         // POI muito acima da média interna - visível de longe
         const elevationBonus = Math.min(elevationDiff * 8, 400); // Max 400m bonus
         baseRadius += elevationBonus;
-        console.log(`🏗️ Internal elevation bonus: POI is ${elevationDiff.toFixed(1)}m above internal average → +${elevationBonus.toFixed(0)}m radius`);
       } else if (elevationDiff > 20) {
         // POI moderadamente acima da média interna
         const elevationBonus = elevationDiff * 5;
         baseRadius += elevationBonus;
-        console.log(`🏢 Moderate internal elevation bonus: +${elevationBonus.toFixed(0)}m radius`);
       } else if (elevationDiff < -20) {
         // POI abaixo da média interna - menos visível
         const elevationPenalty = Math.abs(elevationDiff) * TRIGGER_POINTS_CONSTANTS.ratios.elevationPenalty;
