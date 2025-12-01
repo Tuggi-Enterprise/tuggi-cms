@@ -4,7 +4,7 @@ import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, Bounda
 import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon } from '../utils/calculations';
 import { VisibilityValidator } from './visibility-validator';
 import { ElevationAnalysisService } from '../services/elevation-service';
-import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { DirectionalAnalyzer } from './directional-analyzer';
 
@@ -14,7 +14,7 @@ export class TriggerPointValidator {
   
   // Cache para obstruções (QUALIDADE > PERFORMANCE)
   private static obstructionsCache = new Map<string, { 
-    data: { buildings: any[]; vegetation: any[]; barriers: any[] }, 
+    data: { buildings: any[]; vegetation: any[]; barriers: any[]; peaks: any[] }, 
     timestamp: number 
   }>();
   private static CACHE_DURATION = TRIGGER_POINTS_CONSTANTS.obstructions.cacheDuration * 60 * 1000; // minutos
@@ -200,14 +200,10 @@ export class TriggerPointValidator {
 
       console.log(`🚦 [M2] ${onewayValidCandidates.length}/${basicValidCandidates.length} candidates (oneway validation disabled)`);
       
-      // ✅ VALIDAÇÃO DE VISIBILIDADE COMPLETA (já inclui auto-aprovação de ruas da frente)
-      console.log(`🔍 Step 2: Visibility validation (line of sight)`);
-      const visibilityValidCandidates = await this.filterByVisibilityOptimized(onewayValidCandidates, boundary, context);
-      
-      console.log(`👁️ ${visibilityValidCandidates.length} candidates have clear line of sight`);
-      
+      // ✅ ORDENAR POR PRIORIDADE (RÁPIDO - sem verificação de visibilidade)
       // Ordenar por prioridade: FRONT STREETS primeiro, depois por qualidade
-      const rankedCandidates = visibilityValidCandidates.sort((a, b) => {
+      console.log(`🔍 Step 2: Ranking candidates (front streets + quality)`);
+      const rankedCandidates = onewayValidCandidates.sort((a, b) => {
         const aIsFrontStreet = this.isTPOnFrontStreet(a, boundary);
         const bIsFrontStreet = this.isTPOnFrontStreet(b, boundary);
         
@@ -219,10 +215,29 @@ export class TriggerPointValidator {
         return b.quality - a.quality;
       });
       
-      // ✅ FILTRO DE DISTÂNCIA MÍNIMA COMPLETO
+      console.log(`📊 ${rankedCandidates.length} candidates ranked`);
+      
+      // ✅ FILTRO DE DISTÂNCIA MÍNIMA COMPLETO (RÁPIDO - mantém candidatos)
       console.log(`🔍 Step 3: Distance filtering (min ${minDistanceBetweenTPs}m between TPs)`);
-      const selectedTriggerPoints = this.selectTriggerPointsWithMinDistance(rankedCandidates, dynamicMaxTPs, minDistanceBetweenTPs, boundary, context);
-      console.log(`📏 ${selectedTriggerPoints.length} trigger points selected after all filtering`);
+      const distanceFilteredCandidates = this.selectCandidatesWithMinDistance(rankedCandidates, dynamicMaxTPs, minDistanceBetweenTPs, boundary, context);
+      console.log(`📏 ${distanceFilteredCandidates.length} candidates passed distance filtering`);
+      
+      // ✅ VALIDAÇÃO DE VISIBILIDADE (LENTO - ÚLTIMA LINHA DE DEFESA)
+      // Aplicar apenas aos candidatos que já passaram por todos os outros filtros
+      console.log(`🔍 Step 4: Visibility validation (line of sight) - LAST DEFENSE LINE`);
+      console.log(`   → Applying to ${distanceFilteredCandidates.length} pre-approved candidates (not all ${onewayValidCandidates.length})`);
+      const visibilityValidCandidates = await this.filterByVisibilityOptimized(distanceFilteredCandidates, boundary, context);
+      console.log(`👁️ ${visibilityValidCandidates.length}/${distanceFilteredCandidates.length} pre-approved candidates have clear line of sight`);
+      
+      // Converter candidatos validados para TriggerPoint[]
+      const selectedTriggerPoints: TriggerPoint[] = [];
+      for (let i = 0; i < visibilityValidCandidates.length; i++) {
+        const candidate = visibilityValidCandidates[i];
+        const triggerPoint = this.convertToTriggerPoint(candidate, i, boundary, context);
+        selectedTriggerPoints.push(triggerPoint);
+      }
+      
+      console.log(`📏 ${selectedTriggerPoints.length} trigger points selected after visibility validation`);
       
       // ✅ REMOVER DUPLICATAS FINAIS
       const finalTriggerPoints = this.removeDuplicateTriggerPoints(selectedTriggerPoints);
@@ -241,17 +256,17 @@ export class TriggerPointValidator {
   
   
   /**
-   * NOVO: Seleciona TPs garantindo distância mínima entre eles
-   * 🆕 Ajusta distância mínima baseado no tamanho do POI
+   * NOVO: Seleciona candidatos garantindo distância mínima entre eles (mantém como candidatos)
+   * ✅ OTIMIZAÇÃO: Mantém candidatos para aplicar verificação de visibilidade depois
    */
-  private selectTriggerPointsWithMinDistance(
+  private selectCandidatesWithMinDistance(
     rankedCandidates: TriggerPointCandidate[],
     maxTriggerPoints: number,
     minDistance: number,
     boundary: BoundaryData,
     context: GeographicContext
-  ): TriggerPoint[] {
-    const selectedTPs: TriggerPoint[] = [];
+  ): TriggerPointCandidate[] {
+    const selectedCandidates: TriggerPointCandidate[] = [];
     let rejectedCount = 0;
     
     // 🆕 Ajustar distância mínima baseado no tamanho do POI e altura
@@ -279,45 +294,80 @@ export class TriggerPointValidator {
     
     const STANDARD_TP_RADIUS = 20; // metros (fixo)
     const minDistanceBetweenCenters = (STANDARD_TP_RADIUS * 2) + adjustedMinDistance;
-    console.log(`🔍 Selecting TPs with ${adjustedMinDistance}m spacing between edges (${minDistanceBetweenCenters}m min between centers, range: ${STANDARD_TP_RADIUS}m fixed)...`);
+    console.log(`🔍 Selecting candidates with ${adjustedMinDistance}m spacing between edges (${minDistanceBetweenCenters}m min between centers, range: ${STANDARD_TP_RADIUS}m fixed)...`);
     
     for (const candidate of rankedCandidates) {
-      // Verificar se já temos o máximo de TPs
-      if (selectedTPs.length >= maxTriggerPoints) {
-        console.log(`✋ Reached maximum of ${maxTriggerPoints} trigger points`);
+      // Verificar se já temos o máximo de candidatos
+      if (selectedCandidates.length >= maxTriggerPoints) {
+        console.log(`✋ Reached maximum of ${maxTriggerPoints} candidates for distance filtering`);
         break;
       }
       
-      // Verificar distância mínima com TPs já selecionados
-      // REGRA: Range fixo de 20m + espaçamento entre bordas (40m, 80m, 100m conforme grupo)
-      // Fórmula: 20m (range TP1) + espaçamento + 20m (range TP2) = distância mínima entre centros
-      const STANDARD_TP_RADIUS = 20; // metros (fixo, não calcular)
-      const minSpacingBetweenEdges = adjustedMinDistance; // 40m, 80m, 100m conforme grupo
-      const minDistanceBetweenCenters = (STANDARD_TP_RADIUS * 2) + minSpacingBetweenEdges;
-      
-      let closestDistance = Infinity;
-      let closestTP: any = null;
-      const isTooClose = selectedTPs.some(existingTP => {
-        const distanceBetweenCenters = calculateDistance(candidate.location, existingTP.location);
-        if (distanceBetweenCenters < closestDistance) {
-          closestDistance = distanceBetweenCenters;
-          closestTP = existingTP;
-        }
-        // Verificar se distância entre centros é menor que o mínimo necessário
+      // Verificar distância mínima com candidatos já selecionados
+      const isTooClose = selectedCandidates.some(existing => {
+        const distanceBetweenCenters = calculateDistance(candidate.location, existing.location);
         return distanceBetweenCenters < minDistanceBetweenCenters;
       });
       
       if (isTooClose) {
         rejectedCount++;
-        // console.log(`🚫 TP rejected (too close): ${candidate.location.lat.toFixed(6)}, ${candidate.location.lng.toFixed(6)} - Quality: ${candidate.quality.toFixed(3)}`);
         continue;
       }
       
-      // Candidato aprovado - converter para TriggerPoint
+      // Candidato aprovado - manter como candidato (não converter ainda)
+      selectedCandidates.push(candidate);
+    }
+    
+    console.log(`📊 Distance filtering: ${selectedCandidates.length} candidates selected, ${rejectedCount} rejected for proximity`);
+    return selectedCandidates;
+  }
+
+  /**
+   * LEGACY: Seleciona TPs garantindo distância mínima entre eles (converte para TriggerPoint)
+   * ⚠️ Usado apenas quando necessário converter diretamente para TriggerPoint
+   */
+  private selectTriggerPointsWithMinDistance(
+    rankedCandidates: TriggerPointCandidate[],
+    maxTriggerPoints: number,
+    minDistance: number,
+    boundary: BoundaryData,
+    context: GeographicContext
+  ): TriggerPoint[] {
+    const selectedTPs: TriggerPoint[] = [];
+    let rejectedCount = 0;
+    
+    // Reutilizar lógica de ajuste de distância
+    const poiHeight = boundary.height || 0;
+    const isSmallPOI = boundary.area < 10000;
+    const isDenseZone = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
+    const isFlatPOI = poiHeight === 0 || poiHeight < 5;
+    
+    let adjustedMinDistance = minDistance;
+    if (isSmallPOI) {
+      adjustedMinDistance = Math.max(adjustedMinDistance, 60);
+    }
+    if (isFlatPOI && isDenseZone) {
+      adjustedMinDistance = Math.max(adjustedMinDistance, 80);
+    }
+    
+    const STANDARD_TP_RADIUS = 20;
+    const minDistanceBetweenCenters = (STANDARD_TP_RADIUS * 2) + adjustedMinDistance;
+    
+    for (const candidate of rankedCandidates) {
+      if (selectedTPs.length >= maxTriggerPoints) break;
+      
+      const isTooClose = selectedTPs.some(existingTP => {
+        const distanceBetweenCenters = calculateDistance(candidate.location, existingTP.location);
+        return distanceBetweenCenters < minDistanceBetweenCenters;
+      });
+      
+      if (isTooClose) {
+        rejectedCount++;
+        continue;
+      }
+      
       const triggerPoint = this.convertToTriggerPoint(candidate, selectedTPs.length, boundary, context);
       selectedTPs.push(triggerPoint);
-      
-      // console.log(`✅ TP #${selectedTPs.length} selected: ${triggerPoint.location.lat.toFixed(6)}, ${triggerPoint.location.lng.toFixed(6)} - Quality: ${triggerPoint.quality.toFixed(3)}`);
     }
     
     console.log(`📊 Final selection: ${selectedTPs.length} TPs selected, ${rejectedCount} rejected for proximity`);
@@ -419,12 +469,12 @@ export class TriggerPointValidator {
     let obstructions;
     try {
       obstructions = await this.getAllObstructionsInRegion(candidates, boundary, context);
-      console.log(`🌳 Found ${obstructions.buildings.length} buildings, ${obstructions.vegetation.length} vegetation, ${obstructions.barriers.length} barriers in region (1 API call instead of ${candidates.length})`);
+      console.log(`🌳 Found ${obstructions.buildings.length} buildings, ${obstructions.vegetation.length} vegetation, ${obstructions.barriers.length} barriers, ${obstructions.peaks.length} peaks/mountains in region (1 API call instead of ${candidates.length})`);
     } catch (error) {
       console.warn(`⚠️ Failed to fetch obstructions, using buildings-only fallback: ${(error as Error).message}`);
       // Fallback: buscar apenas buildings (método original)
       const buildings = await this.getAllBuildingsInRegionFallback(candidates, boundary, context);
-      obstructions = { buildings, vegetation: [], barriers: [] };
+      obstructions = { buildings, vegetation: [], barriers: [], peaks: [] };
       console.log(`🏢 Fallback: Found ${buildings.length} buildings only`);
     }
 
@@ -481,20 +531,24 @@ export class TriggerPointValidator {
     buildings: any[];
     vegetation: any[];
     barriers: any[];
+    peaks: any[];
   }> {
     
-    // 🚀 NOVA LÓGICA: Usar dados consolidados se disponíveis
-    if (boundary.buildings || boundary.vegetation || boundary.barriers) {
-      console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated obstructions data from boundary`);
-      console.log(`🏢 Buildings: ${boundary.buildings?.length || 0}, Vegetation: ${boundary.vegetation?.length || 0}, Barriers: ${boundary.barriers?.length || 0}`);
+    // 🚀 NOVA LÓGICA: Usar dados consolidados se disponíveis (SSLT: reutilizar dados já coletados)
+    if (boundary.buildings || boundary.vegetation || boundary.barriers || boundary.peaks) {
+      console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated obstructions data from boundary (SSLT: no redundant searches)`);
+      console.log(`🏢 Buildings: ${boundary.buildings?.length || 0}, Vegetation: ${boundary.vegetation?.length || 0}, Barriers: ${boundary.barriers?.length || 0}, Peaks: ${boundary.peaks?.length || 0}`);
       
+      // ✅ SSLT: Reutilizar peaks já coletados na query consolidada do boundary-detector
+      // Não fazer busca separada - violaria DRY e SSLT
       return {
         buildings: boundary.buildings || [],
         vegetation: boundary.vegetation || [],
-        barriers: boundary.barriers || []
+        barriers: boundary.barriers || [],
+        peaks: boundary.peaks || [] // ✅ SSLT: dados já coletados
       };
     }
-    if (candidates.length === 0) return { buildings: [], vegetation: [], barriers: [] };
+    if (candidates.length === 0) return { buildings: [], vegetation: [], barriers: [], peaks: [] };
 
     // 🎯 USAR O RAIO DE BUSCA DE TPs para determinar a área
     const searchRadius = this.calculateSearchRadiusForRegion(boundary, context);
@@ -505,7 +559,7 @@ export class TriggerPointValidator {
     const cached = TriggerPointValidator.obstructionsCache.get(cacheKey);
     
     if (cached && (Date.now() - cached.timestamp) < TriggerPointValidator.CACHE_DURATION) {
-      console.log(`🌳 Using cached obstructions data (${cached.data.buildings.length} buildings, ${cached.data.vegetation.length} vegetation, ${cached.data.barriers.length} barriers)`);
+      console.log(`🌳 Using cached obstructions data (${cached.data.buildings.length} buildings, ${cached.data.vegetation.length} vegetation, ${cached.data.barriers.length} barriers, ${cached.data.peaks?.length || 0} peaks)`);
       return cached.data;
     }
 
@@ -523,11 +577,13 @@ export class TriggerPointValidator {
     console.log(`📦 Obstructions search area: ${searchRadius}m radius around POI`);
     console.log(`📦 Bounding box: ${minLat.toFixed(6)}, ${minLng.toFixed(6)} → ${maxLat.toFixed(6)}, ${maxLng.toFixed(6)}`);
 
-    // Query simplificada para evitar erro 400
+    // Query expandida: buildings + picos/montanhas
     const obstructionsQuery = `
 [out:json][timeout:60];
 (
   way["building"](around:${searchRadius},${boundaryCenter.lat},${boundaryCenter.lng});
+  node["natural"~"^(peak|volcano)$"](around:${searchRadius},${boundaryCenter.lat},${boundaryCenter.lng});
+  way["natural"~"^(peak|volcano|mountain)$"](around:${searchRadius},${boundaryCenter.lat},${boundaryCenter.lng});
 );
 out geom tags;
 `;
@@ -550,18 +606,24 @@ out geom tags;
 
       if (!response.ok) {
         console.warn(`OSM region obstructions query failed: ${response.status}`);
-        return { buildings: [], vegetation: [], barriers: [] };
+        return { buildings: [], vegetation: [], barriers: [], peaks: [] };
       }
 
       const osmData = await response.json();
       const elements = osmData.elements || [];
 
-      // Query simplificada retorna apenas buildings
-      const buildings: any[] = elements || [];
+      // Separar buildings e picos/montanhas
+      const buildings: any[] = elements.filter((el: any) => el.tags?.building);
+      const peaks: any[] = elements.filter((el: any) => 
+        el.tags?.natural === 'peak' || 
+        el.tags?.natural === 'volcano' || 
+        el.tags?.natural === 'mountain' ||
+        (el.type === 'node' && (el.tags?.natural === 'peak' || el.tags?.natural === 'volcano'))
+      );
       const vegetation: any[] = []; // Simplificado - sem vegetação por ora
       const barriers: any[] = []; // Simplificado - sem barreiras por ora
       
-      const result = { buildings, vegetation, barriers };
+      const result = { buildings, vegetation, barriers, peaks };
       
       // Armazenar no cache
       TriggerPointValidator.obstructionsCache.set(cacheKey, {
@@ -569,13 +631,13 @@ out geom tags;
         timestamp: Date.now()
       });
       
-      console.log(`🌳 Obstructions found: ${buildings.length} buildings, ${vegetation.length} vegetation, ${barriers.length} barriers (cached)`);
+      console.log(`🌳 Obstructions found: ${buildings.length} buildings, ${vegetation.length} vegetation, ${barriers.length} barriers, ${peaks.length} peaks/mountains (cached)`);
       
       return result;
 
     } catch (error) {
       console.error('Failed to fetch region obstructions:', error);
-      return { buildings: [], vegetation: [], barriers: [] };
+      return { buildings: [], vegetation: [], barriers: [], peaks: [] };
     }
   }
 
@@ -640,7 +702,7 @@ out geom tags;
     candidate: TriggerPointCandidate,
     boundary: BoundaryData,
     context: GeographicContext,
-    obstructions: { buildings: any[]; vegetation: any[]; barriers: any[] }
+    obstructions: { buildings: any[]; vegetation: any[]; barriers: any[]; peaks: any[] }
   ): Promise<boolean> {
     try {
       // Encontrar ponto mais próximo do boundary
@@ -649,12 +711,26 @@ out geom tags;
 
       // 🎯 VALIDAÇÃO RIGOROSA: Considerar altura do POI para auto-aprovação
       const poiHeight = boundary.height || 0;
+      const hasElevationData = boundary.elevation && boundary.elevation.center > 0;
       const isFrontStreet = this.isTPOnFrontStreet(candidate, boundary);
       const isUrbanCanyon = this.isPOIInUrbanCanyon(boundary, context);
+      // POI é desconhecido se: boundary é manual (ou manual_drawing) E OSM não identificou
+      const isManualBoundary = boundary.source === 'manual' || boundary.source === 'manual_drawing';
+      const isUnknownPOI = isManualBoundary && boundary.osmIdentified === false;
       
-      // ✅ CORREÇÃO 3: Remover auto-aprovação para POIs com altura
-      // TODOS os TPs devem passar por validação de visibilidade, independente da altura
-      // Apenas TPs muito próximos de POIs FLAT podem ser auto-aprovados (validação mais simples)
+      // ✅ REGRA ESPECIAL: POIs sem dados de elevação + TPs muito próximos do boundary
+      // Se não há elevação, ruas ao redor do boundary devem ter aprovação automática
+      if (!hasElevationData && distance < 50) {
+        console.log(`✅ TP very close to boundary (${distance.toFixed(0)}m) - AUTO APPROVED (no elevation data, conservative range)`);
+        return true;
+      }
+      
+      // ✅ REGRA ESPECIAL: POIs desconhecidos (não identificados no OSM) + TPs próximos
+      // Ser conservador: aprovar apenas TPs muito próximos (< 50m) - regras FLAT
+      if (isUnknownPOI && distance < 50) {
+        console.log(`✅ TP very close to UNKNOWN POI boundary (${distance.toFixed(0)}m) - AUTO APPROVED (conservative range for unknown POI, FLAT rules)`);
+        return true;
+      }
       
       // REGRA CRÍTICA: TPs na rua da frente do POI
       // APENAS para POIs FLAT muito próximos (< 30m) - auto-aprovar
@@ -755,7 +831,35 @@ out geom tags;
         return false;
       }
 
-      // console.log(`✅ Clear line of sight confirmed (${relevantBuildings.length} buildings, ${obstructions.vegetation.length} vegetation, ${obstructions.barriers.length} barriers checked)`);
+      // 4. NOVO: Verificar obstrução por outros picos/montanhas
+      const blockedByPeaks = this.checkPeaksBlocking(
+        candidate.location,
+        boundary.center,
+        obstructions.peaks || [],
+        boundary.elevation?.center || 0
+      );
+      
+      if (blockedByPeaks) {
+        console.log(`🚫 BLOCKED: Other peaks/mountains block line of sight`);
+        return false;
+      }
+
+      // 5. NOVO: Verificar obstrução por elevação do terreno
+      // ✅ AJUSTE: Para POIs HIGH (alta elevação), ser muito mais tolerante
+      const blockedByTerrain = await this.checkTerrainElevationBlocking(
+        candidate.location,
+        boundary.center,
+        boundary.elevation?.center || 0,
+        boundary.classification?.group, // Passar classificação para ajustar tolerância
+        boundary.elevation?.center || 0 // Passar elevação do POI
+      );
+      
+      if (blockedByTerrain) {
+        console.log(`🚫 BLOCKED: Terrain elevation blocks line of sight`);
+        return false;
+      }
+
+      // console.log(`✅ Clear line of sight confirmed (${relevantBuildings.length} buildings, ${obstructions.vegetation.length} vegetation, ${obstructions.barriers.length} barriers, ${obstructions.peaks?.length || 0} peaks checked)`);
       return true;
 
     } catch (error) {
@@ -1506,7 +1610,7 @@ out geom meta;
       
       if (elevationDiff > 150) {
         maxDistance = 15000; // 15km para POIs de alta elevação relativa (Cristo até Copacabana ~8km)
-        console.log(`🏔️ HIGH ELEVATION POI detected - elevation: ${poiElevation.toFixed(0)}m, diff: ${elevationDiff.toFixed(0)}m → extending max distance to ${maxDistance}m`);
+         //console.log(`🏔️ HIGH ELEVATION POI detected - elevation: ${poiElevation.toFixed(0)}m, diff: ${elevationDiff.toFixed(0)}m → extending max distance to ${maxDistance}m`);
       } else if (elevationDiff > 50) {
         maxDistance = 4000; // 4km para POIs moderadamente elevados
         //console.log(`⛰️ MODERATE elevation POI - elevation: ${poiElevation.toFixed(0)}m, diff: ${elevationDiff.toFixed(0)}m → extending max distance to ${maxDistance}m`);
@@ -1670,7 +1774,7 @@ out geom meta;
       );
       
       if (approachAngle < 45) {
-        console.log(`🏠 Frontal approach angle (${approachAngle.toFixed(0)}°) - likely front street`);
+        //console.log(`🏠 Frontal approach angle (${approachAngle.toFixed(0)}°) - likely front street`);
         return true;
       }
     }
@@ -2203,6 +2307,254 @@ out geom meta;
     };
     
     return defaultHeights[tags?.barrier] || 0;
+  }
+
+  /**
+   * NOVO: Verifica se outros picos/montanhas bloqueiam linha de visão
+   */
+  private checkPeaksBlocking(
+    tpLocation: { lat: number; lng: number },
+    poiLocation: { lat: number; lng: number },
+    peaks: any[],
+    poiElevation: number
+  ): boolean {
+    if (peaks.length === 0) return false;
+    
+    const distance = calculateDistance(tpLocation, poiLocation);
+    
+    // Filtrar picos ao longo da linha TP → POI
+    const relevantPeaks = peaks.filter((peak: any) => {
+      let peakLocation: { lat: number; lng: number } | null = null;
+      
+      // Para nodes OSM, coordenadas podem vir diretamente ou em geometry
+      if (peak.type === 'node') {
+        if (peak.lat && peak.lon) {
+          peakLocation = { lat: peak.lat, lng: peak.lon };
+        } else if (peak.geometry && peak.geometry.length > 0) {
+          // Geometry para nodes pode ser um array com um ponto
+          const point = peak.geometry[0];
+          if (point && point.lat && point.lon) {
+            peakLocation = { lat: point.lat, lng: point.lon };
+          }
+        }
+        
+        if (peakLocation) {
+          const distanceFromTP = calculateDistance(tpLocation, peakLocation);
+          const distanceFromPOI = calculateDistance(peakLocation, poiLocation);
+          
+          // Pico está entre TP e POI se está mais próximo do que a distância total
+          // E está dentro de um buffer de 50% da distância total
+          return distanceFromTP < distance * 0.9 && distanceFromPOI < distance * 0.9;
+        }
+      }
+      
+      // Para ways, verificar se intersecta a linha
+      if (peak.type === 'way' && peak.geometry && peak.geometry.length > 2) {
+        const peakCoords = peak.geometry.map((coord: any) => ({
+          lat: coord.lat,
+          lng: coord.lon
+        })).filter((coord: any) => coord.lat && coord.lng);
+        
+        if (peakCoords.length > 2) {
+          return this.lineIntersectsPolygon(tpLocation, poiLocation, peakCoords);
+        }
+      }
+      
+      return false;
+    });
+    
+    if (relevantPeaks.length === 0) return false;
+    
+    // Verificar se algum pico tem elevação maior que o POI
+    for (const peak of relevantPeaks) {
+      const peakElevation = this.extractPeakElevation(peak);
+      
+      // Se pico tem elevação maior que POI, bloqueia
+      if (peakElevation > poiElevation) {
+        console.log(`🏔️ Peak/mountain blocking line of sight: ${peak.tags?.name || 'unnamed'} (${peakElevation}m > POI ${poiElevation}m)`);
+        return true;
+      }
+      
+      // Se pico tem elevação similar ao POI (>90%), também pode bloquear
+      if (poiElevation > 0 && peakElevation >= poiElevation * 0.9) {
+        console.log(`🏔️ Peak/mountain may block line of sight: ${peak.tags?.name || 'unnamed'} (${peakElevation}m ≈ POI ${poiElevation}m)`);
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * NOVO: Extrai elevação de pico/montanha de tags OSM
+   */
+  private extractPeakElevation(peak: any): number {
+    if (!peak.tags) return 0;
+    
+    // Tentar tags de elevação
+    if (peak.tags.ele) {
+      const ele = parseFloat(peak.tags.ele);
+      if (!isNaN(ele) && ele > 0) return ele;
+    }
+    
+    if (peak.tags.elevation) {
+      const elevation = parseFloat(peak.tags.elevation);
+      if (!isNaN(elevation) && elevation > 0) return elevation;
+    }
+    
+    // Se não tem elevação, usar estimativa baseada em tipo
+    // Peaks geralmente são altos (mínimo 100m acima do terreno)
+    if (peak.tags.natural === 'peak' || peak.tags.natural === 'volcano') {
+      return 500; // Estimativa conservadora para peaks sem elevação
+    }
+    
+    if (peak.tags.natural === 'mountain') {
+      return 800; // Estimativa conservadora para montanhas
+    }
+    
+    return 0;
+  }
+
+  /**
+   * NOVO: Verifica se elevação do terreno bloqueia linha de visão
+   * ✅ AJUSTE: Considera classificação do POI para ajustar tolerância
+   */
+  private async checkTerrainElevationBlocking(
+    tpLocation: { lat: number; lng: number },
+    poiLocation: { lat: number; lng: number },
+    poiElevation: number,
+    poiGroup?: string, // HIGH, MEDIUM, CANYON, FLAT
+    poiElevationActual?: number // Elevação real do POI
+  ): Promise<boolean> {
+    try {
+      const distance = calculateDistance(tpLocation, poiLocation);
+      
+      // Para distâncias muito curtas, não verificar elevação
+      if (distance < 100) {
+        return false;
+      }
+      
+      // ✅ REGRA ESPECIAL: Para POIs HIGH (alta elevação), ser muito mais tolerante
+      // POIs de alta elevação são visíveis mesmo com pequenas variações no terreno
+      if (poiGroup === POIGroup.HIGH || poiGroup === 'high') {
+        // Para POIs HIGH, a lógica é diferente:
+        // - Se o terreno intermediário está ABAIXO do POI, NÃO bloqueia (POI é visível de cima)
+        // - Apenas bloqueia se o terreno está ACIMA do POI (outro pico/montanha bloqueando)
+        const numSamples = Math.max(3, Math.floor(distance / 500)); // Menos amostras para HIGH
+        const samplePoints = this.createLineOfSightSamplePoints(tpLocation, poiLocation, numSamples);
+        
+        const elevations = await this.getElevationsForPoints([
+          tpLocation,
+          ...samplePoints,
+          poiLocation
+        ]);
+        
+        if (elevations.length < 2) {
+          return false; // Fail-safe
+        }
+        
+        const tpElevation = elevations[0];
+        const poiElevationFinal = elevations[elevations.length - 1];
+        
+        // Para POIs HIGH: apenas bloquear se terreno está ACIMA do POI
+        // Se terreno está abaixo do POI, não bloqueia (POI é visível de cima)
+        for (let i = 1; i < elevations.length - 1; i++) {
+          const sampleElevation = elevations[i];
+          
+          // Se terreno intermediário está acima do POI, bloqueia
+          if (sampleElevation > poiElevationFinal + 20) { // Margem de 20m para erros de medição
+            console.log(`⛰️ HIGH POI: Terrain above POI blocks line of sight (${sampleElevation.toFixed(1)}m > POI ${poiElevationFinal.toFixed(1)}m)`);
+            return true;
+          }
+        }
+        
+        return false; // POI HIGH: terreno abaixo do POI não bloqueia
+      }
+      
+      // Para outros grupos, usar verificação normal mas com margem ajustada pela elevação
+      const numSamples = Math.max(3, Math.floor(distance / 200)); // 1 ponto a cada 200m
+      const samplePoints = this.createLineOfSightSamplePoints(tpLocation, poiLocation, numSamples);
+      
+      // Obter elevações dos pontos usando Open Elevation API (gratuita)
+      const elevations = await this.getElevationsForPoints([
+        tpLocation,
+        ...samplePoints,
+        poiLocation
+      ]);
+      
+      if (elevations.length < 2) {
+        console.warn(`⚠️ Could not get terrain elevations, skipping terrain check`);
+        return false; // Fail-safe: não bloquear se não conseguir verificar
+      }
+      
+      // Verificar se há elevação do terreno maior que a linha de visão
+      const tpElevation = elevations[0];
+      const poiElevationFinal = elevations[elevations.length - 1];
+      
+      // ✅ AJUSTE: Margem dinâmica baseada na elevação do POI
+      // POIs mais altos = margem maior (pequenas variações não bloqueiam)
+      let margin = 10; // Margem padrão para POIs baixos
+      if (poiElevationActual && poiElevationActual > 500) {
+        margin = 30; // POIs acima de 500m: margem de 30m
+      } else if (poiElevationActual && poiElevationActual > 200) {
+        margin = 20; // POIs acima de 200m: margem de 20m
+      }
+      
+      // Calcular linha de visão teórica (elevação linear entre TP e POI)
+      for (let i = 1; i < elevations.length - 1; i++) {
+        const sampleElevation = elevations[i];
+        const ratio = i / (elevations.length - 1);
+        const theoreticalElevation = tpElevation + (poiElevationFinal - tpElevation) * ratio;
+        
+        // Se terreno está mais alto que a linha de visão teórica + margem, bloqueia
+        if (sampleElevation > theoreticalElevation + margin) {
+          console.log(`⛰️ Terrain elevation blocks line of sight: sample point ${i} at ${sampleElevation.toFixed(1)}m > theoretical ${theoreticalElevation.toFixed(1)}m + ${margin}m margin`);
+          return true;
+        }
+      }
+      
+      return false;
+      
+    } catch (error) {
+      console.warn('Terrain elevation check failed:', error);
+      return false; // Fail-safe: não bloquear se não conseguir verificar
+    }
+  }
+
+  /**
+   * NOVO: Obtém elevações para múltiplos pontos usando Open Elevation API (gratuita)
+   */
+  private async getElevationsForPoints(
+    points: Array<{ lat: number; lng: number }>
+  ): Promise<number[]> {
+    try {
+      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'TuggiCMS/1.0 (terrain-elevation-check)'
+        },
+        body: JSON.stringify({
+          locations: points.map(p => ({ latitude: p.lat, longitude: p.lng }))
+        })
+      });
+
+      if (!response.ok) {
+        console.warn(`Open Elevation API failed: ${response.status}`);
+        return [];
+      }
+
+      const data = await response.json();
+      if (!data.results || data.results.length === 0) {
+        return [];
+      }
+
+      return data.results.map((r: any) => r.elevation || 0);
+      
+    } catch (error) {
+      console.warn('Failed to get elevations from Open Elevation API:', error);
+      return [];
+    }
   }
 
   /**

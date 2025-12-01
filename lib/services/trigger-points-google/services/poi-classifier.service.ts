@@ -50,15 +50,71 @@ export class POIClassifierService {
   ): Promise<POIClassification> {
     console.log(`🎯 [CLASSIFICATION] Starting POI classification for: ${poiData.name}`);
     
+    // ====================================================================
+    // ✅ PRIORIDADE 0: VERIFICAR CATEGORIA OSM (SIMPLICIDADE MÁXIMA)
+    // ====================================================================
+    // Se POI tem categoria OSM de pico/montanha, classificar como HIGH imediatamente
+    // Não precisa calcular densidade ou elevationDiff - já sabemos que é alto
+    // ====================================================================
+    
+    const isHighElevationPOIByCategory = this.checkHighElevationCategory(poiData, osmTags);
+    
+    if (isHighElevationPOIByCategory) {
+      //console.log(`🏔️ [HIGH GROUP] High elevation POI detected by OSM category (peak/mountain/volcano)`);
+      //console.log(`   → Category already indicates HIGH - skipping density calculation`);
+      //console.log(`   → Visible from long distances due to natural elevation`);
+      
+      // Usar elevação se disponível, senão usar valor padrão baseado em categoria
+      const effectiveElevation = poiElevation?.center || 800; // Default para peaks
+      const effectiveElevationDiff = poiElevation?.center ? 
+        (await this.calculateElevationDiff(poiData, poiElevation, context)) : 200; // Default 200m diff
+      
+      const config = GROUP_CONFIGS[POIGroup.HIGH];
+      const theoreticalRange = Math.sqrt(effectiveElevationDiff) * 200;
+      const calculatedRange = Math.max(theoreticalRange, config.searchRadius.min!);
+      const finalRadius = Math.min(calculatedRange, config.searchRadius.max!);
+      
+      //console.log(`   → Radius: ${finalRadius.toFixed(0)}m (category-based: peak/mountain)`);
+      
+      return {
+        group: POIGroup.HIGH,
+        strategy: config.strategy,
+        searchRadius: Math.round(finalRadius),
+        maxTriggerPoints: config.maxTriggerPoints,
+        minDistanceBetweenTPs: config.minDistanceBetweenTPs,
+        visibilityThreshold: config.visibilityThreshold,
+        streetPriority: config.streetPriority,
+        blockStreets: config.blockStreets,
+        metadata: {
+          height: poiHeight || 0,
+          elevation: effectiveElevation,
+          elevationDiff: effectiveElevationDiff,
+          area,
+          urbanDensity: context.urbanDensity.level,
+          reasoning: `HIGH: OSM category indicates peak/mountain/volcano (visible from long distances)`
+        }
+      };
+    }
+    
     // PASSO 1: Calcular métricas base
     let elevationDiff = 0;
+    let baseElevation: number | null = null;
+    
+    // ✅ PRIORIDADE 1: ELEVAÇÃO - Se temos dados de elevação, calcular elevationDiff
     if (poiElevation && poiElevation.center > 0) {
-      const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(
+      baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(
         { lat: poiData.location.lat, lng: poiData.location.lng },
         context,
         poiData
       );
       elevationDiff = poiElevation.center - baseElevation;
+      
+      console.log(`🏔️ [ELEVATION DATA AVAILABLE]:`);
+      console.log(`   POI elevation: ${poiElevation.center}m`);
+      console.log(`   Base elevation: ${baseElevation}m`);
+      console.log(`   Elevation diff: ${elevationDiff.toFixed(1)}m`);
+    } else {
+      console.warn(`⚠️ [NO ELEVATION DATA]: Cannot calculate elevation difference`);
     }
     
     const height = poiHeight || 0;
@@ -76,11 +132,15 @@ export class POIClassifierService {
     const isLowStructure = height < 10;       // Baixo ou sem altura
     
     // PASSO 3: Classificar elevação
+    // ✅ PRIORIDADE MÁXIMA: Elevação > 150m = HIGH (independente de densidade)
+    // ✅ TAMBÉM: Se POI tem elevação absoluta muito alta (>800m) E altura significativa (>0m),
+    //    considerar HIGH mesmo que elevationDiff não seja > 150m (pode ser erro no baseElevation)
     const isHighElevation = elevationDiff > 150; // Pico, montanha
-    const isLowElevation = elevationDiff <= 150;
+    const isVeryHighAbsoluteElevation = (poiElevation?.center || 0) > 800 && height > 0; // Pico absoluto alto
+    const isLowElevation = elevationDiff <= 150 && !isVeryHighAbsoluteElevation;
     const isVeryLowElevation = elevationDiff <= 50;
     
-    // PASSO 4: Classificar densidade
+    // PASSO 4: Classificar densidade (usado apenas para CANYON e MEDIUM, NÃO para HIGH)
     const isDenseArea = 
       context.urbanDensity.level === 'very_dense' || 
       context.urbanDensity.level === 'dense';
@@ -95,22 +155,32 @@ export class POIClassifierService {
     console.log(`   Area: ${isLargeArea ? 'LARGE' : 'NORMAL'} (${area.toFixed(0)}m²)`);
     
     // ====================================================================
-    // GRUPO 1: HIGH
+    // GRUPO 1: HIGH - PRIORIDADE MÁXIMA (ELEVAÇÃO > DENSIDADE)
     // ====================================================================
     // Critérios: ALTA elevação + QUALQUER altura
     // Exemplos: Pico do Jaraguá, Cristo Redentor, Pão de Açúcar
     // Lógica: Se está em local alto, é visível de longe independente da altura
+    // ✅ IMPORTANTE: Elevação tem PRIORIDADE sobre densidade (rural não impede HIGH)
+    // ✅ TAMBÉM: POIs com elevação absoluta muito alta (>800m) são HIGH mesmo se elevationDiff < 150m
     // ====================================================================
     
-    if (isHighElevation) {
+    if (isHighElevation || isVeryHighAbsoluteElevation) {
+      const reason = isHighElevation 
+        ? `elevation diff: ${elevationDiff.toFixed(1)}m` 
+        : `absolute elevation: ${poiElevation?.center || 0}m (very high peak)`;
+      
+      //console.log(`🏔️ [HIGH GROUP] High elevation POI detected (${reason})`);
+      //console.log(`   → Elevation has PRIORITY over density (${context.urbanDensity.level})`);
+      //console.log(`   → Visible from long distances due to elevation, regardless of urban density`);
+      
+      // Usar elevationDiff se disponível, senão usar elevação absoluta como proxy
+      const effectiveElevationDiff = isHighElevation ? elevationDiff : Math.max((poiElevation?.center || 0) - 500, 200);
       const config = GROUP_CONFIGS[POIGroup.HIGH];
-      const theoreticalRange = Math.sqrt(elevationDiff) * 200;
+      const theoreticalRange = Math.sqrt(effectiveElevationDiff) * 200;
       const calculatedRange = Math.max(theoreticalRange, config.searchRadius.min!);
       const finalRadius = Math.min(calculatedRange, config.searchRadius.max!);
       
-      console.log(`🏔️ [HIGH GROUP] High elevation POI`);
-      console.log(`   → Visible from long distances due to elevation`);
-      console.log(`   → Radius: ${finalRadius.toFixed(0)}m (elevation-based: √${elevationDiff.toFixed(0)} × 200)`);
+      console.log(`   → Radius: ${finalRadius.toFixed(0)}m (elevation-based: √${effectiveElevationDiff.toFixed(0)} × 200)`);
       
       return {
         group: POIGroup.HIGH,
@@ -124,10 +194,12 @@ export class POIClassifierService {
         metadata: {
           height,
           elevation: poiElevation?.center || 0,
-          elevationDiff,
+          elevationDiff: isHighElevation ? elevationDiff : effectiveElevationDiff,
           area,
           urbanDensity: context.urbanDensity.level,
-          reasoning: `HIGH: Elevation diff ${elevationDiff.toFixed(0)}m (visible from long distances)`
+          reasoning: isHighElevation 
+            ? `HIGH: Elevation diff ${elevationDiff.toFixed(0)}m (visible from long distances)`
+            : `HIGH: Absolute elevation ${poiElevation?.center || 0}m (very high peak, visible from long distances)`
         }
       };
     }
@@ -277,5 +349,89 @@ export class POIClassifierService {
         reasoning
       }
     };
+  }
+  
+  /**
+   * Verifica se POI tem categoria OSM que indica alta elevação (peak, mountain, volcano)
+   * SIMPLICIDADE: Se tem essa categoria, já sabemos que é HIGH
+   */
+  private checkHighElevationCategory(poiData: POIData, osmTags?: any): boolean {
+    // 1. Verificar no nome do POI (já detectado no boundary-detector)
+    const nameLower = poiData.name.toLowerCase();
+    const isPeakInName = nameLower.includes('pico') ||
+                        nameLower.includes('morro') ||
+                        nameLower.includes('cristo') ||
+                        nameLower.includes('mountain') ||
+                        nameLower.includes('montanha') ||
+                        nameLower.includes('peak') ||
+                        nameLower.includes('volcano') ||
+                        nameLower.includes('vulcão');
+    
+    if (isPeakInName) {
+      console.log(`🏔️ Peak/mountain detected in POI name: "${poiData.name}"`);
+      return true;
+    }
+    
+    // 2. Verificar tags OSM
+    if (!osmTags) {
+      return false;
+    }
+    
+    // Verificar tags comuns de peaks/mountains
+    const highElevationTags = [
+      'natural=peak',
+      'natural=mountain',
+      'natural=volcano',
+      'natural=mountain_range',
+      'type=peak',
+      'class=peak',
+      'place=mountain',
+      'tourism=peak',
+      'tourism=mountain'
+    ];
+    
+    // Verificar se alguma tag corresponde
+    for (const [key, value] of Object.entries(osmTags)) {
+      const tagString = `${key}=${value}`.toLowerCase();
+      
+      if (highElevationTags.some(tag => tagString.includes(tag.toLowerCase()))) {
+        console.log(`🏔️ High elevation category detected in OSM tags: ${key}=${value}`);
+        return true;
+      }
+      
+      // Verificar valores específicos
+      if (key === 'natural' && (value === 'peak' || value === 'mountain' || value === 'volcano')) {
+        console.log(`🏔️ High elevation category detected in OSM tags: natural=${value}`);
+        return true;
+      }
+      
+      if (key === 'type' && value === 'peak') {
+        console.log(`🏔️ High elevation category detected in OSM tags: type=${value}`);
+        return true;
+      }
+      
+      if (key === 'class' && value === 'peak') {
+        console.log(`🏔️ High elevation category detected in OSM tags: class=${value}`);
+        return true;
+      }
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Calcula elevationDiff (helper para evitar duplicação)
+   */
+  private async calculateElevationDiff(
+    poiData: POIData,
+    poiElevation: { center: number },
+    context: GeographicContext
+  ): Promise<number> {
+    const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(
+      { lat: poiData.location.lat, lng: poiData.location.lng },
+      context,
+      poiData
+    );
+    return poiElevation.center - baseElevation;
   }
 }

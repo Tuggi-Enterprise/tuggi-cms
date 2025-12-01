@@ -26,11 +26,12 @@ export class OptimalPointCalculator {
     console.log(`🎯 Calculating optimal points for: ${poiData.name}`);
     
     // 🎯 USAR CLASSIFICAÇÃO DO BOUNDARY (já calculada no boundary-detector)
-    const classification = boundary.classification;
+    let classification = boundary.classification;
     
     if (!classification) {
       console.warn(`⚠️ No classification found in boundary, using fallback`);
-      // Fallback: criar classificação padrão
+      // Fallback: criar classificação padrão APENAS se não existe classificação
+      // ✅ IMPORTANTE: Não recategorizar se já existe classificação (evitar redundância)
       const fallbackClassification = await this.poiClassifier.classifyPOI(
         poiData,
         boundary.height,
@@ -40,6 +41,17 @@ export class OptimalPointCalculator {
         boundary.osmTags
       );
       boundary.classification = fallbackClassification;
+      classification = fallbackClassification; // ✅ CORREÇÃO: Atualizar variável local também
+      console.log(`✅ Fallback classification created: ${fallbackClassification.group.toUpperCase()}`);
+    } else {
+      console.log(`✅ Using existing classification: ${classification.group.toUpperCase()} (from boundary-detector)`);
+      console.log(`   → Reasoning: ${classification.metadata.reasoning}`);
+      console.log(`   → Search radius: ${classification.searchRadius}m`);
+    }
+    
+    // ✅ GARANTIR: classification nunca será undefined aqui
+    if (!classification) {
+      throw new Error('Classification is still undefined after fallback creation');
     }
     
     const group = classification.group;
@@ -748,18 +760,37 @@ export class OptimalPointCalculator {
     const maxSearchRadius = classification.searchRadius || 300; // Limite máximo do raio de busca
     
     // Para picos/montanhas, usar estratégia circular com múltiplas distâncias
-    // MAS limitar pelo searchRadius da classificação
+    // ✅ CORRIGIDO: Se o raio é muito grande (>2000m), gerar distâncias escalonadas até o limite
     let distances: number[];
     if (elevation > 1000) {
-      // Picos muito altos: usar configuração circular, mas limitar pelo searchRadius
-      distances = [
-        cfg.distanceDistribution.circular.inner,
-        cfg.distanceDistribution.circular.near_medium,
-        cfg.distanceDistribution.circular.medium,
-        cfg.distanceDistribution.circular.medium_far,
-        cfg.distanceDistribution.circular.far,
-        cfg.distanceDistribution.circular.max
-      ].map(d => Math.min(d, maxSearchRadius)); // Limitar cada distância
+      // Picos muito altos: usar configuração circular, mas escalonar até maxSearchRadius se necessário
+      if (maxSearchRadius > 2000) {
+        // ✅ NOVO: Para raios grandes, gerar distâncias escalonadas até o limite
+        // Exemplo: se maxSearchRadius = 3800m, gerar: 500m, 1000m, 2000m, 3000m, 3800m
+        const step = Math.max(500, Math.round(maxSearchRadius / 6)); // Dividir em ~6 faixas
+        distances = [];
+        for (let d = step; d <= maxSearchRadius; d += step) {
+          distances.push(d);
+        }
+        // Adicionar também algumas distâncias próximas (para ruas muito próximas)
+        distances.unshift(Math.min(200, maxSearchRadius));
+        distances.unshift(Math.min(100, maxSearchRadius));
+        // Garantir que maxSearchRadius está incluído
+        if (!distances.includes(maxSearchRadius)) {
+          distances.push(maxSearchRadius);
+        }
+        console.log(`🏔️ Large radius (${maxSearchRadius}m): Using scaled distances up to max radius`);
+      } else {
+        // Raio normal: usar configuração circular padrão
+        distances = [
+          cfg.distanceDistribution.circular.inner,
+          cfg.distanceDistribution.circular.near_medium,
+          cfg.distanceDistribution.circular.medium,
+          cfg.distanceDistribution.circular.medium_far,
+          cfg.distanceDistribution.circular.far,
+          cfg.distanceDistribution.circular.max
+        ].map(d => Math.min(d, maxSearchRadius)); // Limitar cada distância
+      }
     } else {
       // Picos médios: distâncias intermediárias, mas limitar pelo searchRadius
       distances = [
@@ -771,7 +802,7 @@ export class OptimalPointCalculator {
     }
     
     // Remover distâncias duplicadas e garantir que não excedam o limite
-    const uniqueDistances = [...new Set(distances)].filter(d => d <= maxSearchRadius);
+    const uniqueDistances = [...new Set(distances)].filter(d => d <= maxSearchRadius).sort((a, b) => a - b);
     
     console.log(`📏 Elevation-based distances: [${uniqueDistances.map(d => d.toFixed(0)).join('m, ')}m] (elevation: ${elevation}m, max radius: ${maxSearchRadius}m)`);
     return uniqueDistances.length > 0 ? uniqueDistances : [maxSearchRadius];

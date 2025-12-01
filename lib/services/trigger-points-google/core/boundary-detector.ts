@@ -93,22 +93,10 @@ export class BoundaryDetector {
       console.log(`🔍 Detecting boundary for: ${poiData.name}`);
       console.log(`🔍 POI Data: osm_id=${poiData.osm_id || 'NOT PROVIDED'}, osm_type=${poiData.osm_type || 'NOT PROVIDED'}`);
       
-      // ✅ KISS: Fluxo simplificado - buscar todas as fontes, depois decidir
-      // 1. Buscar boundary do banco de dados (POIs podem ter boundary manual)
-      let dbBoundaryResult: ProcessingResult<BoundaryData> | null = null;
-      if (poiData.id) {
-        console.log(`💾 Step 1: Checking database for existing boundary (POI ID: ${poiData.id})...`);
-        dbBoundaryResult = await this.fetchBoundaryFromDatabase(poiData.id);
-        if (dbBoundaryResult.success && dbBoundaryResult.data) {
-          console.log(`✅ Found boundary in database: ${dbBoundaryResult.data.source} (confidence: ${dbBoundaryResult.data.confidence})`);
-        } else {
-          console.log(`ℹ️ No boundary found in database`);
-        }
-      }
-      
-      // 2. Buscar boundary no OSM (ID direto → busca por nome)
+      // ✅ REGRA: OSM tem prioridade sobre banco de dados
+      // 1. Buscar boundary no OSM primeiro (sempre verificar OSM)
+      console.log(`🗺️ Step 1: Searching OSM for boundary (OSM has priority)...`);
       let osmBoundaryResult: ProcessingResult<BoundaryData> | null = null;
-      console.log(`🗺️ Step 2: Searching OSM for boundary...`);
       
       // Tentar OSM ID direto primeiro (mais preciso)
       if (poiData.osm_id && poiData.osm_type) {
@@ -135,54 +123,67 @@ export class BoundaryDetector {
         }
       }
       
-      // 3. Decidir qual boundary usar (OSM sempre vence se ambos existirem - mais atualizado)
+      // 2. Se OSM encontrou boundary, usar OSM (PRIORIDADE)
       if (osmBoundaryResult?.success && osmBoundaryResult.data) {
-        console.log(`🏆 Using OSM boundary (more recent/accurate)`);
+        console.log(`🗺️ Using OSM boundary (OSM has priority over database)`);
         return {
           success: true,
-          data: { ...osmBoundaryResult.data, source: 'osm' },
+          data: { ...osmBoundaryResult.data, source: 'osm', osmIdentified: true },
           processingTime: Date.now() - startTime,
           metadata: {
             step: 'boundary_detection',
             status: 'completed',
             timestamp: new Date().toISOString(),
-            strategy: dbBoundaryResult?.success ? 'osm_after_db_comparison' : 'osm_primary',
-            database_boundary_found: dbBoundaryResult?.success || false,
-            osm_boundary_found: true
-          }
-        };
-      } else if (dbBoundaryResult?.success && dbBoundaryResult.data) {
-        console.log(`💾 Using database boundary (not found in OSM)`);
-        return {
-          success: true,
-          data: dbBoundaryResult.data,
-          processingTime: Date.now() - startTime,
-          metadata: {
-            step: 'boundary_detection',
-            status: 'completed',
-            timestamp: new Date().toISOString(),
-            strategy: 'database_only',
-            database_boundary_found: true,
-            osm_boundary_found: false
+            strategy: 'osm_priority',
+            database_boundary_found: false,
+            osm_boundary_found: true,
+            osm_identified: true
           }
         };
       }
       
-      // Estratégia 2: REMOVIDO - Google Places fallback (boundaries ruins)
-      console.log('⚠️ OSM failed - skipping Google Places (unreliable boundaries)');
+      // 3. Se OSM não encontrou, buscar no banco de dados (fallback)
+      console.log(`💾 Step 2: OSM not found - checking database for existing boundary...`);
+      let dbBoundaryResult: ProcessingResult<BoundaryData> | null = null;
+      if (poiData.id) {
+        dbBoundaryResult = await this.fetchBoundaryFromDatabase(poiData.id);
+        if (dbBoundaryResult.success && dbBoundaryResult.data) {
+          console.log(`✅ Found boundary in database: ${dbBoundaryResult.data.source} (confidence: ${dbBoundaryResult.data.confidence})`);
+          console.log(`💾 Using database boundary (OSM not found)`);
+          return {
+            success: true,
+            data: dbBoundaryResult.data,
+            processingTime: Date.now() - startTime,
+            metadata: {
+              step: 'boundary_detection',
+              status: 'completed',
+              timestamp: new Date().toISOString(),
+              strategy: 'database_fallback',
+              database_boundary_found: true,
+              osm_boundary_found: false
+            }
+          };
+        } else {
+          console.log(`ℹ️ No boundary found in database`);
+        }
+      }
       
-      // Estratégia 2: Smart Fallback - POI pequeno baseado em lat/lng
+      // 4. Fallback final: POI não encontrado em nenhum lugar
+      console.log('⚠️ OSM and database failed - using estimated boundary');
       console.log('🎯 Using smart fallback for small POI (lat/lng based)');
       const estimatedResult = await this.createEstimatedBoundary(poiData);
       return {
         success: true,
-        data: { ...estimatedResult, source: 'estimated' },
+        data: { ...estimatedResult, source: 'estimated', osmIdentified: false },
         processingTime: Date.now() - startTime,
         metadata: {
           step: 'boundary_detection',
           status: 'completed',
           timestamp: new Date().toISOString(),
-          strategy: 'estimated_fallback'
+          strategy: 'estimated_fallback',
+          database_boundary_found: false,
+          osm_boundary_found: false,
+          osm_identified: false
         }
       };
       
@@ -410,10 +411,40 @@ out geom tags;
       const center = calculatePolygonCenter(coordinates);
       const area = calculatePolygonAreaInM2(coordinates); // ✅ DRY: usar função SSOT (retorna m²)
       
-      console.log(`✅ OSM ID boundary: ${coordinates.length} points, area: ${area.toFixed(0)}m²`);
+      // ✅ VALIDAÇÃO: Verificar se o boundary OSM corresponde à localização do POI
+      const distanceFromPOI = calculateDistance(center, poiData.location);
+      const maxAllowedDistance = 200; // 200m máximo de distância entre centro do boundary e localização do POI
+      
+      if (distanceFromPOI > maxAllowedDistance) {
+        console.warn(`⚠️ OSM boundary center (${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}) is too far from POI location (${poiData.location.lat.toFixed(6)}, ${poiData.location.lng.toFixed(6)})`);
+        console.warn(`   → Distance: ${distanceFromPOI.toFixed(0)}m (max allowed: ${maxAllowedDistance}m)`);
+        console.warn(`   → OSM ID may be incorrect or element doesn't match POI - rejecting OSM boundary`);
+        return { success: false, error: `OSM boundary too far from POI location (${distanceFromPOI.toFixed(0)}m > ${maxAllowedDistance}m)`, processingTime: 0 };
+      }
+      
+      // ✅ VALIDAÇÃO ADICIONAL: Verificar se o nome/tags do elemento OSM correspondem ao POI
+      const poiTags = element.tags || {};
+      const osmName = poiTags.name || poiTags['name:pt'] || '';
+      const poiNameLower = poiData.name.toLowerCase();
+      const osmNameLower = osmName.toLowerCase();
+      
+      // Verificar correspondência de nome (parcial ou exata)
+      const nameMatches = osmName && (
+        osmNameLower === poiNameLower ||
+        osmNameLower.includes(poiNameLower) ||
+        poiNameLower.includes(osmNameLower) ||
+        osmNameLower.replace(/\s+/g, '') === poiNameLower.replace(/\s+/g, '')
+      );
+      
+      // Se distância está OK mas nome não corresponde, avisar mas não rejeitar (pode ser variação de nome)
+      if (!nameMatches && osmName) {
+        console.warn(`⚠️ OSM element name "${osmName}" doesn't match POI name "${poiData.name}"`);
+        console.warn(`   → Distance is OK (${distanceFromPOI.toFixed(0)}m), but name mismatch suggests possible incorrect OSM ID`);
+      }
+      
+      console.log(`✅ OSM ID boundary: ${coordinates.length} points, area: ${area.toFixed(0)}m², distance from POI: ${distanceFromPOI.toFixed(0)}m${nameMatches ? ', name matches' : osmName ? ', name mismatch' : ', no name in OSM'}`);
       
       // Extrair tags e processar como no fluxo normal
-      const poiTags = element.tags || {};
       const poiHeight = this.extractOSMHeight({ tags: poiTags });
       
       // Buscar elevação
@@ -442,6 +473,8 @@ out geom tags;
   way["building"](poly:"${expandedPolygonInitial}");
   way["natural"~"^(tree|wood|forest)$"](poly:"${expandedPolygonInitial}");
   way["barrier"~"^(wall|fence|hedge)$"](poly:"${expandedPolygonInitial}");
+  node["natural"~"^(peak|volcano)$"](poly:"${expandedPolygonInitial}");
+  way["natural"~"^(peak|volcano|mountain)$"](poly:"${expandedPolygonInitial}");
 );
 out geom tags;
 `;
@@ -450,6 +483,7 @@ out geom tags;
       let consolidatedBuildings: any[] = [];
       let consolidatedVegetation: any[] = [];
       let consolidatedBarriers: any[] = [];
+      let consolidatedPeaks: any[] = [];
       
       // 🔄 RETRY COM BACKOFF: Query consolidada é CRÍTICA
       console.log(`🔄 [CRITICAL] Fetching consolidated data (POI tags, height, streets, buildings) - will retry if timeout`);
@@ -469,6 +503,8 @@ out geom tags;
             consolidatedStreets.push(el);
           } else if (el.tags?.building) {
             consolidatedBuildings.push(el);
+          } else if (el.tags?.natural === 'peak' || el.tags?.natural === 'volcano' || el.tags?.natural === 'mountain') {
+            consolidatedPeaks.push(el);
           } else if (el.tags?.natural) {
             consolidatedVegetation.push(el);
           } else if (el.tags?.barrier) {
@@ -476,7 +512,7 @@ out geom tags;
           }
         }
         
-        console.log(`✅ Initial query: ${consolidatedStreets.length} streets, ${consolidatedBuildings.length} buildings, ${consolidatedVegetation.length} vegetation, ${consolidatedBarriers.length} barriers`);
+        console.log(`✅ Initial query: ${consolidatedStreets.length} streets, ${consolidatedBuildings.length} buildings, ${consolidatedVegetation.length} vegetation, ${consolidatedBarriers.length} barriers, ${consolidatedPeaks.length} peaks/mountains`);
       } else {
         console.warn(`⚠️ Initial consolidated query failed: ${consolidatedResponseInitial.status}`);
       }
@@ -493,6 +529,7 @@ out geom tags;
       const processedBuildings = this.processOSMBuildings(consolidatedBuildings);
       const processedVegetation = this.processOSMVegetation(consolidatedVegetation);
       const processedBarriers = this.processOSMBarriers(consolidatedBarriers);
+      const processedPeaks = this.processOSMPeaks(consolidatedPeaks);
       
       // Criar boundary temporário com dados coletados para cálculo de densidade
       const tempBoundaryForDensity: BoundaryData = {
@@ -505,6 +542,7 @@ out geom tags;
         buildings: processedBuildings,
         vegetation: processedVegetation,
         barriers: processedBarriers,
+        peaks: processedPeaks, // ✅ SSLT: dados já coletados
         height: poiHeight || undefined
       };
       
@@ -577,12 +615,13 @@ out geom tags;
         
         try {
           // 🔄 RETRY COM BACKOFF: Query expandida é importante para POIs grandes
-          console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry if timeout`);
+          // ✅ QUALIDADE > VELOCIDADE: Aumentar tentativas para garantir dados
+          console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry up to 5 times if timeout`);
           const expandedStreetsResponse = await this.retryOSMQuery(
             expandedStreetsQuery,
             `Expanded streets query (${requiredRadius}m radius)`,
-            3, // 3 tentativas
-            3000 // 3s delay inicial
+            5, // ✅ 5 tentativas (igual ao padrão, crítico para POIs grandes)
+            3000 // 3s delay inicial (backoff exponencial: 3s, 6s, 12s, 24s, 48s)
           );
           
           if (expandedStreetsResponse.ok) {
@@ -624,7 +663,8 @@ out geom tags;
         streets: processedStreets, // ✅ Usar dados processados
         buildings: processedBuildings, // ✅ Usar dados processados
         vegetation: processedVegetation, // ✅ Usar dados processados
-        barriers: processedBarriers // ✅ Usar dados processados
+        barriers: processedBarriers, // ✅ Usar dados processados
+        peaks: processedPeaks // ✅ SSLT: dados já coletados na query consolidada
       };
       
       console.log(`✅ Boundary detected by OSM ID: ${area.toFixed(0)}m², ${consolidatedStreets.length} streets, ${consolidatedBuildings.length} buildings`);
@@ -1001,6 +1041,43 @@ out geom tags;
       tags: element.tags || {},
       barrierType: element.tags?.barrier || 'unknown'
     }));
+  }
+
+  /**
+   * Processa elementos de picos/montanhas do OSM
+   * ✅ SSLT: Reutilizar dados já coletados na query consolidada
+   */
+  private processOSMPeaks(peakElements: any[]): any[] {
+    return peakElements.map((element: any) => {
+      // Para nodes, coordenadas podem vir diretamente ou em geometry
+      let coordinates: Array<{ lat: number; lng: number }> = [];
+      
+      if (element.type === 'node') {
+        if (element.lat && element.lon) {
+          coordinates = [{ lat: element.lat, lng: element.lon }];
+        } else if (element.geometry && element.geometry.length > 0) {
+          const point = element.geometry[0];
+          if (point && point.lat && point.lon) {
+            coordinates = [{ lat: point.lat, lng: point.lon }];
+          }
+        }
+      } else if (element.geometry && element.geometry.length > 0) {
+        // Para ways, usar geometry
+        coordinates = element.geometry.map((point: any) => ({
+          lat: point.lat,
+          lng: point.lon
+        }));
+      }
+      
+      return {
+        id: `osm_peak_${element.id}`,
+        type: 'peak',
+        coordinates,
+        tags: element.tags || {},
+        naturalType: element.tags?.natural || 'unknown',
+        osmType: element.type // 'node' ou 'way'
+      };
+    });
   }
 
   /**
@@ -1629,6 +1706,7 @@ out geom tags;
                 let consolidatedBuildings: any[] = [];
                 let consolidatedVegetation: any[] = [];
                 let consolidatedBarriers: any[] = [];
+                let consolidatedPeaks: any[] = [];
                 let poiClassification: any = undefined;
                 
                 try {
@@ -1660,6 +1738,8 @@ out geom tags;
   way["building"~"^(stadium|arena|sports_centre|leisure)$"](poly:"${expandedPolygonInitial}");
   way["natural"~"^(tree|wood|forest)$"](poly:"${expandedPolygonInitial}");
   way["barrier"~"^(wall|fence|hedge)$"](poly:"${expandedPolygonInitial}");
+  node["natural"~"^(peak|volcano)$"](poly:"${expandedPolygonInitial}");
+  way["natural"~"^(peak|volcano|mountain)$"](poly:"${expandedPolygonInitial}");
 );
 out geom tags;
 `;
@@ -1710,8 +1790,12 @@ out geom tags;
                           const barrierElements = consolidatedData.elements.filter((el: any) => 
                             el.tags?.barrier && el.geometry
                           );
+                          const peakElements = consolidatedData.elements.filter((el: any) => 
+                            (el.tags?.natural === 'peak' || el.tags?.natural === 'volcano' || el.tags?.natural === 'mountain') &&
+                            (el.geometry || (el.type === 'node' && el.lat && el.lon))
+                          );
                           
-                          console.log(`✅ Initial query: ${streetElements.length} streets, ${buildingElements.length} buildings, ${vegetationElements.length} vegetation, ${barrierElements.length} barriers`);
+                          console.log(`✅ Initial query: ${streetElements.length} streets, ${buildingElements.length} buildings, ${vegetationElements.length} vegetation, ${barrierElements.length} barriers, ${peakElements.length} peaks/mountains`);
                           
                           // Extrair tags do POI
                           if (poiElementFromQuery && poiElementFromQuery.tags) {
@@ -1765,6 +1849,7 @@ out tags;
                           consolidatedBuildings = this.processOSMBuildings(buildingElements);
                           consolidatedVegetation = this.processOSMVegetation(vegetationElements);
                           consolidatedBarriers = this.processOSMBarriers(barrierElements);
+                          consolidatedPeaks = this.processOSMPeaks(peakElements);
                         } else {
                           // Se não encontrou elementos, ainda é sucesso (pode ser POI sem dados)
                           console.log(`⚠️ Consolidated query succeeded but no elements found (POI may have no surrounding data)`);
@@ -1803,6 +1888,7 @@ out tags;
                       const processedBuildings = this.processOSMBuildings(consolidatedBuildings);
                       const processedVegetation = this.processOSMVegetation(consolidatedVegetation);
                       const processedBarriers = this.processOSMBarriers(consolidatedBarriers);
+                      const processedPeaks = this.processOSMPeaks(consolidatedPeaks);
                       
                       // Criar boundary temporário com dados coletados para cálculo de densidade
                       const tempBoundaryForDensity: BoundaryData = {
@@ -1815,6 +1901,7 @@ out tags;
                         buildings: processedBuildings,
                         vegetation: processedVegetation,
                         barriers: processedBarriers,
+                        peaks: processedPeaks, // ✅ SSLT: dados já coletados
                         height: poiHeight || undefined
                       };
                       
@@ -1888,12 +1975,13 @@ out geom tags;
                         
                         try {
                           // 🔄 RETRY COM BACKOFF: Query expandida é importante para POIs grandes
-                          console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry if timeout`);
+                          // ✅ QUALIDADE > VELOCIDADE: Aumentar tentativas para garantir dados
+                          console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry up to 5 times if timeout`);
                           const expandedStreetsResponse = await this.retryOSMQuery(
                             expandedStreetsQuery,
                             `Expanded streets query (${requiredRadius}m radius)`,
-                            3, // 3 tentativas
-                            3000 // 3s delay inicial
+                            5, // ✅ 5 tentativas (igual ao padrão, crítico para POIs grandes)
+                            3000 // 3s delay inicial (backoff exponencial: 3s, 6s, 12s, 24s, 48s)
                           );
                           
                           if (expandedStreetsResponse.ok) {
@@ -2047,6 +2135,7 @@ out tags;
                     buildings: consolidatedBuildings.length > 0 ? consolidatedBuildings : undefined, // NOVO: buildings consolidados
                     vegetation: consolidatedVegetation.length > 0 ? consolidatedVegetation : undefined, // NOVO: vegetação consolidada
                     barriers: consolidatedBarriers.length > 0 ? consolidatedBarriers : undefined, // NOVO: barreiras consolidadas
+                    peaks: consolidatedPeaks && consolidatedPeaks.length > 0 ? this.processOSMPeaks(consolidatedPeaks) : undefined, // ✅ SSLT: picos já coletados
                     classification: poiClassification || undefined, // NOVO: classificação do POI
                     osmTags: undefined // NOVO: tags OSM para classificação (será preenchido se disponível)
                   },

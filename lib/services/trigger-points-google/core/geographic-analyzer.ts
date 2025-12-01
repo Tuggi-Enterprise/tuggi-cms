@@ -82,12 +82,35 @@ export class GeographicContextAnalyzer {
   /**
    * Calcula densidade urbana usando dados do OSM
    * Usa dados já obtidos do boundary detection (buildings, streets)
+   * IMPORTANTE: Filtra por distância fixa (500m) para evitar distorções de buscas expandidas
    */
   private calculateUrbanDensityFromOSM(boundary: BoundaryData, location: { lat: number; lng: number }): { level: 'very_dense' | 'dense' | 'medium' | 'low' | 'rural'; score: number } | null {
     try {
-      // Usar dados já obtidos do boundary detection
-      const buildingCount = boundary.buildings?.length || 0;
-      const streetCount = boundary.streets?.length || 0;
+      // ✅ FIX: Filtrar ruas e buildings por distância fixa (500m) antes de calcular densidade
+      // Isso evita distorções quando há buscas expandidas (ex: Pico do Jaraguá com 3800m de raio)
+      const DENSITY_ANALYSIS_RADIUS = 500; // metros - raio fixo para análise de densidade
+      
+      // Filtrar buildings dentro de 500m
+      const nearbyBuildings = (boundary.buildings || []).filter(building => {
+        if (!building.geometry || !building.geometry.coordinates) return false;
+        // Calcular distância do centro do building ao POI
+        const buildingCenter = this.getBuildingCenter(building);
+        const distance = calculateDistance(location, buildingCenter);
+        return distance <= DENSITY_ANALYSIS_RADIUS;
+      });
+      
+      // Filtrar streets dentro de 500m (verificar se pelo menos um ponto da rua está dentro do raio)
+      const nearbyStreets = (boundary.streets || []).filter(street => {
+        if (!street.coordinates || street.coordinates.length === 0) return false;
+        // Verificar se pelo menos um ponto da rua está dentro de 500m
+        return street.coordinates.some(point => {
+          const distance = calculateDistance(location, point);
+          return distance <= DENSITY_ANALYSIS_RADIUS;
+        });
+      });
+      
+      const buildingCount = nearbyBuildings.length;
+      const streetCount = nearbyStreets.length;
       const surroundingBuildingCount = boundary.surroundingHeight?.buildingCount || 0;
       
       // Calcular score baseado em prédios encontrados
@@ -95,13 +118,14 @@ export class GeographicContextAnalyzer {
       const analysisAreaKm2 = Math.PI * Math.pow(0.5, 2); // 0.785 km²
       
       // Contar total de prédios (boundary + surrounding)
+      // Nota: surroundingBuildingCount já pode estar filtrado, mas mantemos para compatibilidade
       const totalBuildings = buildingCount + surroundingBuildingCount;
       const buildingDensity = totalBuildings / analysisAreaKm2;
       
-      console.log(`🏗️ OSM fallback analysis:`);
-      console.log(`   Buildings in boundary: ${buildingCount}`);
+      console.log(`🏗️ OSM fallback analysis (filtered by ${DENSITY_ANALYSIS_RADIUS}m radius):`);
+      console.log(`   Total buildings in boundary: ${boundary.buildings?.length || 0} → Nearby (${DENSITY_ANALYSIS_RADIUS}m): ${buildingCount}`);
+      console.log(`   Total streets in boundary: ${boundary.streets?.length || 0} → Nearby (${DENSITY_ANALYSIS_RADIUS}m): ${streetCount}`);
       console.log(`   Surrounding buildings: ${surroundingBuildingCount}`);
-      console.log(`   Streets found: ${streetCount}`);
       console.log(`   Total buildings: ${totalBuildings}`);
       console.log(`   Building density: ${buildingDensity.toFixed(1)}/km²`);
       
@@ -335,5 +359,64 @@ out geom;
       },
       region: 'auto_detected'
     };
+  }
+  
+  /**
+   * Calcula o centro (centroid) de um building para análise de distância
+   * Similar a calculateBuildingCentroid em street-analyzer.ts
+   */
+  private getBuildingCenter(building: any): { lat: number; lng: number } {
+    if (!building.geometry || !building.geometry.coordinates) {
+      // Fallback: usar lat/lng direto se disponível
+      return { lat: building.lat || 0, lng: building.lon || building.lng || 0 };
+    }
+    
+    const coords = building.geometry.coordinates;
+    
+    // Se é array de arrays (polygon)
+    if (Array.isArray(coords[0]) && Array.isArray(coords[0][0])) {
+      // Pegar primeiro ring do polygon
+      const ring = coords[0];
+      let sumLat = 0;
+      let sumLng = 0;
+      let count = 0;
+      
+      for (const coord of ring) {
+        // OSM usa [lng, lat]
+        const lng = coord[0];
+        const lat = coord[1];
+        sumLat += lat;
+        sumLng += lng;
+        count++;
+      }
+      
+      if (count > 0) {
+        return {
+          lat: sumLat / count,
+          lng: sumLng / count
+        };
+      }
+    }
+    
+    // Se é array simples de coordenadas
+    if (Array.isArray(coords[0]) && !Array.isArray(coords[0][0])) {
+      let sumLat = 0;
+      let sumLng = 0;
+      
+      for (const coord of coords) {
+        const lng = coord[0];
+        const lat = coord[1];
+        sumLat += lat;
+        sumLng += lng;
+      }
+      
+      return {
+        lat: sumLat / coords.length,
+        lng: sumLng / coords.length
+      };
+    }
+    
+    // Fallback
+    return { lat: building.lat || 0, lng: building.lon || building.lng || 0 };
   }
 }

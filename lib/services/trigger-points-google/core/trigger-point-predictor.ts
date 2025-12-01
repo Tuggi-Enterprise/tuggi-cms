@@ -8,7 +8,7 @@ import { TriggerPointValidator } from '../analyzers/validator';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredictionResult, BoundaryData, GeographicContext, TriggerPointCandidate, StreetData } from '../types/interfaces';
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary } from '../utils/calculations';
-import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
 
 export class CoreTriggerPointPredictor {
   private geographicAnalyzer: GeographicContextAnalyzer;
@@ -65,6 +65,35 @@ export class CoreTriggerPointPredictor {
       }
       const boundary = boundaryResult.data;
       
+      // ✅ REGRA: Se boundary é manual (ou manual_drawing), ignorar e não processar
+      // POIs manuais não devem ter TPs recalculados automaticamente
+      if (boundary.source === 'manual' || boundary.source === 'manual_drawing') {
+        console.log(`⚠️ POI has manual boundary (source: ${boundary.source}) - skipping trigger points generation`);
+        console.log(`   → Manual POIs should not have TPs recalculated automatically`);
+        console.log(`   → Returning empty result`);
+        
+        const processingTime = Date.now() - startTime;
+        return {
+          triggerPoints: [],
+          boundary,
+          context: await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary),
+          processingTime,
+          metadata: {
+            boundarySource: boundary.source,
+            boundaryConfidence: boundary.confidence,
+            streetCount: 0,
+            optimalPointsFound: 0,
+            validatedPoints: 0,
+            finalPoints: 0,
+            fallbackUsed: false,
+            searchRadius: 0,
+            elevationAnalysis: null,
+            skipped: true,
+            skipReason: 'manual_boundary'
+          }
+        };
+      }
+      
       // 2. Criar contexto geográfico a partir do boundary (já tem densidade calculada corretamente)
       // ✅ NOTA: Densidade urbana e classificação já foram calculadas dentro de detectBoundary
       //    usando dados OSM reais. Aqui apenas criamos o contexto completo para etapas posteriores.
@@ -101,12 +130,28 @@ export class CoreTriggerPointPredictor {
 
       // 3. Análise de ruas acessíveis (apenas para POIs com boundary real)
       // ✅ Context já tem densidade calculada corretamente a partir dos dados OSM
+      console.log('🛣️ ========================================');
       console.log('🛣️ Step 3: Finding accessible streets...');
+      console.log(`🛣️ [INPUT] boundary.streets: ${boundary.streets?.length || 0} consolidated streets`);
+      console.log(`🛣️ [INPUT] boundary.source: ${boundary.source}`);
+      console.log(`🛣️ [INPUT] boundary.coordinates.length: ${boundary.coordinates?.length || 0}`);
+      console.log('🛣️ ========================================');
+      
       const streetAnalysisResult = await this.streetAnalyzer.findAccessibleStreetsWithMetadata(poiData, boundary, context);
       const accessibleStreets = streetAnalysisResult.streets;
       
+      console.log('🛣️ ========================================');
+      console.log(`📊 [STEP 3 RESULT] accessibleStreets.length: ${accessibleStreets.length}`);
+      console.log(`   → boundary.streets: ${boundary.streets?.length || 0} consolidated streets`);
+      console.log(`   → searchRadius: ${streetAnalysisResult.searchRadius}m`);
+      console.log('🛣️ ========================================');
+      
       if (accessibleStreets.length === 0) {
-        console.warn('⚠️ No accessible streets found, using fallback strategy');
+        console.error('❌ ========================================');
+        console.error('❌ [CRITICAL] No accessible streets found, using fallback strategy');
+        console.error(`   → boundary.streets: ${boundary.streets?.length || 0} consolidated streets`);
+        console.error(`   → searchRadius: ${streetAnalysisResult.searchRadius}m`);
+        console.error('❌ ========================================');
         const fallbackPoints = await this.generateFallbackTriggerPoints(poiData, boundary, context, streetAnalysisResult.streets);
         const processingTime = Date.now() - startTime;
         
@@ -141,15 +186,32 @@ export class CoreTriggerPointPredictor {
           boundary
         );
         
-        // Filtrar apenas front/side streets (sem buildings bloqueando)
-        // Ruas classificadas como 'back' têm buildings bloqueando e não devem gerar candidatos
-        const validStreets = blockAnalysis
-          .filter(result => result.classification === 'front' || result.classification === 'side')
-          .map(result => result.street);
+        // ✅ LÓGICA CORRIGIDA: Para POIs HIGH, filtrar apenas por buildings bloqueando (não por classificação)
+        // Para outros POIs, usar classificação front/side
+        const isHighElevationPOI = boundary.classification?.group === POIGroup.HIGH;
+        
+        let validStreets: StreetData[];
+        if (isHighElevationPOI) {
+          // 🏔️ POI HIGH: Filtrar apenas ruas SEM buildings bloqueando (independente da distância)
+          // Para POIs altos, a visibilidade não depende de estar "na frente", apenas de não ter obstruções
+          validStreets = blockAnalysis
+            .filter(result => !result.hasBuildingsBlocking) // Apenas ruas sem buildings bloqueando
+            .map(result => result.street);
+          console.log(`🏔️ HIGH POI: Filtering by building obstructions only (distance ignored)`);
+        } else {
+          // 🏙️ POIs normais: Filtrar front/side streets (sem buildings bloqueando)
+          validStreets = blockAnalysis
+            .filter(result => result.classification === 'front' || result.classification === 'side')
+            .map(result => result.street);
+        }
         
         if (validStreets.length > 0) {
           const blockedCount = accessibleStreets.length - validStreets.length;
-          console.log(`✅ Block structure analysis: ${validStreets.length} front/side streets (${blockedCount} blocked by buildings - excluded)`);
+          if (isHighElevationPOI) {
+            console.log(`✅ Block structure analysis: ${validStreets.length} streets without building obstructions (${blockedCount} blocked by buildings - excluded)`);
+          } else {
+            console.log(`✅ Block structure analysis: ${validStreets.length} front/side streets (${blockedCount} blocked by buildings - excluded)`);
+          }
           streetsForOptimalPoints = validStreets;
         } else {
           console.log(`⚠️ Block structure analysis: All streets blocked by buildings, but continuing anyway (may have visibility issues)`);
@@ -900,11 +962,17 @@ export class CoreTriggerPointPredictor {
     
     // Mostrar todas as ruas encontradas ordenadas por distância
     streetDistances.sort((a, b) => a.distance - b.distance);
-    console.log(`📍 All streets found (sorted by distance):`);
-    streetDistances.forEach((street, index) => {
-      const marker = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '📍';
-      console.log(`  ${marker} ${street.name} (${street.type}) - ${street.distance.toFixed(0)}m - ${street.visibility}`);
-    });
+    // ✅ COMENTADO: Logs individuais de cada rua poluem muito o console
+    // console.log(`📍 All streets found (sorted by distance):`);
+    // streetDistances.forEach((street, index) => {
+    //   const marker = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '📍';
+    //   console.log(`  ${marker} ${street.name} (${street.type}) - ${street.distance.toFixed(0)}m - ${street.visibility}`);
+    // });
+    
+    // Log resumido apenas
+    if (streetDistances.length > 0) {
+      console.log(`📍 Found ${streetDistances.length} streets (nearest: ${streetDistances[0].distance.toFixed(0)}m, farthest: ${streetDistances[streetDistances.length - 1].distance.toFixed(0)}m)`);
+    }
     
     if (nearestStreet) {
       console.log(`✅ Selected nearest road: ${nearestStreet.name || nearestStreet.id} (${(nearestStreet.tags as any)?.highway}) at ${minDistance.toFixed(0)}m`);

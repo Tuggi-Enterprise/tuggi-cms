@@ -73,7 +73,8 @@ export interface BoundaryData {
   center: {lat: number, lng: number};
   area: number;
   confidence: number;
-  source: 'google_places' | 'osm' | 'estimated' | 'manual' | 'nominatim'; // ✅ Adicionado 'manual' e 'nominatim' para boundaries do banco
+  source: 'google_places' | 'osm' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim'; // ✅ Adicionado 'manual', 'manual_drawing' e 'nominatim' para boundaries do banco
+  osmIdentified?: boolean; // ✅ Flag: OSM identificou o POI? (para POIs manuais, indica se OSM encontrou dados)
   elevation?: {
     min: number;
     max: number;
@@ -99,9 +100,10 @@ export interface BoundaryData {
   streets?: StreetData[]; // ruas encontradas ao redor do boundary
   buildings?: any[]; // buildings para análise de obstruções
   vegetation?: any[]; // vegetação para análise de obstruções
+  barriers?: any[]; // barreiras para análise de obstruções
+  peaks?: any[]; // picos/montanhas para análise de obstruções (SSLT: reutilizar dados já coletados)
   // NOVO: Classificação do POI (HIGH, MEDIUM, CANYON, FLAT)
   classification?: any; // POIClassification from poi-classifier.service
-  barriers?: any[]; // barreiras para análise de obstruções
   osmTags?: any; // NOVO: tags OSM para classificação de POI
 }
 
@@ -247,7 +249,7 @@ export interface TriggerPointPredictionResult {
   context: GeographicContext;
   processingTime: number;
   metadata: {
-    boundarySource: 'google_places' | 'osm' | 'estimated' | 'manual' | 'nominatim'; // ✅ Adicionado 'manual' e 'nominatim' para boundaries do banco
+    boundarySource: 'google_places' | 'osm' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim'; // ✅ Adicionado 'manual', 'manual_drawing' e 'nominatim' para boundaries do banco
     boundaryConfidence: number;
     streetCount: number;
     optimalPointsFound: number;
@@ -256,6 +258,8 @@ export interface TriggerPointPredictionResult {
     finalPoints: number;
     fallbackUsed: boolean;
     searchRadius: number;
+    skipped?: boolean; // ✅ Flag: processamento foi pulado?
+    skipReason?: string; // ✅ Razão do skip (ex: 'manual_boundary')
     elevationAnalysis?: {
       poiElevation: number;
       baseElevation: number;
