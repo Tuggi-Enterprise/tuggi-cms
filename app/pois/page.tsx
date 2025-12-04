@@ -51,6 +51,7 @@ function POIListWithSearchParams() {
   const [stateFilter, setStateFilter] = useState('')
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [cmsUserRole, setCmsUserRole] = useState<string | null>(null)
   
   // View state
   const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
@@ -286,6 +287,20 @@ function POIListWithSearchParams() {
 
   // Load states when country changes
   useEffect(() => {
+    // Fetch current CMS role for UI role-based decisions
+    const fetchRole = async () => {
+      try {
+        const response = await fetch('/api/auth/check')
+        if (!response.ok) return
+        const data = await response.json()
+        setCmsUserRole(data?.user?.role || null)
+      } catch (err) {
+        console.warn('Failed to fetch cms user role:', err)
+      }
+    }
+    fetchRole()
+  }, [])
+
     if (countryFilter) {
       const timeoutId = setTimeout(() => {
         loadStatesForCountry(countryFilter)
@@ -600,7 +615,7 @@ function POIListWithSearchParams() {
                 Manage and organize Points of Interest
               </p>
             </div>
-            <div className="flex gap-3">
+              <div className="flex gap-3">
               <button
                 onClick={() => {
                   setSelectedPoi(null)
@@ -611,13 +626,15 @@ function POIListWithSearchParams() {
                 <Plus className="h-4 w-4 mr-2" />
                 Adicionar POI Manualmente
               </button>
-              <Link
-                href="/poi-importer"
-              className="px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Import POIs
-              </Link>
+              {cmsUserRole === 'admin' && (
+                <Link
+                  href="/poi-importer"
+                  className="px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Import POIs
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -889,7 +906,7 @@ function POIListWithSearchParams() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-                {selectedPois.length > 0 && (
+                {selectedPois.length > 0 && cmsUserRole === 'admin' && (
                   <button
                     onClick={handleBulkDelete}
                     className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
@@ -1019,7 +1036,8 @@ function POIListWithSearchParams() {
                           >
                             <Eye className="h-4 w-4" />
                           </button>
-                          <button
+                          {cmsUserRole === 'admin' && (
+                            <button
                             onClick={(e) => {
                               e.stopPropagation()
                                 handleDeletePoi(poi.id)
@@ -1028,6 +1046,7 @@ function POIListWithSearchParams() {
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
+                          )}
                         </div>
                       </div>
                     </div>

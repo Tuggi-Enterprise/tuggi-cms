@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,6 +10,22 @@ const supabase = createClient(
 
 export async function POST(request: NextRequest) {
   try {
+    // Ensure the requester is an admin
+    const supabaseAuth = createRouteHandlerClient({ cookies })
+    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
+    if (authError || !session) {
+      return NextResponse.json({ error: 'Unauthorized - Authentication required' }, { status: 401 })
+    }
+    const { data: cmsUser, error: cmsError } = await supabaseAuth
+      .schema('core')
+      .from('cms_users')
+      .select('role, is_active')
+      .eq('email', session.user.email as string)
+      .eq('is_active', true)
+      .single()
+    if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized - Admin only' }, { status: 403 })
+    }
     const { ids } = await request.json()
     
     if (!ids || ids.length === 0) {

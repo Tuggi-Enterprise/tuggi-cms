@@ -107,6 +107,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [createError, setCreateError] = useState<string | null>(null)
   const [createBoundary, setCreateBoundary] = useState<Array<{ lat: number; lng: number }> | null>(null)
   const [isEnrichingOSM, setIsEnrichingOSM] = useState(false)
+  const [cmsUserRole, setCmsUserRole] = useState<string | null>(null)
   
   // Boundary drawing state
   const [boundaryPolygon, setBoundaryPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
@@ -123,6 +124,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setEditedPoi(null)
     }
   }, [poi])
+
+  // Fetch CMS user role (for client-side UI decisions)
+  useEffect(() => {
+    const fetchRole = async () => {
+      try {
+        const res = await fetch('/api/auth/check')
+        if (!res.ok) return
+        const data = await res.json()
+        setCmsUserRole(data?.user?.role || null)
+      } catch (err) {
+        console.warn('Failed to fetch cms user role:', err)
+      }
+    }
+    fetchRole()
+  }, [])
 
   // Reverse geocoding when coordinates change in create mode (with debounce)
   useEffect(() => {
@@ -3592,28 +3608,32 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                 {/* Action Buttons */}
                 <div className="flex items-center space-x-3 pt-4 border-t border-gray-200 dark:border-gray-600">
-                  <button
-                    onClick={handleDelete}
-                    disabled={isSaving}
-                    className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete POI
-                  </button>
+                  {cmsUserRole === 'admin' && (
+                    <button
+                      onClick={handleDelete}
+                      disabled={isSaving}
+                      className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete POI
+                    </button>
+                  )}
                   <button
                     onClick={onClose}
                     className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
                   >
                     Cancel
                   </button>
-                  <button
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                  >
+                  { (isCreateMode || cmsUserRole === 'admin') && (
+                    <button
+                      onClick={handleSave}
+                      disabled={isSaving}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
+                    >
                     <Save className="h-4 w-4 mr-2" />
                     {isSaving ? 'Saving...' : 'Save Changes'}
-                  </button>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -5314,7 +5334,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   >
                     Cancel
                   </button>
-                  {!getPoi()?.approved && (
+                  {!getPoi()?.approved && cmsUserRole === 'admin' && (
                     <button
                       onClick={handleApprove}
                       disabled={isSaving || !currentDescription.trim() || translatedDescriptions.length === 0}
@@ -5324,7 +5344,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       {isSaving ? 'Approving...' : 'Approve POI'}
                     </button>
                   )}
-                  {getPoi()?.approved && (
+                  {getPoi()?.approved && cmsUserRole === 'admin' && (
                     <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-md">
                       <CheckCircle className="h-4 w-4 mr-2" />
                       POI Approved

@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabase } from '../../../../lib/core/supabase-client'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 import { memoryCache } from '@/lib/cache/memory-cache'
 
 const supabase = getSupabase('service')
 
 export async function DELETE(request: NextRequest) {
   try {
+    // Only admin users can perform bulk delete
+    const supabaseAuth = createRouteHandlerClient({ cookies })
+    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
+    if (authError || !session) {
+      return NextResponse.json({ success: false, error: 'Unauthorized - Authentication required' }, { status: 401 })
+    }
+    const { data: cmsUser, error: cmsError } = await supabaseAuth
+      .schema('core')
+      .from('cms_users')
+      .select('role, is_active')
+      .eq('email', session.user.email as string)
+      .eq('is_active', true)
+      .single()
+    if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Unauthorized - Admin only' }, { status: 403 })
+    }
     const { poiIds } = await request.json()
 
     // Validate input

@@ -1,12 +1,30 @@
 // API route para análise de contexto geográfico
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
 import { GeographicContextAnalyzer } from '@/lib/services/trigger-points-google/core/geographic-analyzer';
 import { POIData } from '@/lib/services/trigger-points-google/types/interfaces';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  // Require admin for analysis endpoints
+  const supabaseAuth = createRouteHandlerClient({ cookies })
+  const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
+  if (authError || !session) {
+    return NextResponse.json({ error: 'Unauthorized - Authentication required' }, { status: 401 })
+  }
+  const { data: cmsUser, error: cmsError } = await supabaseAuth
+    .schema('core')
+    .from('cms_users')
+    .select('role, is_active')
+    .eq('email', session.user.email as string)
+    .eq('is_active', true)
+    .single()
+  if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
+    return NextResponse.json({ error: 'Unauthorized - Admin only' }, { status: 403 })
+  }
   try {
     const body = await request.json();
     const { location, poiName, poiType } = body;

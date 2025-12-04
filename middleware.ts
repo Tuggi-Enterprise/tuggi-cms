@@ -1,6 +1,7 @@
 import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { isAdmin, isClient, ALLOWED_CLIENT_PATHS } from './lib/roles'
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
@@ -47,10 +48,23 @@ export async function middleware(req: NextRequest) {
         return NextResponse.redirect(new URL('/unauthorized', req.url))
       }
 
-      // Check if user has admin or editor role
-      if (!['admin', 'editor'].includes(cmsUser.role)) {
+      // Admin users can access everything
+      if (isAdmin(cmsUser.role)) {
+        return res
+      }
+
+      // Client users can access a subset of pages (view POIs and create manual POI)
+      if (isClient(cmsUser.role)) {
+        const path = req.nextUrl.pathname
+        // Allow if path starts with '/pois' or is in allowed client API list
+        if (path.startsWith('/pois') || ALLOWED_CLIENT_PATHS.includes(path)) {
+          return res
+        }
         return NextResponse.redirect(new URL('/unauthorized', req.url))
       }
+
+      // Other/unknown roles => unauthorized
+      return NextResponse.redirect(new URL('/unauthorized', req.url))
     } catch (error) {
       console.error('Middleware authorization error:', error)
       return NextResponse.redirect(new URL('/unauthorized', req.url))

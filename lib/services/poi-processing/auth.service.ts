@@ -165,18 +165,12 @@ export class AuthService {
         'description:generate', 'description:improve', 'description:validate',
         'trigger-points:generate', 'audio:generate', 'poi:publish'
       ],
-      'editor': [
-        'poi:read', 'poi:update',
-        'description:generate', 'description:improve', 'description:validate',
-        'trigger-points:generate', 'audio:generate'
-      ],
-      'user': [
-        'poi:read',
-        'description:validate'
+      'client': [
+        'poi:create', 'poi:read'
       ]
     }
     
-    return rolePermissions[role || 'user'] || rolePermissions['user']
+    return rolePermissions[role || 'client'] || rolePermissions['client']
   }
 
   /**

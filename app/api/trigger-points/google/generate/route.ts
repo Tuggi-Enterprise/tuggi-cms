@@ -1,6 +1,8 @@
 // API route para geração de trigger points usando Google APIs
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 import { CoreTriggerPointPredictor } from '@/lib/services/trigger-points-google/core/trigger-point-predictor';
 import { POIData, TriggerPointGenerationOptions } from '@/lib/services/trigger-points-google/types/interfaces';
 
@@ -8,6 +10,22 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    // Restrict to admin users
+    const supabaseAuth = createRouteHandlerClient({ cookies })
+    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
+    if (authError || !session) {
+      return NextResponse.json({ success: false, error: 'Unauthorized - Authentication required' }, { status: 401 })
+    }
+    const { data: cmsUser, error: cmsError } = await supabaseAuth
+      .schema('core')
+      .from('cms_users')
+      .select('role, is_active')
+      .eq('email', session.user.email as string)
+      .eq('is_active', true)
+      .single()
+    if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Unauthorized - Admin only' }, { status: 403 })
+    }
     const body = await request.json();
     const { poiData, options = {} } = body;
     

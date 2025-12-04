@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 
 interface POIAreaAnalysis {
   areaType: 'lake' | 'park' | 'building' | 'monument' | 'shopping_center' | 'museum' | 'natural_area' | 'urban_area'
@@ -104,6 +106,23 @@ export async function POST(request: NextRequest) {
   // TEMPORARILY DISABLED - AI trigger points functionality
   console.log('🚫 Location analysis API temporarily disabled')
   
+  // Require admin for analysis endpoints
+  const supabaseAuth = createRouteHandlerClient({ cookies })
+  const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
+  if (authError || !session) {
+    return NextResponse.json({ error: 'Unauthorized - Authentication required' }, { status: 401 })
+  }
+  const { data: cmsUser, error: cmsError } = await supabaseAuth
+    .schema('core')
+    .from('cms_users')
+    .select('role, is_active')
+    .eq('email', session.user.email as string)
+    .eq('is_active', true)
+    .single()
+  if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
+    return NextResponse.json({ error: 'Unauthorized - Admin only' }, { status: 403 })
+  }
+
   return NextResponse.json(
     { 
       error: 'Location analysis API is temporarily disabled',

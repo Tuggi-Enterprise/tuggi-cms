@@ -111,7 +111,7 @@ export default function LoginPage() {
         return
       }
 
-      // Step 3: Check role authorization (admin or editor only)
+      // Step 3: Check role authorization (admin or client for now)
       console.log('🔑 LOGIN: Step 3 - Checking role authorization...')
       if (!['admin', 'editor'].includes(cmsUser.role)) {
         console.error('❌ LOGIN: Insufficient privileges:', cmsUser.role)

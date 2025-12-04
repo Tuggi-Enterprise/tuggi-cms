@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 import { getSupabase } from '../../../../lib/core/supabase-client'
 
 // Use service role for database operations (has full access)
@@ -63,6 +65,22 @@ interface BatchGenerationResult {
 
 export async function POST(request: NextRequest) {
   try {
+    // Only admin users can run batch TP generation
+    const supabaseAuth = createRouteHandlerClient({ cookies })
+    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
+    if (authError || !session) {
+      return NextResponse.json({ success: false, error: 'Unauthorized - Authentication required' }, { status: 401 })
+    }
+    const { data: cmsUser, error: cmsError } = await supabaseAuth
+      .schema('core')
+      .from('cms_users')
+      .select('role, is_active')
+      .eq('email', session.user.email as string)
+      .eq('is_active', true)
+      .single()
+    if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
+      return NextResponse.json({ success: false, error: 'Unauthorized - Admin only' }, { status: 403 })
+    }
     const body: BatchGenerationRequest = await request.json()
     const { country, city, attraction_ids, batch_size = 50, pre_generated_tps, boundary_source } = body
 
