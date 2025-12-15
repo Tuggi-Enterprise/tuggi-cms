@@ -11,7 +11,7 @@ const corsHeaders = {
 // Environment variables
 const PROJECT_URL = Deno.env.get('PROJECT_URL') || Deno.env.get('SUPABASE_URL') || '';
 const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || '';
-const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || '';
+const GEMINI_API_KEY = Deno.env.get('GOOGLE_GEMINI_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
 // Use GOOGLE_TTS_API_KEY (same as Next.js) or fallback to GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY
 const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_TTS_API_KEY') || Deno.env.get('GOOGLE_CLOUD_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
 
@@ -34,33 +34,33 @@ interface GeneratedAudio {
 const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
   // Simplified voice mapping with more basic voices
   const voiceMap: Record<string, { male: string; female: string; languageCode: string }> = {
-    'en': { 
-      male: 'en-US-Neural2-J', 
+    'en': {
+      male: 'en-US-Neural2-J',
       female: 'en-US-Neural2-F',
       languageCode: 'en-US'
     },
-    'en-us': { 
-      male: 'en-US-Neural2-J', 
+    'en-us': {
+      male: 'en-US-Neural2-J',
       female: 'en-US-Neural2-F',
       languageCode: 'en-US'
     },
-    'es': { 
-      male: 'es-ES-Neural2-B', 
+    'es': {
+      male: 'es-ES-Neural2-B',
       female: 'es-ES-Neural2-A',
       languageCode: 'es-ES'
     },
-    'es-es': { 
-      male: 'es-ES-Neural2-B', 
+    'es-es': {
+      male: 'es-ES-Neural2-B',
       female: 'es-ES-Neural2-A',
       languageCode: 'es-ES'
     },
-    'pt': { 
-      male: 'pt-BR-Neural2-B', 
+    'pt': {
+      male: 'pt-BR-Neural2-B',
       female: 'pt-BR-Neural2-A',
       languageCode: 'pt-BR'
     },
-    'pt-br': { 
-      male: 'pt-BR-Neural2-B', 
+    'pt-br': {
+      male: 'pt-BR-Neural2-B',
       female: 'pt-BR-Neural2-A',
       languageCode: 'pt-BR'
     },
@@ -68,7 +68,7 @@ const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
 
   const normalizedLang = language.toLowerCase();
   const voices = voiceMap[normalizedLang];
-  
+
   if (!voices) {
     // Fallback to English Neural voices
     console.log(`[Voice Config] Language ${language} not found, using English fallback`);
@@ -82,7 +82,7 @@ const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
     name: voices[gender],
     languageCode: voices.languageCode
   };
-  
+
   console.log(`[Voice Config] Selected voice: ${result.name} for language: ${result.languageCode}`);
   return result;
 };
@@ -107,7 +107,7 @@ const getOriginalDescription = async (attractionId: string): Promise<string> => 
       .eq('attraction_id', attractionId)
       .eq('language', 'pt')
       .maybeSingle();
-    
+
     if (!ptError && ptData?.description) {
       data = ptData;
       error = null;
@@ -127,7 +127,7 @@ const translateWithGemini = async (text: string, targetLanguage: string): Promis
   if (!text || typeof text !== 'string' || text.trim().length === 0) {
     throw new Error('Invalid or empty text provided for translation');
   }
-  
+
   // Log input text details for debugging
   console.log(`[Translation] Input text details:`, {
     length: text.length,
@@ -135,7 +135,7 @@ const translateWithGemini = async (text: string, targetLanguage: string): Promis
     lastChars: text.substring(Math.max(0, text.length - 100)),
     hasSpecialChars: /[^\w\s.,!?;:()\-'"]/g.test(text)
   });
-  
+
   const prompt = `You are a professional travel assistant specialized in tourism translation.
 
 Translate the following POI (Point of Interest) description originally written for Brazilian Portuguese tourists, and rewrite it in a natural and culturally appropriate way for international tourists who speak the target language below.
@@ -156,7 +156,7 @@ Target Language:
 
 Expected output:
 Translated description text only (no labels, no explanations, no tags).`;
-  
+
   // Log prompt length for debugging
   console.log(`[Translation] Prompt length: ${prompt.length} characters`);
 
@@ -171,7 +171,7 @@ Translated description text only (no labels, no explanations, no tags).`;
   for (const model of models) {
     try {
       console.log(`[Translation] Trying model: ${model} for language: ${targetLanguage}`);
-      
+
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
         {
@@ -208,7 +208,7 @@ Translated description text only (no labels, no explanations, no tags).`;
       }
 
       const data = await response.json();
-      
+
       // Log full response for debugging
       console.log(`[Translation] Model ${model} response structure:`, {
         hasCandidates: !!data.candidates,
@@ -221,14 +221,14 @@ Translated description text only (no labels, no explanations, no tags).`;
         finishReason: data.candidates?.[0]?.finishReason,
         fullResponse: JSON.stringify(data).substring(0, 500) // First 500 chars for debugging
       });
-      
+
       // Check for safety filters or blocked content
       if (data.candidates?.[0]?.finishReason && data.candidates[0].finishReason !== 'STOP') {
         console.error(`[Translation] Model ${model} blocked content. Finish reason: ${data.candidates[0].finishReason}`);
         lastError = new Error(`Gemini API blocked content (${model}): ${data.candidates[0].finishReason}`);
         continue; // Try next model
       }
-      
+
       if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
         console.error(`[Translation] Model ${model} returned invalid response:`, JSON.stringify(data, null, 2));
         lastError = new Error(`Invalid response from Gemini API (${model}): No text in response. Finish reason: ${data.candidates?.[0]?.finishReason || 'unknown'}`);
@@ -250,13 +250,13 @@ Translated description text only (no labels, no explanations, no tags).`;
 
 // Generate audio using Google Cloud TTS
 const generateAudioWithTTS = async (
-  text: string, 
-  language: string, 
+  text: string,
+  language: string,
   gender: 'male' | 'female'
 ): Promise<ArrayBuffer> => {
   console.log(`[TTS] Starting audio generation for language: ${language}, gender: ${gender}`);
   console.log(`[TTS] Text length: ${text.length} characters`);
-  
+
   const voiceConfig = getVoiceConfig(language, gender);
   console.log(`[TTS] Voice config:`, voiceConfig);
 
@@ -298,7 +298,7 @@ const generateAudioWithTTS = async (
 
   const data = await response.json();
   console.log(`[TTS] Response data keys:`, Object.keys(data));
-  
+
   if (!data.audioContent) {
     console.error(`[TTS] No audio content in response:`, data);
     throw new Error('No audio content received from Google TTS');
@@ -309,7 +309,7 @@ const generateAudioWithTTS = async (
   // Convert base64 to ArrayBuffer
   const audioBuffer = Uint8Array.from(atob(data.audioContent), c => c.charCodeAt(0));
   console.log(`[TTS] Audio buffer size: ${audioBuffer.byteLength} bytes`);
-  
+
   return audioBuffer.buffer;
 };
 
@@ -394,9 +394,9 @@ serve(async (req) => {
 
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { 
+    return new Response(null, {
       status: 200,
-      headers: corsHeaders 
+      headers: corsHeaders
     });
   }
 
@@ -406,12 +406,12 @@ serve(async (req) => {
     if (!authHeader) {
       return new Response(
         JSON.stringify({ error: "Missing authorization header" }),
-        { 
-          status: 401, 
-          headers: { 
+        {
+          status: 401,
+          headers: {
             ...corsHeaders,
-            'Content-Type': 'application/json' 
-          } 
+            'Content-Type': 'application/json'
+          }
         }
       );
     }
@@ -420,12 +420,12 @@ serve(async (req) => {
     if (!GEMINI_API_KEY || !GOOGLE_CLOUD_API_KEY) {
       return new Response(
         JSON.stringify({ error: "Missing required API keys" }),
-        { 
-          status: 500, 
-          headers: { 
+        {
+          status: 500,
+          headers: {
             ...corsHeaders,
-            'Content-Type': 'application/json' 
-          } 
+            'Content-Type': 'application/json'
+          }
         }
       );
     }
@@ -437,30 +437,30 @@ serve(async (req) => {
     // Validate input
     if (!attractionId || !targetLanguage || !voiceGender) {
       return new Response(
-        JSON.stringify({ 
-          error: 'attractionId, targetLanguage, and voiceGender are required' 
+        JSON.stringify({
+          error: 'attractionId, targetLanguage, and voiceGender are required'
         }),
-        { 
-          status: 400, 
-          headers: { 
+        {
+          status: 400,
+          headers: {
             ...corsHeaders,
-            'Content-Type': 'application/json' 
-          } 
+            'Content-Type': 'application/json'
+          }
         }
       );
     }
 
     if (!['male', 'female'].includes(voiceGender)) {
       return new Response(
-        JSON.stringify({ 
-          error: 'voiceGender must be either "male" or "female"' 
+        JSON.stringify({
+          error: 'voiceGender must be either "male" or "female"'
         }),
-        { 
-          status: 400, 
-          headers: { 
+        {
+          status: 400,
+          headers: {
             ...corsHeaders,
-            'Content-Type': 'application/json' 
-          } 
+            'Content-Type': 'application/json'
+          }
         }
       );
     }
@@ -509,15 +509,15 @@ serve(async (req) => {
   } catch (error) {
     console.error(`[${requestId}] Error in generate-translated-audio function:`, error);
     return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error occurred' 
+      JSON.stringify({
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       }),
-      { 
-        status: 500, 
-        headers: { 
+      {
+        status: 500,
+        headers: {
           ...corsHeaders,
-          'Content-Type': 'application/json' 
-        } 
+          'Content-Type': 'application/json'
+        }
       }
     );
   }
