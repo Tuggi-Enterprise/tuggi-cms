@@ -58,8 +58,8 @@ export const DEFAULT_GENERATION_CONFIG = {
  * Default service configuration
  */
 export const DEFAULT_CONFIG = {
-  model: 'gemini-2.5-flash-lite' as const,
-  style: 'touristic' as const,
+  model: 'gemini-2.5-flash' as const,
+  style: 'historical' as const,
   language: 'pt-br',
   maxWords: 120,
   audioDuration: '30s',
@@ -77,7 +77,7 @@ export const DEFAULT_CONFIG = {
  * API Configuration
  */
 export const API_CONFIG = {
-  baseUrl: 'https://generativelanguage.googleapis.com/v1',
+  baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
   endpoint: (model: string) => `models/${model}:generateContent`,
   timeout: 30000,
   maxRetries: 3,
@@ -87,16 +87,13 @@ export const API_CONFIG = {
 /**
  * Get API key from environment
  */
-export function getApiKey(): string {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY
-  
+export function getGeminiApiKey(): string {
+  // Prioritize the Google AI Studio key (Tier 1) over the default one
+  const apiKey = process.env.GOOGLE_GEMINI_API_KEY || process.env.GEMINI_API_KEY
+
   if (!apiKey) {
-    throw new Error(
-      'Gemini API key not configured. ' +
-      'Please set GEMINI_API_KEY or GOOGLE_GEMINI_API_KEY environment variable.'
-    )
+    throw new Error('Neither GOOGLE_GEMINI_API_KEY nor GEMINI_API_KEY environment variable is set')
   }
-  
   return apiKey
 }
 

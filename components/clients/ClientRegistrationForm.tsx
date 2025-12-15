@@ -69,7 +69,7 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
           Thank you for registering! Your application is pending admin approval.
         </p>
         <p className="text-sm text-green-600">
-          We'll contact you at <strong>{formData.email}</strong> once approved.
+          We&apos;ll contact you at <strong>{formData.email}</strong> once approved.
         </p>
       </div>
     )

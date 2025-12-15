@@ -1,9 +1,6 @@
-import { ClientRegistrationForm } from '@/components/clients/ClientRegistrationForm'
+'use client'
 
-export const metadata = {
-  title: 'Client Registration - Tuggi CMS',
-  description: 'Register your business as a client'
-}
+import { ClientRegistrationForm } from '@/components/clients/ClientRegistrationForm'
 
 export default function ClientRegistrationPage() {
   return (
