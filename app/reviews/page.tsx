@@ -542,7 +542,7 @@ export default function ReviewsPage() {
                     outerRadius={100}
                     fill="#8884d8"
                     dataKey="count"
-                    label={({ feedback_type, percentage }) => `${feedback_type.replace(/_/g, ' ')}: ${percentage}%`}
+                    label={(entry: any) => `${(entry.payload?.feedback_type || 'Unknown').replace(/_/g, ' ')}: ${Math.round((entry.payload?.count || 0) / stats.feedbackByType.reduce((sum, d) => sum + (d.count || 0), 0) * 100)}%`}
                     labelLine={false}
                   >
                     {stats.feedbackByType.map((entry, index) => (

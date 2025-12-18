@@ -86,7 +86,7 @@ const rateLimitMap = new Map()
 export function withRateLimit(maxRequests: number = 100, windowMs: number = 60000) {
   return (handler: (req: NextRequest) => Promise<NextResponse>) => {
     return async (req: NextRequest) => {
-      const ip = req.ip || req.headers.get('x-forwarded-for') || 'unknown'
+      const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown'
       const now = Date.now()
       const windowStart = now - windowMs
       

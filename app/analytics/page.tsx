@@ -928,7 +928,7 @@ export default function AnalyticsPage() {
                     outerRadius={100}
                     fill="#8884d8"
                     dataKey="trips"
-                    label={({ platform, trips }) => `${platform}: ${trips}`}
+                    label={(entry: any) => `${entry.payload?.platform || 'Unknown'}: ${entry.value}`}
                   >
                     {data.tripsByPlatform.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

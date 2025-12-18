@@ -1,4 +1,5 @@
 import { ClientRegistrationForm } from '@/components/clients/ClientRegistrationForm'
+import ClientRegistrationWrapper from './client-registration-wrapper'
 
 export const metadata = {
   title: 'Client Registration - Tuggi CMS',
@@ -17,14 +18,7 @@ export default function ClientRegistrationPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow-lg p-8">
-          <ClientRegistrationForm
-            onSuccess={(message) => {
-              alert('✅ ' + message)
-            }}
-            onError={(error) => {
-              alert('❌ ' + error)
-            }}
-          />
+          <ClientRegistrationWrapper />
         </div>
 
         <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">

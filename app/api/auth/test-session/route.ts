@@ -15,9 +15,8 @@ export async function GET(request: NextRequest) {
     console.log('🧪 TEST SESSION: Request headers:', Object.fromEntries(request.headers.entries()))
     
     // Get all cookies
-    const cookieStore = cookies()
-    const allCookies = cookieStore.getAll()
-    console.log('🧪 TEST SESSION: All cookies:', allCookies.map(c => ({ name: c.name, value: c.value ? 'present' : 'empty' })))
+    const cookieStore = await cookies()
+    console.log('🧪 TEST SESSION: Cookies store ready')
     
     const { data: { session }, error } = await supabase.auth.getSession()
     
@@ -54,8 +53,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { 
           authenticated: false, 
-          message: 'No active session found',
-          cookies: allCookies.map(c => c.name)
+          message: 'No active session found'
         },
         { status: 401 }
       )
@@ -73,8 +71,7 @@ export async function GET(request: NextRequest) {
         access_token: !!session.access_token,
         refresh_token: !!session.refresh_token,
         expires_at: session.expires_at
-      },
-      cookies: allCookies.map(c => c.name)
+      }
     })
 
   } catch (error) {

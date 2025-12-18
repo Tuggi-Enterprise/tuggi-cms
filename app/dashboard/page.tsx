@@ -290,7 +290,7 @@ export default function DashboardPage() {
                       outerRadius={80}
                       fill="#8884d8"
                       dataKey="value"
-                      label={({ name, percentage }) => `${name}: ${percentage}%`}
+                      label={(entry: any) => `${entry.payload?.name || 'Unknown'}: ${Math.round((entry.payload?.value || 0) / pieData.reduce((sum, d) => sum + (d.value || 0), 0) * 100)}%`}
                       labelLine={false}
                     >
                       {pieData.map((entry, index) => (
