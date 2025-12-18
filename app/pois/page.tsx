@@ -301,6 +301,7 @@ function POIListWithSearchParams() {
     fetchRole()
   }, [])
 
+  useEffect(() => {
     if (countryFilter) {
       const timeoutId = setTimeout(() => {
         loadStatesForCountry(countryFilter)
