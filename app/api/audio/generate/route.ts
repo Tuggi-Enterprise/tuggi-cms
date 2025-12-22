@@ -11,29 +11,29 @@ function preprocessTextForTTS(text: string): string {
   // Add natural pauses for better flow
   processedText = processedText.replace(/\. /g, '. ')
   processedText = processedText.replace(/\, /g, ', ')
-  
+
   // Improve pronunciation of common Portuguese terms
   processedText = processedText.replace(/\bséc\./g, 'século')
   processedText = processedText.replace(/\bSéc\./g, 'Século')
   processedText = processedText.replace(/\bd\.C\./g, 'depois de Cristo')
   processedText = processedText.replace(/\ba\.C\./g, 'antes de Cristo')
-  
+
   // Handle numbers and dates better
-  processedText = processedText.replace(/\b(\d{4})\b/g, (match, year) => {
-    // Convert years to more natural speech
-    return `ano ${year}`
-  })
-  
+  // Force "em [year]" instead of "no ano de [year]" for naturalness
+  processedText = processedText.replace(/\bno ano de (\d{4})\b/g, 'em $1')
+
+  // Do NOT force "ano" before 4 digits (removed previous rule)
+
   // Add emphasis to attraction names (first mention)
   const sentences = processedText.split('.')
   if (sentences.length > 0) {
     // Add slight pause before the main content
     processedText = sentences[0] + '...' + sentences.slice(1).join('.')
   }
-  
+
   // Ensure proper sentence endings for natural flow
   processedText = processedText.replace(/([.!?])\s*/g, '$1 ')
-  
+
   return processedText.trim()
 }
 
@@ -42,7 +42,7 @@ function selectOptimalVoice(text: string): string {
   // For cultural/historical content, use warm, professional male voices
   const isFormal = text.includes('história') || text.includes('cultural') || text.includes('patrimônio')
   const isMuseum = text.includes('museu') || text.includes('exposição') || text.includes('coleção')
-  
+
   if (isFormal || isMuseum) {
     return 'onyx' // Professional, clear male voice
   } else if (text.includes('parque') || text.includes('natureza')) {
@@ -52,21 +52,21 @@ function selectOptimalVoice(text: string): string {
   }
 }
 
-export const POST = async function(request: NextRequest) {
+export const POST = async function (request: NextRequest) {
   try {
     console.log('🚀 Starting audio generation...')
-    
+
     // Check for internal API key first (for server-to-server calls)
     const authHeader = request.headers.get('authorization')
     const isInternalCall = authHeader === `Bearer ${process.env.INTERNAL_API_KEY || 'internal-key'}`
-    
+
     let userEmail = 'internal-call'
-    
+
     if (!isInternalCall) {
       // Regular authentication check for user requests
       const supabaseAuth = createRouteHandlerClient({ cookies })
       const { data: { session }, error } = await supabaseAuth.auth.getSession()
-      
+
       if (error || !session) {
         console.log('❌ No authenticated user found')
         return NextResponse.json(
@@ -74,13 +74,13 @@ export const POST = async function(request: NextRequest) {
           { status: 401 }
         )
       }
-      
+
       userEmail = session.user.email || 'unknown'
       console.log('✅ User authenticated:', userEmail)
     } else {
       console.log('✅ Internal API call authenticated')
     }
-    
+
     const body = await request.json()
     let { text, attractionId, voice, speed, provider } = body
 
@@ -127,10 +127,10 @@ export const POST = async function(request: NextRequest) {
 
     // Preprocess text for better TTS quality
     const optimizedText = preprocessTextForTTS(text)
-    
+
     // Select optimal voice if not specified
     const selectedVoice = voice || selectOptimalVoice(text)
-    
+
     // Adjust speed for tourism content (optimized for clarity)
     const selectedSpeed = speed || 1.2
 

@@ -46,22 +46,22 @@ function POIListWithSearchParams() {
   const [groupStatusFilter, setGroupStatusFilter] = useState<'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'>('all')
   const [scoreFilter, setScoreFilter] = useState<'all' | 'no_score' | 'rejected' | 'pending' | 'approved'>('all')
   const [triggerPointsFilter, setTriggerPointsFilter] = useState<'all' | 'with_trigger_points' | 'without_trigger_points'>('all')
-  const [selectedPois, setSelectedPois] = useState<string[]>([])  
+  const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [countryFilter, setCountryFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [cmsUserRole, setCmsUserRole] = useState<string | null>(null)
-  
+
   // View state
   const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
-  
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(100) // Increased to better utilize Supabase's 1000 limit
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
-  
+
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -90,7 +90,7 @@ function POIListWithSearchParams() {
     view?: string
   }) => {
     const params = new URLSearchParams()
-    
+
     // Add non-empty/non-default filters to URL
     if (filters.search && filters.search.trim()) {
       params.set('search', filters.search)
@@ -107,7 +107,7 @@ function POIListWithSearchParams() {
     if (filters.city && filters.city.trim()) {
       params.set('city', filters.city)
     }
-    
+
     if (filters.googleTypes && filters.googleTypes.trim()) {
       params.set('googleTypes', filters.googleTypes)
     }
@@ -166,7 +166,7 @@ function POIListWithSearchParams() {
   // Determine map loading strategy based on geographic context
   const getMapLoadingStrategy = useCallback((filters: POISearchFilters) => {
     console.log('🗺️ Current viewMode:', viewMode)
-    
+
     // For map view, use intelligent loading strategy
     if (viewMode === 'map') {
       // Case 1: No country filter = show country aggregation
@@ -210,7 +210,7 @@ function POIListWithSearchParams() {
         }
       }
     }
-    
+
     // For list/cards view, use normal pagination
     return {
       fetch_all: false,
@@ -241,7 +241,7 @@ function POIListWithSearchParams() {
 
       // Get intelligent loading strategy
       const mapStrategy = getMapLoadingStrategy(baseFilters)
-      
+
       const filters: POISearchFilters = {
         ...baseFilters,
         ...mapStrategy
@@ -251,7 +251,7 @@ function POIListWithSearchParams() {
       console.log('🗺️ Filters for search:', filters)
 
       const result = await poiService.search(filters)
-      
+
       if (result.success) {
         setPois(result.data || [])
         setFilteredPois(result.data || [])
@@ -306,7 +306,7 @@ function POIListWithSearchParams() {
       const timeoutId = setTimeout(() => {
         loadStatesForCountry(countryFilter)
       }, 100) // Reduced debounce for better UX
-      
+
       return () => clearTimeout(timeoutId)
     }
   }, [countryFilter, loadStatesForCountry])
@@ -317,7 +317,7 @@ function POIListWithSearchParams() {
       const timeoutId = setTimeout(() => {
         loadCitiesForLocation(countryFilter, stateFilter)
       }, 100) // Reduced debounce for better UX
-      
+
       return () => clearTimeout(timeoutId)
     } else if (countryFilter && !stateFilter) {
       // Clear cities when state is deselected
@@ -474,7 +474,7 @@ function POIListWithSearchParams() {
   // Handle bulk operations
   const handleBulkDelete = async () => {
     if (selectedPois.length === 0) return
-    
+
     if (!confirm(`Are you sure you want to delete ${selectedPois.length} POIs?`)) return
 
     try {
@@ -604,77 +604,77 @@ function POIListWithSearchParams() {
 
   return (
     <div className="p-6">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
+      {/* Header */}
+      <div className="mb-8">
+        <div className="flex items-center justify-between">
+          <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
               <MapPin className="h-8 w-8 mr-3 text-tuggi-orange" />
               POI Management
             </h1>
             <p className="text-gray-600 dark:text-gray-400 mt-2">
-                Manage and organize Points of Interest
-              </p>
-            </div>
-              <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setSelectedPoi(null)
-                  setIsModalOpen(true)
-                }}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+              Manage and organize Points of Interest
+            </p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setSelectedPoi(null)
+                setIsModalOpen(true)
+              }}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Adicionar POI Manualmente
+            </button>
+            {cmsUserRole === 'admin' && (
+              <Link
+                href="/poi-importer"
+                className="px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Adicionar POI Manualmente
-              </button>
-              {cmsUserRole === 'admin' && (
-                <Link
-                  href="/poi-importer"
-                  className="px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Import POIs
-                </Link>
-              )}
-            </div>
+                Import POIs
+              </Link>
+            )}
           </div>
         </div>
+      </div>
 
 
       <div className="flex gap-6">
         {/* Left Column - Filters */}
         <div className="w-[15%]">
-        {/* Search and Filters */}
+          {/* Search and Filters */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
                   <Filter className="h-5 w-5 mr-2 text-tuggi-blue" />
                   Filters
-              </h2>
+                </h2>
                 <button
                   onClick={clearFilters}
                   className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 >
                   Clear All
                 </button>
-            </div>
-
-            {/* Search Bar */}
-            <div className="mb-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search POIs..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                />
               </div>
-            </div>
 
-            {/* Filters */}
+              {/* Search Bar */}
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search POIs..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              {/* Filters */}
               <div className="space-y-4">
                 {/* Country Filter */}
                 <div>
@@ -871,42 +871,42 @@ function POIListWithSearchParams() {
         <div className="w-[85%]">
           {/* View Controls and Bulk Actions */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
-          <div className="p-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <button
+            <div className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <button
                     onClick={() => handleViewModeChange('cards')}
-                  className={cn(
+                    className={cn(
                       "p-2 rounded-lg transition-colors",
                       viewMode === 'cards' ? "bg-tuggi-blue text-white" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                  )}
-                >
+                    )}
+                  >
                     <Grid className="h-4 w-4" />
-                </button>
-                <button
+                  </button>
+                  <button
                     onClick={() => handleViewModeChange('list')}
-                  className={cn(
+                    className={cn(
                       "p-2 rounded-lg transition-colors",
                       viewMode === 'list' ? "bg-tuggi-blue text-white" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                  )}
-                >
+                    )}
+                  >
                     <List className="h-4 w-4" />
-                </button>
-                <button
+                  </button>
+                  <button
                     onClick={() => handleViewModeChange('map')}
-                  className={cn(
+                    className={cn(
                       "p-2 rounded-lg transition-colors",
                       viewMode === 'map' ? "bg-tuggi-blue text-white" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                  )}
-                >
-                  <Map className="h-4 w-4" />
-                </button>
-              </div>
+                    )}
+                  >
+                    <Map className="h-4 w-4" />
+                  </button>
+                </div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">
                   {totalCount} POIs found
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 {selectedPois.length > 0 && cmsUserRole === 'admin' && (
                   <button
                     onClick={handleBulkDelete}
@@ -927,12 +927,12 @@ function POIListWithSearchParams() {
                 >
                   Deselect All
                 </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Content */}
-        {viewMode === 'map' ? (
+          {/* Content */}
+          {viewMode === 'map' ? (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
               <OptimizedPOIMap
                 searchTerm={searchTerm}
@@ -949,36 +949,36 @@ function POIListWithSearchParams() {
                 className="w-full rounded-lg"
               />
             </div>
-        ) : (
+          ) : (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-            {isLoading ? (
-              <div className="p-8 text-center">
+              {isLoading ? (
+                <div className="p-8 text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-tuggi-blue mx-auto"></div>
                   <p className="mt-2 text-gray-500 dark:text-gray-400">Loading POIs...</p>
-              </div>
+                </div>
               ) : filteredPois.length === 0 ? (
-              <div className="p-8 text-center">
-                <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <div className="p-8 text-center">
+                  <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                   <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No POIs found</h3>
                   <p className="text-gray-500 dark:text-gray-400">Try adjusting your filters or search terms.</p>
-              </div>
-            ) : (
-              <>
-                {/* POI List */}
-                <div className={cn(
+                </div>
+              ) : (
+                <>
+                  {/* POI List */}
+                  <div className={cn(
                     "divide-y divide-gray-200 dark:divide-gray-700",
                     viewMode === 'cards' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4" : ""
-                )}>
+                  )}>
                     {filteredPois.map((poi) => (
-                    <div
-                      key={poi.id}
-                      className={cn(
+                      <div
+                        key={poi.id}
+                        className={cn(
                           "p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer",
                           viewMode === 'cards' && "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
-                      )}
+                        )}
                         onClick={() => handleSelectPoi(poi)}
-                    >
-                      <div className="flex items-start justify-between">
+                      >
+                        <div className="flex items-start justify-between">
                           <div className="flex items-start">
                             <input
                               type="checkbox"
@@ -1008,62 +1008,62 @@ function POIListWithSearchParams() {
                                 <MapPin className="w-5 h-5 text-gray-400" />
                               </div>
                             </div>
-                            
+
                             <div className="ml-3 flex-1">
-                          <div className="flex items-center gap-2 mb-2">
+                              <div className="flex items-center gap-2 mb-2">
                                 <h3 className="text-sm font-medium text-gray-900 dark:text-white">{poi.name}</h3>
-                                <VerificationBadge 
+                                <VerificationBadge
                                   attractionId={poi.id}
                                   verificationData={poi.verification_data}
                                 />
-                          </div>
-                              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                            {poi.city}, {poi.state && `${poi.state}, `}{poi.country}
-                          </p>
-                              <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
-                            <span>Trigger Points: {poi.trigger_points_count || 0}</span>
-                            <span>Descriptions: {poi.description_count || 0}</span>
-                            <span>Audio: {poi.audio_count || 0}</span>
                               </div>
+                              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                                {poi.city}, {poi.state && `${poi.state}, `}{poi.country}
+                              </p>
+                              <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
+                                <span>Trigger Points: {poi.trigger_points_count || 0}</span>
+                                <span>Descriptions: {poi.description_count || 0}</span>
+                                <span>Audio: {poi.audio_count || 0}</span>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                                handleSelectPoi(poi)
-                            }}
-                              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </button>
-                          {cmsUserRole === 'admin' && (
+                          <div className="flex items-center gap-1">
                             <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                                handleDeletePoi(poi.id)
-                            }}
-                            className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                          )}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleSelectPoi(poi)
+                              }}
+                              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                            {cmsUserRole === 'admin' && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeletePoi(poi.id)
+                                }}
+                                className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
 
-                {/* Pagination */}
+                  {/* Pagination */}
                   {totalPages > 1 && (
                     <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
                       <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
-                      <span>
+                        <span>
                           Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} results
                           {totalCount > 1000 && (
                             <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">
                               (Supabase limit: 1000 per request)
-                      </span>
+                            </span>
                           )}
                         </span>
                         <div className="flex items-center gap-2">
@@ -1087,60 +1087,60 @@ function POIListWithSearchParams() {
                             <option value={1000}>1000 (Max - {Math.ceil(totalCount / 1000)} requests)</option>
                           </select>
                         </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
                           onClick={() => handlePageChange(currentPage - 1)}
                           disabled={currentPage === 1}
                           className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                      >
-                        <ChevronLeft className="h-4 w-4 mr-1" />
-                        Previous
-                      </button>
+                        >
+                          <ChevronLeft className="h-4 w-4 mr-1" />
+                          Previous
+                        </button>
                         <span className="px-3 py-1 text-sm text-gray-700 dark:text-gray-300">
                           Page {currentPage} of {totalPages}
-                      </span>
-                      <button
+                        </span>
+                        <button
                           onClick={() => handlePageChange(currentPage + 1)}
                           disabled={currentPage === totalPages}
                           className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                      >
-                        Next
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </button>
+                        >
+                          Next
+                          <ChevronRight className="h-4 w-4 ml-1" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-        {/* POI Details Modal */}
+      {/* POI Details Modal */}
       {isModalOpen && (
-          <POIDetailsModal
-            mode={selectedPoi ? 'view' : 'create'}
-            poi={selectedPoi ? transformPOIForModal(selectedPoi) : null}
-            isOpen={isModalOpen}
-            onClose={() => {
-              setIsModalOpen(false)
-              setSelectedPoi(null)
-            }}
-            onUpdate={() => {
-              fetchPois()
-            }}
-            onPOIUpdated={(updatedPOI) => {
-              // When a POI is created or updated, refresh the list and select the new/updated POI
-              fetchPois()
-              // If it's a new POI (has ID), we can optionally select it
-              if (updatedPOI?.id) {
-                setSelectedPoi(updatedPOI as any)
-              }
-            }}
-          />
-        )}
+        <POIDetailsModal
+          mode={selectedPoi ? 'view' : 'create'}
+          poi={selectedPoi ? transformPOIForModal(selectedPoi) : null}
+          isOpen={isModalOpen}
+          onClose={() => {
+            setIsModalOpen(false)
+            setSelectedPoi(null)
+          }}
+          onUpdate={() => {
+            fetchPois()
+          }}
+          onPOIUpdated={(updatedPOI) => {
+            // When a POI is created or updated, refresh the list and select the new/updated POI
+            fetchPois()
+            // If it's a new POI (has ID), we can optionally select it
+            if (updatedPOI?.id) {
+              setSelectedPoi(updatedPOI as any)
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -6,7 +6,7 @@
  */
 
 import type { POIData, GeminiDescriptionOptions, GeminiDescriptionResult, GeminiRequestConfig, GeminiAPIResponse } from './types'
-import { DEFAULT_CONFIG, getApiKey, getModelConfig, getGenerationConfig, API_CONFIG, GEMINI_MODELS } from './config'
+import { DEFAULT_CONFIG, getGeminiApiKey, getModelConfig, getGenerationConfig, API_CONFIG, GEMINI_MODELS } from './config'
 import { getPromptByStyle, getSystemInstruction } from './prompts'
 
 /**
@@ -25,30 +25,30 @@ async function checkRateLimit(model: keyof typeof GEMINI_MODELS, operation: stri
   if (!modelConfig) {
     throw new Error(`Unknown model: ${model}`)
   }
-  
+
   const now = Date.now()
   const key = `${model}:${operation}`
   const store = rateLimitStore.get(key) || { requests: [], lastRequest: 0 }
   const limit = modelConfig.rateLimit
-  
+
   // Clean old requests
   const oneMinuteAgo = now - 60000
   store.requests = store.requests.filter(time => time > oneMinuteAgo)
-  
+
   // Check minute limit
   if (store.requests.length >= limit.requestsPerMinute) {
     const oldestRequest = Math.min(...store.requests)
     const waitTime = 60000 - (now - oldestRequest)
     throw new Error(`Rate limit exceeded. Try again in ${Math.ceil(waitTime / 1000)} seconds.`)
   }
-  
+
   // Check cooldown - wait automatically instead of failing
   if (now - store.lastRequest < limit.cooldownMs) {
     const waitTime = limit.cooldownMs - (now - store.lastRequest)
     console.log(`⏳ Cooldown period. Waiting ${Math.ceil(waitTime / 1000)} seconds...`)
     await new Promise(resolve => setTimeout(resolve, waitTime))
   }
-  
+
   // Update rate limit store
   store.requests.push(now)
   store.lastRequest = now
@@ -61,7 +61,7 @@ async function checkRateLimit(model: keyof typeof GEMINI_MODELS, operation: stri
  * Static class for generating descriptions using Gemini API
  */
 export class GeminiDescriptionService {
-  
+
   /**
    * Generate description for a POI
    */
@@ -71,7 +71,7 @@ export class GeminiDescriptionService {
   ): Promise<GeminiDescriptionResult> {
     const startTime = Date.now()
     const requestId = options.request_id || `gemini_desc_${Date.now()}`
-    
+
     try {
       // Validate required fields
       if (!poiData.name) {
@@ -88,7 +88,7 @@ export class GeminiDescriptionService {
           }
         }
       }
-      
+
       // Merge options with defaults
       const config = {
         ...DEFAULT_CONFIG,
@@ -99,29 +99,29 @@ export class GeminiDescriptionService {
         maxWords: options.maxWords || DEFAULT_CONFIG.maxWords,
         audioDuration: options.audioDuration || DEFAULT_CONFIG.audioDuration
       }
-      
+
       // Get prompt based on style or use custom prompt
-      const prompt = options.customPrompt 
+      const prompt = options.customPrompt
         ? options.customPrompt
         : getPromptByStyle(config.style, poiData, {
-            maxWords: config.maxWords,
-            audioDuration: config.audioDuration,
-            language: config.language,
-            additionalContext: options.additionalContext,
-            existingDescription: options.existingDescription
-          })
-      
+          maxWords: config.maxWords,
+          audioDuration: config.audioDuration,
+          language: config.language,
+          additionalContext: options.additionalContext,
+          existingDescription: options.existingDescription
+        })
+
       // Get system instruction
-      const systemInstruction = options.systemInstruction || 
+      const systemInstruction = options.systemInstruction ||
         getSystemInstruction(config.audioDuration, config.maxWords)
-      
+
       // Generate description
       const description = await this.generateWithPrompt(prompt, {
         ...config,
         systemInstruction,
         request_id: requestId
       })
-      
+
       if (!description) {
         return {
           success: false,
@@ -137,19 +137,19 @@ export class GeminiDescriptionService {
           }
         }
       }
-      
+
       // Validate if requested
       let validation = undefined
       if (config.validate) {
         validation = await this.validate(description, poiData.name)
       }
-      
+
       // Calculate word count and estimated audio duration
       const wordCount = description.split(/\s+/).filter(word => word.length > 0).length
       // Average reading speed: ~4 words per second for Portuguese audio narration
       const estimatedAudioDuration = Math.ceil(wordCount / 4)
       const audioDurationSeconds = parseInt(config.audioDuration.replace('s', '')) || 30
-      
+
       const result: GeminiDescriptionResult = {
         success: true,
         description,
@@ -170,9 +170,9 @@ export class GeminiDescriptionService {
         },
         validation
       }
-      
+
       return result
-      
+
     } catch (error: any) {
       console.error('❌ Error generating description:', error)
       return {
@@ -189,7 +189,7 @@ export class GeminiDescriptionService {
       }
     }
   }
-  
+
   /**
    * Generate description with custom prompt
    */
@@ -198,15 +198,15 @@ export class GeminiDescriptionService {
     options: GeminiDescriptionOptions & { systemInstruction?: string } = {}
   ): Promise<string | null> {
     const startTime = Date.now()
-    
+
     try {
       // Get API key
-      const apiKey = getApiKey()
-      
+      const apiKey = getGeminiApiKey()
+
       // Get model configuration
       const model = options.model || DEFAULT_CONFIG.model
       const modelConfig = getModelConfig(model)
-      
+
       // Get generation config
       const generationConfig = getGenerationConfig({
         temperature: options.temperature,
@@ -214,7 +214,7 @@ export class GeminiDescriptionService {
         topP: options.topP,
         maxTokens: options.maxTokens || modelConfig.maxTokens
       })
-      
+
       // Build request
       const requestConfig: GeminiRequestConfig = {
         model: modelConfig.name,
@@ -222,23 +222,23 @@ export class GeminiDescriptionService {
         systemInstruction: options.systemInstruction,
         generationConfig
       }
-      
+
       // Call Gemini API using rate limiter
       // Note: rate limiter uses SDK, but we'll use REST API directly for more control
       const response = await this.callGeminiRESTAPI(apiKey, requestConfig)
-      
+
       if (!response || !response.description) {
         return null
       }
-      
+
       return response.description
-      
+
     } catch (error: any) {
       console.error('❌ Error in generateWithPrompt:', error)
       throw error
     }
   }
-  
+
   /**
    * Call Gemini REST API directly
    * Uses REST API for more control and compatibility with Google AI Studio
@@ -250,9 +250,9 @@ export class GeminiDescriptionService {
   ): Promise<{ description: string; tokens?: number }> {
     // Check rate limits before making request
     await checkRateLimit(config.model as keyof typeof GEMINI_MODELS, 'generate')
-    
+
     const endpoint = `${API_CONFIG.baseUrl}/${API_CONFIG.endpoint(config.model)}?key=${apiKey}`
-    
+
     // Build request body
     // Note: For REST API, we need to use correct field names
     // - maxTokens -> maxOutputTokens
@@ -264,29 +264,32 @@ export class GeminiDescriptionService {
       maxOutputTokens: config.generationConfig.maxOutputTokens, // Correct field name
       candidateCount: config.generationConfig.candidateCount || 1
     }
-    
+
     // If systemInstruction is provided, prepend it to the prompt
     // (REST API may not support systemInstruction for all models)
-    const finalPrompt = config.systemInstruction 
+    const finalPrompt = config.systemInstruction
       ? `${config.systemInstruction}\n\n${config.prompt}`
       : config.prompt
-    
+
     const requestBody: any = {
       contents: [{
         parts: [{
           text: finalPrompt
         }]
       }],
-      generationConfig
+      generationConfig,
+      tools: [{
+        google_search: {} // Enable Google Search Grounding
+      }]
     }
-    
+
     console.log(`🤖 Calling Gemini API: ${config.model}`)
     console.log(`📝 Prompt length: ${config.prompt.length} characters`)
-    
+
     // Make request with retry logic
     let lastError: Error | null = null
     const maxRetries = API_CONFIG.maxRetries
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         if (attempt > 0) {
@@ -294,7 +297,7 @@ export class GeminiDescriptionService {
           console.log(`🔄 Retry attempt ${attempt}/${maxRetries} after ${delay}ms...`)
           await new Promise(resolve => setTimeout(resolve, delay))
         }
-        
+
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -303,57 +306,57 @@ export class GeminiDescriptionService {
           body: JSON.stringify(requestBody),
           signal: AbortSignal.timeout(API_CONFIG.timeout)
         })
-        
+
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: { message: response.statusText } }))
           throw new Error(`Gemini API error ${response.status}: ${errorData.error?.message || response.statusText}`)
         }
-        
+
         const data: GeminiAPIResponse = await response.json()
-        
+
         // Check for errors in response
         if (data.error) {
           throw new Error(`Gemini API error: ${data.error.message}`)
         }
-        
+
         // Extract description from response
         if (!data.candidates || data.candidates.length === 0) {
           throw new Error('No candidates in Gemini response')
         }
-        
+
         const candidate = data.candidates[0]
-        
+
         // Check finish reason
         if (candidate.finishReason === 'MAX_TOKENS') {
           console.warn('⚠️ Response hit MAX_TOKENS limit')
         }
-        
+
         if (candidate.finishReason === 'SAFETY') {
           throw new Error('Content blocked by safety filters')
         }
-        
+
         // Extract text
         const text = candidate.content?.parts?.[0]?.text
-        
+
         if (!text) {
           throw new Error('No text content in Gemini response')
         }
-        
+
         const description = text.trim()
         const tokens = data.usageMetadata?.totalTokenCount
-        
+
         console.log(`✅ Successfully generated description (${description.length} chars, ${tokens || 'unknown'} tokens)`)
-        
+
         return { description, tokens }
-        
+
       } catch (error: any) {
         lastError = error
-        
+
         // Don't retry on certain errors
         if (error.name === 'AbortError' || error.message?.includes('SAFETY')) {
           throw error
         }
-        
+
         // Remove from rate limit store if request failed
         if (error.message?.includes('Rate limit')) {
           const key = `${config.model}:generate`
@@ -363,17 +366,17 @@ export class GeminiDescriptionService {
             rateLimitStore.set(key, store)
           }
         }
-        
+
         if (attempt < maxRetries) {
           console.warn(`⚠️ Attempt ${attempt + 1} failed:`, error.message)
           continue
         }
       }
     }
-    
+
     throw lastError || new Error('Failed to generate description after retries')
   }
-  
+
   /**
    * Validate generated description
    * Simplified validation compared to existing service
@@ -391,7 +394,7 @@ export class GeminiDescriptionService {
       // Simple validation: check basic requirements
       const problemas: string[] = []
       let pontuacao = 100
-      
+
       // Check length
       const wordCount = description.split(/\s+/).length
       if (wordCount > 150) {
@@ -402,38 +405,38 @@ export class GeminiDescriptionService {
         problemas.push('Descrição muito curta')
         pontuacao -= 20
       }
-      
+
       // Check for prohibited content
       const prohibitedPatterns = [
         /\d{2,4}\s*-\s*\d{2,4}/, // Phone numbers
         /R\$|preço|valor|entrada/i, // Prices
         /segunda|terça|quarta|quinta|sexta|sábado|domingo.*\d{1,2}h/i, // Hours
       ]
-      
+
       prohibitedPatterns.forEach(pattern => {
         if (pattern.test(description)) {
           problemas.push('Contém informações proibidas (telefone, preço, horário)')
           pontuacao -= 30
         }
       })
-      
+
       // Check for basic quality
       if (!description.includes(poiName)) {
         problemas.push('Não menciona o nome do POI')
         pontuacao -= 10
       }
-      
+
       const aprovada = pontuacao >= 60 && problemas.length === 0
-      
+
       return {
         aprovada,
         pontuacao: Math.max(0, pontuacao),
         problemas,
-        sugestoes_melhoria: problemas.length > 0 
+        sugestoes_melhoria: problemas.length > 0
           ? 'Revise a descrição para remover informações proibidas e ajustar o tamanho'
           : 'Descrição atende aos critérios básicos'
       }
-      
+
     } catch (error: any) {
       console.error('❌ Error validating description:', error)
       return {

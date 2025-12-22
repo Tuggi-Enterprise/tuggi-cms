@@ -1,11 +1,6 @@
 import { ClientRegistrationForm } from '@/components/clients/ClientRegistrationForm'
 import ClientRegistrationWrapper from './client-registration-wrapper'
 
-export const metadata = {
-  title: 'Client Registration - Tuggi CMS',
-  description: 'Register your business as a client'
-}
-
 export default function ClientRegistrationPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white">
