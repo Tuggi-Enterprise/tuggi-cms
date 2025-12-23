@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { generateMasterPack } from '../_shared/masterPackGenerator.ts';
 import { generateNarrativeScript } from '../_shared/contextualGenerator.ts';
 import { generateAudioWithTTS } from '../_shared/ttsGenerator.ts';
 
@@ -58,7 +57,7 @@ async function generateCacheKey(poiId: string, language: string, travelMode: str
     return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-serve(async (req) => {
+serve(async (req: Request): Promise<Response> => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
     try {
@@ -145,15 +144,19 @@ serve(async (req) => {
             const expiresAt = new Date();
             expiresAt.setDate(expiresAt.getDate() + 30);
 
-            await supabaseAdmin.schema('core').from('cache_narrations').upsert({
+            const { error: upsertErr } = await supabaseAdmin.schema('core').from('cache_narrations').upsert({
                 cache_key: cacheKey,
-                attraction_id: target_poi.id,
+                poi_id: target_poi.id,
                 language: language,
                 travel_mode: travel_mode,
                 direction_bucket: directionBucket,
                 text_content: textContent,
                 expires_at: expiresAt.toISOString()
             });
+
+            if (upsertErr) {
+                console.error('[Cache Save Error] Failed to save text:', upsertErr);
+            }
         }
 
         // Step C: Audio (Lazy)

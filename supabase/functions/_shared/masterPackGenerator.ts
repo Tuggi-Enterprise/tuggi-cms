@@ -19,8 +19,8 @@ export const generateMasterPack = async (
     poiData: any = {}
 ): Promise<MasterPackResult> => {
 
-    const audioTarget = '25-30s';
-    const maxWords = 85; // Optimized for 25-30s audio at moderate speed
+    const audioTarget = '15-18s';
+    const maxWords = 50; // VERY CONCISE base to avoid exceeding 30s in Step B
 
     const prompt = `
 ROLE: Expert Historian and Professional Travel Writer.
@@ -84,13 +84,13 @@ CONTEXT: ${rawContext}
     const description = descMatch ? descMatch[1].trim() : "";
     const factsLines = factsMatch ? factsMatch[1].trim().split('\n') : [];
 
-    const facts_pack_json = factsLines.map(line => {
+    const facts_pack_json = factsLines.map((line: string) => {
         const [category, ...textParts] = line.split('|');
         return {
             category: (category || 'history').trim().toLowerCase().replace(/[^a-z]/g, ''),
             text: textParts.join('|').trim().replace(/\[cite: \d+\]/g, "").replace(/\[\d+\]/g, "")
         };
-    }).filter(f => f.text.length > 5);
+    }).filter((f: any) => f.text.length > 5);
 
     return {
         description: description.replace(/\[cite: \d+\]/g, "").replace(/\[\d+\]/g, ""),

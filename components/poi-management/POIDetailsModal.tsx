@@ -1234,88 +1234,42 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
 
-      console.log('📡 POI MODAL: Making request to /api/gemini-descriptions/generate (NEW SERVICE)')
-      const response = await fetch('/api/gemini-descriptions/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          poi_data: poiData,
-          options: {
-            language: 'pt-br',
-            style: 'historical', // Default style changed to historical per user request
-            maxWords: 120,
-            audioDuration: '30s',
-            additionalContext: additionalContext.trim() || undefined,
-            validate: true
-          }
-        })
+      console.log('📡 POI MODAL: Making request to generate-description Edge Function')
+
+      const { data: result, error: invokeError } = await supabase.functions.invoke('generate-description', {
+        body: {
+          poi_id: currentPoi.id,
+          language: 'pt-br',
+          raw_context: additionalContext.trim() || undefined,
+          force: true // Force fresh generation as it's an explicit action in CMS
+        }
       })
 
-      console.log('📡 POI MODAL: Response status:', response.status)
-      console.log('📡 POI MODAL: Response ok:', response.ok)
-      console.log('📡 POI MODAL: Response headers:', Object.fromEntries(response.headers.entries()))
-
-      if (!response.ok) {
-        let errorData
-        try {
-          const responseText = await response.text()
-          console.log('📡 POI MODAL: Response text:', responseText)
-          errorData = responseText ? JSON.parse(responseText) : { error: 'Empty response' }
-        } catch (parseError) {
-          console.error('❌ POI MODAL: Failed to parse error response:', parseError)
-          errorData = { error: 'Invalid response format' }
-        }
-        console.error('❌ POI MODAL: Response error:', errorData)
-        throw new Error(`Failed to generate description: ${errorData.error || 'Unknown error'}`)
+      if (invokeError) {
+        console.error('❌ POI MODAL: Edge Function error:', invokeError)
+        throw new Error(`Failed to generate description: ${invokeError.message || 'Unknown error'}`)
       }
 
-      const data = await response.json()
-      console.log('✅ POI MODAL: Description generated successfully with new Gemini Service:', data)
+      if (!result?.success) {
+        throw new Error(result?.error || 'Falha ao gerar descrição')
+      }
+
+      const generatedData = result.data
+      console.log('✅ POI MODAL: Description generated successfully with Edge Function:', generatedData)
 
       // Show feedback about generation
-      if (data.metadata) {
-        const modelUsed = data.metadata.model_used || 'gemini-2.5-flash-lite'
-        const wordCount = data.metadata.word_count || 'N/A'
-        showFeedback(`✅ Descrição gerada com sucesso usando ${modelUsed} (${wordCount} palavras)`, 'success')
-      } else {
-        showFeedback('✅ Descrição gerada com sucesso', 'success')
+      showFeedback('✅ Descrição mestre gerada com sucesso. O áudio está sendo processado em background.', 'success')
+
+      // Handle facts if returned
+      if (generatedData.facts_pack_json) {
+        console.log('📊 Fatos extraídos:', generatedData.facts_pack_json)
       }
 
-      // Armazenar resultados da verificação se disponíveis (novo formato)
-      if (data.verification) {
-        console.log('🔍 Resultados da verificação:', data.verification)
-        const verificationData = {
-          applied: true,
-          approved: data.verification.aprovada || false,
-          score: data.verification.pontuacao || 0,
-          detected_dates: [], // New service doesn't extract dates yet
-          verifiable_facts: [], // New service doesn't extract facts yet
-          issues: data.verification.problemas || [],
-          improvement_suggestion: data.verification.sugestoes_melhoria || '',
-          improvement_applied: false
-        }
-        console.log('📊 Setting verification result:', verificationData)
-        setVerificationResult(verificationData)
-
-        // Mostrar feedback sobre a verificação
-        const score = verificationData.score
-        const scoreEmoji = score >= 80 ? '🌟' : score >= 60 ? '✅' : '⚠️'
-
-        let verificationMessage = `${scoreEmoji} Verificação: ${score}/100 pontos`
-
-        if (verificationData.approved) {
-          verificationMessage += ' - Descrição aprovada!'
-        } else {
-          verificationMessage += ' - Verificar sugestões de melhoria'
-        }
-
-        showFeedback(verificationMessage, verificationData.approved ? 'success' : 'error')
-      }
+      // Reset verification since it's a new master version
+      setVerificationResult(null)
 
       // Analyze historical dates in the generated description
-      const detectedDatesArray = detectHistoricalDates(data.description)
+      const detectedDatesArray = detectHistoricalDates(generatedData.description)
       if (detectedDatesArray.length > 0) {
         const dateClassification = classifyDateReliability(detectedDatesArray)
         setDetectedDates({
@@ -1335,7 +1289,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         setDetectedDates(null)
       }
 
-      setCurrentDescription(data.description)
+      setCurrentDescription(generatedData.description)
     } catch (error) {
       console.error('Error generating description:', error)
       alert('Failed to generate description. Please try again.')
@@ -1717,31 +1671,24 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       const ttsData = await ttsResponse.json()
 
-      // Step 2: Upload audio to Supabase Storage
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        throw new Error('No active session')
-      }
-
-      const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/store-poi-audio`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`
-        },
-        body: JSON.stringify({
+      // Step 2: Upload audio to Supabase Storage using invoke
+      const { data: uploadData, error: uploadError } = await supabase.functions.invoke('store-poi-audio', {
+        body: {
           attractionId: getPoi()?.id || '',
           audioData: ttsData.audioData,
           mimeType: ttsData.mimeType,
           language: 'pt-br'
-        })
+        }
       })
 
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload audio')
+      if (uploadError) {
+        console.error('❌ POI MODAL: Store Audio Edge Function error:', uploadError)
+        throw new Error(`Failed to upload audio: ${uploadError.message || 'Unknown error'}`)
       }
 
-      const uploadData = await uploadResponse.json()
+      if (!uploadData?.success) {
+        throw new Error(uploadData?.error || 'Failed to upload audio')
+      }
 
       // Step 3: Update UI with new audio
       setCurrentAudioUrl(uploadData.audio.url)
@@ -1818,30 +1765,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         voiceGender: selectedGender
       }
 
-      // Call the Edge Function using anon key
-      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-translated-audio`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`
-        },
-        body: JSON.stringify(requestBody)
+      // Call the Edge Function using invoke
+      const { data: result, error: invokeError } = await supabase.functions.invoke('generate-translated-audio', {
+        body: requestBody
       })
 
-      if (!response.ok) {
-        const errorText = await response.text()
-
-        let errorData
-        try {
-          errorData = JSON.parse(errorText)
-        } catch (e) {
-          errorData = { error: errorText }
-        }
-
-        throw new Error(`HTTP ${response.status}: ${errorData.error || errorText}`)
+      if (invokeError) {
+        console.error('❌ POI MODAL: Translation Edge Function error:', invokeError)
+        throw new Error(`Failed to translate: ${invokeError.message || 'Unknown error'}`)
       }
 
-      const result = await response.json()
+      if (!result?.success) {
+        throw new Error(result?.error || 'Falha ao traduzir e gerar áudio')
+      }
 
       // Show success message
       showFeedback(`Translation and audio generation completed successfully for ${selectedLanguage} (${selectedGender})!`, 'success')
@@ -1947,28 +1883,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       voiceGender: gender
     }
 
-    // Call the Edge Function
-    const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-translated-audio`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify(requestBody)
+    // Call the Edge Function using invoke
+    const { data: result, error: invokeError } = await supabase.functions.invoke('generate-translated-audio', {
+      body: requestBody
     })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      let errorData
-      try {
-        errorData = JSON.parse(errorText)
-      } catch (e) {
-        errorData = { error: errorText }
-      }
-      throw new Error(`HTTP ${response.status}: ${errorData.error || errorText}`)
+    if (invokeError) {
+      console.error('❌ POI MODAL: Translation Edge Function error:', invokeError)
+      throw new Error(`Failed to translate: ${invokeError.message || 'Unknown error'}`)
     }
 
-    await response.json()
+    if (!result?.success) {
+      throw new Error(result?.error || 'Falha ao traduzir e gerar áudio')
+    }
 
     // Refresh data to show the new audio
     await fetchAdditionalData()

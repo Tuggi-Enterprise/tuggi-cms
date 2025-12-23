@@ -79,7 +79,7 @@ export const generateAudioWithTTS = async (
     },
     audioConfig: {
       audioEncoding: 'MP3',
-      speakingRate: 1.05, // Slightly slower for better narration clarity
+      speakingRate: 1.2, // Increased for better pace as requested
       pitch: 0.0,
       volumeGainDb: 0.0,
       sampleRateHertz: 24000,

@@ -26,13 +26,35 @@ serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
     try {
-        const { poi_id, language: rawLanguage, raw_context } = await req.json() as RequestBody;
+        const body = await req.json() as RequestBody & { force?: boolean };
+        const { poi_id, language: rawLanguage, raw_context, force } = body;
         const language = (rawLanguage || "pt-br").toLowerCase();
         if (!poi_id) throw new Error("poi_id required");
 
         console.log(`[Generate-Description] Starting for POI: ${poi_id}`);
 
-        // Simplified query to avoid join failures
+        // 1. Check for existing content and its age
+        const { data: existing } = await supabaseAdmin.schema('core')
+            .from('attraction_descriptions')
+            .select('updated_at, facts_pack_json, description, audio_url')
+            .eq('attraction_id', poi_id)
+            .eq('language', language)
+            .eq('gender', 'male')
+            .maybeSingle();
+
+        const isStale = existing && (new Date().getTime() - new Date(existing.updated_at).getTime() > 1000 * 60 * 60 * 24 * 30);
+        const missingFacts = !existing || !existing.facts_pack_json || (Array.isArray(existing.facts_pack_json) && existing.facts_pack_json.length === 0);
+
+        if (existing && !force && !isStale && !missingFacts) {
+            console.log(`[Generate-Description] Skipping: Content is fresh (<30d) and has facts.`);
+            return new Response(JSON.stringify({
+                success: true,
+                message: "Content is already fresh",
+                data: { description: existing.description, facts_pack_json: existing.facts_pack_json, audio_url: existing.audio_url }
+            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+
+        // 2. Fetch POI Details
         const { data: attraction, error: attrError } = await supabaseAdmin.schema('core')
             .from('attractions')
             .select('name, city, state, osm_tags')

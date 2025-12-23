@@ -44,28 +44,50 @@ export const generateNarrativeScript = async (
     else if (normalizedDiff < -45 && normalizedDiff > -135) directionBucket = "à sua esquerda";
     else if (Math.abs(normalizedDiff) >= 135) directionBucket = "atrás de você";
 
+    // Calculate time since last POI to help AI decide on transition strength
+    let timeSinceLastPoiStr = "unknown";
+    if (context.previous_poi?.played_at) {
+        const ms = Date.now() - new Date(context.previous_poi.played_at).getTime();
+        const mins = Math.floor(ms / 60000);
+        const secs = Math.floor((ms % 60000) / 1000);
+        timeSinceLastPoiStr = mins > 0 ? `${mins} minutes and ${secs} seconds` : `${secs} seconds`;
+    }
+
     const prompt = `
 ROLE: Expert Travel Guide (Narration Layer).
-CONTEXT: User is ${context.travel_mode === 'drive' ? 'driving' : 'walking'}.
-CURRENT POI: "${targetPoi.name}" (${targetPoi.type}) is ${directionBucket} at approx ${targetPoi.distance} meters.
+TONE: Premium, Professional, Engaging, Vivid.
 
-${context.previous_poi ? `PREVIOUS POI: "${context.previous_poi.name}" (${context.previous_poi.type}), played at ${context.previous_poi.played_at}.` : ''}
-${context.next_poi ? `NEXT DESTINATION: "${context.next_poi.name}" (${context.next_poi.type}).` : ''}
+JOURNAL CONTEXT:
+- Traveling by: ${context.travel_mode === 'drive' ? 'Car/Driving' : 'Walking'}.
+- LANGUAGE: ${context.language}.
 
-SOURCE MATERIAL (The Master Description - Use this as your primary narrative base):
-"${facts.description}"
+CURRENT TARGET (The POI we are approaching):
+- Name: "${targetPoi.name}" (${targetPoi.type})
+- Location: ${directionBucket}
+- Proximity: ${targetPoi.distance} meters. 
+  IMPORTANT: Use natural expressions like "logo ali", "em instantes", or "à sua frente". NEVER mention exact meters/kilometers.
 
-FACT PACK (Use these to enrich the narration if relevant):
-${JSON.stringify(facts.facts_pack_json)}
+STRICT SOURCE MATERIAL (Rules for current POI):
+- Use ONLY the following information for historical/factual content:
+  "${facts.description}"
+- Bonus details from Fact Pack (if relevant):
+  ${JSON.stringify(facts.facts_pack_json)}
+- CRITICAL: Do NOT include external facts about the city, region, or general history ("Clube dos Escravos", "Capital da Linguiça", etc) UNLESS they are explicitly present in the texts above. Stay focused ONLY on this specific POI.
 
-INSTRUCTIONS:
-1. Integrate the positional direction naturally at the beginning (e.g., "Logo à sua frente...", "Logo à sua direita...", "À sua esquerda...").
-2. Use the Master Description as the core of your speech. Do NOT rewrite its historical facts, but make them sound like part of a live tour.
-3. Keep the tone PREMIUM, INFORMED, and PROFESSIONAL (No "Aí, beleza?", "Fica ligado").
-4. If there is a previous POI, you MUST add a brief transition connecting the previous vibe to the current one (e.g., "Saindo da tranquilidade da ${context.previous_poi?.name}, vamos agora descobrir...").
-5. If there is a next destination, you may subtly hint at what's coming at the end (e.g., "E prepare-se, pois nossa próxima parada será no ${context.next_poi?.name}").
-6. Total script length: 30-45 seconds of speech.
-7. Language: ${context.language}.
+HISTORY (Transitions):
+${context.previous_poi ? `- Last POI played: "${context.previous_poi.name}" (Type: ${context.previous_poi.type}). 
+- recency: played ${timeSinceLastPoiStr} ago. 
+- Rule: If played recently (under 2 mins), acknowledge the journey (e.g. "Logo após passarmos pelo..."). If more than 5 mins, ignore it.` : 'No previous POI.'}
+
+FUTURE (Suggestions - NO SUPPOSITIONS):
+${context.next_poi ? `- Potential next interest: "${context.next_poi.name}" (${context.next_poi.type}). 
+- Rule: Do NOT assume the driver is going there. Use phrases like "Se você continuar sua jornada, poderá se interessar pelo..." or "Quem sabe sua próxima parada seja...".` : 'No next POI known.'}
+
+FINAL GUIDELINES:
+1. START with the navigational hook (e.g., "Logo à sua frente...").
+2. DO NOT ALUCINATE: If a fact is not in the SOURCE MATERIAL, omit it.
+3. BE CONCISE: Final script MUST be around 30 seconds of speech. At 1.2x rate, this means a maximum of 75 words. 
+4. NARRATIVE: Blend the hook, the transition (if recent), and the POI description into a single fluid story.
 `;
 
     console.log('[Contextual Generator] Generating premium script...');
