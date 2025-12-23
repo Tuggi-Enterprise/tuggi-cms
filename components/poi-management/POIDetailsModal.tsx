@@ -350,7 +350,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [groupName, setGroupName] = useState(poi?.name || '') // Default to main POI name
   const [drawnPolygon, setDrawnPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
 
-  const supabase = useSupabaseClient()
+  const supabase = useSupabaseClient<any>()
 
   // Function to detect and validate dates in description
   const detectHistoricalDates = (text: string) => {
