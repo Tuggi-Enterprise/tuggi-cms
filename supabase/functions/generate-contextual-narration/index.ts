@@ -23,21 +23,26 @@ interface RequestBody {
         type?: string;
         bearing: number;
         distance: number;
+        location: { latitude: number; longitude: number };
     };
     travel_mode: string;
     user_context: {
-        location: { latitude: number; longitude: number };
         speed: number;
         heading: number;
         language: string;
         previous_poi?: {
+            id: string;
             name: string;
             type: string;
             played_at: string;
+            location: { latitude: number; longitude: number };
         };
         next_poi?: {
+            id: string;
             name: string;
             type: string;
+            bearing: number;
+            location: { latitude: number; longitude: number };
         };
     };
 }
@@ -50,8 +55,8 @@ function getDirectionBucket(heading: number, bearing: number): string {
     return "ahead";
 }
 
-async function generateCacheKey(poiId: string, language: string, travelMode: string, directionBucket: string, prevPoiName: string | undefined, nextPoiName: string | undefined): Promise<string> {
-    const data = `${poiId}:${language}:${travelMode}:${directionBucket}:${prevPoiName || 'none'}:${nextPoiName || 'none'}`;
+async function generateCacheKey(poiId: string, poiType: string, language: string, travelMode: string, directionBucket: string, prevPoiId: string | undefined, nextPoiId: string | undefined, nextPoiType: string | undefined): Promise<string> {
+    const data = `${poiId}:${poiType}:${language}:${travelMode}:${directionBucket}:${prevPoiId || 'none'}:${nextPoiId || 'none'}:${nextPoiType || 'none'}`;
     const msgUint8 = new TextEncoder().encode(data);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
     return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -71,11 +76,13 @@ serve(async (req: Request): Promise<Response> => {
         const directionBucket = getDirectionBucket(user_context.heading, target_poi.bearing);
         const cacheKey = await generateCacheKey(
             target_poi.id,
+            target_poi.type || 'tug',
             language,
             travel_mode,
             directionBucket,
-            user_context.previous_poi?.name,
-            user_context.next_poi?.name
+            user_context.previous_poi?.id,
+            user_context.next_poi?.id,
+            user_context.next_poi?.type
         );
 
         // 2. CACHE CHECK (Priority 1)
@@ -129,7 +136,7 @@ serve(async (req: Request): Promise<Response> => {
 
             // Step B: Contextual Script
             textContent = await generateNarrativeScript(
-                { ...user_context, travel_mode, language },
+                { ...user_context, travel_mode, language, poi_location: target_poi.location },
                 { description, facts_pack_json: factsPack },
                 {
                     name: target_poi.name || "POI",

@@ -1,7 +1,7 @@
 // _shared/contextualGenerator.ts
 
 interface UserContext {
-    location: {
+    poi_location: {
         latitude: number;
         longitude: number;
     };
@@ -10,13 +10,18 @@ interface UserContext {
     travel_mode: string;
     language: string;
     previous_poi?: {
+        id: string;
         name: string;
         type: string;
         played_at: string; // ISO string
+        location: { latitude: number; longitude: number };
     };
     next_poi?: {
+        id: string;
         name: string;
         type: string;
+        bearing: number;
+        location: { latitude: number; longitude: number };
     };
 }
 
@@ -36,71 +41,107 @@ export const generateNarrativeScript = async (
     apiKey: string
 ): Promise<string> => {
 
-    const directionDiff = targetPoi.bearing - context.heading;
-    const normalizedDiff = ((directionDiff + 180) % 360) - 180;
+    // Calculate raw relative positions for AI decision making
+    const getRelativePosition = (poiHeading: number) => {
+        const diff = poiHeading - context.heading;
+        const norm = ((diff + 180) % 360) - 180;
+        if (norm > 45 && norm < 135) return "RIGHT";
+        if (norm < -45 && norm > -135) return "LEFT";
+        if (Math.abs(norm) >= 135) return "BEHIND";
+        return "AHEAD";
+    };
 
-    let directionBucket = "à frente";
-    if (normalizedDiff > 45 && normalizedDiff < 135) directionBucket = "à sua direita";
-    else if (normalizedDiff < -45 && normalizedDiff > -135) directionBucket = "à sua esquerda";
-    else if (Math.abs(normalizedDiff) >= 135) directionBucket = "atrás de você";
+    const currentRelPos = getRelativePosition(targetPoi.bearing);
+    const nextRelPos = context.next_poi ? getRelativePosition(context.next_poi.bearing) : "UNKNOWN";
 
-    // Calculate time since last POI to help AI decide on transition strength
-    let timeSinceLastPoiStr = "unknown";
-    if (context.previous_poi?.played_at) {
-        const ms = Date.now() - new Date(context.previous_poi.played_at).getTime();
-        const mins = Math.floor(ms / 60000);
-        const secs = Math.floor((ms % 60000) / 1000);
-        timeSinceLastPoiStr = mins > 0 ? `${mins} minutes and ${secs} seconds` : `${secs} seconds`;
+    // Placeholder for timeSinceLastPoiStr - this would need to be calculated based on previous_poi.played_at
+    // For now, we'll just use a generic string if previous_poi exists, or "N/A"
+    let timeSinceLastPoiStr = "N/A";
+    if (context.previous_poi) {
+        const playedAt = new Date(context.previous_poi.played_at);
+        const now = new Date();
+        const diffMs = now.getTime() - playedAt.getTime();
+        const diffSeconds = Math.round(diffMs / 1000);
+        if (diffSeconds < 60) {
+            timeSinceLastPoiStr = `${diffSeconds} seconds ago`;
+        } else {
+            timeSinceLastPoiStr = `${Math.round(diffSeconds / 60)} minutes ago`;
+        }
     }
 
+
     const prompt = `
-ROLE: Expert Travel Guide (Narration Layer).
-TONE: Premium, Professional, Engaging, Vivid.
+ROLE: You are "TUGGI", a world-class, intelligent local guide.
+GOAL: Create a brief, engaging audio narration (MAX 30s) for the user.
+TONE: Natural, conversational, and context-aware. Like a friend in the car.
 
-JOURNAL CONTEXT:
-- Traveling by: ${context.travel_mode === 'drive' ? 'Car/Driving' : 'Walking'}.
-- LANGUAGE: ${context.language}.
+--- RAW CONTEXT DATA ---
+[USER STATE]
+- Mode: ${context.travel_mode}
+- Speed: ${context.speed} km/h
+- Language: ${context.language}
 
-CURRENT TARGET (The POI we are approaching):
-- Name: "${targetPoi.name}" (${targetPoi.type})
-- Location: ${directionBucket}
-- Proximity: ${targetPoi.distance} meters. 
-  IMPORTANT: Use natural expressions like "logo ali", "em instantes", or "à sua frente". NEVER mention exact meters/kilometers.
+[SCENARIO]
+1. TARGET POI (Approaching now): "${targetPoi.name}" (${targetPoi.type}).
+   - Position relative to user: ${currentRelPos}.
+   - Distance: ${targetPoi.distance} meters.
 
-STRICT SOURCE MATERIAL (Rules for current POI):
-- Use ONLY the following information for historical/factual content:
-  "${facts.description}"
-- Bonus details from Fact Pack (if relevant):
-  ${JSON.stringify(facts.facts_pack_json)}
-- CRITICAL: Do NOT include external facts about the city, region, or general history ("Clube dos Escravos", "Capital da Linguiça", etc) UNLESS they are explicitly present in the texts above. Stay focused ONLY on this specific POI.
+2. PREVIOUS POI (Just passed): ${context.previous_poi ? `"${context.previous_poi.name}" (${context.previous_poi.type})` : "None"}.
+   - Time since visit: ${timeSinceLastPoiStr}.
 
-HISTORY (Transitions):
-${context.previous_poi ? `- Last POI played: "${context.previous_poi.name}" (Type: ${context.previous_poi.type}). 
-- recency: played ${timeSinceLastPoiStr} ago. 
-- Rule: If played recently (under 2 mins), acknowledge the journey (e.g. "Logo após passarmos pelo..."). If more than 5 mins, ignore it.` : 'No previous POI.'}
+3. NEXT POI (Up next): ${context.next_poi ? `"${context.next_poi.name}" (${context.next_poi.type})` : "None"}.
+   - Position relative to user: ${nextRelPos}.
 
-FUTURE (Suggestions - NO SUPPOSITIONS):
-${context.next_poi ? `- Potential next interest: "${context.next_poi.name}" (${context.next_poi.type}). 
-- Rule: Do NOT assume the driver is going there. Use phrases like "Se você continuar sua jornada, poderá se interessar pelo..." or "Quem sabe sua próxima parada seja...".` : 'No next POI known.'}
+[SOURCE KNOWLEDGE]
+"${facts.description}"
+${JSON.stringify(facts.facts_pack_json)}
 
-FINAL GUIDELINES:
-1. START with the navigational hook (e.g., "Logo à sua frente...").
-2. DO NOT ALUCINATE: If a fact is not in the SOURCE MATERIAL, omit it.
-3. BE CONCISE: Final script MUST be around 30 seconds of speech. At 1.2x rate, this means a maximum of 75 words. 
-4. NARRATIVE: Blend the hook, the transition (if recent), and the POI description into a single fluid story.
+--- INTELLIGENCE DIRECTIVES ---
+1. BE THE DIRECTOR: You decide what is relevant. 
+   - Is the previous POI boring or too long ago? Ignore it.
+   - Is the next POI interesting? Tease it.
+   
+2. FLUIDITY FIRST: Do NOT follow a template. 
+   - Do NOT feel forced to mention the "rearview mirror" unless it adds value to the story.
+   
+3. SPATIAL AWARENESS: You know where things are (LEFT, RIGHT, AHEAD, BEHIND). Use this naturally to guide the user's eyes.
+
+4. TARGET LANGUAGE STRLY: Output ONLY in ${context.language}.
+
+--- CRITICAL NEGATIVE CONSTRAINTS ---
+1. ABSOLUTELY NO GREETINGS: Do NOT start with "E aí", "Olá", "Oi", "Hello". Start with the subject.
+2. NO METERS/DISTANCES: Never say "400 meters". Say "just ahead", "approaching", "nearby".
+3. NO FILLERS: Delete "Fica ligado", "Preste atenção".
+
+BAD OUTPUT (DO NOT DO THIS):
+"E aí! A 400 metros temos o Lago." (Reason: Greeting + Meters)
+
+GOOD OUTPUT (DO THIS):
+"À nossa frente surge o imponente Lago do Taboão, o cartão postal da cidade..."
+
+GENERATE THE SCRIPT NOW:
 `;
 
-    console.log('[Contextual Generator] Generating premium script...');
+    console.log('[Contextual Generator] Generating high-fidelity script with Gemini 1.5 Flash...');
 
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
+                tools: [{ google_search: {} }],
+                safetySettings: [
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" }
+                ],
                 generationConfig: {
-                    temperature: 0.3 // Low temperature for consistency
+                    temperature: 0.8,
+                    topP: 0.95,
+                    maxOutputTokens: 150
                 }
             })
         }

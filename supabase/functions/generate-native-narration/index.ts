@@ -220,7 +220,7 @@ STRICT NARRATION RULES:
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
                     generationConfig: {
-                        response_mime_type: "audio/mp3",
+                        response_modalities: ["AUDIO"],
                         speechConfig: {
                             voiceConfig: {
                                 prebuiltVoiceConfig: {
@@ -234,13 +234,22 @@ STRICT NARRATION RULES:
         );
 
         if (!geminiResponse.ok) {
-            console.error(`[Gemini Error]`, await geminiResponse.text());
-            throw new Error("Gemini Generation Failed");
+            const errBody = await geminiResponse.text();
+            console.error(`[Gemini Error]`, errBody);
+            // Include a small part of the error body in the error message for the fallback JSON
+            throw new Error(`Gemini Generation Failed: ${geminiResponse.statusText} - ${errBody.substring(0, 100)}`);
         }
 
         const result = await geminiResponse.json();
-        const base64Audio = result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        const textContent = poiData.description.substring(0, 300) + "...";
+        const parts = result.candidates?.[0]?.content?.parts || [];
+
+        // Find the part that contains audio data
+        const audioPart = parts.find((p: any) => p.inlineData && (p.inlineData.mimeType?.startsWith('audio/') || p.inlineData.data));
+        const base64Audio = audioPart?.inlineData?.data;
+
+        // Find text part for transcript if available
+        const textPart = parts.find((p: any) => p.text);
+        const textContent = (textPart?.text || poiData.description).substring(0, 300) + "...";
 
         if (!base64Audio) throw new Error("No audio data");
 
