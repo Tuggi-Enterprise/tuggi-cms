@@ -9,10 +9,10 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-requested-with, accept, origin, referer, user-agent',
 };
 
-const PROJECT_URL = Deno.env.get('PROJECT_URL') || '';
-const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || '';
+const PROJECT_URL = Deno.env.get('PROJECT_URL') || Deno.env.get('SUPABASE_URL') || '';
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY') || '';
 const GEMINI_API_KEY = Deno.env.get('GOOGLE_GEMINI_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
-const GOOGLE_TTS_API_KEY = Deno.env.get('GOOGLE_TTS_API_KEY') || Deno.env.get('GOOGLE_CLOUD_API_KEY') || '';
+const GOOGLE_TTS_API_KEY = Deno.env.get('GOOGLE_TTS_API_KEY') || Deno.env.get('GOOGLE_CLOUD_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
 
 const supabaseAdmin = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
 
@@ -92,6 +92,28 @@ async function generateCacheKey(poiId: string, poiType: string, language: string
     const msgUint8 = new TextEncoder().encode(data);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
     return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+
+/**
+ * Auto-Heal: Triggers the master generation function in the background
+ */
+async function triggerMasterGeneration(poiId: string, language: string) {
+    try {
+        console.log(`[Auto-Heal] Starting background master generation for ${poiId}...`);
+        const generateDescriptionUrl = `${PROJECT_URL}/functions/v1/generate-description`;
+        const resp = await fetch(generateDescriptionUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${SERVICE_ROLE_KEY}`
+            },
+            body: JSON.stringify({ poi_id: poiId, language: language })
+        });
+        console.log(`[Auto-Heal] Status for ${poiId}: ${resp.status}`);
+    } catch (err) {
+        console.error(`[Auto-Heal] Background trigger failed for ${poiId}:`, err);
+    }
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -335,30 +357,16 @@ serve(async (req: Request): Promise<Response> => {
                     : Promise.resolve({ data: null })
             ]);
 
-            if (!targetData.data || !targetData.data.description) {
-                const errorMsg = `[Contextual Narration] Base content missing for target_poi: ${target_poi.id} (${target_poi.name}). Triggering auto-generation in background...`;
+            const targetFacts = targetData.data?.facts_pack_json;
+            const hasFacts = targetFacts && Array.isArray(targetFacts) && targetFacts.length > 0;
+            const hasDescription = targetData.data?.description && targetData.data.description.length > 10;
+
+            if (!targetData.data || !hasDescription) {
+                const errorMsg = `[Contextual Narration] Base content missing for target_poi: ${target_poi.id} (${target_poi.name}). Triggering master auto-generation...`;
                 console.warn(errorMsg);
 
-                // Auto-Heal Trigger: Call generate-description in background
-                const generateDescriptionUrl = `${PROJECT_URL}/functions/v1/generate-description`;
-                const autoHealTask = (async () => {
-                    try {
-                        console.log(`[Auto-Heal] Starting background generation for ${target_poi.id}...`);
-                        const resp = await fetch(generateDescriptionUrl, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${SERVICE_ROLE_KEY}`
-                            },
-                            body: JSON.stringify({ poi_id: target_poi.id, language: language })
-                        });
-                        console.log(`[Auto-Heal] Status for ${target_poi.id}: ${resp.status}`);
-                    } catch (err) {
-                        console.error(`[Auto-Heal] Background trigger failed for ${target_poi.id}:`, err);
-                    }
-                })();
-
-                // Ensure the response isn't blocked but the background task has a chance to finish in Deno
+                // Full Auto-Heal (Blocker)
+                const autoHealTask = triggerMasterGeneration(target_poi.id, language);
                 // @ts-ignore
                 if (typeof EdgeRuntime !== 'undefined') { EdgeRuntime.waitUntil(autoHealTask); }
 
@@ -367,6 +375,15 @@ serve(async (req: Request): Promise<Response> => {
                     error: "BASE_CONTENT_MISSING",
                     poi_id: target_poi.id
                 }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+            }
+
+            // Partial Auto-Heal (Non-blocker): We have description but no facts.
+            // We proceed with the description but trigger facts generation for next time.
+            if (!hasFacts) {
+                console.warn(`[Contextual Narration] Facts missing for ${target_poi.id}. Proceeding with description fallback and triggering background healing...`);
+                const autoHealTask = triggerMasterGeneration(target_poi.id, language);
+                // @ts-ignore
+                if (typeof EdgeRuntime !== 'undefined') { EdgeRuntime.waitUntil(autoHealTask); }
             }
 
             // Step B: Contextual Script Generation with full arc data

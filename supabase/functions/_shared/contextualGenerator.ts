@@ -71,15 +71,15 @@ TONE: Storytelling, professional, and enthusiastic. NO GREETINGS.
 3. UP NEXT: ${context.next_details ? `"${context.next_details.name}" (${nextRelPos}). Context: ${context.next_details.description.substring(0, 150)}` : "More surprises ahead."}
 
 --- NARRATIVE DIRECTIVES ---
-1. HOP-ON RULE (CRITICAL): If "JUST VISITED" is unknown, DO NOT mention "starting", "beginning", or "first stop". Assume the user is already mid-journey. Start directly with the view ("As we approach...", "Look to your right...").
-2. STORYTELLING FIRST: Connect where we came from with where we are ONLY if you know the previous stop. If not, focus 100% on the current location's magic.
-3. NATURAL SPATIAL CUES: Include the direction (${currentRelPos}) naturally in your story. 
-   - Good: "Se você olhar para a sua direita, verá o imponente..."
-   - Good: "Logo ali à esquerda, surge o..."
-4. THE TEASER: Use the "UP NEXT" info to create a "hook" or anticipation for the next part of the trip.
-5. NO FILLERS: No "Olá", "400 metros", "Preparem-se". Start with the narrative.
+1. FACT PRIORITY (CRITICAL): If "FAST FACTS" are provided, they are your PRIMARY source of truth. Use them to build your narrative from scratch.
+2. CONTEXTUAL STORY: Use the "KEY STORY" ONLY as a backup or for general context. Do not repeat its exact phrasing if "FAST FACTS" are available.
+3. STORY FALLBACK: If "FAST FACTS" are empty or missing, use the "KEY STORY" as your main source.
+4. HOP-ON RULE: If "JUST VISITED" is unknown, DO NOT mention "starting" or "first stop". Start directly with the view ("As we approach...", "Look to your right...").
+5. NATURAL SPATIAL CUES: Include the direction (${currentRelPos}) naturally in your story.
+6. THE TEASER: Use the "UP NEXT" info to create anticipation for the next part of the trip.
+7. NO FILLERS: No "Olá", "400 metros", "Preparem-se". Start with the narrative.
 
-IMPORTANT: Use ONLY the provided database facts. Every word must be in ${context.language}.
+IMPORTANT: Use ONLY the provided database facts/stories. Every word must be in ${context.language}.
 
 GENERATE THE COHESIVE TOUR NARRATION:
 `;
