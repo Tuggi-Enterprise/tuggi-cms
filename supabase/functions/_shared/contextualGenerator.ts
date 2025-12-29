@@ -1,14 +1,24 @@
 // _shared/contextualGenerator.ts
 
-interface UserContext {
-    poi_location: {
+export interface POIDetail {
+    name: string;
+    description: string;
+    facts: any;
+}
+
+export interface UserContext {
+    poi_location?: {
         latitude: number;
         longitude: number;
     };
     speed: number;
     heading: number;
+    bearing?: number; // Added to handle current POI bearing
     travel_mode: string;
     language: string;
+    target_details: POIDetail;
+    previous_details?: POIDetail;
+    next_details?: POIDetail;
     previous_poi?: {
         id: string;
         name: string;
@@ -25,24 +35,18 @@ interface UserContext {
     };
 }
 
-interface PoiFacts {
-    description: string;
-    facts_pack_json: any;
-}
-
 /**
  * Contextual Narration Script (Step B)
  * Takes the high-quality Step A Master Description and adds a navigational "hook".
  */
 export const generateNarrativeScript = async (
     context: UserContext,
-    facts: PoiFacts,
-    targetPoi: { name: string, type: string, bearing: number, distance: number },
     apiKey: string
 ): Promise<string> => {
 
     // Calculate raw relative positions for AI decision making
     const getRelativePosition = (poiHeading: number) => {
+        if (!context.heading || context.heading === -1) return "AROUND";
         const diff = poiHeading - context.heading;
         const norm = ((diff + 180) % 360) - 180;
         if (norm > 45 && norm < 135) return "RIGHT";
@@ -51,78 +55,36 @@ export const generateNarrativeScript = async (
         return "AHEAD";
     };
 
-    const currentRelPos = getRelativePosition(targetPoi.bearing);
-    const nextRelPos = context.next_poi ? getRelativePosition(context.next_poi.bearing) : "UNKNOWN";
-
-    // Placeholder for timeSinceLastPoiStr - this would need to be calculated based on previous_poi.played_at
-    // For now, we'll just use a generic string if previous_poi exists, or "N/A"
-    let timeSinceLastPoiStr = "N/A";
-    if (context.previous_poi) {
-        const playedAt = new Date(context.previous_poi.played_at);
-        const now = new Date();
-        const diffMs = now.getTime() - playedAt.getTime();
-        const diffSeconds = Math.round(diffMs / 1000);
-        if (diffSeconds < 60) {
-            timeSinceLastPoiStr = `${diffSeconds} seconds ago`;
-        } else {
-            timeSinceLastPoiStr = `${Math.round(diffSeconds / 60)} minutes ago`;
-        }
-    }
-
+    const currentRelPos = getRelativePosition(context.bearing || 0);
+    const nextRelPos = context.next_poi ? getRelativePosition(context.next_poi.bearing || 0) : "UNKNOWN";
 
     const prompt = `
-ROLE: You are "TUGGI", a world-class, intelligent local guide.
-GOAL: Create a brief, engaging audio narration (MAX 30s) for the user.
-TONE: Natural, conversational, and context-aware. Like a friend in the car.
+ROLE: You are "TUGGI", a legendary, charismatic local tour guide. 
+GOAL: Create a single, fluid narrative (MAX 50s) that connects the user's journey. 
+TONE: Storytelling, professional, and enthusiastic. NO GREETINGS.
 
---- RAW CONTEXT DATA ---
-[USER STATE]
-- Mode: ${context.travel_mode}
-- Speed: ${context.speed} km/h
-- Language: ${context.language}
+--- THE JOURNEY ARC (DATA FROM DATABASE) ---
+1. JUST VISITED: ${context.previous_details ? `"${context.previous_details.name}". Context: ${context.previous_details.description.substring(0, 200)}` : "Moving through the city (Unknown previous context)."}
+2. ARRIVING NOW: "${context.target_details.name}". Position: ${currentRelPos}.
+   - KEY STORY: ${context.target_details.description}
+   - FAST FACTS: ${JSON.stringify(context.target_details.facts)}
+3. UP NEXT: ${context.next_details ? `"${context.next_details.name}" (${nextRelPos}). Context: ${context.next_details.description.substring(0, 150)}` : "More surprises ahead."}
 
-[SCENARIO]
-1. TARGET POI (Approaching now): "${targetPoi.name}" (${targetPoi.type}).
-   - Position relative to user: ${currentRelPos}.
-   - Distance: ${targetPoi.distance} meters.
+--- NARRATIVE DIRECTIVES ---
+1. HOP-ON RULE (CRITICAL): If "JUST VISITED" is unknown, DO NOT mention "starting", "beginning", or "first stop". Assume the user is already mid-journey. Start directly with the view ("As we approach...", "Look to your right...").
+2. STORYTELLING FIRST: Connect where we came from with where we are ONLY if you know the previous stop. If not, focus 100% on the current location's magic.
+3. NATURAL SPATIAL CUES: Include the direction (${currentRelPos}) naturally in your story. 
+   - Good: "Se você olhar para a sua direita, verá o imponente..."
+   - Good: "Logo ali à esquerda, surge o..."
+4. THE TEASER: Use the "UP NEXT" info to create a "hook" or anticipation for the next part of the trip.
+5. NO FILLERS: No "Olá", "400 metros", "Preparem-se". Start with the narrative.
 
-2. PREVIOUS POI (Just passed): ${context.previous_poi ? `"${context.previous_poi.name}" (${context.previous_poi.type})` : "None"}.
-   - Time since visit: ${timeSinceLastPoiStr}.
+IMPORTANT: Use ONLY the provided database facts. Every word must be in ${context.language}.
 
-3. NEXT POI (Up next): ${context.next_poi ? `"${context.next_poi.name}" (${context.next_poi.type})` : "None"}.
-   - Position relative to user: ${nextRelPos}.
-
-[SOURCE KNOWLEDGE]
-"${facts.description}"
-${JSON.stringify(facts.facts_pack_json)}
-
---- INTELLIGENCE DIRECTIVES ---
-1. BE THE DIRECTOR: You decide what is relevant. 
-   - Is the previous POI boring or too long ago? Ignore it.
-   - Is the next POI interesting? Tease it.
-   
-2. FLUIDITY FIRST: Do NOT follow a template. 
-   - Do NOT feel forced to mention the "rearview mirror" unless it adds value to the story.
-   
-3. SPATIAL AWARENESS: You know where things are (LEFT, RIGHT, AHEAD, BEHIND). Use this naturally to guide the user's eyes.
-
-4. TARGET LANGUAGE STRLY: Output ONLY in ${context.language}.
-
---- CRITICAL NEGATIVE CONSTRAINTS ---
-1. ABSOLUTELY NO GREETINGS: Do NOT start with "E aí", "Olá", "Oi", "Hello". Start with the subject.
-2. NO METERS/DISTANCES: Never say "400 meters". Say "just ahead", "approaching", "nearby".
-3. NO FILLERS: Delete "Fica ligado", "Preste atenção".
-
-BAD OUTPUT (DO NOT DO THIS):
-"E aí! A 400 metros temos o Lago." (Reason: Greeting + Meters)
-
-GOOD OUTPUT (DO THIS):
-"À nossa frente surge o imponente Lago do Taboão, o cartão postal da cidade..."
-
-GENERATE THE SCRIPT NOW:
+GENERATE THE COHESIVE TOUR NARRATION:
 `;
 
-    console.log('[Contextual Generator] Generating high-fidelity script with Gemini 1.5 Flash...');
+    console.log('[Contextual Generator] Generating group-context script with Gemini 2.5 Flash-Lite...');
 
     const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
@@ -131,7 +93,6 @@ GENERATE THE SCRIPT NOW:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
-                tools: [{ google_search: {} }],
                 safetySettings: [
                     { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
                     { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
@@ -141,20 +102,18 @@ GENERATE THE SCRIPT NOW:
                 generationConfig: {
                     temperature: 0.8,
                     topP: 0.95,
-                    maxOutputTokens: 150
+                    maxOutputTokens: 200
                 }
             })
         }
     );
 
     if (!response.ok) {
-        throw new Error(`Gemini API Error (Contextual): ${response.statusText}`);
+        const error = await response.text();
+        console.error('[Gemini API Error] Status:', response.status, 'Body:', error);
+        throw new Error(`Gemini API error: ${response.status}`);
     }
 
     const result = await response.json();
-    const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!text) throw new Error('Gemini returned empty text for contextual script');
-
-    return text.trim();
+    return result.candidates[0].content.parts[0].text;
 };
