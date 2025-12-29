@@ -117,3 +117,17 @@ GENERATE THE COHESIVE TOUR NARRATION:
     const result = await response.json();
     return result.candidates[0].content.parts[0].text;
 };
+
+import { translateWithGemini } from './translationUtility.ts';
+
+/**
+ * Translation Utility
+ * Translates an existing narrative into the requested language while maintaining the persona.
+ */
+export const translateNarrative = async (
+    text: string,
+    targetLanguage: string,
+    apiKey: string
+): Promise<string> => {
+    return translateWithGemini(text, targetLanguage, apiKey);
+};

@@ -16,8 +16,28 @@ export function getDirectionBucket(heading: number, bearing: number): string {
     return "ahead";
 }
 
+
 export function getCardinalDirection(angle: number): string {
     const directions = ['North', 'North-East', 'East', 'South-East', 'South', 'South-West', 'West', 'North-West'];
     const index = Math.round(((angle %= 360) < 0 ? angle + 360 : angle) / 45) % 8;
     return directions[index];
+}
+
+/**
+ * Calculate the bearing between two points
+ * @returns Bearing in degrees (0-360)
+ */
+export function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) -
+        Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+
+    let θ = Math.atan2(y, x);
+    let bearing = (θ * 180 / Math.PI + 360) % 360;
+
+    return bearing;
 }
