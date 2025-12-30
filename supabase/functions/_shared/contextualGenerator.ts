@@ -30,10 +30,12 @@ export interface UserContext {
         id: string;
         name: string;
         type: string;
+        distance: number;
         bearing: number;
-        location: { latitude: number; longitude: number };
+        // Note: location removed - frontend no longer sends this
     };
 }
+
 
 /**
  * Contextual Narration Script (Step B)
