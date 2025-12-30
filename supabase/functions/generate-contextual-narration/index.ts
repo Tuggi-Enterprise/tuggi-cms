@@ -180,9 +180,12 @@ serve(async (req: Request): Promise<Response> => {
         }
 
         // NORMALIZE: Conditional Fetch - Only query DB if data is missing or invalid
-        const needsTargetFix = target_poi.bearing === -1 || !target_poi.location || (user_context.location && target_poi.location.latitude === user_context.location.latitude);
-        const needsNextFix = user_context.next_poi && (user_context.next_poi.bearing === -1 || !user_context.next_poi.location || user_context.next_poi.location.latitude === 0);
-        const needsPrevFix = user_context.previous_poi && (!user_context.previous_poi.location || user_context.previous_poi.location.latitude === 0);
+        // FIX: Check for valid latitude (not just truthy object) since {} is truthy but invalid
+        const hasValidLocation = (loc: any) => loc && typeof loc.latitude === 'number' && loc.latitude !== 0;
+
+        const needsTargetFix = target_poi.bearing === -1 || !hasValidLocation(target_poi.location);
+        const needsNextFix = user_context.next_poi && (user_context.next_poi.bearing === -1 || !hasValidLocation(user_context.next_poi.location));
+        const needsPrevFix = user_context.previous_poi && !hasValidLocation(user_context.previous_poi.location);
 
         if (needsTargetFix || needsNextFix || needsPrevFix) {
             const poiIdsToFetch = [
@@ -206,7 +209,13 @@ serve(async (req: Request): Promise<Response> => {
                 if (needsTargetFix) {
                     const coords = coordMap.get(target_poi.id);
                     if (coords && user_context.location) {
-                        target_poi.bearing = calculateBearing(user_context.location.latitude, user_context.location.longitude, coords.latitude, coords.longitude);
+                        // Only recalculate bearing if it's invalid (-1). Preserve valid bearings from frontend.
+                        if (target_poi.bearing === -1) {
+                            target_poi.bearing = calculateBearing(user_context.location.latitude, user_context.location.longitude, coords.latitude, coords.longitude);
+                            console.log(`[Fix] Recalculated bearing for ${target_poi.id}: ${target_poi.bearing.toFixed(1)}°`);
+                        } else {
+                            console.log(`[Fix] Preserved valid bearing ${target_poi.bearing.toFixed(1)}° for ${target_poi.id}, only fixing location`);
+                        }
                         target_poi.location = { latitude: coords.latitude, longitude: coords.longitude };
                     }
                 }
@@ -320,6 +329,57 @@ serve(async (req: Request): Promise<Response> => {
                     text_content: textContent,
                     expires_at: expiresAt.toISOString()
                 });
+            } else {
+                // Priority 3: Full Generation (Optimistic locking for Race Conditions)
+                // Try to insert a "Pending" record.
+                const expiresAtTemp = new Date();
+                expiresAtTemp.setMinutes(expiresAtTemp.getMinutes() + 5); // 5 min temp expiration
+
+                const { error: insertError } = await supabaseAdmin.schema('core')
+                    .from('cache_narrations')
+                    .insert({
+                        cache_key: cacheKey,
+                        poi_id: target_poi.id,
+                        language: language,
+                        travel_mode: travel_mode,
+                        direction_bucket: directionBucket,
+                        text_content: null, // PENDING MARKER
+                        expires_at: expiresAtTemp.toISOString()
+                    });
+
+                if (insertError) {
+                    // 23505 = Unique Violation (Another request beat us to it)
+                    if (insertError.code === '23505') {
+                        console.log(`[Race Condition] Detected ongoing generation for ${cacheKey}. Waiting...`);
+
+                        // Polling Loop (Max 15s)
+                        for (let i = 0; i < 15; i++) {
+                            await new Promise(r => setTimeout(r, 1000));
+                            const { data: retry } = await supabaseAdmin.schema('core')
+                                .from('cache_narrations')
+                                .select('*')
+                                .eq('cache_key', cacheKey)
+                                .eq('language', language)
+                                .maybeSingle();
+
+                            if (retry?.text_content) {
+                                console.log(`[Race Condition] Resolved! returning data for ${cacheKey}`);
+                                return new Response(JSON.stringify({
+                                    success: true,
+                                    data: {
+                                        text_content: retry.text_content,
+                                        audio_url: retry.audio_url
+                                    }
+                                }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+                            }
+                        }
+                        // Fallback if timeout
+                        throw new Error("Timeout waiting for parallel generation");
+                    } else {
+                        console.error('[Cache Insert Error]', insertError);
+                        // Continue anyway, maybe upsert will fix it later
+                    }
+                }
             }
         }
 
