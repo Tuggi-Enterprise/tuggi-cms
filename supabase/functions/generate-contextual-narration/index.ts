@@ -313,14 +313,12 @@ serve(async (req: Request): Promise<Response> => {
             }
 
 
-            // Step A: Fetch Rich Context for ALL POIs in the arc
-            const [targetData, prevData, nextData] = await Promise.all([
+            // Step A: Fetch Rich Context for target and previous POIs
+            // Note: next_poi data is received but not used in narration for now (no DB fetch needed)
+            const [targetData, prevData] = await Promise.all([
                 supabaseAdmin.schema('core').from('attraction_descriptions').select('*').eq('attraction_id', target_poi.id).eq('language', language).maybeSingle(),
                 (user_context.previous_poi && shouldIncludePrevious)
                     ? supabaseAdmin.schema('core').from('attraction_descriptions').select('*').eq('attraction_id', user_context.previous_poi.id).eq('language', language).maybeSingle()
-                    : Promise.resolve({ data: null }),
-                user_context.next_poi
-                    ? supabaseAdmin.schema('core').from('attraction_descriptions').select('*').eq('attraction_id', user_context.next_poi.id).eq('language', language).maybeSingle()
                     : Promise.resolve({ data: null })
             ]);
 
@@ -353,7 +351,7 @@ serve(async (req: Request): Promise<Response> => {
                 if (typeof EdgeRuntime !== 'undefined') { EdgeRuntime.waitUntil(autoHealTask); }
             }
 
-            // Step B: Contextual Script Generation with full arc data
+            // Step B: Contextual Script Generation (target + previous only, next_poi reserved for future use)
             textContent = await generateNarrativeScript(
                 {
                     ...user_context,
@@ -361,7 +359,7 @@ serve(async (req: Request): Promise<Response> => {
                     language,
                     poi_location: target_poi.location,
                     bearing: target_poi.bearing,
-                    // Pass full database details for the generator to use
+                    // Pass database details for target and previous POIs
                     target_details: {
                         name: targetData.data.attraction_name || target_poi.name || "POI",
                         description: targetData.data.description,
@@ -371,15 +369,12 @@ serve(async (req: Request): Promise<Response> => {
                         name: prevData.data.attraction_name || user_context.previous_poi?.name || "POI",
                         description: prevData.data.description,
                         facts: prevData.data.facts_pack_json
-                    } : undefined,
-                    next_details: nextData.data ? {
-                        name: nextData.data.attraction_name || user_context.next_poi?.name || "POI",
-                        description: nextData.data.description,
-                        facts: nextData.data.facts_pack_json
                     } : undefined
+                    // Note: next_details not passed - reserved for future use
                 },
                 GEMINI_API_KEY
             );
+
 
             // Save to Cache (TEXT ONLY)
             const expiresAt = new Date();
