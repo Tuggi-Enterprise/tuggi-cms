@@ -87,11 +87,9 @@ NARRATIVE GUIDELINES:
 ═══════════════════════════════════════════════════════════════
 
 1. FOCUS: The current destination is the star. Dedicate 90% of your narration to it.
-
 2. SMOOTH TRANSITION: ${transitionContext
             ? `Optionally begin with a brief, natural transition from "${context.previous_details?.name}" - just a phrase or sentence to maintain flow. Examples: "Leaving behind the...", "After experiencing...", "From here...". Keep it SHORT.`
             : `Start directly with the current destination. Use spatial cues like "Look to your ${currentRelPos.toLowerCase()}..." or "As we approach...".`}
-
 3. RICH STORYTELLING: Paint a picture with words. Include:
    - What makes this place special or unique
    - Interesting historical or cultural facts
@@ -99,14 +97,11 @@ NARRATIVE GUIDELINES:
    - A memorable fact or curiosity that sticks
 
 4. USE THE FACTS: If "FACTS" are provided, they are gold. Weave them naturally into your story.
-
 5. STAY GROUNDED: Use ONLY the provided information. Do not invent historical dates, names, or statistics not present in the data.
-
 6. SPATIAL AWARENESS: Naturally mention the direction (${currentRelPos}) so the traveler knows where to look.
-
 7. LANGUAGE: Write entirely in ${context.language}. Match local expressions and tone.
-
 8. NO FILLERS: Skip greetings like "Olá" or "Welcome". Jump straight into the narrative.
+9. TONE CHECK: Be warm and conversational, like a knowledgeable friend talking to you. Avoid overly poetic, melodramatic, or "speech-like" phrases (e.g., avoid "beauty of a future built on roots of the past"). Keep it grounded.
 
 NOW, CREATE YOUR NARRATION:
 `;

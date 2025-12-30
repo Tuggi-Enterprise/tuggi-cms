@@ -4,36 +4,12 @@
 export const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
   // Simplified voice mapping with more basic voices
   const voiceMap: Record<string, { male: string; female: string; languageCode: string }> = {
-    'en': {
-      male: 'en-US-Neural2-J',
-      female: 'en-US-Neural2-F',
-      languageCode: 'en-US'
-    },
-    'en-us': {
-      male: 'en-US-Neural2-J',
-      female: 'en-US-Neural2-F',
-      languageCode: 'en-US'
-    },
-    'es': {
-      male: 'es-ES-Neural2-B',
-      female: 'es-ES-Neural2-A',
-      languageCode: 'es-ES'
-    },
-    'es-es': {
-      male: 'es-ES-Neural2-B',
-      female: 'es-ES-Neural2-A',
-      languageCode: 'es-ES'
-    },
-    'pt': {
-      male: 'pt-BR-Neural2-B',
-      female: 'pt-BR-Neural2-A',
-      languageCode: 'pt-BR'
-    },
-    'pt-br': {
-      male: 'pt-BR-Neural2-B',
-      female: 'pt-BR-Neural2-A',
-      languageCode: 'pt-BR'
-    },
+    'en': { male: 'en-US-Neural2-J', female: 'en-US-Neural2-F', languageCode: 'en-US' },
+    'en-us': { male: 'en-US-Neural2-J', female: 'en-US-Neural2-F', languageCode: 'en-US' },
+    'es': { male: 'es-ES-Neural2-B', female: 'es-ES-Neural2-A', languageCode: 'es-ES' },
+    'es-es': { male: 'es-ES-Neural2-B', female: 'es-ES-Neural2-A', languageCode: 'es-ES' },
+    'pt': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A', languageCode: 'pt-BR' },
+    'pt-br': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A', languageCode: 'pt-BR' },
   };
 
   const normalizedLang = language.toLowerCase();
@@ -44,17 +20,28 @@ export const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
     console.log(`[Voice Config] Language ${language} not found, using English fallback`);
     return {
       name: gender === 'male' ? 'en-US-Neural2-J' : 'en-US-Neural2-F',
-      languageCode: 'en-US'
+      languageCode: 'en-US',
+      pitch: gender === 'male' ? -1.5 : -1.0
     };
   }
 
-  const result = {
+  return {
     name: voices[gender],
-    languageCode: voices.languageCode
+    languageCode: voices.languageCode,
+    pitch: gender === 'male' ? -1.5 : -1.0 // Lower pitch for more "authority" and less "robot"
   };
+};
 
-  console.log(`[Voice Config] Selected voice: ${result.name} for language: ${result.languageCode}`);
-  return result;
+/**
+ * Sanitores text for SSML to avoid XML errors
+ */
+const escapeSsml = (text: string) => {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 };
 
 // Generate audio using Google Cloud TTS
@@ -65,13 +52,15 @@ export const generateAudioWithTTS = async (
   apiKey: string
 ): Promise<ArrayBuffer> => {
   console.log(`[TTS] Starting audio generation for language: ${language}, gender: ${gender}`);
-  console.log(`[TTS] Text length: ${text.length} characters`);
 
   const voiceConfig = getVoiceConfig(language, gender);
-  console.log(`[TTS] Voice config:`, voiceConfig);
+  const sanitizedText = escapeSsml(text);
 
+  // Use SSML for better control over the narration
   const requestBody = {
-    input: { text },
+    input: {
+      ssml: `<speak>${sanitizedText}</speak>`
+    },
     voice: {
       languageCode: voiceConfig.languageCode,
       name: voiceConfig.name,
@@ -79,22 +68,18 @@ export const generateAudioWithTTS = async (
     },
     audioConfig: {
       audioEncoding: 'MP3',
-      speakingRate: 1.2, // Increased for better pace as requested
-      pitch: 0.0,
+      speakingRate: 1.15, // Slightly reduced from 1.2 for better clarity with the lower pitch
+      pitch: voiceConfig.pitch,
       volumeGainDb: 0.0,
       sampleRateHertz: 24000,
     },
   };
 
-  console.log(`[TTS] Request body:`, JSON.stringify(requestBody, null, 2));
-
   const response = await fetch(
     `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
     }
   );
