@@ -5,9 +5,10 @@ export const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
   // Simplified voice mapping with more basic voices
   const voiceMap: Record<string, { male: string; female: string; languageCode: string }> = {
     'en': { male: 'en-US-Neural2-J', female: 'en-US-Neural2-F', languageCode: 'en-US' },
-    'en-us': { male: 'en-US-Neural2-B', female: 'en-US-Neural2-A', languageCode: 'en-US' },
+    'en-us': { male: 'en-US-Neural2-J', female: 'en-US-Neural2-F', languageCode: 'en-US' },
     'es': { male: 'es-ES-Neural2-B', female: 'es-ES-Neural2-A', languageCode: 'es-ES' },
-    'es-es': { male: 'es-US-Neural2-B', female: 'es-US-Neural2-A', languageCode: 'es-US' },
+    'es-es': { male: 'es-ES-Neural2-B', female: 'es-ES-Neural2-A', languageCode: 'es-ES' },
+    'es-us': { male: 'es-US-Neural2-B', female: 'es-US-Neural2-A', languageCode: 'es-US' },
     'pt': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A', languageCode: 'pt-BR' },
     'pt-br': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A', languageCode: 'pt-BR' },
   };

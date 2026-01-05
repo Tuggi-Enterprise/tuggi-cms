@@ -19,6 +19,13 @@ export interface UserContext {
     target_details: POIDetail;
     previous_details?: POIDetail;
     next_details?: POIDetail;
+    next_poi_candidates?: {
+        id: string;
+        name: string;
+        type: string;
+        category?: string;
+        location: { latitude: number; longitude: number };
+    }[];
     previous_poi?: {
         id: string;
         name: string;
