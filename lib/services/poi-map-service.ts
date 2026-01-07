@@ -13,12 +13,16 @@ import { getSupabaseClient } from '@/lib/core/supabase-client'
 export interface MapPOI {
   id: string
   name: string
-  city: string
-  state: string
-  country: string
   latitude: number
   longitude: number
-  approved: boolean
+  type: 'cluster' | 'poi'
+  count: number
+  metadata?: any
+  // Legacy compatibility fields (optional)
+  city?: string
+  state?: string
+  country?: string
+  approved?: boolean
   rating?: number
   image_url?: string
   formatted_address?: string
@@ -32,124 +36,69 @@ export interface MapSearchFilters {
   city?: string
   status?: 'all' | 'approved' | 'pending'
   search?: string
+  googleTypes?: string
 }
 
 export interface MapSearchOptions {
-  onProgress?: (loaded: number, total: number) => void
-  onChunk?: (chunk: MapPOI[], total: number) => void
-  maxParallel?: number
-  chunkSize?: number
+  // Options for react-query if needed
 }
 
 export interface MapSearchResult {
   data: MapPOI[]
-  total: number
   duration: number
 }
 
 /**
- * Fetch POIs optimized for map display with parallel loading
+ * Fetch POIs optimized for map display using server-side clustering
  */
 export async function fetchPOIsForMap(
   filters: MapSearchFilters,
-  options: MapSearchOptions = {}
+  bounds: { minLat: number; minLng: number; maxLat: number; maxLng: number },
+  zoom: number
 ): Promise<MapSearchResult> {
   const startTime = performance.now()
-  
-  const {
-    onProgress,
-    onChunk,
-    maxParallel = 3,
-    chunkSize = 5000
-  } = options
-
   const supabase = getSupabaseClient()
   
-  // Step 1: Get total count first (fast query)
-  const totalCount = await getMapPOICount(filters)
-  console.log(`🗺️ Total POIs to fetch: ${totalCount}`)
-  
-  if (totalCount === 0) {
-    return { data: [], total: 0, duration: performance.now() - startTime }
-  }
+  console.log(`🗺️ Fetching map POIs with bounds [${bounds.minLat}, ${bounds.minLng}] to [${bounds.maxLat}, ${bounds.maxLng}] zoom ${zoom}`)
 
-  // Step 2: Fetch in parallel chunks
-  const allPOIs: MapPOI[] = []
-  const totalChunks = Math.ceil(totalCount / chunkSize)
-  
-  for (let i = 0; i < totalChunks; i += maxParallel) {
-    // Create batch of parallel requests
-    const batchPromises: Promise<{ data: any[] | null; error: any }>[] = []
-    
-    for (let j = 0; j < maxParallel && (i + j) < totalChunks; j++) {
-      const offset = (i + j) * chunkSize
-      
-      console.log(`🔍 Fetching chunk ${i + j + 1}/${totalChunks} (offset: ${offset})`)
-      
-      // Build RPC call (note: RPCs have hard 1000 limit, chunkSize should be 1000)
-      const rpcCall = supabase.schema('core').rpc('cms_search_pois_map', {
-        country_filter: filters.country || null,
-        state_filter: filters.state || null,
-        city_filter: filters.city || null,
-        status_filter: filters.status || 'all',
-        search_term: filters.search || null,
-        limit_count: chunkSize,
-        offset_count: offset
-      })
-      
-      batchPromises.push(rpcCall)
-    }
-    
-    // Wait for parallel batch
-    const results = await Promise.all(batchPromises)
-    
-    // Process results
-    results.forEach(({ data, error }) => {
-      if (error) {
-        console.error('❌ Chunk fetch error:', error)
-        return
-      }
-      
-      if (data && data.length > 0) {
-        const typedData = data.map(row => ({
-          id: row.id,
-          name: row.name,
-          city: row.city,
-          state: row.state,
-          country: row.country,
-          latitude: parseFloat(row.latitude),
-          longitude: parseFloat(row.longitude),
-          approved: row.approved,
-          rating: row.rating ? parseFloat(row.rating) : undefined,
-          image_url: row.image_url,
-          formatted_address: row.formatted_address,
-          user_ratings_total: row.user_ratings_total,
-          google_types: row.google_types
-        }))
-        
-        allPOIs.push(...typedData)
-        
-        // Callback for progressive rendering
-        if (onChunk) {
-          onChunk(typedData, totalCount)
-        }
-      }
-    })
-    
-    // Progress callback
-    if (onProgress) {
-      onProgress(allPOIs.length, totalCount)
-    }
-    
-    console.log(`✅ Batch complete: ${allPOIs.length}/${totalCount} POIs loaded`)
+  const { data, error } = await supabase.schema('core').rpc('cms_search_pois_map', {
+    min_lat: bounds.minLat,
+    min_lng: bounds.minLng,
+    max_lat: bounds.maxLat,
+    max_lng: bounds.maxLng,
+    zoom_level: zoom,
+    search_term: filters.search || null,
+    status_filter: filters.status || 'all',
+    country_filter: filters.country || null,
+    state_filter: filters.state || null,
+    city_filter: filters.city || null,
+    google_types_filter: filters.googleTypes || null
+  })
+
+  if (error) {
+    console.error('❌ Error fetching map POIs:', error)
+    return { data: [], duration: performance.now() - startTime }
   }
   
+  // Transform data
+  const pois: MapPOI[] = (data || []).map((row: any) => ({
+    id: row.ids && row.ids.length > 0 ? row.ids[0] : row.id, // For clusters, row.id might be null if aggregated heavily, but our SQL returns ID if count <= 10 or just ID
+    name: row.name,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    type: row.type as 'cluster' | 'poi',
+    count: row.count,
+    metadata: row.metadata,
+    // Map metadata to legacy fields if available (for individual POIs)
+    city: row.metadata?.city,
+    state: row.metadata?.state
+  }))
+
   const duration = performance.now() - startTime
-  console.log(`🎉 Map POIs loaded: ${allPOIs.length} POIs in ${(duration / 1000).toFixed(2)}s`)
+  console.log(`✅ Map fetch complete: ${pois.length} items (clusters/pois) in ${(duration / 1000).toFixed(2)}s`)
   
   return {
-    data: allPOIs,
-    total: totalCount,
+    data: pois,
     duration
   }
 }
@@ -196,6 +145,7 @@ async function getMapPOICount(filters: MapSearchFilters): Promise<number> {
 /**
  * Fetch single page for normal pagination (fallback)
  */
+// Deprecated or fallback using world bounds
 export async function fetchMapPOIsPage(
   filters: MapSearchFilters,
   limit: number = 1000,
@@ -203,37 +153,33 @@ export async function fetchMapPOIsPage(
 ): Promise<MapPOI[]> {
   const supabase = getSupabaseClient()
   
+  // Call with world bounds
   const { data, error } = await supabase.schema('core').rpc('cms_search_pois_map', {
+    min_lat: -90,
+    min_lng: -180,
+    max_lat: 90,
+    max_lng: 180,
+    zoom_level: 15, // High zoom to get points
+    search_term: filters.search || null,
+    status_filter: filters.status || 'all',
     country_filter: filters.country || null,
     state_filter: filters.state || null,
     city_filter: filters.city || null,
-    status_filter: filters.status || 'all',
-    search_term: filters.search || null,
-    limit_count: limit,
-    offset_count: offset
+     google_types_filter: filters.googleTypes || null
   })
   
-  if (error) {
-    console.error('❌ Error fetching map POIs page:', error)
-    return []
-  }
-  
-  if (!data) return []
+  if (error || !data) return []
   
   return data.map((row: any) => ({
     id: row.id,
     name: row.name,
-    city: row.city,
-    state: row.state,
-    country: row.country,
-    latitude: parseFloat(row.latitude),
-    longitude: parseFloat(row.longitude),
-    approved: row.approved,
-    rating: row.rating ? parseFloat(row.rating) : undefined,
-    image_url: row.image_url,
-    formatted_address: row.formatted_address,
-    user_ratings_total: row.user_ratings_total,
-    google_types: row.google_types
+    latitude: row.latitude,
+    longitude: row.longitude,
+    type: row.type,
+    count: row.count,
+    metadata: row.metadata,
+    city: row.metadata?.city,
+    state: row.metadata?.state
   }))
 }
 

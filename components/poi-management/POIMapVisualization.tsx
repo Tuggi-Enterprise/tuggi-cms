@@ -58,6 +58,9 @@ interface POI {
   available_languages: string[]
   trigger_points_count: number
   active_trigger_points_count: number
+  // Server-side clustering support
+  type?: 'cluster' | 'poi'
+  count?: number
 }
 
 // City Boundary interface
@@ -95,6 +98,7 @@ interface POIMapVisualizationProps {
   // Callbacks
   onPOIClick: (poi: POI) => void
   onFiltersChange?: (bounds: google.maps.LatLngBounds) => void
+  onBoundsChanged?: (bounds: { minLat: number; minLng: number; maxLat: number; maxLng: number }, zoom: number) => void
   onPOIUpdated?: (updatedPOI: POI) => void
   onPOIDeleted?: (poiId: string) => void
   
@@ -168,6 +172,7 @@ function POIMapContent({
   triggerPointsFilter = 'all',
   onPOIClick,
   onFiltersChange,
+  onBoundsChanged,
   onPOIUpdated,
   onPOIDeleted,
   initialCenter = { lat: 39.8283, lng: -98.5795 }, // Center of USA
@@ -333,23 +338,38 @@ function POIMapContent({
         ...prev,
         zoom: zoom
       }))
-      
-      // Update clustering mode based on zoom
-      const newConfig = getClusteringConfig(zoom)
-      if (newConfig.mode !== clusteringMode) {
-        console.log(`🗺️ [POIMapVisualization] Zoom changed: ${zoom}, switching to ${newConfig.name}`)
-        setClusteringMode(newConfig.mode)
-        setIsTransitioning(true)
+    })
+
+    // Listen for idle event to trigger server-side fetch
+    // Debounce to prevent rapid updates
+    map.addListener('idle', () => {
+      if (onBoundsChanged) {
+        if (boundsChangedTimeoutRef.current) {
+          clearTimeout(boundsChangedTimeoutRef.current)
+        }
         
-        // Trigger marker update after a short delay for smooth transition
-        setTimeout(() => {
-          setIsTransitioning(false)
-        }, 300)
+        boundsChangedTimeoutRef.current = setTimeout(() => {
+          if (!mapInstanceRef.current) return
+          
+          const bounds = mapInstanceRef.current.getBounds()
+          const zoom = mapInstanceRef.current.getZoom()
+          
+          if (bounds && zoom) {
+            const ne = bounds.getNorthEast()
+            const sw = bounds.getSouthWest()
+            onBoundsChanged({
+              minLat: sw.lat(),
+              minLng: sw.lng(),
+              maxLat: ne.lat(),
+              maxLng: ne.lng()
+            }, zoom)
+          }
+        }, 500) // 500ms debounce
       }
     })
 
     setIsLoading(false)
-  }, [initialCenter, initialZoom, onFiltersChange, clusteringMode, getClusteringConfig, mapState.center, mapState.zoom])
+  }, [initialCenter, initialZoom, onFiltersChange, onBoundsChanged, mapState.center, mapState.zoom])
 
   // Remove viewport-based caching since we're using the search API
 
@@ -600,113 +620,68 @@ function POIMapContent({
     }
 
     // Create new markers for filtered POIs
+    // Create new markers for filtered POIs
     const newMarkers: google.maps.Marker[] = []
 
-    // Render based on clustering mode
-    if (clusteringMode === 'clustered' && !isTransitioning) {
-      console.log('🗺️ [POIMapVisualization] Rendering clustered markers:', {
-        filteredPOIsCount: filteredPOIs.length,
-        clusteringConfig,
-        currentZoom
-      })
-      
-      // Create individual markers for clustering
-      filteredPOIs.forEach((poi, index) => {
-        if (!poi.coordinates?.latitude || !poi.coordinates?.longitude) {
-          console.warn(`🗺️ [POIMapVisualization] Skipping POI ${index} - no coordinates:`, poi)
-          return
-        }
+    // Create new markers using server-side type information
+    filteredPOIs.forEach((poi, index) => {
+      if (!poi.coordinates?.latitude || !poi.coordinates?.longitude) return
 
-        const position = new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude)
-        const status = getPOIStatus(poi)
-        const isSelected = selectedPOI?.id === poi.id
+      const position = new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude)
+      const isSelected = selectedPOI?.id === poi.id
 
-        const marker = new google.maps.Marker({
+      let marker: google.maps.Marker
+
+      if (poi.type === 'cluster') {
+        // Render as cluster
+        const count = poi.count || 0
+        marker = new google.maps.Marker({
           position,
-          title: `${poi.name} - Click to edit`,
-          icon: createMarkerIcon(status, isSelected),
-          // Don't add to map directly - let clusterer handle it
-          map: null,
-          cursor: 'pointer'
-        })
-
-        // Add click listener
-        marker.addListener('click', () => {
-          onPOIClick(poi)
-          setSelectedPOI(poi)
-        })
-
-        markersRef.current.set(poi.id, marker)
-        newMarkers.push(marker)
-      })
-
-      // Initialize MarkerClusterer
-      if (newMarkers.length > 0) {
-        markerClustererRef.current = new MarkerClusterer({
+          icon: {
+            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+              <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="20" cy="20" r="18" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+                <text x="20" y="26" text-anchor="middle" fill="white" font-size="12" font-weight="bold">
+                  ${count > 999 ? Math.floor(count/1000) + 'k' : count}
+                </text>
+              </svg>
+            `),
+            scaledSize: new google.maps.Size(40, 40),
+            anchor: new google.maps.Point(20, 20)
+          },
+          label: {
+            text: count.toString(),
+            color: 'white',
+            fontSize: '12px',
+            fontWeight: 'bold'
+          },
+          zIndex: 1000,
           map: mapInstanceRef.current!,
-          markers: newMarkers,
-          renderer: {
-            render: ({ count, position }) => {
-              return new google.maps.Marker({
-                position,
-                icon: {
-                  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-                    <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-                      <circle cx="20" cy="20" r="18" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
-                      <text x="20" y="26" text-anchor="middle" fill="white" font-size="12" font-weight="bold">
-                        ${count > 999 ? Math.floor(count/1000) + 'k' : count}
-                      </text>
-                    </svg>
-                  `),
-                  scaledSize: new google.maps.Size(40, 40),
-                  anchor: new google.maps.Point(20, 20)
-                },
-                label: {
-                  text: count.toString(),
-                  color: 'white',
-                  fontSize: '12px',
-                  fontWeight: 'bold'
-                },
-                zIndex: 1000
-              })
-            }
-          }
+          cursor: 'pointer'
         })
-      }
-    } else {
-      console.log('🗺️ [POIMapVisualization] Rendering individual markers:', {
-        filteredPOIsCount: filteredPOIs.length,
-        clusteringMode,
-        isTransitioning
-      })
-      
-      filteredPOIs.forEach((poi, index) => {
-        if (!poi.coordinates?.latitude || !poi.coordinates?.longitude) {
-          console.warn(`🗺️ [POIMapVisualization] Skipping POI ${index} - no coordinates:`, poi)
-          return
-        }
+        
+        // Zoom in on cluster click
+        marker.addListener('click', () => {
+           const map = mapInstanceRef.current
+           if (map) {
+             map.setCenter(position)
+             map.setZoom((map.getZoom() || 0) + 2)
+           }
+        })
 
-        const position = new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude)
+      } else {
+        // Render as individual POI
         const status = getPOIStatus(poi)
-        const isSelected = selectedPOI?.id === poi.id
-
-        console.log(`🗺️ [POIMapVisualization] Creating marker for POI ${index}:`, {
-          name: poi.name,
-          coordinates: poi.coordinates,
-          status,
-          isSelected
-        })
-
-        const marker = new google.maps.Marker({
+        marker = new google.maps.Marker({
           position,
-          title: `${poi.name} - Click to edit`,
+          title: `${poi.name}`,
           icon: createMarkerIcon(status, isSelected),
-          map: mapInstanceRef.current!, // Always add to map since clustering is disabled
+          map: mapInstanceRef.current!,
           cursor: 'pointer'
         })
 
-      // Create info window content
-      const infoContent = `
+        // Standard POI click handler
+        const infoContent = `
         <div class="p-3 max-w-xs">
           <div class="flex items-start space-x-3">
             ${(() => {
@@ -746,7 +721,7 @@ function POIMapContent({
                   ${poi.approved ? 'Approved' : 'Pending'}
                 </span>
                 <div class="text-xs text-blue-600 font-medium">
-                  ✏️ Click marker to edit
+                  ✏️ Click to edit
                 </div>
               </div>
             </div>
@@ -754,46 +729,32 @@ function POIMapContent({
         </div>
       `
 
-      const infoWindow = new google.maps.InfoWindow({
-        content: infoContent
-      })
-
-      marker.addListener('click', () => {
-        // Close other info windows
-        markersRef.current.forEach((otherMarker, otherId) => {
-          if (otherId !== poi.id && (otherMarker as any).infoWindow) {
-            ;(otherMarker as any).infoWindow.close()
-          }
+        const infoWindow = new google.maps.InfoWindow({
+          content: infoContent
         })
 
-        // Open the POI Details Modal directly
-        onPOIClick(poi)
-        setSelectedPOI(poi)
-        
-        // Update marker icon to show selection
-        marker.setIcon(createMarkerIcon(status, true))
-        
-        // Reset other markers
-        markersRef.current.forEach((otherMarker, otherId) => {
-          if (otherId !== poi.id) {
-            const otherPOI = filteredPOIs.find(p => p.id === otherId)
-            if (otherPOI) {
-              otherMarker.setIcon(createMarkerIcon(getPOIStatus(otherPOI), false))
+        marker.addListener('click', () => {
+           // Close other info windows
+          markersRef.current.forEach((otherMarker, otherId) => {
+            if (otherId !== poi.id && (otherMarker as any).infoWindow) {
+              ;(otherMarker as any).infoWindow.close()
             }
-          }
+          })
+
+          onPOIClick(poi)
+          setSelectedPOI(poi)
+          marker.setIcon(createMarkerIcon(status, true))
+          
+          infoWindow.open(mapInstanceRef.current!, marker)
         })
 
-        // Also show info window for additional context
-        infoWindow.open(mapInstanceRef.current!, marker)
-      })
-
-      // Store info window reference
-      ;(marker as any).infoWindow = infoWindow
+        ;(marker as any).infoWindow = infoWindow
+      }
 
       markersRef.current.set(poi.id, marker)
       newMarkers.push(marker)
     })
-    }
+
 
     // Log rendering results
     console.log('🗺️ [POIMapVisualization] Rendering complete:', {
