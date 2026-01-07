@@ -1397,7 +1397,7 @@ export class OSMService {
     try {
       console.log('🗺️ [SERVICE] Fetching optimized map POIs:', { filters, bounds, zoom })
 
-      const { data, error } = await supabase.rpc('get_coordinates_in_bounds', {
+      const { data, error } = await supabase.schema('homolog').rpc('get_coordinates_in_bounds', {
         min_lat: bounds.minLat,
         min_lng: bounds.minLng,
         max_lat: bounds.maxLat,

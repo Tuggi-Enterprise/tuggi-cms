@@ -119,7 +119,7 @@ export function OptimizedOSMMap({
   }, [pois, selectedFeatureIds])
 
   return (
-    <div className="relative">
+    <div className="relative" style={{ height }}>
       {/* Loading Indicator */}
       {(isLoading || isFetching) && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 bg-white dark:bg-gray-800 rounded-full shadow-lg px-4 py-2 pointer-events-none">
