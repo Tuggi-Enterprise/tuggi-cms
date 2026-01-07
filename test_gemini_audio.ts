@@ -46,8 +46,8 @@ async function testGeminiAudio() {
         }
 
         const parts = data.candidates?.[0]?.content?.parts || [];
-        const audioPart = parts.find(p => p.inlineData);
-        const textPart = parts.find(p => p.text);
+        const audioPart = parts.find((p: any) => p.inlineData);
+        const textPart = parts.find((p: any) => p.text);
 
         console.log(`✅ Sucesso em ${duration}ms!`);
         if (textPart) console.log(`Transcrição: "${textPart.text}"`);
@@ -66,7 +66,7 @@ async function testGeminiAudio() {
             console.log("Resposta Completa:", JSON.stringify(data, null, 2));
         }
 
-    } catch (error) {
+    } catch (error: any) {
         console.error("❌ Erro ao chamar a API:", error.message);
     }
 }

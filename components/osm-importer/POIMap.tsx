@@ -259,7 +259,6 @@ export function POIMap({
         countryFilter=""
         stateFilter={stateFilter}
         cityFilter={cityFilter}
-        googleTypesFilter=""
         contentStatusFilter="all"
         groupStatusFilter="all"
         triggerPointsFilter="all"

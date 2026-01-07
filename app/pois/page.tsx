@@ -41,7 +41,7 @@ function POIListWithSearchParams() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending'>('all')
   const [cityFilter, setCityFilter] = useState('')
-  const [googleTypesFilter, setGoogleTypesFilter] = useState('')
+
   const [contentStatusFilter, setContentStatusFilter] = useState<'all' | 'missing_description' | 'missing_audio' | 'complete'>('all')
   const [groupStatusFilter, setGroupStatusFilter] = useState<'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'>('all')
   const [scoreFilter, setScoreFilter] = useState<'all' | 'no_score' | 'rejected' | 'pending' | 'approved'>('all')
@@ -75,13 +75,13 @@ function POIListWithSearchParams() {
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
 
   // Function to update URL with current filter states and view mode
-  const updateURL = (filters: {
+  const updateURL = useCallback((filters: {
     search?: string
     status?: string
     city?: string
     country?: string
     state?: string
-    googleTypes?: string
+
     contentStatus?: string
     groupStatus?: string
     scoreFilter?: string
@@ -108,9 +108,7 @@ function POIListWithSearchParams() {
       params.set('city', filters.city)
     }
 
-    if (filters.googleTypes && filters.googleTypes.trim()) {
-      params.set('googleTypes', filters.googleTypes)
-    }
+
     if (filters.contentStatus && filters.contentStatus !== 'all') {
       params.set('contentStatus', filters.contentStatus)
     }
@@ -132,7 +130,7 @@ function POIListWithSearchParams() {
 
     const newURL = params.toString() ? `?${params.toString()}` : ''
     router.replace(`/pois${newURL}`, { scroll: false })
-  }
+  }, [router])
 
   // Read filters from URL on mount
   const readFiltersFromURL = useCallback(() => {
@@ -141,7 +139,7 @@ function POIListWithSearchParams() {
     const city = searchParams.get('city') || ''
     const country = searchParams.get('country') || ''
     const state = searchParams.get('state') || ''
-    const googleTypes = searchParams.get('googleTypes') || ''
+
     const contentStatus = (searchParams.get('contentStatus') as 'all' | 'missing_description' | 'missing_audio' | 'complete') || 'all'
     const groupStatus = (searchParams.get('groupStatus') as 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member') || 'all'
     const score = (searchParams.get('scoreFilter') as 'all' | 'no_score' | 'rejected' | 'pending' | 'approved') || 'all'
@@ -154,7 +152,7 @@ function POIListWithSearchParams() {
     setCityFilter(city)
     setCountryFilter(country)
     setStateFilter(state)
-    setGoogleTypesFilter(googleTypes)
+
     setContentStatusFilter(contentStatus)
     setGroupStatusFilter(groupStatus)
     setScoreFilter(score)
@@ -232,7 +230,7 @@ function POIListWithSearchParams() {
         country: countryFilter,
         state: stateFilter,
         city: cityFilter,
-        googleTypes: googleTypesFilter,
+
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
@@ -265,7 +263,7 @@ function POIListWithSearchParams() {
     } finally {
       setIsLoading(false)
     }
-  }, [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, itemsPerPage, currentPage, getMapLoadingStrategy])
+  }, [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, itemsPerPage, currentPage, viewMode])
 
 
   // Stable references to prevent infinite loops
@@ -347,7 +345,7 @@ function POIListWithSearchParams() {
         city: cityFilter,
         country: countryFilter,
         state: stateFilter,
-        googleTypes: googleTypesFilter,
+
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
@@ -356,7 +354,7 @@ function POIListWithSearchParams() {
         view: viewMode
       })
     }
-  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, googleTypesFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, currentPage, viewMode, isInitializing, updateURL])
+  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, currentPage, viewMode, isInitializing, updateURL])
 
   // Transform POI from service to modal format
   const transformPOIForModal = (poi: POIType): POI => ({
@@ -532,7 +530,7 @@ function POIListWithSearchParams() {
     setCityFilter('')
     setCountryFilter('')
     setStateFilter('')
-    setGoogleTypesFilter('')
+
     setContentStatusFilter('all')
     setGroupStatusFilter('all')
     setScoreFilter('all')
@@ -554,18 +552,7 @@ function POIListWithSearchParams() {
       value: city.name,
       label: city.name
     })),
-    googleTypes: [
-      { value: 'tourist_attraction', label: 'Tourist Attraction' },
-      { value: 'museum', label: 'Museum' },
-      { value: 'park', label: 'Park' },
-      { value: 'restaurant', label: 'Restaurant' },
-      { value: 'lodging', label: 'Lodging' },
-      { value: 'shopping_mall', label: 'Shopping Mall' },
-      { value: 'church', label: 'Church' },
-      { value: 'hospital', label: 'Hospital' },
-      { value: 'school', label: 'School' },
-      { value: 'bank', label: 'Bank' }
-    ],
+
     categories: POI_CATEGORIES.map(cat => ({
       value: cat.value,
       label: cat.label
@@ -790,24 +777,7 @@ function POIListWithSearchParams() {
                   </select>
                 </div>
 
-                {/* Google Types Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Google Types
-                  </label>
-                  <select
-                    value={googleTypesFilter}
-                    onChange={(e) => setGoogleTypesFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                  >
-                    <option value="">All Types</option>
-                    {filterOptions.googleTypes.map((type) => (
-                      <option key={type.value} value={type.value}>
-                        {type.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+
 
                 {/* Group Status Filter */}
                 <div>
@@ -940,7 +910,6 @@ function POIListWithSearchParams() {
                 countryFilter={countryFilter}
                 stateFilter={stateFilter}
                 cityFilter={cityFilter}
-                googleTypesFilter={googleTypesFilter}
                 contentStatusFilter={contentStatusFilter}
                 groupStatusFilter={groupStatusFilter}
                 triggerPointsFilter={triggerPointsFilter}

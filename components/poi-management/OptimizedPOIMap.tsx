@@ -12,7 +12,7 @@ interface OptimizedPOIMapProps {
   countryFilter: string
   stateFilter: string
   cityFilter: string
-  googleTypesFilter: string
+
   contentStatusFilter: string
   groupStatusFilter?: string
   triggerPointsFilter?: string
@@ -36,7 +36,7 @@ export function OptimizedPOIMap({
   countryFilter,
   stateFilter,
   cityFilter,
-  googleTypesFilter,
+
   contentStatusFilter,
   groupStatusFilter,
   triggerPointsFilter,
@@ -53,8 +53,7 @@ export function OptimizedPOIMap({
     state: stateFilter || undefined,
     city: cityFilter || undefined,
     status: statusFilter,
-    search: searchTerm || undefined,
-    googleTypes: googleTypesFilter || undefined
+    search: searchTerm || undefined
   }
 
   // Fetch POIs using React Query
@@ -81,12 +80,7 @@ export function OptimizedPOIMap({
       city: poi.city || '',
       state: poi.state || null,
       country: poi.country || '',
-      approved: poi.approved || false,
-      rating: poi.rating || null,
-      image_url: poi.image_url || null,
-      formatted_address: poi.formatted_address || null,
-      user_ratings_total: poi.user_ratings_total || null,
-      google_types: poi.google_types || null,
+      approved: poi.approved !== undefined ? poi.approved : false,
       coordinates: {
         latitude: poi.latitude,
         longitude: poi.longitude
@@ -94,8 +88,7 @@ export function OptimizedPOIMap({
       // Pass through new fields
       type: poi.type,
       count: poi.count,
-      
-      // Default values to satisfy interface
+      // Default values to satisfy interface (for fields not returned by map RPC yet)
       category: '',
       approved_by: null,
       approved_at: null,
@@ -110,8 +103,10 @@ export function OptimizedPOIMap({
       photos_references: null,
       google_place_id: null,
       user_id: null,
-      has_description: false,
-      has_audio: false,
+      
+      // Use extended fields
+      has_description: poi.has_description !== undefined ? poi.has_description : false,
+      has_audio: poi.has_audio !== undefined ? poi.has_audio : false,
       description_count: 0,
       audio_count: 0,
       available_languages: [],
@@ -159,7 +154,7 @@ export function OptimizedPOIMap({
         countryFilter={countryFilter}
         stateFilter={stateFilter}
         cityFilter={cityFilter}
-        googleTypesFilter={googleTypesFilter}
+
         contentStatusFilter={contentStatusFilter as any}
         groupStatusFilter={groupStatusFilter as any}
         triggerPointsFilter={triggerPointsFilter as any}

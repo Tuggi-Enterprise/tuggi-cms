@@ -69,8 +69,21 @@ async function verifyMapRPC() {
     
     if (points.length > 0) {
       console.log('   Example Point:', JSON.stringify(points[0], null, 2))
+      // Check metadata fields
+      const sample = points[0]
+      console.log('\nSample POI metadata check:')
+      if (sample.metadata) {
+        console.log('✅ Metadata present')
+        console.log('   - Approved:', sample.metadata.approved !== undefined ? '✅' : '❌ missing')
+        console.log('   - Has Description:', sample.metadata.has_description !== undefined ? '✅' : '❌ missing')
+        console.log('   - Has Audio:', sample.metadata.has_audio !== undefined ? '✅' : '❌ missing')
+      } else {
+        console.log('❌ Metadata missing')
+      }
     } else if (highZoomData.length === 0) {
        console.log('   ℹ️ No POIs found in this small area (Sao Paulo region). Try a different area if expected.')
+    } else {
+      console.log('No individual POIs found in viewport (checked points array)')
     }
   }
 }

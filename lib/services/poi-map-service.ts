@@ -23,11 +23,8 @@ export interface MapPOI {
   state?: string
   country?: string
   approved?: boolean
-  rating?: number
-  image_url?: string
-  formatted_address?: string
-  user_ratings_total?: number
-  google_types?: string[]
+  has_description?: boolean
+  has_audio?: boolean
 }
 
 export interface MapSearchFilters {
@@ -36,7 +33,6 @@ export interface MapSearchFilters {
   city?: string
   status?: 'all' | 'approved' | 'pending'
   search?: string
-  googleTypes?: string
 }
 
 export interface MapSearchOptions {
@@ -71,8 +67,7 @@ export async function fetchPOIsForMap(
     status_filter: filters.status || 'all',
     country_filter: filters.country || null,
     state_filter: filters.state || null,
-    city_filter: filters.city || null,
-    google_types_filter: filters.googleTypes || null
+    city_filter: filters.city || null
   })
 
   if (error) {
@@ -91,7 +86,11 @@ export async function fetchPOIsForMap(
     metadata: row.metadata,
     // Map metadata to legacy fields if available (for individual POIs)
     city: row.metadata?.city,
-    state: row.metadata?.state
+    state: row.metadata?.state,
+    country: row.metadata?.country,
+    approved: row.metadata?.approved,
+    has_description: row.metadata?.has_description,
+    has_audio: row.metadata?.has_audio
   }))
 
   const duration = performance.now() - startTime
@@ -164,8 +163,7 @@ export async function fetchMapPOIsPage(
     status_filter: filters.status || 'all',
     country_filter: filters.country || null,
     state_filter: filters.state || null,
-    city_filter: filters.city || null,
-     google_types_filter: filters.googleTypes || null
+    city_filter: filters.city || null
   })
   
   if (error || !data) return []
