@@ -10,7 +10,32 @@
  * @module lib/services/osm-service-simple
  */
 
-import { SimpleOSMPOI, ImportResults } from '../hooks/use-osm-importer-simple'
+import { SimpleOSMPOI, ImportResults } from '../types/osm-types'
+import { getSupabaseClient } from '@/lib/core/supabase-client'
+
+// Interface for optimized map data (matching MapPOI from poi-map-service)
+export interface MapPOI {
+  id: string
+  type: 'cluster' | 'poi'
+  latitude: number
+  longitude: number
+  count: number
+  name?: string
+  city?: string
+  state?: string
+  country?: string
+  category?: string
+  approved?: boolean
+}
+
+// Map filters interface
+export interface OSMMapFilters {
+  country?: string
+  state?: string
+  city?: string
+  category?: string
+  search?: string
+}
 
 export class OSMService {
   // Circuit breaker for Nominatim API
@@ -1353,6 +1378,66 @@ export class OSMService {
       state: poi.properties.state || 'Unknown',
       country: poi.properties.country || 'Unknown',
       category: poi.properties.primary_category || poi.properties.category || 'Unknown'
+    }
+  }
+
+
+  /**
+   * Search POIs for map visualization using optimized server-side clustering
+   * Calls homolog.get_coordinates_in_bounds RPC
+   */
+  static async searchMapPOIs(
+    filters: OSMMapFilters,
+    bounds: { minLat: number; minLng: number; maxLat: number; maxLng: number },
+    zoom: number
+  ): Promise<{ data: MapPOI[]; duration: number }> {
+    const startTime = performance.now()
+    const supabase = getSupabaseClient()
+
+    try {
+      console.log('🗺️ [SERVICE] Fetching optimized map POIs:', { filters, bounds, zoom })
+
+      const { data, error } = await supabase.rpc('get_coordinates_in_bounds', {
+        min_lat: bounds.minLat,
+        min_lng: bounds.minLng,
+        max_lat: bounds.maxLat,
+        max_lng: bounds.maxLng,
+        zoom_level: zoom,
+        limit_count: 5000,
+        city_filter: filters.city || null,
+        state_filter: filters.state || null,
+        category_filter: filters.category || null,
+        search_term: filters.search || null
+      })
+
+      if (error) {
+        console.error('❌ [SERVICE] Map RPC error:', error)
+        throw error
+      }
+
+      const duration = performance.now() - startTime
+      console.log(`✅ [SERVICE] Map POIs fetched in ${duration.toFixed(0)}ms:`, data?.length || 0)
+
+      // Map RPC result to MapPOI interface
+      // The RPC returns { id, type, count, latitude, longitude, name, category }
+      const mapPOIs: MapPOI[] = (data || []).map((item: any) => ({
+        id: item.id || `cluster-${item.latitude}-${item.longitude}`, // Fallback ID for clusters if null
+        type: item.type as 'cluster' | 'poi',
+        latitude: item.latitude,
+        longitude: item.longitude,
+        count: item.count,
+        name: item.name,
+        category: item.category,
+        city: filters.city, // Pass context if known
+        state: filters.state,
+        country: 'Brazil', // Default
+        approved: false // Default for homolog
+      }))
+
+      return { data: mapPOIs, duration }
+    } catch (error) {
+      console.error('❌ [SERVICE] Failed to fetch map POIs:', error)
+      return { data: [], duration: 0 }
     }
   }
 }

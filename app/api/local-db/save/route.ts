@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { LocalSQLiteDB } from '@/lib/services/local-sqlite-db'
-import { SimpleOSMPOI } from '@/lib/hooks/use-osm-importer-simple'
+import { SimpleOSMPOI } from '@/lib/types/osm-types'
 
 export async function POST(request: NextRequest) {
   let localDB: LocalSQLiteDB | null = null

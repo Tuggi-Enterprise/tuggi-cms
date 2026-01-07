@@ -11,7 +11,7 @@
 import { useState } from 'react'
 import { CheckSquare, Square, Edit3, Save, X, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SimpleOSMPOI } from '@/lib/hooks/use-osm-importer-simple'
+import { SimpleOSMPOI } from '@/lib/types/osm-types'
 import { OSMService } from '@/lib/services/osm-service-simple'
 
 interface POITableProps {

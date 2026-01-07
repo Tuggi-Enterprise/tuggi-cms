@@ -13,7 +13,7 @@ import { Table2, Map, CheckSquare, Square, Trash2, Database, RefreshCw, Search, 
 import { cn } from '@/lib/utils'
 import { useHomologPOIViewer } from '@/lib/hooks/use-homolog-poi-viewer'
 import { POITable } from './POITable'
-import { POIMap } from '@/components/osm-importer/POIMap'
+import { OptimizedOSMMap } from '@/components/osm-importer/OptimizedOSMMap'
 
 export function HomologPOIViewer() {
   console.log('🏗️ [HOMOLOG-POI-VIEWER] Component rendering')
@@ -587,10 +587,14 @@ export function HomologPOIViewer() {
                     )}
                   </>
                 ) : (
-                  <POIMap
-                    features={filteredFeatures}
-                    selectedFeatures={selectedFeatures}
-                    onToggleSelection={toggleSelection}
+                  <OptimizedOSMMap
+                    searchTerm={searchTerm}
+                    countryFilter="Brazil"
+                    stateFilter={stateFilter}
+                    cityFilter={cityFilter}
+                    categoryFilter={categoryFilter}
+                    selectedFeatureIds={selectedFeatures}
+                    height="100%"
                   />
                 )}
               </div>

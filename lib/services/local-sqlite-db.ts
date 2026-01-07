@@ -8,7 +8,7 @@
 
 import Database from 'better-sqlite3'
 import { join } from 'path'
-import { SimpleOSMPOI } from '../hooks/use-osm-importer-simple'
+import { SimpleOSMPOI } from '../types/osm-types'
 
 export class LocalSQLiteDB {
   private db: Database.Database | null = null
