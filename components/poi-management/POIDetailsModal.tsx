@@ -1546,16 +1546,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     setCurrentDescription(originalDescription)
   }
 
-  // New function to save description and generate audios
-  const saveDescriptionAndGenerateAudios = async () => {
+  // Function to save description and proceed to next step
+  const saveDescriptionAndNextStep = async () => {
     if (!currentDescription.trim()) {
       showFeedback('Description cannot be empty.', 'error')
       return
     }
 
     setIsSavingDescription(true)
-    setIsGeneratingAudio(true)
-    setIsTranslating(true)
 
     try {
       // First, save the description (reuse the logic from saveDescription)
@@ -1577,7 +1575,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
             updated_at: new Date().toISOString()
           })
           .eq('id', existingDescs.id)
-          .select()
 
         if (error) throw error
       } else {
@@ -1605,80 +1602,36 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       // Update the descriptions array locally
       const currentPoiForDescUpdate2 = getPoi()
-      if (!currentPoiForDescUpdate2) return
-      setDescriptions(prevDescriptions => {
-        const updatedDescriptions = prevDescriptions.map(desc => {
-          if (desc.attraction_id === currentPoiForDescUpdate2.id && desc.language === 'pt-br') {
-            return {
-              ...desc,
-              description: currentDescription,
-              updated_at: new Date().toISOString()
+      if (currentPoiForDescUpdate2) {
+        setDescriptions(prevDescriptions => {
+          const updatedDescriptions = prevDescriptions.map(desc => {
+            if (desc.attraction_id === currentPoiForDescUpdate2.id && desc.language === 'pt-br') {
+              return {
+                ...desc,
+                description: currentDescription,
+                updated_at: new Date().toISOString()
+              }
             }
-          }
-          return desc
+            return desc
+          })
+          return updatedDescriptions
         })
-        return updatedDescriptions
-      })
-
-      // Now generate all audios
-      setAudioProgress({ current: 0, total: 3, currentTask: 'Starting audio generation...' })
-      setAudioResults([])
-
-      const languages = [
-        { code: 'pt-br', name: 'Portuguese' },
-        { code: 'en-us', name: 'English' },
-        { code: 'es-es', name: 'Spanish' }
-      ]
-
-      const results = []
-
-      // Generate Portuguese audio (base language)
-      setAudioProgress({ current: 1, total: 3, currentTask: 'Generating Portuguese audio...' })
-      try {
-        await generateAudioNarration()
-        results.push('✅ Portuguese: audio generated successfully')
-      } catch (error) {
-        results.push(`❌ Portuguese: failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
       }
 
-      // Generate translations for EN and ES (male only)
-      for (let i = 0; i < languages.slice(1).length; i++) {
-        const lang = languages.slice(1)[i]
-        setAudioProgress({
-          current: i + 2,
-          total: 3,
-          currentTask: `Generating ${lang.name} (male) audio...`
-        })
-
-        try {
-          await generateSingleLanguageAudio(lang.code, 'male')
-          results.push(`✅ ${lang.name} (male): generated successfully`)
-        } catch (error) {
-          results.push(`❌ ${lang.name} (male): failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
-        }
-      }
-
-      setAudioProgress({ current: 3, total: 3, currentTask: 'Completed!' })
-      setAudioResults(results)
-      setShowResults(true)
-
-      showFeedback('Description saved and audios generated successfully!', 'success')
+      showFeedback('Description saved. Moving to narration audio...', 'success')
+      
+      // Move to the next tab
+      setActiveTab('narration-audio')
 
       // Buscar dados de verificação atualizados após salvar
       setTimeout(() => {
         fetchVerificationData()
-      }, 1000) // Pequeno delay para garantir que os dados estejam atualizados no banco
+      }, 1000)
     } catch (error) {
-      console.error('Error saving description and generating audios:', error)
-      showFeedback('Failed to save description and generate audios. Please try again.', 'error')
+      console.error('Error saving description:', error)
+      showFeedback('Failed to save description. Please try again.', 'error')
     } finally {
       setIsSavingDescription(false)
-      setIsGeneratingAudio(false)
-      setIsTranslating(false)
-      // Reset progress after a delay
-      setTimeout(() => {
-        setAudioProgress({ current: 0, total: 0, currentTask: '' })
-      }, 3000)
     }
   }
 
@@ -4066,21 +4019,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </div>
                         <div className="flex items-center space-x-2">
                           <button
-                            onClick={saveDescription}
+                            onClick={saveDescriptionAndNextStep}
                             disabled={isSavingDescription || isGeneratingAudio || isGenerating || currentDescription === originalDescription}
                             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
+                            title="Save description and proceed to audio generation"
                           >
-                            <Save className="h-4 w-4 mr-2" />
-                            {isSavingDescription ? 'Saving...' : 'Save Description'}
-                          </button>
-                          <button
-                            onClick={saveDescriptionAndGenerateAudios}
-                            disabled={isSavingDescription || isGeneratingAudio || isGenerating || currentDescription === originalDescription}
-                            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-orange hover:bg-tuggi-orange/90 focus:outline-none focus:ring-2 focus:ring-tuggi-orange disabled:opacity-50"
-                            title="Save description and generate audios in Portuguese, English, and Spanish"
-                          >
-                            <Volume2 className="h-4 w-4 mr-2" />
-                            {isSavingDescription || isGeneratingAudio ? 'Processing...' : 'Save & Generate Audios'}
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            {isSavingDescription ? 'Saving...' : 'Save & Next Step'}
                           </button>
                         </div>
                       </div>
@@ -4356,23 +4301,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <h5 className="text-lg font-medium text-gray-900 dark:text-white">
                             🎵 Available Audios
                           </h5>
-                          <button
-                            onClick={regenerateAllAudios}
-                            disabled={isGeneratingAudio || isTranslating || isSavingDescription || isGenerating || !currentDescription.trim()}
-                            className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-orange hover:bg-tuggi-orange/90 focus:outline-none focus:ring-2 focus:ring-tuggi-orange disabled:opacity-50"
-                          >
-                            {(isGeneratingAudio || isTranslating) ? (
-                              <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                Regenerating All...
-                              </>
-                            ) : (
-                              <>
-                                <RotateCcw className="h-4 w-4 mr-2" />
-                                Regenerate All Audios
-                              </>
-                            )}
-                          </button>
+
                         </div>
                         <div className="overflow-x-auto">
                           <table className="w-full table-auto">

@@ -9,6 +9,7 @@ export const POI_CATEGORIES: POICategory[] = [
   { value: 'all', label: 'All Categories', icon: Target, color: 'bg-gray-500' },
   { value: 'tourist_attraction', label: 'Tourist Attractions', icon: Target, color: 'bg-blue-500' },
   { value: 'museum', label: 'Museums', icon: Building2, color: 'bg-purple-500' },
+  { value: 'city', label: 'Cities', icon: TreePine, color: 'bg-green-500' },
   { value: 'park', label: 'Parks & Gardens', icon: TreePine, color: 'bg-green-500' },
   { value: 'beach', label: 'Beaches', icon: Waves, color: 'bg-blue-400' },
   { value: 'church', label: 'Religious Sites', icon: Church, color: 'bg-amber-600' },
