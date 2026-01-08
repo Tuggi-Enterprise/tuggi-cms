@@ -50,7 +50,7 @@ function OSMImporterContent() {
   // Loading state
   if (isChecking) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="h-full flex items-center justify-center bg-tuggi-background dark:bg-gray-900">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
           <p className="text-gray-600 dark:text-gray-400">Checking database...</p>
@@ -65,7 +65,7 @@ function OSMImporterContent() {
 export default function OSMImporterPage() {
   return (
     <Suspense fallback={
-      <div className="h-screen flex items-center justify-center">
+      <div className="h-full flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     }>

@@ -181,7 +181,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
   // Loading state for initial load
   if (isLoading && !hasData) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="h-full flex items-center justify-center bg-tuggi-background dark:bg-gray-900">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
           <p className="text-gray-600 dark:text-gray-400">Loading POIs...</p>
@@ -193,7 +193,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
   // Empty state
   if (!hasData && !isLoading) {
     return (
-      <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      <div className="h-full flex flex-col bg-tuggi-background dark:bg-gray-900">
         <Header onUpload={() => setShowUploadModal(true)} hasData={false} />
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="w-full max-w-2xl">
@@ -218,7 +218,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+    <div className="h-full flex flex-col bg-tuggi-background dark:bg-gray-900">
       {/* Header */}
       <Header 
         onUpload={() => setShowUploadModal(true)} 

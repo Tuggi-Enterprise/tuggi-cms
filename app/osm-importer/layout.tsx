@@ -6,6 +6,7 @@
  * @module app/osm-importer/layout
  */
 
+import { Header } from '@/components/ui/Header'
 import { Metadata } from 'next'
 
 export const metadata: Metadata = {
@@ -20,8 +21,11 @@ export default function OSMImporterLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {children}
+    <div className="flex flex-col h-screen bg-tuggi-background dark:bg-gray-900">
+      <Header />
+      <main className="flex-1 overflow-auto">
+        {children}
+      </main>
     </div>
   )
 }
