@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   console.log('🔍 API: /api/attraction-groups/of-poi called');
   
-  const supabase = createRouteHandlerClient({ cookies });
+  const cookieStore = await cookies();
+  const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any });
   const { searchParams } = new URL(req.url);
   const poiId = searchParams.get('poiId');
   

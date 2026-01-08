@@ -22,7 +22,8 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
 export const GET = async function(req: NextRequest) {
   console.log('🔍 API: /api/attraction-groups/nearby GET called (no auth)');
   
-  const supabase = createRouteHandlerClient({ cookies });
+  const cookieStore = await cookies();
+  const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any });
   const { searchParams } = new URL(req.url);
   const poiId = searchParams.get('poiId');
   const radius = Number(searchParams.get('radius') || 50);
@@ -77,7 +78,8 @@ export const GET = async function(req: NextRequest) {
 export const POST = async function(req: NextRequest) {
   console.log('🔍 API: /api/attraction-groups/nearby POST called (no auth)');
   
-  const supabase = createRouteHandlerClient({ cookies });
+  const cookieStore = await cookies();
+  const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any });
   const body = await req.json();
   const { polygon, poiId, radius = 50 } = body;
 

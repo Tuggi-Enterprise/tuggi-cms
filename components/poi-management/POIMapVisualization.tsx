@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Wrapper } from '@googlemaps/react-wrapper'
+import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import { 
-  ZoomIn, ZoomOut, Eye, EyeOff, Maximize2
+  ZoomIn, ZoomOut
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+const LIBRARIES: any[] = ['drawing', 'places', 'geometry', 'visualization']
 
 
 // POI interface to match existing structure
@@ -148,8 +150,8 @@ function createMarkerIcon(status: POIStatus, isSelected: boolean = false): googl
   }
 }
 
-// Main Component
-function POIMapContent({
+// Inner Component: Contains only map logic, assumes API is loaded
+function POIMapInner({
   pois = [], // Default to empty
   totalCount,
   searchTerm,
@@ -258,7 +260,8 @@ function POIMapContent({
 
   // 2. Initialize Effect
   useEffect(() => {
-    if (window.google && window.google.maps && !mapInstanceRef.current) {
+    // Only initialize when both Google Maps is loaded AND the map container is rendered
+    if (window.google && window.google.maps && !mapInstanceRef.current && mapRef.current) {
       initializeMap()
     }
   }, [initializeMap])
@@ -439,18 +442,10 @@ function POIMapContent({
   }, [updateCityBoundaries])
 
   return (
-    <div className={cn("relative w-full rounded-lg overflow-hidden border border-gray-200 dark:border-gray-800", className)} style={{ height }}>
-      <Wrapper 
-        apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''} 
-        render={(status) => {
-          if (status === 'LOADING') return <div className="p-4">Loading Map...</div>
-          return <div ref={mapRef} className="w-full h-full bg-gray-100 dark:bg-gray-800" />
-        }}
-        libraries={['drawing', 'places', 'geometry']}
-        version="weekly"
-      />
-
-      {/* Map Controls */}
+    <div className="w-full h-full relative">
+       <div ref={mapRef} className="w-full h-full bg-gray-100 dark:bg-gray-800" />
+       
+       {/* Map Controls overlay */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-1 flex flex-col gap-1">
           <button
@@ -476,7 +471,7 @@ function POIMapContent({
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats overlay */}
       <div className="absolute bottom-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2 z-10">
         <span className="text-sm font-medium text-gray-700">
           {totalCount !== undefined ? `${pois.length} visible / ${totalCount} total` : `${pois.length} items`}
@@ -486,4 +481,23 @@ function POIMapContent({
   )
 }
 
-export const POIMapVisualization = POIMapContent
+// Main Component: Handles loading status
+export function POIMapVisualization(props: POIMapVisualizationProps) {
+  const { className, height } = props
+  
+  return (
+      <div className={cn("relative w-full rounded-lg overflow-hidden border border-gray-200 dark:border-gray-800", className)} style={{ height }}>
+        <Wrapper
+          apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}
+          libraries={LIBRARIES}
+          version="weekly"
+          render={(status) => {
+            if (status === Status.LOADING) return <div className="p-4 flex items-center justify-center h-full">Loading Map...</div>
+            if (status === Status.FAILURE) return <div className="p-4 flex items-center justify-center h-full text-red-500">Failed to load Google Maps</div>
+            if (status === Status.SUCCESS) return <POIMapInner {...props} />
+            return <div>Unknown status</div>
+          }}
+        />
+    </div>
+  )
+}

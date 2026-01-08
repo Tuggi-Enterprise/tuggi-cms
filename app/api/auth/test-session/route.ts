@@ -8,14 +8,14 @@ export async function GET(request: NextRequest) {
   try {
     console.log('🧪 TEST SESSION: Testing session from API route...')
     
-    const supabase = createRouteHandlerClient({ cookies })
+    const cookieStore = await cookies()
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any })
     
     console.log('🧪 TEST SESSION: Request URL:', request.url)
     console.log('🧪 TEST SESSION: Request method:', request.method)
     console.log('🧪 TEST SESSION: Request headers:', Object.fromEntries(request.headers.entries()))
     
     // Get all cookies
-    const cookieStore = await cookies()
     console.log('🧪 TEST SESSION: Cookies store ready')
     
     const { data: { session }, error } = await supabase.auth.getSession()

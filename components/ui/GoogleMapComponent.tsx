@@ -3,6 +3,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 
+const LIBRARIES: any[] = ['drawing', 'places', 'geometry', 'visualization']
+
 interface GoogleMapComponentProps {
   center?: { lat: number; lng: number }
   zoom?: number
@@ -766,7 +768,7 @@ export function GoogleMapComponent({
       <Wrapper
         apiKey={apiKey}
         render={renderFunction}
-        libraries={['drawing', 'places', 'geometry']}
+        libraries={LIBRARIES}
         version="weekly"
       />
     </div>

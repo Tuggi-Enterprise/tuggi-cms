@@ -910,12 +910,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }, [activeTab, getPoi, nearbyPOIs, selectedPOIs, groupInfo, groupName])
 
-  // Debug: Monitor state changes
-  useEffect(() => {
-    if (activeTab === 'boundary') {
-      // console.log('🗺️ [POIDetailsModal] State snapshot:', { /* ... */ });
-    }
-  }, [activeTab])
+
 
 
   const handleTogglePOI = (id: string) => {

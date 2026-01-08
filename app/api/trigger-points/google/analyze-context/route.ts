@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   // Require admin for analysis endpoints
-  const supabaseAuth = createRouteHandlerClient({ cookies })
+  const cookieStore = await cookies()
+  const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
   const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
   if (authError || !session) {
     return NextResponse.json({ error: 'Unauthorized - Authentication required' }, { status: 401 })

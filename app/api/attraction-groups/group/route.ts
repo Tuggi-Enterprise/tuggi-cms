@@ -7,7 +7,8 @@ export const POST = async function(req: NextRequest) {
   console.log('🔍 API: /api/attraction-groups/group POST called (no auth)');
   
   try {
-    const supabase = createRouteHandlerClient({ cookies });
+    const cookieStore = await cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any });
     const body = await req.json();
     const { groupId, name, poiIds, userId } = body;
 

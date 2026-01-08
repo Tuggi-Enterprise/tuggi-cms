@@ -64,7 +64,8 @@ export const POST = async function (request: NextRequest) {
 
     if (!isInternalCall) {
       // Regular authentication check for user requests
-      const supabaseAuth = createRouteHandlerClient({ cookies })
+      const cookieStore = await cookies()
+      const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
       const { data: { session }, error } = await supabaseAuth.auth.getSession()
 
       if (error || !session) {

@@ -10,7 +10,8 @@ import { PoiMigrationPipeline, PipelineOptions } from '@/lib/services/poi-migrat
 export async function POST(request: NextRequest) {
   try {
     // Authentication check
-    const supabase = createRouteHandlerClient({ cookies })
+    const cookieStore = await cookies()
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any })
     const { data: { session }, error: authError } = await supabase.auth.getSession()
 
     if (authError || !session) {

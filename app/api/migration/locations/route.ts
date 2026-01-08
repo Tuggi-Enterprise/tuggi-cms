@@ -14,7 +14,8 @@ const supabase = getSupabase('service')
 export async function GET(request: NextRequest) {
   try {
     // Authentication check
-    const supabaseAuth = createRouteHandlerClient({ cookies })
+    const cookieStore = await cookies()
+    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
 
     if (authError || !session) {

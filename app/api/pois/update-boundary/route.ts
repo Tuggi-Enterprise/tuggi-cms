@@ -83,7 +83,8 @@ export async function POST(request: NextRequest) {
     
     if (!isServiceRoleRequest) {
       // Regular authentication check for frontend requests
-      const authSupabase = createRouteHandlerClient({ cookies })
+      const cookieStore = await cookies()
+      const authSupabase = createRouteHandlerClient({ cookies: () => cookieStore as any })
       const { data: { user }, error: authError } = await authSupabase.auth.getUser()
       if (authError || !user) {
         return NextResponse.json(

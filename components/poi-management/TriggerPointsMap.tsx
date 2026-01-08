@@ -4,6 +4,8 @@ import { useEffect, useRef, useCallback } from 'react'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import { TriggerPoint, TriggerPointMapProps } from '@/types/trigger-points'
 
+const LIBRARIES: any[] = ['drawing', 'places', 'geometry', 'visualization']
+
 // The actual Google Map component for trigger points
 function TriggerPointsMapContent({
   center,
@@ -901,7 +903,7 @@ export function TriggerPointsMap({
       <Wrapper
         apiKey={apiKey}
         render={renderFunction}
-        libraries={['drawing', 'places', 'geometry']}
+        libraries={LIBRARIES}
         version="weekly"
       />
     </div>
