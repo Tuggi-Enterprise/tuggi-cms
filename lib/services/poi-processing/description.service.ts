@@ -631,27 +631,30 @@ export class DescriptionService {
 
       const generatedData = result.data || {};
       const description = generatedData.description || '';
-      
-      // Calculate quality analysis (simulated or minimal for now as real analysis was done by GeminiService which is bypassed)
-      // If we want real analysis, we'd need to add it to generate-native-narration OR run it separately on the result.
-      // For now, let's assume high quality as it's a specialized function.
+      const score = generatedData.score || 95;
+      const descriptionId = generatedData.description_id;
       
       const qualityAnalysis: any = {
-        overall_score: 95,
+        overall_score: score,
         confidence_level: 'high',
-        justifications: { content_quality: 10, source_reliability: 10, factual_accuracy: 10, completeness: 10, language_quality: 10 },
+        justifications: { 
+            factuality: score, 
+            completeness: score, 
+            language: score, 
+            rules: score 
+        },
         issues_found: [],
         recommendations: [],
-        model_used: 'native-flash',
+        model_used: 'gemini-2.5-flash-lite',
         data_richness: 'rich'
       };
 
       // Create Verification Result
       const verification: VerificationResult = {
-          aprovada: true, // Auto-approve native narration for now
-          pontuacao: 95,
+          aprovada: score >= 75, 
+          pontuacao: score,
           datas_detectadas: [],
-          fatos_verificaveis: generatedData.facts || [],
+          fatos_verificaveis: generatedData.facts_pack_json || [],
           problemas: [],
           sugestoes_melhoria: ''
       };
@@ -667,12 +670,12 @@ export class DescriptionService {
               audio_url: generatedData.audio_url
           },
           quality_analysis: qualityAnalysis,
-          description_id: undefined // Will be fetched/updated by DB triggers usually, or we query it. 
+          description_id: descriptionId
         },
         metadata: {
           step: 'description_generation',
-          model_used: 'gemini-2.5-native',
-          quality_score: 95,
+          model_used: 'gemini-2.5-flash-lite',
+          quality_score: score,
           progress: 100,
           status: 'completed',
           user_id: options.user_id,
@@ -2434,7 +2437,7 @@ Respond ONLY with valid JSON:
       
       // Save quality analysis to attractions table for audit
       if (qualityAnalysis) {
-        await this.saveDescriptionQualityScore(attractionId, qualityAnalysis, language)
+        await this.saveDescriptionQualityScore(attractionId, qualityAnalysis, language, savedDescription?.id)
       }
       
       return { success: true, description_id: savedDescription?.id }
@@ -3419,27 +3422,45 @@ Respond ONLY with valid JSON:
   private static async saveDescriptionQualityScore(
     attractionId: string, 
     qualityAnalysis: any, 
-    language: string
+    language: string,
+    descriptionId?: string,
+    descriptionHash?: string
   ): Promise<void> {
     try {
       console.log(`📊 Saving quality score: ${qualityAnalysis.overall_score}%`)
       
-      const { error } = await getSupabaseAdmin()
+      const supabase = getSupabaseAdmin();
+
+      // 1. Save to description_scores table (Audit trail)
+      if (descriptionId) {
+        const { error: scoreError } = await supabase
+          .schema('core')
+          .from('description_scores')
+          .insert({
+            description_id: descriptionId,
+            attraction_id: attractionId,
+            lang: language,
+            description_hash: descriptionHash || 'manual-entry',
+            score_overall: qualityAnalysis.overall_score,
+            subscores: qualityAnalysis.justifications,
+            flags: qualityAnalysis.issues_found || [],
+            verifier_version: 'v2-manual',
+            llm_model: qualityAnalysis.model_used,
+            confidence: qualityAnalysis.confidence_level === 'high' ? 0.9 : 0.5
+          });
+        
+        if (scoreError) console.error('❌ Error saving to description_scores:', scoreError);
+      }
+      
+      // 2. Mirror/Legacy save to attractions table
+      const { error } = await supabase
         .schema('core')
         .from('attractions')
         .update({
-          // Use the existing RAG content quality score field for description quality
           rag_content_quality_score: qualityAnalysis.overall_score,
-          // Store detailed justifications in processing audit log
           processing_audit_log: {
             description_quality: {
-              overall_score: qualityAnalysis.overall_score,
-              confidence_level: qualityAnalysis.confidence_level,
-              justifications: qualityAnalysis.justifications,
-              issues_found: qualityAnalysis.issues_found,
-              recommendations: qualityAnalysis.recommendations,
-              model_used: qualityAnalysis.model_used,
-              data_richness: qualityAnalysis.data_richness,
+              ...qualityAnalysis,
               language: language,
               calculated_at: new Date().toISOString()
             }
@@ -3448,7 +3469,7 @@ Respond ONLY with valid JSON:
         .eq('id', attractionId)
 
       if (error) {
-        console.error('❌ Error saving description quality score:', error)
+        console.error('❌ Error saving description quality score to attractions:', error)
       } else {
         console.log('✅ Description quality score saved successfully')
       }

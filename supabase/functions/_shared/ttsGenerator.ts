@@ -2,15 +2,52 @@
 
 // Voice mapping for Google Cloud TTS
 export const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
-  // Simplified voice mapping with more basic voices
+  // Comprehensive voice mapping for 13 supported languages
   const voiceMap: Record<string, { male: string; female: string; languageCode: string }> = {
+    // English
+    // English
     'en': { male: 'en-US-Neural2-J', female: 'en-US-Neural2-F', languageCode: 'en-US' },
     'en-us': { male: 'en-US-Neural2-J', female: 'en-US-Neural2-F', languageCode: 'en-US' },
+    'en-gb': { male: 'en-GB-Neural2-D', female: 'en-GB-Neural2-A', languageCode: 'en-GB' },
+    
+    // Portuguese
+    'pt': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A', languageCode: 'pt-BR' },
+    'pt-br': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A', languageCode: 'pt-BR' },
+    'pt-pt': { male: 'pt-PT-Wavenet-B', female: 'pt-PT-Wavenet-A', languageCode: 'pt-PT' },
+    
+    // Spanish
     'es': { male: 'es-ES-Neural2-B', female: 'es-ES-Neural2-A', languageCode: 'es-ES' },
     'es-es': { male: 'es-ES-Neural2-B', female: 'es-ES-Neural2-A', languageCode: 'es-ES' },
     'es-us': { male: 'es-US-Neural2-B', female: 'es-US-Neural2-A', languageCode: 'es-US' },
-    'pt': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A', languageCode: 'pt-BR' },
-    'pt-br': { male: 'pt-BR-Neural2-B', female: 'pt-BR-Neural2-A', languageCode: 'pt-BR' },
+    
+    // German
+    'de': { male: 'de-DE-Neural2-B', female: 'de-DE-Neural2-A', languageCode: 'de-DE' },
+    'de-de': { male: 'de-DE-Neural2-B', female: 'de-DE-Neural2-A', languageCode: 'de-DE' },
+    
+    // French
+    'fr': { male: 'fr-FR-Neural2-B', female: 'fr-FR-Neural2-A', languageCode: 'fr-FR' },
+    'fr-fr': { male: 'fr-FR-Neural2-B', female: 'fr-FR-Neural2-A', languageCode: 'fr-FR' },
+    
+    // Italian
+    'it': { male: 'it-IT-Neural2-C', female: 'it-IT-Neural2-A', languageCode: 'it-IT' },
+    'it-it': { male: 'it-IT-Neural2-C', female: 'it-IT-Neural2-A', languageCode: 'it-IT' },
+    
+    // Japanese
+    'ja': { male: 'ja-JP-Neural2-C', female: 'ja-JP-Neural2-B', languageCode: 'ja-JP' },
+    'ja-jp': { male: 'ja-JP-Neural2-C', female: 'ja-JP-Neural2-B', languageCode: 'ja-JP' },
+    
+    // Chinese (Mandarin)
+    'zh': { male: 'cmn-CN-Neural2-C', female: 'cmn-CN-Neural2-A', languageCode: 'cmn-CN' },
+    'cmn-cn': { male: 'cmn-CN-Neural2-C', female: 'cmn-CN-Neural2-A', languageCode: 'cmn-CN' },
+    'zh-cn': { male: 'cmn-CN-Neural2-C', female: 'cmn-CN-Neural2-A', languageCode: 'cmn-CN' },
+    
+    // Korean
+    'ko': { male: 'ko-KR-Neural2-C', female: 'ko-KR-Neural2-A', languageCode: 'ko-KR' },
+    'ko-kr': { male: 'ko-KR-Neural2-C', female: 'ko-KR-Neural2-A', languageCode: 'ko-KR' },
+    
+    // Russian
+    'ru': { male: 'ru-RU-Wavenet-B', female: 'ru-RU-Wavenet-A', languageCode: 'ru-RU' },
+    'ru-ru': { male: 'ru-RU-Wavenet-B', female: 'ru-RU-Wavenet-A', languageCode: 'ru-RU' },
   };
 
   const normalizedLang = language.toLowerCase();
@@ -69,7 +106,7 @@ export const generateAudioWithTTS = async (
     },
     audioConfig: {
       audioEncoding: 'MP3',
-      speakingRate: 1.15, // Slightly reduced from 1.2 for better clarity with the lower pitch
+      speakingRate: 1.2,
       pitch: voiceConfig.pitch,
       volumeGainDb: 0.0,
       // sampleRateHertz: 44100,

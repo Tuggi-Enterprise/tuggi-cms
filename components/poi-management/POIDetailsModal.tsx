@@ -292,13 +292,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [audioMetadata, setAudioMetadata] = useState<{ fileName?: string, size?: number, lastUpdated?: string } | null>(null)
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false)
   const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null)
-  const [selectedVoice, setSelectedVoice] = useState<string>('shimmer')
-  const [audioSpeed, setAudioSpeed] = useState<number>(1.2)
-  const [audioProvider, setAudioProvider] = useState<'openai' | 'google'>('google')
+
 
   // Translation state
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('en-us')
+
   const [selectedGender, setSelectedGender] = useState<'male' | 'female'>('male')
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['pt-br', 'en-us', 'es-es']) // Default selection
   const [isTranslating, setIsTranslating] = useState(false)
   const [translatedDescriptions, setTranslatedDescriptions] = useState<any[]>([])
 
@@ -712,8 +711,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         // Score já está em escala de 0-100
         const score = scoresData.score_overall || 0;
 
-        // Verificar se o score é aprovado (>= 70)
-        const isApproved = score >= 70;
+        // Verificar se o score é aprovado (>= 75)
+        const isApproved = score >= 75;
 
         // Extrair fatos verificáveis das claims
         const verifiableFacts = scoresData.description_claims
@@ -761,11 +760,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         console.log('ℹ️ Nenhum score encontrado na tabela description_scores');
 
         // Usar o score da própria descrição que já buscamos
-        if (descData?.verification_score) {
+        const score = descData?.last_score_overall || (descData?.verification_score ? Math.round(descData.verification_score * 100) : 0);
+        
+        if (score > 0) {
           // Se tiver score na tabela attraction_descriptions, usar esse valor
-          // Converter score de 0-1 para 0-100
-          const score = Math.round((descData.verification_score || 0) * 100);
-          const isApproved = descData.verification_status === 'verified' || score >= 70;
+          const isApproved = descData.verification_status === 'verified' || score >= 75;
 
           setVerificationResult({
             applied: true,
@@ -1307,6 +1306,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         body: {
           poi_id: currentPoi.id,
           language: 'pt-br',
+          generate_audio: false, // Only generate text, not audio
           raw_context: additionalContext.trim() || undefined,
           force: true // Force fresh generation
         }
@@ -1357,7 +1357,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
       
       // Note: DB is already updated by the Edge Function (Master update)
-      // We can fetchAdditionalData to sync if needed, but we have the data here.
+      // Sync verification data (scores, etc)
+      fetchVerificationData()
       
     } catch (error) {
       console.error('Error generating description:', error)
@@ -1777,76 +1778,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }
 
   // Translation and audio generation function
-  const translateAndGenerateAudio = async () => {
-    // Validation: Check if Portuguese base description exists
-    if (!currentDescription.trim()) {
-      showFeedback('Please save an original description first before generating translations.', 'error')
-      return
-    }
 
-    // Validation: Check if this language + gender combination already exists
-    const existingTranslation = translatedDescriptions.find(desc =>
-      desc.language === selectedLanguage && desc.gender === selectedGender
-    )
-
-    if (existingTranslation) {
-      const confirmReplace = window.confirm(
-        `A ${selectedGender} voice translation in ${selectedLanguage} already exists. Do you want to replace it?`
-      )
-      if (!confirmReplace) return
-    }
-
-    setIsTranslating(true)
-    try {
-      // Get the session to verify user is authenticated
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        throw new Error('No active session')
-      }
-
-      const currentPoiForTranslation = getPoi()
-      if (!currentPoiForTranslation) {
-        alert('POI não encontrado. Por favor, recarregue a página.')
-        return
-      }
-      const requestBody = {
-        attractionId: currentPoiForTranslation.id,
-        targetLanguage: selectedLanguage,
-        voiceGender: selectedGender
-      }
-
-      // Call the Edge Function using invoke
-      const { data: result, error: invokeError } = await supabase.functions.invoke('generate-translated-audio', {
-        body: requestBody
-      })
-
-      if (invokeError) {
-        console.error('❌ POI MODAL: Translation Edge Function error:', invokeError)
-        throw new Error(`Failed to translate: ${invokeError.message || 'Unknown error'}`)
-      }
-
-      if (!result?.success) {
-        throw new Error(result?.error || 'Falha ao traduzir e gerar áudio')
-      }
-
-      // Show success message
-      showFeedback(`Translation and audio generation completed successfully for ${selectedLanguage} (${selectedGender})!`, 'success')
-
-      // Refresh the data to show the new translation
-      await fetchAdditionalData()
-
-    } catch (error) {
-      console.error('Error translating and generating audio:', error)
-      showFeedback(`Failed to translate and generate audio: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
-    } finally {
-      setIsTranslating(false)
-    }
-  }
-
-  // Regenerate all audios (PT, EN, ES) with both genders
+  // Regenerate all audios for selected languages and gender
   const regenerateAllAudios = async () => {
     if (!currentDescription.trim()) {
       showFeedback('Please save an original description first.', 'error')
+      return
+    }
+
+    if (selectedLanguages.length === 0) {
+      showFeedback('Please select at least one language.', 'error')
       return
     }
 
@@ -1855,46 +1796,71 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     setShowResults(false)
     setAudioResults([])
 
-    const languages = [
-      { code: 'pt-br', name: 'Portuguese' },
-      { code: 'en-us', name: 'English' },
-      { code: 'es-es', name: 'Spanish' }
-    ]
-
-    setAudioProgress({ current: 0, total: languages.length, currentTask: 'Starting...' })
+    setAudioProgress({ current: 0, total: selectedLanguages.length, currentTask: 'Starting...' })
 
     try {
       const results = []
-
-      // First, regenerate Portuguese audio (base language)
-      setAudioProgress({ current: 1, total: languages.length, currentTask: 'Generating Portuguese audio...' })
-      try {
-        await generateAudioNarration()
-        results.push('✅ Portuguese: audio regenerated successfully')
-      } catch (error) {
-        results.push(`❌ Portuguese: failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
+      const currentPoiForAudio = getPoi()
+      if (!currentPoiForAudio) {
+        throw new Error('POI not found')
       }
 
-      // Then regenerate translations for EN and ES (male only)
-      for (let i = 0; i < languages.slice(1).length; i++) {
-        const lang = languages.slice(1)[i]
+      // Generate audio for each selected language
+      for (let i = 0; i < selectedLanguages.length; i++) {
+        const langCode = selectedLanguages[i]
+        const langName = {
+          'pt-br': 'Portuguese (BR)',
+          'pt-pt': 'Portuguese (PT)',
+          'en-us': 'English (US)',
+          'en-gb': 'English (UK)',
+          'es-es': 'Spanish (ES)',
+          'es-us': 'Spanish (US)',
+          'de-de': 'German',
+          'fr-fr': 'French',
+          'it-it': 'Italian',
+          'ja-jp': 'Japanese',
+          'cmn-cn': 'Chinese',
+          'ko-kr': 'Korean',
+        }[langCode] || langCode.toUpperCase()
+
         setAudioProgress({
-          current: i + 2,
-          total: languages.length,
-          currentTask: `Generating ${lang.name} (male) audio...`
+          current: i + 1,
+          total: selectedLanguages.length,
+          currentTask: `Generating ${langName} (${selectedGender}) audio...`
         })
 
         try {
-          await generateSingleLanguageAudio(lang.code, 'male')
-          results.push(`✅ ${lang.name} (male): regenerated successfully`)
+          // Call generate-description with generate_audio=true
+          const { data: result, error: invokeError } = await supabase.functions.invoke('generate-description', {
+            body: {
+              poi_id: currentPoiForAudio.id,
+              language: langCode,
+              gender: selectedGender,
+              generate_audio: true,
+              force: true
+            }
+          })
+
+          if (invokeError) {
+            throw new Error(invokeError.message || 'Failed to generate audio')
+          }
+
+          if (!result?.success) {
+            throw new Error(result?.error || 'Failed to generate audio')
+          }
+
+          results.push(`✅ ${langName} (${selectedGender}): generated successfully`)
         } catch (error) {
-          results.push(`❌ ${lang.name} (male): failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
+          results.push(`❌ ${langName} (${selectedGender}): failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
         }
       }
 
-      setAudioProgress({ current: languages.length, total: languages.length, currentTask: 'Completed!' })
+      setAudioProgress({ current: selectedLanguages.length, total: selectedLanguages.length, currentTask: 'Completed!' })
       setAudioResults(results)
       setShowResults(true)
+
+      // Refresh data to show new audios
+      setTimeout(() => fetchAdditionalData(), 1000)
 
     } catch (error) {
       console.error('Error regenerating all audios:', error)
@@ -2743,18 +2709,24 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           )}
 
                           {/* Verification Score */}
-                          {getPoi()?.verification_score !== null && getPoi()?.verification_score !== undefined ? (
+                          {((verificationResult?.score || 0) > 0 || (getPoi()?.verification_score !== null && getPoi()?.verification_score !== undefined)) ? (
                             <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Verification Score</div>
                               <div className="flex items-center">
-                                <span className={cn(
-                                  "text-lg font-semibold",
-                                  getPoi()!.verification_score! >= 0.8 ? "text-green-600 dark:text-green-400" :
-                                    getPoi()!.verification_score! >= 0.6 ? "text-yellow-600 dark:text-yellow-400" :
-                                      "text-red-600 dark:text-red-400"
-                                )}>
-                                  {(getPoi()!.verification_score! * 100).toFixed(0)}%
-                                </span>
+                                {(() => {
+                                  const score = verificationResult?.score || 
+                                               (getPoi()?.verification_score ? Math.round(getPoi()!.verification_score! * 100) : 0);
+                                  return (
+                                    <span className={cn(
+                                      "text-lg font-semibold",
+                                      score >= 80 ? "text-green-600 dark:text-green-400" :
+                                        score >= 60 ? "text-yellow-600 dark:text-yellow-400" :
+                                          "text-red-600 dark:text-red-400"
+                                    )}>
+                                      {score}%
+                                    </span>
+                                  );
+                                })()}
                               </div>
                             </div>
                           ) : null}
@@ -4219,6 +4191,97 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       </div>
                     </div>
 
+                    {/* Language & Gender Selectors */}
+                    <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 space-y-4">
+                      {/* Gender Selector */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          Voice Gender
+                        </label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center cursor-pointer">
+                            <input
+                              type="radio"
+                              name="gender"
+                              value="male"
+                              checked={selectedGender === 'male'}
+                              onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
+                              className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                            />
+                            <span className="text-sm text-gray-700 dark:text-gray-300">Male</span>
+                          </label>
+                          <label className="flex items-center cursor-pointer">
+                            <input
+                              type="radio"
+                              name="gender"
+                              value="female"
+                              checked={selectedGender === 'female'}
+                              onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
+                              className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
+                            />
+                            <span className="text-sm text-gray-700 dark:text-gray-300">Female</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Language Multi-Select */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          Languages to Generate
+                        </label>
+                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                          {[
+                            { code: 'pt-br', name: '🇧🇷 Português (Brasil)' },
+                            { code: 'pt-pt', name: '🇵🇹 Português (Portugal)' },
+                            { code: 'en-us', name: '🇺🇸 English (US)' },
+                            { code: 'en-gb', name: '🇬🇧 English (UK)' },
+                            { code: 'es-es', name: '🇪🇸 Spanish (Spain)' },
+                            { code: 'de-de', name: '🇩🇪 German' },
+                            { code: 'fr-fr', name: '🇫🇷 French' },
+                            { code: 'it-it', name: '🇮🇹 Italian' },
+                            { code: 'ja-jp', name: '🇯🇵 Japanese' },
+                            { code: 'cmn-cn', name: '🇨🇳 Mandarin' },
+                            { code: 'ko-kr', name: '🇰🇷 Korean' },
+                            { code: 'ru-ru', name: '🇷🇺 Russian' },
+                          ].map((lang) => (
+                            <label
+                              key={lang.code}
+                              className={cn(
+                                "flex items-start p-2 rounded border cursor-pointer transition-colors min-h-[40px]",
+                                selectedLanguages.includes(lang.code)
+                                  ? "bg-tuggi-blue/10 border-tuggi-blue dark:bg-tuggi-blue/20"
+                                  : "bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-tuggi-blue/50"
+                              )}
+                              title={lang.name}
+                            >
+                              <div className="flex items-center h-5 mt-0.5">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedLanguages.includes(lang.code)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedLanguages([...selectedLanguages, lang.code])
+                                    } else {
+                                      setSelectedLanguages(selectedLanguages.filter(l => l !== lang.code))
+                                    }
+                                  }}
+                                  className="text-tuggi-blue focus:ring-tuggi-blue h-4 w-4"
+                                />
+                              </div>
+                              <div className="ml-2 overflow-hidden">
+                                <span className="block text-xs font-medium text-gray-900 dark:text-white leading-snug">
+                                  {lang.name}
+                                </span>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                          Selected: {selectedLanguages.length} language{selectedLanguages.length !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+
                     {/* Audio Progress Bar */}
                     {(isGeneratingAudio || isTranslating) && audioProgress.total > 0 && (
                       <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
@@ -4329,11 +4392,24 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   <td className="py-3 px-3 text-sm">
                                     <div className="flex items-center space-x-2">
                                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300">
-                                        {desc.language === 'pt-br' ? '🇧🇷 PT-BR' :
-                                          desc.language === 'pt' ? '🇧🇷 PT' :
-                                            desc.language === 'en-us' ? '🇺🇸 EN-US' :
-                                              desc.language === 'es-es' ? '🇪🇸 ES-ES' :
-                                                desc.language?.toUpperCase()}
+                                        {(() => {
+                                          const names: Record<string, string> = {
+                                            'pt-br': '🇧🇷 Português (Brasil)',
+                                            'pt': '🇧🇷 Português (Brasil)',
+                                            'pt-pt': '🇵🇹 Português (Portugal)',
+                                            'en-us': '🇺🇸 English (US)',
+                                            'en-gb': '🇬🇧 English (UK)',
+                                            'es-es': '🇪🇸 Spanish (Spain)',
+                                            'de-de': '🇩🇪 German',
+                                            'fr-fr': '🇫🇷 French',
+                                            'it-it': '🇮🇹 Italian',
+                                            'ja-jp': '🇯🇵 Japanese',
+                                            'cmn-cn': '🇨🇳 Mandarin',
+                                            'ko-kr': '🇰🇷 Korean',
+                                            'ru-ru': '🇷🇺 Russian'
+                                          };
+                                          return names[desc.language?.toLowerCase()] || desc.language?.toUpperCase();
+                                        })()}
                                       </span>
                                       {(() => {
                                         // Check if audio might be outdated
@@ -4469,312 +4545,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </div>
                   </div>
                 )} */}
-
-                    {/* Divider above the two-column section */}
-                    <div className="my-6 border-t border-gray-200 dark:border-gray-700" />
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-                      {/* Right Column: Translate & Generate Audio (order-1 on mobile) */}
-                      <div className="order-1 lg:order-2 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 p-4 lg:p-6 rounded-lg border border-purple-200 dark:border-purple-800 h-full flex flex-col">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-200">
-                              <Globe className="h-4 w-4" />
-                            </span>
-                            <h5 className="text-lg font-medium text-purple-900 dark:text-purple-200">
-                              Translate & Generate Audio
-                            </h5>
-                          </div>
-                        </div>
-                        <p className="text-sm text-purple-700 dark:text-purple-300 mb-4">
-                          Generate translated descriptions and audio using Gemini 1.5 Pro and Google TTS
-                        </p>
-                        <div className="space-y-6 flex-1">
-                          {/* Language Selector */}
-                          <div>
-                            <label className="block text-sm font-medium text-purple-700 dark:text-purple-300 mb-2" htmlFor="target-language">
-                              Target Language
-                            </label>
-                            <select
-                              id="target-language"
-                              value={selectedLanguage}
-                              onChange={(e) => setSelectedLanguage(e.target.value)}
-                              disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
-                              className="w-full px-3 py-2 border border-purple-300 dark:border-purple-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white disabled:opacity-50"
-                            >
-                              {/* <option value="en-us">🇺🇸 English (US)</option>
-                          <option value="es-es">🇪🇸 Spanish (Spain)</option> */}
-                              <option value="fr-fr">🇫🇷 French (France)</option>
-                              <option value="it-it">🇮🇹 Italian (Italy)</option>
-                              <option value="de-de">🇩🇪 German (Germany)</option>
-                            </select>
-                          </div>
-                          {/* Gender Selector */}
-                          <div>
-                            <label className="block text-sm font-medium text-purple-700 dark:text-purple-300 mb-2">
-                              Voice Gender
-                            </label>
-                            <div className="space-y-2">
-                              <label className="flex items-center">
-                                <input
-                                  type="radio"
-                                  name="gender"
-                                  value="male"
-                                  checked={selectedGender === 'male'}
-                                  onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
-                                  disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
-                                  className="mr-2 text-purple-600 focus:ring-purple-500"
-                                />
-                                <span className="text-sm text-purple-700 dark:text-purple-300">
-                                  Male (Default)
-                                </span>
-                              </label>
-                              <label className="flex items-center">
-                                <input
-                                  type="radio"
-                                  name="gender"
-                                  value="female"
-                                  checked={selectedGender === 'female'}
-                                  onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
-                                  disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
-                                  className="mr-2 text-purple-600 focus:ring-purple-500"
-                                />
-                                <span className="text-sm text-purple-700 dark:text-purple-300">
-                                  Female
-                                </span>
-                              </label>
-                            </div>
-                          </div>
-                          {/* Generate Button */}
-                          <div>
-                            <label className="block text-sm font-medium text-purple-700 dark:text-purple-300 mb-2">
-                              Action
-                            </label>
-                            <button
-                              aria-label="Translate and generate audio"
-                              onClick={async () => {
-                                await translateAndGenerateAudio();
-                                // Show toast on success (pseudo-code, replace with your toast system)
-                                // showToast('Translation and audio generated successfully!', 'success');
-                              }}
-                              disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating || !currentDescription.trim()}
-                              className="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {isTranslating ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Translating...
-                                </>
-                              ) : (
-                                <>
-                                  <Volume2 className="h-4 w-4 mr-2" />
-                                  Translate & Generate
-                                </>
-                              )}
-                            </button>
-                          </div>
-                          {/* Validation Messages */}
-                          {!currentDescription.trim() && (
-                            <div className="bg-amber-100 dark:bg-amber-900/10 p-3 rounded-md border border-amber-200 dark:border-amber-800 flex items-center gap-2 mt-2">
-                              <span className="text-amber-600 dark:text-amber-300">
-                                <AlertTriangle className="h-4 w-4" />
-                              </span>
-                              <span className="text-sm text-amber-800 dark:text-amber-200">
-                                ⚠️ Please save an original description first before generating translations.{' '}
-                                <button
-                                  type="button"
-                                  className="underline text-amber-800 hover:text-amber-900 dark:text-amber-200 dark:hover:text-amber-100 ml-1"
-                                  onClick={() => setActiveTab('description')}
-                                >
-                                  Go to Description
-                                </button>
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Left Column: Audio Generation Settings (order-2 on mobile) */}
-                      <div className="order-2 lg:order-1 bg-gray-50 dark:bg-gray-700 p-4 lg:p-6 rounded-lg h-full flex flex-col">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200">
-                              <Globe className="h-4 w-4" />
-                            </span>
-                            <h5 className="text-lg font-medium text-gray-900 dark:text-white">
-                              Audio Generation Settings
-                            </h5>
-                          </div>
-                          {currentAudioUrl && (
-                            <span className="text-xs bg-tuggi-blue/10 text-tuggi-blue px-2 py-1 rounded-full">
-                              💡 Try different settings and regenerate
-                            </span>
-                          )}
-                        </div>
-                        <div className="space-y-6 flex-1">
-                          {/* Provider Selection */}
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3" htmlFor="audio-provider">
-                              Audio Provider
-                            </label>
-                            <select
-                              id="audio-provider"
-                              value={audioProvider}
-                              onChange={e => setAudioProvider(e.target.value as 'openai' | 'google')}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                            >
-                              <option value="openai">OpenAI</option>
-                              <option value="google">Google</option>
-                            </select>
-                          </div>
-                          {/* Voice Selection */}
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                              Voice Selection
-                            </label>
-                            <div className="space-y-2">
-                              {audioProvider === 'google' ? (
-                                <>
-                                  <label className="flex items-center">
-                                    <input
-                                      type="radio"
-                                      name="voice"
-                                      value="shimmer"
-                                      checked={selectedVoice === 'shimmer'}
-                                      onChange={(e) => setSelectedVoice(e.target.value)}
-                                      className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                                    />
-                                    <span className="text-sm">
-                                      <strong>Shimmer</strong> - Google: Wavenet-B (Energetic, engaging)
-                                    </span>
-                                  </label>
-                                  <label className="flex items-center">
-                                    <input
-                                      type="radio"
-                                      name="voice"
-                                      value="nova"
-                                      checked={selectedVoice === 'nova'}
-                                      onChange={(e) => setSelectedVoice(e.target.value)}
-                                      className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                                    />
-                                    <span className="text-sm">
-                                      <strong>Nova</strong> - Google: Wavenet-A (Professional, clear female)
-                                    </span>
-                                  </label>
-                                  <label className="flex items-center">
-                                    <input
-                                      type="radio"
-                                      name="voice"
-                                      value="alloy"
-                                      checked={selectedVoice === 'alloy'}
-                                      onChange={(e) => setSelectedVoice(e.target.value)}
-                                      className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                                    />
-                                    <span className="text-sm">
-                                      <strong>Alloy</strong> - Google: Wavenet-D (Warm, friendly)
-                                    </span>
-                                  </label>
-                                  <label className="flex items-center">
-                                    <input
-                                      type="radio"
-                                      name="voice"
-                                      value="echo"
-                                      checked={selectedVoice === 'echo'}
-                                      onChange={(e) => setSelectedVoice(e.target.value)}
-                                      className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                                    />
-                                    <span className="text-sm">
-                                      <strong>Echo</strong> - Google: Wavenet-E (Calm, soothing)
-                                    </span>
-                                  </label>
-                                </>
-                              ) : (
-                                <>
-                                  <label className="flex items-center">
-                                    <input
-                                      type="radio"
-                                      name="voice"
-                                      value="shimmer"
-                                      checked={selectedVoice === 'shimmer'}
-                                      onChange={(e) => setSelectedVoice(e.target.value)}
-                                      className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                                    />
-                                    <span className="text-sm">
-                                      <strong>Shimmer</strong> - Energetic, engaging voice
-                                    </span>
-                                  </label>
-                                  <label className="flex items-center">
-                                    <input
-                                      type="radio"
-                                      name="voice"
-                                      value="nova"
-                                      checked={selectedVoice === 'nova'}
-                                      onChange={(e) => setSelectedVoice(e.target.value)}
-                                      className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                                    />
-                                    <span className="text-sm">
-                                      <strong>Nova</strong> - Professional, clear female voice
-                                    </span>
-                                  </label>
-                                  <label className="flex items-center">
-                                    <input
-                                      type="radio"
-                                      name="voice"
-                                      value="alloy"
-                                      checked={selectedVoice === 'alloy'}
-                                      onChange={(e) => setSelectedVoice(e.target.value)}
-                                      className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                                    />
-                                    <span className="text-sm">
-                                      <strong>Alloy</strong> - Warm, friendly voice for nature content
-                                    </span>
-                                  </label>
-                                  <label className="flex items-center">
-                                    <input
-                                      type="radio"
-                                      name="voice"
-                                      value="echo"
-                                      checked={selectedVoice === 'echo'}
-                                      onChange={(e) => setSelectedVoice(e.target.value)}
-                                      className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                                    />
-                                    <span className="text-sm">
-                                      <strong>Echo</strong> - Calm, soothing voice
-                                    </span>
-                                  </label>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          {/* Speed Control */}
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                              Speaking Speed: {audioSpeed.toFixed(1)}x
-                            </label>
-                            <input
-                              type="range"
-                              min="0.7"
-                              max="1.3"
-                              step="0.1"
-                              value={audioSpeed}
-                              onChange={(e) => setAudioSpeed(parseFloat(e.target.value))}
-                              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
-                            />
-                            <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              <span>0.7x (Slower)</span>
-                              <span>1.0x (Normal)</span>
-                              <span>1.3x (Faster)</span>
-                            </div>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                              {audioSpeed < 0.9 ? "Slower speed for better comprehension" :
-                                audioSpeed > 1.1 ? "Faster speed for quick listening" :
-                                  "Optimal speed for tourism content"}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
 
 
                     {/* Debug Info */}
@@ -5270,10 +5040,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       {currentDescription.trim() && translatedDescriptions.length > 0 ? (
                         <>
                           <CheckCircle className="h-5 w-5 text-green-500" />
-                          <div>
-                            <h6 className="text-sm font-medium text-green-900 dark:text-green-200">
-                              Ready for Approval
-                            </h6>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h6 className="text-sm font-medium text-green-900 dark:text-green-200">
+                                Ready for Approval
+                              </h6>
+                              {verificationResult && (
+                                <span className="text-xs font-bold bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                                  Review Score: {verificationResult.score}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-xs text-green-700 dark:text-green-300">
                               All required criteria have been met
                             </p>
@@ -5282,10 +5059,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       ) : (
                         <>
                           <AlertTriangle className="h-5 w-5 text-red-500" />
-                          <div>
-                            <h6 className="text-sm font-medium text-red-900 dark:text-red-200">
-                              Pending Requirements
-                            </h6>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h6 className="text-sm font-medium text-red-900 dark:text-red-200">
+                                Pending Requirements
+                              </h6>
+                              {verificationResult && (
+                                <span className="text-xs font-bold bg-red-100 text-red-800 px-2 py-0.5 rounded-full">
+                                  Review Score: {verificationResult.score}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-xs text-red-700 dark:text-red-300">
                               Complete required criteria before approval
                             </p>

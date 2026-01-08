@@ -4,6 +4,25 @@
  * Shared Translation Utility using Gemini
  * Harmonizes translation across different edge functions (static & contextual)
  */
+const getLanguageName = (code: string): string => {
+    const names: Record<string, string> = {
+        'pt-br': 'Brazilian Portuguese',
+        'pt-pt': 'European Portuguese',
+        'en-us': 'English (United States)',
+        'en-gb': 'English (United Kingdom)',
+        'es-es': 'Spanish (Spain)',
+        'es-us': 'Spanish (Latin America/United States)',
+        'de-de': 'German',
+        'fr-fr': 'French',
+        'it-it': 'Italian',
+        'ja-jp': 'Japanese',
+        'cmn-cn': 'Chinese (Mandarin)',
+        'ko-kr': 'Korean',
+        'ru-ru': 'Russian'
+    };
+    return names[code.toLowerCase()] || code;
+};
+
 export const translateWithGemini = async (
     text: string,
     targetLanguage: string,
@@ -13,6 +32,8 @@ export const translateWithGemini = async (
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
         throw new Error('Invalid or empty text provided for translation');
     }
+
+    const langName = getLanguageName(targetLanguage);
 
     const prompt = `You are a professional travel assistant specialized in tourism translation.
 
@@ -25,15 +46,18 @@ The translation must:
 - Avoid overly formal or robotic language.
 - Be compatible with audio narration (no abrupt transitions, smooth sentence flow).
 - Limit the result to about same amount of words comes from original text.
+- IMPORTANT: The output must be EXCLUSIVELY in ${langName}.
 
 ORIGINAL TEXT (pt-br):
 "${text}"
 
 Target Language:
-"${targetLanguage}" (e.g., en-us, es-es, fr-fr)
+"${langName}" (Code: ${targetLanguage})
 
 Expected output:
 Translated text only (no labels, no explanations, no tags).`;
+
+
 
     // Try Flash-Lite first, then Flash as fallback
     const models = [

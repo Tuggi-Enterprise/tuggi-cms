@@ -5,6 +5,25 @@ interface MasterPackResult {
     facts_pack_json: any;
 }
 
+const getLanguageName = (code: string): string => {
+    const names: Record<string, string> = {
+        'pt-br': 'Brazilian Portuguese',
+        'pt-pt': 'European Portuguese',
+        'en-us': 'English (United States)',
+        'en-gb': 'English (United Kingdom)',
+        'es-es': 'Spanish (Spain)',
+        'es-us': 'Spanish (Latin America/United States)',
+        'de-de': 'German',
+        'fr-fr': 'French',
+        'it-it': 'Italian',
+        'ja-jp': 'Japanese',
+        'cmn-cn': 'Chinese (Mandarin)',
+        'ko-kr': 'Korean',
+        'ru-ru': 'Russian'
+    };
+    return names[code.toLowerCase()] || code;
+};
+
 /**
  * Master Content Generator (Step A)
  * Focus: Static, premium, encyclopedic content.
@@ -21,11 +40,12 @@ export const generateMasterPack = async (
 
     const audioTarget = '15-18s';
     const maxWords = 50; // VERY CONCISE base to avoid exceeding 30s in Step B
+    const langName = getLanguageName(language);
 
     const prompt = `
 ROLE: Expert Historian and Professional Travel Writer.
 TASK: Write a concise master content summary for "${poiName}" (${city}).
-LANGUAGE: ${language} (CRITICAL: Output must be ONLY in ${language}).
+LANGUAGE: ${langName} (CRITICAL: Output must be ONLY in ${langName} - Code: ${language}).
 
 CONTENT RULES:
 1. Include the name "${poiName}".
