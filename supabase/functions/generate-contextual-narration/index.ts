@@ -121,7 +121,11 @@ async function triggerMasterGeneration(poiId: string, language: string) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${SERVICE_ROLE_KEY}`
             },
-            body: JSON.stringify({ poi_id: poiId, language: language })
+            body: JSON.stringify({ 
+                poi_id: poiId, 
+                language: language,
+                force: true // Force fresh master generation
+            })
         });
         console.log(`[Auto-Heal] Status for ${poiId}: ${resp.status}`);
     } catch (err) {

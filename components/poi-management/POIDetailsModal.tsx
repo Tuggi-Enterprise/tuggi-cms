@@ -1301,13 +1301,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
 
       console.log('📡 POI MODAL: Making request to generate-description Edge Function')
-
+      
+      // Use generate-description (Master Mode)
       const { data: result, error: invokeError } = await supabase.functions.invoke('generate-description', {
         body: {
           poi_id: currentPoi.id,
           language: 'pt-br',
           raw_context: additionalContext.trim() || undefined,
-          force: true // Force fresh generation as it's an explicit action in CMS
+          force: true // Force fresh generation
         }
       })
 
@@ -1317,48 +1318,50 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
       if (!result?.success) {
-        throw new Error(result?.error || 'Falha ao gerar descrição')
+        throw new Error(result?.error || 'Failed to generate description')
       }
 
       const generatedData = result.data
-      console.log('✅ POI MODAL: Description generated successfully with Edge Function:', generatedData)
+      const generatedDescription = generatedData.description || ''
+      const generatedAudioUrl = generatedData.audio_url || ''
 
-      // Show feedback about generation
-      showFeedback('✅ Descrição mestre gerada com sucesso. O áudio está sendo processado em background.', 'success')
+      console.log('✅ POI MODAL: Description generated successfully:', generatedDescription.substring(0, 50) + '...')
 
-      // Handle facts if returned
-      if (generatedData.facts_pack_json) {
-        console.log('📊 Fatos extraídos:', generatedData.facts_pack_json)
+      showFeedback('✅ Native Narration Script generated successfully.', 'success')
+
+      // Set description
+      if (generatedDescription) {
+        setCurrentDescription(generatedDescription)
+        
+        // Also update detected dates/verification as before
+        const detectedDatesArray = detectHistoricalDates(generatedDescription)
+        if (detectedDatesArray.length > 0) {
+            const dateClassification = classifyDateReliability(detectedDatesArray)
+            setDetectedDates({
+            dates: detectedDatesArray,
+            reliable: dateClassification.reliable,
+            moderate: dateClassification.moderate,
+            total: dateClassification.total
+            })
+        }
       }
 
-      // Reset verification since it's a new master version
-      setVerificationResult(null)
-
-      // Analyze historical dates in the generated description
-      const detectedDatesArray = detectHistoricalDates(generatedData.description)
-      if (detectedDatesArray.length > 0) {
-        const dateClassification = classifyDateReliability(detectedDatesArray)
-        setDetectedDates({
-          dates: detectedDatesArray,
-          reliable: dateClassification.reliable,
-          moderate: dateClassification.moderate,
-          total: dateClassification.total
-        })
-
-        console.log('📅 Historical dates detected:', {
-          total: dateClassification.total,
-          reliable: dateClassification.reliable.length,
-          moderate: dateClassification.moderate.length,
-          dates: detectedDatesArray
-        })
-      } else {
-        setDetectedDates(null)
+      // Handle Audio (URL provided by Master Generator)
+      if (generatedAudioUrl) {
+          setCurrentAudioUrl(generatedAudioUrl) 
+          setAudioMetadata({
+             fileName: generatedAudioUrl.split('/').pop() || 'generated.mp3',
+             size: 0, // Unknown size from URL
+             lastUpdated: new Date().toISOString()
+          })
       }
-
-      setCurrentDescription(generatedData.description)
+      
+      // Note: DB is already updated by the Edge Function (Master update)
+      // We can fetchAdditionalData to sync if needed, but we have the data here.
+      
     } catch (error) {
       console.error('Error generating description:', error)
-      alert('Failed to generate description. Please try again.')
+      alert(`Failed to generate description: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsGenerating(false)
     }
@@ -1715,57 +1718,38 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
     setIsGeneratingAudio(true)
     try {
-      // Step 1: Generate audio using selected provider
-      const voiceToSend = audioProvider === 'google' ? googleVoiceMap[selectedVoice] || 'pt-BR-Wavenet-A' : selectedVoice;
-      const ttsResponse = await fetch('/api/audio/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: textForAudio,
-          attractionId: getPoi()?.id || '',
-          voice: voiceToSend,
-          speed: audioSpeed,
-          provider: audioProvider
-        })
-      })
 
-      if (!ttsResponse.ok) {
-        throw new Error('Failed to generate audio')
-      }
-
-      const ttsData = await ttsResponse.json()
-
-      // Step 2: Upload audio to Supabase Storage using invoke
-      const { data: uploadData, error: uploadError } = await supabase.functions.invoke('store-poi-audio', {
+      // Use generate-description for audio too (it triggers TTS)
+      const { data: result, error: invokeError } = await supabase.functions.invoke('generate-description', {
         body: {
-          attractionId: getPoi()?.id || '',
-          audioData: ttsData.audioData,
-          mimeType: ttsData.mimeType,
-          language: 'pt-br'
+           poi_id: getPoi()?.id,
+           language: 'pt-br',
+           force: true // Force regeneration
         }
       })
 
-      if (uploadError) {
-        console.error('❌ POI MODAL: Store Audio Edge Function error:', uploadError)
-        throw new Error(`Failed to upload audio: ${uploadError.message || 'Unknown error'}`)
+      if (invokeError) {
+         throw new Error(invokeError.message || 'Failed to generate audio')
+      }
+      
+      if (!result?.success) {
+         throw new Error(result?.error || 'Failed to generate audio')
       }
 
-      if (!uploadData?.success) {
-        throw new Error(uploadData?.error || 'Failed to upload audio')
+      // Update UI with URL
+      const audioUrl = result.data?.audio_url
+      if (audioUrl) {
+        setCurrentAudioUrl(audioUrl)
+        setAudioMetadata({
+            fileName: audioUrl.split('/').pop(),
+            size: 0,
+            lastUpdated: new Date().toISOString()
+        })
+        showFeedback('✅ Audio regenerated successfully', 'success')
       }
 
-      // Step 3: Update UI with new audio
-      setCurrentAudioUrl(uploadData.audio.url)
-      setAudioMetadata({
-        fileName: uploadData.audio.storage_path.split('/').pop(),
-        size: uploadData.audio.size,
-        lastUpdated: new Date().toISOString()
-      })
-
-      // Refresh descriptions to get updated audio_url
-      await fetchAdditionalData()
+      // Refresh to ensure we get sync with DB eventually
+      setTimeout(() => fetchAdditionalData(), 1000)
 
     } catch (error) {
       console.error('Error generating audio narration:', error)
@@ -1927,11 +1911,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }
 
   // Generate audio for a single language
+  // Generate audio for a single language
   const generateSingleLanguageAudio = async (language: string, gender: 'male' | 'female') => {
-    if (!currentDescription.trim()) {
-      throw new Error('No Portuguese description available')
-    }
-
+    // Note: generate-native-narration handles translation implicitly from source
+    
     // Get the session to verify user is authenticated
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) {
@@ -1940,31 +1923,32 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
     const currentPoiForTranslation2 = getPoi()
     if (!currentPoiForTranslation2) {
-      alert('POI não encontrado. Por favor, recarregue a página.')
-      return
-    }
-    const requestBody = {
-      attractionId: currentPoiForTranslation2.id,
-      targetLanguage: language,
-      voiceGender: gender
+       throw new Error('POI not found')
     }
 
-    // Call the Edge Function using invoke
-    const { data: result, error: invokeError } = await supabase.functions.invoke('generate-translated-audio', {
-      body: requestBody
+    // Voice mapping
+    const voiceName = gender === 'female' ? 'Nova' : 'Puck';
+
+    // Use invoke for standardized handling
+    const { data: result, error: invokeError } = await supabase.functions.invoke('generate-native-narration', {
+      body: {
+        poi_id: currentPoiForTranslation2.id,
+        language: language,
+        force: true,
+        voice_name: voiceName
+      }
     })
 
     if (invokeError) {
-      console.error('❌ POI MODAL: Translation Edge Function error:', invokeError)
-      throw new Error(`Failed to translate: ${invokeError.message || 'Unknown error'}`)
+        throw new Error(invokeError.message || 'Failed to generate translated audio')
     }
-
+    
     if (!result?.success) {
-      throw new Error(result?.error || 'Falha ao traduzir e gerar áudio')
+        throw new Error(result?.error || 'Failed to generate translated audio')
     }
 
     // Refresh data to show the new audio
-    await fetchAdditionalData()
+    setTimeout(() => fetchAdditionalData(), 2000)
   }
 
   // Delete a translation

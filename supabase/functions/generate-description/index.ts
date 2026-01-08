@@ -88,14 +88,13 @@ serve(async (req) => {
 
         if (upsertError) throw new Error(`DB Error: ${upsertError.message}`);
 
-        // Background Audio Generation (Step C - Master Audio)
-        const audioTask = (async () => {
-            try {
-                if (!GOOGLE_TTS_API_KEY) {
-                    console.warn("[Generate-Description] Background TTS skipped: GOOGLE_TTS_API_KEY missing");
-                    return;
-                }
-                console.log(`[Generate-Description] Background TTS starting for ${poi_id}...`);
+        // Audio Generation (Step C - Master Audio)
+        let publicUrl = null;
+        try {
+            if (!GOOGLE_TTS_API_KEY) {
+                console.warn("[Generate-Description] TTS skipped: GOOGLE_TTS_API_KEY missing");
+            } else {
+                console.log(`[Generate-Description] TTS starting for ${poi_id}...`);
                 const audioBuffer = await generateAudioWithTTS(result.description, language, 'male', GOOGLE_TTS_API_KEY);
 
                 const fileName = `${poi_id}-${language}-male.mp3`;
@@ -110,30 +109,31 @@ serve(async (req) => {
 
                 if (uploadError) throw new Error(`Upload Error: ${uploadError.message}`);
 
-                const { data: { publicUrl } } = supabaseAdmin.storage
+                const { data: urlData } = supabaseAdmin.storage
                     .from('travel-app-audios')
                     .getPublicUrl(storagePath);
+                
+                publicUrl = urlData.publicUrl;
 
                 await supabaseAdmin.schema('core').from('attraction_descriptions').update({
                     audio_url: publicUrl
                 }).eq('attraction_id', poi_id).eq('language', language).eq('gender', 'male');
 
-                console.log(`[Generate-Description] Background TTS success: ${publicUrl}`);
-            } catch (err) {
-                console.error(`[Generate-Description] Background TTS failed for ${poi_id}:`, err);
+                console.log(`[Generate-Description] TTS success: ${publicUrl}`);
             }
-        })();
-
-        // Use waitUntil if available (Supabase/Deno Deploy specific)
-        // @ts-ignore: EdgeRuntime is available in Supabase Edge Functions
-        if (typeof EdgeRuntime !== 'undefined') {
-            // @ts-ignore
-            EdgeRuntime.waitUntil(audioTask);
+        } catch (err) {
+            console.error(`[Generate-Description] TTS failed for ${poi_id}:`, err);
         }
 
-        console.log(`[Generate-Description] Text success for ${poi_id}`);
+        console.log(`[Generate-Description] Success for ${poi_id}`);
 
-        return new Response(JSON.stringify({ success: true, data: result }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ 
+            success: true, 
+            data: { 
+                ...result, 
+                audio_url: publicUrl 
+            } 
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
     } catch (e) {
         console.error(`[Generate-Description] Error:`, e);

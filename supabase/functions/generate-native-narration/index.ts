@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { generateAudioWithTTS } from '../_shared/ttsGenerator.ts';
 
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -9,6 +10,7 @@ const corsHeaders = {
 const PROJECT_URL = Deno.env.get('PROJECT_URL') || '';
 const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || '';
 const GEMINI_API_KEY = Deno.env.get('GOOGLE_GEMINI_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
+const GOOGLE_TTS_API_KEY = Deno.env.get('GOOGLE_TTS_API_KEY') || GEMINI_API_KEY; // Fallback to Gemini key if TTS specific key missing (often same project)
 
 const supabaseAdmin = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
 
@@ -48,118 +50,111 @@ serve(async (req) => {
     let body: any = null;
     try {
         body = await req.json();
-        const { poi_id, language, travel_mode, user_context, voice_name = "Puck" } = body;
+        const { poi_id, language, voice_name = "Puck", force = false } = body;
         const lang = (language || 'pt-br').toLowerCase();
 
-        // New context fields from request
-        const prevPoiId = user_context.previous_poi_id;
-        const nextPoiId = user_context.next_poi_id;
-        const nextPoiBearing = user_context.next_poi_bearing;
-        const lastVisitTimestamp = user_context.last_visit_timestamp;
-
-        const currLoc = user_context.current_location; // { lat, lng }
-        const prevLoc = user_context.last_poi_location; // { lat, lng }
-        const nextLoc = user_context.next_poi_location; // { lat, lng }
-
-        if (!poi_id || !user_context) {
-            return new Response(JSON.stringify({ success: false, error: "Missing required parameters (poi_id or user_context)" }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        if (!poi_id) {
+            return new Response(JSON.stringify({ success: false, error: "Missing required parameter: poi_id" }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
         }
 
-        // 1. Generate Cache Key (Refined with Prev/Next IDs)
-        const directionBucket = getDirectionBucket(user_context.heading, user_context.bearing);
+        // 1. Generate Cache Key (Master Key: POI + Lang)
         const cacheKey = await generateCacheKey(
             poi_id,
             lang,
-            travel_mode || 'drive',
-            directionBucket,
-            prevPoiId,
-            nextPoiId
+            'master', // Fixed context for master
+            'any',    // Fixed bucket
+            undefined, 
+            undefined
         );
 
         // 2. CACHE CHECK (Priority 1: JIT Cache)
-        const { data: cached } = await supabaseAdmin
-            .schema('core')
-            .from('cache_narrations')
-            .select('*')
-            .eq('cache_key', cacheKey)
-            .gt('expires_at', new Date().toISOString())
-            .maybeSingle();
+        // Skip cache if 'force' is true
+        if (!force) {
+            const { data: cached } = await supabaseAdmin
+                .schema('core')
+                .from('cache_narrations')
+                .select('*')
+                .eq('cache_key', cacheKey)
+                .gt('expires_at', new Date().toISOString())
+                .maybeSingle();
 
-        if (cached && cached.audio_url) {
-            console.log(`[Cache Hit] Returning JIT audio for ${poi_id}`);
-            return new Response(JSON.stringify({
-                success: true,
-                data: {
-                    audio_url: cached.audio_url,
-                    text_content: cached.text_content,
-                    meta: { cache: 'hit', type: 'jit' }
-                }
-            }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+            if (cached && cached.audio_url) {
+                console.log(`[Cache Hit] Returning JIT audio for ${poi_id}`);
+                return new Response(JSON.stringify({
+                    success: true,
+                    data: {
+                        audio_url: cached.audio_url,
+                        text_content: cached.text_content,
+                        meta: { cache: 'hit', type: 'jit' }
+                    }
+                }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+            }
+        } else {
+             console.log(`[Force Generation] Bypassing cache for ${poi_id}`);
         }
 
         // 3. FETCH SOURCE MATERIAL
-        const { data: poiData } = await supabaseAdmin.schema('core')
+        let { data: poiData } = await supabaseAdmin.schema('core')
             .from('attraction_descriptions')
             .select('*')
             .eq('attraction_id', poi_id)
             .eq('language', lang)
             .maybeSingle();
 
-        if (!poiData) {
-            throw new Error("POI source material not found.");
-        }
-
-        // 3.5. FETCH NAMES FOR CONTEXT (Optional but improves prompt)
-        let prevPoiName = null;
-        let nextPoiName = null;
-        let nextDirectionBucket = null;
-
-        if (prevPoiId) {
-            const { data: prevData } = await supabaseAdmin.schema('core').from('attractions').select('name').eq('id', prevPoiId).maybeSingle();
-            prevPoiName = prevData?.name;
-        }
-
-        if (nextPoiId) {
-            const { data: nextData } = await supabaseAdmin.schema('core').from('attractions').select('name').eq('id', nextPoiId).maybeSingle();
-            nextPoiName = nextData?.name;
-
-            if (nextPoiBearing !== undefined) {
-                nextDirectionBucket = getDirectionBucket(user_context.heading, nextPoiBearing);
+        // Fallback: If target language not found, try 'pt-br' as source material
+        if (!poiData && lang !== 'pt-br') {
+            const { data: fallbackData } = await supabaseAdmin.schema('core')
+            .from('attraction_descriptions')
+            .select('*')
+            .eq('attraction_id', poi_id)
+            .eq('language', 'pt-br')
+            .maybeSingle();
+            
+            if (fallbackData) {
+                console.log(`[Source Fallback] Using 'pt-br' source for '${lang}' generation.`);
+                poiData = fallbackData;
             }
         }
 
-        // 3.6. CALCULATE RECENCY & DISTANCE
-        let timeSinceLastPoiStr = "unknown";
-        let distanceSinceLastPoi = "unknown";
+        // 3. FETCH SOURCE MATERIAL (SSOT from DB)
+        // We fetch the POI basics (name, city, country) for the prompt
+        // THIS IS THE CRITICAL CHECK: We need to know WHAT the POI is.
+        const { data: poiDetails } = await supabaseAdmin.schema('core')
+             .from('attractions')
+             .select('name, city, country, category')
+             .eq('id', poi_id)
+             .maybeSingle();
+
+        if (!poiDetails) {
+             throw new Error("POI not found in database (attractions table).");
+        }
+
+        let descriptionSource = poiData?.description || "";
+        let factsPackSource = poiData?.facts_pack_json;
+
+        // If no description exists, we are generating from scratch.
+        if (!descriptionSource) {
+             console.log(`[Bootstrap] No existing description for ${poi_id}. Generating from scratch using POI Name/Location.`);
+        }
+
+        // If 'force' is true, we might want to ignore existing source text if we had a way to get "Raw" data.
+        // But currently the best "Raw" data we have might be the cached Google Data or just the Name/City.
+        // Let's assume the goal is to Re-write/Refine the description into "Native Narration".
+
+        // 3.6. Metadata placeholders (Master Mode)
+        // Since we don't have user context, we don't calculate distances/recency.
+        let timeSinceLastPoiStr = "N/A";
+        let distanceSinceLastPoi = "N/A";
         let isRecentlyPlayed = false;
-
-        if (lastVisitTimestamp) {
-            const ms = Date.now() - new Date(lastVisitTimestamp).getTime();
-            const mins = Math.floor(ms / 60000);
-            timeSinceLastPoiStr = mins > 0 ? `${mins} minutes` : `less than a minute`;
-
-            if (currLoc && prevLoc) {
-                const dist = calculateDistance(currLoc.lat, currLoc.lng, prevLoc.lat, prevLoc.lng);
-                distanceSinceLastPoi = dist < 1000 ? `${Math.round(dist)} meters` : `${(dist / 1000).toFixed(1)} km`;
-
-                // Logic: If under 3 mins, or under 7 mins but distance is low (< 500m), it's "recent" (traffic)
-                if (mins < 3) isRecentlyPlayed = true;
-                else if (mins < 7 && dist < 500) isRecentlyPlayed = true;
-            } else if (mins < 3) {
-                isRecentlyPlayed = true; // Fallback to time only if loc missing
-            }
-        }
-
-        let distanceToNextPoi = "unknown";
-        if (currLoc && nextLoc) {
-            const dist = calculateDistance(currLoc.lat, currLoc.lng, nextLoc.lat, nextLoc.lng);
-            distanceToNextPoi = dist < 1000 ? `${Math.round(dist)} meters` : `${(dist / 1000).toFixed(1)} km`;
-        }
+        let distanceToNextPoi = "N/A";
 
         // 4. LOGIC: NO CONTEXT FALLBACK & MASTER CHECK
         // If no previous OR next POI id is provided, we check if the MASTER (Generic) content is already available.
-        if (!prevPoiId && !nextPoiId) {
-            console.log(`[No Context] Checking Master availability for ${poi_id}`);
+        // 4. LOGIC: MASTER CHECK
+        // If not forced and we have data, we returned cache above (Step 2).
+        // However, we double check if we have data in the DB that matches what we want.
+        if (!force && poiData) {
+            console.log(`[Validation] Checking existing Master content availability for ${poi_id}`);
             if (poiData.description && poiData.audio_url) {
                 console.log(`[Master Hit] Generic audio already exists. Skipping Gemini generation.`);
                 return new Response(JSON.stringify({
@@ -171,37 +166,27 @@ serve(async (req) => {
                     }
                 }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
             }
-            console.log(`[Master Miss] Content missing in database. Proceeding with JIT "Security Plan" generation.`);
         }
 
-        // 5. GENERATION (Gemini 2.5 Flash Native Audio - Streaming)
-        // If we reach here, we need to generate new content.
-        const isMasterGeneration = !prevPoiId && !nextPoiId;
-
+        // 5. GENERATION (Gemini 2.5 Flash Native Audio - Master Mode)
+        
         const prompt = `
 ROLE: Expert Travel Guide.
-TONE: ${isMasterGeneration ? 'Historical, Premium, Deeply informative' : 'Premium, Professional, Engaging, Vivid'}
+TONE: Historical, Premium, Deeply informative, yet spoken naturally.
 LANGUAGE: ${lang}
 
-CURRENT TARGET POI: "${poi_id}"
-LOCATION RELATIVE TO USER: ${directionBucket}
-TRAVEL MODE: ${travel_mode || 'drive'}
-
-${!isMasterGeneration ? `CONTEXTUAL HOOKS:
-${prevPoiId ? `- Previous POI: "${prevPoiName || prevPoiId}". Recency: ${timeSinceLastPoiStr}. Distance since then: ${distanceSinceLastPoi}. 
-  Rule: ${isRecentlyPlayed ? 'User just left it (or is in traffic nearby). Use a smooth bridge.' : 'User has been traveling for a while since then. Mention only if relevant to the new context.'}` : ''}
-${nextPoiId ? `- Next POI: "${nextPoiName || nextPoiId}". Distance ahead: ${distanceToNextPoi}. ${nextDirectionBucket ? `(located ${nextDirectionBucket})` : ''} 
-  Rule: Inform the user this is likely their next stop if they continue.` : ''}` : 'STRICT FOCUS: This is a standalone narration. Focus on the historical importance and beauty of the site.'}
+TARGET POI: "${poiDetails.name}" in ${poiDetails.city}, ${poiDetails.country}.
 
 SOURCE MATERIAL (Essential Facts Only):
-"${poiData.description}"
-${poiData.facts_pack_json ? `Bonus details: ${JSON.stringify(poiData.facts_pack_json)}` : ''}
+"${descriptionSource}"
+${factsPackSource ? `Bonus details: ${JSON.stringify(factsPackSource)}` : ''}
 
+GOAL: Create a "Master Description" audio script.
 STRICT NARRATION RULES:
-1. START immediately ${isMasterGeneration ? 'with the name and importance of the place' : `with a navigational hook (e.g., "Logo à sua frente...", "À sua direita...", "Em instantes chegaremos ao...")`}.
+1. START with the name and importance of the place.
 2. DO NOT include external facts, city history, or general knowledge not present in the SOURCE MATERIAL.
 3. BE CONCISE: The final script MUST be around 23-30 seconds of natural speech.
-4. FLUIDITY: Combine the hook, the core description, and the transition into a single, premium story.
+4. FLUIDITY: Create a single, premium story suitable for a general introduction.
 5. NO REPETITION: Do not repeat the POI name excessively.
 `;
 
@@ -220,14 +205,8 @@ STRICT NARRATION RULES:
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
                     generationConfig: {
-                        responseModalities: ["AUDIO"],
-                        speechConfig: {
-                            voiceConfig: {
-                                prebuiltVoiceConfig: {
-                                    voiceName: voice_name
-                                }
-                            }
-                        }
+                        // responseModalities: ["AUDIO"], // Disabled due to 400 Error: Model does not support requested modality
+                        // speechConfig: { ... }
                     }
                 })
             }
@@ -243,19 +222,34 @@ STRICT NARRATION RULES:
         const result = await geminiResponse.json();
         const parts = result.candidates?.[0]?.content?.parts || [];
 
-        // Find the part that contains audio data
-        const audioPart = parts.find((p: any) => p.inlineData && (p.inlineData.mimeType?.startsWith('audio/') || p.inlineData.data));
-        const base64Audio = audioPart?.inlineData?.data;
-
-        // Find text part for transcript if available
+        // Find text part (Now the primary output)
         const textPart = parts.find((p: any) => p.text);
-        const textContent = (textPart?.text || poiData.description).substring(0, 300) + "...";
+        let textContent = textPart?.text || "";
 
-        if (!base64Audio) throw new Error("No audio data");
+        if (!textContent) {
+             // Fallback to source if generation completely failed to produce text (unlikely)
+             console.warn("[Gemini] No text generated, using source.");
+             textContent = descriptionSource;
+        }
+        
+        // Clean up the text (Markdown, etc)
+        textContent = textContent.replace(/\*\*/g, '').replace(/\*/g, '').trim();
 
-        const audioBuffer = Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0));
+        console.log(`[Gemini Success] Generated Text: ${textContent.substring(0, 50)}...`);
+
+        // 5.5. HYBRID: Generate Audio using Google TTS (Fallback for Native limitation)
+        // We use the generated text to create the audio found at the end of the pipeline
+        console.log(`[Hybrid] Generating audio via TTS for: ${textContent.substring(0, 20)}...`);
+        const ttsBuffer = await generateAudioWithTTS(
+            textContent,
+            lang,
+            'male', // Default valid gender for TTS function
+            GOOGLE_TTS_API_KEY
+        );
+        
+        const audioBuffer = new Uint8Array(ttsBuffer);
         const geminiDuration = Date.now() - geminiStartTime;
-        console.log(`[Gemini Success] Generated ${audioBuffer.byteLength} bytes in ${geminiDuration}ms`);
+        console.log(`[Hybrid Success] Generated ${audioBuffer.byteLength} bytes in ${geminiDuration}ms`);
 
         // 6. STORAGE & METADATA (Background)
         const fileName = `${poi_id}/${cacheKey}.mp3`;
@@ -272,26 +266,30 @@ STRICT NARRATION RULES:
                 const expiresAt = new Date();
                 expiresAt.setDate(expiresAt.getDate() + 30);
 
-                // Save to JIT Cache
+                // Save to JIT Cache (Master Mode entries are also effective cache)
                 await supabaseAdmin.schema('core').from('cache_narrations').upsert({
                     cache_key: cacheKey,
                     poi_id: poi_id,
                     language: lang,
-                    travel_mode: travel_mode || 'drive',
-                    direction_bucket: directionBucket,
+                    travel_mode: 'drive', // Default for master
+                    direction_bucket: 'any', // Default for master
                     text_content: textContent,
                     audio_url: publicUrl,
                     expires_at: expiresAt.toISOString()
                 });
 
-                // Update Master if needed
-                if (isMasterGeneration) {
-                    await supabaseAdmin.schema('core').from('attraction_descriptions').update({
-                        audio_url: publicUrl,
-                        updated_at: new Date().toISOString()
-                    }).eq('attraction_id', poi_id).eq('language', lang);
-                }
-                console.log(`[Background] Storage and DB updated for ${cacheKey}`);
+                // Update Master Description/Facts in DB
+                await supabaseAdmin.schema('core').from('attraction_descriptions').upsert({
+                    attraction_id: poi_id,
+                    language: lang,
+                    description: textContent,
+                    audio_url: publicUrl,
+                    // If we generated fresh facts we would save them here, but for now we preserved or used null.
+                    // Ideally we should extract facts from Gemini response if valid JSON.
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'attraction_id,language' });
+                
+                console.log(`[Background] Storage and DB (Master) updated for ${poi_id}`);
             } catch (error) {
                 console.error(`[Background Task Failed]`, error);
             }
@@ -300,17 +298,21 @@ STRICT NARRATION RULES:
         // @ts-ignore
         if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(backgroundTask);
 
-        // 7. RETURN STREAMING-READY RESPONSE
-        // Instead of waiting for background tasks, we return the audio bytes immediately.
-        // We pass metadata in headers so the body can be raw audio.
-        return new Response(audioBuffer, {
+        // 7. RETURN JSON (CMS Friendly)
+        // We return the generated text and audio URL.
+        
+        return new Response(JSON.stringify({
+            success: true,
+            data: {
+                description: textContent,
+                audio_url: publicUrl,
+                facts: factsPackSource || [], 
+                meta: { type: 'master', generated: true }
+            }
+        }), {
             headers: {
                 ...corsHeaders,
-                'Content-Type': 'audio/mpeg',
-                'X-Narration-Text': btoa(encodeURIComponent(textContent)),
-                'X-Narration-Type': isMasterGeneration ? 'master' : 'jit',
-                'X-Narration-Cache': 'miss',
-                'X-Gemini-Latency': geminiDuration.toString()
+                'Content-Type': 'application/json'
             }
         });
 
