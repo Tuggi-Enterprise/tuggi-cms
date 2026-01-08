@@ -440,10 +440,15 @@ function POIMapContent({
 
   return (
     <div className={cn("relative w-full rounded-lg overflow-hidden border border-gray-200 dark:border-gray-800", className)} style={{ height }}>
-      <Wrapper apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''} render={(status) => {
-        if (status === 'LOADING') return <div className="p-4">Loading Map...</div>
-        return <div ref={mapRef} className="w-full h-full bg-gray-100 dark:bg-gray-800" />
-      }} />
+      <Wrapper 
+        apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''} 
+        render={(status) => {
+          if (status === 'LOADING') return <div className="p-4">Loading Map...</div>
+          return <div ref={mapRef} className="w-full h-full bg-gray-100 dark:bg-gray-800" />
+        }}
+        libraries={['drawing', 'places', 'geometry']}
+        version="weekly"
+      />
 
       {/* Map Controls */}
       <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">

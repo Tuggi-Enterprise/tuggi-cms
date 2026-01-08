@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Plus, Search, Filter, Edit, XCircle, Eye, Trash2, Calendar, Users, ChevronLeft, ChevronRight, List, Map, Grid, X, MapPin } from 'lucide-react'
 import Link from 'next/link'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
@@ -15,6 +16,7 @@ import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getThumbnailUrl } from '@/lib/imageUtils'
 import { useLocationData } from '@/lib/hooks/use-location-data'
 import { poiService, POI as POIType, POISearchFilters } from '@/lib/core/poi-service'
+import { usePOIs } from '@/lib/hooks/use-pois'
 
 // Custom hook for debouncing
 function useDebounce<T>(value: T, delay: number): T {
@@ -35,12 +37,13 @@ function useDebounce<T>(value: T, delay: number): T {
 
 // Component that handles search params
 function POIListWithSearchParams() {
-  const [pois, setPois] = useState<POIType[]>([])
-  const [filteredPois, setFilteredPois] = useState<POIType[]>([])
-  const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending'>('all')
   const [cityFilter, setCityFilter] = useState('')
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(100)
 
   const [contentStatusFilter, setContentStatusFilter] = useState<'all' | 'missing_description' | 'missing_audio' | 'complete'>('all')
   const [groupStatusFilter, setGroupStatusFilter] = useState<'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'>('all')
@@ -57,13 +60,10 @@ function POIListWithSearchParams() {
   const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
 
   // Pagination
-  const [currentPage, setCurrentPage] = useState(1)
-  const [itemsPerPage, setItemsPerPage] = useState(100) // Increased to better utilize Supabase's 1000 limit
-  const [totalPages, setTotalPages] = useState(1)
-  const [totalCount, setTotalCount] = useState(0)
 
   const router = useRouter()
   const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
 
   // Use centralized location data
   const locationData = useLocationData({ autoLoadCountries: true })
@@ -163,7 +163,6 @@ function POIListWithSearchParams() {
 
   // Determine map loading strategy based on geographic context
   const getMapLoadingStrategy = useCallback((filters: POISearchFilters) => {
-    console.log('🗺️ Current viewMode:', viewMode)
 
     // For map view, use intelligent loading strategy
     if (viewMode === 'map') {
@@ -219,51 +218,41 @@ function POIListWithSearchParams() {
     }
   }, [viewMode, itemsPerPage, currentPage])
 
-  // Load POIs using centralized service
-  const fetchPois = useCallback(async () => {
-    setIsLoading(true)
-
-    try {
-      const baseFilters: POISearchFilters = {
+  const { data: searchResult, isLoading: isQueryLoading, isFetching: isQueryFetching, refetch } = usePOIs({
+    ...getMapLoadingStrategy({
         search: debouncedSearchTerm,
         status: statusFilter,
         country: countryFilter,
         state: stateFilter,
         city: cityFilter,
-
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
         triggerPointsFilter: triggerPointsFilter
-      }
+    }),
+    search: debouncedSearchTerm,
+    status: statusFilter,
+    country: countryFilter,
+    state: stateFilter,
+    city: cityFilter,
+    contentStatus: contentStatusFilter,
+    groupStatus: groupStatusFilter,
+    scoreFilter: scoreFilter,
+    triggerPointsFilter: triggerPointsFilter,
+    page: currentPage,
+    limit: itemsPerPage
+  })
 
-      // Get intelligent loading strategy
-      const mapStrategy = getMapLoadingStrategy(baseFilters)
+  // Derived data
+  const pois = useMemo(() => searchResult?.data || [], [searchResult])
 
-      const filters: POISearchFilters = {
-        ...baseFilters,
-        ...mapStrategy
-      }
+  const filteredPois = pois
+  const totalCount = searchResult?.pagination?.totalCount || 0
+  const totalPages = searchResult?.pagination?.totalPages || 1
 
-      console.log('🗺️ Map Loading Strategy:', mapStrategy.strategy)
-      console.log('🗺️ Filters for search:', filters)
+  const isLoading = isQueryLoading || (isQueryFetching && pois.length === 0)
+  const fetchPois = useCallback(() => refetch(), [refetch])
 
-      const result = await poiService.search(filters)
-
-      if (result.success) {
-        setPois(result.data || [])
-        setFilteredPois(result.data || [])
-        setTotalCount(result.pagination.totalCount)
-        setTotalPages(result.pagination.totalPages)
-      } else {
-        console.error('Failed to load POIs:', result.error)
-      }
-    } catch (error) {
-      console.error('Error loading POIs:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, itemsPerPage, currentPage, viewMode])
 
 
   // Stable references to prevent infinite loops
@@ -1098,16 +1087,39 @@ function POIListWithSearchParams() {
             setSelectedPoi(null)
           }}
           onUpdate={() => {
-            fetchPois()
+            // React Query handles refetch via invalidation in the modal
+            console.log('📝 [PAGE] onUpdate called - data will be refreshed by React Query')
           }}
           onPOIUpdated={(updatedPOI) => {
-            // When a POI is created or updated, refresh the list and select the new/updated POI
-            fetchPois()
-            // If it's a new POI (has ID), we can optionally select it
-            if (updatedPOI?.id) {
-              setSelectedPoi(updatedPOI as any)
-            }
+            // Force update the cache immediately with the data we received
+            queryClient.setQueriesData({ queryKey: ['pois'], exact: false }, (oldData: any) => {
+              if (!oldData || !oldData.data) return oldData
+              return {
+                ...oldData,
+                data: oldData.data.map((p: any) => p.id === updatedPOI.id ? { ...p, ...updatedPOI } : p)
+              }
+            })
+            
+            // Also invalidate to fetch fresh data from server eventually
+            queryClient.invalidateQueries({ queryKey: ['pois'] })
           }}
+          onPOIDeleted={(deletedId) => {
+            // Force remove from cache immediately
+            queryClient.setQueriesData({ queryKey: ['pois'], exact: false }, (oldData: any) => {
+              if (!oldData || !oldData.data) return oldData
+              return {
+                ...oldData,
+                data: oldData.data.filter((p: any) => p.id !== deletedId),
+                pagination: {
+                  ...oldData.pagination,
+                  totalCount: Math.max(0, (oldData.pagination?.totalCount || 0) - 1)
+                }
+              }
+            })
+             
+            setSelectedPoi(null)
+          }}
+
         />
       )}
     </div>

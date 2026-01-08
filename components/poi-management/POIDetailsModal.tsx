@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useSupabaseClient } from '@supabase/auth-helpers-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, Plus, AlertTriangle, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getScoreDescription, getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute'
@@ -225,6 +226,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setEditedPoi(createdPOI)
       setActiveTab('details')
 
+      // Invalidate queries to refresh the list and map
+      invalidateAllPOICaches()
+
       // Call update callbacks
       if (onUpdate) onUpdate()
       if (onPOIUpdated) onPOIUpdated(createdPOI)
@@ -350,7 +354,47 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [groupName, setGroupName] = useState(poi?.name || '') // Default to main POI name
   const [drawnPolygon, setDrawnPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
 
+  const queryClient = useQueryClient()
   const supabase = useSupabaseClient<any>()
+
+  // Helper to invalidate all POI-related caches for instant updates across all views
+  const invalidateAllPOICaches = useCallback(async () => {
+    // Use refetchQueries with exact: false to match all queries starting with these keys
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: ['pois'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['map-pois'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['osm-pois'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['osm-map-pois'], exact: false, type: 'active' }),
+    ])
+  }, [queryClient])
+
+  // Helper for optimistic updates - updates cache immediately without waiting for server
+  const updatePOICacheOptimistically = useCallback((updatedPOI: any) => {
+    // Update 'pois' list cache
+    queryClient.setQueriesData({ queryKey: ['pois'], exact: false }, (oldData: any) => {
+      if (!oldData || !oldData.data) return oldData
+      
+      return {
+        ...oldData,
+        data: oldData.data.map((p: any) => p.id === updatedPOI.id ? { ...p, ...updatedPOI } : p)
+      }
+    })
+    
+    // Update 'osm-pois' list cache
+    queryClient.setQueriesData({ queryKey: ['osm-pois'], exact: false }, (oldData: any) => {
+      if (!oldData || !oldData.data) return oldData
+      
+      return {
+        ...oldData,
+        data: oldData.data.map((p: any) => p.id === updatedPOI.id ? { ...p, ...updatedPOI } : p)
+      }
+    })
+  }, [queryClient])
+
+
+
+
+
 
   // Function to detect and validate dates in description
   const detectHistoricalDates = (text: string) => {
@@ -861,22 +905,26 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       console.log('🔍 MODAL: Current state:', {
         nearbyPOIs: nearbyPOIs.length,
         selectedPOIs,
-        groupInfo,
-        groupName
+        groupInfo
       });
     }
   }, [activeTab, getPoi, nearbyPOIs, selectedPOIs, groupInfo, groupName])
 
-  const handleTogglePOI = (id: string) => {
-    console.log('🔍 MODAL: handleTogglePOI called with id:', id);
-    console.log('🔍 MODAL: Current selectedPOIs:', selectedPOIs);
+  // Debug: Monitor state changes
+  useEffect(() => {
+    if (activeTab === 'boundary') {
+      // console.log('🗺️ [POIDetailsModal] State snapshot:', { /* ... */ });
+    }
+  }, [activeTab])
 
+
+  const handleTogglePOI = (id: string) => {
     setSelectedPOIs(prev => {
       const newSelection = prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]
-      console.log('🔍 MODAL: New selectedPOIs:', newSelection);
       return newSelection
     })
   }
+
 
   const handleSaveGroup = async () => {
     const currentPoi = getPoi()
@@ -933,7 +981,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }
 
-  const handleSave = async () => {
+  const handleSaveChanges = async () => {
     setIsSaving(true)
     try {
       // Check if this is a homolog POI (from homolog.pois table)
@@ -946,6 +994,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
       if (isHomologPOI) {
+
         // Use API route for homolog POIs
         // Note: homolog.pois has both 'category' and 'primary_category' fields
         // We'll update both to keep them in sync
@@ -1004,12 +1053,28 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         updated_at: new Date().toISOString(),
         id: currentPoiData.id // Ensure id is always present
       }
+      
+      // Small delay to ensure database has propagated the changes
+      // This is necessary because the database may take a moment to replicate      
+      // Update cache Optimistically (Instant UI update)
+      updatePOICacheOptimistically(updatedPOI)
+      
+      // Small delay to ensure database has propagated the changes
+      // This is necessary because the database may take a moment to replicate
+      await new Promise(resolve => setTimeout(resolve, 300))
+      
+      // Now refetch to get the updated data (Eventual Consistency)
+      invalidateAllPOICaches()
+      
       if (onPOIUpdated) {
         onPOIUpdated(updatedPOI)
-      } else {
+      }
+      if (onUpdate) {
         await onUpdate()
       }
       onClose()
+
+
     } catch (error) {
       console.error('Error saving POI:', error)
       alert(`Erro ao salvar POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
@@ -1087,6 +1152,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         approved_by: user?.id || null,
         approved_at: new Date().toISOString()
       }
+      // Invalidate caches for instant updates
+      invalidateAllPOICaches()
+      
       if (onPOIUpdated) {
         onPOIUpdated(updatedPOI as POI)
       } else {
@@ -1141,6 +1209,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         if (error) throw error
       }
 
+      // Invalidate caches for instant updates
+      invalidateAllPOICaches()
+      
       // Notify parent component about deletion instead of reloading all data
       if (onPOIDeleted) {
         onPOIDeleted(currentPoi.id)
@@ -3555,7 +3626,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       </button>
                       {(isCreateMode || cmsUserRole === 'admin') && (
                         <button
-                          onClick={handleSave}
+                          onClick={handleSaveChanges}
                           disabled={isSaving}
                           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                         >
