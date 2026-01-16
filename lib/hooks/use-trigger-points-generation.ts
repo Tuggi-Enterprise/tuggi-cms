@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback } from 'react'
 import { TriggerPoint } from '@/lib/services/trigger-points-google/types/interfaces'
+import { useSupabaseClient } from '@supabase/auth-helpers-react'
 
 interface POIInfo {
   id: string
@@ -50,6 +51,7 @@ interface UseTriggerPointsGenerationReturn {
 }
 
 export function useTriggerPointsGeneration(): UseTriggerPointsGenerationReturn {
+  const supabase = useSupabaseClient()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<TriggerPointResult | null>(null)
@@ -89,21 +91,12 @@ export function useTriggerPointsGeneration(): UseTriggerPointsGenerationReturn {
     try {
       console.log(`🚀 Generating trigger points for: ${poiData.name}`)
       
-      const response = await fetch('/api/trigger-points/google/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          poiData
-        }),
-        signal: abortControllerRef.current.signal
-      })
+      const { data: result, error: invokeError } = await supabase.functions.invoke('generate-trigger-points', {
+        body: { poiData, options: { forceRegenerate: true } }
+      });
 
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Erro na geração de trigger points')
+      if (invokeError) {
+        throw new Error(invokeError.message || 'Erro na invocação da Edge Function');
       }
 
       if (!result.success) {
@@ -126,7 +119,6 @@ export function useTriggerPointsGeneration(): UseTriggerPointsGenerationReturn {
       console.log(`✅ Generated ${triggerPointResult.count} trigger points`)
       
     } catch (err: any) {
-      // Ignorar erros de abort
       if (err.name === 'AbortError') {
         console.log('Generation cancelled')
         return
