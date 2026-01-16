@@ -751,7 +751,13 @@ export class OptimalPointCalculator {
       return distA - distB;
     });
     
-    const distances = [50, 100, 150, 200, maxDistance];
+    const distances = [
+      Math.min(30, maxDistance),
+      Math.min(50, maxDistance),
+      Math.min(80, maxDistance), 
+      Math.min(120, maxDistance),
+      maxDistance
+    ].filter((v, i, a) => a.indexOf(v) === i && v <= maxDistance).sort((a,b) => a-b);
     
     for (const street of sortedStreets) {
       const isFrontStreet = sortedStreets.indexOf(street) === 0;

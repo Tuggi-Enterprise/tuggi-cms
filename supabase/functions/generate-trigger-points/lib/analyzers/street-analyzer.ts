@@ -435,6 +435,19 @@ export class StreetAnalyzer {
         }
       }
       
+      // FALLBACK FINAL: Google Roads API
+      if (nominatimStreets.length === 0) {
+        try {
+          const googleStreets = await this.getStreetsFromGoogleRoads(boundary, searchRadius);
+          if (googleStreets && googleStreets.length > 0) {
+            console.log(`⚠️ [FALLBACK] Using Google Roads API (${googleStreets.length} streets found)`);
+            return this.filterStreetPointsByRadius(googleStreets, boundary, searchRadius);
+          }
+        } catch (googleError) {
+          console.error('❌ [CRITICAL] Google Roads fallback failed:', googleError);
+        }
+      }
+      
       return this.filterStreetPointsByRadius(nominatimStreets, boundary, searchRadius);
     }
   }
@@ -1173,6 +1186,76 @@ out geom tags;
       }
     }
     return false;
+  }
+
+  private async getStreetsFromGoogleRoads(boundary: BoundaryData, radius: number): Promise<StreetData[]> {
+    try {
+      // Gerar pontos de amostragem ao redor do boundary para consultar a API
+      const samplePoints: Array<{ lat: number; lng: number }> = [];
+      const center = boundary.center;
+      
+      // Amostrar 8 pontos em um círculo de 50m (perto do POI)
+      for (let i = 0; i < 8; i++) {
+        const angle = (i * 360) / 8;
+        const rad = (angle * Math.PI) / 180;
+        const dist = 50;
+        samplePoints.push({
+          lat: center.lat + (dist / 111000) * Math.cos(rad),
+          lng: center.lng + (dist / (111000 * Math.cos(center.lat * Math.PI / 180))) * Math.sin(rad)
+        });
+      }
+      
+      // Amostrar mais 8 pontos em um círculo de radius/2
+      const outerDist = Math.min(radius, 150);
+      for (let i = 0; i < 8; i++) {
+        const angle = ((i + 0.5) * 360) / 8;
+        const rad = (angle * Math.PI) / 180;
+        samplePoints.push({
+          lat: center.lat + (outerDist / 111000) * Math.cos(rad),
+          lng: center.lng + (outerDist / (111000 * Math.cos(center.lat * Math.PI / 180))) * Math.sin(rad)
+        });
+      }
+      
+      const response = await this.googleAPIs.getNearestRoads(samplePoints);
+      
+      if (!response.success || !response.data) {
+        return [];
+      }
+      
+      const snappedPoints = response.data; // Array de { location, originalIndex, placeId }
+      const streetsMap = new Map<string, StreetData>();
+      
+      for (const point of snappedPoints) {
+        if (!point.placeId) continue;
+        
+        const placeId = point.placeId;
+        const streetId = `google_road_${placeId}`;
+        
+        if (!streetsMap.has(streetId)) {
+          streetsMap.set(streetId, {
+            id: streetId,
+            name: `Road ${placeId.substring(0, 6)}`, // Nome genérico, pois Roads API não retorna nome :(
+            type: 'residential', // Default seguro
+            coordinates: [],
+            accessibility: 'public',
+            confidence: 0.85
+          });
+        }
+        
+        const street = streetsMap.get(streetId)!;
+        street.coordinates.push({
+          lat: point.location.latitude,
+          lng: point.location.longitude
+        });
+      }
+      
+      // Filtrar ruas com poucos pontos
+      return Array.from(streetsMap.values()).filter(s => s.coordinates.length > 0);
+      
+    } catch (error) {
+      console.error('Error in Google Roads fallback:', error);
+      return [];
+    }
   }
 
   private calculateBuildingCentroid(building: any): { lat: number; lng: number } {

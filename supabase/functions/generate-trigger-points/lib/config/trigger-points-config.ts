@@ -360,13 +360,13 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
       areaMax: 50000          // Área pequena/média
     },
     searchRadius: {
-      fixed: 75  // Raio fixo de 300m (muito limitado)
+      fixed: 200  // Aumentado para 200m (blocos grandes/avenidas largas)
     },
     maxTriggerPoints: 15,
     minDistanceBetweenTPs: 40,
-    visibilityThreshold: 0.6,  // Muito restritivo (muitas obstruções)
+    visibilityThreshold: 0.45,  // Relaxado para 0.45
     strategy: 'linear',
-    streetPriority: ['primary', 'secondary', 'tertiary'],  // Ruas locais
+    streetPriority: ['trunk', 'primary', 'secondary', 'tertiary', 'residential'],
     blockStreets: [],
     specialRules: {
       prioritizeFrontStreet: true,      // Priorizar rua da frente

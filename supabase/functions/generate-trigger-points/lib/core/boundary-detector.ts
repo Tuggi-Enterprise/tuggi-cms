@@ -3,15 +3,12 @@ import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config.ts';
 import { calculatePolygonArea, calculatePolygonCenter, calculatePolygonPerimeter, calculateDistance } from '../utils/calculations.ts';
 import { GoogleAPIsService } from '../services/google-apis.service.ts';
 import { ElevationAnalysisService } from '../services/elevation-service.ts'; // ✅ Importar ElevationService
-import { POIClassifierService } from '../services/poi-classifier.service.ts'; // ✅ Importar POIClassifier
 
 export class BoundaryDetector {
   private googleAPIs: GoogleAPIsService;
-  private poiClassifier: POIClassifierService; // ✅ Injetar Classifier
   
   constructor(googleAPIs: GoogleAPIsService) {
     this.googleAPIs = googleAPIs;
-    this.poiClassifier = new POIClassifierService();
   }
   
   /**
@@ -298,21 +295,10 @@ export class BoundaryDetector {
           height = elevationData.max - elevationData.min;
       }
 
-      // 3. Classificar POI (High, Medium, Canyon, Flat)
-      const classification = await this.poiClassifier.classifyPOI(
-          poiData,
-          height,
-          { center: elevationData.center },
-          boundary.area,
-          context || {} as GeographicContext,
-          boundary.osmTags
-      );
-
       return {
           ...boundary,
           elevation: elevationData,
           height,
-          classification,
           // TODO: Preencher surroundingHeight e address se necessário
       };
   }

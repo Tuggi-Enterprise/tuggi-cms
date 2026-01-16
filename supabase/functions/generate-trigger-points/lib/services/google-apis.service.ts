@@ -232,6 +232,34 @@ export class GoogleAPIsService {
   }
 
   /**
+   * Buscar ruas mais próximas usando Google Roads API
+   */
+  async getNearestRoads(points: Array<{ lat: number; lng: number }>) {
+    try {
+      const url = new URL('https://roads.googleapis.com/v1/nearestRoads');
+      const pointsStr = points.map(p => `${p.lat},${p.lng}`).join('|');
+      url.searchParams.set('points', pointsStr);
+      url.searchParams.set('key', this.apiKey);
+      
+      const response = await fetch(url.toString());
+      const data = await response.json();
+      
+      return {
+        success: !data.error,
+        data: data.snappedPoints || [], // Array de { location: {latitude, longitude}, originalIndex, placeId }
+        error: data.error ? data.error.message : null
+      };
+    } catch (error) {
+      console.error('Google Roads API error:', error);
+      return {
+        success: false,
+        data: null,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
    * Sleep utility
    */
   private sleep(ms: number): Promise<void> {

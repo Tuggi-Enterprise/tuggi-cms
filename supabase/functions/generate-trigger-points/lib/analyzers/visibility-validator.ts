@@ -119,8 +119,22 @@ export class VisibilityValidator {
       };
 
     } catch (error) {
-      console.error('Buildings analysis failed:', error);
-      throw error;
+      console.warn('⚠️ Buildings analysis failed (Using fallback):', error);
+      // Fallback: Se a análise detalhada falhar (timeout/erro), assumir visibilidade OK mas com confiança menor
+      // Isso evita descartar pontos válidos devido a falhas na API do OSM
+      return {
+        hasLineOfSight: true,
+        confidence: 0.5,
+        obstructions: [],
+        visibleBoundaryPercentage: 100,
+        method: 'estimated', // Fallback to estimated
+        details: {
+          checkedPoints: 0,
+          blockedPoints: 0,
+          averageDistance: 0,
+          nearestBoundaryPoint: { lat: 0, lng: 0 } // Dummy value
+        }
+      };
     }
   }
 
