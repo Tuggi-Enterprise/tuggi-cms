@@ -43,7 +43,8 @@ const FILTER_CONFIG = {
     "pneus", "lava rapido", "lava rápido", "pet shop", "veterinária", "veterinaria", "escola", "colégio", "colegio", "faculdade", "universidade",
     "academia", "fitness", "crossfit", "correio", "post office", "administrativo", "governo",
     "center", "centro", "horta", "letreiro",
-    "recreational area", "green area", "open space", "public space"
+    "recreational area", "green area", "open space", "public space",
+    "cíles", "ciles", "centro integrado"
   ],
 
   RELIGIOUS_BRANDS: [
@@ -81,7 +82,7 @@ const FILTER_CONFIG = {
     ],
     leisure: [
       "pitch", "track", "fitness_station", "playground", "dog_park", "picnic_site", "swimming_pool", 
-      "sports_centre", "fitness_centre", "sauna", "adult_gaming_centre", "escape_game"
+      "sports_centre", "fitness_centre", "sauna", "adult_gaming_centre", "escape_game", "miniature_golf"
     ],
     natural: ["tree_row", "hedge", "scrub", "heath", "grassland", "tree"],
     man_made: ["pipeline", "storage_tank", "surveillance", "waste_disposal", "street_cabinet"]
@@ -261,8 +262,12 @@ function shouldFilterPOI(poi: any): { remove: boolean; reason?: string } {
 
   const otherCommercial = ["shop", "office", "craft", "industrial"];
   if (props.amenity === "marketplace") {
-    const isMunicipal = ["municipal", "mercadão", "mercadao", "mercado"].some(t => nameLower.includes(t));
-    if (!isFamous && !isMunicipal) return { remove: true, reason: "Category: Mercado local sem fama/municipal" };
+    // Elite Market Hall pattern
+    const isMajorMarket = ["municipal", "mercadão", "mercadao", "market hall", "público", "publico", "paco", "paço", "mercado de", "mercado da", "mercado do"].some(t => nameLower.includes(t));
+    
+    if (!isFamous && !isMajorMarket) {
+      return { remove: true, reason: "Category: Mercado local sem fama/histórico" };
+    }
     return { remove: false };
   }
 

@@ -77,38 +77,8 @@ export class PolygonService {
   }
 
   async generatePolygonName(coordinates: Array<{ lat: number; lng: number }>): Promise<string> {
-    if (coordinates.length === 0) return 'Custom Area'
-
-    try {
-      const center = this.calculatePolygonCenter(coordinates)
-      const geocoder = new google.maps.Geocoder()
-      
-      const result = await new Promise<google.maps.GeocoderResult[]>((resolve, reject) => {
-        geocoder.geocode({ location: center }, (results, status) => {
-          if (status === 'OK' && results) {
-            resolve(results)
-          } else {
-            reject(new Error(`Geocoding failed: ${status}`))
-          }
-        })
-      })
-
-      if (result && result.length > 0) {
-        const addressComponents = result[0].address_components
-        const locationInfo = extractLocationFromAddressComponents(addressComponents)
-        
-        const parts = []
-        if (locationInfo.city) parts.push(locationInfo.city)
-        if (locationInfo.country) parts.push(locationInfo.country)
-        
-        return parts.length > 0 ? parts.join(', ') : 'Custom Area'
-      }
-
-      return 'Custom Area'
-    } catch (error) {
-      console.error('Error generating polygon name:', error)
-      return 'Custom Area'
-    }
+    const timestamp = new Date().toLocaleString()
+    return `Mapped Area ${timestamp}`
   }
 
   private calculatePolygonCenter(coordinates: Array<{ lat: number; lng: number }>): { lat: number; lng: number } {
@@ -122,30 +92,8 @@ export class PolygonService {
   }
 
   private async getCountryFromCoordinates(lat: number, lng: number): Promise<string> {
-    try {
-      const geocoder = new google.maps.Geocoder()
-      
-      const result = await new Promise<google.maps.GeocoderResult[]>((resolve, reject) => {
-        geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-          if (status === 'OK' && results) {
-            resolve(results)
-          } else {
-            reject(new Error(`Geocoding failed: ${status}`))
-          }
-        })
-      })
-
-      if (result && result.length > 0) {
-        const addressComponents = result[0].address_components
-        const locationInfo = extractLocationFromAddressComponents(addressComponents)
-        return locationInfo.country || 'Unknown'
-      }
-
-      return 'Unknown'
-    } catch (error) {
-      console.error('Error getting country from coordinates:', error)
-      return 'Unknown'
-    }
+    // Returning Unknown to avoid Geocoding API costs
+    return 'Unknown'
   }
 
   async savePolygon(
