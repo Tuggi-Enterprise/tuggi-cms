@@ -234,6 +234,46 @@ export const TRIGGER_POINTS_CONSTANTS = {
     // Multiplicadores de elevação
     elevationMultiplier: 200, // Multiplicador para cálculo de raio por elevação
     maxElevationRadius: 8000, // Raio máximo por elevação (m)
+    
+    // =========================================================
+    // 🏠 ALTURAS PADRÃO PARA OBSTRUÇÕES (CONSTANTES GLOBAIS)
+    // =========================================================
+    // Usado quando OSM não tem dados precisos de altura
+    
+    /**
+     * 🏠 ALTURA PADRÃO DE CASAS - CONSTANTE FIXA 6 METROS
+     * ====================================================
+     * Em áreas residenciais, assume-se que casas/sobrados têm 6m.
+     * Isso bloqueia visão para POIs baixos (FLAT).
+     * Se o POI for alto, a visão pode passar por cima.
+     * 
+     * Esta é uma constante que pode ser ajustada manualmente.
+     */
+    defaultHouseHeight: 6, // metros - altura padrão para casas/sobrados
+    
+    /**
+     * 🏙️ ALTURA DE PRÉDIOS EM CANYON URBANO - VARIÁVEL
+     * ==================================================
+     * Em canyons urbanos (centro de SP, centro do RJ, etc.),
+     * quando não sabemos a altura de um prédio vizinho,
+     * assumimos que ele tem altura SIMILAR ao POI.
+     * 
+     * Exemplo: Copan tem 110m, prédios atrás também ~110m
+     * Isso bloqueia TPs em ruas atrás do POI em canyons.
+     * 
+     * Lógica: useCanyonNeighborHeight = true
+     *         Altura do vizinho = altura do POI
+     */
+    useCanyonNeighborHeight: true, // Se true, prédios vizinhos assumem altura do POI
+    canyonHeightMultiplier: 1.0, // Multiplicador (1.0 = mesma altura do POI)
+    
+    /**
+     * 🏢 ALTURA MÍNIMA PARA BLOQUEAR VISÃO
+     * ====================================
+     * Qualquer building com altura maior que este valor
+     * pode bloquear a visão de um POI baixo (FLAT/0m altura)
+     */
+    minBlockingHeight: 3, // metros - altura mínima para bloquear POI FLAT
   },
 
   // 📊 CONFIGURAÇÕES DE PROCESSAMENTO

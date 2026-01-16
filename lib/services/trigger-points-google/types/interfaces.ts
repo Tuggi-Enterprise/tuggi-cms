@@ -1,5 +1,10 @@
 // Interfaces para o sistema de trigger points migrado para Google APIs
 
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+}
+
 export interface POIData {
   id: string;
   name: string;
@@ -68,12 +73,21 @@ export interface DirectionalAnalysis {
   reason: string;
 }
 
+export interface LandmarkInfo {
+  isHighVisibility: boolean;
+  maxRange: number;
+  elevationDiff: number;
+}
+
 export interface BoundaryData {
-  coordinates: Array<{lat: number, lng: number}>;
-  center: {lat: number, lng: number};
-  area: number;
+  id?: string | number; // ID do boundary (ex: OSM element ID)
+  type: 'polygon' | 'circle' | 'rectangle';
+  coordinates: GeoPoint[];
+  center: {lat: number, lng: number}; // Kept from original, not in snippet but makes sense
+  area_m2: number;
+  perimeter_m: number;
   confidence: number;
-  source: 'google_places' | 'osm' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim'; // ✅ Adicionado 'manual', 'manual_drawing' e 'nominatim' para boundaries do banco
+  source: 'google_places' | 'osm' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim' | 'unified_overpass' | 'estimated_boundary' | 'osm_nominatim' | 'osm_reverse_geocoding' | 'osm_nearby_features'; // ✅ Adicionado 'manual', 'manual_drawing' e 'nominatim' para boundaries do banco
   osmIdentified?: boolean; // ✅ Flag: OSM identificou o POI? (para POIs manuais, indica se OSM encontrou dados)
   elevation?: {
     min: number;
@@ -249,7 +263,7 @@ export interface TriggerPointPredictionResult {
   context: GeographicContext;
   processingTime: number;
   metadata: {
-    boundarySource: 'google_places' | 'osm' | 'estimated' | 'manual' | 'manual_drawing' | 'nominatim'; // ✅ Adicionado 'manual', 'manual_drawing' e 'nominatim' para boundaries do banco
+    boundarySource: BoundaryData['source']; // ✅ SSOT: Usar referência direta ao tipo de source do BoundaryData
     boundaryConfidence: number;
     streetCount: number;
     optimalPointsFound: number;
@@ -267,4 +281,30 @@ export interface TriggerPointPredictionResult {
       isHighVisibility: boolean;
     } | null;
   };
+}
+
+export interface OSMElement {
+  type: 'node' | 'way' | 'relation';
+  id: number;
+  lat?: number;
+  lon?: number;
+  center?: { lat: number; lon: number };
+  tags?: Record<string, string>;
+  nodes?: number[];
+  members?: Array<{
+    type: 'node' | 'way' | 'relation';
+    ref: number;
+    role: string;
+  }>;
+  geometry?: Array<{lat: number, lon: number}>;
+}
+
+export interface OverpassResponse {
+  version: number;
+  generator: string;
+  osm3s: {
+    timestamp_osm_base: string;
+    copyright: string;
+  };
+  elements: OSMElement[];
 }

@@ -282,9 +282,11 @@ export class BoundaryDetector {
       const confidence = metadata?.boundary_confidence ? Number(metadata.boundary_confidence) : 0.8;
       
       const boundary: BoundaryData = {
+        type: 'polygon',
         coordinates,
         center,
-        area,
+        area_m2: area,
+        perimeter_m: 0,
         confidence,
         source: (metadata?.boundary_source as 'osm' | 'nominatim' | 'manual' | 'estimated') || 'manual',
         // Metadata adicional
@@ -495,9 +497,11 @@ out geom tags;
       
       // Criar boundary temporário com dados coletados para cálculo de densidade
       const tempBoundaryForDensity: BoundaryData = {
+        type: 'polygon',
         coordinates,
         center,
-        area,
+        area_m2: area,
+        perimeter_m: 0,
         confidence: 0.8,
         source: 'osm',
         streets: processedStreets,
@@ -598,9 +602,11 @@ out geom tags;
       }
       
       const boundary: BoundaryData = {
+        type: 'polygon',
         coordinates,
         center,
-        area,
+        area_m2: area,
+        perimeter_m: 0,
         confidence: 0.95, // Alta confiança quando temos OSM ID
         source: 'osm',
         height: poiHeight || undefined,
@@ -819,9 +825,11 @@ out geom tags;
     }
     
     return {
+      type: 'polygon',
       coordinates,
       center,
-      area,
+      area_m2: area,
+      perimeter_m: 0,
       confidence: Math.min(confidence, 0.9),
       source: 'google_places' as const
     };
@@ -948,7 +956,11 @@ out geom tags;
     return buildingElements.map(element => ({
       id: element.id,
       type: element.tags?.building || 'building',
-      coordinates: element.geometry || [],
+      // 🛡️ NORMALIZAÇÃO CRÍTICA: Overpass retorna 'lon', mas o sistema usa 'lng'
+      geometry: (element.geometry || []).map((point: any) => ({
+        lat: point.lat,
+        lng: point.lng !== undefined ? point.lng : point.lon
+      })),
       tags: element.tags,
       height: this.extractOSMHeight(element)
     }));
@@ -1819,9 +1831,11 @@ out tags;
                       
                       // Criar boundary temporário com dados coletados para cálculo de densidade
                       const tempBoundaryForDensity: BoundaryData = {
+                        type: 'polygon',
                         coordinates: processed.coordinates,
                         center,
-                        area,
+                        area_m2: area,
+                        perimeter_m: 0,
                         confidence: 0.8,
                         source: 'osm',
                         streets: consolidatedStreets, // ✅ Já processado na linha 1536
@@ -1944,9 +1958,11 @@ out geom tags;
                     if (consolidatedBuildings && consolidatedBuildings.length > 0) {
                       console.log(`🚀 CONSOLIDATION BENEFIT: Using consolidated buildings data for height analysis (${consolidatedBuildings.length} buildings)`);
                       poiHeight = this.extractHeightFromMultipleElements(consolidatedBuildings, center, {
+                        type: 'polygon',
                         coordinates: processed.coordinates,
                         center,
-                        area,
+                        area_m2: area,
+                        perimeter_m: 0,
                         confidence: 0.8,
                         source: 'osm'
                       });
@@ -1985,9 +2001,11 @@ out tags;
                           if (data.elements && data.elements.length > 0) {
                             // Criar boundary temporário para verificação
                             const tempBoundary: BoundaryData = {
+                              type: 'polygon',
                               coordinates: processed.coordinates,
                               center,
-                              area,
+                              area_m2: area,
+                              perimeter_m: 0,
                               confidence: 0.8,
                               source: 'osm'
                             };
@@ -2048,9 +2066,11 @@ out tags;
                 return {
                   success: true,
                   data: {
+                    type: 'polygon',
                     coordinates: processed.coordinates,
                     center,
-                    area,
+                    area_m2: area,
+                    perimeter_m: 0,
                     confidence: 0.9, // Alta confiança para Nominatim
                     source: 'osm' as const,
                     elevation: elevationData,
@@ -2201,9 +2221,11 @@ out geom tags;
           // console.log(`🔄 No height in main element, searching related architectural elements...`);
           // Criar boundary temporário para verificação
           const tempBoundary: BoundaryData = {
+            type: 'polygon',
             coordinates,
             center,
-            area,
+            area_m2: area,
+            perimeter_m: 0,
             confidence,
             source: 'osm'
           };
@@ -2253,9 +2275,11 @@ out geom tags;
       return {
         success: true,
         data: {
+          type: 'polygon',
           coordinates,
           center,
-          area,
+          area_m2: area,
+          perimeter_m: 0,
           confidence,
           source: 'osm' as const,
           elevation: elevationData,
@@ -2855,9 +2879,11 @@ out geom tags;
     const area = calculatePolygonAreaInM2(coordinates); // ✅ DRY: usar função SSOT (retorna m²)
     
     return {
+      type: 'polygon',
       coordinates,
       center,
-      area,
+      area_m2: area,
+      perimeter_m: 0,
       confidence: 0.3,
       source: 'estimated' as const
     };

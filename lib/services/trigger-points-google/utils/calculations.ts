@@ -1,11 +1,11 @@
-// Utilitários de cálculo para o sistema de trigger points
+import { GeoPoint } from '../types/interfaces';
 
 /**
  * Calcula a distância entre dois pontos em metros usando a fórmula de Haversine
  */
 export function calculateDistance(
-  point1: { lat: number; lng: number },
-  point2: { lat: number; lng: number }
+  point1: GeoPoint,
+  point2: GeoPoint
 ): number {
   const R = 6371000; // Raio da Terra em metros
   const dLat = (point2.lat - point1.lat) * Math.PI / 180;
@@ -47,6 +47,41 @@ export function normalizeAngleDifference(angle: number): number {
 }
 
 /**
+ * Calcula a distância mínima de um ponto a um segmento de linha
+ */
+export function distanceToLineSegment(
+  point: GeoPoint,
+  lineStart: GeoPoint,
+  lineEnd: GeoPoint
+): number {
+  const A = point.lat - lineStart.lat;
+  const B = point.lng - lineStart.lng;
+  const C = lineEnd.lat - lineStart.lat;
+  const D = lineEnd.lng - lineStart.lng;
+
+  const dot = A * C + B * D;
+  const lenSq = C * C + D * D;
+  let param = -1;
+
+  if (lenSq !== 0) param = dot / lenSq;
+
+  let xx, yy;
+
+  if (param < 0) {
+    xx = lineStart.lat;
+    yy = lineStart.lng;
+  } else if (param > 1) {
+    xx = lineEnd.lat;
+    yy = lineEnd.lng;
+  } else {
+    xx = lineStart.lat + param * C;
+    yy = lineStart.lng + param * D;
+  }
+
+  return calculateDistance(point, { lat: xx, lng: yy });
+}
+
+/**
  * Verifica se um ângulo está dentro de um range de tolerância
  */
 export function isInBearingRange(
@@ -66,13 +101,20 @@ export function extractBuildingHeight(tags: any): number {
   
   // 1. Tag height direta
   if (tags.height) {
-    const match = tags.height.match(/(\d+\.?\d*)/);
+    // tags.height pode ser número ou string
+    if (typeof tags.height === 'number') {
+      return tags.height;
+    }
+    const match = String(tags.height).match(/(\d+\.?\d*)/);
     if (match) return parseFloat(match[1]);
   }
   
   // 2. Tag building:height
   if (tags['building:height']) {
-    const match = tags['building:height'].match(/(\d+\.?\d*)/);
+    if (typeof tags['building:height'] === 'number') {
+      return tags['building:height'];
+    }
+    const match = String(tags['building:height']).match(/(\d+\.?\d*)/);
     if (match) return parseFloat(match[1]);
   }
   
@@ -229,24 +271,22 @@ export function calculateDistanceToLineSegment(
 }
 
 /**
- * Calcula o centro de um polígono
+ * Calcula o centro (centroid) de um polígono
  */
 export function calculatePolygonCenter(coordinates: Array<{lat: number, lng: number}>): {lat: number, lng: number} {
-  if (coordinates.length === 0) {
-    return { lat: 0, lng: 0 };
-  }
+  if (coordinates.length === 0) return { lat: 0, lng: 0 };
   
-  let latSum = 0;
-  let lngSum = 0;
+  let totalLat = 0;
+  let totalLng = 0;
   
   for (const coord of coordinates) {
-    latSum += coord.lat;
-    lngSum += coord.lng;
+    totalLat += coord.lat;
+    totalLng += coord.lng;
   }
   
   return {
-    lat: latSum / coordinates.length,
-    lng: lngSum / coordinates.length
+    lat: totalLat / coordinates.length,
+    lng: totalLng / coordinates.length
   };
 }
 
@@ -638,3 +678,47 @@ function findClosestPointOnLineSegment(
   
   return { lat: xx, lng: yy };
 }
+
+/**
+ * Check if a line segment intersects with a polygon
+ */
+export function lineIntersectsPolygon(point1: GeoPoint, point2: GeoPoint, polygon: GeoPoint[]): boolean {
+  for (let i = 0; i < polygon.length; i++) {
+    const j = (i + 1) % polygon.length;
+    if (lineSegmentsIntersect(point1, point2, polygon[i], polygon[j])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if two line segments intersect
+ */
+function lineSegmentsIntersect(p1: GeoPoint, q1: GeoPoint, p2: GeoPoint, q2: GeoPoint): boolean {
+  const orientation = (p: GeoPoint, q: GeoPoint, r: GeoPoint): number => {
+    const val = (q.lng - p.lng) * (r.lat - q.lat) - (q.lat - p.lat) * (r.lng - q.lng);
+    if (val === 0) return 0;
+    return val > 0 ? 1 : 2;
+  };
+
+  const onSegment = (p: GeoPoint, q: GeoPoint, r: GeoPoint): boolean => {
+    return q.lng <= Math.max(p.lng, r.lng) && q.lng >= Math.min(p.lng, r.lng) &&
+           q.lat <= Math.max(p.lat, r.lat) && q.lat >= Math.min(p.lat, r.lat);
+  };
+
+  const o1 = orientation(p1, q1, p2);
+  const o2 = orientation(p1, q1, q2);
+  const o3 = orientation(p2, q2, p1);
+  const o4 = orientation(p2, q2, q1);
+
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && onSegment(p1, p2, q1)) return true;
+  if (o2 === 0 && onSegment(p1, q2, q1)) return true;
+  if (o3 === 0 && onSegment(p2, p1, q2)) return true;
+  if (o4 === 0 && onSegment(p2, q1, q2)) return true;
+
+  return false;
+}
+
+

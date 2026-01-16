@@ -1255,9 +1255,9 @@ out geom tags;
     // A lógica real será aplicada no validator quando tivermos os candidatos reais
     
     // Estimativa baseada em área (fallback para quando não temos candidatos ainda)
-    const areaBasedEstimate = Math.min(Math.max(Math.floor(boundary.area / 5000), 10), 100);
+    const areaBasedEstimate = Math.min(Math.max(Math.floor(boundary.area_m2 / 5000), 10), 100);
     
-    console.log(`📐 Area-based estimate: ${boundary.area.toFixed(0)}m² → ${areaBasedEstimate} TPs`);
+    console.log(`📐 Area-based estimate: ${boundary.area_m2.toFixed(0)}m² → ${areaBasedEstimate} TPs`);
     console.log(`🎯 Dynamic TP limit calculated: ${areaBasedEstimate} (area-based estimate)`);
     
     return Math.max(3, areaBasedEstimate); // Mínimo garantido de 3 TPs
@@ -1275,10 +1275,10 @@ out geom tags;
     console.log(`📏 Calculating minimum distance between TPs (20m range each)...`);
     
     // Ajustar baseado no tamanho do POI
-    if (boundary.area > 500000) { // POIs muito grandes (>50 hectares)
+    if (boundary.area_m2 > 500000) { // POIs muito grandes (>50 hectares)
       baseDistance *= cfg.minDistance.areaMultipliers.very_large;
       console.log(`🏞️ Large POI adjustment: +${((cfg.minDistance.areaMultipliers.very_large - 1) * 100).toFixed(0)}% distance`);
-    } else if (boundary.area > 100000) { // POIs grandes (>10 hectares)
+    } else if (boundary.area_m2 > 100000) { // POIs grandes (>10 hectares)
       baseDistance *= cfg.minDistance.areaMultipliers.large;
       console.log(`🏛️ Medium POI adjustment: +${((cfg.minDistance.areaMultipliers.large - 1) * 100).toFixed(0)}% distance`);
     }

@@ -94,8 +94,8 @@ export class TriggerPointValidator {
     }
     
     // 🏞️ AJUSTE POR ÁREA DO POI
-    if (boundary?.area) {
-      const area = boundary.area;
+    if (boundary?.area_m2) {
+      const area = boundary.area_m2;
       if (area > TRIGGER_POINTS_CONSTANTS.height.veryLargeAreaThreshold) { // >1km²
         basePercentage = Math.max(basePercentage, cfg.maxTriggerPoints.areaAdjustments.very_large.percentage);
         maxLimit = Math.max(maxLimit, cfg.maxTriggerPoints.areaAdjustments.very_large.maxLimit);
@@ -233,7 +233,7 @@ export class TriggerPointValidator {
     
     // 🆕 Ajustar distância mínima baseado no tamanho do POI e altura
     const poiHeight = boundary.height || 0;
-    const isSmallPOI = boundary.area < 10000;
+    const isSmallPOI = boundary.area_m2 < 10000;
     const isDenseZone = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
     const isFlatPOI = poiHeight === 0 || poiHeight < 5;
     
@@ -295,7 +295,7 @@ export class TriggerPointValidator {
     
     // Reutilizar lógica de ajuste de distância
     const poiHeight = boundary.height || 0;
-    const isSmallPOI = boundary.area < 10000;
+    const isSmallPOI = boundary.area_m2 < 10000;
     const isDenseZone = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
     const isFlatPOI = poiHeight === 0 || poiHeight < 5;
     
@@ -711,39 +711,81 @@ out geom tags;
 
       // 1. Verificar obstrução por buildings (já existente)
       // EXCLUIR buildings dentro do boundary (são parte do POI)
-      const relevantBuildings = this.filterBuildingsAlongLineOfSight(
-        candidate.location,
-        nearestBoundaryPoint,
-        obstructions.buildings,
-        distance,
-        boundary.coordinates // Passar boundary para excluir buildings dentro
-      );
       
-      // Usar poiHeight já definido acima para validação correta
-      const blockedByBuildings = this.checkCachedBuildingsBlocking(
-        candidate.location,
-        nearestBoundaryPoint,
-        relevantBuildings,
-        context,
-        poiHeight
-      );
+      // 🎯 NOVA LÓGICA DE AMOSTRAGEM (SSOT: Ver uma parte é suficiente)
+      // Testamos 5 pontos do boundary: o mais próximo + 4 distribuídos.
+      // Se PELO MENOS UM ponto estiver visível, o TP é aprovado.
+      const samplePoints = this.selectVisibilityCheckPoints(boundary.coordinates, 5);
       
-      if (blockedByBuildings) {
-        console.log(`🚫 BLOCKED: Buildings block line of sight (${relevantBuildings.length} buildings analyzed, POI height: ${poiHeight}m)`);
+      // Garantir que o nearestBoundaryPoint também está no set (é crítico)
+      const nearestLat = nearestBoundaryPoint.lat.toFixed(6);
+      const nearestLng = nearestBoundaryPoint.lng.toFixed(6);
+      if (!samplePoints.some((p: {lat: number, lng: number}) => p.lat.toFixed(6) === nearestLat && p.lng.toFixed(6) === nearestLng)) {
+        samplePoints[0] = nearestBoundaryPoint;
+      }
+
+      let visiblePointsCount = 0;
+      const totalSamplePoints = samplePoints.length;
+      
+      // Debug: Identificar setor/quadrante deste TP em relação ao POI
+      const bearingToPOI = calculateBearing(candidate.location, boundary.center);
+      const cardinalDirection = this.getCardinalDirection(bearingToPOI);
+
+      // Usar a altura corrigida para análise de obstrução
+      const analysisHeight = poiHeight > 0 ? poiHeight : (isUrbanCanyon ? 25 : 0);
+
+      for (const targetPoint of samplePoints) {
+        const targetDistance = calculateDistance(candidate.location, targetPoint);
+        
+        const relevantBuildings = this.filterBuildingsAlongLineOfSight(
+          candidate.location,
+          targetPoint,
+          obstructions.buildings,
+          targetDistance,
+          boundary.coordinates
+        );
+        
+        const blockedByBuildings = this.checkCachedBuildingsBlocking(
+          candidate.location,
+          targetPoint,
+          relevantBuildings,
+          context,
+          analysisHeight
+        );
+
+        if (!blockedByBuildings) {
+          visiblePointsCount++;
+          // Se não for Canyon, 1 ponto visível basta.
+          // Em Canyon, queremos confirmar que a visão é consistente (pelo menos 1 ponto claro)
+          if (!isUrbanCanyon) break;
+        }
+      }
+
+      // CRITÉRIO DE APROVAÇÃO:
+      // Se pelo menos 1 ponto está visível, o TP é aprovado.
+      // Isso permite ver "bordas" do POI através de frestas.
+      const hasGoodVisibility = visiblePointsCount > 0;
+
+      if (!hasGoodVisibility) {
+        console.log(`🚫 BLOCKED [${cardinalDirection}]: All ${totalSamplePoints} sample points blocked by buildings (POI height: ${analysisHeight}m)`);
         return false;
+      } else {
+         if (isUrbanCanyon) {
+           console.log(`✅ VISIBLE [${cardinalDirection}]: ${visiblePointsCount}/${totalSamplePoints} points visible in Urban Canyon`);
+         }
       }
       
-      // NOVO: Validação extra rigorosa para canyon urbano
+      // NOVO: Validação extra rigorosa para canyon urbano (usando o centro para densidade)
       if (isUrbanCanyon) {
         const canyonValidation = this.validateCanyonVisibility(
           candidate.location,
-          nearestBoundaryPoint,
-          relevantBuildings,
-          distance
+          boundary.center,
+          obstructions.buildings,
+          calculateDistance(candidate.location, boundary.center)
         );
         
         if (!canyonValidation.isVisible) {
-          console.log(`🏙️ CANYON BLOCKED: ${canyonValidation.reason} (${relevantBuildings.length} buildings, ${canyonValidation.obstructionDensity.toFixed(1)}% density)`);
+          console.log(`🏙️ CANYON BLOCKED [${cardinalDirection}]: ${canyonValidation.reason} (${canyonValidation.obstructionDensity.toFixed(1)}% density)`);
           return false;
         }
       }
@@ -845,8 +887,19 @@ out geom tags;
 
         if (distanceToLine <= bufferDistance) {
           relevantBuildings.push(building);
+        } else if (relevantBuildings.length === 0 && Math.random() < 0.01) {
+           // Debug sample para buildings rejeitados (1 a cada 100)
+           //console.log(`Debug filtered building: dist=${distanceToLine.toFixed(2)}m > buffer=${bufferDistance}m`);
         }
       }
+    }
+    
+    // DEBUG: Se nenhum building foi encontrado mas havia input, logar
+    if (buildings.length > 0 && relevantBuildings.length === 0) {
+       // Apenas logar uma vez por execução para não poluir
+       const sampleCenter = this.calculateBuildingCentroid(buildings[0]);
+       const sampleDist = this.calculateDistanceToLine(tpLocation, boundaryPoint, sampleCenter);
+       //console.log(`⚠️ No relevant buildings found out of ${buildings.length}. Sample dist: ${sampleDist.toFixed(2)}m (Buffer: ${bufferDistance}m)`);
     }
 
     return relevantBuildings;
@@ -866,7 +919,7 @@ out geom tags;
 
     for (const point of building.geometry) {
       sumLat += point.lat;
-      sumLng += point.lon;
+      sumLng += (point.lng !== undefined ? point.lng : point.lon);
       count++;
     }
 
@@ -898,6 +951,9 @@ out geom tags;
   /**
    * 🔥 NOVA: Usa a lógica ORIGINAL de validação com buildings já carregados (sem API calls)
    * Agora considera altura do POI para validação correta
+   * 
+   * 🏙️ CANYON URBANO: Em áreas densas, prédios vizinhos sem altura conhecida
+   * assumem altura SIMILAR ao POI (ex: Copan 110m = vizinhos ~110m)
    */
   private checkCachedBuildingsBlocking(
     tpLocation: { lat: number; lng: number },
@@ -909,18 +965,31 @@ out geom tags;
     try {
       const distance = calculateDistance(tpLocation, boundaryPoint);
       const isDenseZone = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
+      const isUrbanCanyon = isDenseZone && poiHeight > 20; // Canyon = zona densa + POI alto
+      
+      // 🏠 CONSTANTE ALTURA DE CASAS (6m)
+      const DEFAULT_HOUSE_HEIGHT = TRIGGER_POINTS_CONSTANTS.obstructions.defaultHouseHeight || 6;
+      
+      // 🏙️ CONFIGURAÇÃO DE CANYON URBANO
+      const useCanyonNeighborHeight = TRIGGER_POINTS_CONSTANTS.obstructions.useCanyonNeighborHeight ?? true;
+      const canyonHeightMultiplier = TRIGGER_POINTS_CONSTANTS.obstructions.canyonHeightMultiplier ?? 1.0;
+      const minBlockingHeight = TRIGGER_POINTS_CONSTANTS.obstructions.minBlockingHeight ?? 3;
       
       // 🎯 VALIDAÇÃO RIGOROSA PARA POIs BAIXOS (FLAT)
       // Para POIs com 0m de altura, qualquer building entre TP e POI bloqueia
       if (poiHeight === 0 || poiHeight < 5) {
         for (const building of buildings) {
-          const buildingHeight = extractBuildingHeight(building);
-          if (!buildingHeight || buildingHeight <= 0) continue;
+          let buildingHeight = extractBuildingHeight(building.tags) || building.height || 0;
+          
+          // 🏠 Se não tem altura, assumir altura de casa (6m) - CONSERVADOR
+          if (!buildingHeight || buildingHeight <= 0) {
+            buildingHeight = DEFAULT_HOUSE_HEIGHT;
+          }
           
           const intersects = this.checkBuildingIntersectsLine(building, tpLocation, boundaryPoint);
           if (intersects) {
-            // Para POI FLAT, qualquer building > 3m bloqueia
-            if (buildingHeight > 3) {
+            // Para POI FLAT, qualquer building > minBlockingHeight (3m) bloqueia
+            if (buildingHeight > minBlockingHeight) {
               console.log(`🚫 FLAT POI BLOCKED: Building (${buildingHeight}m) blocks FLAT POI (${poiHeight}m) - TP REJECTED`);
               return true; // BLOQUEADO
             }
@@ -928,11 +997,28 @@ out geom tags;
         }
       }
       
-      // Validação normal para POIs com altura
+      // Validação para POIs com altura (inclui lógica de CANYON URBANO)
       for (const building of buildings) {
-        const buildingHeight = extractBuildingHeight(building);
+        let buildingHeight = extractBuildingHeight(building.tags) || building.height || 0;
+        const buildingTags = building.tags || {};
+        const buildingType = buildingTags.building?.toLowerCase() || '';
         
-        if (!buildingHeight || buildingHeight <= 0) continue; // Ignorar buildings sem altura
+        // 🏙️ LÓGICA DE CANYON URBANO
+        // Em canyons urbanos, prédios vizinhos assumem altura SIMILAR ao POI
+        if (isUrbanCanyon && useCanyonNeighborHeight) {
+          const hasUnknownHeight = !buildingHeight || buildingHeight <= 0;
+          const hasGenericTag = buildingType === 'yes' || buildingType === '' || buildingType === 'building';
+          
+          if (hasUnknownHeight || hasGenericTag) {
+            buildingHeight = Math.round(poiHeight * canyonHeightMultiplier);
+            // Log aleatório para não poluir
+            if (Math.random() < 0.01) {
+              console.log(`🏙️ CANYON MODE: Vizinhos sem altura assumindo ~${buildingHeight}m (POI: ${poiHeight}m)`);
+            }
+          }
+        } else if (!buildingHeight || buildingHeight <= 0) {
+          buildingHeight = DEFAULT_HOUSE_HEIGHT;
+        }
         
         // 🔥 USAR LÓGICA ORIGINAL: verificar se building intersecta linha de visão
         const intersects = this.checkBuildingIntersectsLine(building, tpLocation, boundaryPoint);
@@ -977,9 +1063,9 @@ out geom tags;
       
     } catch (error) {
       console.warn('Cached buildings blocking check failed:', error);
-      // Em caso de erro, ser conservador baseado na zona
+      // Em caso de erro, ser conservador - BLOQUEAR em zonas densas
       const isDenseZone = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
-      return !isDenseZone; // Em zonas densas, rejeitar se não conseguir verificar
+      return isDenseZone; // Em zonas densas, BLOQUEAR se não conseguir verificar (conservador)
     }
   }
 
@@ -996,7 +1082,7 @@ out geom tags;
     // Converter geometry OSM para formato usado na validação original
     const buildingCoords = building.geometry.map((coord: any) => ({
       lat: coord.lat,
-      lng: coord.lon
+      lng: coord.lng !== undefined ? coord.lng : coord.lon
     }));
     
     // Usar ray-casting para verificar se a linha intersecta o polígono do building
@@ -1114,7 +1200,7 @@ out geom tags;
 
       // Verificar cada building que REALMENTE intersecta a linha de visão
       for (const building of lineOfSightBuildings) {
-        const buildingHeight = this.extractBuildingHeight(building) || 12;
+        const buildingHeight = extractBuildingHeight(building.tags) || building.height || 12;
         
         // Calcular posição do building na linha TP → Boundary
         const buildingCenter = this.calculateBuildingCenter(building.geometry);
@@ -1324,11 +1410,11 @@ out geom meta;
         if (building.geometry && building.geometry.length > 3) {
           const buildingCoords = building.geometry.map((coord: any) => ({
             lat: coord.lat,
-            lng: coord.lon
+            lng: coord.lng !== undefined ? coord.lng : coord.lon
           }));
 
           if (this.lineIntersectsPolygon(tpLocation, boundaryPoint, buildingCoords)) {
-            const buildingHeight = extractBuildingHeight(building);
+            const buildingHeight = extractBuildingHeight(building.tags) || building.height || 0;
             console.log(`🚫 Building blocks line of sight (height: ${buildingHeight || 'unknown'}m)`);
             return false; // Bloqueado por building
           }
@@ -1375,7 +1461,7 @@ out geom meta;
       if (building.geometry && building.geometry.length > 3) {
         const buildingCoords = building.geometry.map((coord: any) => ({
           lat: coord.lat,
-          lng: coord.lon
+          lng: coord.lng !== undefined ? coord.lng : coord.lon
         }));
 
         // Verificar se building intersecta linha de visão
@@ -1383,7 +1469,7 @@ out geom meta;
           blockingBuildings++;
           
           // Analisar altura do building
-          const buildingHeight = extractBuildingHeight(building);
+          const buildingHeight = extractBuildingHeight(building.tags) || building.height || 0;
           if (buildingHeight && buildingHeight > 0) {
             totalBuildingHeight += buildingHeight;
             buildingsWithHeight++;
@@ -1420,39 +1506,8 @@ out geom meta;
       console.log(`⚠️ DENSE ZONE CAUTIOUS: Single low building, allowing TP`);
       return true;
     }
-
-    console.log(`✅ DENSE ZONE CLEAR: No blocking buildings found`);
+      console.log(`✅ DENSE ZONE CLEAR: No blocking buildings found`);
     return true;
-  }
-
-  /**
-   * NOVA: Extrair altura de building dos tags OSM
-   */
-  private extractBuildingHeight(building: any): number | null {
-    if (!building.tags) return null;
-
-    const tags = building.tags;
-    
-    // Tentar diferentes tags de altura
-    if (tags.height) {
-      const height = parseFloat(tags.height.replace(/[^\d.]/g, ''));
-      if (!isNaN(height) && height > 0) return height;
-    }
-    
-    if (tags['building:height']) {
-      const height = parseFloat(tags['building:height'].replace(/[^\d.]/g, ''));
-      if (!isNaN(height) && height > 0) return height;
-    }
-    
-    // Converter níveis para altura (3.5m por andar)
-    if (tags.levels || tags['building:levels']) {
-      const levels = parseInt(tags.levels || tags['building:levels']);
-      if (!isNaN(levels) && levels > 0) {
-        return levels * 3.5; // 3.5m por andar
-      }
-    }
-    
-    return null;
   }
   
   // === HELPER METHODS ===
@@ -2274,8 +2329,8 @@ out geom meta;
         } else if (peak.geometry && peak.geometry.length > 0) {
           // Geometry para nodes pode ser um array com um ponto
           const point = peak.geometry[0];
-          if (point && point.lat && point.lon) {
-            peakLocation = { lat: point.lat, lng: point.lon };
+          if (point && point.lat && (point.lon !== undefined || point.lng !== undefined)) {
+            peakLocation = { lat: point.lat, lng: point.lng !== undefined ? point.lng : point.lon };
           }
         }
         
@@ -2457,8 +2512,8 @@ out geom meta;
       return false;
       
     } catch (error) {
-      console.warn('Terrain elevation check failed:', error);
-      return false; // Fail-safe: não bloquear se não conseguir verificar
+      console.warn('❌ Terrain elevation check failed:', error);
+      return false; // Assumir visível em caso de erro (fail open para evitar rejeição falsa de HIGH POIs)
     }
   }
 
@@ -2550,4 +2605,39 @@ out geom meta;
   }
 
   // REMOVIDO: calculateStreetBearing - não mais necessário após remoção da validação de direção
+
+  /**
+   * ✅ NOVO: Seleciona pontos de amostragem no boundary para verificação de visibilidade
+   * Seleciona pontos equidistantes para garantir cobertura das "bordas"
+   */
+  private selectVisibilityCheckPoints(coordinates: Array<{lat: number, lng: number}>, count: number): Array<{lat: number, lng: number}> {
+    if (!coordinates || coordinates.length === 0) return [];
+    if (coordinates.length <= count) return [...coordinates];
+    
+    const result: Array<{lat: number, lng: number}> = [];
+    const step = Math.floor(coordinates.length / count);
+    
+    for (let i = 0; i < count; i++) {
+      const index = (i * step) % coordinates.length;
+      result.push(coordinates[index]);
+    }
+    
+    // Garantir que temos pontos únicos suficiente para análise
+    // Se o boundary for um triângulo ou retângulo simples, pegar os vértices é melhor
+    if (result.length < count && coordinates.length > result.length) {
+       // Preencher com pontos intermediários se necessário
+       // Mas a lógica acima já deve cobrir bem
+    }
+    
+    return result;
+  }
+
+  /**
+   * ✅ NOVO: Retorna a direção cardeal baseada no bearing
+   */
+  private getCardinalDirection(angle: number): string {
+    const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    const index = Math.round(((angle %= 360) < 0 ? angle + 360 : angle) / 45) % 8;
+    return directions[index];
+  }
 }

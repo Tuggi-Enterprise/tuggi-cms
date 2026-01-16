@@ -34,7 +34,7 @@ export class OptimalPointCalculator {
         poiData,
         boundary.height,
         boundary.elevation ? { center: boundary.elevation.center } : undefined,
-        boundary.area,
+        boundary.area_m2,
         context,
         boundary.osmTags
       );
@@ -75,7 +75,7 @@ export class OptimalPointCalculator {
       
       // 🆕 Limitar número de ruas processadas para POIs pequenos
       // POIs pequenos (< 10000m²) em área densa devem processar menos ruas
-      const isSmallPOI = boundary.area < 10000;
+      const isSmallPOI = boundary.area_m2 < 10000;
       const isDenseArea = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
       
       let streetsToProcess = filteredStreets;
@@ -90,11 +90,11 @@ export class OptimalPointCalculator {
         
         // Limitar a 5 ruas mais próximas para POIs pequenos
         streetsToProcess = sortedStreets.slice(0, 5);
-        console.log(`📏 Small POI (${boundary.area.toFixed(0)}m²) in dense area: limiting to ${streetsToProcess.length} closest streets (from ${streets.length} total)`);
+        console.log(`📏 Small POI (${boundary.area_m2.toFixed(0)}m²) in dense area: limiting to ${streetsToProcess.length} closest streets (from ${streets.length} total)`);
       } else if (isSmallPOI) {
         // Para POIs pequenos em área não densa, limitar a 8 ruas
         streetsToProcess = streets.slice(0, 8);
-        console.log(`📏 Small POI (${boundary.area.toFixed(0)}m²): limiting to ${streetsToProcess.length} streets (from ${streets.length} total)`);
+        console.log(`📏 Small POI (${boundary.area_m2.toFixed(0)}m²): limiting to ${streetsToProcess.length} streets (from ${streets.length} total)`);
       }
       
       for (const street of streetsToProcess) {
@@ -246,7 +246,7 @@ export class OptimalPointCalculator {
       // Para POIs grandes (>100k m²), tentar usar entrada principal se disponível
       let targetPoint: { lat: number; lng: number };
       
-      if (boundary.area > 100000 && boundary.address?.street) {
+      if (boundary.area_m2 > 100000 && boundary.address?.street) {
         // POI grande: tentar encontrar ponto do boundary na rua do endereço (entrada principal)
         const addressStreet = boundary.address.street;
         const addressStreetInBoundary = boundary.streets?.find(s => 
@@ -259,7 +259,7 @@ export class OptimalPointCalculator {
           const streetPoint = addressStreetInBoundary.coordinates[0];
           const closestOnBoundary = findClosestPointOnBoundary(streetPoint, boundary.coordinates);
           targetPoint = { lat: closestOnBoundary.lat, lng: closestOnBoundary.lng };
-          console.log(`🚪 Large POI (${(boundary.area/10000).toFixed(0)} hectares): Using main entrance street for bearing`);
+          console.log(`🚪 Large POI (${(boundary.area_m2/10000).toFixed(0)} hectares): Using main entrance street for bearing`);
         } else {
           // Fallback: usar ponto mais próximo do boundary
           const closestBoundaryPoint = findClosestPointOnBoundary(pointOnStreet, boundary.coordinates);

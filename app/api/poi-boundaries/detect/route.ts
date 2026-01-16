@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
     const boundary = predictionResult.boundary ? {
       type: 'polygon' as const,
       coordinates: predictionResult.boundary.coordinates,
-      area_m2: predictionResult.boundary.area || 0,
+      area_m2: predictionResult.boundary.area_m2 || 0,
       perimeter_m: 0, // Not available in BoundaryData
       confidence: predictionResult.boundary.confidence
     } : undefined

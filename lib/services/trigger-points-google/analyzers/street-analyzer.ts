@@ -1185,7 +1185,7 @@ out geom tags;
     const streets: StreetData[] = [];
     
     // Calcular raio mínimo para garantir que as ruas fiquem FORA do boundary
-    const boundaryRadius = Math.sqrt(boundary.area / Math.PI);
+    const boundaryRadius = Math.sqrt(boundary.area_m2 / Math.PI);
     const minDistance = Math.max(boundaryRadius * TRIGGER_POINTS_CONSTANTS.distances.virtualStreetBoundaryOffset, TRIGGER_POINTS_CONSTANTS.distances.virtualStreetMinDistance); // Proporção configurável
     
     // Criar ruas concêntricas FORA do boundary

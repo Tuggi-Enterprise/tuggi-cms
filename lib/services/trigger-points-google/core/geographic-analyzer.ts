@@ -91,8 +91,20 @@ export class GeographicContextAnalyzer {
       const DENSITY_ANALYSIS_RADIUS = 500; // metros - raio fixo para análise de densidade
       
       // Filtrar buildings dentro de 500m
-      const nearbyBuildings = (boundary.buildings || []).filter(building => {
-        if (!building.geometry || !building.geometry.coordinates) return false;
+      const nearbyBuildings = (boundary.buildings || []).filter((building, index) => {
+        if (!building.geometry) return false;
+        
+        // 🔍 DEBUG DIAGNOSTICO: Inspecionar o primeiro building para entender a estrutura
+        /*if (index === 0) {
+          console.log(`🔍 [DEBUG] First building structure inspection:`);
+          console.log(`   ID: ${building.id}`);
+          console.log(`   Geometry Type: ${Array.isArray(building.geometry) ? 'Array' : typeof building.geometry}`);
+          console.log(`   Sample Geometry: ${JSON.stringify(building.geometry).substring(0, 200)}...`);
+          const center = this.getBuildingCenter(building);
+          console.log(`   Calculated Center: ${center.lat}, ${center.lng}`);
+          console.log(`   Distance to POI: ${calculateDistance(location, center).toFixed(2)}m`);
+        }*/
+
         // Calcular distância do centro do building ao POI
         const buildingCenter = this.getBuildingCenter(building);
         const distance = calculateDistance(location, buildingCenter);
@@ -366,57 +378,81 @@ out geom;
    * Similar a calculateBuildingCentroid em street-analyzer.ts
    */
   private getBuildingCenter(building: any): { lat: number; lng: number } {
-    if (!building.geometry || !building.geometry.coordinates) {
-      // Fallback: usar lat/lng direto se disponível
-      return { lat: building.lat || 0, lng: building.lon || building.lng || 0 };
+    // Caso 1: Array direto de pontos (formato OSMDataFetcher)
+    if (Array.isArray(building.geometry)) {
+       const coords = building.geometry;
+       if (coords.length > 0) {
+         // Check if it's array of objects {lat, lon/lng}
+         if (typeof coords[0] === 'object' && ('lat' in coords[0])) {
+           let sumLat = 0;
+           let sumLng = 0;
+           for (const p of coords) {
+             sumLat += p.lat;
+             sumLng += (p.lng || p.lon);
+           }
+           return {
+             lat: sumLat / coords.length,
+             lng: sumLng / coords.length
+           };
+         }
+       }
     }
-    
-    const coords = building.geometry.coordinates;
-    
-    // Se é array de arrays (polygon)
-    if (Array.isArray(coords[0]) && Array.isArray(coords[0][0])) {
-      // Pegar primeiro ring do polygon
-      const ring = coords[0];
-      let sumLat = 0;
-      let sumLng = 0;
-      let count = 0;
+
+    // Caso 2: GeoJSON style (geometry.coordinates)
+    if (building.geometry && building.geometry.coordinates) {
+      const coords = building.geometry.coordinates;
       
-      for (const coord of ring) {
-        // OSM usa [lng, lat]
-        const lng = coord[0];
-        const lat = coord[1];
-        sumLat += lat;
-        sumLng += lng;
-        count++;
+      // Se é array de arrays (polygon)
+      if (Array.isArray(coords[0]) && Array.isArray(coords[0][0])) {
+        // Pegar primeiro ring do polygon
+        const ring = coords[0];
+        let sumLat = 0;
+        let sumLng = 0;
+        let count = 0;
+        
+        for (const coord of ring) {
+          // OSM usa [lng, lat]
+          const lng = coord[0];
+          const lat = coord[1];
+          sumLat += lat;
+          sumLng += lng;
+          count++;
+        }
+        
+        if (count > 0) {
+          return {
+            lat: sumLat / count,
+            lng: sumLng / count
+          };
+        }
       }
       
-      if (count > 0) {
+      // Se é array simples de coordenadas (LineString/Point)
+      if (Array.isArray(coords[0]) && typeof coords[0] === 'number') {
+         // Point [lng, lat]
+         return { lat: coords[1], lng: coords[0] };
+      }
+      
+      // Array de coordinates
+      if (Array.isArray(coords[0]) && !Array.isArray(coords[0][0])) {
+        let sumLat = 0;
+        let sumLng = 0;
+        
+        for (const coord of coords) {
+          const lng = coord[0];
+          const lat = coord[1];
+          sumLat += lat;
+          sumLng += lng;
+        }
+        
         return {
-          lat: sumLat / count,
-          lng: sumLng / count
+          lat: sumLat / coords.length,
+          lng: sumLng / coords.length
         };
       }
     }
     
-    // Se é array simples de coordenadas
-    if (Array.isArray(coords[0]) && !Array.isArray(coords[0][0])) {
-      let sumLat = 0;
-      let sumLng = 0;
-      
-      for (const coord of coords) {
-        const lng = coord[0];
-        const lat = coord[1];
-        sumLat += lat;
-        sumLng += lng;
-      }
-      
-      return {
-        lat: sumLat / coords.length,
-        lng: sumLng / coords.length
-      };
-    }
-    
-    // Fallback
+    // Fallback: usar lat/lng direto se disponível na raiz
     return { lat: building.lat || 0, lng: building.lon || building.lng || 0 };
   }
 }
