@@ -4,6 +4,15 @@ import { generateMasterPack } from '../_shared/masterPackGenerator.ts';
 import { translateWithGemini } from '../_shared/translationUtility.ts';
 import { generateAudioWithTTS } from '../_shared/ttsGenerator.ts';
 import { calculateHeuristicScore } from '../_shared/scoring.ts';
+import { validateAuthHeader, corsHeaders as getAuthCorsHeaders } from '../_shared/auth-middleware.ts';
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
+import { createSecureHeaders } from '../_shared/security-headers.ts';
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  GenerateDescriptionSchema,
+} from '../_shared/validation-schemas.ts';
+import { createAuditLogger } from '../_shared/audit-logger.ts';
 
 // --- Types ---
 interface SingleRequest {
@@ -215,11 +224,41 @@ async function processPOIItem(
 
 // --- Main Entry Point ---
 serve(async (req) => {
-    if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+    if (req.method === 'OPTIONS') return new Response('ok', { headers: createSecureHeaders(corsHeaders) });
 
     try {
-        const body = await req.json();
+        // ✅ VALIDAR AUTENTICAÇÃO
+        const authResult = await validateAuthHeader(req)
+        if (!authResult.valid) {
+            console.warn(`[Generate-Description] ❌ Unauthorized: ${authResult.error}`)
+            return new Response(
+                JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+                { status: 401, headers: createSecureHeaders(corsHeaders) }
+            )
+        }
+        console.log(`[Generate-Description] ✅ Authorized: ${authResult.email}`)
+
+        // ✅ VERIFICAR RATE LIMIT
+        const config = RATE_LIMIT_CONFIG['generate-description']
+        const rateLimit = checkRateLimit(req, 'generate-description', config.maxRequests, config.windowSeconds)
+        if (!rateLimit.allowed) {
+            console.warn(`[Generate-Description] 🚫 Rate limit exceeded for ${authResult.email}`)
+            return createRateLimitResponse(rateLimit, corsHeaders)
+        }
+        console.log(`[Generate-Description] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
+
+        // ✅ VALIDAR REQUEST BODY
+        const validation = await validateRequestBody(GenerateDescriptionSchema, req, 'Generate-Description');
+        if (!validation.valid) {
+            console.warn(`[Generate-Description] ❌ Validation failed:`, validation.errors);
+            return createValidationErrorResponse(validation.errors!, corsHeaders);
+        }
+        const body = validation.data!;
         const isBatch = !!body.requests && Array.isArray(body.requests);
+        
+        // 📋 INITIALIZE AUDIT LOGGER
+        const auditLogger = createAuditLogger('Generate-Description');
+        const startTime = Date.now();
         
         console.log(`[Generate-Description] Received request. Batch Mode: ${isBatch}`);
 
@@ -277,7 +316,24 @@ serve(async (req) => {
                 }
             }
 
-            return new Response(JSON.stringify({ success: true, batch_results: results }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+            // 📋 LOG BATCH SUCCESS
+            const successCount = results.filter(r => r.status === 'success').length;
+            const failureCount = results.filter(r => r.status === 'error').length;
+            await auditLogger.logPartial(
+                req,
+                'generate_description',
+                'batch',
+                `batch_${results.length}_items`,
+                successCount,
+                failureCount,
+                { 
+                    request_count: results.length,
+                    language: (body as BatchRequest).language,
+                    duration_ms: Date.now() - startTime
+                }
+            );
+
+            return new Response(JSON.stringify({ success: true, batch_results: results }), { headers: createSecureHeaders(corsHeaders) });
         } 
         
         // --- LEGACY PATH (CMS) ---
@@ -302,11 +358,38 @@ serve(async (req) => {
                 manual.raw_context
             );
 
-            return new Response(JSON.stringify({ success: true, data: result }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+            // 📋 LOG SINGLE SUCCESS
+            await auditLogger.logSuccess(
+                req,
+                'generate_description',
+                'poi',
+                manual.poi_id,
+                {
+                    language,
+                    gender,
+                    duration_ms: Date.now() - startTime
+                }
+            );
+
+            return new Response(JSON.stringify({ success: true, data: result }), { headers: createSecureHeaders(corsHeaders) });
         }
 
     } catch (e) {
         console.error(`[Generate-Description] Global Error:`, e);
-        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        
+        // 📋 LOG ERROR
+        await auditLogger.logFailure(
+            req,
+            'generate_description',
+            'unknown',
+            'error',
+            String(e),
+            { 
+                error_type: e instanceof Error ? e.name : 'unknown',
+                duration_ms: Date.now() - startTime
+            }
+        );
+
+        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: createSecureHeaders(corsHeaders) });
     }
 });

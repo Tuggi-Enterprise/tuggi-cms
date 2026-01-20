@@ -1,6 +1,15 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import crypto from 'https://deno.land/std@0.168.0/node/crypto.ts';
+import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
+import { createSecureHeaders } from '../_shared/security-headers.ts';
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  VerifyBatchSchema,
+} from '../_shared/validation-schemas.ts';
+import { createAuditLogger } from '../_shared/audit-logger.ts';
 
 // Import verification libraries
 import { extractClaims } from '../../lib/claims/extract.ts';
@@ -18,8 +27,28 @@ const corsHeaders = {
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: createSecureHeaders(corsHeaders) });
   }
+
+  // ✅ VALIDAR AUTENTICAÇÃO
+  const authResult = await validateAuthHeader(req)
+  if (!authResult.valid) {
+    console.warn(`[Verify-Batch] ❌ Unauthorized: ${authResult.error}`)
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+      { status: 401, headers: createSecureHeaders(corsHeaders) }
+    )
+  }
+  console.log(`[Verify-Batch] ✅ Authorized: ${authResult.email}`)
+
+  // ✅ RATE LIMITING CHECK
+  const config = RATE_LIMIT_CONFIG['verify-batch']
+  const rateLimit = checkRateLimit(req, 'verify-batch', config.maxRequests, config.windowSeconds)
+  if (!rateLimit.allowed) {
+    console.warn(`[Verify-Batch] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+    return createRateLimitResponse(rateLimit, corsHeaders)
+  }
+  console.log(`[Verify-Batch] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
 
   try {
     const body = await req.json();
@@ -31,7 +60,7 @@ serve(async (req) => {
       console.error('Missing required parameters:', { description_id, description: !!description, attraction_id });
       return new Response(
         JSON.stringify({ error: 'Missing required parameters' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { headers: createSecureHeaders(corsHeaders) } }
       );
     }
 
@@ -51,14 +80,14 @@ serve(async (req) => {
     if (descError || !descData) {
       return new Response(
         JSON.stringify({ error: 'Description not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 404, headers: { headers: createSecureHeaders(corsHeaders) } }
       );
     }
 
     if (!descData.is_original && !force_reprocess) {
       return new Response(
         JSON.stringify({ error: 'Only original descriptions can be verified' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { headers: createSecureHeaders(corsHeaders) } }
       );
     }
 
@@ -88,7 +117,7 @@ serve(async (req) => {
             message: 'Description already verified with this hash',
             score_id: existingScore.id 
           }),
-          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          { headers: { headers: createSecureHeaders(corsHeaders) } }
         );
       }
     }
@@ -374,7 +403,7 @@ serve(async (req) => {
       console.error('Error saving verification score:', scoreError);
       return new Response(
         JSON.stringify({ error: 'Failed to save verification score' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 500, headers: { headers: createSecureHeaders(corsHeaders) } }
       );
     }
 
@@ -479,14 +508,14 @@ serve(async (req) => {
         reasoning: verificationScores.reasoning,
         flags: verificationScores.flags
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { headers: { headers: createSecureHeaders(corsHeaders) } }
     );
 
   } catch (error) {
     console.error('Error in verify-batch function:', error);
     return new Response(
       JSON.stringify({ error: 'Internal server error', details: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { headers: createSecureHeaders(corsHeaders) } }
     );
   }
 });

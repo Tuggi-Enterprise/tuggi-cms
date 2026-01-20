@@ -1,4 +1,4 @@
-import { api, apiManager } from '../lib/core/api-manager'
+import { api, apiManager } from '../../_shared/api-manager.ts'
 // ========================================
 // ELEVATION ANALYSIS SERVICE
 // ========================================
@@ -82,7 +82,7 @@ const cityElevationCache = new Map<string, number>();
  */
 export async function getOpenElevationAPI(lat: number, lng: number): Promise<number | null> {
   try {
-    const response = await apiManager.request('open-elevation', 'lookup?locations=${lat},${lng}', {);
+    const response = await apiManager.request('open-elevation', `lookup?locations=${lat},${lng}`, {});
     
     if (!response.ok) {
       return null;

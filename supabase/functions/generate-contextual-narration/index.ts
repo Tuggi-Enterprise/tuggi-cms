@@ -3,7 +3,15 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { generateNarrativeScript, translateNarrative } from '../_shared/contextualGenerator.ts';
 import { generateAudioWithTTS } from '../_shared/ttsGenerator.ts';
 import { getDirectionBucket, calculateBearing } from '../_shared/utils.ts';
-
+import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
+import { createSecureHeaders } from '../_shared/security-headers.ts'
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  GenerateContextualNarrationSchema,
+} from '../_shared/validation-schemas.ts'
+import { createAuditLogger } from '../_shared/audit-logger.ts'
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-requested-with, accept, origin, referer, user-agent',
@@ -134,7 +142,27 @@ async function triggerMasterGeneration(poiId: string, language: string) {
 }
 
 serve(async (req: Request): Promise<Response> => {
-    if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+    if (req.method === 'OPTIONS') return new Response('ok', { headers: createSecureHeaders(corsHeaders) });
+
+    // ✅ VALIDAR AUTENTICAÇÃO
+    const authResult = await validateAuthHeader(req)
+    if (!authResult.valid) {
+      console.warn(`[Generate-Contextual-Narration] ❌ Unauthorized: ${authResult.error}`)
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+        { status: 401, headers: createSecureHeaders(corsHeaders) }
+      )
+    }
+    console.log(`[Generate-Contextual-Narration] ✅ Authorized: ${authResult.email}`)
+
+    // ✅ RATE LIMITING CHECK
+    const config = RATE_LIMIT_CONFIG['generate-contextual-narration']
+    const rateLimit = checkRateLimit(req, 'generate-contextual-narration', config.maxRequests, config.windowSeconds)
+    if (!rateLimit.allowed) {
+      console.warn(`[Generate-Contextual-Narration] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+      return createRateLimitResponse(rateLimit, corsHeaders)
+    }
+    console.log(`[Generate-Contextual-Narration] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
 
     try {
         const body = await req.json() as RequestBody;
@@ -146,7 +174,7 @@ serve(async (req: Request): Promise<Response> => {
         // ═══════════════════════════════════════════════════════════════════
         if (action === 'wake_up') {
             return new Response(JSON.stringify({ status: 'awake' }), {
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                headers: { headers: createSecureHeaders(corsHeaders) }
             });
         }
 
@@ -163,7 +191,7 @@ serve(async (req: Request): Promise<Response> => {
                 error: "First POI of trip - defaulting to static audio"
             }), {
                 status: 200,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                headers: { headers: createSecureHeaders(corsHeaders) }
             });
         }
 
@@ -205,7 +233,7 @@ serve(async (req: Request): Promise<Response> => {
                 }
             }), {
                 status: 200,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                headers: { headers: createSecureHeaders(corsHeaders) }
             });
         }
 
@@ -274,7 +302,7 @@ serve(async (req: Request): Promise<Response> => {
                         text_content: cached.text_content,
                         audio_url: cached.audio_url
                     }
-                }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+                }), { headers: { headers: createSecureHeaders(corsHeaders) } });
             }
         }
 
@@ -350,7 +378,7 @@ serve(async (req: Request): Promise<Response> => {
                                         text_content: retry.text_content,
                                         audio_url: retry.audio_url
                                     }
-                                }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+                                }), { headers: { headers: createSecureHeaders(corsHeaders) } });
                             }
                         }
                         // Fallback if timeout
@@ -416,7 +444,7 @@ serve(async (req: Request): Promise<Response> => {
                     success: false,
                     error: "BASE_CONTENT_MISSING",
                     poi_id: target_poi.id
-                }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+                }), { headers: { headers: createSecureHeaders(corsHeaders) } });
             }
 
             // Partial Auto-Heal (Non-blocker): We have description but no facts.
@@ -519,10 +547,10 @@ serve(async (req: Request): Promise<Response> => {
                 text_content: textContent,
                 audio_url: audioUrl
             }
-        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }), { headers: { headers: createSecureHeaders(corsHeaders) } });
 
     } catch (e) {
         console.error('Narrator Error:', e);
-        return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500, headers: { headers: createSecureHeaders(corsHeaders) } });
     }
 });

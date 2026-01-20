@@ -1,6 +1,13 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
+import { createSecureMediaHeaders } from '../_shared/security-headers.ts';
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  StorePoiAudioSchema,
+} from '../_shared/validation-schemas.ts';
+import { createAuditLogger } from '../_shared/audit-logger.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-requested-with, accept, origin, referer, user-agent',
@@ -123,9 +130,29 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { 
       status: 200,
-      headers: corsHeaders 
+      headers: createSecureHeaders(corsHeaders) 
     });
   }
+
+  // ✅ VALIDAR AUTENTICAÇÃO
+  const authResult = await validateAuthHeader(req)
+  if (!authResult.valid) {
+    console.warn(`[Store-POI-Audio] ❌ Unauthorized: ${authResult.error}`)
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+      { status: 401, headers: createSecureHeaders(corsHeaders) }
+    )
+  }
+  console.log(`[Store-POI-Audio] ✅ Authorized: ${authResult.email}`)
+
+  // ✅ RATE LIMITING CHECK
+  const config = RATE_LIMIT_CONFIG['store-poi-audio']
+  const rateLimit = checkRateLimit(req, 'store-poi-audio', config.maxRequests, config.windowSeconds)
+  if (!rateLimit.allowed) {
+    console.warn(`[Store-POI-Audio] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+    return createRateLimitResponse(rateLimit, corsHeaders)
+  }
+  console.log(`[Store-POI-Audio] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
 
   try {
     // Check authorization

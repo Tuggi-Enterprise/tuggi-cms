@@ -1,6 +1,14 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-
+import { validateAuthHeader } from '../_shared/auth-middleware.ts'
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts'
+import { createSecureHeaders } from '../_shared/security-headers.ts'
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  CityCorrectionMonitorSchema,
+} from '../_shared/validation-schemas.ts'
+import { createAuditLogger } from '../_shared/audit-logger.ts'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -9,8 +17,28 @@ const corsHeaders = {
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: createSecureHeaders(corsHeaders) })
   }
+
+  // ✅ VALIDAR AUTENTICAÇÃO
+  const authResult = await validateAuthHeader(req)
+  if (!authResult.valid) {
+    console.warn(`[City-Correction-Monitor] ❌ Unauthorized: ${authResult.error}`)
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+      { status: 401, headers: createSecureHeaders(corsHeaders) }
+    )
+  }
+  console.log(`[City-Correction-Monitor] ✅ Authorized: ${authResult.email}`)
+
+  // ✅ RATE LIMITING CHECK
+  const config = RATE_LIMIT_CONFIG['city-correction-monitor']
+  const rateLimit = checkRateLimit(req, 'city-correction-monitor', config.maxRequests, config.windowSeconds)
+  if (!rateLimit.allowed) {
+    console.warn(`[City-Correction-Monitor] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+    return createRateLimitResponse(rateLimit, corsHeaders)
+  }
+  console.log(`[City-Correction-Monitor] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
 
   try {
     console.log('🔍 City Correction Monitor - Starting system check...')
@@ -205,7 +233,7 @@ serve(async (req) => {
         summary
       }),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { headers: createSecureHeaders(corsHeaders) },
         status: 200,
       }
     )
@@ -218,7 +246,7 @@ serve(async (req) => {
         error: error instanceof Error ? error.message : 'Unknown error'
       }),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { headers: createSecureHeaders(corsHeaders) },
         status: 500,
       }
     )

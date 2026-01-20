@@ -1,8 +1,17 @@
-import { api, apiManager } from '../lib/core/api-manager'
+import { api, apiManager } from '../_shared/api-manager.ts'
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsHeaders } from "../_shared/cors.ts";
-import { resizeImage, createThumbnail, getImageMetadata, needsResize, formatBytes } from "../lib/imageResizer.ts";
+import { resizeImage, createThumbnail, getImageMetadata, needsResize, formatBytes } from "../_shared/imageResizer.ts";
+import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
+import { createSecureMediaHeaders } from '../_shared/security-headers.ts';
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  StorePoiImagesSchema,
+} from '../_shared/validation-schemas.ts';
+import { createAuditLogger } from '../_shared/audit-logger.ts';
 
 const GOOGLE_API_KEY = Deno.env.get('VITE_GOOGLE_MAPS_API_KEY') || '';
 const PROJECT_URL = Deno.env.get('PROJECT_URL') || '';
@@ -228,7 +237,7 @@ const getImagesFromCategory = async (categoryUrl: string): Promise<{success: boo
       cmnamespace: '6' // File namespace
     });
 
-    const response = await api.wiki.media({);
+    const response = await api.wiki.media({});
     if (!response.ok) {
       throw new Error(`Wikimedia API error: ${response.status}`);
     }
@@ -312,7 +321,7 @@ const getImageInfo = async (fileName: string): Promise<any | null> => {
     iiurlwidth: '1600' // High resolution
   });
 
-  const response = await api.wiki.media({);
+  const response = await api.wiki.media({});
   if (!response.ok) {
     throw new Error(`Wikimedia API error: ${response.status}`);
   }
@@ -477,9 +486,29 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { 
       status: 200,
-      headers: corsHeaders 
+      headers: createSecureHeaders(corsHeaders) 
     });
   }
+
+  // ✅ VALIDAR AUTENTICAÇÃO
+  const authResult = await validateAuthHeader(req)
+  if (!authResult.valid) {
+    console.warn(`[Store-POI-Images] ❌ Unauthorized: ${authResult.error}`)
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+      { status: 401, headers: createSecureHeaders(corsHeaders) }
+    )
+  }
+  console.log(`[Store-POI-Images] ✅ Authorized: ${authResult.email}`)
+
+  // ✅ RATE LIMITING CHECK
+  const config = RATE_LIMIT_CONFIG['store-poi-images']
+  const rateLimit = checkRateLimit(req, 'store-poi-images', config.maxRequests, config.windowSeconds)
+  if (!rateLimit.allowed) {
+    console.warn(`[Store-POI-Images] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+    return createRateLimitResponse(rateLimit, corsHeaders)
+  }
+  console.log(`[Store-POI-Images] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
 
   try {
     // Check authorization

@@ -1,6 +1,14 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
+import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
+import { createSecureMediaHeaders } from '../_shared/security-headers.ts';
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  ExtractWebsiteImagesSchema,
+} from '../_shared/validation-schemas.ts';
+import { createAuditLogger } from '../_shared/audit-logger.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -24,8 +32,28 @@ interface ImageInfo {
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: createSecureHeaders(corsHeaders) });
   }
+
+  // ✅ VALIDAR AUTENTICAÇÃO
+  const authResult = await validateAuthHeader(req)
+  if (!authResult.valid) {
+    console.warn(`[Extract-Website-Images] ❌ Unauthorized: ${authResult.error}`)
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+      { status: 401, headers: createSecureHeaders(corsHeaders) }
+    )
+  }
+  console.log(`[Extract-Website-Images] ✅ Authorized: ${authResult.email}`)
+
+  // ✅ RATE LIMITING CHECK
+  const config = RATE_LIMIT_CONFIG['extract-website']
+  const rateLimit = checkRateLimit(req, 'extract-website', config.maxRequests, config.windowSeconds)
+  if (!rateLimit.allowed) {
+    console.warn(`[Extract-Website-Images] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+    return createRateLimitResponse(rateLimit, corsHeaders)
+  }
+  console.log(`[Extract-Website-Images] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
 
   try {
     const { attractionId, attractionName, websiteUrl }: WebsiteImageRequest = await req.json();
@@ -33,7 +61,7 @@ serve(async (req) => {
     if (!attractionId || !attractionName || !websiteUrl) {
       return new Response(
         JSON.stringify({ error: 'Missing required fields: attractionId, attractionName, websiteUrl' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { headers: createSecureHeaders(corsHeaders) } }
       );
     }
 
@@ -57,7 +85,7 @@ serve(async (req) => {
           message: 'No suitable images found on website',
           availableImages: 0
         }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { headers: { headers: createSecureHeaders(corsHeaders) } }
       );
     }
 
@@ -120,7 +148,7 @@ serve(async (req) => {
         }],
         availableImages: images.length
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { headers: { headers: createSecureHeaders(corsHeaders) } }
     );
 
   } catch (error) {
@@ -130,7 +158,7 @@ serve(async (req) => {
         error: 'Failed to extract website image', 
         details: error.message 
       }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { headers: createSecureHeaders(corsHeaders) } }
     );
   }
 });
