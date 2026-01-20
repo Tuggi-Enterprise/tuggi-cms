@@ -1,5 +1,5 @@
 
-import { searchCountrySources, getCountryFromLocation, type SourceResult } from './country-sources';
+import { searchCountrySources, getCountryFromLocation, type SourceResult } from './country-sources.ts';
 
 // Função para extrair texto limpo de HTML
 function extractTextFromHTML(html: string): string {
