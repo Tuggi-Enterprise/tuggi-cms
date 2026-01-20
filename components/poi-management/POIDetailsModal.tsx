@@ -12,6 +12,7 @@ import { TriggerPointsManager } from './TriggerPointsManager'
 import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
 import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getFullSizeImageUrl } from '@/lib/imageUtils'
+import { useAuthenticatedFunctionCall } from '@/lib/hooks/useAuthenticatedFunctionCall'
 
 export interface POI {
   id: string
@@ -79,6 +80,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const isCreateMode = !poi || !poi.id || mode === 'create'
   const [currentPoi, setCurrentPoi] = useState<POI | null>(poi)
   const [editedPoi, setEditedPoi] = useState<POI | null>(poi)
+  
+  // Hook para chamar edge functions com autenticação
+  const { callFunction } = useAuthenticatedFunctionCall()
 
   // Helper to get the current POI (for editing) or null (for creation)
   // Memoized to prevent infinite loops in useEffect dependencies
@@ -1301,15 +1305,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       console.log('📡 POI MODAL: Making request to generate-description Edge Function')
       
-      // Use generate-description (Master Mode)
-      const { data: result, error: invokeError } = await supabase.functions.invoke('generate-description', {
-        body: {
-          poi_id: currentPoi.id,
-          language: 'pt-br',
-          generate_audio: false, // Only generate text, not audio
-          raw_context: additionalContext.trim() || undefined,
-          force: true // Force fresh generation
-        }
+      // Use generate-description (Master Mode) com autenticação
+      const { data: result, error: invokeError } = await callFunction('generate-description', {
+        poi_id: currentPoi.id,
+        language: 'pt-br',
+        generate_audio: false, // Only generate text, not audio
+        raw_context: additionalContext.trim() || undefined,
+        force: true // Force fresh generation
       })
 
       if (invokeError) {
@@ -1673,13 +1675,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     setIsGeneratingAudio(true)
     try {
 
-      // Use generate-description for audio too (it triggers TTS)
-      const { data: result, error: invokeError } = await supabase.functions.invoke('generate-description', {
-        body: {
-           poi_id: getPoi()?.id,
-           language: 'pt-br',
-           force: true // Force regeneration
-        }
+      // Use generate-description for audio too (it triggers TTS) com autenticação
+      const { data: result, error: invokeError } = await callFunction('generate-description', {
+         poi_id: getPoi()?.id,
+         language: 'pt-br',
+         force: true // Force regeneration
       })
 
       if (invokeError) {
@@ -1783,15 +1783,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         })
 
         try {
-          // Call generate-description with generate_audio=true
-          const { data: result, error: invokeError } = await supabase.functions.invoke('generate-description', {
-            body: {
-              poi_id: currentPoiForAudio.id,
-              language: langCode,
-              gender: selectedGender,
-              generate_audio: true,
-              force: true
-            }
+          // Call generate-description with generate_audio=true com autenticação
+          const { data: result, error: invokeError } = await callFunction('generate-description', {
+            poi_id: currentPoiForAudio.id,
+            language: langCode,
+            gender: selectedGender,
+            generate_audio: true,
+            force: true
           })
 
           if (invokeError) {
@@ -1849,13 +1847,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     const voiceName = gender === 'female' ? 'Nova' : 'Puck';
 
     // Use invoke for standardized handling
-    const { data: result, error: invokeError } = await supabase.functions.invoke('generate-native-narration', {
-      body: {
-        poi_id: currentPoiForTranslation2.id,
-        language: language,
-        force: true,
-        voice_name: voiceName
-      }
+    const { data: result, error: invokeError } = await callFunction('generate-native-narration', {
+      poi_id: currentPoiForTranslation2.id,
+      language: language,
+      force: true,
+      voice_name: voiceName
     })
 
     if (invokeError) {

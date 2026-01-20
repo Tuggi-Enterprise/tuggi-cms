@@ -1,4 +1,4 @@
-import { api, apiManager } from '../lib/core/api-manager'
+import { api, apiManager } from '../_shared/api-manager.ts'
 /**
  * LEGACY FUNCTIONS - Sistema Antigo de Trigger Points
  * 
@@ -578,7 +578,7 @@ async function getKnownCityElevation(lat, lng) {
   
   try {
     // Use reverse geocoding to get city name
-    const response = await api.osm.nominatim('reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1', {, {
+    const response = await api.osm.nominatim(`reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`, {
       headers: {
         'User-Agent': 'TuggiCMS/1.0 (city-elevation-lookup)'
       }
@@ -1036,7 +1036,7 @@ async function detectRelativeElevation(lat, lng) {
  */
 async function getElevation(lat, lng) {
   try {
-    const response = await apiManager.request('open-elevation', 'lookup?locations=${lat},${lng}', {, {
+    const response = await apiManager.request('open-elevation', `lookup?locations=${lat},${lng}`, {
       headers: {
         'User-Agent': 'TuggiCMS/1.0 (elevation-detection)'
       }

@@ -1,7 +1,14 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { generateAudioWithTTS } from '../_shared/ttsGenerator.ts';
-
+import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';import { createSecureHeaders } from '../_shared/security-headers.ts'
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  GenerateNativeNarrationSchema,
+} from '../_shared/validation-schemas.ts'
+import { createAuditLogger } from '../_shared/audit-logger.ts'
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-requested-with, accept, origin, referer, user-agent',
@@ -45,16 +52,42 @@ async function generateCacheKey(poiId: string, language: string, travelMode: str
 }
 
 serve(async (req) => {
-    if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+    if (req.method === 'OPTIONS') return new Response('ok', { headers: createSecureHeaders(corsHeaders) });
 
-    let body: any = null;
+    // ✅ VALIDAR AUTENTICAÇÃO
+    const authResult = await validateAuthHeader(req)
+    if (!authResult.valid) {
+        console.warn(`[Generate-Native-Narration] ❌ Unauthorized: ${authResult.error}`)
+        return new Response(
+            JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+            { status: 401, headers: createSecureHeaders(corsHeaders) }
+        )
+    }
+    console.log(`[Generate-Native-Narration] ✅ Authorized: ${authResult.email}`)
+
+    // ✅ RATE LIMITING CHECK
+    const config = RATE_LIMIT_CONFIG['generate-native-narration']
+    const rateLimit = checkRateLimit(req, 'generate-native-narration', config.maxRequests, config.windowSeconds)
+    if (!rateLimit.allowed) {
+      console.warn(`[Generate-Native-Narration] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+      return createRateLimitResponse(rateLimit, corsHeaders)
+    }
+    console.log(`[Generate-Native-Narration] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
+
+    // ✅ VALIDAR REQUEST BODY
+    const validation = await validateRequestBody(GenerateNativeNarrationSchema, req, 'Generate-Native-Narration');
+    if (!validation.valid) {
+        console.warn(`[Generate-Native-Narration] ❌ Validation failed:`, validation.errors);
+        return createValidationErrorResponse(validation.errors!, corsHeaders);
+    }
+
+    let body: any = validation.data;
     try {
-        body = await req.json();
         const { poi_id, language, voice_name = "Puck", force = false } = body;
         const lang = (language || 'pt-br').toLowerCase();
 
         if (!poi_id) {
-            return new Response(JSON.stringify({ success: false, error: "Missing required parameter: poi_id" }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+            return new Response(JSON.stringify({ success: false, error: "Missing required parameter: poi_id" }), { status: 400, headers: { headers: createSecureHeaders(corsHeaders) } });
         }
 
         // 1. Generate Cache Key (Master Key: POI + Lang)
@@ -87,7 +120,7 @@ serve(async (req) => {
                         text_content: cached.text_content,
                         meta: { cache: 'hit', type: 'jit' }
                     }
-                }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+                }), { headers: { headers: createSecureHeaders(corsHeaders) } });
             }
         } else {
              console.log(`[Force Generation] Bypassing cache for ${poi_id}`);
@@ -164,7 +197,7 @@ serve(async (req) => {
                         text_content: poiData.description,
                         meta: { cache: 'hit', type: 'master' }
                     }
-                }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+                }), { headers: { headers: createSecureHeaders(corsHeaders) } });
             }
         }
 
@@ -339,13 +372,13 @@ STRICT NARRATION RULES:
                             text_content: fallbackData.description,
                             meta: { fallback: true, error: String(e) }
                         }
-                    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+                    }), { headers: { headers: createSecureHeaders(corsHeaders) } });
                 }
             }
         } catch (fallbackError) {
             console.error('[Double Failure]', fallbackError);
         }
 
-        return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        return new Response(JSON.stringify({ success: false, error: String(e) }), { status: 500, headers: { headers: createSecureHeaders(corsHeaders) } });
     }
 });

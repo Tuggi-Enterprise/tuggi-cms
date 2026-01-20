@@ -1,6 +1,15 @@
-import { api, apiManager } from '../lib/core/api-manager'
+import { api, apiManager } from '../_shared/api-manager.ts'
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { validateAuthHeader } from '../_shared/auth-middleware.ts'
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts'
+import { createSecureHeaders } from '../_shared/security-headers.ts'
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  GenerateTriggerPointsSchema,
+} from '../_shared/validation-schemas.ts'
+import { createAuditLogger } from '../_shared/audit-logger.ts'
 // Helper function to safely format numbers (prevents undefined.toFixed() errors)
 function safeToFixed(value, decimals = 1) {
   if (value === null || value === undefined || isNaN(value)) {
@@ -3343,7 +3352,7 @@ const cityElevationCache = new Map();
 // Get elevation from Open Elevation API (LEGACY FUNCTION)
 async function getOpenElevationAPI(lat, lng) {
   try {
-    const response = await apiManager.request('open-elevation', 'lookup?locations=${lat},${lng}', {);
+    const response = await apiManager.request('open-elevation', `lookup?locations=${lat},${lng}`, {});
     if (!response.ok) {
       return null;
     }
@@ -4171,11 +4180,32 @@ serve(async (req)=>{
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', {
-      headers: corsHeaders
+      headers: createSecureHeaders(corsHeaders)
     });
   }
+  
+  // ✅ VALIDAR AUTENTICAÇÃO
+  const authResult = await validateAuthHeader(req)
+  if (!authResult.valid) {
+    console.warn(`[Generate-Trigger-Points] ❌ Unauthorized: ${authResult.error}`)
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+      { status: 401, headers: createSecureHeaders(corsHeaders) }
+    )
+  }
+  console.log(`[Generate-Trigger-Points] ✅ Authorized: ${authResult.email}`)
+  
+  // ✅ RATE LIMITING CHECK
+  const config = RATE_LIMIT_CONFIG['generate-trigger-points']
+  const rateLimit = checkRateLimit(req, 'generate-trigger-points', config.maxRequests, config.windowSeconds)
+  if (!rateLimit.allowed) {
+    console.warn(`[Generate-Trigger-Points] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+    return createRateLimitResponse(rateLimit, corsHeaders)
+  }
+  console.log(`[Generate-Trigger-Points] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
+  
   try {
-    // Check authorization (same as store-poi-audio that always works)
+    // Check authorization (already validated above)
     const authHeader = req.headers.get('authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({

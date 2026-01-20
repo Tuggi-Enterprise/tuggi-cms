@@ -15,6 +15,15 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { validateAuthHeader } from '../_shared/auth-middleware.ts'
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts'
+import { createSecureHeaders } from '../_shared/security-headers.ts'
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  CityCorrectionSchema,
+} from '../_shared/validation-schemas.ts'
+import { createAuditLogger } from '../_shared/audit-logger.ts'
 
 // =====================================
 // INTERFACES AND TYPES
@@ -1071,13 +1080,49 @@ Deno.serve(async (req) => {
     // CORS headers
     if (req.method === 'OPTIONS') {
       return new Response('ok', {
-        headers: {
+        headers: createSecureHeaders({
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
           'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
-        }
+        })
       })
     }
+
+    // ✅ VALIDAR AUTENTICAÇÃO
+    const authResult = await validateAuthHeader(req)
+    if (!authResult.valid) {
+      console.warn(`[City-Correction] ❌ Unauthorized: ${authResult.error}`)
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+        { status: 401, headers: createSecureHeaders({
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+          'Content-Type': 'application/json'
+        })}
+      )
+    }
+    console.log(`[City-Correction] ✅ Authorized: ${authResult.email}`)
+
+    // ✅ RATE LIMITING CHECK
+    const config = RATE_LIMIT_CONFIG['city-correction']
+    const rateLimit = checkRateLimit(req, 'city-correction', config.maxRequests, config.windowSeconds)
+    if (!rateLimit.allowed) {
+      console.warn(`[City-Correction] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+      return createRateLimitResponse(rateLimit, corsHeaders)
+    }
+    console.log(`[City-Correction] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
+
+    // ✅ VALIDAR REQUEST BODY
+    const validation = await validateRequestBody(CityCorrectionSchema, req, 'City-Correction');
+    if (!validation.valid) {
+        console.warn(`[City-Correction] ❌ Validation failed:`, validation.errors);
+        return createValidationErrorResponse(validation.errors!, corsHeaders);
+    }
+    const requestBody = validation.data!;
+
+    // 📋 INITIALIZE AUDIT LOGGER
+    const auditLogger = createAuditLogger('City-Correction');
+    const startTime = Date.now();
 
     // Initialize Supabase client
     const supabaseClient = createClient(

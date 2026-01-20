@@ -1,6 +1,13 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
+import { createSecureMediaHeaders } from '../_shared/security-headers.ts';
+import {
+  validateRequestBody,
+  createValidationErrorResponse,
+  ExtractOsmImagesSchema,
+} from '../_shared/validation-schemas.ts';
+import { createAuditLogger } from '../_shared/audit-logger.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -15,8 +22,28 @@ interface OSMImageRequest {
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: createSecureHeaders(corsHeaders) });
   }
+
+  // ✅ VALIDAR AUTENTICAÇÃO
+  const authResult = await validateAuthHeader(req)
+  if (!authResult.valid) {
+    console.warn(`[Extract-OSM-Images] ❌ Unauthorized: ${authResult.error}`)
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
+      { status: 401, headers: createSecureHeaders(corsHeaders) }
+    )
+  }
+  console.log(`[Extract-OSM-Images] ✅ Authorized: ${authResult.email}`)
+
+  // ✅ RATE LIMITING CHECK
+  const config = RATE_LIMIT_CONFIG['extract-osm']
+  const rateLimit = checkRateLimit(req, 'extract-osm', config.maxRequests, config.windowSeconds)
+  if (!rateLimit.allowed) {
+    console.warn(`[Extract-OSM-Images] ⚠️ Rate limit exceeded for ${rateLimit.clientId}`)
+    return createRateLimitResponse(rateLimit, corsHeaders)
+  }
+  console.log(`[Extract-OSM-Images] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
 
   try {
     const { attractionId, attractionName, imageUrl }: OSMImageRequest = await req.json();
@@ -24,7 +51,7 @@ serve(async (req) => {
     if (!attractionId || !attractionName || !imageUrl) {
       return new Response(
         JSON.stringify({ error: 'Missing required fields: attractionId, attractionName, imageUrl' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { headers: createSecureHeaders(corsHeaders) } }
       );
     }
 
@@ -85,7 +112,7 @@ serve(async (req) => {
         imageUrl: publicUrlData.publicUrl,
         originalUrl: imageUrl
       }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { headers: { headers: createSecureHeaders(corsHeaders) } }
     );
 
   } catch (error) {
@@ -95,7 +122,7 @@ serve(async (req) => {
         error: 'Failed to extract OSM image', 
         details: error.message 
       }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { headers: createSecureHeaders(corsHeaders) } }
     );
   }
 });
