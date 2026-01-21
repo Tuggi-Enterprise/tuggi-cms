@@ -15,6 +15,7 @@ import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LANGUAGE_CODES = [
+  // Short codes
   "en",
   "pt",
   "es",
@@ -26,13 +27,25 @@ const LANGUAGE_CODES = [
   "ko",
   "ar",
   "ru",
+  // Full locale codes (used by Tuggi app)
   "en-us",
   "en-gb",
   "pt-br",
   "pt-pt",
   "es-es",
   "es-mx",
+  "fr-fr",
+  "fr-ca",
+  "de-de",
+  "de-at",
   "it-it",
+  "ja-jp",
+  "zh-cn",
+  "zh-tw",
+  "cmn-cn",
+  "ko-kr",
+  "ar-sa",
+  "ru-ru",
 ];
 const VOICE_GENDERS = ["male", "female"];
 const COORDINATE_MIN = -180;

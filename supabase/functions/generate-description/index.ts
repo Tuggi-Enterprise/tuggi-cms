@@ -1,24 +1,27 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { generateMasterPack } from '../_shared/masterPackGenerator.ts';
-import { translateWithGemini } from '../_shared/translationUtility.ts';
-import { generateAudioWithTTS } from '../_shared/ttsGenerator.ts';
-import { calculateHeuristicScore } from '../_shared/scoring.ts';
-import { validateAuthHeader, corsHeaders as getAuthCorsHeaders } from '../_shared/auth-middleware.ts';
-import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
-import { createSecureHeaders } from '../_shared/security-headers.ts';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { generateMasterPack } from "../_shared/masterPackGenerator.ts";
+import { translateWithGemini } from "../_shared/translationUtility.ts";
+import { generateAudioWithTTS } from "../_shared/ttsGenerator.ts";
+import { calculateHeuristicScore } from "../_shared/scoring.ts";
 import {
-  validateRequestBody,
-  createValidationErrorResponse,
-  GenerateDescriptionSchema,
-} from '../_shared/validation-schemas.ts';
-import { createAuditLogger } from '../_shared/audit-logger.ts';
+    corsHeaders as getAuthCorsHeaders,
+    validateAuthHeader,
+} from "../_shared/auth-middleware.ts";
+import {
+    checkRateLimit,
+    createRateLimitResponse,
+    RATE_LIMIT_CONFIG,
+} from "../_shared/rate-limiter.ts";
+import { createSecureHeaders } from "../_shared/security-headers.ts";
+// Validation schemas removidos - aceitamos qualquer idioma agora
+import { createAuditLogger } from "../_shared/audit-logger.ts";
 
 // --- Types ---
 interface SingleRequest {
     poi_id: string;
     language: string;
-    gender?: 'male' | 'female';
+    gender?: "male" | "female";
     generate_audio?: boolean; // Default true
     raw_context?: string; // CMS override
     force?: boolean;
@@ -27,7 +30,7 @@ interface SingleRequest {
 interface BatchRequest {
     user_location?: { lat: number; lng: number };
     language: string;
-    gender?: 'male' | 'female';
+    gender?: "male" | "female";
     user_tier?: string;
     requests: {
         poi_id: string;
@@ -40,26 +43,36 @@ interface BatchRequest {
 
 // --- Configuration ---
 const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-requested-with, accept, origin, referer, user-agent',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers":
+        "authorization, x-client-info, apikey, content-type, x-requested-with, accept, origin, referer, user-agent",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY') || '';
-const GEMINI_API_KEY = Deno.env.get('GOOGLE_GEMINI_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
-const GOOGLE_TTS_API_KEY = Deno.env.get('GOOGLE_TTS_API_KEY') || Deno.env.get('GOOGLE_CLOUD_API_KEY') || '';
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
+    Deno.env.get("SERVICE_ROLE_KEY") || "";
+const GEMINI_API_KEY = Deno.env.get("GOOGLE_GEMINI_API_KEY") ||
+    Deno.env.get("GEMINI_API_KEY") || "";
+const GOOGLE_TTS_API_KEY = Deno.env.get("GOOGLE_TTS_API_KEY") ||
+    Deno.env.get("GOOGLE_CLOUD_API_KEY") || "";
 
 const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 // --- Helpers ---
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+function calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+): number {
     const R = 6371e3; // metres
     const φ1 = lat1 * Math.PI / 180;
     const φ2 = lat2 * Math.PI / 180;
     const Δφ = (lat2 - lat1) * Math.PI / 180;
     const Δλ = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+        Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
 }
@@ -67,19 +80,20 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 async function hashDescription(text: string): Promise<string> {
     const msgUint8 = new TextEncoder().encode(text);
     const hashBuffer = await crypto.subtle.digest("SHA-256", msgUint8);
-    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+    return Array.from(new Uint8Array(hashBuffer)).map((b) =>
+        b.toString(16).padStart(2, "0")
+    ).join("");
 }
 
 // --- Core Processor (Sync) ---
 async function processPOIItem(
     poi_id: string,
     language: string,
-    gender: 'male' | 'female',
+    gender: "male" | "female",
     shouldGenerateAudio: boolean,
     poiDataFromDB: any,
-    rawContextOverride?: string
+    rawContextOverride?: string,
 ): Promise<any> {
-    
     const LOG_PREFIX = `[Gen-Desc::${poi_id}]`;
     console.log(`${LOG_PREFIX} Processing for ${language} (${gender})...`);
 
@@ -87,36 +101,44 @@ async function processPOIItem(
     // We check if content exists. If it's "[PROCESSING]", we wait.
     let attempts = 0;
     while (attempts < 15) {
-        const { data: existing } = await supabaseAdmin.schema('core')
-            .from('attraction_descriptions')
-            .select('updated_at, facts_pack_json, description, audio_url, id')
-            .eq('attraction_id', poi_id)
-            .eq('language', language)
-            .eq('gender', gender)
+        const { data: existing } = await supabaseAdmin.schema("core")
+            .from("attraction_descriptions")
+            .select("updated_at, facts_pack_json, description, audio_url, id")
+            .eq("attraction_id", poi_id)
+            .eq("language", language)
+            .eq("gender", gender)
             .maybeSingle();
 
         if (existing) {
-             // If valid content found
-            if (existing.description && existing.description !== '[PROCESSING]') {
-                 // Check staleness (30 days)
-                 const isStale = (new Date().getTime() - new Date(existing.updated_at).getTime() > 1000 * 60 * 60 * 24 * 30);
-                 if (!isStale && (existing.facts_pack_json?.length > 0)) {
-                      console.log(`${LOG_PREFIX} Cache Hit (Fresh). Returning.`);
-                      return { ...existing, status: 'hit' };
-                 }
-                 // If Stale, fall through to regenerate
-            } else if (existing.description === '[PROCESSING]') {
+            // If valid content found
+            if (
+                existing.description && existing.description !== "[PROCESSING]"
+            ) {
+                // Check staleness (30 days)
+                const isStale = new Date().getTime() -
+                        new Date(existing.updated_at).getTime() >
+                    1000 * 60 * 60 * 24 * 30;
+                if (!isStale && (existing.facts_pack_json?.length > 0)) {
+                    console.log(`${LOG_PREFIX} Cache Hit (Fresh). Returning.`);
+                    return { ...existing, status: "hit" };
+                }
+                // If Stale, fall through to regenerate
+            } else if (existing.description === "[PROCESSING]") {
                 // Check if Lock is Zombie (> 60s)
                 const lockTime = new Date(existing.updated_at).getTime();
                 const now = new Date().getTime();
                 if (now - lockTime > 60000) {
-                     console.warn(`${LOG_PREFIX} Zombie Lock detected. Taking over.`);
-                     // Break loop to regenerate
-                     break; 
+                    console.warn(
+                        `${LOG_PREFIX} Zombie Lock detected. Taking over.`,
+                    );
+                    // Break loop to regenerate
+                    break;
                 }
                 // Wait and Retry
-                console.log(`${LOG_PREFIX} Locked by another process. Waiting...`);
-                await new Promise(r => setTimeout(r, 1000));
+                console.log(
+                    `${LOG_PREFIX} Locked by another process. Waiting...`,
+                );
+                await new Promise((r) => setTimeout(r, 1000));
                 attempts++;
                 continue;
             }
@@ -127,41 +149,63 @@ async function processPOIItem(
     // 2. Lock Acquisition
     // Attempt to insert "Processing" placeholder
     // If conflict, another process just started -> Loop again (via recursion/retry logic ideally, but simple here)
-    const { error: lockError } = await supabaseAdmin.schema('core').from('attraction_descriptions').upsert({
+    const { error: lockError } = await supabaseAdmin.schema("core").from(
+        "attraction_descriptions",
+    ).upsert({
         attraction_id: poi_id,
         language: language,
         gender: gender,
-        description: '[PROCESSING]',
-        updated_at: new Date().toISOString()
-    }, { onConflict: 'attraction_id,language,gender' });
-    
+        description: "[PROCESSING]",
+        updated_at: new Date().toISOString(),
+    }, { onConflict: "attraction_id,language,gender" });
+
     if (lockError) {
-         console.warn(`${LOG_PREFIX} Failed to acquire lock, assuming race condition. Returning partial error (client will retry).`, lockError);
-         // Ideally we would loop back to check, but for simplicity/safety we return error or wait
-         return { error: 'Race condition detected - please retry', status: 'retry' };
+        console.warn(
+            `${LOG_PREFIX} Failed to acquire lock, assuming race condition. Returning partial error (client will retry).`,
+            lockError,
+        );
+        // Ideally we would loop back to check, but for simplicity/safety we return error or wait
+        return {
+            error: "Race condition detected - please retry",
+            status: "retry",
+        };
     }
 
     try {
         // 3. Generation Logic
         let result: { description: string; facts_pack_json: any } | null = null;
-        const cityName = poiDataFromDB?.city || poiDataFromDB?.osm_tags?.['addr:city'] || (poiDataFromDB?.state ? `${poiDataFromDB.state}, Brazil` : "Brazil");
+        const cityName = poiDataFromDB?.city ||
+            poiDataFromDB?.osm_tags?.["addr:city"] || (poiDataFromDB?.state
+                ? `${poiDataFromDB.state}, Brazil`
+                : "Brazil");
         const poiName = poiDataFromDB?.name || "Unknown Point";
 
         // 3.1 Check Master (Other Language) for Translation
-        if (language !== 'pt-br') {
-             const { data: candidates } = await supabaseAdmin.schema('core')
-                .from('attraction_descriptions')
-                .select('description, facts_pack_json, language')
-                .eq('attraction_id', poi_id)
-                .neq('description', '[PROCESSING]') // Ignora locks
+        if (language !== "pt-br") {
+            const { data: candidates } = await supabaseAdmin.schema("core")
+                .from("attraction_descriptions")
+                .select("description, facts_pack_json, language")
+                .eq("attraction_id", poi_id)
+                .neq("description", "[PROCESSING]") // Ignora locks
                 .limit(5);
-             
-             const master = candidates?.find((c: any) => c.language === 'pt-br') || candidates?.[0];
-             if (master) {
-                 console.log(`${LOG_PREFIX} Translating from ${master.language}...`);
-                 const translated = await translateWithGemini(master.description, language, GEMINI_API_KEY);
-                 result = { description: translated, facts_pack_json: master.facts_pack_json };
-             }
+
+            const master = candidates?.find((c: any) =>
+                c.language === "pt-br"
+            ) || candidates?.[0];
+            if (master) {
+                console.log(
+                    `${LOG_PREFIX} Translating from ${master.language}...`,
+                );
+                const translated = await translateWithGemini(
+                    master.description,
+                    language,
+                    GEMINI_API_KEY,
+                );
+                result = {
+                    description: translated,
+                    facts_pack_json: master.facts_pack_json,
+                };
+            }
         }
 
         // 3.2 Full Generation
@@ -172,101 +216,139 @@ async function processPOIItem(
                 cityName,
                 rawContextOverride || "App Batch Generation",
                 language,
-                GEMINI_API_KEY
+                GEMINI_API_KEY,
             );
         }
 
         // 4. Save & Audio
-        const scoreResult = calculateHeuristicScore(result.description, result.facts_pack_json || [], poiName, cityName);
+        const scoreResult = calculateHeuristicScore(
+            result.description,
+            result.facts_pack_json || [],
+            poiName,
+            cityName,
+        );
         const descHash = await hashDescription(result.description);
         const isApproved = scoreResult.score_overall >= 75;
 
         let publicUrl: string | null = null;
         if (shouldGenerateAudio && GOOGLE_TTS_API_KEY) {
-            const audioBuffer = await generateAudioWithTTS(result.description, language, gender, GOOGLE_TTS_API_KEY);
+            const audioBuffer = await generateAudioWithTTS(
+                result.description,
+                language,
+                gender,
+                GOOGLE_TTS_API_KEY,
+            );
             const fileName = `${poi_id}-${language}-${gender}.mp3`;
             const storagePath = `master_audio/${poi_id}/${fileName}`;
-            const { error: upErr } = await supabaseAdmin.storage.from('travel-app-audios').upload(storagePath, audioBuffer, { contentType: 'audio/mpeg', upsert: true });
+            const { error: upErr } = await supabaseAdmin.storage.from(
+                "travel-app-audios",
+            ).upload(storagePath, audioBuffer, {
+                contentType: "audio/mpeg",
+                upsert: true,
+            });
             if (!upErr) {
-                 const { data: urlData } = supabaseAdmin.storage.from('travel-app-audios').getPublicUrl(storagePath);
-                 publicUrl = urlData.publicUrl;
+                const { data: urlData } = supabaseAdmin.storage.from(
+                    "travel-app-audios",
+                ).getPublicUrl(storagePath);
+                publicUrl = urlData.publicUrl;
             }
         }
 
         // 5. Final Update (Release Lock)
-        const { data: finalRows } = await supabaseAdmin.schema('core').from('attraction_descriptions').upsert({
-             attraction_id: poi_id,
-             language: language,
-             gender: gender,
-             description: result.description,
-             facts_pack_json: result.facts_pack_json,
-             audio_url: publicUrl,
-             updated_at: new Date().toISOString(),
-             verification_status: isApproved ? 'approved' : 'needs_review',
-             last_score_overall: scoreResult.score_overall,
-             last_score_version: 'v2-flash-heuristic',
-             facts_version: 2
-        }, { onConflict: 'attraction_id,language,gender' }).select().single();
+        const { data: finalRows } = await supabaseAdmin.schema("core").from(
+            "attraction_descriptions",
+        ).upsert({
+            attraction_id: poi_id,
+            language: language,
+            gender: gender,
+            description: result.description,
+            facts_pack_json: result.facts_pack_json,
+            audio_url: publicUrl,
+            updated_at: new Date().toISOString(),
+            verification_status: isApproved ? "approved" : "needs_review",
+            last_score_overall: scoreResult.score_overall,
+            last_score_version: "v2-flash-heuristic",
+            facts_version: 2,
+        }, { onConflict: "attraction_id,language,gender" }).select().single();
 
-        return { ...finalRows, status: 'generated' };
-
+        return { ...finalRows, status: "generated" };
     } catch (e) {
         console.error(`${LOG_PREFIX} Fatal Generation Error:`, e);
         // Clear Lock (Negative Cache - or just delete)
-        // For risk mitigation, we leave it or update to "[ERROR]"? 
+        // For risk mitigation, we leave it or update to "[ERROR]"?
         // We DELETE it so next retry works.
-        await supabaseAdmin.schema('core').from('attraction_descriptions').delete()
-          .eq('attraction_id', poi_id).eq('language', language).eq('gender', gender).eq('description', '[PROCESSING]');
+        await supabaseAdmin.schema("core").from("attraction_descriptions")
+            .delete()
+            .eq("attraction_id", poi_id).eq("language", language).eq(
+                "gender",
+                gender,
+            ).eq("description", "[PROCESSING]");
         throw e;
     }
 }
 
-
 // --- Main Entry Point ---
 serve(async (req) => {
-    if (req.method === 'OPTIONS') return new Response('ok', { headers: createSecureHeaders(corsHeaders) });
+    if (req.method === "OPTIONS") {
+        return new Response("ok", {
+            headers: createSecureHeaders(corsHeaders),
+        });
+    }
 
     try {
         // ✅ VALIDAR AUTENTICAÇÃO
-        const authResult = await validateAuthHeader(req)
+        const authResult = await validateAuthHeader(req);
         if (!authResult.valid) {
-            console.warn(`[Generate-Description] ❌ Unauthorized: ${authResult.error}`)
+            console.warn(
+                `[Generate-Description] ❌ Unauthorized: ${authResult.error}`,
+            );
             return new Response(
-                JSON.stringify({ error: 'Unauthorized', detail: authResult.error }),
-                { status: 401, headers: createSecureHeaders(corsHeaders) }
-            )
+                JSON.stringify({
+                    error: "Unauthorized",
+                    detail: authResult.error,
+                }),
+                { status: 401, headers: createSecureHeaders(corsHeaders) },
+            );
         }
-        console.log(`[Generate-Description] ✅ Authorized: ${authResult.email}`)
+        console.log(
+            `[Generate-Description] ✅ Authorized: ${authResult.email}`,
+        );
 
         // ✅ VERIFICAR RATE LIMIT
-        const config = RATE_LIMIT_CONFIG['generate-description']
-        const rateLimit = checkRateLimit(req, 'generate-description', config.maxRequests, config.windowSeconds)
+        const config = RATE_LIMIT_CONFIG["generate-description"];
+        const rateLimit = checkRateLimit(
+            req,
+            "generate-description",
+            config.maxRequests,
+            config.windowSeconds,
+        );
         if (!rateLimit.allowed) {
-            console.warn(`[Generate-Description] 🚫 Rate limit exceeded for ${authResult.email}`)
-            return createRateLimitResponse(rateLimit, corsHeaders)
+            console.warn(
+                `[Generate-Description] 🚫 Rate limit exceeded for ${authResult.email}`,
+            );
+            return createRateLimitResponse(rateLimit, corsHeaders);
         }
-        console.log(`[Generate-Description] ✅ Rate limit OK (${rateLimit.remaining} remaining)`)
+        console.log(
+            `[Generate-Description] ✅ Rate limit OK (${rateLimit.remaining} remaining)`,
+        );
 
-        // ✅ VALIDAR REQUEST BODY
-        const validation = await validateRequestBody(GenerateDescriptionSchema, req, 'Generate-Description');
-        if (!validation.valid) {
-            console.warn(`[Generate-Description] ❌ Validation failed:`, validation.errors);
-            return createValidationErrorResponse(validation.errors!, corsHeaders);
-        }
-        const body = validation.data!;
+        // ✅ PARSE REQUEST BODY (sem validação Zod - aceita qualquer idioma)
+        const body = await req.json();
         const isBatch = !!body.requests && Array.isArray(body.requests);
-        
+
         // 📋 INITIALIZE AUDIT LOGGER
-        const auditLogger = createAuditLogger('Generate-Description');
+        const auditLogger = createAuditLogger("Generate-Description");
         const startTime = Date.now();
-        
-        console.log(`[Generate-Description] Received request. Batch Mode: ${isBatch}`);
+
+        console.log(
+            `[Generate-Description] Received request. Batch Mode: ${isBatch}`,
+        );
 
         // --- BATCH PATH (APP) ---
         if (isBatch) {
             const batch = body as BatchRequest;
-            const sharedLang = (batch.language || 'pt-br').toLowerCase();
-            const sharedGender = batch.gender || 'male';
+            const sharedLang = (batch.language || "pt-br").toLowerCase();
+            const sharedGender = batch.gender || "male";
             const userLocation = batch.user_location;
             const shouldGenAudio = batch.generate_audio !== false;
 
@@ -274,122 +356,147 @@ serve(async (req) => {
             let targetRequests = batch.requests;
             if (userLocation) {
                 targetRequests = targetRequests
-                    .map(r => ({ ...r, distance: (r.trigger_point ? calculateDistance(userLocation.lat, userLocation.lng, r.trigger_point.lat, r.trigger_point.lng) : 9999999) }))
+                    .map((r) => ({
+                        ...r,
+                        distance: (r.trigger_point
+                            ? calculateDistance(
+                                userLocation.lat,
+                                userLocation.lng,
+                                r.trigger_point.lat,
+                                r.trigger_point.lng,
+                            )
+                            : 9999999),
+                    }))
                     .sort((a, b) => a.distance - b.distance);
-                console.log(`[Generate-Description] Sorted ${targetRequests.length} items by proximity.`);
+                console.log(
+                    `[Generate-Description] Sorted ${targetRequests.length} items by proximity.`,
+                );
             }
 
             // 2. Fetch POI Info (Efficiently)
-            const poiIds = Array.from(new Set(targetRequests.map(r => r.poi_id)));
-            const { data: poiInfos } = await supabaseAdmin.schema('core')
-                .from('attractions')
-                .select('id, name, city, state, osm_tags')
-                .in('id', poiIds);
+            const poiIds = Array.from(
+                new Set(targetRequests.map((r) => r.poi_id)),
+            );
+            const { data: poiInfos } = await supabaseAdmin.schema("core")
+                .from("attractions")
+                .select("id, name, city, state, osm_tags")
+                .in("id", poiIds);
 
             // 3. Process Sequentially (or chunked)
             // Sequential is safer for rate limits and order priority
             const results = [];
             for (const item of targetRequests) {
-                const poiData = poiInfos?.find(p => p.id === item.poi_id) || {};
+                const poiData = poiInfos?.find((p) => p.id === item.poi_id) ||
+                    {};
                 try {
                     const res = await processPOIItem(
                         item.poi_id,
                         sharedLang,
                         sharedGender,
                         shouldGenAudio,
-                        poiData
+                        poiData,
                     );
                     results.push({
                         trigger_point_id: item.trigger_point_id,
                         poi_id: item.poi_id,
-                        status: 'success',
-                        data: res
+                        status: "success",
+                        data: res,
                     });
                 } catch (e) {
                     console.error(`Error processing item ${item.poi_id}:`, e);
                     results.push({
-                         trigger_point_id: item.trigger_point_id,
-                         poi_id: item.poi_id,
-                         status: 'error',
-                         error: String(e)
+                        trigger_point_id: item.trigger_point_id,
+                        poi_id: item.poi_id,
+                        status: "error",
+                        error: String(e),
                     });
                 }
             }
 
             // 📋 LOG BATCH SUCCESS
-            const successCount = results.filter(r => r.status === 'success').length;
-            const failureCount = results.filter(r => r.status === 'error').length;
+            const successCount = results.filter((r) =>
+                r.status === "success"
+            ).length;
+            const failureCount = results.filter((r) =>
+                r.status === "error"
+            ).length;
             await auditLogger.logPartial(
                 req,
-                'generate_description',
-                'batch',
+                "generate_description",
+                "batch",
                 `batch_${results.length}_items`,
                 successCount,
                 failureCount,
-                { 
+                {
                     request_count: results.length,
                     language: (body as BatchRequest).language,
-                    duration_ms: Date.now() - startTime
-                }
+                    duration_ms: Date.now() - startTime,
+                },
             );
 
-            return new Response(JSON.stringify({ success: true, batch_results: results }), { headers: createSecureHeaders(corsHeaders) });
-        } 
-        
-        // --- LEGACY PATH (CMS) ---
+            return new Response(
+                JSON.stringify({ success: true, batch_results: results }),
+                { headers: createSecureHeaders(corsHeaders) },
+            );
+        } // --- LEGACY PATH (CMS) ---
         else {
             const manual = body as SingleRequest;
-            const language = (manual.language || 'pt-br').toLowerCase();
-            const gender = manual.gender || 'male';
-            
+            const language = (manual.language || "pt-br").toLowerCase();
+            const gender = manual.gender || "male";
+
             // Fetch POI Data
-             const { data: poiData } = await supabaseAdmin.schema('core')
-                .from('attractions')
-                .select('name, city, state, osm_tags')
-                .eq('id', manual.poi_id)
+            const { data: poiData } = await supabaseAdmin.schema("core")
+                .from("attractions")
+                .select("name, city, state, osm_tags")
+                .eq("id", manual.poi_id)
                 .single();
-            
+
             const result = await processPOIItem(
                 manual.poi_id,
                 language,
                 gender,
                 manual.generate_audio !== false,
                 poiData,
-                manual.raw_context
+                manual.raw_context,
             );
 
             // 📋 LOG SINGLE SUCCESS
             await auditLogger.logSuccess(
                 req,
-                'generate_description',
-                'poi',
+                "generate_description",
+                "poi",
                 manual.poi_id,
                 {
                     language,
                     gender,
-                    duration_ms: Date.now() - startTime
-                }
+                    duration_ms: Date.now() - startTime,
+                },
             );
 
-            return new Response(JSON.stringify({ success: true, data: result }), { headers: createSecureHeaders(corsHeaders) });
+            return new Response(
+                JSON.stringify({ success: true, data: result }),
+                { headers: createSecureHeaders(corsHeaders) },
+            );
         }
-
     } catch (e) {
         console.error(`[Generate-Description] Global Error:`, e);
-        
+
         // 📋 LOG ERROR
         await auditLogger.logFailure(
             req,
-            'generate_description',
-            'unknown',
-            'error',
+            "generate_description",
+            "unknown",
+            "error",
             String(e),
-            { 
-                error_type: e instanceof Error ? e.name : 'unknown',
-                duration_ms: Date.now() - startTime
-            }
+            {
+                error_type: e instanceof Error ? e.name : "unknown",
+                duration_ms: Date.now() - startTime,
+            },
         );
 
-        return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: createSecureHeaders(corsHeaders) });
+        return new Response(JSON.stringify({ error: String(e) }), {
+            status: 500,
+            headers: createSecureHeaders(corsHeaders),
+        });
     }
 });
