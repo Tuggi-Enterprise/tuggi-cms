@@ -228,7 +228,7 @@ async function processPOIItem(
             cityName,
         );
         const descHash = await hashDescription(result.description);
-        const isApproved = scoreResult.score_overall >= 75;
+        const isApproved = true; // Auto-approve so it plays immediately. Score is for analytics.
 
         let publicUrl: string | null = null;
         if (shouldGenerateAudio && GOOGLE_TTS_API_KEY) {
