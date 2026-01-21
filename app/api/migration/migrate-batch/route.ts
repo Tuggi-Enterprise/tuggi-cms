@@ -81,13 +81,18 @@ export async function POST(request: NextRequest) {
     if (poi_uuid_ids && poi_uuid_ids.length > 0) {
       query = query.in('uuid_id', poi_uuid_ids)
     } else {
-      if (filters.country && filters.country !== 'all') {
+      // Special filter: __missing__ selects POIs without complete location data
+      // These POIs have coordinates but missing city/state/country - enrichment will fix this
+      if (filters.country === '__missing__') {
+        // POIs where country OR state OR city is null/empty (will be enriched via coordinates)
+        query = query.or('country.is.null,country.eq.,state.is.null,state.eq.,city.is.null,city.eq.')
+      } else if (filters.country && filters.country !== 'all') {
         query = query.eq('country', filters.country)
       }
-      if (filters.state && filters.state !== 'all') {
+      if (filters.state && filters.state !== 'all' && filters.country !== '__missing__') {
         query = query.eq('state', filters.state)
       }
-      if (filters.city && filters.city !== 'all') {
+      if (filters.city && filters.city !== 'all' && filters.country !== '__missing__') {
         query = query.eq('city', filters.city)
       }
       if (filters.processing_status && filters.processing_status !== 'all') {

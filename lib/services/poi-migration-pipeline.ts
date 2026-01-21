@@ -4,9 +4,10 @@
  * Handles end-to-end migration: homolog → core → description → audio → trigger points → activation
  */
 
-import { MigrationService, MigrationResult } from './migration-service'
+import { MigrationResult, MigrationService } from './migration-service'
 import ProcessingService from '@/lib/core/processing-service'
 import { getSupabase } from '@/lib/core/supabase-client'
+import { HomologEnrichmentService } from './poi-processing/homolog-enrichment.service'
 
 const supabase = getSupabase('service')
 
@@ -27,7 +28,17 @@ export interface PipelineOptions {
   auto_approve_if_satisfactory?: boolean
   skip_if_exists?: boolean
   update_if_exists?: boolean
-  mode?: 'migration_only' | 'migration_description' | 'migration_description_audio' | 'full'
+  // Mode determines which steps to run:
+  // - 'enrichment_migration_triggers': Enrichment -> Migration -> Trigger Points -> Simplified Approval (DEFAULT)
+  // - 'migration_only': Migration only
+  // - 'migration_description': Migration -> Description
+  // - 'migration_description_audio': Migration -> Description -> Audio
+  // - 'full': All steps with full approval criteria
+  mode?: 'enrichment_migration_triggers' | 'migration_only' | 'migration_description' | 'migration_description_audio' | 'full'
+  // Optional: languages for description/audio generation (when mode includes description/audio)
+  languages?: string[]
+  // Optional: voice gender for audio generation
+  voice_gender?: 'male' | 'female'
 }
 
 export interface PipelineStepResult {
@@ -60,11 +71,13 @@ export class PoiMigrationPipeline {
     const warnings: string[] = []
 
     const {
-      auto_generate_audio = true,
+      auto_generate_audio = false, // DISABLED by default as per new requirements
       auto_approve_if_satisfactory = false,
       skip_if_exists = true,
       update_if_exists = false,
-      mode = 'full'
+      mode = 'enrichment_migration_triggers', // NEW DEFAULT: Enrichment -> Migration -> Triggers
+      languages = ['pt-br'],
+      voice_gender = 'male'
     } = options
 
     try {
@@ -81,6 +94,20 @@ export class PoiMigrationPipeline {
 
       // Mark as processing
       await MigrationService.updateProcessingStatus(uuid_id, 'processing')
+
+      // Step 0: Enrichment (Homolog) - NEW STEP
+      console.log(`🌍 Step 0: Enriching Homolog POI ${uuid_id}...`)
+      const enrichmentStep = await this.executeEnrichmentStep(uuid_id)
+      steps.push(enrichmentStep)
+
+      if (!enrichmentStep.success) {
+        // We log error but maybe we can continue if it's just enrichment failure?
+        // User said: "Fez o enriquecimento e salvou, vai pegar o mesmo poi, vai migrar..."
+        // Use logic implies strict dependency.
+        console.warn(`⚠️ Enrichment failed for ${uuid_id}: ${enrichmentStep.error}. Continuing with migration anyway...`)
+      } else {
+        console.log(`✅ Enrichment successful/completed for ${uuid_id}`)
+      }
 
       // Step 1: Migration (homolog → core)
       console.log(`🔄 Step 1: Migrating POI ${uuid_id} from homolog to core...`)
@@ -120,26 +147,37 @@ export class PoiMigrationPipeline {
         }
       }
 
-      // Step 2: Generate Description
-      console.log(`📝 Step 2: Generating description for ${attraction_id}...`)
-      const descriptionStep = await this.executeDescriptionStep(attraction_id, { auto_generate_audio })
-      steps.push(descriptionStep)
+      // NOTE: Description and Audio steps are effectively DISABLED for the standard flow now,
+      // but we keep the code reachable if explicitly requested via mode settings or future flags.
+      // The user stated: "We will not generate description and neither generate audio anymore."
+      
+      const shouldGenerateDescription = mode === 'migration_description' || mode === 'migration_description_audio'
+      
+      if (shouldGenerateDescription) {
+          // Step 2: Generate Description
+          console.log(`📝 Step 2: Generating description for ${attraction_id}...`)
+          const descriptionStep = await this.executeDescriptionStep(attraction_id, { auto_generate_audio })
+          steps.push(descriptionStep)
 
-      // If description fails, rollback and stop pipeline (critical step)
-      if (!descriptionStep.success) {
-        console.error(`❌ Description generation failed for ${attraction_id}: ${descriptionStep.error}`)
-        // Rollback: remove POI from core
-        await MigrationService.rollbackMigration(attraction_id)
-        // Mark as failed
-        await MigrationService.updateProcessingStatus(uuid_id, 'failed', descriptionStep.error)
-        return {
-          success: false,
-          attraction_id,
-          steps,
-          total_time: Date.now() - startTime,
-          error: `Description generation failed: ${descriptionStep.error}`,
-          warnings
-        }
+          // If description fails, rollback and stop pipeline (critical step)
+          if (!descriptionStep.success) {
+            console.error(`❌ Description generation failed for ${attraction_id}: ${descriptionStep.error}`)
+            // Rollback: remove POI from core
+            await MigrationService.rollbackMigration(attraction_id)
+            // Mark as failed
+            await MigrationService.updateProcessingStatus(uuid_id, 'failed', descriptionStep.error)
+            return {
+              success: false,
+              attraction_id,
+              steps,
+              total_time: Date.now() - startTime,
+              error: `Description generation failed: ${descriptionStep.error}`,
+              warnings
+            }
+          }
+          console.log(`✅ Description generated successfully for ${attraction_id}`)
+      } else {
+          console.log(`⏭️  Skipping Description Step (Disabled by default)`)
       }
       console.log(`✅ Description generated successfully for ${attraction_id}`)
 
@@ -154,30 +192,30 @@ export class PoiMigrationPipeline {
         }
       }
 
-      // Step 3: Audio is generated automatically if auto_generate_audio is true
-      // Wait a moment for audio to be persisted to database
-      if (auto_generate_audio) {
-        console.log(`⏳ Waiting 1s for pt-br audio to be persisted...`)
-        await new Promise(resolve => setTimeout(resolve, 1000))
-      }
-      
-      // Check if audio was generated (pt-br)
-      const audioStep = await this.checkAudioStep(attraction_id)
-      steps.push(audioStep)
+      // Step 3: Audio (Skipped if description was skipped or auto_generate_audio is false)
+      if (shouldGenerateDescription && auto_generate_audio) {
+          if (auto_generate_audio) {
+            console.log(`⏳ Waiting 1s for pt-br audio to be persisted...`)
+            await new Promise(resolve => setTimeout(resolve, 1000))
+          }
+          
+          // Check if audio was generated (pt-br)
+          const audioStep = await this.checkAudioStep(attraction_id)
+          steps.push(audioStep)
 
-      // Step 3b: Generate multi-language audios (en-us, es-es)
-      // IMPORTANT: These use the pt-br description from database to translate
-      if (audioStep.success && auto_generate_audio) {
-        // Wait a moment to ensure description and audio are fully persisted
-        console.log(`⏳ Waiting 500ms before generating multi-language audios...`)
-        await new Promise(resolve => setTimeout(resolve, 500))
-        
-        const multiLanguageAudioStep = await this.executeMultiLanguageAudioStep(attraction_id)
-        steps.push(multiLanguageAudioStep)
-        // Don't fail if multi-language audio fails, just warn
-        if (!multiLanguageAudioStep.success) {
-          warnings.push(`Multi-language audio generation failed: ${multiLanguageAudioStep.error}`)
-        }
+          // Step 3b: Generate multi-language audios (en-us, es-es)
+          if (audioStep.success && auto_generate_audio) {
+            console.log(`⏳ Waiting 500ms before generating multi-language audios...`)
+            await new Promise(resolve => setTimeout(resolve, 500))
+            
+            const multiLanguageAudioStep = await this.executeMultiLanguageAudioStep(attraction_id)
+            steps.push(multiLanguageAudioStep)
+            if (!multiLanguageAudioStep.success) {
+              warnings.push(`Multi-language audio generation failed: ${multiLanguageAudioStep.error}`)
+            }
+          }
+      } else {
+           console.log(`⏭️  Skipping Audio Steps (Disabled by default)`)
       }
 
       // If mode is migration_description_audio, stop here
@@ -216,7 +254,39 @@ export class PoiMigrationPipeline {
       }
       console.log(`✅ Trigger points generated successfully for ${attraction_id}`)
 
-      // Step 5: Auto-approve if criteria met
+      // NEW SIMPLIFIED FLOW: For enrichment_migration_triggers mode,
+      // auto-approve and delete from homolog immediately after trigger points succeed
+      if (mode === 'enrichment_migration_triggers') {
+        console.log(`🚀 Simplified approval flow (enrichment_migration_triggers mode)...`)
+        
+        const simplifiedApprovalStep = await this.executeSimplifiedApprovalStep(attraction_id, uuid_id)
+        steps.push(simplifiedApprovalStep)
+        
+        if (!simplifiedApprovalStep.success) {
+          // Rollback: remove POI from core
+          await MigrationService.rollbackMigration(attraction_id)
+          // Mark as failed
+          await MigrationService.updateProcessingStatus(uuid_id, 'failed', simplifiedApprovalStep.error)
+          return {
+            success: false,
+            attraction_id,
+            steps,
+            total_time: Date.now() - startTime,
+            error: `Simplified approval failed: ${simplifiedApprovalStep.error}`,
+            warnings
+          }
+        }
+        
+        return {
+          success: true,
+          attraction_id,
+          steps,
+          total_time: Date.now() - startTime,
+          warnings: warnings.length > 0 ? warnings : undefined
+        }
+      }
+
+      // Step 5: Auto-approve if criteria met (FULL mode with description/audio)
       if (auto_approve_if_satisfactory) {
         const approvalStep = await this.executeApprovalStep(attraction_id, steps)
         steps.push(approvalStep)
@@ -282,6 +352,52 @@ export class PoiMigrationPipeline {
         total_time: Date.now() - startTime,
         error: error instanceof Error ? error.message : 'Unknown error during pipeline execution'
       }
+    }
+  }
+
+  /**
+   * Step 0: Enrichment (Homolog)
+   */
+  private static async executeEnrichmentStep(uuid_id: string): Promise<PipelineStepResult> {
+    const stepStart = Date.now()
+    try {
+      // 1. Load basic data from Homolog
+      const { data: poi, error } = await supabase
+        .schema('homolog')
+        .from('pois')
+        .select('uuid_id, name')
+        .eq('uuid_id', uuid_id)
+        .single()
+        
+      if (error || !poi) {
+         return {
+            step: 'enrichment',
+            success: false,
+            error: `Failed to load POI from homolog: ${error?.message}`,
+            processing_time: Date.now() - stepStart
+         }
+      }
+
+      // 2. Call Enrichment Service
+      const result = await HomologEnrichmentService.enrichPOI({
+          uuid_id: poi.uuid_id,
+          name: poi.name
+      })
+
+      return {
+          step: 'enrichment',
+          success: result.success,
+          error: result.error,
+          data: result.fields_updated ? { fields_updated: result.fields_updated } : undefined,
+          processing_time: Date.now() - stepStart
+      }
+    } catch (error) {
+       return {
+          step: 'enrichment',
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error during enrichment',
+          processing_time: Date.now() - stepStart
+       }
     }
   }
 
@@ -775,6 +891,122 @@ export class PoiMigrationPipeline {
     } catch (error) {
       return {
         step: 'approval',
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        processing_time: Date.now() - stepStart
+      }
+    }
+  }
+
+  /**
+   * Simplified Approval Step for enrichment_migration_triggers mode
+   * Only requires: Migration successful + Trigger Points (≥1 with confidence > 0.4)
+   * Auto-activates POI and deletes from homolog
+   */
+  private static async executeSimplifiedApprovalStep(
+    attraction_id: string,
+    uuid_id: string
+  ): Promise<PipelineStepResult> {
+    const stepStart = Date.now()
+
+    try {
+      // Check trigger points exist and have good confidence
+      const { data: triggerPoints, error: tpError } = await supabase
+        .schema('core')
+        .from('attraction_trigger_points')
+        .select('id, confidence_score')
+        .eq('attraction_id', attraction_id)
+        .eq('is_active', true)
+        .order('confidence_score', { ascending: false })
+        .limit(5)
+
+      if (tpError) {
+        return {
+          step: 'simplified_approval',
+          success: false,
+          error: `Failed to check trigger points: ${tpError.message}`,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      const triggerPointsCount = triggerPoints?.length || 0
+      const maxConfidence = triggerPoints?.[0]?.confidence_score || 0
+
+      console.log(`   📊 Simplified Approval criteria check:`)
+      console.log(`      - trigger_points_count: ${triggerPointsCount} (required: >= 1) - ${triggerPointsCount >= 1 ? '✅' : '❌'}`)
+      console.log(`      - max_confidence: ${maxConfidence} (required: > 0.4) - ${maxConfidence > 0.4 ? '✅' : '❌'}`)
+
+      // Simplified criteria: only need trigger points with good confidence
+      const shouldApprove = triggerPointsCount >= 1 && maxConfidence > 0.4
+
+      if (!shouldApprove) {
+        return {
+          step: 'simplified_approval',
+          success: false,
+          error: 'Criteria not met: Need at least 1 trigger point with confidence > 0.4',
+          data: {
+            trigger_points_count: triggerPointsCount,
+            max_confidence: maxConfidence
+          },
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      // Step 1: Activate POI (set approved = true)
+      console.log(`   ✅ Activating POI ${attraction_id}...`)
+      const { error: updateError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .update({ approved: true })
+        .eq('id', attraction_id)
+
+      if (updateError) {
+        return {
+          step: 'simplified_approval',
+          success: false,
+          error: `Failed to activate POI: ${updateError.message}`,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      // Step 2: Delete from homolog (POI now lives only in core)
+      console.log(`   🗑️ Deleting POI from homolog ${uuid_id}...`)
+      const deleteResult = await MigrationService.safeDeleteFromHomolog(uuid_id)
+      
+      if (!deleteResult.success) {
+        // Log warning but don't fail - POI is already activated in core
+        console.warn(`   ⚠️ Failed to delete from homolog: ${deleteResult.error}`)
+        return {
+          step: 'simplified_approval',
+          success: true,
+          data: { 
+            approved: true,
+            deleted_from_homolog: false,
+            warning: deleteResult.error
+          },
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      // Step 3: Mark as migrated in processing status
+      await MigrationService.updateProcessingStatus(uuid_id, 'migrated')
+
+      console.log(`   ✅ Simplified approval complete: POI activated and removed from homolog`)
+
+      return {
+        step: 'simplified_approval',
+        success: true,
+        data: { 
+          approved: true, 
+          deleted_from_homolog: true,
+          trigger_points_count: triggerPointsCount,
+          max_confidence: maxConfidence
+        },
+        processing_time: Date.now() - stepStart
+      }
+    } catch (error) {
+      return {
+        step: 'simplified_approval',
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
         processing_time: Date.now() - stepStart
