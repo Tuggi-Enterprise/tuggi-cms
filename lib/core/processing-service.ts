@@ -249,6 +249,7 @@ class ProcessingService {
             const processingTime = Date.now() - startTime
             
             return {
+              poiName: poi.name,
               success: true,
               message: `Generated ${triggerPointResult.count} TPs, saved ${saved}, skipped ${skipped}`,
               data: {
@@ -257,11 +258,7 @@ class ProcessingService {
                 trigger_points_skipped: skipped,
                 boundary_source: boundarySource,
                 processing_time: processingTime
-              },
-              triggerPointsSaved: saved,
-              triggerPointsSkipped: skipped,
-              triggerPointsGenerated: triggerPointResult.count,
-              boundarySource
+              }
             }
             
           } catch (error) {
@@ -284,32 +281,28 @@ class ProcessingService {
       
       return result
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error processing trigger points:', error)
       return this.createErrorResult(operation, poiIds.length, error)
     }
   }
   
   /**
-   * Process POIs for description generation/improvement
-   * Now uses DescriptionService directly for better performance and consistency
+   * Process POIs for description generation/improvement using central Edge Function (SSOT)
    */
   static async processDescriptions(
     poiIds: string[],
     options: ProcessingOptions & {
       language?: string
       autoGenerateAudio?: boolean
-      existingDescriptions?: Map<string, any>
     } = {}
   ): Promise<ProcessingResult> {
     const operation = 'descriptions'
     const processId = this.generateProcessId(operation)
     
     try {
-      console.log(`📝 Starting description processing for ${poiIds.length} POIs`)
+      console.log(`📝 Starting description processing for ${poiIds.length} POIs via central Edge Function`)
       
-      // Import DescriptionService
-      const { DescriptionService } = await import('@/lib/services/poi-processing/description.service')
       const { getSupabase } = await import('@/lib/core/supabase-client')
       const supabase = getSupabase('service')
       
@@ -318,69 +311,59 @@ class ProcessingService {
         operation,
         poiIds,
         async (poiId: string) => {
-          // Get POI data from database
-          const { data: poi, error: poiError } = await supabase
-            .schema('core')
-            .from('attractions')
-            .select(`
-              id,
-              name,
-              city,
-              state,
-              country,
-              formatted_address,
-              category,
-              rating,
-              user_ratings_total,
-              website,
-              google_place_id,
-              reference_links,
-              osm_tags,
-              attraction_coordinate!inner(latitude, longitude)
-            `)
-            .eq('id', poiId)
-            .single()
+          const startTime = Date.now()
           
-          if (poiError || !poi) {
-            throw new Error(`Failed to load POI data: ${poiError?.message || 'POI not found'}`)
-          }
-          
-          const existingDescription = options.existingDescriptions?.get(poiId)
-          
-          // SSOT: DescriptionService will fetch ALL data from database when ID is provided
-          // Only pass ID - service will fetch complete data from core.attractions
-          const poiData = {
-            id: poi.id // This triggers SSOT - all data fetched from database
-          }
-          
-          // Prepare options for DescriptionService
-          const descriptionOptions = {
-            language: options.language || 'pt-br',
-            persist_verification: true,
-            auto_generate_audio: options.autoGenerateAudio || false,
-            existing_description: existingDescription?.description,
-            description_id: existingDescription?.id,
-            use_dynamic_sources: true,
-            optimization_mode: true,
-            enrich_with_osm: true,
-            skip_enrichment_if_exists: true
-          }
-          
-          // Call DescriptionService directly
-          const serviceResult = await DescriptionService.generate(poiData, descriptionOptions)
-          
-          return {
-            success: serviceResult.success,
-            message: serviceResult.success ? 'Description processed' : serviceResult.error,
-            data: {
-              description: serviceResult.data?.description,
-              verification: serviceResult.data?.verification,
-              description_id: serviceResult.data?.description_id,
-              audio_generation: serviceResult.data?.audio_generation,
-              quality_analysis: serviceResult.data?.quality_analysis
-            },
-            descriptionGenerated: !!serviceResult.data?.description,
-            audioGenerated: serviceResult.data?.audio_generation?.success || false
+          try {
+            // Get POI Name for result metadata
+            const { data: poi } = await supabase.schema('core').from('attractions').select('name').eq('id', poiId).single()
+            const poiName = poi?.name || 'Unknown'
+
+            // SSOT: Call the central Edge Function directly
+            console.log(`📡 Calling central Edge Function 'generate-description' for POI: ${poiId}`)
+            
+            const { data: res, error: invokeError } = await supabase.functions.invoke('generate-description', {
+              body: {
+                poi_id: poiId,
+                language: options.language || 'pt-br',
+                force: true, // Batch processing usually wants fresh/validated content
+                generate_audio: options.autoGenerateAudio || false
+              }
+            })
+            
+            if (invokeError) {
+              throw new Error(`Edge Function Error: ${invokeError.message}`)
+            }
+
+            if (!res?.success) {
+              throw new Error(res?.error || 'Failed to generate description via Edge Function')
+            }
+            
+            const generatedData = res.data
+            
+            return {
+              poiName,
+              success: true,
+              message: 'Description processed via central Edge Function',
+              data: {
+                description: generatedData.description,
+                verification: {
+                  aprovada: generatedData.verification_status === 'approved',
+                  score: generatedData.last_score_overall
+                },
+                description_id: generatedData.id,
+                audio_generation: {
+                  success: !!generatedData.audio_url,
+                  audio_url: generatedData.audio_url
+                },
+                processing_time: Date.now() - startTime
+              }
+            }
+          } catch (error: any) {
+            throw {
+              success: false,
+              message: error.message || 'Unknown error',
+              processingTime: Date.now() - startTime
+            }
           }
         },
         options
@@ -388,7 +371,7 @@ class ProcessingService {
       
       return result
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error processing descriptions:', error)
       return this.createErrorResult(operation, poiIds.length, error)
     }
@@ -412,36 +395,48 @@ class ProcessingService {
         operation,
         poiIds,
         async (poiId: string) => {
-          // Get POI data first
-          const poiResponse = await fetch(`/api/pois/${poiId}`)
-          const poiData = await poiResponse.json()
+          const startTime = Date.now()
           
-          if (!poiData.success) {
-            throw new Error(`Failed to load POI data: ${poiData.error}`)
-          }
-          
-          const poi = poiData.data
-          
-          const response = await fetch('/api/pois/enrich-osm', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              poi_id: poi.id,
-              name: poi.name,
-              city: poi.city,
-              country: poi.country,
-              google_place_id: poi.google_place_id
+          try {
+            // Get POI data first
+            const poiResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/pois/${poiId}`)
+            const poiData = await poiResponse.json()
+            
+            if (!poiData.success) {
+              throw new Error(`Failed to load POI data: ${poiData.error}`)
+            }
+            
+            const poi = poiData.data
+            
+            const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/pois/enrich-osm`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                poi_id: poi.id,
+                name: poi.name,
+                city: poi.city,
+                country: poi.country,
+                google_place_id: poi.google_place_id
+              })
             })
-          })
-          
-          const result = await response.json()
-          
-          return {
-            success: result.success,
-            message: result.message,
-            data: result,
-            dataQualityScore: result.data_quality_score,
-            fieldsUpdated: result.fields_updated
+            
+            const result = await response.json()
+            
+            return {
+              poiName: poi.name,
+              success: result.success,
+              message: result.message,
+              data: {
+                ...result,
+                processing_time: Date.now() - startTime
+              }
+            }
+          } catch (error: any) {
+            throw {
+              success: false,
+              message: error.message || 'Unknown error',
+              processingTime: Date.now() - startTime
+            }
           }
         },
         options
@@ -449,7 +444,7 @@ class ProcessingService {
       
       return result
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error processing OSM enrichment:', error)
       return this.createErrorResult(operation, poiIds.length, error)
     }
@@ -466,9 +461,7 @@ class ProcessingService {
     options: ProcessingOptions
   ): Promise<ProcessingResult> {
     const startTime = Date.now()
-    const batchSize = options.batchSize || 1
     const delayBetweenCalls = options.delayBetweenCalls || 1000
-    const maxRetries = options.maxRetries || 3
     
     const results: ProcessingItemResult[] = []
     const errors: ProcessingError[] = []
@@ -521,7 +514,7 @@ class ProcessingService {
           
           // Progress callback
           if (options.onProgress) {
-            const progress: ProcessingProgress = {
+            options.onProgress({
               total: poiIds.length,
               processed: i + 1,
               remaining: poiIds.length - i - 1,
@@ -529,8 +522,7 @@ class ProcessingService {
               currentItem: poiId,
               startTime,
               estimatedTimeRemaining: this.calculateEstimatedTime(startTime, i + 1, poiIds.length)
-            }
-            options.onProgress(progress)
+            })
           }
           
           // Add delay between calls to avoid rate limiting
@@ -538,15 +530,15 @@ class ProcessingService {
             await new Promise(resolve => setTimeout(resolve, delayBetweenCalls))
           }
           
-        } catch (error) {
+        } catch (error: any) {
           console.error(`Error processing POI ${poiId}:`, error)
           
           const itemResult: ProcessingItemResult = {
             poiId,
-            poiName: 'Unknown',
+            poiName: error.poiName || 'Unknown',
             success: false,
-            message: error instanceof Error ? error.message : 'Unknown error',
-            processingTime: Date.now() - itemStartTime
+            message: error.message || 'Unknown error',
+            processingTime: error.processingTime || (Date.now() - itemStartTime)
           }
           
           results.push(itemResult)
@@ -554,8 +546,8 @@ class ProcessingService {
           
           errors.push({
             poiId,
-            poiName: 'Unknown',
-            error: error instanceof Error ? error.message : 'Unknown error',
+            poiName: error.poiName || 'Unknown',
+            error: error.message || 'Unknown error',
             timestamp: Date.now(),
             retryCount: 0
           })
@@ -663,7 +655,7 @@ class ProcessingService {
 export const processingService = {
   triggerPoints: (poiIds: string[], options?: ProcessingOptions) => 
     ProcessingService.processTriggerPoints(poiIds, options),
-  descriptions: (poiIds: string[], options?: ProcessingOptions & { language?: string; autoGenerateAudio?: boolean; existingDescriptions?: Map<string, any> }) => 
+  descriptions: (poiIds: string[], options?: ProcessingOptions & { language?: string; autoGenerateAudio?: boolean }) => 
     ProcessingService.processDescriptions(poiIds, options),
   osmEnrichment: (poiIds: string[], options?: ProcessingOptions) => 
     ProcessingService.processOSMEnrichment(poiIds, options),
