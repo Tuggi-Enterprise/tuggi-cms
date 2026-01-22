@@ -95,9 +95,10 @@ export const generateAudioWithTTS = async (
   const sanitizedText = escapeSsml(text);
 
   // Use SSML for better control over the narration
+  // Adding a short 500ms break at the beginning helps with Bluetooth devices that might clip the start
   const requestBody = {
     input: {
-      ssml: `<speak>${sanitizedText}</speak>`
+      ssml: `<speak><break time="500ms"/>${sanitizedText}</speak>`
     },
     voice: {
       languageCode: voiceConfig.languageCode,
@@ -107,9 +108,9 @@ export const generateAudioWithTTS = async (
     audioConfig: {
       audioEncoding: 'MP3',
       speakingRate: 1.2,
-      pitch: voiceConfig.pitch,
-      volumeGainDb: 0.0,
-      // sampleRateHertz: 44100,
+      volumeGainDb: 4.0,
+      // Leaving sampleRateHertz empty allows Google to use the highest native rate 
+      // supported by the voice and output format (max 24k for MP3 Neural2)
     },
   };
 

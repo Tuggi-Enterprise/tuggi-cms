@@ -39,6 +39,7 @@ interface BatchRequest {
         poi_type?: string;
     }[];
     generate_audio?: boolean;
+    force?: boolean;
 }
 
 // --- Configuration ---
@@ -93,6 +94,7 @@ async function processPOIItem(
     shouldGenerateAudio: boolean,
     poiDataFromDB: any,
     rawContextOverride?: string,
+    force?: boolean,
 ): Promise<any> {
     const LOG_PREFIX = `[Gen-Desc::${poi_id}]`;
     console.log(`${LOG_PREFIX} Processing for ${language} (${gender})...`);
@@ -118,7 +120,7 @@ async function processPOIItem(
                 const isStale = new Date().getTime() -
                         new Date(existing.updated_at).getTime() >
                     1000 * 60 * 60 * 24 * 30;
-                if (!isStale && (existing.facts_pack_json?.length > 0)) {
+                if (!force && !isStale && (existing.facts_pack_json?.length > 0)) {
                     console.log(`${LOG_PREFIX} Cache Hit (Fresh). Returning.`);
                     return { ...existing, status: "hit" };
                 }
@@ -180,32 +182,42 @@ async function processPOIItem(
                 : "Brazil");
         const poiName = poiDataFromDB?.name || "Unknown Point";
 
-        // 3.1 Check Master (Other Language) for Translation
-        if (language !== "pt-br") {
+        // 3.1 Check existing descriptions for potential translation source
+        // We try to find any existing description to translate FROM, 
+        // prioritizing pt-br if target is not pt-br, or just taking any available one.
+        // SKIP this if 'force' is true (user wants a fresh generation)
+        if (!force) {
             const { data: candidates } = await supabaseAdmin.schema("core")
                 .from("attraction_descriptions")
                 .select("description, facts_pack_json, language")
                 .eq("attraction_id", poi_id)
-                .neq("description", "[PROCESSING]") // Ignora locks
-                .limit(5);
+                .neq("description", "[PROCESSING]") // Ignore locks
+                .limit(10);
 
-            const master = candidates?.find((c: any) =>
-                c.language === "pt-br"
-            ) || candidates?.[0];
-            if (master) {
-                console.log(
-                    `${LOG_PREFIX} Translating from ${master.language}...`,
-                );
-                const translated = await translateWithGemini(
-                    master.description,
-                    language,
-                    GEMINI_API_KEY,
-                );
-                result = {
-                    description: translated,
-                    facts_pack_json: master.facts_pack_json,
-                };
+            if (candidates && candidates.length > 0) {
+                // Find a source that is different from our target language
+                // Prioritize pt-br as source, otherwise take the first one available
+                const source = candidates.find((c: any) =>
+                    c.language === "pt-br" && c.language !== language
+                ) || candidates.find((c: any) => c.language !== language);
+
+                if (source) {
+                    console.log(
+                        `${LOG_PREFIX} Translating from existing ${source.language} to ${language}...`,
+                    );
+                    const translated = await translateWithGemini(
+                        source.description,
+                        language,
+                        GEMINI_API_KEY,
+                    );
+                    result = {
+                        description: translated,
+                        facts_pack_json: source.facts_pack_json,
+                    };
+                }
             }
+        } else {
+            console.log(`${LOG_PREFIX} Force flag detected. Skipping translation and generating fresh.`);
         }
 
         // 3.2 Full Generation
@@ -227,6 +239,7 @@ async function processPOIItem(
             poiName,
             cityName,
         );
+        console.log(`${LOG_PREFIX} Heuristic Score calculated:`, scoreResult.score_overall);
         const descHash = await hashDescription(result.description);
         const isApproved = true; // Auto-approve so it plays immediately. Score is for analytics.
 
@@ -271,7 +284,8 @@ async function processPOIItem(
             facts_version: 2,
         }, { onConflict: "attraction_id,language,gender" }).select().single();
 
-        return { ...finalRows, status: "generated" };
+        console.log(`${LOG_PREFIX} Final Upsert Score:`, scoreResult.score_overall);
+        return { ...finalRows, status: "generated", last_score_overall: scoreResult.score_overall };
     } catch (e) {
         console.error(`${LOG_PREFIX} Fatal Generation Error:`, e);
         // Clear Lock (Negative Cache - or just delete)
@@ -294,6 +308,10 @@ serve(async (req) => {
             headers: createSecureHeaders(corsHeaders),
         });
     }
+
+    // 📋 INITIALIZE AUDIT LOGGER
+    const auditLogger = createAuditLogger("Generate-Description");
+    const startTime = Date.now();
 
     try {
         // ✅ VALIDAR AUTENTICAÇÃO
@@ -335,10 +353,6 @@ serve(async (req) => {
         // ✅ PARSE REQUEST BODY (sem validação Zod - aceita qualquer idioma)
         const body = await req.json();
         const isBatch = !!body.requests && Array.isArray(body.requests);
-
-        // 📋 INITIALIZE AUDIT LOGGER
-        const auditLogger = createAuditLogger("Generate-Description");
-        const startTime = Date.now();
 
         console.log(
             `[Generate-Description] Received request. Batch Mode: ${isBatch}`,
@@ -386,7 +400,7 @@ serve(async (req) => {
             // Sequential is safer for rate limits and order priority
             const results = [];
             for (const item of targetRequests) {
-                const poiData = poiInfos?.find((p) => p.id === item.poi_id) ||
+                const poiData = poiInfos?.find((p: any) => p.id === item.poi_id) ||
                     {};
                 try {
                     const res = await processPOIItem(
@@ -395,6 +409,8 @@ serve(async (req) => {
                         sharedGender,
                         shouldGenAudio,
                         poiData,
+                        undefined, // context override
+                        batch.force, // Use batch force if available
                     );
                     results.push({
                         trigger_point_id: item.trigger_point_id,
@@ -458,6 +474,7 @@ serve(async (req) => {
                 manual.generate_audio !== false,
                 poiData,
                 manual.raw_context,
+                manual.force, // Pass force flag from CMS
             );
 
             // 📋 LOG SINGLE SUCCESS

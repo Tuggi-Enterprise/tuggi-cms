@@ -37,7 +37,7 @@ export const translateWithGemini = async (
 
     const prompt = `You are a professional travel assistant specialized in tourism translation.
 
-Translate the following POI (Point of Interest) tour narration originally written for Brazilian Portuguese tourists, and rewrite it in a natural and culturally appropriate way for international tourists who speak the target language below.
+Translate the following POI (Point of Interest) tour narration and rewrite it in a natural and culturally appropriate way for tourists who speak the target language below.
 
 The translation must:
 - Preserve the meaning and structure of the original text.
@@ -48,7 +48,7 @@ The translation must:
 - Limit the result to about same amount of words comes from original text.
 - IMPORTANT: The output must be EXCLUSIVELY in ${langName}.
 
-ORIGINAL TEXT (pt-br):
+ORIGINAL TEXT:
 "${text}"
 
 Target Language:
@@ -57,12 +57,10 @@ Target Language:
 Expected output:
 Translated text only (no labels, no explanations, no tags).`;
 
-
-
     // Try Flash-Lite first, then Flash as fallback
     const models = [
         'gemini-2.5-flash-lite',
-        'gemini-2.0-flash' // Fallback to 2.0 if 2.5 is unavailable/not yet standard, but keeping 2.5-flash-lite as priority
+        'gemini-2.0-flash'
     ];
 
     let lastError: Error | null = null;
@@ -79,7 +77,7 @@ Translated text only (no labels, no explanations, no tags).`;
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: prompt }] }],
                         generationConfig: {
-                            temperature: 0.3, // Lower temperature for more accurate translation
+                            temperature: 0.3,
                             maxOutputTokens: 1024,
                         }
                     })
