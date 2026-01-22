@@ -92,6 +92,34 @@ export async function GET(request: NextRequest) {
       fetch_all: mapView || all || false
     }
     
+    // Try to detect logged user and, if client, restrict results to their own POIs
+    let cmsUser = null
+    try {
+      const cookieStore = (request as any).cookies ? (request as any).cookies() : undefined
+      if (cookieStore) {
+        const createRouteHandlerClient = (await import('@supabase/auth-helpers-nextjs')).createRouteHandlerClient
+        const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+        const { data: { session } } = await supabaseAuth.auth.getSession()
+        if (session) {
+          const { data, error } = await supabaseAuth
+            .schema('core')
+            .from('cms_users')
+            .select('id, role')
+            .eq('email', session.user.email)
+            .single()
+          if (!error && data) cmsUser = data
+        }
+      }
+    } catch (err) {
+      console.warn('🔍 POI Search: could not determine cms user for client filtering', err)
+    }
+
+    if (cmsUser && cmsUser.role === 'client') {
+      // restrict RPC to owner
+      (rpcParams as any).owner_id = cmsUser.id
+      console.log('🔍 POI Search: applying owner filter for client:', cmsUser.id)
+    }
+
     console.log('🔍 RPC Parameters:', rpcParams)
     
     const { data: rpcData, error: rpcError } = await supabase

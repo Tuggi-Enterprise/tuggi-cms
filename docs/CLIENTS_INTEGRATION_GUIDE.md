@@ -19,7 +19,7 @@ For CLIENT users:
   Manage their client(s) and linked users/drivers
 
 For PUBLIC (unauthenticated):
-- /client-registration (📝 Register as Client)
+- /client-signup (📝 Register as Client)
   Public registration form
 
 

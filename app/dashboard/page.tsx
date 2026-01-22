@@ -66,7 +66,52 @@ export default function DashboardPage() {
 
       console.log('📊 Loading dashboard data with new service...')
       
-      // Use the new dashboard service
+      // Determine caller role and load scoped data for clients
+      try {
+        const dbg = await fetch('/api/debug/cms-user')
+        if (dbg.ok) {
+          const dbgJson = await dbg.json()
+          const role = dbgJson?.cmsUser?.role || dbgJson?.sessionUser?.app_metadata?.role || null
+          if (role === 'client') {
+            // Client: load client-scoped dashboard
+            const clientRes = await fetch('/api/clients/dashboard')
+            if (!clientRes.ok) {
+              const errBody = await clientRes.json().catch(() => ({}))
+              throw new Error(errBody?.error || 'Failed to load client dashboard')
+            }
+            const json = await clientRes.json()
+            const payload = json.data
+
+            // Map payload to expected DashboardStats shape (fill missing with defaults)
+            const mapped: any = {
+              totalPOIs: payload.poiStats?.total || 0,
+              approvedPOIs: payload.poiStats?.approved || 0,
+              totalDescriptions: payload.poiStats?.with_description || 0,
+              approvalRate: payload.poiStats?.total ? Math.round((payload.poiStats?.approved || 0) / payload.poiStats.total * 100) : 0,
+              cityDistribution: (payload.cityDistribution || []).map((c: any) => ({ city: c.city, count: Number(c.poi_count) })),
+              totalUsers: 0,
+              totalTrips: 0,
+              totalKmDriven: 0,
+              totalPOIsPlayed: 0,
+              avgTripDuration: 0,
+              tripsByPlatform: [],
+              lastUpdated: new Date(),
+              source: 'database'
+            }
+
+            setStats(mapped)
+            setLastUpdated(mapped.lastUpdated)
+
+            // Don't load the admin dashboard
+            setIsLoading(false)
+            return
+          }
+        }
+      } catch (err) {
+        console.warn('Could not verify user role before loading dashboard:', err)
+      }
+
+      // Use the new dashboard service for admins
       const result = await dashboardService.getDashboardData()
       
       if (!result.success) {
@@ -218,6 +263,52 @@ export default function DashboardPage() {
           value={stats.totalUsers}
           color="bg-indigo-500"
         />
+      </div>
+
+      {/* Quick Actions (moved up) */}
+      <div className="tuggi-card p-6 mt-6">
+        <h3 className="text-lg font-semibold text-tuggi-text dark:text-white mb-4">
+          Quick Actions
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <a
+            href="/pois/new"
+            className="group flex items-center p-4 bg-tuggi-blue/10 rounded-lg hover:bg-tuggi-blue/20 transition-all duration-200 border border-tuggi-blue/20 hover:border-tuggi-blue/30 hover:shadow-md"
+          >
+            <MapPin className="h-8 w-8 text-tuggi-blue mr-3 group-hover:scale-110 transition-transform duration-200" />
+            <div>
+              <p className="font-medium text-tuggi-text dark:text-white">Add New POI</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Create a new point of interest</p>
+            </div>
+          </a>
+          
+          <a
+            href="/pois?filter=pending"
+            className="group flex items-center p-4 bg-tuggi-orange/10 rounded-lg hover:bg-tuggi-orange/20 transition-all duration-200 border border-tuggi-orange/20 hover:border-tuggi-orange/30 hover:shadow-md"
+          >
+            <CheckCircle className="h-8 w-8 text-tuggi-orange mr-3 group-hover:scale-110 transition-transform duration-200" />
+            <div>
+              <p className="font-medium text-tuggi-text dark:text-white">Review Pending</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {stats.totalPOIs - stats.approvedPOIs > 0 ? 
+                  `${stats.totalPOIs - stats.approvedPOIs} POIs awaiting review` : 
+                  'No pending POIs'
+                }
+              </p>
+            </div>
+          </a>
+          
+          <a
+            href="/analytics"
+            className="group flex items-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-all duration-200 border border-green-200 dark:border-green-700 hover:shadow-md"
+          >
+            <TrendingUp className="h-8 w-8 text-green-600 dark:text-green-400 mr-3 group-hover:scale-110 transition-transform duration-200" />
+            <div>
+              <p className="font-medium text-tuggi-text dark:text-white">View Analytics</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Check performance metrics</p>
+            </div>
+          </a>
+        </div>
       </div>
 
       {/* Main Charts Section */}
@@ -402,51 +493,7 @@ export default function DashboardPage() {
 
       {/* Approval Cascade View removed */}
 
-      {/* Quick Actions */}
-      <div className="tuggi-card p-6">
-        <h3 className="text-lg font-semibold text-tuggi-text dark:text-white mb-4">
-          Quick Actions
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <a
-            href="/pois/new"
-            className="group flex items-center p-4 bg-tuggi-blue/10 rounded-lg hover:bg-tuggi-blue/20 transition-all duration-200 border border-tuggi-blue/20 hover:border-tuggi-blue/30 hover:shadow-md"
-          >
-            <MapPin className="h-8 w-8 text-tuggi-blue mr-3 group-hover:scale-110 transition-transform duration-200" />
-            <div>
-              <p className="font-medium text-tuggi-text dark:text-white">Add New POI</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Create a new point of interest</p>
-            </div>
-          </a>
-          
-          <a
-            href="/pois?filter=pending"
-            className="group flex items-center p-4 bg-tuggi-orange/10 rounded-lg hover:bg-tuggi-orange/20 transition-all duration-200 border border-tuggi-orange/20 hover:border-tuggi-orange/30 hover:shadow-md"
-          >
-            <CheckCircle className="h-8 w-8 text-tuggi-orange mr-3 group-hover:scale-110 transition-transform duration-200" />
-            <div>
-              <p className="font-medium text-tuggi-text dark:text-white">Review Pending</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {stats.totalPOIs - stats.approvedPOIs > 0 ? 
-                  `${stats.totalPOIs - stats.approvedPOIs} POIs awaiting review` : 
-                  'No pending POIs'
-                }
-              </p>
-            </div>
-          </a>
-          
-          <a
-            href="/analytics"
-            className="group flex items-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-all duration-200 border border-green-200 dark:border-green-700 hover:shadow-md"
-          >
-            <TrendingUp className="h-8 w-8 text-green-600 dark:text-green-400 mr-3 group-hover:scale-110 transition-transform duration-200" />
-            <div>
-              <p className="font-medium text-tuggi-text dark:text-white">View Analytics</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">Check performance metrics</p>
-            </div>
-          </a>
-        </div>
-      </div>
+      
     </div>
   )
 }

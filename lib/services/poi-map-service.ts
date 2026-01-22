@@ -57,7 +57,27 @@ export async function fetchPOIsForMap(
   
   console.log(`🗺️ Fetching map POIs with bounds [${bounds.minLat}, ${bounds.minLng}] to [${bounds.maxLat}, ${bounds.maxLng}] zoom ${zoom}`)
 
-  const { data, error } = await supabase.schema('core').rpc('cms_search_pois_map', {
+  // If the caller is logged in as a client, restrict map results to their own POIs
+  let ownerId: string | null = null
+  try {
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (sessionData?.session) {
+      const { data: cmsUser } = await supabase
+        .schema('core')
+        .from('cms_users')
+        .select('id, role')
+        .eq('email', sessionData.session.user.email)
+        .single()
+      if (cmsUser && cmsUser.role === 'client') {
+        ownerId = cmsUser.id
+        console.log('🗺️ Map fetch: applying owner filter for client', ownerId)
+      }
+    }
+  } catch (err) {
+    console.warn('🗺️ Map fetch: could not determine cms user for owner filtering', err)
+  }
+
+  const rpcParams: any = {
     min_lat: bounds.minLat,
     min_lng: bounds.minLng,
     max_lat: bounds.maxLat,
@@ -68,7 +88,11 @@ export async function fetchPOIsForMap(
     country_filter: filters.country || null,
     state_filter: filters.state || null,
     city_filter: filters.city || null
-  })
+  }
+
+  if (ownerId) rpcParams.owner_id = ownerId
+
+  const { data, error } = await supabase.schema('core').rpc('cms_search_pois_map', rpcParams)
 
   if (error) {
     console.error('❌ Error fetching map POIs:', error)

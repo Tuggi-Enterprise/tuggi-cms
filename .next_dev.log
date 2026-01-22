@@ -1,0 +1,38 @@
+
+> tuggi-cms@1.0.0 dev
+> next dev
+
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Users/despossivel/yarn.lock as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * /Users/despossivel/Documents/workspace/tuggi-cms/package-lock.json
+
+   ▲ Next.js 16.0.10 (Turbopack)
+   - Local:         http://localhost:3000
+   - Network:       http://192.168.1.62:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+ ✓ Ready in 1395ms
+🔍 MIDDLEWARE: Processing request for: /dashboard
+🔍 MIDDLEWARE: Session check: {
+  hasSession: true,
+  userEmail: 'dr.deadb@gmail.com',
+  path: '/dashboard'
+}
+ ○ Compiling /dashboard ...
+ GET /dashboard 200 in 8.0s (compile: 6.8s, proxy.ts: 423ms, render: 782ms)
+🔍 MIDDLEWARE: Processing request for: /.well-known/appspecific/com.chrome.devtools.json
+🔍 MIDDLEWARE: Session check: {
+  hasSession: true,
+  userEmail: 'dr.deadb@gmail.com',
+  path: '/.well-known/appspecific/com.chrome.devtools.json'
+}
+ ○ Compiling /unauthorized ...
+ GET /unauthorized 200 in 8.8s (compile: 8.4s, render: 438ms)
+ GET /api/debug/cms-user 200 in 4.9s (compile: 4.2s, render: 716ms)
+Client dashboard: cms_search_pois RPC error (falling back to simple counts): Could not find the function core.cms_search_pois(category_filter, city_filter, content_status_filter, country_filter, fetch_all, google_types_filter, group_status_filter, limit_count, offset_count, owner_id, score_filter, search_term, state_filter, status_filter, trigger_points_filter) in the schema cache
+ GET /api/clients/dashboard 200 in 1016ms (compile: 571ms, render: 445ms)
