@@ -39,7 +39,7 @@ export interface AuditLogEntry {
   error_message?: string;
   request_ip: string;
   user_agent?: string;
-  timestamp?: string;
+  created_at?: string;
 }
 
 export interface AuditLogResult {
@@ -127,7 +127,7 @@ export class AuditLogger {
         user_id: userId,
         request_ip: clientIp,
         user_agent: userAgent,
-        timestamp: new Date().toISOString(),
+        created_at: new Date().toISOString(),
       };
 
       // Log to console for real-time debugging

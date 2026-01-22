@@ -295,6 +295,10 @@ serve(async (req) => {
         });
     }
 
+    // 📋 INITIALIZE AUDIT LOGGER
+    const auditLogger = createAuditLogger("Generate-Description");
+    const startTime = Date.now();
+
     try {
         // ✅ VALIDAR AUTENTICAÇÃO
         const authResult = await validateAuthHeader(req);
@@ -335,10 +339,6 @@ serve(async (req) => {
         // ✅ PARSE REQUEST BODY (sem validação Zod - aceita qualquer idioma)
         const body = await req.json();
         const isBatch = !!body.requests && Array.isArray(body.requests);
-
-        // 📋 INITIALIZE AUDIT LOGGER
-        const auditLogger = createAuditLogger("Generate-Description");
-        const startTime = Date.now();
 
         console.log(
             `[Generate-Description] Received request. Batch Mode: ${isBatch}`,
