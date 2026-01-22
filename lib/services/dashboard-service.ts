@@ -47,13 +47,13 @@ class DashboardService {
   /**
    * Get complete dashboard data using optimized RPCs
    */
-  static async getDashboardData(): Promise<{
+  static async getDashboardData(ownerId?: string): Promise<{
     success: boolean
     data?: DashboardStats
     error?: string
   }> {
     const startTime = Date.now()
-    const cacheKey = 'dashboard_data'
+    const cacheKey = ownerId ? `dashboard_data:owner:${ownerId}` : 'dashboard_data'
     
     try {
       // Check cache first
@@ -79,7 +79,7 @@ class DashboardService {
       
       const [poiStatsResult, cityStatsResult] = await Promise.all([
         poiService.getStats(),
-        supabase.schema('core').rpc('dashboard_city_stats') // Get city statistics directly
+        supabase.schema('core').rpc('dashboard_city_stats', { owner_id: ownerId || null }) // Get city statistics directly
       ])
       
       if (!poiStatsResult.success) {
@@ -90,8 +90,8 @@ class DashboardService {
         throw new Error(`City stats failed: ${cityStatsResult.error.message}`)
       }
       
-      // FASE 2: Get user analytics
-      const userAnalytics = await this.getUserAnalytics()
+      // FASE 2: Get user analytics (pass ownerId when provided)
+      const userAnalytics = await this.getUserAnalytics(ownerId)
       
       // Process city distribution from RPC results
       console.log('🔍 City stats data length:', cityStatsResult.data?.length)
@@ -153,16 +153,16 @@ class DashboardService {
   /**
    * Get user analytics using optimized RPC
    */
-  private static async getUserAnalytics(): Promise<UserAnalyticsResult> {
+  private static async getUserAnalytics(ownerId?: string): Promise<UserAnalyticsResult> {
     try {
       console.log('📊 Loading user analytics with RPC...')
       
       const supabase = getSupabase('server')
       
-      // Use the new RPC function
+      // Use the new RPC function and pass owner_id when provided
       const { data, error } = await supabase
         .schema('core')
-        .rpc('dashboard_user_analytics')
+        .rpc('dashboard_user_analytics', { owner_id: ownerId || null })
       
       if (error) {
         console.error('❌ User Analytics RPC failed:', error)

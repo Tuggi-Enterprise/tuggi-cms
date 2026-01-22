@@ -2,17 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useParams } from 'next/navigation'
 import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 
-interface POIPageProps {
-  params: {
-    id: string
-  }
-}
-
-export default function POIPage({ params }: POIPageProps) {
+export default function POIPage() {
   const [poi, setPoi] = useState<POI | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -20,6 +14,9 @@ export default function POIPage({ params }: POIPageProps) {
   
   const supabase = useSupabaseClient()
   const router = useRouter()
+  const params = useParams()
+  const id = params?.id as string | undefined
+  const isCreate = id === 'new'
 
   useEffect(() => {
     const fetchPOI = async () => {
@@ -128,10 +125,18 @@ export default function POIPage({ params }: POIPageProps) {
       }
     }
 
-    if (params.id) {
+    if (isCreate) {
+      // Open modal in create mode; no fetch required
+      setIsLoading(false)
+      setError(null)
+      setPoi(null)
+      return
+    }
+
+    if (id) {
       fetchPOI()
     }
-  }, [params.id, supabase])
+  }, [id, supabase])
 
   const handleClose = () => {
     setIsModalOpen(false)
@@ -155,7 +160,7 @@ export default function POIPage({ params }: POIPageProps) {
     )
   }
 
-  if (error || !poi) {
+  if (!isCreate && (error || !poi)) {
     return (
       <div className="min-h-screen bg-tuggi-background flex items-center justify-center">
         <div className="text-center">
@@ -203,6 +208,7 @@ export default function POIPage({ params }: POIPageProps) {
             isOpen={isModalOpen}
             onClose={handleClose}
             onUpdate={handleUpdate}
+            mode={isCreate ? 'create' : 'view'}
           />
         </div>
       </div>

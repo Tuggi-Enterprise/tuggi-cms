@@ -15,6 +15,15 @@ import {
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
+if (!supabaseUrl || !supabaseKey) {
+  // eslint-disable-next-line no-console
+  console.error('Supabase environment variables missing or invalid', {
+    NEXT_PUBLIC_SUPABASE_URL: !!supabaseUrl,
+    SUPABASE_SERVICE_ROLE_KEY: !!supabaseKey
+  })
+  throw new Error('Missing environment variables: NEXT_PUBLIC_SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY')
+}
+
 const supabase = createClient(supabaseUrl, supabaseKey)
 
 export class ClientService {
@@ -22,23 +31,47 @@ export class ClientService {
    * Register a new client (public endpoint - no auth needed)
    */
   static async registerClient(data: RegisterClientRequest): Promise<Client> {
-    const { data: client, error } = await supabase
+    // Map submitted data to cms_users fields (do NOT add new columns)
+    const cmsUserPayload: any = {
+      full_name: data.full_name || data.name,
+      email: data.email,
+      phone: data.phone || null,
+      company_name: data.company_name || null,
+      address: data.address || null,
+      city: data.city || null,
+      state: data.state || null,
+      country: data.country || null,
+      postal_code: data.postal_code || null,
+      industry: data.industry || null,
+      website: data.website || null,
+      role: 'client',
+      is_active: false
+    }
+
+    const res = await supabase
       .schema('core')
-      .from('clients')
-      .insert([
-        {
-          ...data,
-          status: 'pending'
-        }
-      ])
+      .from('cms_users')
+      .insert([cmsUserPayload])
       .select()
       .single()
 
-    if (error) {
-      throw new Error(`Failed to register client: ${error.message}`)
+    // Log the raw response for debugging if something goes wrong
+    // (helps identify RLS, validation or env issues)
+    // eslint-disable-next-line no-console
+    console.log('🔍 ClientService.registerClient (cms_users) response:', { res })
+
+    const cmsUser = res.data
+    const error = res.error
+
+    if (error || !cmsUser) {
+      const details = error ? (error.message || JSON.stringify(error)) : 'No cms_user returned from Supabase'
+      if (res.status === 404) {
+        throw new Error(`Failed to register client (cms_user): ${details}. Received 404 from Supabase - check NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and that the 'cms_users' table exists in the 'core' schema.`)
+      }
+      throw new Error(`Failed to register client (cms_user): ${details}`)
     }
 
-    return client as Client
+    return cmsUser as any
   }
 
   /**
@@ -106,7 +139,7 @@ export class ClientService {
       .insert([
         {
           email: cmsUserEmail,
-          name: cmsUserName,
+          full_name: cmsUserName,
           role: 'client',
           is_active: true
         }
@@ -223,7 +256,7 @@ export class ClientService {
     const { data, error } = await supabase
       .schema('core')
       .from('client_cms_users')
-      .select('*, cms_users:cms_user_id(id, email, name, role)')
+      .select('*, cms_users:cms_user_id(id, email, full_name, role)')
       .eq('client_id', clientId)
 
     if (error) {

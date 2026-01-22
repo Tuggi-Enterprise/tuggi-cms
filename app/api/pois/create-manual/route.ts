@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const { data: cmsUser, error: cmsError } = await supabaseAuth
       .schema('core')
       .from('cms_users')
-      .select('role, is_active')
+      .select('id, role, is_active')
       .eq('email', session.user.email as string)
       .eq('is_active', true)
       .single()
@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2: Create POI using centralized service (atomic operation)
+    // Include created_by so owner is recorded (cms_users.id)
     const createResult = await POICreationService.createPOIWithCoordinates({
       name: name.trim(),
       city: city,
@@ -110,7 +111,10 @@ export async function POST(request: NextRequest) {
       latitude: lat,
       longitude: lng,
       import_source: 'manual',
-      source_type: 'manual'
+      source_type: 'manual',
+      additionalFields: {
+        created_by: cmsUser.id
+      }
     })
 
     if (!createResult.success || !createResult.attraction_id) {

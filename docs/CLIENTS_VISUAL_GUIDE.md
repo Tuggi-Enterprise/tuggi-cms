@@ -8,7 +8,7 @@
 └─────────────────────────────────────────────────────────────────┘
 
 PUBLIC VISITOR (No Auth)
-├─ Visits /client-registration
+├─ Visits /client-signup
 ├─ Fills registration form
 └─ Submits → POST /api/clients/register
    └─ Creates clients(status=pending)
@@ -239,7 +239,7 @@ CLIENT MANAGEMENT
 ```
 Site
 ├─ Public Pages
-│  └─ /client-registration
+│  └─ /client-signup
 │     ├─ ClientRegistrationForm component
 │     └─ POST /api/clients/register
 │

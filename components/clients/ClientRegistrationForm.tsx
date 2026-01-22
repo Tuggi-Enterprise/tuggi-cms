@@ -38,10 +38,11 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
     setLoading(true)
 
     try {
+      const payload = { ...formData, full_name: formData.name }
       const response = await fetch('/api/clients/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       })
 
       const data = await response.json()
@@ -64,12 +65,12 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
   if (submitted) {
     return (
       <div className="rounded-lg bg-green-50 border border-green-200 p-6 text-center">
-        <h3 className="font-semibold text-green-900 mb-2">✅ Registration Submitted</h3>
+        <h3 className="font-semibold text-green-900 mb-2">✅ Solicitação enviada</h3>
         <p className="text-green-700 mb-4">
-          Thank you for registering! Your application is pending admin approval.
+          Obrigado por se registrar! Vamos revisar os dados e avisaremos assim que aprovados.
         </p>
         <p className="text-sm text-green-600">
-          We&apos;ll contact you at <strong>{formData.email}</strong> once approved.
+          Entraremos em contato no e-mail <strong>{formData.email}</strong> quando sua conta estiver liberada.
         </p>
       </div>
     )
@@ -81,7 +82,7 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
         {/* Name */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Full Name <span className="text-red-500">*</span>
+            Nome completo <span className="text-red-500">*</span>
           </label>
           <input
             type="text"
@@ -90,14 +91,14 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
             onChange={handleChange}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            placeholder="John Doe"
+            placeholder="Maria Silva"
           />
         </div>
 
         {/* Email */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Email <span className="text-red-500">*</span>
+            E-mail <span className="text-red-500">*</span>
           </label>
           <input
             type="email"
@@ -106,14 +107,14 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
             onChange={handleChange}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            placeholder="john@example.com"
+            placeholder="contato@exemplo.com"
           />
         </div>
 
         {/* Phone */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Phone
+            Telefone
           </label>
           <input
             type="tel"
@@ -128,7 +129,7 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
         {/* Company Name */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Company Name
+            Empresa
           </label>
           <input
             type="text"
@@ -136,14 +137,14 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
             value={formData.company_name}
             onChange={handleChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            placeholder="ACME Corp"
+            placeholder="ACME LTDA"
           />
         </div>
 
         {/* Address */}
         <div className="md:col-span-2">
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Address
+            Endereço
           </label>
           <input
             type="text"
@@ -151,14 +152,14 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
             value={formData.address}
             onChange={handleChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Street and number"
+            placeholder="Rua e número"
           />
         </div>
 
         {/* City */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            City
+            Cidade
           </label>
           <input
             type="text"
@@ -173,7 +174,7 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
         {/* State */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            State
+            Estado
           </label>
           <input
             type="text"
@@ -188,7 +189,7 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
         {/* Country */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Country
+            País
           </label>
           <input
             type="text"
@@ -196,14 +197,14 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
             value={formData.country}
             onChange={handleChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Brazil"
+            placeholder="Brasil"
           />
         </div>
 
         {/* Postal Code */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Postal Code
+            CEP
           </label>
           <input
             type="text"
@@ -218,7 +219,7 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
         {/* Industry */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Industry
+            Segmento
           </label>
           <input
             type="text"
@@ -226,14 +227,14 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
             value={formData.industry}
             onChange={handleChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Logistics, Tourism, etc"
+            placeholder="Logística, Turismo, etc."
           />
         </div>
 
         {/* Website */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Website
+            Site
           </label>
           <input
             type="url"
@@ -241,7 +242,7 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
             value={formData.website}
             onChange={handleChange}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            placeholder="https://example.com"
+            placeholder="https://exemplo.com"
           />
         </div>
       </div>
@@ -251,7 +252,7 @@ export function ClientRegistrationForm({ onSuccess, onError }: ClientRegistratio
         disabled={loading}
         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-4 rounded-md transition"
       >
-        {loading ? 'Submitting...' : 'Submit Registration'}
+        {loading ? 'Enviando...' : 'Enviar solicitação'}
       </button>
     </form>
   )

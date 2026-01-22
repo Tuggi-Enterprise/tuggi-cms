@@ -111,7 +111,7 @@ export function ClientDashboard({ clientId: initialClientId }: ClientDashboardPr
                 {linkedUsers.map((link: any) => (
                   <div key={link.id} className="p-3 bg-gray-50 rounded-md border border-gray-200 flex justify-between items-center">
                     <div>
-                      <p className="font-medium text-gray-900">{link.cms_users?.name}</p>
+                      <p className="font-medium text-gray-900">{link.cms_users?.full_name ?? link.cms_users?.name}</p>
                       <p className="text-sm text-gray-600">{link.cms_users?.email}</p>
                       <span className="inline-block text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded mt-1">
                         {link.client_role}

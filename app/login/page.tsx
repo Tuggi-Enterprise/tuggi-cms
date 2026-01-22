@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
@@ -105,15 +106,15 @@ export default function LoginPage() {
       }
 
       if (!cmsUser) {
-        console.error('❌ LOGIN: CMS user not found or inactive')
+        console.error('❌ LOGIN: CMS user not found or inactive - session metadata:', authData.user?.app_metadata, authData.user?.user_metadata)
         await supabase.auth.signOut()
         setError('Access denied. You are not authorized to use this CMS.')
         return
       }
 
-      // Step 3: Check role authorization (admin or client for now)
+      // Step 3: Check role authorization (allow admin, editor, and client)
       console.log('🔑 LOGIN: Step 3 - Checking role authorization...')
-      if (!['admin', 'editor'].includes(cmsUser.role)) {
+      if (!['admin', 'editor', 'client'].includes(cmsUser.role)) {
         console.error('❌ LOGIN: Insufficient privileges:', cmsUser.role)
         await supabase.auth.signOut()
         setError('Access denied. Insufficient privileges.')
@@ -240,6 +241,13 @@ export default function LoginPage() {
               'Sign in'
             )}
           </button>
+
+          <div className="text-center text-sm text-gray-600">
+            <span className="mr-1">Não tem conta?</span>
+            <Link href="/client-signup" className="font-semibold text-tuggi-blue hover:text-tuggi-orange transition">
+              Solicitar acesso como cliente
+            </Link>
+          </div>
         </form>
 
         {/* Footer */}

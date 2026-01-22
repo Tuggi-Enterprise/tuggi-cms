@@ -67,7 +67,7 @@
 
 ### 6. Pages (3 pages)
 
-#### `/client-registration`
+#### `/client-signup`
 - Public registration page
 - No authentication required
 - Clean, simple interface
@@ -105,7 +105,7 @@
 
 ### 1. Registration
 ```
-Public User → /client-registration (form) → POST /api/clients/register
+Public User → /client-signup (form) → POST /api/clients/register
           → clients table (status: pending)
 ```
 
@@ -151,7 +151,7 @@ Client User → /dashboard/my-clients
 - [ ] Run migration: `supabase db push`
 - [ ] Verify 4 new tables created in Supabase
 - [ ] Check RLS policies applied
-- [ ] Test `/client-registration` page (public)
+- [ ] Test `/client-signup` page (public)
 - [ ] Register test client
 - [ ] Test `/dashboard/client-approvals` (admin)
 - [ ] Approve test client, verify CMS user created
@@ -177,7 +177,7 @@ Client User → /dashboard/my-clients
    ```
 
 3. **Update Navigation**
-   - Add links to `/client-registration` (public)
+   - Add links to `/client-signup` (public)
    - Add links to `/dashboard/client-approvals` (admin)
    - Add links to `/dashboard/my-clients` (client/admin)
 

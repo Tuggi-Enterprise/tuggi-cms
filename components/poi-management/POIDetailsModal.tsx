@@ -159,6 +159,42 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     return () => clearTimeout(timeoutId)
   }, [createCoordinates, isCreateMode])
 
+  // Request user's geolocation when opening the create modal to center the map
+  useEffect(() => {
+    if (!isCreateMode) return
+    if (createCoordinates) return // already set by user
+
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) {
+      console.warn('Geolocation not available in this environment')
+      return
+    }
+
+    let didRespond = false
+    const onSuccess = (pos: GeolocationPosition) => {
+      if (didRespond) return
+      didRespond = true
+      const { latitude, longitude } = pos.coords
+      setCreateCoordinates({ lat: latitude, lng: longitude })
+      setCreateError(null)
+    }
+
+    const onError = (err: GeolocationPositionError) => {
+      if (didRespond) return
+      didRespond = true
+      console.warn('Geolocation error:', err.message)
+      // keep silent; user can click on map to set location
+      setCreateError('Não foi possível obter localização automática. Selecione no mapa.')
+    }
+
+    try {
+      navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 })
+    } catch (err) {
+      console.warn('Geolocation request failed:', err)
+    }
+
+    // Cleanup not necessary for getCurrentPosition
+  }, [isCreateMode, createCoordinates])
+
   const handleReverseGeocode = async (lat: number, lng: number) => {
     setIsGeocoding(true)
     setCreateError(null)
@@ -3626,14 +3662,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <button
                             type="button"
                             onClick={saveReferenceLinks}
-                            disabled={isSavingReferenceLinks || !!(poi as any)._homologData}
+                            disabled={isSavingReferenceLinks || !!((poi as any)?._homologData)}
                             className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Save className="h-4 w-4 mr-2" />
                             {isSavingReferenceLinks ? 'Saving...' : 'Save Reference Links'}
                           </button>
                         </div>
-                        {(poi as any)._homologData && (
+                        {((poi as any)?._homologData) && (
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                             Note: Reference links can only be saved for core attractions, not homolog POIs.
                           </p>

@@ -24,4 +24,16 @@ export const ALLOWED_CLIENT_PATHS = [
   '/api/pois/countries',
   '/api/pois/cities',
   '/api/pois/reverse-geocode',
+
+  // Client pages
+  '/clients',
+  '/clients/my-pois',
+  '/clients/my-pois/',
+  '/dashboard'
 ]
+
+// NOTE: '/dashboard' is allowed for clients, but the UI will load a scoped
+// client dashboard (only the client's own metrics) by calling
+// `/api/clients/dashboard`. Global admin dashboard data remains restricted
+// to admins only.
+

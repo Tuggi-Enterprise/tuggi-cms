@@ -13,10 +13,11 @@ export async function POST(request: NextRequest) {
   try {
     const body: RegisterClientRequest = await request.json()
 
-    // Validate required fields
-    if (!body.name || !body.email) {
+    // Validate required fields (support either name or full_name)
+    const clientName = (body.full_name || body.name || '').trim()
+    if (!clientName || !body.email) {
       return NextResponse.json(
-        { error: 'Name and email are required' },
+        { error: 'Name (or full_name) and email are required' },
         { status: 400 }
       )
     }
@@ -30,21 +31,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log('📝 Registering new client:', { name: body.name, email: body.email })
+    console.log('📝 Registering new cms_user:', { full_name: clientName, email: body.email })
 
-    // Create the client registration
-    const client = await ClientService.registerClient(body)
+    // Create the cms_user registration
+    const cmsUser = await ClientService.registerClient({ ...body, full_name: clientName })
 
-    console.log('✅ Client registered successfully:', { clientId: client.id, email: client.email })
+    console.log('✅ CMS user registration submitted:', { id: cmsUser.id, email: cmsUser.email })
 
     return NextResponse.json({
       success: true,
       message: 'Client registration submitted successfully. Awaiting admin approval.',
       client: {
-        id: client.id,
-        name: client.name,
-        email: client.email,
-        status: client.status
+        id: cmsUser.id,
+        name: clientName,
+        email: cmsUser.email,
+        status: 'pending'
       }
     }, { status: 201 })
 

@@ -27,7 +27,7 @@ export async function GET(
     const { data, error } = await supabaseAuth
       .schema('core')
       .from('client_cms_users')
-      .select('id, client_id, cms_user_id, client_role, created_at, cms_users:cms_user_id(id, email, name)')
+      .select('id, client_id, cms_user_id, client_role, created_at, cms_users:cms_user_id(id, email, full_name)')
       .eq('client_id', params.clientId)
 
     if (error) throw error
