@@ -231,6 +231,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
+        // Provide defaults from input/geocoding in case fetch fails
+        id: attractionId,
+        name: name.trim(),
+        city,
+        state,
+        country,
+        formatted_address,
+        // Spread fetched data (will overwrite defaults if valid)
         ...completePOI,
         coordinates: completePOI?.attraction_coordinate?.[0] ? {
           latitude: completePOI.attraction_coordinate[0].latitude,

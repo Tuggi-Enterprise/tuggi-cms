@@ -510,50 +510,54 @@ export class PoiMigrationPipeline {
       console.log(`   POI loaded: ${poi.name} (${poi.city}, ${poi.state})`)
       console.log(`   Coordinates: ${coordinate.latitude}, ${coordinate.longitude}`)
 
-      // Use DescriptionService directly (better than API call)
-      console.log(`   Calling DescriptionService.generate()...`)
-      const { DescriptionService } = await import('./poi-processing/description.service')
+      // SSOT: Always use the central Edge Function
+      console.log(`   📡 Calling central Edge Function 'generate-description' for ${attraction_id}...`)
       
-      const poiData = {
-        id: attraction_id,
-        name: poi.name,
-        city: poi.city,
-        state: poi.state,
-        country: poi.country,
-        lat: coordinate.latitude,
-        lng: coordinate.longitude
-      }
-
-      const result = await DescriptionService.generate(poiData, {
-        auto_generate_audio: options.auto_generate_audio,
-        persist_verification: true,
-        language: 'pt-br'
+      const { data: res, error: invokeError } = await supabase.functions.invoke('generate-description', {
+        body: {
+          poi_id: attraction_id,
+          language: 'pt-br', // Default for migration pipeline
+          force: true, // Pipeline always needs a fresh/official master
+          generate_audio: options.auto_generate_audio
+        }
       })
-
-      if (!result.success) {
-        console.error(`   DescriptionService.generate() failed: ${result.error}`)
+      
+      if (invokeError) {
+        console.error(`   ❌ Edge Function invocation error: ${invokeError.message}`)
         return {
           step: 'description',
           success: false,
-          error: result.error || 'Description generation failed',
+          error: invokeError.message,
+          processing_time: Date.now() - stepStart
+        }
+      }
+
+      if (!res?.success) {
+        console.error(`   ❌ Edge Function failed: ${res?.error}`)
+        return {
+          step: 'description',
+          success: false,
+          error: res?.error || 'Edge Function failed',
           processing_time: Date.now() - stepStart
         }
       }
       
-      console.log(`   Description generated successfully`)
-
-      // Extract verification result from description service
-      const verification = result.data?.verification
+      const generatedData = res.data
+      console.log(`   ✅ Description and audio generated successfully`)
 
       return {
         step: 'description',
-        success: result.success,
+        success: true,
         data: {
-          description: result.data?.description,
-          verification: verification,
-          description_id: result.data?.description_id
+          description: generatedData.description,
+          verification: {
+            aprovada: generatedData.verification_status === 'approved',
+            pontuacao: generatedData.last_score_overall
+          },
+          description_id: generatedData.id,
+          audio_url: generatedData.audio_url
         },
-        processing_time: result.processing_time || Date.now() - stepStart
+        processing_time: Date.now() - stepStart
       }
     } catch (error) {
       return {

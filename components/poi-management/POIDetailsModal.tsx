@@ -63,6 +63,7 @@ export interface POI {
     group_member_count?: number
   }
   verification_score?: number | null
+  _homologData?: any
 }
 
 interface POIDetailsModalProps {
@@ -118,16 +119,31 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [boundaryPolygon, setBoundaryPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
   const [isSavingBoundary, setIsSavingBoundary] = useState(false)
   const [existingBoundary, setExistingBoundary] = useState<Array<{ lat: number; lng: number }> | null>(null)
+  const [isDrawingEnabled, setIsDrawingEnabled] = useState(false) // Drawing mode OFF by default
 
   // Update state when poi changes
   useEffect(() => {
+    console.log('🔄 [POI useEffect] Running with:', {
+      poiProp: poi ? { id: poi.id, name: poi.name } : null,
+      currentPoiState: currentPoi ? { id: currentPoi.id, name: currentPoi.name } : null
+    })
     if (poi) {
+      console.log('🔄 [POI useEffect] Setting state from poi prop')
       setCurrentPoi(poi)
       setEditedPoi(poi)
-    } else {
+    } else if (!currentPoi?.id) {
+      // Only reset if we don't have a locally created POI
+      // This prevents the modal from going blank when a new POI is created
+      // but the parent component hasn't propagated the new POI prop yet
+      console.log('🔄 [POI useEffect] Resetting to null (no currentPoi.id)')
       setCurrentPoi(null)
       setEditedPoi(null)
+    } else {
+      console.log('🔄 [POI useEffect] Keeping existing currentPoi (has id:', currentPoi?.id, ')')
     }
+    // We intentionally exclude currentPoi from dependencies to avoid resetting
+    // when local state changes - we only want to sync when the prop changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poi])
 
   // Fetch CMS user role (for client-side UI decisions)
@@ -210,12 +226,23 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       const result = await response.json()
 
+      console.log('📥 [handleCreatePOI] API response:', {
+        success: result.success,
+        dataKeys: result.data ? Object.keys(result.data) : null,
+        dataId: result.data?.id,
+        dataName: result.data?.name,
+        dataCity: result.data?.city
+      })
+
       if (!response.ok || !result.success) {
         throw new Error(result.error || 'Falha ao criar POI')
       }
 
       // Update modal with created POI
       const createdPOI: POI = {
+        // Ensure critical fields are present even if API response is partial
+        id: result.data.id,
+        name: result.data.name || createName.trim(),
         ...result.data,
         has_description: false,
         has_audio: false,
@@ -226,9 +253,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         active_trigger_points_count: 0
       }
 
+      console.log('🏗️ [handleCreatePOI] Created POI object:', {
+        id: createdPOI.id,
+        name: createdPOI.name,
+        city: createdPOI.city,
+        country: createdPOI.country
+      })
+
+      console.log('📝 [handleCreatePOI] Before setState - currentPoi:', currentPoi?.id, 'editedPoi:', editedPoi?.id)
+      
       setCurrentPoi(createdPOI)
       setEditedPoi(createdPOI)
       setActiveTab('details')
+
+      console.log('📝 [handleCreatePOI] After setState calls (queued)')
 
       // Invalidate queries to refresh the list and map
       invalidateAllPOICaches()
@@ -286,6 +324,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   // Description editing state
   const [currentDescription, setCurrentDescription] = useState('')
   const [originalDescription, setOriginalDescription] = useState('')
+  const [generationLanguage, setGenerationLanguage] = useState('pt-br')
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSavingDescription, setIsSavingDescription] = useState(false)
   const [isSavingReferenceLinks, setIsSavingReferenceLinks] = useState(false)
@@ -796,8 +835,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   // useEffect hooks after function declarations
   useEffect(() => {
     if (isOpen) {
-      console.log('🔄 Modal aberto: carregando dados...');
-      setEditedPoi(poi)
+      console.log('🔄 Modal aberto: carregando dados...', { poi: poi?.id, currentPoi: currentPoi?.id, editedPoi: editedPoi?.id });
+      
+      // Only reset editedPoi from prop if poi prop exists
+      // This prevents overwriting locally created POI state when poi prop is null
+      if (poi) {
+        setEditedPoi(poi)
+      }
+      
       fetchAdditionalData()
 
       // Garantir que os dados de verificação sejam buscados após os dados da descrição
@@ -983,7 +1028,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     setIsSaving(true)
     try {
       // Check if this is a homolog POI (from homolog.pois table)
-      const isHomologPOI = !!(poi as any)._homologData
+      const isHomologPOI = !!poi?._homologData
 
       const currentPoi = getPoi()
       if (!currentPoi || !editedPoi) {
@@ -1101,7 +1146,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       })
 
       // Check if this is a homolog POI (from homolog.pois table)
-      const isHomologPOI = !!(poi as any)._homologData
+      const isHomologPOI = !!poi?._homologData
 
       if (isHomologPOI) {
         // Use API route for homolog POIs
@@ -1258,12 +1303,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .from('attraction_descriptions')
         .select('id')
         .eq('attraction_id', getPoi()?.id || '')
-        .eq('language', 'pt-br')
+        .eq('language', generationLanguage)
         .order('updated_at', { ascending: false })
         .maybeSingle();
 
       if (existingDesc) {
-        console.log('🔍 Encontrado ID de descrição existente:', existingDesc.id);
+        console.log(`🔍 Encontrado ID de descrição existente em ${generationLanguage}:`, existingDesc.id);
         existingDescriptionId = existingDesc.id;
       }
 
@@ -1308,7 +1353,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // Use generate-description (Master Mode) com autenticação
       const { data: result, error: invokeError } = await callFunction('generate-description', {
         poi_id: currentPoi.id,
-        language: 'pt-br',
+        language: generationLanguage,
         generate_audio: false, // Only generate text, not audio
         raw_context: additionalContext.trim() || undefined,
         force: true // Force fresh generation
@@ -1331,11 +1376,23 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       showFeedback('✅ Native Narration Script generated successfully.', 'success')
 
-      // Set description
+      // 1. Atualizar a descrição atual para refletir no textarea
       if (generatedDescription) {
         setCurrentDescription(generatedDescription)
         
-        // Also update detected dates/verification as before
+        // 2. Atualizar o resultado da verificação para mostrar o novo score
+        setVerificationResult({
+          score: generatedData.last_score_overall || 0,
+          approved: generatedData.verification_status === 'approved',
+          verifiable_facts: generatedData.metadata?.verified_facts || [],
+          detected_dates: generatedData.metadata?.historical_dates || [],
+          issues: generatedData.metadata?.issues || [],
+          improvement_suggestion: generatedData.metadata?.improvement_suggestion || '',
+          applied: true,
+          improvement_applied: generatedData.metadata?.improvement_applied || false
+        })
+
+        // 3. Atualizar datas detectadas localmente para busca se necessário
         const detectedDatesArray = detectHistoricalDates(generatedDescription)
         if (detectedDatesArray.length > 0) {
             const dateClassification = classifyDateReliability(detectedDatesArray)
@@ -1374,7 +1431,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     setIsSavingReferenceLinks(true)
     try {
       // Check if this is a homolog POI (from homolog.pois table)
-      const isHomologPOI = !!(poi as any)._homologData
+      const isHomologPOI = !!poi?._homologData
 
       if (isHomologPOI) {
         showFeedback('Reference links can only be saved for core attractions, not homolog POIs.', 'error')
@@ -1679,7 +1736,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       const { data: result, error: invokeError } = await callFunction('generate-description', {
          poi_id: getPoi()?.id,
          language: 'pt-br',
-         force: true // Force regeneration
+         force: false // Em Narration, preferimos traduzir o Master existente
       })
 
       if (invokeError) {
@@ -1783,13 +1840,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         })
 
         try {
-          // Call generate-description with generate_audio=true com autenticação
-          const { data: result, error: invokeError } = await callFunction('generate-description', {
-            poi_id: currentPoiForAudio.id,
-            language: langCode,
-            gender: selectedGender,
-            generate_audio: true,
-            force: true
+          // Call generate-translated-audio para tradução e geração de áudio
+          const { data: result, error: invokeError } = await callFunction('generate-translated-audio', {
+            attractionId: currentPoiForAudio.id,
+            targetLanguage: langCode,
+            voiceGender: selectedGender
           })
 
           if (invokeError) {
@@ -2309,9 +2364,28 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Localização e Boundary do POI *
-                        </label>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Localização e Boundary do POI *
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
+                            className={cn(
+                              "px-3 py-1.5 text-xs font-medium rounded-md flex items-center transition-colors",
+                              isDrawingEnabled
+                                ? "bg-orange-500 text-white hover:bg-orange-600"
+                                : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                            )}
+                          >
+                            <MapPin className="h-3 w-3 mr-1" />
+                            {isDrawingEnabled ? 'Desativar Desenho' : 'Desenhar Boundary'}
+                          </button>
+                        </div>
+
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                          Clique no mapa para marcar a localização. {isDrawingEnabled ? 'Clique para desenhar o polígono do boundary.' : 'Ative o modo desenho para definir o boundary.'}
+                        </p>
 
                         <div className="h-96 w-full rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
                           <GoogleMapComponent
@@ -2326,7 +2400,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               color: '#FF6B35'
                             }] : []}
                             polygon={createBoundary || undefined}
-                            enableDrawing={true}
+                            enableDrawing={isDrawingEnabled}
                             onMapClick={(lat: number, lng: number) => {
                               setCreateCoordinates({ lat, lng })
                             }}
@@ -2334,6 +2408,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               const coords = extractPolygonCoordinates(polygon)
                               console.log('🗺️ [Create POI] Boundary drawn:', coords.length, 'points')
                               setCreateBoundary(coords)
+                              setIsDrawingEnabled(false) // Disable drawing after polygon is complete
                             }}
                             polygonOptions={{
                               strokeColor: '#FF6B35',
@@ -2346,9 +2421,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </div>
                         {createBoundary && createBoundary.length >= 3 && (
                           <div className="mt-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-md border border-green-200 dark:border-green-800">
-                            <div className="flex items-center text-sm text-green-800 dark:text-green-300">
-                              <CheckCircle className="h-4 w-4 mr-2" />
-                              Boundary desenhado: {createBoundary.length} pontos
+                            <div className="flex items-center justify-between text-sm">
+                              <div className="text-green-800 dark:text-green-300 flex items-center">
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Boundary desenhado: {createBoundary.length} pontos
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCreateBoundary(null)
+                                  setIsDrawingEnabled(true)
+                                }}
+                                className="text-red-600 hover:text-red-700 dark:text-red-400 text-xs"
+                              >
+                                Limpar
+                              </button>
                             </div>
                           </div>
                         )}
@@ -2708,7 +2795,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       </div>
 
                       {/* Right Column: Importance & Classification */}
-                      {(poi as any)._homologData ? (
+                      {poi?._homologData ? (
                         <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                             <Star className="h-5 w-5 mr-2 text-amber-600" />
@@ -2717,24 +2804,24 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                           <div className="space-y-3">
                             {/* Importance Score */}
-                            {((poi as any)._homologData.importance !== null && (poi as any)._homologData.importance !== undefined) ? (
+                            {(poi?._homologData?.importance !== null && poi?._homologData?.importance !== undefined) ? (
                               <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                 <div className="flex items-center justify-between">
                                   <div>
                                     <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Importance Score</div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                      {Number((poi as any)._homologData.importance).toFixed(2)}
-                                      {(poi as any)._homologData.importance_level && ` • ${(poi as any)._homologData.importance_level}`}
+                                      {Number(poi?._homologData?.importance).toFixed(2)}
+                                      {poi?._homologData?.importance_level && ` • ${poi?._homologData?.importance_level}`}
                                     </div>
                                   </div>
                                   <div className="flex items-center">
                                     <span className={cn(
                                       "text-lg font-semibold",
-                                      Number((poi as any)._homologData.importance) >= 0.7 ? "text-green-600 dark:text-green-400" :
-                                        Number((poi as any)._homologData.importance) >= 0.4 ? "text-yellow-600 dark:text-yellow-400" :
+                                      Number(poi?._homologData?.importance) >= 0.7 ? "text-green-600 dark:text-green-400" :
+                                        Number(poi?._homologData?.importance) >= 0.4 ? "text-yellow-600 dark:text-yellow-400" :
                                           "text-gray-600 dark:text-gray-400"
                                     )}>
-                                      {Number((poi as any)._homologData.importance).toFixed(2)}
+                                      {Number(poi?._homologData?.importance).toFixed(2)}
                                     </span>
                                   </div>
                                 </div>
@@ -2742,8 +2829,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             ) : null}
 
                             {/* Importance Level (if no importance score but has level) */}
-                            {((poi as any)._homologData.importance === null || (poi as any)._homologData.importance === undefined) &&
-                              (poi as any)._homologData.importance_level ? (
+                            {(poi?._homologData?.importance === null || poi?._homologData?.importance === undefined) &&
+                              poi?._homologData?.importance_level ? (
                               <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                 <div className="flex items-center justify-between">
                                   <div>
@@ -2751,7 +2838,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Classification level</div>
                                   </div>
                                   <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 capitalize">
-                                    {(poi as any)._homologData.importance_level}
+                                    {poi?._homologData?.importance_level}
                                   </span>
                                 </div>
                               </div>
@@ -2759,7 +2846,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                             {/* Historic Classification */}
                             {(() => {
-                              const isHistoric = (poi as any)._homologData?.is_historic;
+                              const isHistoric = poi?._homologData?.is_historic;
                               // Debug: uncomment to check values
                               // console.log('is_historic value:', isHistoric, 'type:', typeof isHistoric);
                               return isHistoric === true || isHistoric === 'true' || isHistoric === 1 ? (
@@ -2780,7 +2867,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                             {/* Touristic Classification */}
                             {(() => {
-                              const isTouristic = (poi as any)._homologData?.is_touristic;
+                              const isTouristic = poi?._homologData?.is_touristic;
                               // Debug: uncomment to check values
                               // console.log('is_touristic value:', isTouristic, 'type:', typeof isTouristic);
                               return isTouristic === true || isTouristic === 'true' || isTouristic === 1 ? (
@@ -2801,10 +2888,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                             {/* Show message if no data available */}
                             {(() => {
-                              const hasImportance = (poi as any)._homologData.importance !== null && (poi as any)._homologData.importance !== undefined;
-                              const hasImportanceLevel = !!(poi as any)._homologData.importance_level;
-                              const isHistoric = (poi as any)._homologData?.is_historic;
-                              const isTouristic = (poi as any)._homologData?.is_touristic;
+                              const hasImportance = poi?._homologData?.importance !== null && poi?._homologData?.importance !== undefined;
+                              const hasImportanceLevel = !!poi?._homologData?.importance_level;
+                              const isHistoric = poi?._homologData?.is_historic;
+                              const isTouristic = poi?._homologData?.is_touristic;
                               const hasHistoric = isHistoric === true || isHistoric === 'true' || isHistoric === 1;
                               const hasTouristic = isTouristic === true || isTouristic === 'true' || isTouristic === 1;
 
@@ -3054,12 +3141,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </div>
 
                     {/* SECTION 4: OSM Data (from homolog.pois) - Two Column Layout */}
-                    {(poi as any)._homologData && (
+                    {poi?._homologData && (
                       <>
                         {/* OSM Categories & Metadata - Two Column Layout */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {/* Left Column: OSM Categories */}
-                          {((poi as any)._homologData.primary_category || (poi as any)._homologData.categories?.length > 0) && (
+                          {(poi?._homologData?.primary_category || poi?._homologData?.categories?.length > 0) && (
                             <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                 <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
@@ -3067,21 +3154,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               </h3>
 
                               <div className="space-y-4">
-                                {(poi as any)._homologData.primary_category && (
+                                {poi?._homologData?.primary_category && (
                                   <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                     <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Primary Category</div>
-                                    <div className="text-sm text-gray-900 dark:text-white font-semibold capitalize">{(poi as any)._homologData.primary_category}</div>
-                                    {(poi as any)._homologData.primary_category_type && (
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Type: {(poi as any)._homologData.primary_category_type}</div>
+                                    <div className="text-sm text-gray-900 dark:text-white font-semibold capitalize">{poi?._homologData?.primary_category}</div>
+                                    {poi?._homologData?.primary_category_type && (
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Type: {poi?._homologData?.primary_category_type}</div>
                                     )}
                                   </div>
                                 )}
 
-                                {(poi as any)._homologData.categories && (poi as any)._homologData.categories.length > 0 && (
+                                {poi?._homologData?.categories && poi?._homologData?.categories.length > 0 && (
                                   <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                     <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">All Categories</div>
                                     <div className="flex flex-wrap gap-2">
-                                      {(poi as any)._homologData.categories.map((cat: string, idx: number) => (
+                                      {poi?._homologData?.categories.map((cat: string, idx: number) => (
                                         <span
                                           key={idx}
                                           className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border border-purple-200 dark:border-purple-700"
@@ -3160,11 +3247,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </div>
 
                         {/* Detailed Address & Extended Contact - Two Column Layout */}
-                        {(((poi as any)._homologData.neighborhood || (poi as any)._homologData.street_name || (poi as any)._homologData.house_number || (poi as any)._homologData.postal_code) ||
-                          ((poi as any)._homologData.contact_email || (poi as any)._homologData.operator_name)) && (
+                        {((poi?._homologData?.neighborhood || poi?._homologData?.street_name || poi?._homologData?.house_number || poi?._homologData?.postal_code) ||
+                          (poi?._homologData?.contact_email || poi?._homologData?.operator_name)) && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                               {/* Detailed Address */}
-                              {((poi as any)._homologData.neighborhood || (poi as any)._homologData.street_name || (poi as any)._homologData.house_number || (poi as any)._homologData.postal_code) && (
+                              {(poi?._homologData?.neighborhood || poi?._homologData?.street_name || poi?._homologData?.house_number || poi?._homologData?.postal_code) && (
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <MapPin className="h-5 w-5 mr-2 text-red-600" />
@@ -3172,34 +3259,34 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   </h3>
 
                                   <div className="space-y-4">
-                                    {(poi as any)._homologData.neighborhood && (
+                                    {poi?._homologData?.neighborhood && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Neighborhood</div>
-                                        <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.neighborhood}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.neighborhood}</div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.street_name && (
+                                    {poi?._homologData?.street_name && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Street</div>
                                         <div className="text-sm text-gray-900 dark:text-white">
-                                          {(poi as any)._homologData.street_name}
-                                          {(poi as any)._homologData.house_number && `, ${(poi as any)._homologData.house_number}`}
+                                          {poi?._homologData?.street_name}
+                                          {poi?._homologData?.house_number && `, ${poi?._homologData?.house_number}`}
                                         </div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.postal_code && (
+                                    {poi?._homologData?.postal_code && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Postal Code</div>
-                                        <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.postal_code}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.postal_code}</div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.description && (
+                                    {poi?._homologData?.description && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Description</div>
-                                        <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.description}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.description}</div>
                                       </div>
                                     )}
                                   </div>
@@ -3207,7 +3294,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               )}
 
                               {/* Extended Contact Info */}
-                              {((poi as any)._homologData.contact_email || (poi as any)._homologData.operator_name) && (
+                              {(poi?._homologData?.contact_email || poi?._homologData?.operator_name) && (
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Globe className="h-5 w-5 mr-2 text-blue-600" />
@@ -3215,30 +3302,30 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   </h3>
 
                                   <div className="space-y-4">
-                                    {(poi as any)._homologData.contact_email && (
+                                    {poi?._homologData?.contact_email && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="flex items-start space-x-3">
                                           <Globe className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                           <div className="flex-1">
                                             <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</div>
                                             <a
-                                              href={`mailto:${(poi as any)._homologData.contact_email}`}
+                                              href={`mailto:${poi?._homologData?.contact_email}`}
                                               className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline break-all"
                                             >
-                                              {(poi as any)._homologData.contact_email}
+                                              {poi?._homologData?.contact_email}
                                             </a>
                                           </div>
                                         </div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.operator_name && (
+                                    {poi?._homologData?.operator_name && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="flex items-start space-x-3">
                                           <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                           <div className="flex-1">
                                             <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Operator</div>
-                                            <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.operator_name}</div>
+                                            <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.operator_name}</div>
                                           </div>
                                         </div>
                                       </div>
@@ -3250,11 +3337,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           )}
 
                         {/* Brand & Accessibility - Two Column Layout */}
-                        {((poi as any)._homologData.brand ||
-                          ((poi as any)._homologData.wheelchair_accessible || (poi as any)._homologData.wheelchair_toilets || (poi as any)._homologData.accessibility_notes || (poi as any)._homologData.has_wheelchair_access)) && (
+                        {(poi?._homologData?.brand ||
+                          (poi?._homologData?.wheelchair_accessible || poi?._homologData?.wheelchair_toilets || poi?._homologData?.accessibility_notes || poi?._homologData?.has_wheelchair_access)) && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                               {/* Brand Information */}
-                              {(poi as any)._homologData.brand && (
+                              {poi?._homologData?.brand && (
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Star className="h-5 w-5 mr-2 text-yellow-600" />
@@ -3264,20 +3351,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   <div className="space-y-4">
                                     <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                       <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Brand</div>
-                                      <div className="text-sm font-semibold text-gray-900 dark:text-white">{(poi as any)._homologData.brand}</div>
+                                      <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi?._homologData?.brand}</div>
                                     </div>
 
-                                    {(poi as any)._homologData.brand_wikidata && (
+                                    {poi?._homologData?.brand_wikidata && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wikidata ID</div>
-                                        <div className="text-sm text-gray-900 dark:text-white font-mono">{(poi as any)._homologData.brand_wikidata}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white font-mono">{poi?._homologData?.brand_wikidata}</div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.brand_wikipedia && (
+                                    {poi?._homologData?.brand_wikipedia && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wikipedia</div>
-                                        <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.brand_wikipedia}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.brand_wikipedia}</div>
                                       </div>
                                     )}
                                   </div>
@@ -3285,7 +3372,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               )}
 
                               {/* Accessibility */}
-                              {((poi as any)._homologData.wheelchair_accessible || (poi as any)._homologData.wheelchair_toilets || (poi as any)._homologData.accessibility_notes || (poi as any)._homologData.has_wheelchair_access) && (
+                              {(poi?._homologData?.wheelchair_accessible || poi?._homologData?.wheelchair_toilets || poi?._homologData?.accessibility_notes || poi?._homologData?.has_wheelchair_access) && (
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Users className="h-5 w-5 mr-2 text-green-600" />
@@ -3293,26 +3380,26 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   </h3>
 
                                   <div className="space-y-4">
-                                    {((poi as any)._homologData.wheelchair_accessible || (poi as any)._homologData.has_wheelchair_access) && (
+                                    {(poi?._homologData?.wheelchair_accessible || poi?._homologData?.has_wheelchair_access) && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wheelchair Access</div>
                                         <div className="text-sm text-gray-900 dark:text-white capitalize">
-                                          {(poi as any)._homologData.wheelchair_accessible || ((poi as any)._homologData.has_wheelchair_access ? 'Yes' : 'No')}
+                                          {poi?._homologData?.wheelchair_accessible || (poi?._homologData?.has_wheelchair_access ? 'Yes' : 'No')}
                                         </div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.wheelchair_toilets && (
+                                    {poi?._homologData?.wheelchair_toilets && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wheelchair Toilets</div>
-                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.wheelchair_toilets}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.wheelchair_toilets}</div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.accessibility_notes && (
+                                    {poi?._homologData?.accessibility_notes && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Accessibility Notes</div>
-                                        <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.accessibility_notes}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.accessibility_notes}</div>
                                       </div>
                                     )}
                                   </div>
@@ -3322,7 +3409,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           )}
 
                         {/* Physical Characteristics */}
-                        {((poi as any)._homologData.height || (poi as any)._homologData.building_material || (poi as any)._homologData.building_colour || (poi as any)._homologData.architectural_style) && (
+                        {(poi?._homologData?.height || poi?._homologData?.building_material || poi?._homologData?.building_colour || poi?._homologData?.architectural_style) && (
                           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                               <Target className="h-5 w-5 mr-2 text-indigo-600" />
@@ -3330,33 +3417,33 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             </h3>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {(poi as any)._homologData.height && (
+                              {poi?._homologData?.height && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Height</div>
                                   <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                                    {Number((poi as any)._homologData.height).toFixed(2)} m
+                                    {Number(poi?._homologData?.height).toFixed(2)} m
                                   </div>
                                 </div>
                               )}
 
-                              {(poi as any)._homologData.building_material && (
+                              {poi?._homologData?.building_material && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Building Material</div>
-                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.building_material}</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.building_material}</div>
                                 </div>
                               )}
 
-                              {(poi as any)._homologData.building_colour && (
+                              {poi?._homologData?.building_colour && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Building Colour</div>
-                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.building_colour}</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.building_colour}</div>
                                 </div>
                               )}
 
-                              {(poi as any)._homologData.architectural_style && (
+                              {poi?._homologData?.architectural_style && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Architectural Style</div>
-                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.architectural_style}</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.architectural_style}</div>
                                 </div>
                               )}
                             </div>
@@ -3364,7 +3451,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         )}
 
                         {/* Historical & Heritage - Two Column Layout */}
-                        {((poi as any)._homologData.heritage_status || (poi as any)._homologData.unesco_status || (poi as any)._homologData.landmark_type || (poi as any)._homologData.architect || (poi as any)._homologData.start_date || (poi as any)._homologData.historic_period) && (
+                        {(poi?._homologData?.heritage_status || poi?._homologData?.unesco_status || poi?._homologData?.landmark_type || poi?._homologData?.architect || poi?._homologData?.start_date || poi?._homologData?.historic_period) && (
                           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                               <Calendar className="h-5 w-5 mr-2 text-amber-600" />
@@ -3372,55 +3459,55 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             </h3>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {(poi as any)._homologData.heritage_status && (
+                              {poi?._homologData?.heritage_status && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Heritage Status</div>
-                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.heritage_status}</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.heritage_status}</div>
                                 </div>
                               )}
 
-                              {(poi as any)._homologData.unesco_status && (
+                              {poi?._homologData?.unesco_status && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">UNESCO Status</div>
-                                  <div className="text-sm font-semibold text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.unesco_status}</div>
-                                  {(poi as any)._homologData.unesco_inscription_date && (
+                                  <div className="text-sm font-semibold text-gray-900 dark:text-white capitalize">{poi?._homologData?.unesco_status}</div>
+                                  {poi?._homologData?.unesco_inscription_date && (
                                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                      Inscribed: {(poi as any)._homologData.unesco_inscription_date}
+                                      Inscribed: {poi?._homologData?.unesco_inscription_date}
                                     </div>
                                   )}
                                 </div>
                               )}
 
-                              {(poi as any)._homologData.landmark_type && (
+                              {poi?._homologData?.landmark_type && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Landmark Type</div>
-                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.landmark_type}</div>
-                                  {(poi as any)._homologData.landmark_level && (
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.landmark_type}</div>
+                                  {poi?._homologData?.landmark_level && (
                                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                      Level: {(poi as any)._homologData.landmark_level}
+                                      Level: {poi?._homologData?.landmark_level}
                                     </div>
                                   )}
                                 </div>
                               )}
 
-                              {(poi as any)._homologData.architect && (
+                              {poi?._homologData?.architect && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Architect</div>
-                                  <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.architect}</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.architect}</div>
                                 </div>
                               )}
 
-                              {(poi as any)._homologData.start_date && (
+                              {poi?._homologData?.start_date && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Start Date</div>
-                                  <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.start_date}</div>
+                                  <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.start_date}</div>
                                 </div>
                               )}
 
-                              {(poi as any)._homologData.historic_period && (
+                              {poi?._homologData?.historic_period && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Historic Period</div>
-                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.historic_period}</div>
+                                  <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.historic_period}</div>
                                 </div>
                               )}
                             </div>
@@ -3428,11 +3515,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         )}
 
                         {/* Type-Specific & Infrastructure - Two Column Layout */}
-                        {(((poi as any)._homologData.museum_type || (poi as any)._homologData.leisure_type || (poi as any)._homologData.monument_type) ||
-                          ((poi as any)._homologData.parking_capacity || (poi as any)._homologData.entrance_fee)) && (
+                        {((poi?._homologData?.museum_type || poi?._homologData?.leisure_type || poi?._homologData?.monument_type) ||
+                          (poi?._homologData?.parking_capacity || poi?._homologData?.entrance_fee)) && (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                               {/* Type-Specific Information */}
-                              {((poi as any)._homologData.museum_type || (poi as any)._homologData.leisure_type || (poi as any)._homologData.monument_type) && (
+                              {(poi?._homologData?.museum_type || poi?._homologData?.leisure_type || poi?._homologData?.monument_type) && (
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Target className="h-5 w-5 mr-2 text-blue-600" />
@@ -3440,24 +3527,24 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   </h3>
 
                                   <div className="space-y-4">
-                                    {(poi as any)._homologData.museum_type && (
+                                    {poi?._homologData?.museum_type && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Museum Type</div>
-                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.museum_type}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.museum_type}</div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.leisure_type && (
+                                    {poi?._homologData?.leisure_type && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Leisure Type</div>
-                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.leisure_type}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.leisure_type}</div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.monument_type && (
+                                    {poi?._homologData?.monument_type && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Monument Type</div>
-                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.monument_type}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.monument_type}</div>
                                       </div>
                                     )}
                                   </div>
@@ -3465,7 +3552,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               )}
 
                               {/* Infrastructure & Facilities */}
-                              {((poi as any)._homologData.parking_capacity || (poi as any)._homologData.entrance_fee) && (
+                              {(poi?._homologData?.parking_capacity || poi?._homologData?.entrance_fee) && (
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Info className="h-5 w-5 mr-2 text-teal-600" />
@@ -3473,17 +3560,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   </h3>
 
                                   <div className="space-y-4">
-                                    {(poi as any)._homologData.parking_capacity && (
+                                    {poi?._homologData?.parking_capacity && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Parking Capacity</div>
-                                        <div className="text-sm text-gray-900 dark:text-white">{(poi as any)._homologData.parking_capacity}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.parking_capacity}</div>
                                       </div>
                                     )}
 
-                                    {(poi as any)._homologData.entrance_fee && (
+                                    {poi?._homologData?.entrance_fee && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Entrance Fee</div>
-                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{(poi as any)._homologData.entrance_fee}</div>
+                                        <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.entrance_fee}</div>
                                       </div>
                                     )}
                                   </div>
@@ -3493,7 +3580,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           )}
 
                         {/* Additional Flags */}
-                        {(poi as any)._homologData.is_building && (
+                        {poi?._homologData?.is_building && (
                           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                             <div className="flex items-center gap-2">
                               <CheckCircle className="h-5 w-5 text-green-600" />
@@ -3563,13 +3650,26 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </p> */}
                       </div>
                       <div className="flex items-center space-x-2">
+                        <select
+                          value={generationLanguage}
+                          onChange={(e) => setGenerationLanguage(e.target.value)}
+                          disabled={isGenerating || isSavingDescription || isGeneratingAudio}
+                          className="block w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+                        >
+                          <option value="pt-br">Português (BR)</option>
+                          <option value="en-us">English (US)</option>
+                          <option value="es-es">Español (ES)</option>
+                          <option value="fr-fr">Français (FR)</option>
+                          <option value="de-de">Deutsch (DE)</option>
+                          <option value="it-it">Italiano (IT)</option>
+                        </select>
                         <button
                           onClick={generateDescription}
                           disabled={isGenerating || isSavingDescription || isGeneratingAudio}
                           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                         >
                           <Sparkles className="h-4 w-4 mr-2" />
-                          {isGenerating ? 'Generating...' : 'Generate Description with Historical Dates'}
+                          {isGenerating ? 'Generating...' : `Generate in ${generationLanguage.split('-')[0].toUpperCase()}`}
                         </button>
                         {currentDescription !== originalDescription && (
                           <button
@@ -3626,306 +3726,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <button
                             type="button"
                             onClick={saveReferenceLinks}
-                            disabled={isSavingReferenceLinks || !!(poi as any)._homologData}
+                            disabled={isSavingReferenceLinks || !!poi?._homologData}
                             className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Save className="h-4 w-4 mr-2" />
                             {isSavingReferenceLinks ? 'Saving...' : 'Save Reference Links'}
                           </button>
                         </div>
-                        {(poi as any)._homologData && (
+                        {poi?._homologData && (
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                             Note: Reference links can only be saved for core attractions, not homolog POIs.
                           </p>
                         )}
                       </div>
-                    </div>
-
-                    {/* "Learn more" button to display advanced information */}
-                    <div className="flex justify-center my-4">
-                      <button
-                        onClick={() => setShowAdvancedInfo(!showAdvancedInfo)}
-                        className="flex items-center px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
-                      >
-                        <Info className="h-4 w-4 mr-2" />
-                        {showAdvancedInfo ? 'Hide advanced details' : 'Learn more about this description'}
-                        <span className="ml-2">{showAdvancedInfo ? '▲' : '▼'}</span>
-                      </button>
-                    </div>
-
-                    {/* Seções detalhadas que só aparecem quando showAdvancedInfo é true */}
-                    {showAdvancedInfo && (
-                      <div className="space-y-4 border-t border-gray-200 dark:border-gray-700 pt-4 mt-2">
-                        {/* Sources Information Section */}
-                        {verificationInfo && (
-                          <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
-                            <div className="flex items-center justify-between mb-3">
-                              <h5 className="text-sm font-medium text-green-900 dark:text-green-100 flex items-center">
-                                <Info className="h-4 w-4 mr-2" />
-                                Source Information
-                              </h5>
-                              <div className="flex items-center space-x-2">
-                                {verificationInfo.dynamicSourcesEnabled && (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                                    Dynamic Sources
-                                  </span>
-                                )}
-                                <span className={cn(
-                                  "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                                  verificationInfo.mode === 'maximum'
-                                    ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-                                    : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-                                )}>
-                                  {verificationInfo.mode === 'maximum' ? 'Maximum Verification' : 'Standard Verification'}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="text-sm text-green-700 dark:text-green-300 mb-3">
-                              Last generation used {verificationInfo.sourcesCount} verified sources for enhanced accuracy
-                            </div>
-
-                            {lastGenerationSources.length > 0 && (
-                              <div className="space-y-2">
-                                <h6 className="text-xs font-medium text-green-800 dark:text-green-200 uppercase tracking-wide">
-                                  Sources Used:
-                                </h6>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                  {lastGenerationSources.map((source, idx) => (
-                                    <div key={idx} className="flex items-center justify-between bg-white dark:bg-gray-800 p-2 rounded border border-green-200 dark:border-green-700">
-                                      <div className="flex items-center space-x-2">
-                                        <span className={cn(
-                                          "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
-                                          source.type === 'heritage' || source.type === 'government'
-                                            ? "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"
-                                            : source.type === 'academic' || source.type === 'official'
-                                              ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-                                              : "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200"
-                                        )}>
-                                          {source.type}
-                                        </span>
-                                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                          {source.name}
-                                        </span>
-                                      </div>
-                                      <div className="flex items-center space-x-1">
-                                        {source.layer && (
-                                          <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">
-                                            {source.layer}
-                                          </span>
-                                        )}
-                                        <span className="text-xs text-gray-400 dark:text-gray-500">
-                                          P{source.priority}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Historical Dates Section */}
-                        {detectedDates && (
-                          <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg border border-amber-200 dark:border-amber-800">
-                            <div className="flex items-center justify-between mb-3">
-                              <h5 className="text-sm font-medium text-amber-900 dark:text-amber-100 flex items-center">
-                                <Calendar className="h-4 w-4 mr-2" />
-                                Date Detection
-                              </h5>
-                              <div className="flex items-center space-x-2">
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                                  {detectedDates.total} dates found
-                                </span>
-                                {detectedDates.reliable.length > 0 && (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                                    {detectedDates.reliable.length} verified
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="text-sm text-amber-700 dark:text-amber-300 mb-3">
-                              Enhanced date-focused generation successfully identified historical references
-                            </div>
-
-                            <div className="space-y-3">
-                              {detectedDates.reliable.length > 0 && (
-                                <div>
-                                  <h6 className="text-xs font-medium text-green-800 dark:text-green-200 uppercase tracking-wide mb-2">
-                                    ✅ Verified Dates:
-                                  </h6>
-                                  <div className="flex flex-wrap gap-2">
-                                    {detectedDates.reliable.map((date, idx) => (
-                                      <span key={idx} className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border border-green-200 dark:border-green-700">
-                                        {date}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {detectedDates.moderate.length > 0 && (
-                                <div>
-                                  <h6 className="text-xs font-medium text-blue-800 dark:text-blue-200 uppercase tracking-wide mb-2">
-                                    📅 Period References:
-                                  </h6>
-                                  <div className="flex flex-wrap gap-2">
-                                    {detectedDates.moderate.map((date, idx) => (
-                                      <span key={idx} className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-200 dark:border-blue-700">
-                                        {date}
-                                      </span>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {detectedDates.total === 0 && (
-                                <div className="text-center py-3">
-                                  <span className="text-sm text-amber-600 dark:text-amber-400">
-                                    No historical dates detected in current description
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Verification Results Section */}
-                        {verificationResult && (
-                          <div className={cn(
-                            "p-4 rounded-lg border",
-                            verificationResult.approved
-                              ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
-                              : "bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800"
-                          )}>
-                            <div className="flex items-center justify-between mb-3">
-                              <h5 className="text-sm font-medium flex items-center">
-                                <CheckCircle className={cn(
-                                  "h-4 w-4 mr-2",
-                                  verificationResult.approved
-                                    ? "text-green-600 dark:text-green-400"
-                                    : "text-orange-600 dark:text-orange-400"
-                                )} />
-                                <span className={cn(
-                                  verificationResult.approved
-                                    ? "text-green-900 dark:text-green-100"
-                                    : "text-orange-900 dark:text-orange-100"
-                                )}>
-                                  Quality Verification
-                                </span>
-                              </h5>
-                              <div className="flex items-center">
-                                <span className={cn(
-                                  "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium",
-                                  verificationResult.score >= 80 ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" :
-                                    verificationResult.score >= 60 ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :
-                                      "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"
-                                )}>
-                                  Score: {verificationResult.score}/100
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Verifiable facts */}
-                            {verificationResult.verifiable_facts && verificationResult.verifiable_facts.length > 0 && (
-                              <div className="mb-4">
-                                <h6 className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-2">
-                                  ✅ Verifiable Facts:
-                                </h6>
-                                <div className="bg-white dark:bg-gray-800 rounded-md p-3 border border-gray-200 dark:border-gray-700">
-                                  <ul className="list-disc pl-5 space-y-1">
-                                    {verificationResult.verifiable_facts.map((fact, idx) => (
-                                      <li key={idx} className="text-sm text-gray-700 dark:text-gray-300">
-                                        {fact}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Datas detectadas pela verificação */}
-                            {verificationResult.detected_dates && verificationResult.detected_dates.length > 0 && (
-                              <div className="mb-4">
-                                <h6 className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-2">
-                                  📅 Detected Dates:
-                                </h6>
-                                <div className="flex flex-wrap gap-2">
-                                  {verificationResult.detected_dates.map((date, idx) => (
-                                    <span key={idx} className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border border-blue-200 dark:border-blue-700">
-                                      {date}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Problemas encontrados */}
-                            {!verificationResult.approved && verificationResult.issues && verificationResult.issues.length > 0 && (
-                              <div className="mb-4">
-                                <h6 className="text-xs font-medium text-red-700 dark:text-red-300 uppercase tracking-wide mb-2">
-                                  ⚠️ Issues Found:
-                                </h6>
-                                <div className="bg-red-50 dark:bg-red-900/20 rounded-md p-3 border border-red-200 dark:border-red-700">
-                                  <ul className="list-disc pl-5 space-y-1">
-                                    {verificationResult.issues.map((issue, idx) => (
-                                      <li key={idx} className="text-sm text-red-700 dark:text-red-300">
-                                        {issue}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Sugestão de melhoria */}
-                            {!verificationResult.approved && verificationResult.improvement_suggestion && (
-                              <div className="mb-2">
-                                <h6 className="text-xs font-medium text-blue-700 dark:text-blue-300 uppercase tracking-wide mb-2">
-                                  💡 Improvement Suggestion:
-                                </h6>
-                                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-md p-3 border border-blue-200 dark:border-blue-700">
-                                  <p className="text-sm text-blue-700 dark:text-blue-300">
-                                    {verificationResult.improvement_suggestion}
-                                  </p>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Status da melhoria */}
-                            {verificationResult.improvement_applied && (
-                              <div className="mt-3 text-sm text-green-700 dark:text-green-300 flex items-center">
-                                <CheckCircle className="h-4 w-4 mr-1" />
-                                Improvements applied automatically
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Verification Section */}
-                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-                      <div className="flex items-center justify-between mb-3">
-                        <h5 className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                          Factual Verification Status
-                        </h5>
-                        <VerificationBadge
-                          attractionId={getPoi()?.id}
-                          size="md"
-                          showScore={true}
-                          showVerifyButton={true}
-                          onVerificationComplete={() => {
-                            // Refresh modal data if needed
-                            console.log('Verification completed for POI:', getPoi()?.id);
-                          }}
-                        />
-                      </div>
-                      <p className="text-xs text-blue-700 dark:text-blue-300">
-                        Automatic verification checks factual claims against authoritative sources (Wikipedia, IPHAN, UNESCO).
-                        Only original descriptions are verified.
-                      </p>
                     </div>
 
                     {/* Description Editor */}

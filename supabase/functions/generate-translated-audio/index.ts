@@ -42,38 +42,25 @@ interface GeneratedAudio {
 
 
 
-// Fetch original Portuguese description
-const getOriginalDescription = async (attractionId: string): Promise<string> => {
-  // First try pt-br (most common)
-  let { data, error } = await supabaseAdmin
+// Fetch the MOST RECENT description to use as source for translation
+const getOriginalDescription = async (attractionId: string): Promise<{ description: string, language: string }> => {
+  // Get the most recently updated description for this attraction, regardless of language
+  const { data } = await supabaseAdmin
     .schema('core')
     .from('attraction_descriptions')
-    .select('description')
+    .select('description, language, updated_at')
     .eq('attraction_id', attractionId)
-    .eq('language', 'pt-br')
+    // Filter out [PROCESSING] content to avoid getting a lock placeholder
+    .neq('description', '[PROCESSING]')
+    .order('updated_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
-  if (error || !data?.description) {
-    // Fallback to pt if pt-br not found
-    const { data: ptData, error: ptError } = await supabaseAdmin
-      .schema('core')
-      .from('attraction_descriptions')
-      .select('description')
-      .eq('attraction_id', attractionId)
-      .eq('language', 'pt')
-      .maybeSingle();
-
-    if (!ptError && ptData?.description) {
-      data = ptData;
-      error = null;
-    }
+  if (data?.description) {
+    return { description: data.description, language: data.language };
   }
 
-  if (error || !data?.description) {
-    throw new Error(`Original Portuguese description not found for attraction ${attractionId}. Tried: pt-br, pt`);
-  }
-
-  return data.description;
+  throw new Error(`No description found for attraction ${attractionId}.`);
 };
 
 import { translateWithGemini as sharedTranslateWithGemini } from '../_shared/translationUtility.ts';
@@ -259,13 +246,19 @@ serve(async (req) => {
 
     console.log(`[${requestId}] Processing translation for attraction ${attractionId} to ${targetLanguage} with ${voiceGender} voice`);
 
-    // Step 1: Fetch original Portuguese description
-    const originalText = await getOriginalDescription(attractionId);
-    console.log(`[${requestId}] Fetched original description (${originalText.length} chars)`);
+    // Step 1: Fetch original description (any language)
+    const { description: sourceText, language: sourceLang } = await getOriginalDescription(attractionId);
+    console.log(`[${requestId}] Fetched source description in ${sourceLang} (${sourceText.length} chars)`);
 
-    // Step 2: Translate using Gemini
-    const translatedText = await translateWithGemini(originalText, targetLanguage);
-    console.log(`[${requestId}] Translation completed (${translatedText.length} chars)`);
+    // Step 2: Translate using Gemini only if languages differ
+    let translatedText = sourceText;
+    if (sourceLang.toLowerCase() !== targetLanguage.toLowerCase()) {
+      console.log(`[${requestId}] Translating from ${sourceLang} to ${targetLanguage}`);
+      translatedText = await translateWithGemini(sourceText, targetLanguage);
+      console.log(`[${requestId}] Translation completed (${translatedText.length} chars)`);
+    } else {
+      console.log(`[${requestId}] Source language matches target language. Skipping translation.`);
+    }
 
     // Step 3: Generate audio using Google TTS
     // Step 3: Generate audio using Google TTS
