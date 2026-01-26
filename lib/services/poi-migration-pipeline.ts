@@ -657,6 +657,17 @@ export class PoiMigrationPipeline {
       const lng = coordinate.longitude
 
       // Prepare POI data for trigger points generation (same format as /trigger-points-single)
+      
+      // ✅ Ensure OSM ID/Type are passed (handling potential property name variations)
+      const osmId = poi.osm_id;
+      const osmType = poi.osm_type || (poi as any).osm_element_type;
+      
+      if (osmId) {
+        console.log(`   🔗 Migrating with OSM ID: ${osmType}(${osmId})`);
+      } else {
+        console.log(`   ⚠️ Migrating WITHOUT OSM ID (fallback mode)`);
+      }
+
       const poiData = {
         id: poi.id,
         name: poi.name,
@@ -667,8 +678,13 @@ export class PoiMigrationPipeline {
         type: poi.category || 'point_of_interest',
         country: poi.country,
         city: poi.city,
-        state: poi.state
+        state: poi.state,
+        osm_id: osmId,
+        osm_type: osmType,
+        height: poi.estimated_height_m,
+        tags: poi.osm_tags
       }
+
 
       // Use CoreTriggerPointPredictor (same motor as /trigger-points-single page)
       console.log(`   🎯 Calling CoreTriggerPointPredictor (new motor - same as /trigger-points-single)...`)

@@ -328,7 +328,13 @@ export default function PoiMigrationPage() {
                   setSuccess(data.message)
                   break
                   
+                case 'poi_skipped':
+                  // Optionally log skipped POIs to a special list or just show status
+                  setCurrentPoi({ name: `${data.poi_name} (Skipped: ${data.reason})` })
+                  break
+                  
                 case 'error':
+
                   setError(data.error)
                   break
               }

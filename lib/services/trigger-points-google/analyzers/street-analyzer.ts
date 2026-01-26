@@ -21,6 +21,64 @@ export class StreetAnalyzer {
   }
   
   /**
+   * 🔄 RETRY COM BACKOFF EXPONENCIAL para queries OSM (QUALIDADE > VELOCIDADE)
+   * Retry até conseguir os dados necessários, não continua sem eles
+   */
+  private async retryOSMQuery(
+    query: string,
+    description: string,
+    maxRetries: number = 5,
+    initialDelay: number = 2000 // 2 segundos inicial
+  ): Promise<Response> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const timeout = 100000; // 100s timeout por tentativa
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: query,
+          headers: { 'Content-Type': 'text/plain' },
+          signal: AbortSignal.timeout(timeout)
+        });
+        
+        if (response.ok) {
+          return response;
+        }
+        
+        // Se não for timeout (504), pode ser outro erro - tentar novamente
+        if (response.status === 504 || response.status === 429) {
+          console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} failed: ${response.status} (timeout/rate limit)`);
+        } else {
+          console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} failed: ${response.status}`);
+        }
+        
+        lastError = new Error(`OSM query failed: ${response.status}`);
+        
+        // Se não for a última tentativa, aguardar antes de retry
+        if (attempt < maxRetries) {
+          const delay = initialDelay * Math.pow(2, attempt - 1); // Backoff exponencial: 2s, 4s, 8s, 16s, 32s
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} error:`, lastError.message);
+        
+        // Se não for a última tentativa, aguardar antes de retry
+        if (attempt < maxRetries) {
+          const delay = initialDelay * Math.pow(2, attempt - 1);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    // Se chegou aqui, todas as tentativas falharam
+    console.error(`❌ [RETRY FAILED] ${description} failed after ${maxRetries} attempts`);
+    throw lastError || new Error(`OSM query failed after ${maxRetries} attempts`);
+  }
+  
+  /**
    * Encontra ruas acessíveis ao redor do POI e retorna junto com metadados do raio
    */
   async findAccessibleStreets(
@@ -914,13 +972,12 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       
       console.log(`📝 OSM Query: ${strategicPoints.length} strategic points, ${searchRadius}m radius`);
       
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: {
-          'Content-Type': 'text/plain'
-        }
-      });
+      const response = await this.retryOSMQuery(
+        query,
+        'OSM query for streets around boundary',
+        3,
+        2000
+      );
       
       if (!response.ok) {
         throw new Error(`OSM API error: ${response.status}`);
@@ -1138,11 +1195,12 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
 out geom tags;
 `;
         
-        const response = await fetch('https://overpass-api.de/api/interpreter', {
-          method: 'POST',
-          body: query,
-          headers: { 'Content-Type': 'text/plain' }
-        });
+        const response = await this.retryOSMQuery(
+          query,
+          'OSM query for roads for boundary point',
+          2, // Fewer retries here because it's in a loop
+          1000
+        );
         
         if (response.ok) {
           const data = await response.json();
@@ -1273,12 +1331,14 @@ out geom tags;
 );
 out geom tags;
 `;
+      console.log(`🧭 Querying roads around center point (${boundary.center.lat}, ${boundary.center.lng}) with radius ${searchRadius}m...`);
       
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: { 'Content-Type': 'text/plain' }
-      });
+      const response = await this.retryOSMQuery(
+        query,
+        'OSM query for roads (fast)',
+        2,
+        1500
+      );
       
       if (response.ok) {
         const data = await response.json();
@@ -1415,11 +1475,12 @@ out geom tags;
 out geom tags;
 `;
       
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: { 'Content-Type': 'text/plain' }
-      });
+      const response = await this.retryOSMQuery(
+        query,
+        'OSM query for roads around point',
+        2,
+        1500
+      );
       
       if (!response.ok) {
         return [];
@@ -1588,13 +1649,12 @@ out geom tags;
 out geom;
 `;
       
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: {
-          'Content-Type': 'text/plain'
-        }
-      });
+      const response = await this.retryOSMQuery(
+        query,
+        'OSM query for all streets',
+        2,
+        2000
+      );
       
       if (!response.ok) {
         throw new Error(`OSM API error: ${response.status}`);
@@ -1697,11 +1757,12 @@ out tags;
     try {
       console.log(`🏙️ Fetching surrounding buildings height data (${radius}m radius)...`);
       
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: query
-      });
+      const response = await this.retryOSMQuery(
+        query,
+        'OSM surrounding buildings query',
+        2,
+        1500
+      );
       
       if (!response.ok) {
         console.warn(`OSM surrounding buildings query failed: ${response.status}`);
@@ -1782,13 +1843,12 @@ out geom tags;
       
       console.log(`📝 OSM Query: point ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}, ${radius}m radius`);
       
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: {
-          'Content-Type': 'text/plain'
-        }
-      });
+      const response = await this.retryOSMQuery(
+        query,
+        'OSM query for streets around point',
+        3,
+        2000
+      );
       
       if (!response.ok) {
         throw new Error(`OSM API error: ${response.status}`);

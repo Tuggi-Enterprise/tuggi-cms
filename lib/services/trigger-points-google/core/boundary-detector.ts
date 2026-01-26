@@ -329,12 +329,12 @@ ${osmType}(${osmID});
 out geom tags;
 `;
       
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: { 'Content-Type': 'text/plain' },
-        signal: AbortSignal.timeout(40000)
-      });
+      const response = await this.retryOSMQuery(
+        query,
+        `OSM ID query: ${osmType}(${osmID})`,
+        3,
+        2000
+      );
       
       if (!response.ok) {
         console.warn(`⚠️ OSM query failed for ${osmType}(${osmID}): ${response.status}`);
@@ -1393,6 +1393,7 @@ out geom tags;
       // OU: nome exato + OSM ID (não precisa validar cidade/estado)
       const isPerfectMatch = (exactNameMatch && cityMatch && stateMatch) || (exactNameMatch && hasOSMID);
       
+      
       if (isPerfectMatch) {
         // Aceitar até 500m para matches perfeitos
         const perfectMatchMaxDistance = 500;
@@ -2162,17 +2163,16 @@ out geom tags;
    */
   private async executeOSMQuery(query: string, searchType: string, poiData?: POIData): Promise<ProcessingResult<BoundaryData>> {
     try {
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: {
-          'Content-Type': 'text/plain'
-        }
-      });
+      const response = await this.retryOSMQuery(
+        query,
+        `OSM query: ${searchType}`,
+        3, // 3 retries for these secondary queries
+        2000
+      );
       
+      // retryOSMQuery already throws if !response.ok, but we'll be safe
       if (!response.ok) {
-        console.error(`🚨 OSM API error ${response.status} for ${searchType}`);
-        throw new Error(`OSM API error: ${response.status}`);
+        return { success: false, error: `OSM API error: ${response.status}`, processingTime: 0 };
       }
       
       const data = await response.json();

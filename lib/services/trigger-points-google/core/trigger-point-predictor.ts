@@ -130,7 +130,8 @@ export class CoreTriggerPointPredictor {
         console.error(`   → boundary.streets: ${boundary.streets?.length || 0} consolidated streets`);
         console.error(`   → searchRadius: ${streetAnalysisResult.searchRadius}m`);
         console.error('❌ ========================================');
-        const fallbackPoints = await this.generateFallbackTriggerPoints(poiData, boundary, context, streetAnalysisResult.streets);
+        // ✅ Use the robust fallback strategy that guarantees at least one point
+        const fallbackPoints = await this.generateSuperSimpleFallbackTriggerPoints(poiData, context, boundary);
         const processingTime = Date.now() - startTime;
         
         return {
@@ -353,15 +354,19 @@ export class CoreTriggerPointPredictor {
       
       // 1. USAR função existente para buscar ruas no OSM (50m radius para fallback)
       let streets: any[] = [];
+      console.log(`🔍 [FALLBACK] Starting intelligent fallback for POI: ${poiData.name}`);
       
       // Verificar se temos dados consolidados do boundary
       if (boundary?.streets && boundary.streets.length > 0) {
         streets = boundary.streets;
+        console.log(`✅ [FALLBACK] Using ${streets.length} consolidated streets from boundary`);
       } else {
         try {
+          console.log(`🌐 [FALLBACK] Querying OSM for streets around center point...`);
           streets = await this.streetAnalyzer.getStreetsFromOSMOptimized(centerPoint, 50, boundary);
+          console.log(`✅ [FALLBACK] Found ${streets.length} streets from OSM`);
         } catch (error) {
-          console.warn('⚠️ OSM query failed in intelligent fallback, using fallback without street validation:', error);
+          console.warn('⚠️ [FALLBACK] OSM query failed in intelligent fallback, using minimal fallback:', error);
           streets = []; // Usar array vazio para evitar nova tentativa
         }
       }
@@ -371,6 +376,7 @@ export class CoreTriggerPointPredictor {
         const accessibleStreets = streets.filter(street => 
           this.streetAnalyzer.isStreetAccessiblePublic(street, context)
         );
+        console.log(`✅ [FALLBACK] ${accessibleStreets.length}/${streets.length} streets are accessible`);
         
         if (accessibleStreets.length > 0) {
           // 3. NOVO: Analisar estrutura do quarteirão para identificar front/side/back streets
@@ -387,10 +393,13 @@ export class CoreTriggerPointPredictor {
             .filter(result => result.classification === 'front' || result.classification === 'side')
             .map(result => result.street);
           
+          console.log(`✅ [FALLBACK] Block analysis: ${validStreets.length} front/side streets found`);
+          
           if (validStreets.length === 0) {
             // Fallback: usar a rua mais próxima mesmo que seja back
             const closestResult = blockAnalysis[0];
             if (closestResult) {
+              console.log(`📍 [FALLBACK] Using closest street (even if back)`);
               return this.createTPFromStreet(closestResult.street, centerPoint, context, boundary);
             }
           }
@@ -399,6 +408,7 @@ export class CoreTriggerPointPredictor {
           const bestStreet = this.findBestStreetForFallback(validStreets, centerPoint);
           
           if (bestStreet) {
+            console.log(`📍 [FALLBACK] Using best identified street: ${bestStreet.name}`);
             return this.createTPFromStreet(bestStreet, centerPoint, context, boundary);
           }
         }
@@ -409,6 +419,7 @@ export class CoreTriggerPointPredictor {
       // return this.createGoogleRoadsFallback(poiData, context, boundary);
 
       // ✅ NEW: Fallback direto para TP direcional estimado
+      console.log('⚠️ [FALLBACK] No suitable streets found, using minimal directional fallback');
       return this.createMinimalDirectionalTP(poiData, context, boundary);
       
     } catch (error) {

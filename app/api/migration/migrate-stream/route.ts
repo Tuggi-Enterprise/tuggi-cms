@@ -13,6 +13,8 @@ const supabase = getSupabase('service')
  * 
  * batch_size = 0 means "process ALL POIs until none are left"
  */
+export const maxDuration = 300 // 5 minutes to handle batch processing
+
 export async function POST(request: NextRequest) {
   // Authentication check
   const cookieStore = await cookies()
@@ -68,6 +70,7 @@ export async function POST(request: NextRequest) {
       let totalFailed = 0
       let hasMorePOIs = true
       let round = 0
+      let lastUuidId = null
 
       try {
         sendEvent('status', { 
@@ -85,6 +88,12 @@ export async function POST(request: NextRequest) {
             .schema('homolog')
             .from('pois')
             .select('uuid_id, name, city, state, country, processing_status, approved')
+            .order('uuid_id', { ascending: true })
+
+          // Apply pagination
+          if (lastUuidId) {
+            query = query.gt('uuid_id', lastUuidId)
+          }
 
           // Apply filters
           if (filters.country === '__missing__') {
@@ -104,7 +113,13 @@ export async function POST(request: NextRequest) {
 
           query = query.limit(fetchLimit)
 
+
           const { data: pois, error: poisError } = await query
+          
+          if (pois && pois.length > 0) {
+            lastUuidId = pois[pois.length - 1].uuid_id
+          }
+
 
           if (poisError) {
             sendEvent('error', { error: `Failed to fetch POIs: ${poisError.message}` })
@@ -140,30 +155,112 @@ export async function POST(request: NextRequest) {
             round
           })
 
-          // Filter POIs that should be processed
-          const poisToProcess: typeof pois = []
-          for (const poi of pois) {
+          sendEvent('status', { 
+            message: `Round ${round}: Found ${pois.length} POIs, processing...`, 
+            phase: 'processing',
+            round
+          })
+
+          // Process POIs from this round one by one
+          for (let i = 0; i < pois.length; i++) {
+            const poi = pois[i]
+            const globalIndex = totalProcessed + 1
+            
+            // Check if we should process this POI
             const shouldProcess = await MigrationService.shouldProcessPOI(poi.uuid_id)
+            
             if (shouldProcess.should_process) {
-              poisToProcess.push(poi)
-              // In continuous mode, process all found. Otherwise limit to batch_size
-              if (!continuousMode && poisToProcess.length >= batch_size) break
+              // Truly process this POI
+              sendEvent('progress', {
+                current: globalIndex,
+                total: continuousMode ? '?' : batch_size,
+                roundCurrent: i + 1,
+                roundTotal: pois.length,
+                percentage: continuousMode ? 0 : Math.round((globalIndex / batch_size) * 100),
+                poi_name: poi.name,
+                poi_id: poi.uuid_id,
+                phase: 'processing',
+                round
+              })
+
+              try {
+                // Point of Interest: Each executePipeline performs ~2 OSM calls (Enrichment + Triggers)
+                // We process sequentially (1 by 1) to respect Nominatim/Overpass rate limits
+                const result = await PoiMigrationPipeline.executePipeline(poi.uuid_id, pipelineOptions)
+                
+                if (result.success) {
+                  totalSuccessful++
+                  sendEvent('poi_complete', {
+                    current: globalIndex,
+                    total: continuousMode ? '?' : batch_size,
+                    poi_name: poi.name,
+                    poi_id: poi.uuid_id,
+                    success: true,
+                    attraction_id: result.attraction_id,
+                    steps: result.steps?.map(s => ({ step: s.step, success: s.success, time: s.processing_time }))
+                  })
+                } else {
+                  totalFailed++
+                  sendEvent('poi_complete', {
+                    current: globalIndex,
+                    total: continuousMode ? '?' : batch_size,
+                    poi_name: poi.name,
+                    poi_id: poi.uuid_id,
+                    success: false,
+                    error: result.error,
+                    steps: result.steps?.map(s => ({ step: s.step, success: s.success, error: s.error, time: s.processing_time }))
+                  })
+                }
+              } catch (error) {
+                totalFailed++
+                sendEvent('poi_complete', {
+                  current: globalIndex,
+                  total: globalIndex,
+                  poi_name: poi.name,
+                  poi_id: poi.uuid_id,
+                  success: false,
+                  error: error instanceof Error ? error.message : 'Unknown error'
+                })
+              }
+
+              totalProcessed++
+
+              // If we reached batch size in non-continuous mode, stop
+              if (!continuousMode && totalProcessed >= batch_size) {
+                hasMorePOIs = false
+                break
+              }
+
+              // Delay between POIs (1s to respect Nominatim/Overpass rate limits)
+              await new Promise(resolve => setTimeout(resolve, 1000))
+
+            } else {
+              // POI was skipped (already exists, error, etc.)
+              const reason = shouldProcess.reason || 'Already processed'
+              
+              // Update status in homolog to prevent it appearing in next round
+              if (reason.includes('already exists in core')) {
+                await MigrationService.updateProcessingStatus(poi.uuid_id, 'migrated')
+              } else {
+                await MigrationService.updateProcessingStatus(poi.uuid_id, 'skipped', reason)
+              }
+
+              sendEvent('poi_skipped', {
+                poi_name: poi.name,
+                poi_id: poi.uuid_id,
+                reason,
+                round
+              })
+
+              // Small delay even for skips to avoid flooding
+              await new Promise(resolve => setTimeout(resolve, 50))
             }
           }
 
-          if (poisToProcess.length === 0) {
-            // No more POIs to process in this round
-            hasMorePOIs = false
-            
-            if (totalProcessed === 0) {
-              sendEvent('complete', { 
-                total: pois.length, 
-                processed: 0, 
-                successful: 0, 
-                failed: 0,
-                message: 'No POIs need processing'
-              })
-            } else {
+          // In non-continuous mode, stop if batch reached or no more POIs in database
+          if (!continuousMode) {
+            if (totalProcessed >= batch_size || pois.length < fetchLimit) {
+              hasMorePOIs = false
               sendEvent('complete', {
                 total: totalProcessed,
                 processed: totalProcessed,
@@ -171,105 +268,34 @@ export async function POST(request: NextRequest) {
                 failed: totalFailed,
                 message: `Migration completed! ${totalSuccessful} successful, ${totalFailed} failed`
               })
+              controller.close()
+              return
             }
-            controller.close()
-            return
           }
 
-          sendEvent('start', { 
-            total: continuousMode ? totalProcessed + poisToProcess.length : poisToProcess.length,
-            roundPOIs: poisToProcess.length,
-            round,
-            message: continuousMode 
-              ? `Round ${round}: Processing ${poisToProcess.length} POIs...` 
-              : `Processing ${poisToProcess.length} POIs...`
-          })
-
-          // Process POIs sequentially with progress updates
-          for (let i = 0; i < poisToProcess.length; i++) {
-            const poi = poisToProcess[i]
-            const globalIndex = totalProcessed + i + 1
-            
-            sendEvent('progress', {
-              current: globalIndex,
-              roundCurrent: i + 1,
-              roundTotal: poisToProcess.length,
-              percentage: continuousMode ? 0 : Math.round((globalIndex / poisToProcess.length) * 100),
-              poi_name: poi.name,
-              poi_id: poi.uuid_id,
-              phase: 'processing',
-              round
-            })
-
-            try {
-              const result = await PoiMigrationPipeline.executePipeline(poi.uuid_id, pipelineOptions)
-              
-              if (result.success) {
-                totalSuccessful++
-                sendEvent('poi_complete', {
-                  current: globalIndex,
-                  total: continuousMode ? '?' : poisToProcess.length,
-                  poi_name: poi.name,
-                  poi_id: poi.uuid_id,
-                  success: true,
-                  attraction_id: result.attraction_id,
-                  steps: result.steps?.map(s => ({ step: s.step, success: s.success, time: s.processing_time }))
-                })
-              } else {
-                totalFailed++
-                sendEvent('poi_complete', {
-                  current: globalIndex,
-                  total: continuousMode ? '?' : poisToProcess.length,
-                  poi_name: poi.name,
-                  poi_id: poi.uuid_id,
-                  success: false,
-                  error: result.error,
-                  steps: result.steps?.map(s => ({ step: s.step, success: s.success, error: s.error, time: s.processing_time }))
-                })
-              }
-            } catch (error) {
-              totalFailed++
-              sendEvent('poi_complete', {
-                current: globalIndex,
-                total: continuousMode ? '?' : poisToProcess.length,
-                poi_name: poi.name,
-                poi_id: poi.uuid_id,
-                success: false,
-                error: error instanceof Error ? error.message : 'Unknown error'
-              })
-            }
-
-            totalProcessed++
-
-            // Small delay between POIs
-            await new Promise(resolve => setTimeout(resolve, 100))
-          }
-
-          // In non-continuous mode, stop after one batch
-          if (!continuousMode) {
+          // In continuous mode, check if we've reached the end of the DB
+          if (continuousMode && pois.length < fetchLimit) {
             hasMorePOIs = false
             sendEvent('complete', {
               total: totalProcessed,
               processed: totalProcessed,
               successful: totalSuccessful,
               failed: totalFailed,
-              message: `Migration completed! ${totalSuccessful} successful, ${totalFailed} failed`
+              message: `Continuous migration finished. No more POIs found.`
             })
             controller.close()
             return
           }
 
-          // In continuous mode, send round complete and continue
+          // Continuous mode heartbeat
           sendEvent('round_complete', {
             round,
-            roundProcessed: poisToProcess.length,
             totalProcessed,
             totalSuccessful,
             totalFailed,
-            message: `Round ${round} complete. Looking for more POIs...`
+            message: `Round ${round} complete. Continuing...`
           })
 
-          // Small delay before next round
           await new Promise(resolve => setTimeout(resolve, 500))
         }
 
