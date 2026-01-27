@@ -6,18 +6,11 @@ interface TuggiLogoProps {
   className?: string
 }
 
-const sizeClasses = {
-  sm: 'h-6 w-6 text-xs',
-  md: 'h-8 w-8 text-sm',
-  lg: 'h-12 w-12 text-lg',
-  xl: 'h-20 w-20 text-2xl'
-}
-
-const textSizeClasses = {
-  sm: 'text-sm',
-  md: 'text-lg',
-  lg: 'text-xl',
-  xl: 'text-4xl'
+const heightClasses = {
+  sm: 'h-8',
+  md: 'h-10',
+  lg: 'h-16',
+  xl: 'h-24'
 }
 
 export function TuggiLogo({ 
@@ -25,34 +18,31 @@ export function TuggiLogo({
   showText = true, 
   className 
 }: TuggiLogoProps) {
-  return (
-    <div className={cn('flex items-center space-x-3', className)}>
-      {/* Logo Icon */}
-      <div className={cn(
-        'bg-tuggi-blue rounded-xl flex items-center justify-center shadow-lg',
-        sizeClasses[size]
-      )}>
-        <span className={cn('text-white font-bold', textSizeClasses[size])}>
-          T
-        </span>
-      </div>
-      
-      {/* Logo Text */}
-      {showText && (
-        <div className="flex flex-col">
-          <span className={cn(
-            'font-bold text-tuggi-text dark:text-white leading-tight',
-            textSizeClasses[size]
-          )}>
-            Tuggi
+  
+  if (showText) {
+    return (
+      <div className={cn('relative w-auto flex items-center', heightClasses[size], className)}>
+        <img
+          src="/tuggi-logo-full.png"
+          alt="Tuggi"
+          className="h-full w-auto object-contain"
+        />
+        {size !== 'sm' && (
+          <span className="ml-3 text-xs md:text-sm font-medium text-gray-500 dark:text-gray-400 border-l border-gray-300 dark:border-gray-600 pl-3">
+            CMS
           </span>
-          {size !== 'sm' && (
-            <span className="text-xs text-gray-500 dark:text-gray-400 -mt-1">
-              CMS
-            </span>
-          )}
-        </div>
-      )}
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn('relative aspect-square', heightClasses[size], className)}>
+      <img
+        src="/tuggi-icon.png"
+        alt="Tuggi"
+        className="h-full w-full object-contain"
+      />
     </div>
   )
 } 
