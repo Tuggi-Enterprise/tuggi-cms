@@ -434,7 +434,8 @@ RETURNS TABLE (
   total_km_driven numeric,
   total_pois_played bigint,
   avg_trip_duration text,
-  trips_by_platform jsonb
+  trips_by_platform jsonb,
+  mau_history jsonb
 )
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -455,20 +456,35 @@ BEGIN
       (SELECT COUNT(*) FROM drive.trail_trips_unified) AS total_trips,
       (SELECT COALESCE(SUM(distance_km),0) FROM drive.trail_trips_unified) AS total_km_driven,
       (SELECT COUNT(*) FROM core.attraction_plays) AS total_pois_played,
-      (SELECT COALESCE(AVG(duration)::text, '00:00:00') FROM drive.trail_trips_unified) AS avg_trip_duration,
+      (SELECT COALESCE(AVG(duration_minutes)::text, '0') || ' minutes' FROM drive.trail_trips_unified) AS avg_trip_duration,
       (SELECT jsonb_agg(jsonb_build_object('platform', platform, 'trips', trips)) FROM (
          SELECT platform, COUNT(*) as trips FROM drive.trail_trips_unified GROUP BY platform
-      ) t) AS trips_by_platform;
+      ) t) AS trips_by_platform,
+      (SELECT jsonb_agg(jsonb_build_object('month', month, 'count', active_users)) FROM (
+         SELECT to_char(date_trunc('month', trip_start), 'YYYY-MM') as month, COUNT(DISTINCT user_id) as active_users
+         FROM drive.trail_trips_unified
+         GROUP BY 1
+         ORDER BY 1 DESC
+         LIMIT 12
+      ) m) AS mau_history;
   ELSE
     RETURN QUERY SELECT
-      (SELECT COUNT(DISTINCT t.user_id) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS total_users,
-      (SELECT COUNT(*) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS total_trips,
-      (SELECT COALESCE(SUM(t.distance_km),0) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS total_km_driven,
+      (SELECT COUNT(DISTINCT t.user_id) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.user_id = a.created_by WHERE a.created_by = owner_id) AS total_users,
+      (SELECT COUNT(*) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.user_id = a.created_by WHERE a.created_by = owner_id) AS total_trips,
+      (SELECT COALESCE(SUM(t.distance_km),0) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.user_id = a.created_by WHERE a.created_by = owner_id) AS total_km_driven,
       (SELECT COUNT(*) FROM core.attraction_plays ap JOIN core.attractions a ON ap.attraction_id = a.id WHERE a.created_by = owner_id) AS total_pois_played,
-      (SELECT COALESCE(AVG(t.duration)::text, '00:00:00') FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS avg_trip_duration,
+      (SELECT COALESCE(AVG(t.duration_minutes)::text, '0') || ' minutes' FROM drive.trail_trips_unified t JOIN core.attractions a ON t.user_id = a.created_by WHERE a.created_by = owner_id) AS avg_trip_duration,
       (SELECT jsonb_agg(jsonb_build_object('platform', platform, 'trips', trips)) FROM (
-         SELECT t.platform, COUNT(*) as trips FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id GROUP BY t.platform
-      ) q) AS trips_by_platform;
+         SELECT t.platform, COUNT(*) as trips FROM drive.trail_trips_unified t JOIN core.attractions a ON t.user_id = a.created_by WHERE a.created_by = owner_id GROUP BY t.platform
+      ) q) AS trips_by_platform,
+      (SELECT jsonb_agg(jsonb_build_object('month', month, 'count', active_users)) FROM (
+         SELECT to_char(date_trunc('month', t.trip_start), 'YYYY-MM') as month, COUNT(DISTINCT t.user_id) as active_users
+         FROM drive.trail_trips_unified t JOIN core.attractions a ON t.user_id = a.created_by
+         WHERE a.created_by = owner_id
+         GROUP BY 1
+         ORDER BY 1 DESC
+         LIMIT 12
+      ) m) AS mau_history;
   END IF;
 END; $$;
 
