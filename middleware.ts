@@ -1,44 +1,66 @@
 import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import createMiddleware from 'next-intl/middleware';
 import { isAdmin, isClient, ALLOWED_CLIENT_PATHS } from './lib/roles'
 
+import { routing } from './navigation';
+
+const intlMiddleware = createMiddleware(routing);
+
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
+  // 1. Run next-intl middleware first to handle locale resolution and redirects
+  // This will rewrite /dashboard to /en/dashboard (or similar)
+  const intlResponse = intlMiddleware(req);
+
+  // If next-intl returned a redirect (e.g. root to /en), we return it immediately
+  if (intlResponse.status === 307 || intlResponse.status === 308) {
+     return intlResponse;
+  }
+
+  // 2. Setup Supabase Auth
+  // We need to pass the request and response to Supabase to manage cookies
+  const res = intlResponse; // Use the response from intl middleware as base
   const supabase = createMiddlewareClient({ req, res })
 
-  console.log('🔍 MIDDLEWARE: Processing request for:', req.nextUrl.pathname)
-
+  // 3. Auth Logic
   const {
     data: { session },
   } = await supabase.auth.getSession()
 
-  console.log('🔍 MIDDLEWARE: Session check:', {
-    hasSession: !!session,
-    userEmail: session?.user?.email,
-    path: req.nextUrl.pathname
-  })
+  // Extract locale from path to construct correct redirect URLs
+  // Path is like /en/dashboard or /pt/login
+  const pathname = req.nextUrl.pathname;
+  const match = pathname.match(/^\/(en|pt|es)(\/.*)?$/);
+  const locale = match ? match[1] : 'en'; // Default fallback
+  const pathWithoutLocale = match ? (match[2] || '/') : pathname;
 
-  // Allow access to debug page, login, and unauthorized pages
-  const allowedPaths = ['/login', '/client-signup', '/debug', '/unauthorized']
+  // Define paths that don't need auth (but might need locale)
+  // Note: These must match the locale-prefixed structure or be generic
+  // Since we are inside the middleware, req.nextUrl.pathname already includes locale if resolved
   
-  // Protect all routes except allowed paths
-  if (!session && !allowedPaths.includes(req.nextUrl.pathname)) {
-    return NextResponse.redirect(new URL('/login', req.url))
+  // Clean path for checking allowed lists
+  const isPublicPath = 
+    pathWithoutLocale === '/login' || 
+    pathWithoutLocale === '/client-signup' || 
+    pathWithoutLocale === '/debug' || 
+    pathWithoutLocale === '/unauthorized';
+
+  // Protect routes
+  if (!session && !isPublicPath) {
+    // Redirect to login preserving locale
+    return NextResponse.redirect(new URL(`/${locale}/login`, req.url));
   }
 
   // Redirect to dashboard if logged in and trying to access login
-  if (session && req.nextUrl.pathname === '/login') {
-    return NextResponse.redirect(new URL('/dashboard', req.url))
+  if (session && pathWithoutLocale === '/login') {
+    return NextResponse.redirect(new URL(`/${locale}/dashboard`, req.url));
   }
 
-  // Check CMS user authorization for protected routes
-  if (session && !allowedPaths.includes(req.nextUrl.pathname)) {
+  // 4. Role Authorization (if logged in and not on public path)
+  if (session && !isPublicPath) {
     try {
-      // Check if user exists in cms_users table and is authorized
-      // Prefer DB authoritative check, but FALLBACK to session user metadata (app_metadata or user_metadata)
       let cmsUser: any = null
-      let cmsLookupError: any = null
       try {
         const ans = await supabase
           .schema('core')
@@ -47,65 +69,41 @@ export async function middleware(req: NextRequest) {
           .eq('email', session.user.email)
           .single()
         cmsUser = ans.data
-        // If user exists but is not active, treat as no user for non-clients
-        // Clients should still be able to access client-scoped pages even if is_active is false
         if (cmsUser && cmsUser.is_active === false && cmsUser.role !== 'client') cmsUser = null
       } catch (err) {
-        cmsLookupError = err
-        console.warn('MIDDLEWARE: cms_user lookup produced error (will attempt fallback):', err)
+        console.warn('Middleware: CMS user lookup error', err)
       }
 
-      // Extract possible role from session metadata as a fallback
-      const sessionUser = session.user
-      const metaRole = (sessionUser?.app_metadata && sessionUser?.app_metadata.role) || (sessionUser?.user_metadata && sessionUser?.user_metadata.role) || null
-      const metaIsActive = (sessionUser?.app_metadata && (sessionUser.app_metadata.is_active !== undefined ? sessionUser.app_metadata.is_active : true)) || true
-
+      // Fallback to metadata
       if (!cmsUser) {
-        // If DB lookup errored with schema/cache issue -> allow through but mark header
-        const errMsg = cmsLookupError?.message || ''
-        if (cmsLookupError && (errMsg.includes('Could not find') || errMsg.toLowerCase().includes('address') || cmsLookupError.code === 'PGRST204')) {
-          res.headers.set('x-cms-lookup-error', '1')
-          // If session metadata indicates role, use it for routing decisions below
-          if (metaRole) {
-            // attach a lightweight cmsUser-like object for downstream checks
-            cmsUser = { id: sessionUser?.id, role: metaRole, is_active: metaIsActive }
-            res.headers.set('x-cms-lookup-fallback', 'metadata')
-            // continue with cmsUser populated from metadata
-          } else {
-            // No metadata either: allow login but redirect to unauthorized so user can't access protected pages
-            return NextResponse.redirect(new URL('/unauthorized', req.url))
-          }
+        const sessionUser = session.user
+        const metaRole = (sessionUser?.app_metadata?.role) || (sessionUser?.user_metadata?.role)
+        if (metaRole) {
+           cmsUser = { id: sessionUser.id, role: metaRole, is_active: true }
         } else {
-          // No DB record found (not admin/client) -> try metadata
-          if (metaRole) {
-            cmsUser = { id: sessionUser?.id, role: metaRole, is_active: metaIsActive }
-            res.headers.set('x-cms-lookup-fallback', 'metadata')
-          } else {
-            return NextResponse.redirect(new URL('/unauthorized', req.url))
-          }
+           return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url))
         }
       }
 
-      // Admin users can access everything
+      // Admin check
       if (isAdmin(cmsUser.role)) {
-        return res
+        return res;
       }
 
-      // Client users can access a subset of pages (view POIs and create manual POI)
+      // Client check
       if (isClient(cmsUser.role)) {
-        const path = req.nextUrl.pathname
-        // Allow if path starts with '/pois' or '/clients' or is explicitly in allowed client API list
-        if (path.startsWith('/pois') || path.startsWith('/clients') || ALLOWED_CLIENT_PATHS.includes(path)) {
-          return res
+        // Check allowed paths for client
+        if (pathWithoutLocale.startsWith('/pois') || pathWithoutLocale.startsWith('/clients') || ALLOWED_CLIENT_PATHS.includes(pathWithoutLocale)) {
+          return res;
         }
-        return NextResponse.redirect(new URL('/unauthorized', req.url))
+        return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url));
       }
 
-      // Other/unknown roles => unauthorized
-      return NextResponse.redirect(new URL('/unauthorized', req.url))
+      return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url));
+
     } catch (error) {
       console.error('Middleware authorization error:', error)
-      return NextResponse.redirect(new URL('/unauthorized', req.url))
+      return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url));
     }
   }
 
@@ -113,7 +111,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|unauthorized|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
-} 
+  // Match only internationalized pathnames
+  matcher: ['/', '/(en|pt|es)/:path*', '/((?!api|_next|_vercel|.*\\..*).*)']
+};

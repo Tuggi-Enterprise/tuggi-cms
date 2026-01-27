@@ -76,7 +76,11 @@ interface POIDetailsModalProps {
   mode?: 'view' | 'create'
 }
 
+import { useTranslations } from 'next-intl';
+
 export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, onPOIDeleted, mode = 'view' }: POIDetailsModalProps) {
+  const t = useTranslations('Modals.POIDetails');
+  const tCommon = useTranslations('Common');
   // Determine if we're in create mode: no POI or POI without ID
   const isCreateMode = !poi || !poi.id || mode === 'create'
   const [currentPoi, setCurrentPoi] = useState<POI | null>(poi)
@@ -199,7 +203,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       didRespond = true
       console.warn('Geolocation error:', err.message)
       // keep silent; user can click on map to set location
-      setCreateError('Não foi possível obter localização automática. Selecione no mapa.')
+      setCreateError(t('alerts.auto_location_error'))
     }
 
     try {
@@ -236,12 +240,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
   const handleCreatePOI = async () => {
     if (!createName.trim()) {
-      setCreateError('Nome é obrigatório')
+      setCreateError(t('validation.name_required'))
       return
     }
 
     if (!createCoordinates) {
-      setCreateError('Por favor, selecione uma localização no mapa')
+      setCreateError(t('validation.location_required'))
       return
     }
 
@@ -271,7 +275,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       })
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Falha ao criar POI')
+        throw new Error(result.error || t('validation.error_create'))
       }
 
       // Update modal with created POI
@@ -317,7 +321,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setCreateLocation(null)
     } catch (error) {
       console.error('Error creating POI:', error)
-      setCreateError(error instanceof Error ? error.message : 'Erro ao criar POI')
+      setCreateError(error instanceof Error ? error.message : t('validation.error_create'))
     } finally {
       setIsCreating(false)
     }
@@ -345,13 +349,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       if (response.ok && result.success) {
         // Refresh POI data
         if (onUpdate) onUpdate()
-        alert('POI enriquecido com sucesso!')
+        alert(t('validation.enrich_success'))
       } else {
-        throw new Error(result.error || 'Falha ao enriquecer POI')
+        throw new Error(result.error || t('validation.enrich_error'))
       }
     } catch (error) {
       console.error('Error enriching POI:', error)
-      alert(error instanceof Error ? error.message : 'Erro ao enriquecer POI')
+      alert(error instanceof Error ? error.message : t('validation.enrich_error'))
     } finally {
       setIsEnrichingOSM(false)
     }
@@ -2158,10 +2162,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         onPOIUpdated(updatedPoi as POI)
       }
 
-      alert('Boundary salvo com sucesso!')
+      alert(t('validation.boundary_success'))
     } catch (error) {
       console.error('Error saving boundary:', error)
-      alert(`Erro ao salvar boundary: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
+      alert(`${t('validation.boundary_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`)
     } finally {
       setIsSavingBoundary(false)
     }
@@ -2195,7 +2199,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     } catch (error) {
       console.error('❌ MODAL: Error in fetchNearbyPOIsWithPolygon:', error);
       // Show user-friendly error message
-      alert(`Erro ao buscar POIs próximos: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+      alert(`${t('validation.nearby_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`);
     } finally {
       setGroupLoading(false)
     }
@@ -2264,7 +2268,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           <div className="bg-white dark:bg-gray-800 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                POI Management
+                {tCommon('Navigation.pois')}
               </h3>
               <button
                 onClick={onClose}
@@ -2289,7 +2293,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     )}
                   >
                     <Plus className="h-4 w-4 inline mr-2" />
-                    Create POI
+                    {t('tabs.create')}
                   </button>
                 )}
                 {/* Show 'details' tab only if POI exists and has ID */}
@@ -2304,7 +2308,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     )}
                   >
                     <Info className="h-4 w-4 inline mr-2" />
-                    POI Details
+                    {t('tabs.details')}
                   </button>
                 )}
                 {/* Other tabs appear always - they're part of the creation/editing flow */}
@@ -2318,7 +2322,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   )}
                 >
                   <Users className="h-4 w-4 inline mr-2" />
-                  Group POIs
+                  {t('tabs.group_pois')}
                 </button>
                 <button
                   onClick={() => setActiveTab('description')}
@@ -2330,7 +2334,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   )}
                 >
                   <FileText className="h-4 w-4 inline mr-2" />
-                  Description
+                  {t('tabs.description')}
                 </button>
 
                 <button
@@ -2343,7 +2347,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   )}
                 >
                   <Volume2 className="h-4 w-4 inline mr-2" />
-                  Narration Audio
+                  {t('tabs.narration')}
                 </button>
                 <button
                   onClick={() => setActiveTab('trigger-points')}
@@ -2355,7 +2359,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   )}
                 >
                   <Target className="h-4 w-4 inline mr-2" />
-                  Trigger Points
+                  {t('tabs.trigger_points')}
                 </button>
                 <button
                   onClick={() => setActiveTab('review')}
@@ -2367,7 +2371,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   )}
                 >
                   <CheckCircle className="h-4 w-4 inline mr-2" />
-                  Review
+                  {t('tabs.review')}
                 </button>
 
               </nav>
@@ -2382,19 +2386,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                       <Plus className="h-5 w-5 mr-2 text-tuggi-blue" />
-                      Criar Novo POI
+                      {t('actions.create_poi')}
                     </h3>
 
                     <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Nome do POI *
+                          {t('labels.name')} *
                         </label>
                         <input
                           type="text"
                           value={createName}
                           onChange={(e) => setCreateName(e.target.value)}
-                          placeholder="Digite o nome do ponto de interesse"
+                          placeholder={t('placeholders.name')}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                         />
                       </div>
@@ -2402,7 +2406,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                            Localização e Boundary do POI *
+                            {t('labels.location_boundary')} *
                           </label>
                           <button
                             type="button"
@@ -2415,12 +2419,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             )}
                           >
                             <MapPin className="h-3 w-3 mr-1" />
-                            {isDrawingEnabled ? 'Desativar Desenho' : 'Desenhar Boundary'}
+                            {isDrawingEnabled ? t('actions.disable_drawing') : t('actions.drawing_mode')}
                           </button>
                         </div>
 
                         <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                          Clique no mapa para marcar a localização. {isDrawingEnabled ? 'Clique para desenhar o polígono do boundary.' : 'Ative o modo desenho para definir o boundary.'}
+                          {t('labels.location_hint', { hint: isDrawingEnabled ? t('labels.drawing_hint') : t('labels.activate_drawing') })}
                         </p>
 
                         <div className="h-96 w-full rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
@@ -2432,7 +2436,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             markers={createCoordinates ? [{
                               id: 'poi-location',
                               position: createCoordinates,
-                              title: createName || 'Nova localização',
+                              title: createName || tCommon('labels.new_location'),
                               color: '#FF6B35'
                             }] : []}
                             polygon={createBoundary || undefined}
@@ -2460,7 +2464,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             <div className="flex items-center justify-between text-sm">
                               <div className="text-green-800 dark:text-green-300 flex items-center">
                                 <CheckCircle className="h-4 w-4 mr-2" />
-                                Boundary desenhado: {createBoundary.length} pontos
+                                {t('labels.boundary_drawn', { count: createBoundary.length })}
                               </div>
                               <button
                                 type="button"
@@ -2470,7 +2474,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 }}
                                 className="text-red-600 hover:text-red-700 dark:text-red-400 text-xs"
                               >
-                                Limpar
+                                {t('actions.clear')}
                               </button>
                             </div>
                           </div>
@@ -2480,24 +2484,24 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       {isGeocoding && (
                         <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Detectando cidade e estado...
+                          {t('labels.detecting_location')}
                         </div>
                       )}
 
                       {createLocation && !isGeocoding && (
                         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                           <h4 className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
-                            Localização Detectada:
+                            {t('labels.location_detected')}
                           </h4>
                           <div className="space-y-1 text-sm text-blue-800 dark:text-blue-300">
                             {createLocation.city && (
-                              <p><strong>Cidade:</strong> {createLocation.city}</p>
+                              <p><strong>{t('labels.city')}:</strong> {createLocation.city}</p>
                             )}
                             {createLocation.state && (
-                              <p><strong>Estado:</strong> {createLocation.state}</p>
+                              <p><strong>{t('labels.state')}:</strong> {createLocation.state}</p>
                             )}
                             {createLocation.country && (
-                              <p><strong>País:</strong> {createLocation.country}</p>
+                              <p><strong>{t('labels.country')}:</strong> {createLocation.country}</p>
                             )}
                             {createLocation.formatted_address && (
                               <p className="text-xs mt-2 text-blue-600 dark:text-blue-400">
@@ -2519,7 +2523,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           onClick={onClose}
                           className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
                         >
-                          Cancelar
+                          {t('actions.cancel')}
                         </button>
                         <button
                           onClick={handleCreatePOI}
@@ -2529,12 +2533,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           {isCreating ? (
                             <>
                               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Criando...
+                              {t('actions.creating')}
                             </>
                           ) : (
                             <>
                               <Plus className="h-4 w-4 mr-2" />
-                              Criar POI
+                              {t('actions.create_poi')}
                             </>
                           )}
                         </button>
@@ -2570,7 +2574,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
                           <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
-                          Basic Information & Categories
+                          {t('labels.content_status_title')}
                         </h3>
                         {currentPoi && (
                           <button
@@ -2581,12 +2585,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             {isEnrichingOSM ? (
                               <>
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                Enriquecendo...
+                                {t('actions.enriching')}
                               </>
                             ) : (
                               <>
                                 <Sparkles className="h-4 w-4 mr-2" />
-                                Enriquecer com OSM
+                                {t('actions.enrich_osm')}
                               </>
                             )}
                           </button>
@@ -2598,7 +2602,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         <div className="space-y-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              Name *
+                              {t('labels.name')} *
                             </label>
                             <input
                               type="text"
@@ -2610,14 +2614,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                           <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              Category
+                              {t('labels.category')}
                             </label>
                             <select
                               value={editedPoi?.category || ''}
                               onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, category: e.target.value }) : null)}
                               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                             >
-                              <option value="">Select Category</option>
+                              <option value="">{t('placeholders.select_category')}</option>
                               {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
                                 <option key={category.value} value={category.value}>
                                   {category.label}
@@ -2629,7 +2633,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <div className="grid grid-cols-3 gap-4">
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                City *
+                                {t('labels.city')} *
                               </label>
                               <input
                                 type="text"
@@ -2640,7 +2644,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             </div>
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                State
+                                {t('labels.state')}
                               </label>
                               <input
                                 type="text"
@@ -2651,7 +2655,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             </div>
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Country *
+                                {t('labels.country')} *
                               </label>
                               <input
                                 type="text"
@@ -2669,7 +2673,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           {getPoi()?.google_types && getPoi()!.google_types!.length > 0 && (
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Google Types ({getPoi()!.google_types!.length})
+                                {t('labels.google_types', { count: getPoi()!.google_types!.length })}
                               </label>
                               <div className="flex flex-wrap gap-2 p-3 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
                                 {getPoi()?.google_types?.map((type, index) => (
@@ -2687,34 +2691,34 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           {/* Content Status Summary */}
                           <div className="bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 p-4">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                              Content Status
+                              {t('labels.content_status_title')}
                             </label>
                             <div className="grid grid-cols-2 gap-3">
                               <div className="flex items-center space-x-2">
                                 <FileText className="h-4 w-4 text-gray-400" />
                                 <div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">Descriptions</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('labels.descriptions_count')}</div>
                                   <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.description_count || 0}</div>
                                 </div>
                               </div>
                               <div className="flex items-center space-x-2">
                                 <Volume2 className="h-4 w-4 text-gray-400" />
                                 <div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">Audio Files</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('labels.audio_count')}</div>
                                   <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.audio_count || 0}</div>
                                 </div>
                               </div>
                               <div className="flex items-center space-x-2">
                                 <Target className="h-4 w-4 text-gray-400" />
                                 <div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">Trigger Points</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('labels.trigger_points_count')}</div>
                                   <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.trigger_points_count || 0}</div>
                                 </div>
                               </div>
                               <div className="flex items-center space-x-2">
                                 <CheckCircle className="h-4 w-4 text-gray-400" />
                                 <div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">Active TPs</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('labels.active_tps_count')}</div>
                                   <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.active_trigger_points_count || 0}</div>
                                 </div>
                               </div>
@@ -2730,13 +2734,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                           <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
-                          Status & Ratings
+                          {t('labels.approval_status')} & {t('labels.rating')}
                         </h3>
 
                         <div className="grid grid-cols-2 gap-4">
                           {/* Approval Status */}
                           <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Approval Status</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.approval_status')}</div>
                             <span className={cn(
                               'inline-flex items-center px-3 py-1 text-sm font-medium rounded-full',
                               getPoi()?.approved
@@ -2746,12 +2750,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               {getPoi()?.approved ? (
                                 <>
                                   <CheckCircle className="h-4 w-4 mr-1" />
-                                  Approved
+                                  {tCommon('status.approved')}
                                 </>
                               ) : (
                                 <>
                                   <Clock className="h-4 w-4 mr-1" />
-                                  Pending
+                                  {tCommon('status.pending')}
                                 </>
                               )}
                             </span>
@@ -2760,7 +2764,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           {/* Rating */}
                           {getPoi()?.rating ? (
                             <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Rating</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.rating')}</div>
                               <div className="flex items-center">
                                 <Star className="h-5 w-5 text-yellow-400 mr-1" />
                                 <span className="text-lg font-semibold text-gray-900 dark:text-white">
@@ -2775,7 +2779,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             </div>
                           ) : (
                             <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Rating</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.rating')}</div>
                               <div className="text-sm text-gray-500 dark:text-gray-400">N/A</div>
                             </div>
                           )}
@@ -2783,7 +2787,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           {/* Verification Score */}
                           {((verificationResult?.score || 0) > 0 || (getPoi()?.verification_score !== null && getPoi()?.verification_score !== undefined)) ? (
                             <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Verification Score</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.verification_score')}</div>
                               <div className="flex items-center">
                                 {(() => {
                                   const score = verificationResult?.score || 
@@ -2806,9 +2810,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           {/* Group Status */}
                           {getPoi()?.group_status && getPoi()!.group_status!.is_in_group ? (
                             <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Group</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.group')}</div>
                               <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                                {getPoi()!.group_status!.group_role === 'main' ? 'Main' : 'Member'}
+                                {getPoi()!.group_status!.group_role === 'main' ? t('labels.group_main') : t('labels.group_member')}
                               </div>
                               {getPoi()!.group_status!.group_name && (
                                 <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -2821,7 +2825,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           {/* Business Status */}
                           {getPoi()?.business_status ? (
                             <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Business Status</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.business_status')}</div>
                               <div className="text-sm font-semibold text-gray-900 dark:text-white capitalize">
                                 {getPoi()!.business_status!.replace(/_/g, ' ')}
                               </div>
@@ -2835,7 +2839,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                             <Star className="h-5 w-5 mr-2 text-amber-600" />
-                            Importance & Classification
+                            {t('labels.importance_score')} & {t('labels.importance_level')}
                           </h3>
 
                           <div className="space-y-3">
@@ -2844,7 +2848,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                 <div className="flex items-center justify-between">
                                   <div>
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Importance Score</div>
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.importance_score')}</div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                       {Number(poi?._homologData?.importance).toFixed(2)}
                                       {poi?._homologData?.importance_level && ` • ${poi?._homologData?.importance_level}`}
@@ -2870,8 +2874,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                 <div className="flex items-center justify-between">
                                   <div>
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Importance Level</div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Classification level</div>
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.importance_level')}</div>
+                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('labels.touristic_hint')}</div>
                                   </div>
                                   <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 capitalize">
                                     {poi?._homologData?.importance_level}
@@ -2889,12 +2893,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="flex items-center justify-between">
                                     <div>
-                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Historic Site</div>
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">This POI is classified as historic</div>
+                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.historic_site')}</div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('labels.historic_hint')}</div>
                                     </div>
                                     <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
                                       <Calendar className="h-4 w-4 mr-1" />
-                                      Historic
+                                      {tCommon('sections.historic')}
                                     </span>
                                   </div>
                                 </div>
@@ -2910,8 +2914,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                   <div className="flex items-center justify-between">
                                     <div>
-                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Touristic Site</div>
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">This POI is classified as touristic</div>
+                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.touristic_site')}</div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('labels.touristic_hint')}</div>
                                     </div>
                                     <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                                       <Target className="h-4 w-4 mr-1" />
@@ -2935,7 +2939,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 return (
                                   <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
                                     <div className="text-sm text-gray-500 dark:text-gray-400 text-center">
-                                      No importance or classification data available
+                                      {t('labels.no_homolog_data')}
                                     </div>
                                   </div>
                                 );
@@ -2953,7 +2957,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                           <MapPin className="h-5 w-5 mr-2 text-red-600" />
-                          Location Details
+                          {t('labels.location_details')}
                         </h3>
 
                         <div className="space-y-4">
@@ -2962,7 +2966,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               <div className="flex items-start space-x-3">
                                 <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Full Address</div>
+                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.full_address')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.formatted_address}</div>
                                 </div>
                               </div>
@@ -2974,7 +2978,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               <div className="flex items-start space-x-3">
                                 <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Vicinity</div>
+                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.vicinity')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.vicinity}</div>
                                 </div>
                               </div>
@@ -2986,7 +2990,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               <div className="flex items-start space-x-3">
                                 <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                 <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Coordinates</div>
+                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.coordinates')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white font-mono">
                                     {getPoi()!.coordinates!.latitude.toFixed(6)}, {getPoi()!.coordinates!.longitude.toFixed(6)}
                                   </div>
@@ -2995,7 +2999,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                     className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline inline-flex items-center mt-2"
                                   >
                                     <ExternalLink className="h-3 w-3 mr-1" />
-                                    View on Google Maps
+                                    {t('actions.view_on_google_maps')}
                                   </button>
                                 </div>
                               </div>
@@ -3030,7 +3034,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
                             <MapPin className="h-5 w-5 mr-2 text-tuggi-blue" />
-                            POI Boundary
+                            {t('labels.poi_boundary')}
                           </h3>
                           {boundaryPolygon && boundaryPolygon.length >= 3 && (
                             <button
@@ -3041,12 +3045,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               {isSavingBoundary ? (
                                 <>
                                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  Salvando...
+                                  {tCommon('actions.saving')}...
                                 </>
                               ) : (
                                 <>
                                   <Save className="h-4 w-4 mr-2" />
-                                  Salvar Boundary
+                                  {t('actions.save_boundary')}
                                 </>
                               )}
                             </button>
@@ -3054,14 +3058,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </div>
 
                         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                          Desenhe o boundary (fronteira) do POI no mapa abaixo. Clique no mapa para começar a desenhar um polígono.
+                          {t('messages.draw_poi_boundary_instruction')}
                         </p>
 
                         {existingBoundary && (
                           <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
                             <div className="flex items-center text-sm text-blue-800 dark:text-blue-300">
                               <CheckCircle className="h-4 w-4 mr-2" />
-                              Boundary existente carregado ({existingBoundary.length} pontos)
+                              {t('messages.existing_boundary_loaded', { count: existingBoundary.length })}
                             </div>
                           </div>
                         )}
@@ -3076,7 +3080,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               })
                               return (
                                 <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
-                                  POI coordinates not available
+                                  {t('messages.poi_coordinates_not_available')}
                                 </div>
                               )
                             }
@@ -3133,7 +3137,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             <div className="flex items-center justify-between text-sm">
                               <div className="text-green-800 dark:text-green-300">
                                 <CheckCircle className="h-4 w-4 inline mr-2" />
-                                Polígono desenhado: {boundaryPolygon.length} pontos
+                                {t('messages.polygon_drawn', { count: boundaryPolygon.length })}
                               </div>
                               <button
                                 onClick={() => {
@@ -3142,7 +3146,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 }}
                                 className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                               >
-                                Limpar
+                                {t('actions.clear')}
                               </button>
                             </div>
                           </div>
@@ -3158,7 +3162,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           return (fullSizeImageUrl || images.length > 0) && (
                             <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 h-full">
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Images
+                                {t('labels.images')}
                               </label>
                               <div className="space-y-2">
                                 {fullSizeImageUrl && (
@@ -3186,23 +3190,23 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                 <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
-                                OSM Categories
+                                {t('labels.osm_categories')}
                               </h3>
 
                               <div className="space-y-4">
                                 {poi?._homologData?.primary_category && (
                                   <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Primary Category</div>
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('labels.primary_category')}</div>
                                     <div className="text-sm text-gray-900 dark:text-white font-semibold capitalize">{poi?._homologData?.primary_category}</div>
                                     {poi?._homologData?.primary_category_type && (
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Type: {poi?._homologData?.primary_category_type}</div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('labels.type')}: {poi?._homologData?.primary_category_type}</div>
                                     )}
                                   </div>
                                 )}
 
                                 {poi?._homologData?.categories && poi?._homologData?.categories.length > 0 && (
                                   <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">All Categories</div>
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('labels.all_categories')}</div>
                                     <div className="flex flex-wrap gap-2">
                                       {poi?._homologData?.categories.map((cat: string, idx: number) => (
                                         <span
@@ -3223,7 +3227,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                               <Info className="h-5 w-5 mr-2 text-gray-600" />
-                              Metadata
+                              {t('labels.metadata')}
                             </h3>
 
                             <div className="space-y-4">
@@ -3231,8 +3235,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="flex items-start space-x-3">
                                   <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                   <div>
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Created</div>
-                                    <div className="text-sm text-gray-900 dark:text-white">{getPoi()?.created_at ? formatDate(getPoi()!.created_at) : 'N/A'}</div>
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.created')}</div>
+                                    <div className="text-sm text-gray-900 dark:text-white">{getPoi()?.created_at ? formatDate(getPoi()!.created_at) : t('common.na')}</div>
                                   </div>
                                 </div>
                               </div>
@@ -3241,8 +3245,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="flex items-start space-x-3">
                                   <Calendar className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                   <div>
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Updated</div>
-                                    <div className="text-sm text-gray-900 dark:text-white">{getPoi()?.updated_at ? formatDate(getPoi()!.updated_at) : 'N/A'}</div>
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.updated')}</div>
+                                    <div className="text-sm text-gray-900 dark:text-white">{getPoi()?.updated_at ? formatDate(getPoi()!.updated_at) : t('common.na')}</div>
                                   </div>
                                 </div>
                               </div>
@@ -3256,10 +3260,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                     <div className="flex items-start space-x-3">
                                       <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                       <div>
-                                        <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Approved At</div>
+                                        <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.approved_at')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white">{formatDate(approvedAt)}</div>
                                         {poi?.approved_by && (
-                                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">By: {poi.approved_by}</div>
+                                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('labels.by')}: {poi.approved_by}</div>
                                         )}
                                       </div>
                                     </div>
@@ -3272,7 +3276,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   <div className="flex items-start space-x-3">
                                     <ExternalLink className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                     <div>
-                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">Google Place ID</div>
+                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.google_place_id')}</div>
                                       <div className="text-xs text-gray-500 dark:text-gray-400 font-mono break-all">{getPoi()!.google_place_id}</div>
                                     </div>
                                   </div>
@@ -3291,20 +3295,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <MapPin className="h-5 w-5 mr-2 text-red-600" />
-                                    Detailed Address
+                                    {t('labels.detailed_address')}
                                   </h3>
 
                                   <div className="space-y-4">
                                     {poi?._homologData?.neighborhood && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Neighborhood</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.neighborhood')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.neighborhood}</div>
                                       </div>
                                     )}
 
                                     {poi?._homologData?.street_name && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Street</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.street')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white">
                                           {poi?._homologData?.street_name}
                                           {poi?._homologData?.house_number && `, ${poi?._homologData?.house_number}`}
@@ -3314,14 +3318,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                                     {poi?._homologData?.postal_code && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Postal Code</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.postal_code')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.postal_code}</div>
                                       </div>
                                     )}
 
                                     {poi?._homologData?.description && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Description</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.description')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.description}</div>
                                       </div>
                                     )}
@@ -3334,7 +3338,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Globe className="h-5 w-5 mr-2 text-blue-600" />
-                                    Extended Contact
+                                    {t('labels.extended_contact')}
                                   </h3>
 
                                   <div className="space-y-4">
@@ -3343,7 +3347,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                         <div className="flex items-start space-x-3">
                                           <Globe className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                           <div className="flex-1">
-                                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</div>
+                                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.email')}</div>
                                             <a
                                               href={`mailto:${poi?._homologData?.contact_email}`}
                                               className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline break-all"
@@ -3360,7 +3364,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                         <div className="flex items-start space-x-3">
                                           <User className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
                                           <div className="flex-1">
-                                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Operator</div>
+                                            <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.operator')}</div>
                                             <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.operator_name}</div>
                                           </div>
                                         </div>
@@ -3381,25 +3385,25 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Star className="h-5 w-5 mr-2 text-yellow-600" />
-                                    Brand Information
+                                    {t('labels.brand_information')}
                                   </h3>
 
                                   <div className="space-y-4">
                                     <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Brand</div>
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.brand')}</div>
                                       <div className="text-sm font-semibold text-gray-900 dark:text-white">{poi?._homologData?.brand}</div>
                                     </div>
 
                                     {poi?._homologData?.brand_wikidata && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wikidata ID</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.wikidata_id')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white font-mono">{poi?._homologData?.brand_wikidata}</div>
                                       </div>
                                     )}
 
                                     {poi?._homologData?.brand_wikipedia && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wikipedia</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.wikipedia')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.brand_wikipedia}</div>
                                       </div>
                                     )}
@@ -3412,29 +3416,29 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Users className="h-5 w-5 mr-2 text-green-600" />
-                                    Accessibility
+                                    {t('labels.accessibility')}
                                   </h3>
 
                                   <div className="space-y-4">
                                     {(poi?._homologData?.wheelchair_accessible || poi?._homologData?.has_wheelchair_access) && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wheelchair Access</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.wheelchair_access')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white capitalize">
-                                          {poi?._homologData?.wheelchair_accessible || (poi?._homologData?.has_wheelchair_access ? 'Yes' : 'No')}
+                                          {poi?._homologData?.wheelchair_accessible || (poi?._homologData?.has_wheelchair_access ? t('common.yes') : t('common.no'))}
                                         </div>
                                       </div>
                                     )}
 
                                     {poi?._homologData?.wheelchair_toilets && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wheelchair Toilets</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.wheelchair_toilets')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.wheelchair_toilets}</div>
                                       </div>
                                     )}
 
                                     {poi?._homologData?.accessibility_notes && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Accessibility Notes</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.accessibility_notes')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.accessibility_notes}</div>
                                       </div>
                                     )}
@@ -3449,13 +3453,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                               <Target className="h-5 w-5 mr-2 text-indigo-600" />
-                              Physical Characteristics
+                              {t('labels.physical_characteristics')}
                             </h3>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               {poi?._homologData?.height && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Height</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.height')}</div>
                                   <div className="text-sm font-semibold text-gray-900 dark:text-white">
                                     {Number(poi?._homologData?.height).toFixed(2)} m
                                   </div>
@@ -3464,21 +3468,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                               {poi?._homologData?.building_material && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Building Material</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.building_material')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.building_material}</div>
                                 </div>
                               )}
 
                               {poi?._homologData?.building_colour && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Building Colour</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.building_colour')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.building_colour}</div>
                                 </div>
                               )}
 
                               {poi?._homologData?.architectural_style && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Architectural Style</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.architectural_style')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.architectural_style}</div>
                                 </div>
                               )}
@@ -3491,24 +3495,24 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                               <Calendar className="h-5 w-5 mr-2 text-amber-600" />
-                              Historical & Heritage Details
+                              {t('labels.historical_heritage_details')}
                             </h3>
 
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               {poi?._homologData?.heritage_status && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Heritage Status</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.heritage_status')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.heritage_status}</div>
                                 </div>
                               )}
 
                               {poi?._homologData?.unesco_status && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">UNESCO Status</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.unesco_status')}</div>
                                   <div className="text-sm font-semibold text-gray-900 dark:text-white capitalize">{poi?._homologData?.unesco_status}</div>
                                   {poi?._homologData?.unesco_inscription_date && (
                                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                      Inscribed: {poi?._homologData?.unesco_inscription_date}
+                                      {t('labels.unesco_inscribed')}: {poi?._homologData?.unesco_inscription_date}
                                     </div>
                                   )}
                                 </div>
@@ -3516,11 +3520,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                               {poi?._homologData?.landmark_type && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Landmark Type</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.landmark_type')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.landmark_type}</div>
                                   {poi?._homologData?.landmark_level && (
                                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                      Level: {poi?._homologData?.landmark_level}
+                                      {t('labels.landmark_level')}: {poi?._homologData?.landmark_level}
                                     </div>
                                   )}
                                 </div>
@@ -3528,21 +3532,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                               {poi?._homologData?.architect && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Architect</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.architect')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.architect}</div>
                                 </div>
                               )}
 
                               {poi?._homologData?.start_date && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Start Date</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.start_date')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.start_date}</div>
                                 </div>
                               )}
 
                               {poi?._homologData?.historic_period && (
                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Historic Period</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.historic_period')}</div>
                                   <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.historic_period}</div>
                                 </div>
                               )}
@@ -3559,27 +3563,27 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Target className="h-5 w-5 mr-2 text-blue-600" />
-                                    Type-Specific Information
+                                    {t('labels.type_specific_info')}
                                   </h3>
 
                                   <div className="space-y-4">
                                     {poi?._homologData?.museum_type && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Museum Type</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.museum_type')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.museum_type}</div>
                                       </div>
                                     )}
 
                                     {poi?._homologData?.leisure_type && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Leisure Type</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.leisure_type')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.leisure_type}</div>
                                       </div>
                                     )}
 
                                     {poi?._homologData?.monument_type && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Monument Type</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.monument_type')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.monument_type}</div>
                                       </div>
                                     )}
@@ -3592,20 +3596,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
                                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
                                     <Info className="h-5 w-5 mr-2 text-teal-600" />
-                                    Infrastructure & Facilities
+                                    {t('labels.infrastructure_facilities')}
                                   </h3>
 
                                   <div className="space-y-4">
                                     {poi?._homologData?.parking_capacity && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Parking Capacity</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.parking_capacity')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white">{poi?._homologData?.parking_capacity}</div>
                                       </div>
                                     )}
 
                                     {poi?._homologData?.entrance_fee && (
                                       <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Entrance Fee</div>
+                                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.entrance_fee')}</div>
                                         <div className="text-sm text-gray-900 dark:text-white capitalize">{poi?._homologData?.entrance_fee}</div>
                                       </div>
                                     )}
@@ -3621,7 +3625,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             <div className="flex items-center gap-2">
                               <CheckCircle className="h-5 w-5 text-green-600" />
                               <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
-                                Building
+                                {t('labels.building')}
                               </span>
                             </div>
                           </div>
@@ -3638,14 +3642,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Delete POI
+                          {t('actions.delete_poi')}
                         </button>
                       )}
                       <button
                         onClick={onClose}
                         className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
                       >
-                        Cancel
+                        {t('actions.cancel')}
                       </button>
                       {(isCreateMode || cmsUserRole === 'admin') && (
                         <button
@@ -3654,7 +3658,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                         >
                           <Save className="h-4 w-4 mr-2" />
-                          {isSaving ? 'Saving...' : 'Save Changes'}
+                          {isSaving ? tCommon('actions.saving') : t('actions.save_changes')}
                         </button>
                       )}
                     </div>
@@ -3676,7 +3680,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     <div className="flex items-center justify-between">
                       <div>
                         <h4 className="text-lg font-medium text-gray-900 dark:text-white">
-                          Description Editor
+                          {t('labels.description_editor')}
                         </h4>
                         {/* <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                       Editing Brazilian Portuguese (pt-br) • {descriptions.length} language{descriptions.length !== 1 ? 's' : ''} available
@@ -3692,12 +3696,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           disabled={isGenerating || isSavingDescription || isGeneratingAudio}
                           className="block w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
                         >
-                          <option value="pt-br">Português (BR)</option>
-                          <option value="en-us">English (US)</option>
-                          <option value="es-es">Español (ES)</option>
-                          <option value="fr-fr">Français (FR)</option>
-                          <option value="de-de">Deutsch (DE)</option>
-                          <option value="it-it">Italiano (IT)</option>
+                          <option value="pt-br">{t('languages.pt-br')}</option>
+                          <option value="en-us">{t('languages.en-us')}</option>
+                          <option value="es-es">{t('languages.es-es')}</option>
+                          <option value="fr-fr">{t('languages.fr-fr')}</option>
+                          <option value="de-de">{t('languages.de-de')}</option>
+                          <option value="it-it">{t('languages.it-it')}</option>
                         </select>
                         <button
                           onClick={generateDescription}
@@ -3705,7 +3709,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                         >
                           <Sparkles className="h-4 w-4 mr-2" />
-                          {isGenerating ? 'Generating...' : `Generate in ${generationLanguage.split('-')[0].toUpperCase()}`}
+                          {isGenerating ? tCommon('actions.generating') : `${t('actions.regenerate')} in ${generationLanguage.split('-')[0].toUpperCase()}`}
                         </button>
                         {currentDescription !== originalDescription && (
                           <button
@@ -3714,7 +3718,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                           >
                             <RotateCcw className="h-4 w-4 mr-2" />
-                            Reset
+                             {t('actions.reset')}
                           </button>
                         )}
                       </div>
@@ -3723,10 +3727,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {/* Reference Links Section */}
                     <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        Reference Links (URLs)
+                        {t('labels.reference_links')} (URLs)
                       </label>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                        Add authoritative sources (Wikipedia, official sites, etc.) to help AI generate more accurate descriptions
+                        {t('messages.reference_links_hint')}
                       </p>
                       <div className="space-y-2">
                         {referenceLinks.map((link, idx) => (
@@ -3747,7 +3751,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               className="px-3 py-2 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded-md hover:bg-red-50"
                               onClick={() => setReferenceLinks(referenceLinks.filter((_, i) => i !== idx))}
                             >
-                              Remove
+                               {t('actions.remove')}
                             </button>
                           </div>
                         ))}
@@ -3757,7 +3761,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             className="inline-flex items-center px-3 py-2 text-sm text-tuggi-blue hover:text-tuggi-blue/80 border border-tuggi-blue/30 rounded-md hover:bg-tuggi-blue/10"
                             onClick={() => setReferenceLinks([...referenceLinks, ''])}
                           >
-                            + Add Reference Link
+                            + {t('actions.add_link')}
                           </button>
                           <button
                             type="button"
@@ -3766,7 +3770,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <Save className="h-4 w-4 mr-2" />
-                            {isSavingReferenceLinks ? 'Saving...' : 'Save Reference Links'}
+                             {isSavingReferenceLinks ? tCommon('actions.saving') : t('actions.save_links')}
                           </button>
                         </div>
                         {poi?._homologData && (
@@ -3782,9 +3786,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       <div>
                         <div className="flex justify-between items-center mb-2">
                           <div className="flex items-center">
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                              Attraction Description
-                            </label>
+                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                               {t('labels.attraction_description')}
+                             </label>
                             {/* Score badge - always visible */}
                             {verificationResult && (
                               <div className="ml-3">
@@ -3793,7 +3797,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   getScoreBackgroundColor(verificationResult.score / 100),
                                   getScoreColor(verificationResult.score / 100)
                                 )}>
-                                  <span className="font-bold">Score: {verificationResult.score}</span>
+                                  <span className="font-bold">{t('labels.score_label', { score: verificationResult.score })}</span>
                                   {verificationResult.approved && <CheckCircle className="h-3 w-3 ml-1 text-green-600" />}
                                 </span>
                               </div>
@@ -3804,25 +3808,25 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           value={currentDescription}
                           onChange={(e) => setCurrentDescription(e.target.value)}
                           rows={6}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white resize-none"
-                          placeholder="Enter a rich cultural and historical description for this attraction..."
-                        />
-                        <div className="flex justify-between items-center mt-2">
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            {currentDescription.length} characters
-                          </div>
+                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white resize-none"
+                           placeholder={t('placeholders.description_placeholder')}
+                         />
+                         <div className="flex justify-between items-center mt-2">
+                           <div className="text-sm text-gray-500 dark:text-gray-400">
+                             {currentDescription.length} {t('labels.characters')}
+                           </div>
                           {verificationResult && (
                             <div className="flex items-center">
                               {verificationResult.approved ? (
                                 <span className="text-xs text-green-600 dark:text-green-400 flex items-center">
-                                  <CheckCircle className="h-3 w-3 mr-1" />
-                                  Verified quality
-                                </span>
+                                   <CheckCircle className="h-3 w-3 mr-1" />
+                                   {t('labels.verified_quality')}
+                                 </span>
                               ) : (
                                 <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center">
-                                  <AlertCircle className="h-3 w-3 mr-1" />
-                                  Review suggested
-                                </span>
+                                   <AlertCircle className="h-3 w-3 mr-1" />
+                                   {t('labels.review_suggested')}
+                                 </span>
                               )}
                             </div>
                           )}
@@ -3845,7 +3849,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         <Clock className="h-4 w-4 text-tuggi-orange" />
                         <span className="text-sm text-gray-600 dark:text-gray-400">
                           Last Played: <span className="font-medium text-tuggi-orange">
-                            {descriptionStats.last_played_at 
+                            {descriptionStats.last_played_at
                               ? formatDate(descriptionStats.last_played_at)
                               : 'Never'
                             }
@@ -3858,9 +3862,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       {/* Save Actions */}
                       <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
                         <div className="text-sm text-gray-500 dark:text-gray-400">
-                          {currentDescription !== originalDescription && (
-                            <span className="text-tuggi-orange">• Unsaved changes</span>
-                          )}
+                           {currentDescription !== originalDescription && (
+                             <span className="text-tuggi-orange">• {t('labels.unsaved_changes')}</span>
+                           )}
                         </div>
                         <div className="flex items-center space-x-2">
                           <button
@@ -3869,9 +3873,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                             title="Save description and proceed to audio generation"
                           >
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            {isSavingDescription ? 'Saving...' : 'Save & Next Step'}
-                          </button>
+                             <CheckCircle className="h-4 w-4 mr-2" />
+                             {isSavingDescription ? tCommon('actions.saving') : t('actions.save_and_next')}
+                           </button>
                         </div>
                       </div>
                     </div>
@@ -3879,9 +3883,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {/* Descriptions */}
                     {descriptions.length > 0 && (
                       <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
-                        <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                          Descriptions
-                        </h4>
+                         <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
+                           {t('labels.description')}
+                         </h4>
                         <div className="space-y-3">
                           {descriptions.map((desc, index) => (
                             <div key={desc.id} className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
@@ -3935,9 +3939,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   <div className="space-y-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="text-lg font-medium text-gray-900 dark:text-white">
-                          Narration Audio
-                        </h4>
+                         <h4 className="text-lg font-medium text-gray-900 dark:text-white">
+                           {t('labels.narration_audios')}
+                         </h4>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                           Generate audio narration from attraction descriptions using OpenAI TTS
                         </p>
@@ -3950,9 +3954,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           }}
                           className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
                         >
-                          <RotateCcw className="h-4 w-4 mr-2" />
-                          Refresh
-                        </button>
+                           <RotateCcw className="h-4 w-4 mr-2" />
+                           {t('actions.refresh')}
+                         </button>
                         <button
                           onClick={() => {
                             // Always regenerate all audios (PT, EN, ES)
@@ -3962,21 +3966,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
                         >
                           {(isGeneratingAudio || isTranslating) ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Generating All Audios...
-                            </>
+                             <>
+                               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                               {tCommon('actions.generating')}
+                             </>
                           ) : (
-                            <>
-                              <Volume2 className="h-4 w-4 mr-2" />
-                              {currentAudioUrl ? 'Regenerate All Audios' : 'Generate All Audios'}
-                            </>
+                             <>
+                               <Volume2 className="h-4 w-4 mr-2" />
+                               {currentAudioUrl ? t('actions.regenerate_all') : t('actions.generate_all')}
+                             </>
                           )}
                         </button>
                         {currentAudioUrl && (
-                          <span className="text-xs text-tuggi-orange">
-                            ⚠️ This will replace the existing audio
-                          </span>
+                           <span className="text-xs text-tuggi-orange">
+                             ⚠️ {t('messages.replace_audio_warning')}
+                           </span>
                         )}
                       </div>
                     </div>
@@ -3985,9 +3989,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 space-y-4">
                       {/* Gender Selector */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Voice Gender
-                        </label>
+                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                           {t('labels.voice_gender')}
+                         </label>
                         <div className="flex gap-4">
                           <label className="flex items-center cursor-pointer">
                             <input
@@ -3998,7 +4002,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
                               className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
                             />
-                            <span className="text-sm text-gray-700 dark:text-gray-300">Male</span>
+                             <span className="text-sm text-gray-700 dark:text-gray-300">{t('labels.male')}</span>
                           </label>
                           <label className="flex items-center cursor-pointer">
                             <input
@@ -4009,16 +4013,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
                               className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
                             />
-                            <span className="text-sm text-gray-700 dark:text-gray-300">Female</span>
+                             <span className="text-sm text-gray-700 dark:text-gray-300">{t('labels.female')}</span>
                           </label>
                         </div>
                       </div>
 
                       {/* Language Multi-Select */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Languages to Generate
-                        </label>
+                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                           {t('labels.languages_to_generate')}
+                         </label>
                         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
                           {[
                             { code: 'pt-br', name: '🇧🇷 Português (Brasil)' },
@@ -4066,9 +4070,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             </label>
                           ))}
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                          Selected: {selectedLanguages.length} language{selectedLanguages.length !== 1 ? 's' : ''}
-                        </p>
+                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                           {t('labels.selected')}: {selectedLanguages.length} {tCommon('units.languages')}
+                         </p>
                       </div>
                     </div>
 
@@ -4076,12 +4080,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {(isGeneratingAudio || isTranslating) && audioProgress.total > 0 && (
                       <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
                         <div className="flex items-center justify-between mb-2">
-                          <h6 className="text-sm font-medium text-blue-900 dark:text-blue-300">
-                            Audio Generation Progress
-                          </h6>
-                          <span className="text-sm text-blue-700 dark:text-blue-400">
-                            {audioProgress.current}/{audioProgress.total}
-                          </span>
+                           <h6 className="text-sm font-medium text-blue-900 dark:text-blue-300">
+                             {t('labels.audio_generation_progress')}
+                           </h6>
+                           <span className="text-sm text-blue-700 dark:text-blue-400">
+                             {t('messages.audio_task_status', { current: audioProgress.current, total: audioProgress.total })}
+                           </span>
                         </div>
                         <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2 mb-2">
                           <div
@@ -4099,9 +4103,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {showResults && audioResults.length > 0 && (
                       <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
                         <div className="flex items-center justify-between mb-3">
-                          <h6 className="text-sm font-medium text-gray-900 dark:text-white">
-                            🎯 Generation Results
-                          </h6>
+                           <h6 className="text-sm font-medium text-gray-900 dark:text-white">
+                             🎯 {t('labels.generation_results')}
+                           </h6>
                           <button
                             onClick={() => setShowResults(false)}
                             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -4124,16 +4128,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </div>
                         <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
                           <div className="flex items-center justify-between text-sm">
-                            <span className="text-gray-600 dark:text-gray-400">
-                              Success: {audioResults.filter(r => r.includes('✅')).length}/{audioResults.length}
-                            </span>
+                             <span className="text-gray-600 dark:text-gray-400">
+                               {t('labels.success')}: {audioResults.filter(r => r.includes('✅')).length}/{audioResults.length}
+                             </span>
                             <button
                               onClick={() => fetchAdditionalData()}
                               className="inline-flex items-center px-2 py-1 text-xs bg-tuggi-blue text-white rounded hover:bg-tuggi-blue/90"
                             >
-                              <RotateCcw className="h-3 w-3 mr-1" />
-                              Refresh List
-                            </button>
+                               <RotateCcw className="h-3 w-3 mr-1" />
+                               {t('actions.refresh')}
+                             </button>
                           </div>
                         </div>
                       </div>
@@ -4143,21 +4147,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {translatedDescriptions.length > 0 && (
                       <div className="bg-gray-50 dark:bg-gray-800 p-6 rounded-lg border border-gray-200 dark:border-gray-700">
                         <div className="flex items-center justify-between mb-4">
-                          <h5 className="text-lg font-medium text-gray-900 dark:text-white">
-                            🎵 Available Audios
-                          </h5>
+                           <h5 className="text-lg font-medium text-gray-900 dark:text-white">
+                             🎵 {t('labels.available_audios')}
+                           </h5>
 
                         </div>
                         <div className="overflow-x-auto">
                           <table className="w-full table-auto">
                             <thead>
                               <tr className="border-b border-gray-200 dark:border-gray-600">
-                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Language</th>
-                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Gender</th>
-                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Description</th>
-                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Audio</th>
-                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Stats</th>
-                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">Actions</th>
+                                 <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.language')}</th>
+                                 <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.gender')}</th>
+                                 <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.description')}</th>
+                                 <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.audio')}</th>
+                                 <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.stats')}</th>
+                                 <th className="text-left py-2 px-3 text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.actions')}</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -4166,24 +4170,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                   <td className="py-3 px-3 text-sm">
                                     <div className="flex items-center space-x-2">
                                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300">
-                                        {(() => {
-                                          const names: Record<string, string> = {
-                                            'pt-br': '🇧🇷 Português (Brasil)',
-                                            'pt': '🇧🇷 Português (Brasil)',
-                                            'pt-pt': '🇵🇹 Português (Portugal)',
-                                            'en-us': '🇺🇸 English (US)',
-                                            'en-gb': '🇬🇧 English (UK)',
-                                            'es-es': '🇪🇸 Spanish (Spain)',
-                                            'de-de': '🇩🇪 German',
-                                            'fr-fr': '🇫🇷 French',
-                                            'it-it': '🇮🇹 Italian',
-                                            'ja-jp': '🇯🇵 Japanese',
-                                            'cmn-cn': '🇨🇳 Mandarin',
-                                            'ko-kr': '🇰🇷 Korean',
-                                            'ru-ru': '🇷🇺 Russian'
-                                          };
-                                          return names[desc.language?.toLowerCase()] || desc.language?.toUpperCase();
-                                        })()}
+                                        {t(`languages.${desc.language?.toLowerCase()}`) || desc.language?.toUpperCase()}
                                       </span>
                                       {(() => {
                                         // Check if audio might be outdated
@@ -4207,7 +4194,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                       ? 'bg-indigo-100 dark:bg-indigo-900/20 text-indigo-800 dark:text-indigo-300'
                                       : 'bg-pink-100 dark:bg-pink-900/20 text-pink-800 dark:text-pink-300'
                                       }`}>
-                                      {desc.gender === 'male' ? '♂️ Male' : '♀️ Female'}
+                                       {desc.gender === 'male' ? `♂️ ${t('labels.male')}` : `♀️ ${t('labels.female')}`}
                                     </span>
                                   </td>
                                   <td className="py-3 px-3 text-sm">
@@ -4226,18 +4213,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                         }}
                                         className="inline-flex items-center px-2 py-1 text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800/30"
                                       >
-                                        <Volume2 className="h-3 w-3 mr-1" />
-                                        Play
-                                      </button>
+                                         <Volume2 className="h-3 w-3 mr-1" />
+                                         {t('actions.play')}
+                                       </button>
                                     ) : (
-                                      <span className="text-xs text-gray-500 dark:text-gray-400">No audio</span>
+                                       <span className="text-xs text-gray-500 dark:text-gray-400">{tCommon('messages.no_audio')}</span>
                                     )}
                                   </td>
                                   <td className="py-3 px-3 text-sm">
                                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                                      <p>Plays: {desc.play_count || 0}</p>
+                                       <p>{t('labels.plays')}: {desc.play_count || 0}</p>
                                       {desc.last_played_at && (
-                                        <p>Last: {formatDate(desc.last_played_at)}</p>
+                                         <p>{t('labels.last_played')}: {formatDate(desc.last_played_at)}</p>
                                       )}
                                     </div>
                                   </td>
@@ -4248,26 +4235,26 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                           onClick={() => window.open(desc.audio_url, '_blank')}
                                           className="inline-flex items-center px-2 py-1 text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded hover:bg-green-200 dark:hover:bg-green-800/30"
                                         >
-                                          <Download className="h-3 w-3 mr-1" />
-                                          Download
-                                        </button>
+                                           <Download className="h-3 w-3 mr-1" />
+                                           {t('actions.download')}
+                                         </button>
                                       )}
                                       <button
                                         onClick={() => regenerateTranslation(desc.language, desc.gender)}
                                         disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
                                         className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800/30 disabled:opacity-50"
                                       >
-                                        <RotateCcw className="h-3 w-3 mr-1" />
-                                        Regenerate
-                                      </button>
+                                         <RotateCcw className="h-3 w-3 mr-1" />
+                                         {t('actions.regenerate')}
+                                       </button>
                                       <button
                                         onClick={() => deleteTranslation(desc.id, desc.language, desc.gender)}
                                         disabled={isTranslating || isSavingDescription || isGeneratingAudio || isGenerating}
                                         className="inline-flex items-center px-2 py-1 text-xs bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded hover:bg-red-200 dark:hover:bg-red-800/30 disabled:opacity-50"
                                       >
-                                        <Trash2 className="h-3 w-3 mr-1" />
-                                        Delete
-                                      </button>
+                                         <Trash2 className="h-3 w-3 mr-1" />
+                                         {tCommon('actions.delete')}
+                                       </button>
                                     </div>
                                   </td>
                                 </tr>
@@ -4282,16 +4269,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {translatedDescriptions.length === 0 && (
                       <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg text-center">
                         <Volume2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                        <h5 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                          No Audio Available
-                        </h5>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                          Generate audio narration from the attraction description to provide visitors with rich, spoken content.
-                        </p>
+                         <h5 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                           {t('labels.no_audio_available')}
+                         </h5>
+                         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                           {t('labels.no_audio_description')}
+                         </p>
                         {!currentDescription.trim() && (
-                          <p className="text-sm text-tuggi-orange">
-                            ⚠️ Please save a description first before generating audio narration.
-                          </p>
+                           <p className="text-sm text-tuggi-orange">
+                             ⚠️ {t('labels.save_description_first')}
+                           </p>
                         )}
                       </div>
                     )}
@@ -4306,15 +4293,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </span>
                       </div>
                       <div className="flex-1">
-                        <h6 className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
-                          🤖 Intelligent Audio Regeneration System
-                        </h6>
-                        <div className="text-sm text-blue-800 dark:text-blue-300 space-y-1">
-                          <p>• <strong>Automatic Detection:</strong> When you save a modified description, the system will offer to regenerate all audios automatically</p>
-                          <p>• <strong>Individual Regeneration:</strong> Use the "Regenerate" button next to each audio to update only a specific language/gender</p>
-                          <p>• <strong>Complete Regeneration:</strong> Use "Regenerate All Audios" to recreate all audios (PT, EN, ES) based on the current description</p>
-                          <p>• <strong>Visual Indicators:</strong> The ⚠️ symbol indicates audios that may be outdated relative to the Portuguese description</p>
-                        </div>
+                        <h3 className="font-bold text-sm text-amber-700 dark:text-amber-500 mb-2">{t('audio_tips.title')}</h3>
+                        <ul className="text-xs text-amber-600 dark:text-amber-400 space-y-2">
+                          <li>• <strong>{t('audio_tips.automatic_detection')}</strong></li>
+                          <li>• <strong>{t('audio_tips.individual_regeneration')}</strong></li>
+                          <li>• <strong>{t('audio_tips.complete_regeneration')}</strong></li>
+                          <li>• <strong>{t('audio_tips.visual_indicators')}</strong></li>
+                        </ul>
                       </div>
                     </div>
                   </div>
@@ -4327,12 +4312,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     🔍 Debug Information
                   </h5>
                   <div className="text-xs text-yellow-700 dark:text-yellow-300 space-y-1">
-                    <p><strong>Current Description Length:</strong> {currentDescription.length} characters</p>
-                    <p><strong>Descriptions Found:</strong> {descriptions.length} records</p>
-                    <p><strong>Available Languages:</strong> {descriptions.map(d => d.language).join(', ') || 'None'}</p>
-                    <p><strong>Has Audio URL:</strong> {currentAudioUrl ? 'Yes' : 'No'}</p>
+                    <p><strong>{t('debug.description_length', { count: currentDescription.length })}</strong></p>
+                    <p><strong>{t('debug.descriptions_found', { count: descriptions.length })}</strong></p>
+                    <p><strong>{t('debug.available_languages', { languages: descriptions.map(d => d.language).join(', ') || 'None' })}</strong></p>
+                    <p><strong>{t('debug.has_audio_url', { hasAudio: currentAudioUrl ? 'Yes' : 'No' })}</strong></p>
                     {descriptions.length > 0 && (
-                      <p><strong>First Description Preview:</strong> {descriptions[0]?.description?.substring(0, 50) || 'Empty'}...</p>
+                      <p><strong>{t('debug.first_description_preview', { preview: descriptions[0]?.description?.substring(0, 50) || 'Empty' })}</strong></p>
                     )}
                   </div>
                 </div> */}
@@ -4348,17 +4333,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       <div>
                         <h4 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                           <Users className="h-5 w-5 text-tuggi-blue" />
-                          Group Management
+                          {t('labels.group_management')}
                         </h4>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                          Create or manage groups of nearby POIs for combined audio experiences
+                          {t('labels.group_management_description')}
                         </p>
                       </div>
                       {groupInfo && (
                         <div className="flex items-center gap-2">
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800">
                             <CheckCircle className="h-4 w-4 mr-1" />
-                            Grouped
+                            {t('labels.grouped')}
                           </span>
                         </div>
                       )}
@@ -4375,11 +4360,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           </div>
                           <div className="flex-1">
                             <h5 className="font-medium text-gray-900 dark:text-white">
-                              {groupInfo.name}
-                            </h5>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              This POI is part of a group. Group descriptions will be shared across all members.
-                            </p>
+                               {groupInfo.name}
+                             </h5>
+                             <p className="text-sm text-gray-600 dark:text-gray-400">
+                               {t('labels.group_member_hint')}
+                             </p>
                           </div>
                         </div>
                       </div>
@@ -4388,13 +4373,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {/* Map Section */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <h5 className="font-medium text-gray-900 dark:text-white">
-                          Select Area & POIs
-                        </h5>
+                         <h5 className="font-medium text-gray-900 dark:text-white">
+                           {t('labels.select_area_pois')}
+                         </h5>
                         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                          <MapPin className="h-4 w-4" />
-                          Draw polygon to find nearby POIs
-                        </div>
+                           <MapPin className="h-4 w-4" />
+                           {t('labels.draw_polygon_hint')}
+                         </div>
                       </div>
 
                       <div className="relative">
@@ -4421,17 +4406,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         <div className="absolute top-3 right-3 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3">
                           <div className="space-y-2 text-xs">
                             <div className="flex items-center gap-2">
-                              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                              <span className="text-gray-700 dark:text-gray-300">Main POI</span>
-                            </div>
+                               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                               <span className="text-gray-700 dark:text-gray-300">{t('labels.main_poi')}</span>
+                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="w-3 h-3 bg-tuggi-orange rounded-full"></div>
-                              <span className="text-gray-700 dark:text-gray-300">Selected</span>
-                            </div>
+                               <div className="w-3 h-3 bg-tuggi-orange rounded-full"></div>
+                               <span className="text-gray-700 dark:text-gray-300">{tCommon('status.selected')}</span>
+                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
-                              <span className="text-gray-700 dark:text-gray-300">Available</span>
-                            </div>
+                               <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                               <span className="text-gray-700 dark:text-gray-300">{tCommon('status.available')}</span>
+                             </div>
                           </div>
                         </div>
                       </div>
@@ -4439,9 +4424,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                     {/* POI Selection Section */}
                     <div className="space-y-3">
-                      <h5 className="font-medium text-gray-900 dark:text-white">
-                        Nearby POIs ({nearbyPOIs.length} found)
-                      </h5>
+                       <h5 className="font-medium text-gray-900 dark:text-white">
+                         {t('labels.nearby_pois_found', { count: nearbyPOIs.length })}
+                       </h5>
 
                       {nearbyPOIs.length > 0 ? (
                         <div className="space-y-2">
@@ -4484,60 +4469,60 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       ) : (
                         <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                           <MapPin className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
-                          <p className="text-sm font-medium">No nearby POIs found</p>
-                          <p className="text-xs mt-1">Draw a polygon on the map to search for POIs in a specific area</p>
-                        </div>
+                         <p className="text-sm font-medium">{t('labels.no_nearby_pois')}</p>
+                         <p className="text-xs mt-1">{t('labels.draw_polygon_instruction')}</p>
+                       </div>
                       )}
                     </div>
 
                     {/* Group Configuration */}
                     <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                      <h5 className="font-medium text-gray-900 dark:text-white">
-                        Group Configuration
-                      </h5>
+                       <h5 className="font-medium text-gray-900 dark:text-white">
+                         {t('labels.group_configuration')}
+                       </h5>
 
                       <div className="space-y-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Group Name
-                          </label>
+                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                             {t('labels.group_name')}
+                           </label>
                           <input
                             type="text"
-                            value={groupName}
-                            onChange={e => setGroupName(e.target.value)}
-                            placeholder="Enter group name"
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                          />
+                             value={groupName}
+                             onChange={e => setGroupName(e.target.value)}
+                             placeholder={t('placeholders.enter_group_name')}
+                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                           />
                         </div>
 
                         <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                           <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">
-                              Main POI: {getPoi()?.name || 'N/A'}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">
-                              This POI will hold the group description
-                            </p>
+                             <p className="text-sm font-medium text-gray-900 dark:text-white">
+                               {t('labels.main_poi')}: {getPoi()?.name || 'N/A'}
+                             </p>
+                             <p className="text-xs text-gray-500 dark:text-gray-400">
+                               {t('labels.main_poi_hint')}
+                             </p>
                           </div>
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300">
-                            Main
-                          </span>
+                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300">
+                             {tCommon('status.main')}
+                           </span>
                         </div>
 
                         {selectedPOIs.length > 0 && (
                           <div className="p-3 bg-tuggi-blue/5 dark:bg-tuggi-blue/10 rounded-lg">
-                            <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-                              Selected POIs ({selectedPOIs.length})
-                            </p>
+                             <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">
+                               {tCommon('status.selected')} POIs ({selectedPOIs.length})
+                             </p>
                             <div className="space-y-1">
                               {selectedPOIs.map(id => {
                                 // First check if it's the main POI
                                 if (id === getPoi()?.id) {
                                   return (
                                     <div key={id} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                                      <Users className="h-3 w-3" />
-                                      {getPoi()?.name || 'N/A'} (Main)
-                                    </div>
+                                       <Users className="h-3 w-3" />
+                                       {getPoi()?.name || 'N/A'} ({tCommon('status.main')})
+                                     </div>
                                   )
                                 }
                                 // Then check if it's in nearbyPOIs
@@ -4563,27 +4548,27 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {/* Action Buttons */}
                     <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
                       <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {selectedPOIs.length === 0 ? (
-                          <span>Select at least 1 POI to create a group</span>
-                        ) : (
-                          <span>Ready to {groupInfo ? 'update' : 'create'} group with {selectedPOIs.length + 1} POIs</span>
-                        )}
+                         {selectedPOIs.length === 0 ? (
+                           <span>{t('labels.select_poi_to_create')}</span>
+                         ) : (
+                           <span>{t('labels.ready_to_create', { action: groupInfo ? tCommon('actions.update') : tCommon('actions.create'), count: selectedPOIs.length + 1 })}</span>
+                         )}
                       </div>
 
                       <div className="flex items-center gap-3">
                         {groupInfo && (
                           <button
                             onClick={() => {
-                              // Handle group deletion
-                              if (window.confirm('Are you sure you want to disband this group?')) {
+                               // Handle group deletion
+                               if (window.confirm(t('labels.disband_confirm'))) {
                                 // Add delete group logic here
                               }
                             }}
                             className="inline-flex items-center px-3 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500"
                           >
-                            <Trash2 className="h-4 w-4 mr-1" />
-                            Disband Group
-                          </button>
+                             <Trash2 className="h-4 w-4 mr-1" />
+                             {t('labels.disband_group')}
+                           </button>
                         )}
 
                         <button
@@ -4606,8 +4591,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                 ) : (
                   <div className="text-center py-12 text-gray-500 dark:text-gray-400">
                     <MapPin className="h-16 w-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
-                    <p className="text-lg font-medium">No coordinates available</p>
-                    <p className="text-sm mt-1">This POI needs coordinates to create groups with nearby POIs</p>
+                    <p className="text-lg font-medium">{t('labels.no_coordinates_available')}</p>
+                    <p className="text-sm mt-1">{t('labels.need_coordinates_hint')}</p>
                   </div>
                 )}
               </div>
@@ -4618,10 +4603,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   <div className="text-center">
                     <h4 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center justify-center gap-2">
                       <CheckCircle className="h-5 w-5 text-tuggi-blue" />
-                      Review for Approval
+                      {t('labels.review_for_approval')}
                     </h4>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                      Verify all information is correct before approving the POI
+                      {t('labels.verify_info_hint')}
                     </p>
 
                     {/* Score Badge - Always visible */}
@@ -4634,14 +4619,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       )}>
                         <div className="flex flex-col items-center">
                           <div className="flex items-center">
-                            <span className="font-bold text-lg">
-                              {verificationResult ? `${verificationResult.score}/100` : 'Not Verified'}
-                            </span>
+                             <span className="font-bold text-lg">
+                               {verificationResult ? `${verificationResult.score}/100` : t('labels.not_verified')}
+                             </span>
                             {verificationResult?.approved && <CheckCircle className="h-5 w-5 ml-2 text-green-600" />}
                           </div>
-                          <span className="text-sm mt-1">
-                            {verificationResult ? getScoreDescription(verificationResult.score / 100) : 'Not Verified'}
-                          </span>
+                           <span className="text-sm mt-1">
+                             {verificationResult ? getScoreDescription(verificationResult.score / 100) : t('labels.not_verified')}
+                           </span>
                         </div>
                       </div>
                     </div>
@@ -4649,17 +4634,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                   {/* POI Summary */}
                   <div className="bg-white dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                    <h5 className="text-base font-medium text-gray-900 dark:text-white mb-3">
-                      POI Summary
-                    </h5>
+                     <h5 className="text-base font-medium text-gray-900 dark:text-white mb-3">
+                       {t('labels.poi_summary')}
+                     </h5>
 
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Name</p>
-                        <p className="text-gray-900 dark:text-white truncate">{getPoi()?.name || 'N/A'}</p>
+                         <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('labels.name')}</p>
+                         <p className="text-gray-900 dark:text-white truncate">{getPoi()?.name || 'N/A'}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Types</p>
+                         <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{tCommon('labels.types')}</p>
                         <div className="flex flex-wrap gap-1">
                           {getPoi()?.google_types && getPoi()!.google_types!.length > 0 ? (
                             getPoi()!.google_types!.slice(0, 3).map((type: string, index: number) => (
@@ -4668,22 +4653,22 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300"
                               >
                                 {type.replace(/_/g, ' ')}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-gray-500 dark:text-gray-400 text-xs">No types</span>
-                          )}
+                               </span>
+                             ))
+                           ) : (
+                             <span className="text-gray-500 dark:text-gray-400 text-xs">{t('labels.no_types')}</span>
+                           )}
                           {getPoi()?.google_types && getPoi()!.google_types!.length > 3 && (
                             <span className="text-xs text-gray-500 dark:text-gray-400">+{getPoi()!.google_types!.length - 3} more</span>
                           )}
                         </div>
                       </div>
                       <div>
-                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Location</p>
-                        <p className="text-gray-900 dark:text-white truncate">{getPoi()?.city || 'N/A'}, {getPoi()?.state || getPoi()?.country || 'N/A'}</p>
+                         <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{tCommon('labels.location')}</p>
+                         <p className="text-gray-900 dark:text-white truncate">{getPoi()?.city || 'N/A'}, {getPoi()?.state || getPoi()?.country || 'N/A'}</p>
                       </div>
                       <div>
-                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Rating</p>
+                         <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('labels.rating')}</p>
                         <div className="flex items-center gap-1">
                           <Star className="h-3 w-3 text-yellow-400" />
                           <span className="text-gray-900 dark:text-white">{getPoi()?.rating?.toFixed(1) || 'N/A'}</span>
@@ -4694,7 +4679,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {currentDescription.trim() && (
                       <div className="mt-3">
                         <div className="flex justify-between items-center mb-1">
-                          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Description</p>
+                           <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('labels.description')}</p>
                           {verificationResult && (
                             <span className={cn(
                               "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
@@ -4716,17 +4701,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                   {/* Validation Summary */}
                   <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-                    <h5 className="text-base font-medium text-gray-900 dark:text-white mb-3">
-                      Validation Status
-                    </h5>
+                     <h5 className="text-base font-medium text-gray-900 dark:text-white mb-3">
+                       {t('labels.validation_status')}
+                     </h5>
 
                     <div className="space-y-2">
                       {/* Description Check */}
                       <div className="flex items-center justify-between p-2 rounded border border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center gap-2">
-                          <FileText className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">Description</span>
-                        </div>
+                         <div className="flex items-center gap-2">
+                           <FileText className="h-4 w-4 text-gray-500" />
+                           <span className="text-sm font-medium text-gray-900 dark:text-white">{t('labels.description')}</span>
+                         </div>
                         <div className="flex items-center gap-2">
                           {/* Status badge */}
                           {currentDescription.trim() ? (
@@ -4738,11 +4723,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                     (verificationResult?.score || 0) > 0 ? "bg-orange-100 text-orange-800" :
                                       "bg-blue-100 text-blue-800"
                               )}>
-                                {verificationResult ?
-                                  verificationResult.approved ? 'Verified' :
-                                    `Score: ${verificationResult.score}/100`
-                                  : 'Complete'}
-                              </div>
+                                 {verificationResult ?
+                                   verificationResult.approved ? t('labels.verified') :
+                                     `Score: ${verificationResult.score}/100`
+                                   : tCommon('status.complete')}
+                               </div>
 
                               {/* Icon */}
                               {verificationResult?.approved ? (
@@ -4755,46 +4740,46 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             </>
                           ) : (
                             <>
-                              <AlertTriangle className="h-4 w-4 text-red-500" />
-                              <span className="text-xs text-red-600 dark:text-red-400">Required</span>
-                            </>
+                               <AlertTriangle className="h-4 w-4 text-red-500" />
+                               <span className="text-xs text-red-600 dark:text-red-400">{tCommon('status.required')}</span>
+                             </>
                           )}
                         </div>
                       </div>
 
                       {/* Audio Check */}
                       <div className="flex items-center justify-between p-2 rounded border border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center gap-2">
-                          <Volume2 className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">Audio</span>
-                        </div>
+                         <div className="flex items-center gap-2">
+                           <Volume2 className="h-4 w-4 text-gray-500" />
+                           <span className="text-sm font-medium text-gray-900 dark:text-white">{t('labels.audio')}</span>
+                         </div>
                         <div className="flex items-center gap-1">
                           {translatedDescriptions.length > 0 ? (
                             <>
-                              <CheckCircle className="h-4 w-4 text-green-500" />
-                              <span className="text-xs text-green-600 dark:text-green-400">
-                                {translatedDescriptions.length} audio(s) available
-                              </span>
-                            </>
+                               <CheckCircle className="h-4 w-4 text-green-500" />
+                               <span className="text-xs text-green-600 dark:text-green-400">
+                                 {t('labels.audios_available', { count: translatedDescriptions.length })}
+                               </span>
+                             </>
                           ) : (
                             <>
-                              <AlertTriangle className="h-4 w-4 text-red-500" />
-                              <span className="text-xs text-red-600 dark:text-red-400">Minimum 1 audio required</span>
-                            </>
+                               <AlertTriangle className="h-4 w-4 text-red-500" />
+                               <span className="text-xs text-red-600 dark:text-red-400">{t('labels.min_audio_required')}</span>
+                             </>
                           )}
                         </div>
                       </div>
 
                       {/* Trigger Points Check */}
                       <div className="flex items-center justify-between p-2 rounded border border-gray-200 dark:border-gray-700">
-                        <div className="flex items-center gap-2">
-                          <Target className="h-4 w-4 text-gray-500" />
-                          <span className="text-sm font-medium text-gray-900 dark:text-white">Trigger Points</span>
-                        </div>
+                         <div className="flex items-center gap-2">
+                           <Target className="h-4 w-4 text-gray-500" />
+                           <span className="text-sm font-medium text-gray-900 dark:text-white">{t('labels.trigger_points')}</span>
+                         </div>
                         <div className="flex items-center gap-1">
                           <Info className="h-4 w-4 text-blue-500" />
                           <span className="text-xs text-blue-600 dark:text-blue-400">
-                            Optional ({translatedDescriptions.length || 0} configured)
+                            {t('labels.optional')} ({t('labels.configured', { count: translatedDescriptions.length || 0 })})
                           </span>
                         </div>
                       </div>
@@ -4816,18 +4801,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <CheckCircle className="h-5 w-5 text-green-500" />
                           <div className="flex-1">
                             <div className="flex items-center justify-between">
-                              <h6 className="text-sm font-medium text-green-900 dark:text-green-200">
-                                Ready for Approval
-                              </h6>
+                               <h6 className="text-sm font-medium text-green-900 dark:text-green-200">
+                                 {t('labels.ready_for_approval')}
+                               </h6>
                               {verificationResult && (
                                 <span className="text-xs font-bold bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
-                                  Review Score: {verificationResult.score}
+                                  {t('labels.review_score', { score: verificationResult.score })}
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-green-700 dark:text-green-300">
-                              All required criteria have been met
-                            </p>
+                             <p className="text-xs text-green-700 dark:text-green-300">
+                               {t('labels.requirements_met')}
+                             </p>
                           </div>
                         </>
                       ) : (
@@ -4835,18 +4820,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <AlertTriangle className="h-5 w-5 text-red-500" />
                           <div className="flex-1">
                             <div className="flex items-center justify-between">
-                              <h6 className="text-sm font-medium text-red-900 dark:text-red-200">
-                                Pending Requirements
-                              </h6>
+                               <h6 className="text-sm font-medium text-red-900 dark:text-red-200">
+                                 {t('labels.pending_requirements')}
+                               </h6>
                               {verificationResult && (
                                 <span className="text-xs font-bold bg-red-100 text-red-800 px-2 py-0.5 rounded-full">
-                                  Review Score: {verificationResult.score}
+                                  {t('labels.review_score', { score: verificationResult.score })}
                                 </span>
                               )}
                             </div>
-                            <p className="text-xs text-red-700 dark:text-red-300">
-                              Complete required criteria before approval
-                            </p>
+                             <p className="text-xs text-red-700 dark:text-red-300">
+                               {t('labels.complete_criteria_hint')}
+                             </p>
                           </div>
                         </>
                       )}
@@ -4867,7 +4852,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     onClick={onClose}
                     className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
                   >
-                    Cancel
+                    {t('actions.cancel')}
                   </button>
                   {!getPoi()?.approved && cmsUserRole === 'admin' && (
                     <button
@@ -4875,15 +4860,15 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       disabled={isSaving || !currentDescription.trim() || translatedDescriptions.length === 0}
                       className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
                     >
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      {isSaving ? 'Approving...' : 'Approve POI'}
-                    </button>
+                       <CheckCircle className="h-4 w-4 mr-2" />
+                       {isSaving ? t('labels.approving') : tCommon('actions.approve')}
+                     </button>
                   )}
                   {getPoi()?.approved && cmsUserRole === 'admin' && (
                     <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-md">
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      POI Approved
-                    </div>
+                       <CheckCircle className="h-4 w-4 mr-2" />
+                       {t('labels.poi_approved')}
+                     </div>
                   )}
                 </div>
               </div>

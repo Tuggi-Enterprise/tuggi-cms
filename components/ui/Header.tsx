@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+// import Link from 'next/link' // Replaced by next-intl Link
+import { Link, usePathname, useRouter } from '@/navigation'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { useRouter } from 'next/navigation'
-import { useTheme } from '@/app/providers'
+import { useTheme } from '@/app/[locale]/providers'
+import { useTranslations } from 'next-intl'
 import {
   LayoutDashboard,
   MapPin,
@@ -26,90 +26,93 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
-
-const navigation = [
-  // Main
-  {
-    name: 'Dashboard',
-    href: '/dashboard',
-    icon: LayoutDashboard,
-    category: 'main'
-  },
-  
-  // POI Management
-  {
-    name: 'Browse POIs',
-    href: '/pois',
-    icon: MapPin,
-    category: 'pois'
-  },
-  {
-    name: 'POI Migration',
-    href: '/poi-migration',
-    icon: ArrowRightLeft,
-    category: 'pois'
-  },
-  {
-    name: 'OSM Importer',
-    href: '/osm-importer',
-    icon: Database,
-    category: 'pois'
-  },
-  {
-    name: 'POI Fetching',
-    href: '/poi-importer',
-    icon: Upload,
-    category: 'pois'
-  },
-  
-  // Trigger Points
-  {
-    name: 'Generation',
-    href: '/trigger-points-generation',
-    icon: Target,
-    category: 'trigger_points'
-  },
-  {
-    name: 'Single Test',
-    href: '/trigger-points-single',
-    icon: Target,
-    category: 'trigger_points'
-  },
-  
-  // Users Management
-  {
-    name: 'CMS Team',
-    href: '/users/cms',
-    icon: UserCog,
-    category: 'users'
-  },
-  {
-    name: 'App Users',
-    href: '/users/app',
-    icon: Smartphone,
-    category: 'users'
-  },
-  
-  // Analytics / Visualization
-  {
-    name: 'Trail Map',
-    href: '/trail-visualization',
-    icon: Route,
-    category: 'visualization'
-  },
-]
+import { LanguageSwitcher } from './LanguageSwitcher' // Imported LanguageSwitcher
 
 interface HeaderProps {
   className?: string
 }
 
 export function Header({ className }: HeaderProps) {
+  const t = useTranslations('Navigation');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
   const pathname = usePathname()
   const supabase = useSupabaseClient()
   const router = useRouter()
   const { theme, toggleTheme } = useTheme()
+
+  // Navigation definition needs to be inside component to use translations
+  const navigation = [
+    // Main
+    {
+      name: t('dashboard'),
+      href: '/dashboard',
+      icon: LayoutDashboard,
+      category: 'main'
+    },
+    
+    // POI Management
+    {
+      name: t('pois'),
+      href: '/pois',
+      icon: MapPin,
+      category: 'pois'
+    },
+    {
+      name: t('poi_migration'),
+      href: '/poi-migration',
+      icon: ArrowRightLeft,
+      category: 'pois'
+    },
+    {
+      name: t('osm_importer'),
+      href: '/osm-importer',
+      icon: Database,
+      category: 'pois'
+    },
+    {
+      name: t('poi_fetching'),
+      href: '/poi-importer',
+      icon: Upload,
+      category: 'pois'
+    },
+    
+    // Trigger Points
+    {
+      name: t('generation'),
+      href: '/trigger-points-generation',
+      icon: Target,
+      category: 'trigger_points'
+    },
+    {
+      name: t('single_test'),
+      href: '/trigger-points-single',
+      icon: Target,
+      category: 'trigger_points'
+    },
+    
+    // Users Management
+    {
+      name: t('cms_team'),
+      href: '/users/cms',
+      icon: UserCog,
+      category: 'users'
+    },
+    {
+      name: t('app_users'),
+      href: '/users/app',
+      icon: Smartphone,
+      category: 'users'
+    },
+    
+    // Analytics / Visualization
+    {
+      name: t('trail_map'),
+      href: '/trail-visualization',
+      icon: Route,
+      category: 'visualization'
+    },
+  ]
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -130,7 +133,7 @@ export function Header({ className }: HeaderProps) {
 
   const renderNavItem = (item: any, isActive: boolean, onClick?: () => void, showCategory?: boolean) => (
     <Link
-      key={item.name}
+      key={item.href} // Changed key to href for uniqueness
       href={item.href}
       className={cn(
         'flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-300 relative group overflow-hidden',
@@ -186,7 +189,7 @@ export function Header({ className }: HeaderProps) {
               const isActive = pathname === item.href
               return (
                 <Link
-                  key={item.name}
+                  key={item.href}
                   href={item.href}
                   className={cn(
                     'flex items-center px-4 py-2 text-sm transition-colors duration-200',
@@ -219,7 +222,7 @@ export function Header({ className }: HeaderProps) {
             <TuggiLogo size="sm" showText={true} />
           </div>
 
-                    {/* Desktop Navigation */}
+          {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center space-x-2">
             {/* Dashboard */}
             {navigation.filter(item => item.category === 'main').map((item) => {
@@ -230,19 +233,19 @@ export function Header({ className }: HeaderProps) {
             {/* POIs - Dropdown */}
             {(() => {
               const poiItems = navigation.filter(item => item.category === 'pois')
-              return renderDropdown('pois', poiItems, 'POIs')
+              return renderDropdown('pois', poiItems, t('pois'))
             })()}
 
             {/* Trigger Points - Dropdown */}
             {(() => {
               const triggerPointsItems = navigation.filter(item => item.category === 'trigger_points')
-              return renderDropdown('trigger_points', triggerPointsItems, 'Trigger Points')
+              return renderDropdown('trigger_points', triggerPointsItems, t('trigger_points'))
             })()}
 
             {/* Users - Dropdown */}
             {(() => {
               const userItems = navigation.filter(item => item.category === 'users')
-              return renderDropdown('users', userItems, 'Users')
+              return renderDropdown('users', userItems, t('users')) // Fixed: was using variable categoryName passed to function, now passing translated title
             })()}
 
             {/* Trail Map - Single item */}
@@ -254,11 +257,14 @@ export function Header({ className }: HeaderProps) {
 
           {/* Right side actions */}
           <div className="flex items-center space-x-1">
+            {/* Language Switcher */}
+            <LanguageSwitcher />
+
             {/* Theme toggle */}
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-all duration-300 hover:scale-105 hover:shadow-sm"
-              title="Toggle theme"
+              title={t('toggle_theme')}
             >
               {theme === 'dark' ? (
                 <Sun className="h-4 w-4 text-gray-600 dark:text-gray-400 transition-transform duration-300 hover:rotate-12" />
@@ -271,7 +277,7 @@ export function Header({ className }: HeaderProps) {
             <button
               onClick={handleLogout}
               className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 hover:scale-105 hover:shadow-sm text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400"
-              title="Logout"
+              title={t('logout')}
             >
               <LogOut className="h-4 w-4 transition-transform duration-300 hover:translate-x-0.5" />
             </button>
@@ -297,7 +303,7 @@ export function Header({ className }: HeaderProps) {
               {/* Dashboard */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Dashboard
+                  {t('dashboard')}
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'main').map((item) => {
@@ -310,7 +316,7 @@ export function Header({ className }: HeaderProps) {
               {/* POIs */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  POIs
+                  {t('pois')}
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'pois').map((item) => {
@@ -323,7 +329,7 @@ export function Header({ className }: HeaderProps) {
               {/* Trigger Points */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Trigger Points
+                  {t('trigger_points')}
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'trigger_points').map((item) => {
@@ -336,7 +342,7 @@ export function Header({ className }: HeaderProps) {
               {/* Users */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Users
+                  {t('users')}
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'users').map((item) => {
@@ -349,7 +355,7 @@ export function Header({ className }: HeaderProps) {
               {/* Visualization */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Visualization
+                  {t('visualization')}
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'visualization').map((item) => {

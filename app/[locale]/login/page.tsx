@@ -1,14 +1,17 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Link from 'next/link'
+import { Link, useRouter } from '@/navigation' // Updated imports
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { TuggiLogo } from '@/components/ui/TuggiLogo'
+import { useTranslations } from 'next-intl'
 import type { CmsUser } from '@/lib/supabase'
 
 export default function LoginPage() {
+  const t = useTranslations('Pages.Login');
+  const tCommon = useTranslations('Common.actions');
+  
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -161,10 +164,10 @@ export default function LoginPage() {
             Tuggi
           </h1>
           <h2 className="text-xl font-medium text-tuggi-blue mb-3">
-            Content Management System
+            {t('title')}
           </h2>
           <p className="text-sm text-gray-600">
-            Sign in to manage your points of interest
+            {t('subtitle')}
           </p>
         </div>
 
@@ -179,7 +182,7 @@ export default function LoginPage() {
 
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-tuggi-text mb-2">
-              Email address
+              {t('email_label')}
             </label>
             <input
               id="email"
@@ -191,13 +194,13 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               disabled={isLoading}
               className="tuggi-input appearance-none relative block w-full px-4 py-3 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50 disabled:cursor-not-allowed sm:text-sm"
-              placeholder="Enter your email"
+              placeholder={t('email_placeholder')}
             />
           </div>
 
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-tuggi-text mb-2">
-              Password
+              {t('password_label')}
             </label>
             <div className="relative">
               <input
@@ -210,7 +213,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
                 className="tuggi-input appearance-none relative block w-full px-4 py-3 pr-12 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50 disabled:cursor-not-allowed sm:text-sm"
-                placeholder="Enter your password"
+                placeholder={t('password_placeholder')}
               />
               <button
                 type="button"
@@ -235,24 +238,24 @@ export default function LoginPage() {
             {isLoading ? (
               <div className="flex items-center space-x-2">
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                <span>Signing in...</span>
+                <span>{t('signing_in')}</span>
               </div>
             ) : (
-              'Sign in'
+              t('sign_in_button')
             )}
           </button>
 
           <div className="text-center text-sm text-gray-600">
-            <span className="mr-1">Não tem conta?</span>
+            <span className="mr-1">{t('no_account')}</span>
             <Link href="/client-signup" className="font-semibold text-tuggi-blue hover:text-tuggi-orange transition">
-              Solicitar acesso como cliente
+              {t('request_access')}
             </Link>
           </div>
         </form>
 
         {/* Footer */}
         <div className="text-center text-xs text-gray-500">
-          <p>Secure access for authorized personnel only</p>
+          <p>{t('footer')}</p>
         </div>
       </div>
     </div>

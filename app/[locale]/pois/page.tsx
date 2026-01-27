@@ -17,6 +17,7 @@ import { getThumbnailUrl } from '@/lib/imageUtils'
 import { useLocationData } from '@/lib/hooks/use-location-data'
 import { poiService, POI as POIType, POISearchFilters } from '@/lib/core/poi-service'
 import { usePOIs } from '@/lib/hooks/use-pois'
+import { useTranslations } from 'next-intl'
 
 // Custom hook for debouncing
 function useDebounce<T>(value: T, delay: number): T {
@@ -58,6 +59,8 @@ function POIListWithSearchParams() {
 
   // View state
   const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
+
+  const t = useTranslations('POIManagement')
 
   // Pagination
 
@@ -439,7 +442,7 @@ function POIListWithSearchParams() {
 
   // Handle POI deletion
   const handleDeletePoi = async (poiId: string) => {
-    if (!confirm('Are you sure you want to delete this POI?')) return
+    if (!confirm(t('alerts.confirm_delete_single'))) return
 
     try {
       const response = await fetch(`/api/pois/${poiId}`, {
@@ -450,11 +453,11 @@ function POIListWithSearchParams() {
         // Reload POIs
         fetchPois()
       } else {
-        alert('Failed to delete POI')
+        alert(t('alerts.delete_error'))
       }
     } catch (error) {
       console.error('Error deleting POI:', error)
-      alert('Failed to delete POI')
+      alert(t('alerts.delete_error'))
     }
   }
 
@@ -462,7 +465,7 @@ function POIListWithSearchParams() {
   const handleBulkDelete = async () => {
     if (selectedPois.length === 0) return
 
-    if (!confirm(`Are you sure you want to delete ${selectedPois.length} POIs?`)) return
+    if (!confirm(t('alerts.confirm_delete_bulk', { count: selectedPois.length }))) return
 
     try {
       const response = await fetch('/api/pois/bulk-delete', {
@@ -475,11 +478,11 @@ function POIListWithSearchParams() {
         setSelectedPois([])
         fetchPois()
       } else {
-        alert('Failed to delete POIs')
+        alert(t('alerts.delete_bulk_error'))
       }
     } catch (error) {
       console.error('Error deleting POIs:', error)
-      alert('Failed to delete POIs')
+      alert(t('alerts.delete_bulk_error'))
     }
   }
 
@@ -547,36 +550,36 @@ function POIListWithSearchParams() {
       label: cat.label
     })),
     status: [
-      { value: 'all', label: 'All Status' },
-      { value: 'approved', label: 'Approved' },
-      { value: 'pending', label: 'Pending' }
+      { value: 'all', label: t('status_options.all') },
+      { value: 'approved', label: t('status_options.approved') },
+      { value: 'pending', label: t('status_options.pending') }
     ],
     contentStatus: [
-      { value: 'all', label: 'All Content' },
-      { value: 'missing_description', label: 'Missing Description' },
-      { value: 'missing_audio', label: 'Missing Audio' },
-      { value: 'complete', label: 'Complete' }
+      { value: 'all', label: t('status_options.all_content') },
+      { value: 'missing_description', label: t('status_options.missing_description') },
+      { value: 'missing_audio', label: t('status_options.missing_audio') },
+      { value: 'complete', label: t('status_options.complete') }
     ],
     groupStatus: [
-      { value: 'all', label: 'All Groups' },
-      { value: 'grouped', label: 'Grouped' },
-      { value: 'ungrouped', label: 'Ungrouped' },
-      { value: 'group_main', label: 'Group Main' },
-      { value: 'group_member', label: 'Group Member' }
+      { value: 'all', label: t('status_options.all_groups') },
+      { value: 'grouped', label: t('status_options.grouped') },
+      { value: 'ungrouped', label: t('status_options.ungrouped') },
+      { value: 'group_main', label: t('status_options.group_main') },
+      { value: 'group_member', label: t('status_options.group_member') }
     ],
     scoreFilter: [
-      { value: 'all', label: 'All Scores' },
-      { value: 'no_score', label: 'No Score' },
-      { value: 'rejected', label: 'Rejected' },
-      { value: 'pending', label: 'Pending' },
-      { value: 'approved', label: 'Approved' }
+      { value: 'all', label: t('status_options.all_scores') },
+      { value: 'no_score', label: t('status_options.no_score') },
+      { value: 'rejected', label: t('status_options.rejected') },
+      { value: 'pending', label: t('status_options.pending') },
+      { value: 'approved', label: t('status_options.approved') }
     ],
     triggerPointsFilter: [
-      { value: 'all', label: 'All Trigger Points' },
-      { value: 'with_trigger_points', label: 'With Trigger Points' },
-      { value: 'without_trigger_points', label: 'Without Trigger Points' }
+      { value: 'all', label: t('status_options.all_trigger_points') },
+      { value: 'with_trigger_points', label: t('status_options.with_trigger_points') },
+      { value: 'without_trigger_points', label: t('status_options.without_trigger_points') }
     ]
-  }), [locationData.countries, locationData.states, locationData.cities, countryFilter, stateFilter])
+  }), [locationData.countries, locationData.states, locationData.cities, countryFilter, stateFilter, t])
 
   return (
     <div className="p-6">
@@ -586,30 +589,30 @@ function POIListWithSearchParams() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
               <MapPin className="h-8 w-8 mr-3 text-tuggi-orange" />
-              POI Management
+              {t('title')}
             </h1>
             <p className="text-gray-600 dark:text-gray-400 mt-2">
-              Manage and organize Points of Interest
+              {t('subtitle')}
             </p>
           </div>
           <div className="flex gap-3">
-            <button
-              onClick={() => {
-                setSelectedPoi(null)
-                setIsModalOpen(true)
-              }}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Adicionar POI Manualmente
-            </button>
+              <button
+                onClick={() => {
+                  setSelectedPoi(null)
+                  setIsModalOpen(true)
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                {t('add_manually')}
+              </button>
             {cmsUserRole === 'admin' && (
               <Link
                 href="/poi-importer"
                 className="px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Import POIs
+                {t('import_pois')}
               </Link>
             )}
           </div>
@@ -626,13 +629,13 @@ function POIListWithSearchParams() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
                   <Filter className="h-5 w-5 mr-2 text-tuggi-blue" />
-                  Filters
+                  {t('filters.title')}
                 </h2>
                 <button
                   onClick={clearFilters}
                   className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 >
-                  Clear All
+                  {t('filters.clear_all')}
                 </button>
               </div>
 
@@ -642,7 +645,7 @@ function POIListWithSearchParams() {
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search POIs..."
+                    placeholder={t('filters.search_placeholder')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
@@ -655,7 +658,7 @@ function POIListWithSearchParams() {
                 {/* Country Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Country
+                    {t('filters.country')}
                   </label>
                   <select
                     value={countryFilter}
@@ -663,7 +666,7 @@ function POIListWithSearchParams() {
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
                     disabled={locationData.countriesLoading}
                   >
-                    <option value="">All Countries</option>
+                    <option value="">{t('filters.all_countries')}</option>
                     {filterOptions.countries.map((country) => (
                       <option key={country.value} value={country.value}>
                         {country.label}
@@ -673,7 +676,7 @@ function POIListWithSearchParams() {
                   {locationData.countriesLoading && (
                     <div className="flex items-center mt-1 text-sm text-gray-500">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-tuggi-blue mr-1"></div>
-                      Loading countries...
+                      {t('filters.loading_countries')}
                     </div>
                   )}
                 </div>
@@ -681,7 +684,7 @@ function POIListWithSearchParams() {
                 {/* State Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    State
+                    {t('filters.state')}
                   </label>
                   <select
                     value={stateFilter}
@@ -689,7 +692,7 @@ function POIListWithSearchParams() {
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
                     disabled={!countryFilter || locationData.statesLoading}
                   >
-                    <option value="">All States</option>
+                    <option value="">{t('filters.all_states')}</option>
                     {filterOptions.states.map((state) => (
                       <option key={state.value} value={state.value}>
                         {state.label}
@@ -699,7 +702,7 @@ function POIListWithSearchParams() {
                   {locationData.statesLoading && (
                     <div className="flex items-center mt-1 text-sm text-gray-500">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-tuggi-blue mr-1"></div>
-                      Loading states...
+                      {t('filters.loading_states')}
                     </div>
                   )}
                 </div>
@@ -707,7 +710,7 @@ function POIListWithSearchParams() {
                 {/* City Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    City
+                    {t('filters.city')}
                   </label>
                   <select
                     value={cityFilter}
@@ -715,7 +718,7 @@ function POIListWithSearchParams() {
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
                     disabled={!countryFilter || locationData.citiesLoading}
                   >
-                    <option value="">All Cities</option>
+                    <option value="">{t('filters.all_cities')}</option>
                     {filterOptions.cities.map((city) => (
                       <option key={city.value} value={city.value}>
                         {city.label}
@@ -725,7 +728,7 @@ function POIListWithSearchParams() {
                   {locationData.citiesLoading && (
                     <div className="flex items-center mt-1 text-sm text-gray-500">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-tuggi-blue mr-1"></div>
-                      Loading cities...
+                      {t('filters.loading_cities')}
                     </div>
                   )}
                 </div>
@@ -733,7 +736,7 @@ function POIListWithSearchParams() {
                 {/* Status Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Status
+                    {t('filters.status')}
                   </label>
                   <select
                     value={statusFilter}
@@ -751,7 +754,7 @@ function POIListWithSearchParams() {
                 {/* Content Status Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Content Status
+                    {t('filters.content_status')}
                   </label>
                   <select
                     value={contentStatusFilter}
@@ -771,7 +774,7 @@ function POIListWithSearchParams() {
                 {/* Group Status Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Group Status
+                    {t('filters.group_status')}
                   </label>
                   <select
                     value={groupStatusFilter}
@@ -789,7 +792,7 @@ function POIListWithSearchParams() {
                 {/* Score Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Score Filter
+                    {t('filters.score')}
                   </label>
                   <select
                     value={scoreFilter}
@@ -807,7 +810,7 @@ function POIListWithSearchParams() {
                 {/* Trigger Points Filter */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Trigger Points
+                    {t('filters.trigger_points')}
                   </label>
                   <select
                     value={triggerPointsFilter}
@@ -862,7 +865,7 @@ function POIListWithSearchParams() {
                   </button>
                 </div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">
-                  {totalCount} POIs found
+                  {t('controls.pois_found', { count: totalCount })}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -871,21 +874,21 @@ function POIListWithSearchParams() {
                     onClick={handleBulkDelete}
                     className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
                   >
-                    Delete Selected ({selectedPois.length})
+                    {t('controls.delete_selected', { count: selectedPois.length })}
                   </button>
                 )}
-                <button
-                  onClick={handleSelectAll}
-                  className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                >
-                  Select All
-                </button>
-                <button
-                  onClick={handleDeselectAll}
-                  className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-                >
-                  Deselect All
-                </button>
+                  <button
+                    onClick={handleSelectAll}
+                    className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                  >
+                    {t('controls.select_all')}
+                  </button>
+                  <button
+                    onClick={handleDeselectAll}
+                    className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+                  >
+                    {t('controls.deselect_all')}
+                  </button>
               </div>
             </div>
           </div>
@@ -912,13 +915,13 @@ function POIListWithSearchParams() {
               {isLoading ? (
                 <div className="p-8 text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-tuggi-blue mx-auto"></div>
-                  <p className="mt-2 text-gray-500 dark:text-gray-400">Loading POIs...</p>
+                  <p className="mt-2 text-gray-500 dark:text-gray-400">{t('list.loading')}</p>
                 </div>
               ) : filteredPois.length === 0 ? (
                 <div className="p-8 text-center">
                   <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No POIs found</h3>
-                  <p className="text-gray-500 dark:text-gray-400">Try adjusting your filters or search terms.</p>
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">{t('list.no_pois_found')}</h3>
+                  <p className="text-gray-500 dark:text-gray-400">{t('list.no_pois_subtitle')}</p>
                 </div>
               ) : (
                 <>
@@ -979,9 +982,9 @@ function POIListWithSearchParams() {
                                 {poi.city}, {poi.state && `${poi.state}, `}{poi.country}
                               </p>
                               <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
-                                <span>Trigger Points: {poi.trigger_points_count || 0}</span>
-                                <span>Descriptions: {poi.description_count || 0}</span>
-                                <span>Audio: {poi.audio_count || 0}</span>
+                                <span>{t('list.trigger_points')}: {poi.trigger_points_count || 0}</span>
+                                <span>{t('list.descriptions')}: {poi.description_count || 0}</span>
+                                <span>{t('list.audio')}: {poi.audio_count || 0}</span>
                               </div>
                             </div>
                           </div>
@@ -1017,16 +1020,20 @@ function POIListWithSearchParams() {
                     <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
                       <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
                         <span>
-                          Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} results
+                          {t('pagination.showing', {
+                            from: ((currentPage - 1) * itemsPerPage) + 1,
+                            to: Math.min(currentPage * itemsPerPage, totalCount),
+                            total: totalCount
+                          })}
                           {totalCount > 1000 && (
                             <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">
-                              (Supabase limit: 1000 per request)
+                              {t('pagination.supabase_limit')}
                             </span>
                           )}
                         </span>
                         <div className="flex items-center gap-2">
                           <label htmlFor="itemsPerPage" className="text-sm font-medium">
-                            Items per page:
+                            {t('pagination.items_per_page')}
                           </label>
                           <select
                             id="itemsPerPage"
@@ -1053,17 +1060,17 @@ function POIListWithSearchParams() {
                           className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                         >
                           <ChevronLeft className="h-4 w-4 mr-1" />
-                          Previous
+                          {t('pagination.previous')}
                         </button>
                         <span className="px-3 py-1 text-sm text-gray-700 dark:text-gray-300">
-                          Page {currentPage} of {totalPages}
+                          {t('pagination.page_x_of_y', { current: currentPage, total: totalPages })}
                         </span>
                         <button
                           onClick={() => handlePageChange(currentPage + 1)}
                           disabled={currentPage === totalPages}
                           className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                         >
-                          Next
+                          {t('pagination.next')}
                           <ChevronRight className="h-4 w-4 ml-1" />
                         </button>
                       </div>

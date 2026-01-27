@@ -12,6 +12,7 @@ import {
   Clock, Play, Navigation, Map, Eye, Headphones, Layers, AlertTriangle,
   Target, FolderOpen, Package, Plus
 } from 'lucide-react'
+import { useTranslations, useLocale } from 'next-intl';
 import { StatCard } from '@/components/ui/StatCard'
 import { dashboardService, DashboardStats, UserWithSessions, HeatmapPoint, InventoryDetails } from '@/lib/services/dashboard-service'
 
@@ -138,7 +139,7 @@ const TabButton = ({
 // COMPONENT: Recent Visit Card
 // ============================================================================
 
-const RecentVisitCard = ({ visit }: { visit: DashboardStats['recentVisitedPOIs'][0] }) => (
+const RecentVisitCard = ({ visit, locale }: { visit: DashboardStats['recentVisitedPOIs'][0], locale: string }) => (
   <div className="flex items-center p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-tuggi-blue/30 transition-all group">
     <div className="flex-shrink-0 mr-4">
       <div className={`flex items-center justify-center w-10 h-10 rounded-full ${visit.audio_played ? 'bg-green-100 dark:bg-green-900/30' : 'bg-gray-100 dark:bg-gray-700'}`}>
@@ -156,7 +157,7 @@ const RecentVisitCard = ({ visit }: { visit: DashboardStats['recentVisitedPOIs']
     <div className="text-right ml-4">
       <p className="text-xs text-gray-400">@{visit.user_nickname}</p>
       <p className="text-[10px] text-gray-500">
-        {new Date(visit.visit_timestamp).toLocaleString('pt-BR', { 
+        {new Date(visit.visit_timestamp).toLocaleString(locale, { 
           day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' 
         })}
       </p>
@@ -179,6 +180,9 @@ export default function DashboardPage() {
   const [isLoadingHeatmap, setIsLoadingHeatmap] = useState(false)
   const [isLoadingInventory, setIsLoadingInventory] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  
+  const t = useTranslations('Pages.Dashboard');
+  const locale = useLocale();
 
   // Fetch dashboard data
   const fetchData = useCallback(async () => {
@@ -256,9 +260,9 @@ export default function DashboardPage() {
 
   // Prepare chart data
   const funnelData = [
-    { name: 'Approved', value: stats.approvedPOIs, color: FUNNEL_COLORS.approved },
-    { name: 'Pending', value: stats.pendingPOIs, color: FUNNEL_COLORS.pending },
-    { name: 'Homolog', value: stats.homologPOIs, color: FUNNEL_COLORS.homolog }
+    { name: t('kpi.approved_pois'), value: stats.approvedPOIs, color: FUNNEL_COLORS.approved },
+    { name: t('kpi.pending'), value: stats.pendingPOIs, color: FUNNEL_COLORS.pending },
+    { name: t('kpi.total_homolog'), value: stats.homologPOIs, color: FUNNEL_COLORS.homolog }
   ]
 
   const contentQualityData = [
@@ -273,14 +277,14 @@ export default function DashboardPage() {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-8 flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Dashboard Error</h2>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{t('error')}</h2>
           <p className="text-gray-500 dark:text-gray-400 mb-6">{error}</p>
           <button
             onClick={fetchData}
             className="px-6 py-3 bg-tuggi-blue text-white rounded-xl font-bold hover:bg-blue-600 transition-colors"
           >
             <RefreshCw className="h-4 w-4 inline mr-2" />
-            Retry
+            {t('retry')}
           </button>
         </div>
       </div>
@@ -296,10 +300,10 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl lg:text-4xl font-black text-gray-900 dark:text-white tracking-tight flex items-center">
             <Activity className="h-8 w-8 mr-3" style={{ color: TUGGI_COLORS.blue }} />
-            Tuggi <span className="ml-2" style={{ color: TUGGI_COLORS.blue }}>Analytics</span>
+            {t('title')} <span className="ml-2" style={{ color: TUGGI_COLORS.blue }}>{t('subtitle')}</span>
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
-            Real-time intelligence • <code className="text-tuggi-blue">{stats.totalPOIVisits.toLocaleString()}</code> visits tracked
+            {t('meta')} • <code className="text-tuggi-blue">{stats.totalPOIVisits.toLocaleString()}</code> {t('visits')}
           </p>
         </div>
         
@@ -307,7 +311,7 @@ export default function DashboardPage() {
           <div className="hidden md:flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
             <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse mr-2" />
             <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">
-              {stats.source === 'cache' ? 'Cached' : 'Live'}
+              {stats.source === 'cache' ? t('cached') : t('live')}
             </span>
           </div>
           
@@ -317,7 +321,7 @@ export default function DashboardPage() {
             className="flex items-center px-4 py-2 bg-tuggi-blue/10 border border-tuggi-blue/30 text-tuggi-blue rounded-xl font-bold text-sm hover:bg-tuggi-blue/20 transition-all disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            Sync
+            {t('sync')}
           </button>
         </div>
       </header>
@@ -326,11 +330,11 @@ export default function DashboardPage() {
       {/* TAB NAVIGATION */}
       {/* ================================================================ */}
       <nav className="flex flex-wrap gap-2 mb-8 p-1 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 w-fit">
-        <TabButton id="overview" label="Overview" icon={Globe} active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
-        <TabButton id="content" label="Inventory" icon={Layers} active={activeTab === 'content'} onClick={() => setActiveTab('content')} />
-        <TabButton id="users" label="Users" icon={Users} active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
-        <TabButton id="territorial" label="Territorial" icon={MapPin} active={activeTab === 'territorial'} onClick={() => setActiveTab('territorial')} />
-        <TabButton id="heatmap" label="Heatmap" icon={Map} active={activeTab === 'heatmap'} onClick={() => setActiveTab('heatmap')} />
+        <TabButton id="overview" label={t('tabs.overview')} icon={Globe} active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+        <TabButton id="content" label={t('tabs.inventory')} icon={Layers} active={activeTab === 'content'} onClick={() => setActiveTab('content')} />
+        <TabButton id="users" label={t('tabs.users')} icon={Users} active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
+        <TabButton id="territorial" label={t('tabs.territorial')} icon={MapPin} active={activeTab === 'territorial'} onClick={() => setActiveTab('territorial')} />
+        <TabButton id="heatmap" label={t('tabs.heatmap')} icon={Map} active={activeTab === 'heatmap'} onClick={() => setActiveTab('heatmap')} />
       </nav>
 
       {/* ================================================================ */}
@@ -340,10 +344,10 @@ export default function DashboardPage() {
         <div className="space-y-8 animate-in fade-in duration-500">
           {/* KPI Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard icon={Database} title="Total Inventory" value={stats.totalInventory} subtitle={`${stats.totalPOIs} core + ${stats.homologPOIs} homolog`} color={TUGGI_COLORS.blue} isLoading={isLoading} />
-            <StatCard icon={CheckCircle} title="Approved POIs" value={stats.approvedPOIs} subtitle={`${stats.approvalRate}% approval rate`} color={TUGGI_COLORS.green} isLoading={isLoading} />
-            <StatCard icon={Users} title="Active Users" value={stats.activeUsers30d} subtitle={`of ${stats.totalUsers} total users`} color={TUGGI_COLORS.purple} isLoading={isLoading} />
-            <StatCard icon={Zap} title="Total Trips" value={stats.totalTrips} subtitle={`${stats.totalKmDriven.toLocaleString()} km driven`} color={TUGGI_COLORS.orange} isLoading={isLoading} />
+            <StatCard icon={Database} title={t('kpi.total_inventory')} value={stats.totalInventory} subtitle={`${stats.totalPOIs} core + ${stats.homologPOIs} homolog`} color={TUGGI_COLORS.blue} isLoading={isLoading} />
+            <StatCard icon={CheckCircle} title={t('kpi.approved_pois')} value={stats.approvedPOIs} subtitle={`${stats.approvalRate}% ${t('labels.approval_rate')}`} color={TUGGI_COLORS.green} isLoading={isLoading} />
+            <StatCard icon={Users} title={t('kpi.active_users')} value={stats.activeUsers30d} subtitle={`${t('labels.of_total').replace('{count}', stats.totalUsers.toString())}`} color={TUGGI_COLORS.purple} isLoading={isLoading} />
+            <StatCard icon={Zap} title={t('kpi.total_trips')} value={stats.totalTrips} subtitle={`${stats.totalKmDriven.toLocaleString()} ${t('labels.km_driven')}`} color={TUGGI_COLORS.orange} isLoading={isLoading} />
           </div>
 
           {/* Row: MAU + Funnel + Recent Visits (Grid 3) */}
@@ -352,7 +356,7 @@ export default function DashboardPage() {
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
                 <TrendingUp className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-                Monthly Active Users
+                {t('charts.mau')}
               </h3>
               <div className="h-[250px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -377,7 +381,7 @@ export default function DashboardPage() {
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
                 <Database className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-                Inventory Funnel
+                {t('charts.funnel')}
               </h3>
               <div className="h-[160px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -406,17 +410,17 @@ export default function DashboardPage() {
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
                 <Play className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.orange }} />
-                Últimas Visitas
+                {t('charts.recent_visits')}
               </h3>
               <div className="space-y-2 max-h-[280px] overflow-y-auto custom-scrollbar">
                 {stats.recentVisitedPOIs.length > 0 ? (
                   stats.recentVisitedPOIs.slice(0, 5).map((visit) => (
-                    <RecentVisitCard key={visit.visit_id} visit={visit} />
+                    <RecentVisitCard key={visit.visit_id} visit={visit} locale={locale} />
                   ))
                 ) : (
                   <div className="text-center py-8 text-gray-500">
                     <Eye className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                    <p>Nenhuma visita registrada</p>
+                    <p>{t('empty_visits')}</p>
                   </div>
                 )}
               </div>
@@ -425,10 +429,10 @@ export default function DashboardPage() {
 
           {/* Row: Engagement Stats */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <StatCard icon={Eye} title="POI Visits" value={stats.totalPOIVisits} color={TUGGI_COLORS.blue} />
-            <StatCard icon={Headphones} title="Audio Plays" value={stats.totalAudioPlays} color={TUGGI_COLORS.green} />
-            <StatCard icon={Clock} title="Avg Duration" value={stats.avgTripDuration} color={TUGGI_COLORS.purple} />
-            <StatCard icon={MapPin} title="Cities Covered" value={stats.mostVisitedCities.length} color={TUGGI_COLORS.orange} />
+            <StatCard icon={Eye} title={t('kpi.poi_visits')} value={stats.totalPOIVisits} color={TUGGI_COLORS.blue} />
+            <StatCard icon={Headphones} title={t('kpi.audio_plays')} value={stats.totalAudioPlays} color={TUGGI_COLORS.green} />
+            <StatCard icon={Clock} title={t('kpi.avg_duration')} value={stats.avgTripDuration} color={TUGGI_COLORS.purple} />
+            <StatCard icon={MapPin} title={t('kpi.cities_covered')} value={stats.mostVisitedCities.length} color={TUGGI_COLORS.orange} />
           </div>
         </div>
       )}
@@ -445,12 +449,12 @@ export default function DashboardPage() {
               Core Inventory
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              <StatCard icon={Package} title="Total Core" value={inventory.coreTotal} color={TUGGI_COLORS.blue} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={CheckCircle} title="Approved" value={inventory.coreApproved} color={TUGGI_COLORS.green} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={Clock} title="Pending" value={inventory.corePending} color={TUGGI_COLORS.orange} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={MapPin} title="With Coords" value={inventory.coreWithCoordinates} color={TUGGI_COLORS.blue} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={Target} title="With Triggers" value={inventory.coreWithTriggerPoints} color={TUGGI_COLORS.green} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={AlertTriangle} title="Missing Triggers" value={inventory.coreMissingTriggerPoints} color={TUGGI_COLORS.red} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={Package} title={t('kpi.total_core')} value={inventory.coreTotal} color={TUGGI_COLORS.blue} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={CheckCircle} title={t('kpi.approved_pois')} value={inventory.coreApproved} color={TUGGI_COLORS.green} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={Clock} title={t('kpi.pending')} value={inventory.corePending} color={TUGGI_COLORS.orange} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={MapPin} title={t('kpi.with_coords')} value={inventory.coreWithCoordinates} color={TUGGI_COLORS.blue} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={Target} title={t('kpi.with_triggers')} value={inventory.coreWithTriggerPoints} color={TUGGI_COLORS.green} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={AlertTriangle} title={t('kpi.missing_triggers')} value={inventory.coreMissingTriggerPoints} color={TUGGI_COLORS.red} isLoading={isLoadingInventory} size="compact" />
             </div>
           </div>
 
@@ -461,10 +465,10 @@ export default function DashboardPage() {
               Homolog Pipeline
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard icon={Layers} title="Total Homolog" value={inventory.homologTotal} color={TUGGI_COLORS.purple} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={CheckCircle} title="Processed" value={inventory.homologProcessed} color={TUGGI_COLORS.green} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={Clock} title="Pending Process" value={inventory.homologPending} color={TUGGI_COLORS.orange} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={Plus} title="New (7d)" value={inventory.recentHomologAdditions} subtitle="Last 7 days" color={TUGGI_COLORS.blue} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={Layers} title={t('kpi.total_homolog')} value={inventory.homologTotal} color={TUGGI_COLORS.purple} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={CheckCircle} title={t('kpi.processed')} value={inventory.homologProcessed} color={TUGGI_COLORS.green} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={Clock} title={t('kpi.pending')} value={inventory.homologPending} color={TUGGI_COLORS.orange} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={Plus} title={t('kpi.new_7d')} value={inventory.recentHomologAdditions} subtitle={t('labels.last_7d')} color={TUGGI_COLORS.blue} isLoading={isLoadingInventory} size="compact" />
             </div>
           </div>
 
@@ -475,10 +479,10 @@ export default function DashboardPage() {
               Content Quality
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard icon={FileText} title="With Any Description" value={inventory.poisWithAnyDescription} color={TUGGI_COLORS.green} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={Globe} title="All 3 Languages" value={inventory.poisWithAllLanguages} color={TUGGI_COLORS.blue} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={Volume2} title="With Audio" value={inventory.poisWithAudio} color={TUGGI_COLORS.purple} isLoading={isLoadingInventory} size="compact" />
-              <StatCard icon={AlertTriangle} title="Missing Content" value={inventory.poisMissingContent} color={TUGGI_COLORS.red} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={FileText} title={t('kpi.with_description')} value={inventory.poisWithAnyDescription} color={TUGGI_COLORS.green} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={Globe} title={t('kpi.all_languages')} value={inventory.poisWithAllLanguages} color={TUGGI_COLORS.blue} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={Volume2} title={t('kpi.with_audio')} value={inventory.poisWithAudio} color={TUGGI_COLORS.purple} isLoading={isLoadingInventory} size="compact" />
+              <StatCard icon={AlertTriangle} title={t('kpi.missing_content')} value={inventory.poisMissingContent} color={TUGGI_COLORS.red} isLoading={isLoadingInventory} size="compact" />
             </div>
           </div>
 
@@ -486,7 +490,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Descriptions by Language */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">Descriptions by Language</h3>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">{t('charts.descriptions_lang')}</h3>
               <div className="h-[250px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={contentQualityData} layout="vertical">
@@ -504,7 +508,7 @@ export default function DashboardPage() {
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
                 <MapPin className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-                Top Cidades por POIs
+                {t('charts.top_cities_poi')}
               </h3>
               <div className="space-y-3 max-h-[250px] overflow-y-auto custom-scrollbar">
                 {inventory.topCities.length > 0 ? inventory.topCities.map((city, index) => (
@@ -527,7 +531,7 @@ export default function DashboardPage() {
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
               <Layers className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.purple }} />
-              Categories Breakdown
+              {t('charts.categories')}
             </h3>
             <div className="flex flex-wrap gap-2">
               {inventory.categoriesBreakdown.map((cat) => (
@@ -547,30 +551,30 @@ export default function DashboardPage() {
       {activeTab === 'users' && (
         <div className="space-y-8 animate-in slide-in-from-right duration-500">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <StatCard icon={Users} title="Total Users" value={stats.totalUsers} color={TUGGI_COLORS.blue} />
-            <StatCard icon={Activity} title="Active (30d)" value={stats.activeUsers30d} color={TUGGI_COLORS.green} />
-            <StatCard icon={Zap} title="Total Trips" value={stats.totalTrips} color={TUGGI_COLORS.purple} />
-            <StatCard icon={Clock} title="Avg Duration" value={stats.avgTripDuration} color={TUGGI_COLORS.orange} />
+            <StatCard icon={Users} title={t('kpi.total_users')} value={stats.totalUsers} color={TUGGI_COLORS.blue} />
+            <StatCard icon={Activity} title={t('kpi.active_users')} value={stats.activeUsers30d} color={TUGGI_COLORS.green} />
+            <StatCard icon={Zap} title={t('kpi.total_trips')} value={stats.totalTrips} color={TUGGI_COLORS.purple} />
+            <StatCard icon={Clock} title={t('kpi.avg_duration')} value={stats.avgTripDuration} color={TUGGI_COLORS.orange} />
           </div>
 
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
             <div className="p-6 border-b border-gray-200 dark:border-gray-800">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
                 <Users className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-                Community Profiles
+                {t('charts.community')}
               </h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-800 text-xs font-bold text-gray-500 uppercase tracking-widest">
-                    <th className="p-4 text-left">User</th>
-                    <th className="p-4 text-left">Country</th>
-                    <th className="p-4 text-left">Platform</th>
-                    <th className="p-4 text-right">Trips</th>
-                    <th className="p-4 text-right">POI Visits</th>
-                    <th className="p-4 text-right">KM</th>
-                    <th className="p-4 text-left">Last Active</th>
+                    <th className="p-4 text-left">{t('table.user')}</th>
+                    <th className="p-4 text-left">{t('table.country')}</th>
+                    <th className="p-4 text-left">{t('table.platform')}</th>
+                    <th className="p-4 text-right">{t('table.trips')}</th>
+                    <th className="p-4 text-right">{t('table.visits')}</th>
+                    <th className="p-4 text-right">{t('table.km')}</th>
+                    <th className="p-4 text-left">{t('table.last_active')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -644,7 +648,7 @@ export default function DashboardPage() {
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center">
               <Navigation className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-              Top Cidades Visitadas
+              {t('charts.top_cities_visited')}
             </h3>
             <div className="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar">
               {stats.mostVisitedCities.length > 0 ? (
@@ -658,7 +662,7 @@ export default function DashboardPage() {
                       <span className="text-sm font-black" style={{ color: TUGGI_COLORS.blue }}>{city.visit_count}</span>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-gray-500 mb-1">
-                      <span>{city.unique_visitors} visitantes • {city.audio_plays} áudios</span>
+                      <span>{city.unique_visitors} {t('labels.visitors')} • {city.audio_plays} {t('labels.audios')}</span>
                       <span>{city.country}</span>
                     </div>
                     <div className="h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
@@ -695,7 +699,7 @@ export default function DashboardPage() {
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center">
               <Play className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.orange }} />
-              Top POIs Mais Visitados
+              {t('charts.top_pois_visited')}
             </h3>
             <div className="space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar">
               {stats.topVisitedPOIs.length > 0 ? (
@@ -713,14 +717,14 @@ export default function DashboardPage() {
                         <Eye className="h-4 w-4 mr-1" />
                         <span className="font-black">{poi.total_visits}</span>
                       </div>
-                      <p className="text-[10px] text-gray-400">{poi.audio_plays} áudios</p>
+                      <p className="text-[10px] text-gray-400">{poi.audio_plays} {t('labels.audios')}</p>
                     </div>
                   </div>
                 ))
               ) : (
                 <div className="text-center py-12 text-gray-500">
                   <Play className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p>Nenhum dado de visitas disponível</p>
+                  <p>{t('empty_visits')}</p>
                 </div>
               )}
             </div>
@@ -737,7 +741,7 @@ export default function DashboardPage() {
             <div className="p-6 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
                 <Map className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-                Mapa de Calor - Trilhas dos Usuários
+                {t('charts.heatmap')}
               </h3>
               <div className="text-xs text-gray-500">
                 {heatmapData.length.toLocaleString()} pontos • Últimos 90 dias
@@ -748,7 +752,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-center h-full">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-tuggi-blue mx-auto mb-4" />
-                    <p className="text-gray-500">Carregando dados do heatmap...</p>
+                    <p className="text-gray-500">{t('loading_map')}</p>
                   </div>
                 </div>
               ) : (
