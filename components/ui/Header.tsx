@@ -9,77 +9,60 @@ import { useTheme } from '@/app/providers'
 import {
   LayoutDashboard,
   MapPin,
-  Map,
-  BarChart3,
   LogOut,
   Menu,
   X,
   Moon,
   Sun,
-  Settings,
   Upload,
-  MessageSquare,
-  CheckCircle,
-  Sparkles,
-  Eye,
   Database,
   Target,
   ChevronDown,
   ArrowRightLeft,
-  Route
+  Route,
+  Users,
+  UserCog,
+  Smartphone
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
 
 const navigation = [
+  // Main
   {
     name: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
     category: 'main'
   },
+  
+  // POI Management
   {
-    name: 'POI Fetching',
-    href: '/poi-importer',
-    icon: Upload,
-    category: 'poi'
-  },
-  {
-    name: 'POI Management',
+    name: 'Browse POIs',
     href: '/pois',
     icon: MapPin,
-    category: 'poi'
-  },
-  {
-    name: 'OSM Importer',
-    href: '/osm-importer',
-    icon: Database,
-    category: 'poi'
+    category: 'pois'
   },
   {
     name: 'POI Migration',
     href: '/poi-migration',
     icon: ArrowRightLeft,
-    category: 'poi'
+    category: 'pois'
   },
   {
-    name: 'Verification',
-    href: '/verification',
-    icon: CheckCircle,
-    category: 'verification'
-  },
-  {
-    name: 'Improve',
-    href: '/verification/improve',
-    icon: Sparkles,
-    category: 'verification'
-  },
-  {
-    name: 'Enrich OSM',
-    href: '/verification/enrich-osm',
+    name: 'OSM Importer',
+    href: '/osm-importer',
     icon: Database,
-    category: 'verification'
+    category: 'pois'
   },
+  {
+    name: 'POI Fetching',
+    href: '/poi-importer',
+    icon: Upload,
+    category: 'pois'
+  },
+  
+  // Trigger Points
   {
     name: 'Generation',
     href: '/trigger-points-generation',
@@ -92,17 +75,27 @@ const navigation = [
     icon: Target,
     category: 'trigger_points'
   },
+  
+  // Users Management
   {
-    name: 'Reviews',
-    href: '/reviews',
-    icon: MessageSquare,
-    category: 'feedback'
+    name: 'CMS Team',
+    href: '/users/cms',
+    icon: UserCog,
+    category: 'users'
   },
   {
-    name: 'Trail Visualization',
+    name: 'App Users',
+    href: '/users/app',
+    icon: Smartphone,
+    category: 'users'
+  },
+  
+  // Analytics / Visualization
+  {
+    name: 'Trail Map',
     href: '/trail-visualization',
     icon: Route,
-    category: 'analytics'
+    category: 'visualization'
   },
 ]
 
@@ -228,22 +221,16 @@ export function Header({ className }: HeaderProps) {
 
                     {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center space-x-2">
-            {/* Main - Single items */}
+            {/* Dashboard */}
             {navigation.filter(item => item.category === 'main').map((item) => {
               const isActive = pathname === item.href
               return renderNavItem(item, isActive)
             })}
 
-            {/* POI Management - Dropdown */}
+            {/* POIs - Dropdown */}
             {(() => {
-              const poiItems = navigation.filter(item => item.category === 'poi')
-              return renderDropdown('poi', poiItems, 'POI Management')
-            })()}
-
-            {/* Verification - Dropdown */}
-            {(() => {
-              const verificationItems = navigation.filter(item => item.category === 'verification')
-              return renderDropdown('verification', verificationItems, 'Verification')
+              const poiItems = navigation.filter(item => item.category === 'pois')
+              return renderDropdown('pois', poiItems, 'POIs')
             })()}
 
             {/* Trigger Points - Dropdown */}
@@ -252,20 +239,14 @@ export function Header({ className }: HeaderProps) {
               return renderDropdown('trigger_points', triggerPointsItems, 'Trigger Points')
             })()}
 
-            {/* Advanced Tools - Single items */}
-            {navigation.filter(item => item.category === 'advanced').map((item) => {
-              const isActive = pathname === item.href
-              return renderNavItem(item, isActive)
-            })}
+            {/* Users - Dropdown */}
+            {(() => {
+              const userItems = navigation.filter(item => item.category === 'users')
+              return renderDropdown('users', userItems, 'Users')
+            })()}
 
-            {/* Feedback - Single items */}
-            {navigation.filter(item => item.category === 'feedback').map((item) => {
-              const isActive = pathname === item.href
-              return renderNavItem(item, isActive)
-            })}
-
-            {/* Analytics - Single items */}
-            {navigation.filter(item => item.category === 'analytics').map((item) => {
+            {/* Trail Map - Single item */}
+            {navigation.filter(item => item.category === 'visualization').map((item) => {
               const isActive = pathname === item.href
               return renderNavItem(item, isActive)
             })}
@@ -313,10 +294,10 @@ export function Header({ className }: HeaderProps) {
         {isMobileMenuOpen && (
           <div className="lg:hidden border-t border-tuggi-border/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm animate-in slide-in-from-top-2 duration-300">
             <nav className="px-2 pt-2 pb-3 space-y-4">
-              {/* Main Navigation */}
+              {/* Dashboard */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Main
+                  Dashboard
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'main').map((item) => {
@@ -326,26 +307,13 @@ export function Header({ className }: HeaderProps) {
                 </div>
               </div>
 
-              {/* POI Management */}
+              {/* POIs */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  POI Management
+                  POIs
                 </h4>
                 <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'poi').map((item) => {
-                    const isActive = pathname === item.href
-                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
-                  })}
-                </div>
-              </div>
-
-              {/* Verification */}
-              <div>
-                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Verification
-                </h4>
-                <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'verification').map((item) => {
+                  {navigation.filter(item => item.category === 'pois').map((item) => {
                     const isActive = pathname === item.href
                     return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
                   })}
@@ -365,26 +333,26 @@ export function Header({ className }: HeaderProps) {
                 </div>
               </div>
 
-              {/* Advanced Tools */}
+              {/* Users */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Advanced Tools
+                  Users
                 </h4>
                 <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'advanced').map((item) => {
+                  {navigation.filter(item => item.category === 'users').map((item) => {
                     const isActive = pathname === item.href
                     return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
                   })}
                 </div>
               </div>
 
-              {/* Feedback */}
+              {/* Visualization */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Feedback
+                  Visualization
                 </h4>
                 <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'feedback').map((item) => {
+                  {navigation.filter(item => item.category === 'visualization').map((item) => {
                     const isActive = pathname === item.href
                     return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
                   })}
