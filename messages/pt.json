@@ -15,7 +15,10 @@
     },
     "labels": {
       "types": "Tipos",
-      "location": "Localização"
+      "location": "Localização",
+      "status": "Status",
+      "unknown": "Desconhecido",
+      "brazil": "Brasil"
     },
     "status": {
       "loading": "Carregando...",
@@ -27,7 +30,10 @@
       "required": "Obrigatório",
       "selected": "Selecionado",
       "available": "Disponível",
-      "main": "Principal"
+      "main": "Principal",
+      "migrated": "Migrado",
+      "skipped": "Pulado",
+      "processed": "Processado"
     },
     "units": {
       "languages": "Idiomas"
@@ -152,6 +158,301 @@
         "visitors": "visitantes",
         "audios": "áudios",
         "last_7d": "Últimos 7 dias"
+      }
+    },
+    "POIMigration": {
+      "title": "Migração de POIs",
+      "subtitle": "Pipeline Homolog → Core",
+      "filters": {
+        "title": "Filtros",
+        "country": "País",
+        "all_countries": "Todos os Países",
+        "missing_location": "Dados de Localização Ausentes",
+        "state": "Estado",
+        "all_states": "Todos os Estados",
+        "city": "Cidade",
+        "all_cities": "Todas as Cidades",
+        "status": "Status",
+        "all_status": "Todos os Status",
+        "batch_size": "Tamanho do Lote",
+        "pois_count": "{count} POIs",
+        "all_pois_continuous": "Todos os POIs (contínuo)",
+        "continuous_hint": "Processará todos os POIs correspondentes até concluir"
+      },
+      "advanced": {
+        "title": "Opções Avançadas",
+        "skip_existing": "Pular POIs existentes no core",
+        "auto_approve": "Auto-aprovar se critérios atendidos",
+        "auto_generate_audio": "Gerar áudio automaticamente"
+      },
+      "pipeline": {
+        "title": "Modo do Pipeline",
+        "subtitle": "Selecione o fluxo de processamento",
+        "recommended": "Recomendado",
+        "modes": {
+          "enrichment_migration_triggers": {
+            "name": "Enriquecer + Migrar + Gatilhos",
+            "description": "Fluxo recomendado para produção"
+          },
+          "migration_only": {
+            "name": "Apenas Migração",
+            "description": "Migração rápida sem processamento"
+          },
+          "migration_description": {
+            "name": "Migração + Descrição",
+            "description": "Inclui descrições geradas por IA"
+          },
+          "migration_description_audio": {
+            "name": "Migração + Descrição + Áudio",
+            "description": "Geração completa de conteúdo"
+          },
+          "full": {
+            "name": "Pipeline Completo",
+            "description": "Legado: Todos os passos incluindo aprovação"
+          }
+        },
+        "steps": {
+          "enrichment": "Enriquecimento",
+          "migration": "Migração",
+          "trigger_points": "Trigger Points",
+          "activation": "Ativação",
+          "description": "Descrição",
+          "audio": "Áudio",
+          "triggers": "Gatilhos",
+          "approval": "Aprovação"
+        }
+      },
+      "languages": {
+        "title": "Idiomas",
+        "subtitle": "Selecione os idiomas para geração de descrição/áudio",
+        "selected_count": "{count} {count, plural, one {idioma selecionado} other {idiomas selecionados}}"
+      },
+      "voice": {
+        "title": "Voz",
+        "male": "Masculino",
+        "female": "Feminino"
+      },
+      "actions": {
+        "start": "Iniciar Migração",
+        "processing": "Processando Migração..."
+      },
+      "progress": {
+        "title": "Progresso",
+        "label": "Processando",
+        "processed_count": "{count} processados",
+        "processing_poi": "Processando: {name}"
+      },
+      "results": {
+        "title": "Resultados",
+        "successful": "Sucesso",
+        "failed": "Falha",
+        "clear": "Limpar Resultados",
+        "poi_name": "Nome do POI",
+        "status": "Status",
+        "attraction_id": "ID da Atração",
+        "output": "Saída",
+        "copy_url": "Copiar URL",
+        "view_dashboard": "Ver no Dashboard",
+        "no_results": "Nenhum resultado ainda"
+      },
+      "alerts": {
+        "request_failed": "Falha na requisição de migração",
+        "body_not_readable": "O corpo da resposta não pode ser lido",
+        "waiting_batch": "Aguardando próximo lote...",
+        "error": "Erro na migração"
+      }
+    },
+    "OSMImporter": {
+      "title": "Importador OSM",
+      "subtitle": "Importe e gerencie POIs do OpenStreetMap",
+      "status": {
+        "checking": "Verificando banco de dados...",
+        "loading": "Carregando POIs...",
+        "deleting": "Excluindo..."
+      },
+      "empty": {
+        "title": "Nenhum Dado Encontrado",
+        "subtitle": "Faça upload de um arquivo GeoJSON ou CSV para começar."
+      },
+      "actions": {
+        "add_data": "Adicionar Dados",
+        "import": "Importar para o Supabase",
+        "refresh": "Atualizar",
+        "delete_selected": "Excluir Selecionados",
+        "select_all": "Selecionar Tudo",
+        "deselect_all": "Desselecionar Tudo",
+        "clear_selection": "Limpar ({count})"
+      },
+      "table": {
+        "name": "Nome",
+        "category": "Categoria",
+        "city": "Cidade",
+        "state": "Estado",
+        "country": "País",
+        "actions": "Ações",
+        "unnamed": "POI sem nome"
+      },
+      "file_upload": {
+        "title": "Upload de Arquivo OSM",
+        "drag_drop": "Arraste e solte ou clique para selecionar um arquivo GeoJSON ou CSV",
+        "supported_formats": "Formatos suportados: GeoJSON (.geojson, .json) e CSV (.csv). CSV deve conter colunas de latitude e longitude."
+      },
+      "alerts": {
+        "delete_confirm": "Tem certeza que deseja excluir {count} POIs selecionados? Esta ação não pode ser desfeita.",
+        "delete_success": "{count} POIs excluídos com sucesso"
+      },
+      "map": {
+        "cluster": "Agrupamento ({count})",
+        "updating": "Atualizando mapa...",
+        "status": "{count} itens em {ms}ms"
+      }
+    },
+    "POIImporter": {
+      "title": "Importador de POI",
+      "subtitle": "Capture e gerencie Pontos de Interesse",
+      "settings": {
+        "title": "Configurações de Captura",
+        "range_label": "Alcance do Passo (km)",
+        "range_description": "Determina a distância entre cada ponto de captura."
+      },
+      "history": {
+        "title": "Histórico",
+        "hide": "Ocultar",
+        "show_all": "Mostrar Todos",
+        "empty": "Nenhum histórico ainda",
+        "loaded": "Área \"{name}\" carregada."
+      },
+      "grid": {
+        "points": "Pontos na Grade:",
+        "instruction": "Use a ferramenta no mapa para desenhar um retângulo ou polígono sobre a área que deseja capturar."
+      },
+      "actions": {
+        "start": "Iniciar Captura",
+        "resume": "Retomar Captura",
+        "processing": "Processando...",
+        "reset": "Redefinir Progresso",
+        "clear": "Limpar",
+        "select_all": "Selecionar Tudo",
+        "deselect_all": "Desmarcar Tudo",
+        "clear_selection": "Limpar Seleção ({count})",
+        "delete_selected": "Excluir Selecionados",
+        "deleting": "Excluindo..."
+      },
+      "table": {
+        "name": "Nome",
+        "category": "Categoria",
+        "city": "Cidade",
+        "state": "Estado",
+        "country": "País",
+        "actions": "Ações",
+        "unnamed": "POI sem nome"
+      },
+      "stats": {
+        "title": "Estatísticas de Progresso",
+        "completed": "Concluído",
+        "found": "POIs Encontrados"
+      },
+      "logs": {
+        "title": "Logs de Atividade",
+        "empty": "Nenhuma atividade ainda...",
+        "area_selected": "Área selecionada: {count} pontos gerados com {range}km de alcance.",
+        "auto_saved": "Área \"{name}\" salva automaticamente no histórico.",
+        "starting": "Iniciando processo de captura para {count} pontos...",
+        "processing_point": "Processando ponto {current}/{total} ({lat}, {lng})",
+        "point_completed": "Ponto {current} concluído: Encontrados {found} POIs, mantidos {kept}.",
+        "point_failed": "Ponto {current} falhou: {error}",
+        "finished": "Processo de captura finalizado.",
+        "reset": "Processo redefinido."
+      },
+      "overlay": {
+        "capturing": "Capturando POIs...",
+        "point_progress": "Ponto {current} de {total}",
+        "drawing_active": "Modo de Desenho Ativo"
+      },
+      "categories": {
+        "title": "Selecionar Categoria e Buscar",
+        "instruction": "Defina uma área primeiro para habilitar a busca",
+        "all_warning": "⚡ \"Todas as Categorias\" busca por mais de 15 tipos e pode levar mais tempo"
+      },
+      "viewer": {
+        "title": "Visualizador de POI",
+        "subtitle": "Visualize e gerencie POIs do homolog.pois",
+        "loaded_count": "{count} POIs carregados",
+        "refresh_btn": "Atualizar Dados",
+        "loading": "Carregando POIs do banco de dados...",
+        "empty": {
+          "title": "Nenhum POI Encontrado",
+          "subtitle": "Nenhum POI encontrado no banco de dados homolog.pois. Os dados aparecerão aqui quando forem importados."
+        },
+        "stats": {
+          "features": "{count} feições",
+          "coordinates": "{count} coordenadas"
+        },
+        "delete_confirm": "Excluir este POI? Esta ação não pode ser desfeita.",
+        "delete_selected_confirm": "Excluir {count} POIs? Esta ação não pode ser desfeita.",
+        "import_success": "{count} POIs importados com sucesso",
+        "import_failed": "Falha na importação: {errors}"
+      }
+    },
+    "TriggerPointsGeneration": {
+      "title": "Geração de Trigger Points",
+      "subtitle": "Gere trigger points para POIs usando a nova abordagem baseada em dados",
+      "back": "Voltar",
+      "filters": {
+        "title": "Filtros",
+        "country": "País",
+        "state": "Estado",
+        "city": "Cidade",
+        "processing_type": "Tipo de Processamento",
+        "limit": "Limite",
+        "delay": "Atraso entre chamadas (ms)",
+        "select_country": "Selecione o país...",
+        "all_states": "Todos os estados",
+        "all_cities": "Todas as cidades",
+        "loading_countries": "Carregando países...",
+        "loading_states": "Carregando estados...",
+        "loading_cities": "Carregando cidades...",
+        "types": {
+          "without_trigger_points": "Sem Trigger Points",
+          "with_trigger_points": "Com Trigger Points",
+          "all": "Todos os POIs"
+        }
+      },
+      "actions": {
+        "load_pois": "Carregar POIs",
+        "loading_pois": "Carregando POIs...",
+        "select_all": "Selecionar Tudo",
+        "clear_selection": "Limpar Seleção",
+        "generate": "Gerar Trigger Points",
+        "processing": "Processando...",
+        "cancel": "Cancelar Processamento"
+      },
+      "list": {
+        "title": "POIs ({count})",
+        "trigger_points": "Trigger Points: {count}",
+        "boundary": "Limite: {status}",
+        "last_processed": "Último Processamento: {date}",
+        "yes": "Sim",
+        "no": "Não"
+      },
+      "processing": {
+        "title": "Processando ({count} selecionados)",
+        "progress": "Progresso: {processed}/{total}",
+        "estimated_time": "Tempo estimado restante: {seconds}s"
+      },
+      "results": {
+        "title": "Resultados",
+        "boundary": "Limite: {source}",
+        "saved": "{count} salvos"
+      },
+      "messages": {
+        "success": "Sucesso",
+        "error": "Erro",
+        "loaded_pois": "Carregados {count} POIs para geração de trigger points",
+        "load_failed": "Falha ao carregar POIs",
+        "select_one": "Por favor, selecione pelo menos um POI para processar",
+        "processing_completed": "Processamento concluído! {success} com sucesso, {failed} falharam",
+        "unknown_error": "Erro desconhecido"
       }
     }
   },
@@ -516,6 +817,33 @@
       "confirm_delete_bulk": "Tem certeza de que deseja excluir {count} POIs?",
       "delete_error": "Falha ao excluir POI",
       "delete_bulk_error": "Falha ao excluir POIs"
+    }
+  },
+  "Shared": {
+    "FiltersSidebar": {
+      "title": "Filtros",
+      "clear": "Limpar",
+      "search": "Buscar POIs...",
+      "state": "Estado",
+      "city": "Cidade",
+      "category": "Categoria",
+      "all_states": "Todos os Estados",
+      "all_cities": "Todas as Cidades",
+      "all_categories": "Todas as Categorias",
+      "select_state_first": "Selecione um estado primeiro",
+      "total": "Total:",
+      "filtered": "Filtrado:",
+      "page": "Página:",
+      "page_x_of_y": "Página {current} de {total}"
+    },
+    "ViewModeToggle": {
+      "table": "Tabela",
+      "map": "Mapa"
+    },
+    "Pagination": {
+      "showing": "Mostrando {from} a {to} de {total} resultados",
+      "prev": "Anterior",
+      "next": "Próximo"
     }
   }
 }

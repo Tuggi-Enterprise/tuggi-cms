@@ -11,6 +11,7 @@
 import { useCallback } from 'react'
 import { Upload, FileText, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 
 interface FileUploadProps {
   onFileSelect: (file: File) => void
@@ -21,6 +22,8 @@ interface FileUploadProps {
 }
 
 export function FileUpload({ onFileSelect, isLoading, error, currentFile, className }: FileUploadProps) {
+  const t = useTranslations('Pages.OSMImporter.file_upload')
+  const tCommon = useTranslations('Common')
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     console.log('📁 [FILEUPLOAD] File input changed:', { 
       filesCount: event.target.files?.length,
@@ -113,13 +116,13 @@ export function FileUpload({ onFileSelect, isLoading, error, currentFile, classN
             
             <div>
               <p className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                {isLoading ? 'Loading...' : 'Upload OSM File'}
+                {isLoading ? tCommon('status.loading') : t('title')}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Drag and drop or click to select GeoJSON or CSV file
+                {t('drag_drop')}
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                Supported formats: GeoJSON (.geojson, .json) and CSV (.csv). CSV must contain latitude and longitude columns.
+                {t('supported_formats')}
               </p>
             </div>
 

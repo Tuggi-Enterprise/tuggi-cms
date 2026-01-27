@@ -1,5 +1,6 @@
 import { Search, Loader2, Target } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 
 interface CategorySelectionPanelProps {
@@ -17,6 +18,8 @@ export function CategorySelectionPanel({
   disabled = false,
   onSearch
 }: CategorySelectionPanelProps) {
+  const t = useTranslations('Pages.POIImporter.categories')
+  const tShared = useTranslations('Shared')
   const handleCategoryClick = (categoryValue: string) => {
     onCategorySelect(categoryValue)
     if (onSearch && !isSearching && !disabled) {
@@ -31,12 +34,12 @@ export function CategorySelectionPanel({
           <div className="w-6 h-6 bg-gray-300 text-gray-500 rounded-full flex items-center justify-center text-xs font-bold">
             2
           </div>
-          <h2 className="text-sm font-semibold text-gray-500">Select Category & Search</h2>
+          <h2 className="text-sm font-semibold text-gray-500">{t('title')}</h2>
         </div>
         
         <div className="text-center py-4 text-gray-400">
           <Target className="h-6 w-6 mx-auto mb-2" />
-          <p className="text-xs">Define an area first to enable search</p>
+          <p className="text-xs">{t('instruction')}</p>
         </div>
       </div>
     )
@@ -48,7 +51,7 @@ export function CategorySelectionPanel({
         <div className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold">
           2
         </div>
-        <h2 className="text-sm font-semibold text-gray-900">Select Category & Search</h2>
+        <h2 className="text-sm font-semibold text-gray-900">{t('title')}</h2>
         {selectedCategory && onSearch && (
           <button
             onClick={onSearch}
@@ -60,7 +63,7 @@ export function CategorySelectionPanel({
             ) : (
               <Search className="h-3 w-3" />
             )}
-            Search
+            {tShared('FiltersSidebar.clear').replace('Clear', 'Search')}
           </button>
         )}
       </div>
@@ -95,7 +98,7 @@ export function CategorySelectionPanel({
       {selectedCategory === 'all' && (
         <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded-md">
           <p className="text-xs text-orange-700">
-            ⚡ &quot;All Categories&quot; searches 15+ types and may take longer
+            {t('all_warning')}
           </p>
         </div>
       )}

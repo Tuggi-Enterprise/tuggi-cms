@@ -10,6 +10,7 @@
 
 import { Table2, Map } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 
 interface ViewModeToggleProps {
   viewMode: 'table' | 'map'
@@ -18,6 +19,7 @@ interface ViewModeToggleProps {
 }
 
 export function ViewModeToggle({ viewMode, onViewChange, className }: ViewModeToggleProps) {
+  const t = useTranslations('Shared.ViewModeToggle')
   return (
     <div className={cn("flex items-center space-x-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1", className)}>
       <button
@@ -30,7 +32,7 @@ export function ViewModeToggle({ viewMode, onViewChange, className }: ViewModeTo
         )}
       >
         <Table2 className="w-4 h-4 mr-2" />
-        Table
+        {t('table')}
       </button>
       <button
         onClick={() => onViewChange('map')}
@@ -42,7 +44,7 @@ export function ViewModeToggle({ viewMode, onViewChange, className }: ViewModeTo
         )}
       >
         <Map className="w-4 h-4 mr-2" />
-        Map
+        {t('map')}
       </button>
     </div>
   )

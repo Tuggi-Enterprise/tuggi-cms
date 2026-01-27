@@ -5,6 +5,7 @@ import { Loader2, Map as MapIcon } from 'lucide-react'
 import { OSMService, MapPOI, OSMMapFilters } from '@/lib/services/osm-service-simple'
 import { POIMapVisualization } from '@/components/poi-management/POIMapVisualization'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
 
 interface OptimizedOSMMapProps {
   searchTerm: string
@@ -40,6 +41,8 @@ export function OptimizedOSMMap({
   className,
   selectedFeatureIds
 }: OptimizedOSMMapProps) {
+  const t = useTranslations('Pages.OSMImporter.map')
+  const tCommon = useTranslations('Common')
   const [bounds, setBounds] = useState<{ minLat: number; minLng: number; maxLat: number; maxLng: number } | null>(null)
   const [zoom, setZoom] = useState<number>(2)
 
@@ -74,10 +77,10 @@ export function OptimizedOSMMap({
       // Base ID
       id: poi.id,
       // MapPOI fields
-      name: poi.name || `Cluster (${poi.count})`,
+      name: poi.name || t('cluster', { count: poi.count }),
       city: poi.city || '',
       state: poi.state || null,
-      country: poi.country || 'Brazil',
+      country: poi.country || tCommon('labels.brazil'),
       
       // Visualization specific fields
       coordinates: {
@@ -126,7 +129,7 @@ export function OptimizedOSMMap({
           <div className="flex items-center space-x-2">
             <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
             <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
-              Updating map...
+              {t('updating')}
             </span>
           </div>
         </div>
@@ -138,7 +141,7 @@ export function OptimizedOSMMap({
           <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-400">
             <MapIcon className="w-4 h-4" />
             <span>
-              {pois.length.toLocaleString()} items in {(loadingTime).toFixed(0)}ms
+              {t('status', { count: pois.length, ms: loadingTime.toFixed(0) })}
             </span>
           </div>
         </div>

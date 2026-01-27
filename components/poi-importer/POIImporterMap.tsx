@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardR
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import { ZoomIn, ZoomOut, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 import { SavedPolygon } from '@/types/poi-importer'
 
 const LIBRARIES: any[] = ['drawing', 'places', 'geometry']
@@ -214,7 +215,7 @@ const MapInner = forwardRef<POIImporterMapRef, POIImporterMapProps>((props, ref)
           <button
             onClick={clearShape}
             className="bg-red-600 text-white p-2 rounded-lg shadow-md hover:bg-red-700 transition-colors flex items-center justify-center"
-            title="Clear current area"
+            title={useTranslations('Pages.POIImporter.actions')('clear')}
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -232,8 +233,8 @@ export const POIImporterMap = forwardRef<POIImporterMapRef, POIImporterMapProps>
         libraries={LIBRARIES}
         version="weekly"
         render={(status) => {
-          if (status === Status.LOADING) return <div className="h-full flex items-center justify-center bg-gray-100 animate-pulse">Loading Maps...</div>
-          if (status === Status.FAILURE) return <div className="h-full flex items-center justify-center text-red-500">Error loading Maps</div>
+          if (status === Status.LOADING) return <div className="h-full flex items-center justify-center bg-gray-100 animate-pulse">{useTranslations('Common.status')('loading')}</div>
+          if (status === Status.FAILURE) return <div className="h-full flex items-center justify-center text-red-500">{useTranslations('Common.status')('error')}</div>
           return <MapInner {...props} ref={ref} />
         }}
       />

@@ -5,6 +5,7 @@ import { Play, RotateCcw, MapPin, Loader2, CheckCircle2, XCircle, Info, Settings
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { POIImporterMap, POIImporterMapRef } from './POIImporterMap'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 import { PolygonService } from '@/lib/services/polygon-service'
 import { SavedPolygon } from '@/types/poi-importer'
 
@@ -17,6 +18,7 @@ interface Point {
 }
 
 export function POIImporter() {
+  const t = useTranslations('Pages.POIImporter')
   const supabase = useSupabaseClient()
   const [range, setRange] = useState(1) // km
   const [points, setPoints] = useState<Point[]>([])
@@ -92,8 +94,8 @@ export function POIImporter() {
     const newPoints = generateGrid(bounds)
     setPoints(newPoints)
     setCurrentIndex(-1)
-    addLog(`Area selected: ${newPoints.length} points generated with ${range}km range.`)
-  }, [generateGrid, range, addLog])
+    addLog(t('logs.area_selected', { count: newPoints.length, range }))
+  }, [generateGrid, range, addLog, t])
 
   // Re-generate grid if range changes while bounds exist
   useEffect(() => {
@@ -127,7 +129,7 @@ export function POIImporter() {
       try {
         await polygonService.savePolygon(name, paths)
         fetchHistory()
-        addLog(`Area "${name}" auto-saved to history.`)
+        addLog(t('logs.auto_saved', { name }))
       } catch (saveErr) {
         console.error('Failed to auto-save area:', saveErr)
       }
@@ -136,14 +138,19 @@ export function POIImporter() {
       setPoints(prev => prev.map(p => ({ ...p, status: 'pending' })))
     }
 
-    addLog(`Starting capture process for ${points.length - startIndex} points...`)
+    addLog(t('logs.starting', { count: points.length - startIndex }))
 
     for (let i = startIndex; i < points.length; i++) {
       // Note: In a real app we might want to check a 'shouldStop' ref here
       
       setCurrentIndex(i)
       setPoints(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'processing' } : p))
-      addLog(`Processing point ${i + 1}/${points.length} (${points[i].lat.toFixed(4)}, ${points[i].lng.toFixed(4)})`)
+      addLog(t('logs.processing_point', { 
+        current: i + 1, 
+        total: points.length, 
+        lat: points[i].lat.toFixed(4), 
+        lng: points[i].lng.toFixed(4) 
+      }))
 
       try {
         const { data, error } = await supabase.functions.invoke('capture-pois', {
@@ -157,7 +164,11 @@ export function POIImporter() {
         if (error) throw error
 
         const resultCount = data?.summary?.kept || 0
-        addLog(`Point ${i + 1} completed: Found ${data?.summary?.total_found || 0} POIs, kept ${resultCount}.`)
+        addLog(t('logs.point_completed', { 
+          current: i + 1, 
+          found: data?.summary?.total_found || 0, 
+          kept: resultCount 
+        }))
         
         setPoints(prev => prev.map((p, idx) => idx === i ? { 
           ...p, 
@@ -166,7 +177,7 @@ export function POIImporter() {
         } : p))
       } catch (err: any) {
         const errorMsg = err.message || 'Unknown error'
-        addLog(`Point ${i + 1} failed: ${errorMsg}`)
+        addLog(t('logs.point_failed', { current: i + 1, error: errorMsg }))
         setPoints(prev => prev.map((p, idx) => idx === i ? { 
           ...p, 
           status: 'failed', 
@@ -180,7 +191,7 @@ export function POIImporter() {
     
     setIsProcessing(false)
     setCurrentIndex(points.length)
-    addLog("Capture process finished.")
+    addLog(t('logs.finished'))
   }
 
   const handleLoadArea = (polygon: SavedPolygon) => {
@@ -188,14 +199,14 @@ export function POIImporter() {
     polygon.paths.forEach(p => bounds.extend(p))
     mapRef.current?.setBounds(bounds)
     setShowHistory(false)
-    addLog(`Area "${polygon.name}" loaded.`)
+    addLog(t('history.loaded', { name: polygon.name }))
   }
 
   const resetProcess = () => {
     setPoints(prev => prev.map(p => ({ ...p, status: 'pending', result: undefined, error: undefined })))
     setCurrentIndex(-1)
     setLogs([])
-    addLog("Process reset.")
+    addLog(t('logs.reset'))
   }
 
   const stats = useMemo(() => {
@@ -212,13 +223,13 @@ export function POIImporter() {
         <div className="p-6 space-y-6">
           <div className="flex items-center space-x-2">
             <Settings2 className="w-5 h-5 text-tuggi-blue" />
-            <h2 className="text-lg font-semibold dark:text-gray-100">Capture Settings</h2>
+            <h2 className="text-lg font-semibold dark:text-gray-100">{t('settings.title')}</h2>
           </div>
 
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Step Range (km)
+                {t('settings.range_label')}
               </label>
               <div className="flex items-center space-x-4">
                 <input
@@ -236,18 +247,18 @@ export function POIImporter() {
                 </span>
               </div>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Determines the distance between each capture point.
+                {t('settings.range_description')}
               </p>
             </div>
 
             <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium dark:text-gray-300">History</span>
+                <span className="text-sm font-medium dark:text-gray-300">{t('history.title')}</span>
                 <button 
                   onClick={() => setShowHistory(!showHistory)}
                   className="text-xs text-tuggi-blue flex items-center hover:underline"
                 >
-                  {showHistory ? 'Hide' : 'Show All'}
+                  {showHistory ? t('history.hide') : t('history.show_all')}
                   <ChevronDown className={cn("w-3 h-3 ml-1 transition-transform", showHistory && "rotate-180")} />
                 </button>
               </div>
@@ -255,7 +266,7 @@ export function POIImporter() {
               {showHistory && (
                 <div className="mb-4 max-h-40 overflow-y-auto border border-gray-100 dark:border-gray-800 rounded-lg bg-gray-50 dark:bg-gray-900/40 p-2 space-y-1">
                   {savedPolygons.length === 0 ? (
-                    <p className="text-[10px] text-gray-400 italic text-center py-2">No history yet</p>
+                    <p className="text-[10px] text-gray-400 italic text-center py-2">{t('history.empty')}</p>
                   ) : (
                     savedPolygons.map(p => (
                       <button
@@ -272,7 +283,7 @@ export function POIImporter() {
               )}
 
               <div className="flex items-center justify-between mb-4 mt-4">
-                <span className="text-sm font-medium dark:text-gray-300">Grid Points:</span>
+                <span className="text-sm font-medium dark:text-gray-300">{t('grid.points')}</span>
                 <span className="text-sm font-bold dark:text-white">{points.length}</span>
               </div>
 
@@ -280,7 +291,7 @@ export function POIImporter() {
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg flex items-start space-x-3">
                   <Info className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
                   <p className="text-xs text-blue-700 dark:text-blue-300">
-                    Use the tool on the map to draw a rectangle or polygon over the area you want to capture.
+                    {t('grid.instruction')}
                   </p>
                 </div>
               )}
@@ -302,7 +313,7 @@ export function POIImporter() {
                     ) : (
                       <Play className="w-5 h-5" />
                     )}
-                    <span>{isProcessing ? 'Processing...' : currentIndex > 0 ? 'Resume Capture' : 'Start Capture'}</span>
+                    <span>{isProcessing ? t('actions.processing') : currentIndex > 0 ? t('actions.resume') : t('actions.start')}</span>
                   </button>
 
                   {!isProcessing && currentIndex > -1 && (
@@ -311,7 +322,7 @@ export function POIImporter() {
                       className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 flex items-center justify-center space-x-2"
                     >
                       <RotateCcw className="w-4 h-4" />
-                      <span>Reset Progress</span>
+                      <span>{t('actions.reset')}</span>
                     </button>
                   )}
                 </div>
@@ -325,15 +336,15 @@ export function POIImporter() {
           <div className="p-6 border-t border-gray-200 dark:border-gray-800">
             <div className="flex items-center space-x-2 mb-4">
               <BarChart3 className="w-5 h-5 text-tuggi-orange" />
-              <h2 className="text-lg font-semibold dark:text-gray-100">Progress Statistics</h2>
+              <h2 className="text-lg font-semibold dark:text-gray-100">{t('stats.title')}</h2>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
-                <span className="text-xs text-gray-500">Completed</span>
+                <span className="text-xs text-gray-500">{t('stats.completed')}</span>
                 <p className="text-xl font-bold text-green-600">{stats.completed}</p>
               </div>
               <div className="bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
-                <span className="text-xs text-gray-500">POIs Found</span>
+                <span className="text-xs text-gray-500">{t('stats.found')}</span>
                 <p className="text-xl font-bold text-tuggi-blue">{stats.totalKept}</p>
               </div>
             </div>
@@ -343,19 +354,19 @@ export function POIImporter() {
         {/* Logs Section */}
         <div className="flex-1 flex flex-col min-h-0 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
           <div className="px-6 py-4 flex items-center justify-between">
-            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Activity Logs</span>
+            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{t('logs.title')}</span>
             {logs.length > 0 && (
               <button 
                 onClick={() => setLogs([])}
                 className="text-xs text-tuggi-blue hover:underline"
               >
-                Clear
+                {t('actions.clear')}
               </button>
             )}
           </div>
           <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-2 font-mono text-[10px]">
             {logs.length === 0 ? (
-              <p className="text-gray-400 italic">No activity yet...</p>
+              <p className="text-gray-400 italic">{t('logs.empty')}</p>
             ) : (
               logs.map((log, i) => (
                 <div key={i} className="text-gray-600 dark:text-gray-400 border-l-2 border-gray-200 dark:border-gray-700 pl-2">
@@ -382,7 +393,7 @@ export function POIImporter() {
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-full max-w-md px-4">
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-4 border border-gray-100 dark:border-gray-700">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-semibold dark:text-white">Capturing POIs...</span>
+                <span className="text-sm font-semibold dark:text-white">{t('overlay.capturing')}</span>
                 <span className="text-sm font-bold text-tuggi-blue">
                   {Math.round(((currentIndex + 1) / points.length) * 100)}%
                 </span>
@@ -394,7 +405,7 @@ export function POIImporter() {
                 />
               </div>
               <p className="mt-2 text-[10px] text-gray-500 dark:text-gray-400 text-center">
-                Point {currentIndex + 1} of {points.length}
+                {t('overlay.point_progress', { current: currentIndex + 1, total: points.length })}
               </p>
             </div>
           </div>
@@ -403,7 +414,7 @@ export function POIImporter() {
         {/* View Mode Indicator */}
         {isDrawing && (
           <div className="absolute top-4 right-4 bg-orange-500 text-white px-4 py-2 rounded-full text-xs font-bold animate-pulse shadow-lg">
-            Drawing Mode Active
+            {t('overlay.drawing_active')}
           </div>
         )}
       </div>

@@ -11,8 +11,10 @@
 import { Suspense, useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { OSMImporterOptimized } from '@/components/osm-importer/OSMImporterOptimized'
+import { useTranslations } from 'next-intl'
 
 function OSMImporterContent() {
+  const t = useTranslations('Pages.OSMImporter')
   const [hasData, setHasData] = useState<boolean | null>(null)
   const [isChecking, setIsChecking] = useState(true)
 
@@ -53,7 +55,7 @@ function OSMImporterContent() {
       <div className="h-full flex items-center justify-center bg-tuggi-background dark:bg-gray-900">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">Checking database...</p>
+          <p className="text-gray-600 dark:text-gray-400">{t('status.checking')}</p>
         </div>
       </div>
     )

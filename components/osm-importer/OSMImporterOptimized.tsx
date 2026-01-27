@@ -11,6 +11,7 @@
 import { useState, Suspense } from 'react'
 import { Upload, Trash2, Download, RefreshCw, CheckSquare, Square, X, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 
 // Hooks
 import { useOSMFilters } from '@/lib/hooks/use-osm-filters'
@@ -33,14 +34,14 @@ interface OSMImporterOptimizedProps {
 }
 
 // Transform OSMPOI to POI format for modal
-function transformToModalPOI(poi: OSMPOI): POI {
+function transformToModalPOI(poi: OSMPOI, t: any, tCommon: any): POI {
   return {
     id: poi.uuid_id,
-    name: poi.name || 'Unnamed POI',
-    city: poi.city || 'Unknown',
+    name: poi.name || t('table.unnamed'),
+    city: poi.city || tCommon('labels.unknown'),
     state: poi.state || null,
-    country: poi.country || 'Brazil',
-    category: poi.primary_category || poi.category || 'point_of_interest',
+    country: poi.country || tCommon('labels.brazil'),
+    category: poi.primary_category || poi.category || tCommon('labels.unknown'),
     approved: false,
     created_at: poi.created_at,
     updated_at: poi.updated_at,
@@ -95,6 +96,9 @@ function transformToSimplePOI(poi: OSMPOI): any {
 }
 
 export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOptimizedProps) {
+  const t = useTranslations('Pages.OSMImporter')
+  const tCommon = useTranslations('Common')
+
   // URL-synced filters
   const { filters, updateFilters, clearFilters, setPage, setView, hasActiveFilters } = useOSMFilters()
   
@@ -133,7 +137,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
   const handlePOIClick = (poi: any) => {
     const osmPOI = pois.find(p => p.uuid_id === (poi.id || poi.uuid_id))
     if (osmPOI) {
-      setSelectedPOI(transformToModalPOI(osmPOI))
+      setSelectedPOI(transformToModalPOI(osmPOI, t, tCommon))
       setIsModalOpen(true)
     }
   }
@@ -143,7 +147,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
     if (selectedCount === 0) return
     
     const confirmed = window.confirm(
-      `Are you sure you want to delete ${selectedCount} selected POIs? This action cannot be undone.`
+      t('alerts.delete_confirm', { count: selectedCount })
     )
     if (!confirmed) return
     
@@ -160,12 +164,12 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
       if (result.success) {
         clearSelection()
         refetch()
-        alert(`${result.deleted} POIs deleted successfully`)
+        alert(t('alerts.delete_success', { count: result.deleted }))
       } else {
-        alert(`Error: ${result.error}`)
+        alert(t('error', { message: result.error }))
       }
     } catch (error) {
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      alert(t('error', { message: error instanceof Error ? error.message : 'Unknown error' }))
     } finally {
       setIsDeleting(false)
     }
@@ -184,7 +188,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
       <div className="h-full flex items-center justify-center bg-tuggi-background dark:bg-gray-900">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">Loading POIs...</p>
+          <p className="text-gray-600 dark:text-gray-400">{t('status.loading')}</p>
         </div>
       </div>
     )
@@ -199,10 +203,10 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
           <div className="w-full max-w-2xl">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                No Data Found
+                {t('empty.title')}
               </h2>
               <p className="text-gray-600 dark:text-gray-400">
-                Upload a GeoJSON or CSV file to get started.
+                {t('empty.subtitle')}
               </p>
             </div>
             <FileUpload
@@ -244,7 +248,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
                 className="flex items-center space-x-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
               >
                 {allSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                <span>{allSelected ? 'Deselect All' : 'Select All'}</span>
+                <span>{allSelected ? t('actions.deselect_all') : t('actions.select_all')}</span>
               </button>
               
               {selectedCount > 0 && (
@@ -252,7 +256,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
                   onClick={clearSelection}
                   className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                 >
-                  Clear ({selectedCount})
+                  {t('actions.clear_selection', { count: selectedCount })}
                 </button>
               )}
             </div>
@@ -275,7 +279,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
               )}
             >
               <Trash2 className="w-4 h-4 mr-2" />
-              {isDeleting ? 'Deleting...' : 'Delete Selected'}
+              {isDeleting ? t('status.deleting') : t('actions.delete_selected')}
             </button>
             
             <button
@@ -288,7 +292,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
               )}
             >
               <Download className="w-4 h-4 mr-2" />
-              Import to Supabase
+              {t('actions.import')}
             </button>
           </div>
         </div>
@@ -349,7 +353,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
           ) : (
             <OptimizedOSMMap
               searchTerm={filters.search}
-              countryFilter="Brazil"
+              countryFilter={tCommon('labels.brazil')}
               stateFilter={filters.state}
               cityFilter={filters.city}
               categoryFilter={filters.category}
@@ -367,7 +371,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
           <div className="bg-white dark:bg-gray-900 rounded-lg p-6 max-w-2xl w-full mx-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Add Data
+                {t('actions.add_data')}
               </h3>
               <button
                 onClick={() => setShowUploadModal(false)}
@@ -420,15 +424,16 @@ function Header({
   hasData: boolean
   totalCount?: number
 }) {
+  const t = useTranslations('Pages.OSMImporter')
   return (
     <div className="bg-white dark:bg-gray-950 border-b border-gray-200 dark:border-gray-800 px-6 py-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            OSM Importer
+            {t('title')}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Import and manage OpenStreetMap POIs
+            {t('subtitle')}
             {totalCount !== undefined && ` • ${totalCount.toLocaleString()} POIs`}
           </p>
         </div>
@@ -441,7 +446,7 @@ function Header({
                 className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center"
               >
                 <RefreshCw className="w-4 h-4 mr-2" />
-                Refresh
+                {t('actions.refresh')}
               </button>
             )}
             <button
@@ -449,7 +454,7 @@ function Header({
               className="px-4 py-2 text-sm text-green-600 hover:text-green-700 border border-green-300 rounded-lg hover:bg-green-50 flex items-center"
             >
               <Upload className="w-4 h-4 mr-2" />
-              Add Data
+              {t('actions.add_data')}
             </button>
           </div>
         )}

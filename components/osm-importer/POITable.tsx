@@ -13,6 +13,7 @@ import { CheckSquare, Square, Edit3, Save, X, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SimpleOSMPOI } from '@/lib/types/osm-types'
 import { OSMService } from '@/lib/services/osm-service-simple'
+import { useTranslations } from 'next-intl'
 
 interface POITableProps {
   features: SimpleOSMPOI[]
@@ -23,6 +24,8 @@ interface POITableProps {
 }
 
 export function POITable({ features, selectedFeatures, onToggleSelection, onEditPOI, onPOIClick }: POITableProps) {
+  const t = useTranslations('Pages.OSMImporter.table')
+  const tCommon = useTranslations('Common')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Record<string, any>>({})
 
@@ -63,12 +66,12 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
           <div className="col-span-1">
             <CheckSquare className="w-4 h-4" />
           </div>
-          <div className="col-span-3">Name</div>
-          <div className="col-span-2">Category</div>
-          <div className="col-span-2">City</div>
-          <div className="col-span-2">State</div>
-          <div className="col-span-1">Country</div>
-          <div className="col-span-1">Actions</div>
+          <div className="col-span-3">{t('name')}</div>
+          <div className="col-span-2">{t('category')}</div>
+          <div className="col-span-2">{t('city')}</div>
+          <div className="col-span-2">{t('state')}</div>
+          <div className="col-span-1">{t('country')}</div>
+          <div className="col-span-1">{t('actions')}</div>
         </div>
       </div>
 
@@ -78,11 +81,11 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
           // Handle both in-memory and database data structures
           const isDbData = !poi.properties && !poi.geometry
           const location = isDbData ? {
-            name: (poi as any).name || 'Unnamed POI',
-            city: (poi as any).city || 'Unknown',
-            state: (poi as any).state || 'Unknown',
-            country: (poi as any).country || 'Unknown',
-            category: (poi as any).primary_category || (poi as any).category || 'Unknown'
+            name: (poi as any).name || t('unnamed'),
+            city: (poi as any).city || tCommon('labels.unknown'),
+            state: (poi as any).state || tCommon('labels.unknown'),
+            country: (poi as any).country || tCommon('labels.unknown'),
+            category: (poi as any).primary_category || (poi as any).category || tCommon('labels.unknown')
           } : OSMService.extractLocation(poi)
           
           const poiId = isDbData ? (poi as any).id : poi._id
@@ -204,7 +207,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                         handleEdit(poi)
                       }}
                       className="text-blue-600 hover:text-blue-700"
-                      title="Edit inline"
+                      title={tCommon('actions.edit')}
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
@@ -215,7 +218,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                           onPOIClick(poi)
                         }}
                         className="text-green-600 hover:text-green-700 ml-2"
-                        title="Open details modal"
+                        title={t('actions')}
                       >
                         <Eye className="w-4 h-4" />
                       </button>

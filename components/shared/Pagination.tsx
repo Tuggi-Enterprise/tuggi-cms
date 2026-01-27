@@ -10,6 +10,7 @@
 
 import { ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 
 interface PaginationProps {
   currentPage: number
@@ -67,6 +68,7 @@ export function Pagination({
   itemsPerPage = 50,
   className
 }: PaginationProps) {
+  const t = useTranslations('Shared.Pagination')
   if (totalPages <= 1) return null
 
   const pages = generatePageNumbers(currentPage, totalPages)
@@ -80,9 +82,11 @@ export function Pagination({
       {/* Items info */}
       {totalItems !== undefined && (
         <div className="text-sm text-gray-500 dark:text-gray-400">
-          Showing <span className="font-medium">{startItem}</span> to{' '}
-          <span className="font-medium">{endItem}</span> of{' '}
-          <span className="font-medium">{totalItems.toLocaleString()}</span> results
+          {t('showing', {
+            from: startItem,
+            to: endItem,
+            total: totalItems.toLocaleString()
+          })}
         </div>
       )}
 
@@ -100,7 +104,7 @@ export function Pagination({
           )}
         >
           <ChevronLeft className="h-4 w-4 mr-1" />
-          Prev
+          {t('prev')}
         </button>
 
         {/* Page numbers */}
@@ -138,7 +142,7 @@ export function Pagination({
               : "hover:bg-gray-100 dark:hover:bg-gray-800 border-gray-300 dark:border-gray-600"
           )}
         >
-          Next
+          {t('next')}
           <ChevronRight className="h-4 w-4 ml-1" />
         </button>
       </div>

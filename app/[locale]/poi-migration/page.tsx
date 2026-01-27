@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Loader2, AlertCircle, CheckCircle2, Play, Filter, Database, Settings, Sparkles, Target, ArrowRight, Zap, Globe, Mic2, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 
 interface MigrationResult {
   poi_uuid_id: string
@@ -79,6 +80,9 @@ const LANGUAGES = [
 ]
 
 export default function PoiMigrationPage() {
+  const t = useTranslations('Pages.POIMigration')
+  const tCommon = useTranslations('Common')
+
   // Form state
   const [country, setCountry] = useState('')
   const [state, setState] = useState('')
@@ -248,14 +252,14 @@ export default function PoiMigrationPage() {
       })
 
       if (!response.ok) {
-        throw new Error('Migration request failed')
+        throw new Error(t('alerts.request_failed'))
       }
 
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
 
       if (!reader) {
-        throw new Error('Response body is not readable')
+        throw new Error(t('alerts.body_not_readable'))
       }
 
       let buffer = ''
@@ -336,7 +340,7 @@ export default function PoiMigrationPage() {
                   }))
                   
                   if (data.hasMore) {
-                    setSuccess(`${data.message} Waiting for next batch...`)
+                    setSuccess(`${data.message} ${t('alerts.waiting_batch')}`)
                     shouldAutoResume = true
                   } else {
                     setSuccess(data.message)
@@ -390,10 +394,10 @@ export default function PoiMigrationPage() {
             </div>
             <div>
               <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-300 bg-clip-text text-transparent">
-                POI Migration
+                {t('title')}
               </h1>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Homolog → Core Pipeline
+                {t('subtitle')}
               </p>
             </div>
           </div>
@@ -410,7 +414,7 @@ export default function PoiMigrationPage() {
               <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-white dark:from-gray-800 dark:to-gray-800">
                 <div className="flex items-center gap-2">
                   <Filter className="w-4 h-4 text-gray-500" />
-                  <h2 className="font-semibold text-gray-900 dark:text-white">Filters</h2>
+                  <h2 className="font-semibold text-gray-900 dark:text-white">{t('filters.title')}</h2>
                 </div>
               </div>
               
@@ -418,7 +422,7 @@ export default function PoiMigrationPage() {
                 {/* Country */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">
-                    Country
+                    {t('filters.country')}
                   </label>
                   <select
                     value={country}
@@ -426,10 +430,10 @@ export default function PoiMigrationPage() {
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                     disabled={isMigrating || loadingCountries}
                   >
-                    <option value="">All Countries</option>
-                    <option value="__missing__" className="text-orange-600">⚠️ Missing Location Data</option>
+                    <option value="">{t('filters.all_countries')}</option>
+                    <option value="__missing__" className="text-orange-600">⚠️ {t('filters.missing_location')}</option>
                     {loadingCountries ? (
-                      <option disabled>Loading...</option>
+                      <option disabled>{tCommon('status.loading')}</option>
                     ) : (
                       countries.map((c) => (
                         <option key={c.value} value={c.value}>
@@ -443,7 +447,7 @@ export default function PoiMigrationPage() {
                 {/* State */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">
-                    State
+                    {t('filters.state')}
                   </label>
                   <select
                     value={state}
@@ -451,9 +455,9 @@ export default function PoiMigrationPage() {
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50"
                     disabled={isMigrating || !country || country === 'all' || loadingStates}
                   >
-                    <option value="">All States</option>
+                    <option value="">{t('filters.all_states')}</option>
                     {loadingStates ? (
-                      <option disabled>Loading...</option>
+                      <option disabled>{tCommon('status.loading')}</option>
                     ) : (
                       states.map((s) => (
                         <option key={s.value} value={s.value}>
@@ -467,7 +471,7 @@ export default function PoiMigrationPage() {
                 {/* City */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">
-                    City
+                    {t('filters.city')}
                   </label>
                   <select
                     value={city}
@@ -475,9 +479,9 @@ export default function PoiMigrationPage() {
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50"
                     disabled={isMigrating || !state || state === 'all' || loadingCities}
                   >
-                    <option value="">All Cities</option>
+                    <option value="">{t('filters.all_cities')}</option>
                     {loadingCities ? (
-                      <option disabled>Loading...</option>
+                      <option disabled>{tCommon('status.loading')}</option>
                     ) : (
                       cities.map((c) => (
                         <option key={c.value} value={c.value}>
@@ -491,7 +495,7 @@ export default function PoiMigrationPage() {
                 {/* Processing Status */}
                 <div>
                   <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">
-                    Status
+                    {t('filters.status')}
                   </label>
                   <select
                     value={processingStatus}
@@ -499,12 +503,12 @@ export default function PoiMigrationPage() {
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                     disabled={isMigrating}
                   >
-                    <option value="all">All Status</option>
-                    <option value="pending">Pending</option>
-                    <option value="processing">Processing</option>
-                    <option value="migrated">Migrated</option>
-                    <option value="failed">Failed</option>
-                    <option value="skipped">Skipped</option>
+                    <option value="all">{t('filters.all_status')}</option>
+                    <option value="pending">{tCommon('status.pending')}</option>
+                    <option value="processing">{tCommon('status.processing')}</option>
+                    <option value="migrated">{tCommon('status.migrated')}</option>
+                    <option value="failed">{tCommon('status.error')}</option>
+                    <option value="skipped">{tCommon('status.skipped')}</option>
                   </select>
                 </div>
 
@@ -519,15 +523,15 @@ export default function PoiMigrationPage() {
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                     disabled={isMigrating}
                   >
-                    <option value={10}>10 POIs</option>
-                    <option value={25}>25 POIs</option>
-                    <option value={50}>50 POIs</option>
-                    <option value={100}>100 POIs</option>
-                    <option value={0}>🔄 All POIs (continuous)</option>
+                    <option value={10}>{t('filters.pois_count', { count: 10 })}</option>
+                    <option value={25}>{t('filters.pois_count', { count: 25 })}</option>
+                    <option value={50}>{t('filters.pois_count', { count: 50 })}</option>
+                    <option value={100}>{t('filters.pois_count', { count: 100 })}</option>
+                    <option value={0}>🔄 {t('filters.all_pois_continuous')}</option>
                   </select>
                   {batchSize === 0 && (
                     <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                      ⚠️ Will process all matching POIs until complete
+                      ⚠️ {t('filters.continuous_hint')}
                     </p>
                   )}
                 </div>
@@ -542,7 +546,7 @@ export default function PoiMigrationPage() {
               >
                 <div className="flex items-center gap-2">
                   <Settings className="w-4 h-4 text-gray-500" />
-                  <span className="font-semibold text-gray-900 dark:text-white">Advanced Options</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">{t('advanced.title')}</span>
                 </div>
                 <ChevronDown className={cn("w-4 h-4 text-gray-500 transition-transform", showAdvancedOptions && "rotate-180")} />
               </button>
@@ -558,7 +562,7 @@ export default function PoiMigrationPage() {
                       className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm text-gray-700 dark:text-gray-300">
-                      Skip existing POIs in core
+                      {t('advanced.skip_existing')}
                     </span>
                   </label>
 
@@ -571,7 +575,7 @@ export default function PoiMigrationPage() {
                       className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm text-gray-700 dark:text-gray-300">
-                      Auto-approve if criteria met
+                      {t('advanced.auto_approve')}
                     </span>
                   </label>
 
@@ -584,7 +588,7 @@ export default function PoiMigrationPage() {
                       className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm text-gray-700 dark:text-gray-300">
-                      Auto-generate audio
+                      {t('advanced.auto_generate_audio')}
                     </span>
                   </label>
                 </div>
@@ -598,8 +602,8 @@ export default function PoiMigrationPage() {
             {/* Pipeline Mode Selection */}
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-                <h2 className="font-semibold text-gray-900 dark:text-white">Pipeline Mode</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Select the processing workflow</p>
+                <h2 className="font-semibold text-gray-900 dark:text-white">{t('pipeline.title')}</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t('pipeline.subtitle')}</p>
               </div>
               
               <div className="p-5">
@@ -621,7 +625,7 @@ export default function PoiMigrationPage() {
                       >
                         {config.recommended && (
                           <span className="absolute -top-2 -right-2 px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-[10px] font-bold rounded-full uppercase tracking-wide">
-                            Recommended
+                            {t('pipeline.recommended')}
                           </span>
                         )}
                         <div className="flex items-start gap-3">
@@ -630,10 +634,10 @@ export default function PoiMigrationPage() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-gray-900 dark:text-white text-sm">
-                              {config.name}
+                              {t(`pipeline.modes.${key}.name` as any)}
                             </div>
                             <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                              {config.description}
+                              {t(`pipeline.modes.${key}.description` as any)}
                             </div>
                           </div>
                         </div>
@@ -643,7 +647,7 @@ export default function PoiMigrationPage() {
                           {config.steps.map((step, idx) => (
                             <span key={step} className="flex items-center">
                               <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] rounded-md">
-                                {step}
+                                {t(`pipeline.steps.${step.toLowerCase().replace(/ /g, '_')}` as any)}
                               </span>
                               {idx < config.steps.length - 1 && (
                                 <ArrowRight className="w-3 h-3 text-gray-400 mx-0.5" />
@@ -664,9 +668,9 @@ export default function PoiMigrationPage() {
                 <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
                   <div className="flex items-center gap-2">
                     <Globe className="w-4 h-4 text-gray-500" />
-                    <h2 className="font-semibold text-gray-900 dark:text-white">Languages</h2>
+                    <h2 className="font-semibold text-gray-900 dark:text-white">{t('languages.title')}</h2>
                   </div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Select languages for description/audio generation</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t('languages.subtitle')}</p>
                 </div>
                 
                 <div className="p-5">
@@ -695,7 +699,7 @@ export default function PoiMigrationPage() {
                     ))}
                   </div>
                   <p className="text-xs text-gray-500 mt-3">
-                    {selectedLanguages.length} language{selectedLanguages.length !== 1 ? 's' : ''} selected
+                    {t('languages.selected_count', { count: selectedLanguages.length })}
                   </p>
                 </div>
               </div>
@@ -707,7 +711,7 @@ export default function PoiMigrationPage() {
                 <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
                   <div className="flex items-center gap-2">
                     <Mic2 className="w-4 h-4 text-gray-500" />
-                    <h2 className="font-semibold text-gray-900 dark:text-white">Voice</h2>
+                    <h2 className="font-semibold text-gray-900 dark:text-white">{t('voice.title')}</h2>
                   </div>
                 </div>
                 
@@ -726,7 +730,7 @@ export default function PoiMigrationPage() {
                         )}
                       >
                         <div className="text-2xl mb-1">{gender === 'male' ? '👨' : '👩'}</div>
-                        <div className="font-medium text-gray-900 dark:text-white capitalize">{gender}</div>
+                        <div className="font-medium text-gray-900 dark:text-white capitalize">{t(`voice.${gender}` as any)}</div>
                       </button>
                     ))}
                   </div>
@@ -750,12 +754,12 @@ export default function PoiMigrationPage() {
               {isMigrating ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Processing Migration...
+                  {t('actions.processing')}
                 </>
               ) : (
                 <>
                   <Play className="w-5 h-5" />
-                  Start Migration
+                  {t('actions.start')}
                 </>
               )}
             </button>
@@ -764,15 +768,15 @@ export default function PoiMigrationPage() {
             {(progress && (progress.total > 0 || progress.processed > 0)) && (
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden animate-in slide-in-from-bottom-2 duration-300">
                 <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-                  <h2 className="font-semibold text-gray-900 dark:text-white">Progress</h2>
+                  <h2 className="font-semibold text-gray-900 dark:text-white">{t('progress.title')}</h2>
                 </div>
                 
                 <div className="p-5">
                   <div className="mb-4">
                     <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400 mb-2">
-                      <span>Processing</span>
+                      <span>{t('progress.label')}</span>
                       {batchSize === 0 ? (
-                        <span className="font-medium">{progress.processed} processed</span>
+                        <span className="font-medium">{t('progress.processed_count', { count: progress.processed })}</span>
                       ) : (
                         <span className="font-medium">{progress.percentage}%</span>
                       )}
@@ -795,7 +799,7 @@ export default function PoiMigrationPage() {
                       <div className="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 animate-pulse">
                         <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
                         <span className="truncate">
-                          Processing: <span className="font-medium text-gray-900 dark:text-white">{currentPoi.name}</span>
+                          {t('progress.processing_poi', { name: currentPoi.name })}
                         </span>
                       </div>
                     )}
@@ -804,15 +808,15 @@ export default function PoiMigrationPage() {
                   <div className="grid grid-cols-3 gap-4">
                     <div className="text-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
                       <div className="text-2xl font-bold text-gray-900 dark:text-white">{progress.processed}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Processed</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{tCommon('status.processed')}</div>
                     </div>
                     <div className="text-center p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl">
                       <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{progress.successful}</div>
-                      <div className="text-xs text-emerald-600/70 dark:text-emerald-400/70 uppercase tracking-wide">Success</div>
+                      <div className="text-xs text-emerald-600/70 dark:text-emerald-400/70 uppercase tracking-wide">{t('results.successful')}</div>
                     </div>
                     <div className="text-center p-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
                       <div className="text-2xl font-bold text-red-600 dark:text-red-400">{progress.failed}</div>
-                      <div className="text-xs text-red-600/70 dark:text-red-400/70 uppercase tracking-wide">Failed</div>
+                      <div className="text-xs text-red-600/70 dark:text-red-400/70 uppercase tracking-wide">{t('results.failed')}</div>
                     </div>
                   </div>
                 </div>
@@ -838,17 +842,17 @@ export default function PoiMigrationPage() {
             {results.length > 0 && (
               <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
                 <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-                  <h2 className="font-semibold text-gray-900 dark:text-white">Results</h2>
+                  <h2 className="font-semibold text-gray-900 dark:text-white">{t('results.title')}</h2>
                 </div>
                 
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-700/50">
-                        <th className="text-left py-3 px-5 text-gray-600 dark:text-gray-300 font-medium">POI Name</th>
-                        <th className="text-left py-3 px-5 text-gray-600 dark:text-gray-300 font-medium">Status</th>
-                        <th className="text-left py-3 px-5 text-gray-600 dark:text-gray-300 font-medium">Attraction ID</th>
-                        <th className="text-left py-3 px-5 text-gray-600 dark:text-gray-300 font-medium">Error</th>
+                        <th className="text-left py-3 px-5 text-gray-600 dark:text-gray-300 font-medium">{t('results.poi_name')}</th>
+                        <th className="text-left py-3 px-5 text-gray-600 dark:text-gray-300 font-medium">{t('results.status')}</th>
+                        <th className="text-left py-3 px-5 text-gray-600 dark:text-gray-300 font-medium">{t('results.attraction_id')}</th>
+                        <th className="text-left py-3 px-5 text-gray-600 dark:text-gray-300 font-medium">{t('results.output')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -859,12 +863,12 @@ export default function PoiMigrationPage() {
                             {result.success ? (
                               <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs rounded-full">
                                 <CheckCircle2 className="w-3 h-3" />
-                                Success
+                                {t('results.successful')}
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-xs rounded-full">
                                 <AlertCircle className="w-3 h-3" />
-                                Failed
+                                {t('results.failed')}
                               </span>
                             )}
                           </td>

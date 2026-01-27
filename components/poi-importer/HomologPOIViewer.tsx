@@ -11,11 +11,16 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Table2, Map, CheckSquare, Square, Trash2, Database, RefreshCw, Search, Filter } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 import { useHomologPOIViewer } from '@/lib/hooks/use-homolog-poi-viewer'
 import { POITable } from './POITable'
 import { OptimizedOSMMap } from '@/components/osm-importer/OptimizedOSMMap'
 
 export function HomologPOIViewer() {
+  const t = useTranslations('Pages.POIImporter.viewer')
+  const tImporter = useTranslations('Pages.POIImporter')
+  const tShared = useTranslations('Shared')
+  const tCommon = useTranslations('Common')
   console.log('🏗️ [HOMOLOG-POI-VIEWER] Component rendering')
   
   // KISS: Single hook call with all functionality and state
@@ -104,11 +109,11 @@ export function HomologPOIViewer() {
     
     return currentFeatures.filter(feature => {
       const location = {
-        name: feature.name || 'Unnamed POI',
-        city: feature.city || 'Unknown',
-        state: feature.state || 'Unknown',
-        country: feature.country || 'Unknown',
-        category: feature.primary_category || 'Unknown'
+        name: feature.name || tImporter('table.unnamed'),
+        city: feature.city || tCommon('labels.unknown'),
+        state: feature.state || tCommon('labels.unknown'),
+        country: feature.country || tCommon('labels.unknown'),
+        category: feature.primary_category || tCommon('labels.unknown')
       }
 
       // Search filter
@@ -182,7 +187,7 @@ export function HomologPOIViewer() {
 
   // NEW: Delete single POI with confirmation
   const handleDelete = (id: string) => {
-    if (window.confirm('Delete this POI? This cannot be undone.')) {
+    if (window.confirm(t('delete_confirm'))) {
       deletePOIs([id])
     }
   }
@@ -192,7 +197,7 @@ export function HomologPOIViewer() {
     const count = selectedFeatures.size
     if (count === 0) return
     
-    if (window.confirm(`Delete ${count} POIs? This cannot be undone.`)) {
+    if (window.confirm(t('delete_selected_confirm', { count }))) {
       deletePOIs(Array.from(selectedFeatures))
     }
   }
@@ -233,17 +238,17 @@ export function HomologPOIViewer() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-              POI Viewer
+              {t('title')}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              View and manage POIs from homolog.pois
+              {t('subtitle')}
             </p>
           </div>
           
           <div className="flex items-center space-x-4">
             {hasData && (
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                {currentFeaturesCount} POIs loaded
+                {t('loaded_count', { count: currentFeaturesCount })}
               </div>
             )}
             
@@ -253,7 +258,7 @@ export function HomologPOIViewer() {
                   onClick={handleRefresh}
                   className="px-4 py-2 text-sm text-blue-600 hover:text-blue-700 border border-blue-300 rounded-lg hover:bg-blue-50"
                 >
-                  Refresh Data
+                  {t('refresh_btn')}
                 </button>
               </div>
             )}
@@ -268,7 +273,7 @@ export function HomologPOIViewer() {
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="text-center w-full max-w-md">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">Loading POIs from database...</p>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">{t('loading')}</p>
             </div>
           </div>
         )}
@@ -278,10 +283,10 @@ export function HomologPOIViewer() {
           <div className="flex-1 flex items-center justify-center p-8">
             <div className="text-center">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                No POIs Found
+                {t('empty.title')}
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-8">
-                No POIs found in homolog.pois database. Data will appear here when imported.
+                {t('empty.subtitle')}
               </p>
             </div>
           </div>
@@ -306,7 +311,7 @@ export function HomologPOIViewer() {
                       )}
                     >
                       <Table2 className="w-4 h-4 mr-2 inline" />
-                      Table
+                      {tShared('ViewModeToggle.table')}
                     </button>
                     <button
                       onClick={() => handleViewModeChange('map')}
@@ -318,7 +323,7 @@ export function HomologPOIViewer() {
                       )}
                     >
                       <Map className="w-4 h-4 mr-2 inline" />
-                      Map
+                      {tShared('ViewModeToggle.map')}
                     </button>
                   </div>
 
@@ -334,7 +339,7 @@ export function HomologPOIViewer() {
                         <CheckSquare className="w-4 h-4" />
                       )}
                       <span>
-                        {selectedFeatures.size === currentFeaturesCount ? 'Deselect All' : 'Select All'}
+                        {selectedFeatures.size === currentFeaturesCount ? tImporter('actions.deselect_all') : tImporter('actions.select_all')}
                       </span>
                     </button>
                     
@@ -343,7 +348,7 @@ export function HomologPOIViewer() {
                         onClick={clearSelection}
                         className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
                       >
-                        Clear Selection
+                        {tImporter('actions.clear_selection', { count: selectedFeatures.size })}
                       </button>
                     )}
                   </div>
@@ -353,9 +358,9 @@ export function HomologPOIViewer() {
                 {localDBStats && (
                   <div className="flex items-center space-x-2 text-sm text-gray-600 dark:text-gray-400">
                     <Database className="w-4 h-4" />
-                    <span>{localDBStats.features} features</span>
+                    <span>{t('stats.features', { count: localDBStats.features })}</span>
                     <span>•</span>
-                    <span>{localDBStats.coordinates} coordinates</span>
+                    <span>{t('stats.coordinates', { count: localDBStats.coordinates })}</span>
                     <button
                       onClick={refreshLocalStats}
                       className="ml-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
@@ -368,7 +373,7 @@ export function HomologPOIViewer() {
                 {/* Delete Button */}
                 <div className="flex items-center space-x-4">
                   <div className="text-sm text-gray-600 dark:text-gray-400">
-                    {selectedFeatures.size} selected
+                    {tImporter('actions.clear_selection', { count: selectedFeatures.size })}
                   </div>
                   
                   <button
@@ -382,7 +387,7 @@ export function HomologPOIViewer() {
                     )}
                   >
                     <Trash2 className="w-4 h-4 mr-2 inline" />
-                    {isDeleting ? 'Deleting...' : 'Delete Selected'}
+                    {isDeleting ? tImporter('actions.deleting') : tImporter('actions.delete_selected')}
                   </button>
                 </div>
               </div>
@@ -396,13 +401,13 @@ export function HomologPOIViewer() {
                   <div className="flex items-center justify-between mb-4">
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
                       <Filter className="h-5 w-5 mr-2 text-tuggi-blue" />
-                      Filters
+                      {tShared('FiltersSidebar.title')}
                     </h2>
                     <button
                       onClick={clearFilters}
                       className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                     >
-                      Clear All
+                      {tShared('FiltersSidebar.clear')}
                     </button>
                   </div>
 
@@ -412,7 +417,7 @@ export function HomologPOIViewer() {
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                       <input
                         type="text"
-                        placeholder="Search POIs..."
+                        placeholder={tShared('FiltersSidebar.search')}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
@@ -425,14 +430,14 @@ export function HomologPOIViewer() {
                     {/* State Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        State
+                        {tShared('FiltersSidebar.state')}
                       </label>
                       <select
                         value={stateFilter}
                         onChange={(e) => setStateFilter(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
                       >
-                        <option value="">All States</option>
+                        <option value="">{tShared('FiltersSidebar.all_states')}</option>
                         {(availableCities || [])
                           .map(city => city.state)
                           .filter((state, index, self) => self.indexOf(state) === index)
@@ -448,7 +453,7 @@ export function HomologPOIViewer() {
                     {/* City Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        City
+                        {tShared('FiltersSidebar.city')}
                       </label>
                       <select
                         value={cityFilter}
@@ -456,7 +461,7 @@ export function HomologPOIViewer() {
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
                         disabled={!stateFilter}
                       >
-                        <option value="">All Cities</option>
+                        <option value="">{tShared('FiltersSidebar.all_cities')}</option>
                         {(availableCities || [])
                           .filter(city => !stateFilter || city.state === stateFilter)
                           .map(city => city.name)
@@ -473,14 +478,14 @@ export function HomologPOIViewer() {
                     {/* Category Filter */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Category
+                        {tShared('FiltersSidebar.category')}
                       </label>
                       <select
                         value={categoryFilter}
                         onChange={(e) => setCategoryFilter(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
                       >
-                        <option value="">All Categories</option>
+                        <option value="">{tShared('FiltersSidebar.all_categories')}</option>
                         {(availableCategories || [])
                           .sort()
                           .map((category) => (
@@ -496,17 +501,17 @@ export function HomologPOIViewer() {
                   <div className="mt-6 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div className="text-sm text-gray-600 dark:text-gray-400">
                       <div className="flex justify-between">
-                        <span>Total:</span>
+                        <span>{tShared('FiltersSidebar.total')}</span>
                         <span>{currentFeaturesCount}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span>Filtered:</span>
+                        <span>{tShared('FiltersSidebar.filtered')}</span>
                         <span className="font-medium">{filteredFeatures.length}</span>
                       </div>
                       {viewMode === 'table' && (
                         <div className="flex justify-between">
-                          <span>Page:</span>
-                          <span className="font-medium">{currentPage} of {totalPages}</span>
+                          <span>{tShared('FiltersSidebar.page')}</span>
+                          <span className="font-medium">{tShared('FiltersSidebar.page_x_of_y', { current: currentPage, total: totalPages })}</span>
                         </div>
                       )}
                     </div>
@@ -531,7 +536,11 @@ export function HomologPOIViewer() {
                       <div className="bg-white dark:bg-gray-950 border-t border-gray-200 dark:border-gray-800 px-6 py-4">
                         <div className="flex items-center justify-between">
                           <div className="text-sm text-gray-600 dark:text-gray-400">
-                            Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalCount || 0)} of {totalCount || 0} results
+                            {tShared('Pagination.showing', { 
+                              from: ((currentPage - 1) * itemsPerPage) + 1, 
+                              to: Math.min(currentPage * itemsPerPage, totalCount || 0), 
+                              total: totalCount || 0 
+                            })}
                           </div>
                           
                           <div className="flex items-center space-x-2">
@@ -540,7 +549,7 @@ export function HomologPOIViewer() {
                               disabled={!hasPrevPage}
                               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Previous
+                              {tShared('Pagination.prev')}
                             </button>
                             
                             <div className="flex items-center space-x-1">
@@ -579,7 +588,7 @@ export function HomologPOIViewer() {
                               disabled={!hasNextPage}
                               className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              Next
+                              {tShared('Pagination.next')}
                             </button>
                           </div>
                         </div>
@@ -619,8 +628,8 @@ export function HomologPOIViewer() {
                 )}
                 <span className="font-medium">
                   {importResults.success 
-                    ? `Successfully imported ${importResults.imported} POIs`
-                    : `Import failed: ${importResults.errors.join(', ')}`
+                    ? t('import_success', { count: importResults.imported })
+                    : t('import_failed', { errors: importResults.errors.join(', ') })
                   }
                 </span>
               </div>

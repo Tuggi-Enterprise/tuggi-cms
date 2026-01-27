@@ -11,6 +11,7 @@
 import { useState } from 'react'
 import { CheckSquare, Square, Edit3, Save, X, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 
 interface HomologPOI {
   uuid_id: string
@@ -31,6 +32,8 @@ interface POITableProps {
 }
 
 export function POITable({ features, selectedFeatures, onToggleSelection, onEditPOI, onDeletePOI }: POITableProps) {
+  const t = useTranslations('Pages.POIImporter.table')
+  const tCommon = useTranslations('Common')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Record<string, any>>({})
 
@@ -75,12 +78,12 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
           <div className="col-span-1">
             <CheckSquare className="w-4 h-4" />
           </div>
-          <div className="col-span-3">Name</div>
-          <div className="col-span-2">Category</div>
-          <div className="col-span-2">City</div>
-          <div className="col-span-2">State</div>
-          <div className="col-span-1">Country</div>
-          <div className="col-span-1">Actions</div>
+          <div className="col-span-3">{t('name')}</div>
+          <div className="col-span-2">{t('category')}</div>
+          <div className="col-span-2">{t('city')}</div>
+          <div className="col-span-2">{t('state')}</div>
+          <div className="col-span-1">{t('country')}</div>
+          <div className="col-span-1">{t('actions')}</div>
         </div>
       </div>
 
@@ -119,14 +122,14 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     className="w-full px-2 py-1 border rounded text-sm"
                   />
                 ) : (
-                  <span className="font-medium">{poi.name || 'Unnamed POI'}</span>
+                  <span className="font-medium">{poi.name || t('unnamed')}</span>
                 )}
               </div>
 
               {/* Category */}
               <div className="col-span-2 flex items-center">
                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                  {poi.primary_category || 'Unknown'}
+                  {poi.primary_category || tCommon('labels.unknown')}
                 </span>
               </div>
 
@@ -140,7 +143,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     className="w-full px-2 py-1 border rounded text-sm"
                   />
                 ) : (
-                  <span className="text-sm">{poi.city || 'Unknown'}</span>
+                  <span className="text-sm">{poi.city || tCommon('labels.unknown')}</span>
                 )}
               </div>
 
@@ -154,7 +157,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     className="w-full px-2 py-1 border rounded text-sm"
                   />
                 ) : (
-                  <span className="text-sm">{poi.state || 'Unknown'}</span>
+                  <span className="text-sm">{poi.state || tCommon('labels.unknown')}</span>
                 )}
               </div>
 
@@ -168,7 +171,7 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     className="w-full px-2 py-1 border rounded text-sm"
                   />
                 ) : (
-                  <span className="text-sm">{poi.country || 'Unknown'}</span>
+                  <span className="text-sm">{poi.country || tCommon('labels.unknown')}</span>
                 )}
               </div>
 
@@ -179,14 +182,14 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     <button
                       onClick={() => handleSave(poiId)}
                       className="text-green-600 hover:text-green-700"
-                      title="Save"
+                      title={tCommon('actions.save')}
                     >
                       <Save className="w-4 h-4" />
                     </button>
                     <button
                       onClick={handleCancel}
                       className="text-red-600 hover:text-red-700"
-                      title="Cancel"
+                      title={tCommon('actions.cancel')}
                     >
                       <X className="w-4 h-4" />
                     </button>
@@ -196,14 +199,14 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                     <button
                       onClick={() => handleEdit(poi)}
                       className="text-blue-600 hover:text-blue-700"
-                      title="Edit"
+                      title={tCommon('actions.edit')}
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => handleDelete(poiId)}
                       className="text-red-600 hover:text-red-700"
-                      title="Delete"
+                      title={tCommon('actions.delete')}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

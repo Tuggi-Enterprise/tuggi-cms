@@ -1,4 +1,5 @@
 import { COUNTRIES } from '@/constants/poi-importer'
+import { useTranslations } from 'next-intl'
 
 interface SettingsPanelProps {
   selectedCountry: string
@@ -9,11 +10,12 @@ export function SettingsPanel({
   selectedCountry,
   onCountryChange
 }: SettingsPanelProps) {
+  const t = useTranslations('Pages.POIImporter.settings')
   return (
     <div className="p-4">
-      <h3 className="text-sm font-medium text-gray-700 mb-3">Settings</h3>
+      <h3 className="text-sm font-medium text-gray-700 mb-3">{t('title')}</h3>
       <div>
-        <label className="text-xs text-gray-600">Default Country</label>
+        <label className="text-xs text-gray-600">{useTranslations('Pages.OSMImporter.table')('country')}</label>
         <select
           value={selectedCountry}
           onChange={(e) => onCountryChange(e.target.value)}

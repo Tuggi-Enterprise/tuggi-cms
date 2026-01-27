@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, AlertCircle, CheckCircle2, RefreshCw, Play, Target, MapPin, Filter, Database, Globe } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2, Play, Target, Filter, Database } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLocationData } from '@/lib/hooks/use-location-data';
 import { usePOIProcessing } from '@/lib/hooks/use-poi-processing';
 import { poiService, POI } from '@/lib/core/poi-service';
+
+import { useTranslations } from 'next-intl';
 
 interface TriggerPointGenerationResult {
   poi_id: string;
@@ -22,6 +24,7 @@ interface TriggerPointGenerationResult {
 }
 
 export default function TriggerPointsGenerationPage() {
+  const t = useTranslations('Pages.TriggerPointsGeneration');
   const router = useRouter();
   
   // Use centralized hooks
@@ -102,13 +105,13 @@ export default function TriggerPointsGenerationPage() {
         setPois(result.data || []);
         setSelectedPois([]);
         setGenerationResults([]);
-        setSuccess(`Loaded ${result.data?.length || 0} POIs for trigger point generation`);
+        setSuccess(t('messages.loaded_pois', { count: result.data?.length || 0 }));
       } else {
-        setError(result.error || 'Failed to load POIs');
+        setError(result.error || t('messages.load_failed'));
       }
     } catch (error) {
       console.error('Error loading POIs:', error);
-      setError('Failed to load POIs');
+      setError(t('messages.load_failed'));
     } finally {
       setIsLoading(false);
     }
@@ -117,7 +120,7 @@ export default function TriggerPointsGenerationPage() {
   // Generate trigger points using centralized processing service
   const generateTriggerPoints = async () => {
     if (selectedPois.length === 0) {
-      setError('Please select at least one POI to process');
+      setError(t('messages.select_one'));
       return;
     }
 
@@ -135,7 +138,7 @@ export default function TriggerPointsGenerationPage() {
         onComplete: (result) => {
           const successCount = result.successful;
           const errorCount = result.failed;
-          setSuccess(`Processing completed! ${successCount} successful, ${errorCount} failed`);
+          setSuccess(t('messages.processing_completed', { success: successCount, failed: errorCount }));
           
           // Transform results to match expected format
           const transformedResults: TriggerPointGenerationResult[] = result.results.map(item => ({
@@ -160,7 +163,7 @@ export default function TriggerPointsGenerationPage() {
 
       } catch (error) {
       console.error('Error in trigger points generation:', error);
-      setError(error instanceof Error ? error.message : 'Unknown error');
+      setError(error instanceof Error ? error.message : t('messages.unknown_error'));
     }
   };
 
@@ -196,16 +199,16 @@ export default function TriggerPointsGenerationPage() {
       <div className="mb-8">
         <div className="flex items-center justify-between">
           <div>
-              <h1 className="text-3xl font-bold text-gray-900">Trigger Points Generation</h1>
+              <h1 className="text-3xl font-bold text-gray-900">{t('title')}</h1>
               <p className="mt-2 text-gray-600">
-                Generate trigger points for POIs using the new data-driven approach
+                {t('subtitle')}
             </p>
           </div>
             <button
               onClick={() => router.back()}
               className="px-4 py-2 text-gray-600 hover:text-gray-900 transition-colors"
             >
-              ← Back
+              ← {t('back')}
             </button>
           </div>
         </div>
@@ -218,7 +221,7 @@ export default function TriggerPointsGenerationPage() {
                 <div className="flex">
                   <AlertCircle className="h-5 w-5 text-red-400" />
                   <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800">Error</h3>
+                    <h3 className="text-sm font-medium text-red-800">{t('messages.error')}</h3>
                     <div className="mt-2 text-sm text-red-700">{error}</div>
                   </div>
                   <button
@@ -235,7 +238,7 @@ export default function TriggerPointsGenerationPage() {
                 <div className="flex">
                   <CheckCircle2 className="h-5 w-5 text-green-400" />
                   <div className="ml-3">
-                    <h3 className="text-sm font-medium text-green-800">Success</h3>
+                    <h3 className="text-sm font-medium text-green-800">{t('messages.success')}</h3>
                     <div className="mt-2 text-sm text-green-700">{success}</div>
                   </div>
                   <button
@@ -254,14 +257,14 @@ export default function TriggerPointsGenerationPage() {
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
             <Filter className="h-5 w-5 mr-2" />
-            Filters
+            {t('filters.title')}
           </h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Country */}
                 <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Country
+                    {t('filters.country')}
                   </label>
                   <select
                     value={country}
@@ -269,7 +272,7 @@ export default function TriggerPointsGenerationPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={locationData.countriesLoading}
               >
-                <option value="">Select country...</option>
+                <option value="">{t('filters.select_country')}</option>
                 {locationData.countries.map((country) => (
                   <option key={country.name} value={country.name}>
                     {country.name} ({country.totalPOIs} POIs)
@@ -279,7 +282,7 @@ export default function TriggerPointsGenerationPage() {
               {locationData.countriesLoading && (
                 <div className="flex items-center mt-1 text-sm text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  Loading countries...
+                  {t('filters.loading_countries')}
                 </div>
               )}
                 </div>
@@ -287,7 +290,7 @@ export default function TriggerPointsGenerationPage() {
             {/* State */}
                 <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                    State
+                    {t('filters.state')}
                   </label>
                   <select
                     value={state}
@@ -295,7 +298,7 @@ export default function TriggerPointsGenerationPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={!country || locationData.statesLoading}
               >
-                <option value="">All states</option>
+                <option value="">{t('filters.all_states')}</option>
                 {locationData.states.map((state) => (
                   <option key={state.value} value={state.value}>
                     {state.label}
@@ -305,7 +308,7 @@ export default function TriggerPointsGenerationPage() {
               {locationData.statesLoading && (
                 <div className="flex items-center mt-1 text-sm text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  Loading states...
+                  {t('filters.loading_states')}
                 </div>
               )}
                 </div>
@@ -313,7 +316,7 @@ export default function TriggerPointsGenerationPage() {
             {/* City */}
                 <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                    City
+                    {t('filters.city')}
                   </label>
                   <select
                     value={city}
@@ -321,7 +324,7 @@ export default function TriggerPointsGenerationPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={!country || locationData.citiesLoading}
               >
-                <option value="">All cities</option>
+                <option value="">{t('filters.all_cities')}</option>
                 {locationData.cities.map((city) => (
                   <option key={city.name} value={city.name}>
                     {city.name}
@@ -331,7 +334,7 @@ export default function TriggerPointsGenerationPage() {
               {locationData.citiesLoading && (
                 <div className="flex items-center mt-1 text-sm text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                  Loading cities...
+                  {t('filters.loading_cities')}
                 </div>
               )}
                 </div>
@@ -339,23 +342,23 @@ export default function TriggerPointsGenerationPage() {
                 {/* Processing Type */}
                 <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Processing Type
+                    {t('filters.processing_type')}
                   </label>
                   <select
                     value={processingType}
                     onChange={(e) => setProcessingType(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="without_trigger_points">Without Trigger Points</option>
-                <option value="with_trigger_points">With Trigger Points</option>
-                <option value="all">All POIs</option>
+                <option value="without_trigger_points">{t('filters.types.without_trigger_points')}</option>
+                <option value="with_trigger_points">{t('filters.types.with_trigger_points')}</option>
+                <option value="all">{t('filters.types.all')}</option>
                   </select>
                 </div>
 
                 {/* Limit */}
                 <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Limit
+                    {t('filters.limit')}
                   </label>
               <input
                 type="number"
@@ -370,7 +373,7 @@ export default function TriggerPointsGenerationPage() {
             {/* Delay */}
                   <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Delay Between Calls (ms)
+                      {t('filters.delay')}
                     </label>
               <input
                 type="number"
@@ -399,12 +402,12 @@ export default function TriggerPointsGenerationPage() {
                       {isLoading ? (
                         <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2 inline" />
-                  Loading POIs...
+                  {t('actions.loading_pois')}
                         </>
                       ) : (
                         <>
                   <Database className="h-4 w-4 mr-2 inline" />
-                  Load POIs
+                  {t('actions.load_pois')}
                         </>
                       )}
                     </button>
@@ -417,20 +420,20 @@ export default function TriggerPointsGenerationPage() {
             <div className="px-6 py-4 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-gray-900">
-                  POIs ({pois.length})
+                  {t('list.title', { count: pois.length })}
                 </h2>
                 <div className="flex gap-2">
                   <button
                     onClick={selectAllPOIs}
                     className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
                   >
-                    Select All
+                    {t('actions.select_all')}
                   </button>
                   <button
                     onClick={clearSelection}
                     className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
                   >
-                    Clear Selection
+                    {t('actions.clear_selection')}
                   </button>
                 </div>
               </div>
@@ -458,15 +461,15 @@ export default function TriggerPointsGenerationPage() {
                         {poi.city}, {poi.state && `${poi.state}, `}{poi.country}
                       </p>
                       <div className="flex items-center gap-4 mt-1 text-xs text-gray-400">
-                        <span>Trigger Points: {poi.trigger_points_count || 0}</span>
-                        <span>Boundary: {poi.has_boundary ? 'Yes' : 'No'}</span>
+                        <span>{t('list.trigger_points', { count: poi.trigger_points_count || 0 })}</span>
+                        <span>{t('list.boundary', { status: poi.has_boundary ? t('list.yes') : t('list.no') })}</span>
                         {poi.last_processed && (
-                          <span>Last Processed: {new Date(poi.last_processed).toLocaleDateString()}</span>
+                          <span>{t('list.last_processed', { date: new Date(poi.last_processed).toLocaleDateString() })}</span>
                         )}
                       </div>
-                    </div>
                   </div>
                 </div>
+              </div>
               ))}
                 </div>
               </div>
@@ -477,7 +480,7 @@ export default function TriggerPointsGenerationPage() {
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
               <Target className="h-5 w-5 mr-2" />
-              Processing ({selectedPois.length} selected)
+              {t('processing.title', { count: selectedPois.length })}
             </h2>
             
             <div className="flex gap-3">
@@ -494,12 +497,12 @@ export default function TriggerPointsGenerationPage() {
                 {poiProcessing.isProcessing ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                    Processing...
+                    {t('actions.processing')}
                           </>
                         ) : (
                           <>
                     <Play className="h-5 w-5 mr-2" />
-                            Generate Trigger Points
+                            {t('actions.generate')}
                           </>
                         )}
                       </button>
@@ -509,7 +512,7 @@ export default function TriggerPointsGenerationPage() {
                   onClick={poiProcessing.cancelProcessing}
                   className="px-6 py-3 rounded-md font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
                 >
-                  Cancel Processing
+                  {t('actions.cancel')}
                 </button>
               )}
                     </div>
@@ -518,7 +521,7 @@ export default function TriggerPointsGenerationPage() {
             {poiProcessing.progress && (
               <div className="mt-4">
                 <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
-                  <span>Progress: {poiProcessing.progress.processed}/{poiProcessing.progress.total}</span>
+                  <span>{t('processing.progress', { processed: poiProcessing.progress.processed, total: poiProcessing.progress.total })}</span>
                   <span>{poiProcessing.progress.percentage}%</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
@@ -529,7 +532,7 @@ export default function TriggerPointsGenerationPage() {
                 </div>
                 {poiProcessing.progress.estimatedTimeRemaining && (
                   <p className="text-xs text-gray-500 mt-1">
-                    Estimated time remaining: {Math.round(poiProcessing.progress.estimatedTimeRemaining / 1000)}s
+                    {t('processing.estimated_time', { seconds: Math.round(poiProcessing.progress.estimatedTimeRemaining / 1000) })}
                   </p>
                                       )}
                                     </div>
@@ -541,7 +544,7 @@ export default function TriggerPointsGenerationPage() {
         {generationResults.length > 0 && (
           <div className="bg-white rounded-lg shadow mt-6">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Results</h2>
+              <h2 className="text-lg font-semibold text-gray-900">{t('results.title')}</h2>
                                 </div>
             <div className="divide-y divide-gray-200">
               {generationResults.map((result, index) => (
@@ -551,7 +554,7 @@ export default function TriggerPointsGenerationPage() {
                       <h3 className="text-sm font-medium text-gray-900">{result.poi_name}</h3>
                       <p className="text-sm text-gray-500">{result.message}</p>
                       {result.boundary_source && (
-                        <p className="text-xs text-gray-400">Boundary: {result.boundary_source}</p>
+                        <p className="text-xs text-gray-400">{t('results.boundary', { source: result.boundary_source })}</p>
                                       )}
                                     </div>
                     <div className="flex items-center gap-2">
@@ -561,7 +564,7 @@ export default function TriggerPointsGenerationPage() {
                         <AlertCircle className="h-5 w-5 text-red-500" />
                       )}
                       <span className="text-sm text-gray-500">
-                        {result.trigger_points_saved || 0} saved
+                        {t('results.saved', { count: result.trigger_points_saved || 0 })}
                       </span>
                         </div>
                   </div>
@@ -574,4 +577,5 @@ export default function TriggerPointsGenerationPage() {
     </div>
   );
 }
+
 

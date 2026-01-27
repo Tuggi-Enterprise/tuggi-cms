@@ -10,6 +10,7 @@
 
 import { Search, Filter, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useTranslations } from 'next-intl'
 
 interface FilterOption {
   value: string
@@ -70,6 +71,7 @@ export function FiltersSidebar({
   totalPages,
   className
 }: FiltersSidebarProps) {
+  const t = useTranslations('Shared.FiltersSidebar')
   return (
     <div className={cn(
       "w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 p-6 overflow-y-auto flex-shrink-0",
@@ -79,7 +81,7 @@ export function FiltersSidebar({
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
           <Filter className="h-5 w-5 mr-2 text-blue-600" />
-          Filters
+          {t('title')}
         </h2>
         {hasActiveFilters && (
           <button
@@ -87,7 +89,7 @@ export function FiltersSidebar({
             className="flex items-center px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
           >
             <X className="h-3 w-3 mr-1" />
-            Clear
+            {t('clear')}
           </button>
         )}
       </div>
@@ -98,7 +100,7 @@ export function FiltersSidebar({
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder={searchPlaceholder}
+            placeholder={searchPlaceholder === 'Search POIs...' ? t('search') : searchPlaceholder}
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -111,14 +113,14 @@ export function FiltersSidebar({
         {/* State Filter */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            State
+            {t('state')}
           </label>
           <select
             value={stateFilter}
             onChange={(e) => onStateChange(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
-            <option value="">All States</option>
+            <option value="">{t('all_states')}</option>
             {availableStates.map((state) => (
               <option key={state} value={state}>{state}</option>
             ))}
@@ -128,7 +130,7 @@ export function FiltersSidebar({
         {/* City Filter */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            City
+            {t('city')}
           </label>
           <select
             value={cityFilter}
@@ -139,14 +141,14 @@ export function FiltersSidebar({
               !stateFilter && "opacity-50 cursor-not-allowed"
             )}
           >
-            <option value="">All Cities</option>
+            <option value="">{t('all_cities')}</option>
             {availableCities.map((city) => (
               <option key={city} value={city}>{city}</option>
             ))}
           </select>
           {!stateFilter && (
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Select a state first
+              {t('select_state_first')}
             </p>
           )}
         </div>
@@ -155,14 +157,14 @@ export function FiltersSidebar({
         {onCategoryChange && availableCategories && (
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Category
+              {t('category')}
             </label>
             <select
               value={categoryFilter || ''}
               onChange={(e) => onCategoryChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="">All Categories</option>
+              <option value="">{t('all_categories')}</option>
               {availableCategories.map((category) => (
                 <option key={category} value={category}>{category}</option>
               ))}
@@ -176,20 +178,20 @@ export function FiltersSidebar({
         <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
           {totalCount !== undefined && (
             <div className="flex justify-between">
-              <span>Total:</span>
+              <span>{t('total')}</span>
               <span className="font-medium">{totalCount.toLocaleString()}</span>
             </div>
           )}
           {filteredCount !== undefined && filteredCount !== totalCount && (
             <div className="flex justify-between">
-              <span>Filtered:</span>
+              <span>{t('filtered')}</span>
               <span className="font-medium">{filteredCount.toLocaleString()}</span>
             </div>
           )}
           {currentPage !== undefined && totalPages !== undefined && totalPages > 1 && (
             <div className="flex justify-between">
-              <span>Page:</span>
-              <span className="font-medium">{currentPage} of {totalPages}</span>
+              <span>{t('page')}</span>
+              <span className="font-medium">{t('page_x_of_y', { current: currentPage, total: totalPages, defaultValue: `${currentPage} of ${totalPages}` })}</span>
             </div>
           )}
         </div>
