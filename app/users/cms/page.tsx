@@ -5,9 +5,11 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { 
   UserCog, Plus, Search, MoreVertical, Shield, Edit2, 
   Trash2, CheckCircle, XCircle, Mail, Calendar, RefreshCw,
-  AlertCircle, Loader2
+  AlertCircle, Loader2, Users
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { StatCard, StatCardRow } from '@/components/ui/StatCard'
+import { RoleBadge } from '@/components/ui/RoleBadge'
 
 // ============================================================================
 // TYPES
@@ -31,28 +33,6 @@ interface InviteFormData {
   email: string
   full_name: string
   role: 'admin' | 'editor' | 'viewer' | 'client'
-}
-
-// ============================================================================
-// ROLE BADGE COMPONENT
-// ============================================================================
-
-const RoleBadge = ({ role }: { role: string }) => {
-  const colors: Record<string, string> = {
-    admin: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    editor: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    viewer: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
-    client: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-  }
-  
-  return (
-    <span className={cn(
-      'px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wider',
-      colors[role] || colors.viewer
-    )}>
-      {role}
-    </span>
-  )
 }
 
 // ============================================================================
@@ -369,24 +349,12 @@ export default function CMSUsersPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total</p>
-          <p className="text-3xl font-black text-gray-900 dark:text-white">{stats.total}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Ativos</p>
-          <p className="text-3xl font-black text-green-600">{stats.active}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Admins</p>
-          <p className="text-3xl font-black text-red-600">{stats.admins}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Editors</p>
-          <p className="text-3xl font-black text-blue-600">{stats.editors}</p>
-        </div>
-      </div>
+      <StatCardRow columns={4} className="mb-8">
+        <StatCard label="Total" value={stats.total} icon={Users} color="#00A8E8" isLoading={isLoading} />
+        <StatCard label="Ativos" value={stats.active} icon={CheckCircle} color="#10B981" isLoading={isLoading} />
+        <StatCard label="Admins" value={stats.admins} icon={Shield} color="#EF4444" isLoading={isLoading} />
+        <StatCard label="Editors" value={stats.editors} icon={Edit2} color="#8B5CF6" isLoading={isLoading} />
+      </StatCardRow>
 
       {/* Search */}
       <div className="mb-6">

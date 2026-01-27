@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabase } from '../../../../lib/core/supabase-client'
 import { memoryCache } from '@/lib/cache/memory-cache'
+import { cookies } from 'next/headers'
 
 const supabase = getSupabase('service')
 
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
     // Try to detect logged user and, if client, restrict results to their own POIs
     let cmsUser = null
     try {
-      const cookieStore = (request as any).cookies ? (request as any).cookies() : undefined
+      const cookieStore = await cookies()
       if (cookieStore) {
         const createRouteHandlerClient = (await import('@supabase/auth-helpers-nextjs')).createRouteHandlerClient
         const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })

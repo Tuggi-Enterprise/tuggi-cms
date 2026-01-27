@@ -12,6 +12,7 @@ import {
   Clock, Play, Navigation, Map, Eye, Headphones, Layers, AlertTriangle,
   Target, FolderOpen, Package, Plus
 } from 'lucide-react'
+import { StatCard } from '@/components/ui/StatCard'
 import { dashboardService, DashboardStats, UserWithSessions, HeatmapPoint, InventoryDetails } from '@/lib/services/dashboard-service'
 
 // Lazy load TrailMap para performance
@@ -100,49 +101,6 @@ const EMPTY_INVENTORY: InventoryDetails = {
   recentCoreAdditions: 0,
   recentHomologAdditions: 0
 }
-
-// ============================================================================
-// COMPONENT: Premium Stat Card
-// ============================================================================
-
-interface StatCardProps {
-  icon: any
-  title: string
-  value: string | number
-  subtitle?: string
-  color: string
-  isLoading?: boolean
-  size?: 'normal' | 'compact'
-}
-
-const StatCard = ({ icon: Icon, title, value, subtitle, color, isLoading, size = 'normal' }: StatCardProps) => (
-  <div className={`group relative overflow-hidden rounded-2xl bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 ${size === 'compact' ? 'p-4' : 'p-6'} hover:border-tuggi-blue/30 transition-all duration-300 hover:shadow-xl hover:shadow-tuggi-blue/10 hover:-translate-y-1`}>
-    <div className={`absolute -top-20 -right-20 w-40 h-40 opacity-10 blur-3xl group-hover:opacity-20 transition-opacity duration-500`} style={{ backgroundColor: color }} />
-    
-    <div className="relative z-10">
-      <div className="flex items-center justify-between mb-3">
-        <div className={`${size === 'compact' ? 'p-2' : 'p-3'} rounded-xl`} style={{ backgroundColor: `${color}20` }}>
-          <Icon className={`${size === 'compact' ? 'h-4 w-4' : 'h-6 w-6'}`} style={{ color }} />
-        </div>
-      </div>
-      
-      <p className={`${size === 'compact' ? 'text-[10px]' : 'text-xs'} font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-1`}>{title}</p>
-      
-      {isLoading ? (
-        <div className={`${size === 'compact' ? 'h-6 w-16' : 'h-10 w-24'} bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse`} />
-      ) : (
-        <>
-          <p className={`${size === 'compact' ? 'text-2xl' : 'text-4xl'} font-black text-gray-900 dark:text-white tracking-tight`}>
-            {typeof value === 'number' ? value.toLocaleString() : value}
-          </p>
-          {subtitle && (
-            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>
-          )}
-        </>
-      )}
-    </div>
-  </div>
-)
 
 // ============================================================================
 // COMPONENT: Tab Button

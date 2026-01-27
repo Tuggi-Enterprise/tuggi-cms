@@ -4,11 +4,20 @@ import { useState, useEffect, useCallback } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { 
   Smartphone, Search, RefreshCw, Filter, Crown, 
-  CreditCard, Globe, Clock, TrendingUp, AlertCircle, ChevronDown,
-  Eye, Navigation, Headphones, Star, Apple, PlayCircle, Zap, 
-  Mail, Phone, Calendar, User, Activity
+  CreditCard, TrendingUp, AlertCircle, ChevronDown,
+  Apple, Zap, User, Activity, Mail, Play
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { StatCard, StatCardRow } from '@/components/ui/StatCard'
+import { SubscriptionBadge, ProviderIcon, PlatformBadge } from '@/components/ui/SubscriptionBadge'
+
+// PlayCircle icon (not in lucide-react standard)
+const PlayCircle = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <polygon points="10,8 16,12 10,16 10,8"/>
+  </svg>
+)
 
 // ============================================================================
 // TYPES
@@ -66,65 +75,6 @@ interface UserDetail extends AppUser {
     previous_tier_name: string | null
     created_at: string
   }>
-}
-
-// ============================================================================
-// STAT CARD COMPONENT
-// ============================================================================
-
-const StatCard = ({ label, value, icon: Icon, color, subtitle }: { 
-  label: string
-  value: string | number
-  icon: any
-  color: string
-  subtitle?: string
-}) => (
-  <div className="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
-    <div className="flex items-center justify-between mb-2">
-      <div className="p-2 rounded-lg" style={{ backgroundColor: `${color}20` }}>
-        <Icon className="h-4 w-4" style={{ color }} />
-      </div>
-    </div>
-    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">{label}</p>
-    <p className="text-2xl font-black text-gray-900 dark:text-white">{typeof value === 'number' ? value.toLocaleString() : value}</p>
-    {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
-  </div>
-)
-
-// ============================================================================
-// SUBSCRIPTION BADGE
-// ============================================================================
-
-const SubscriptionBadge = ({ user }: { user: AppUser }) => {
-  if (user.is_premium) {
-    return (
-      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-yellow-400 to-orange-500 text-white shadow-sm">
-        <Crown className="h-3 w-3 mr-1" />
-        {user.subscription_tier_display_name || 'Premium'}
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-bold bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-      Free
-    </span>
-  )
-}
-
-// ============================================================================
-// PROVIDER ICON
-// ============================================================================
-
-const ProviderIcon = ({ provider }: { provider: string | null }) => {
-  if (!provider) return null
-  
-  const icons: Record<string, any> = {
-    apple: <Apple className="h-3 w-3 text-gray-600" />,
-    google: <PlayCircle className="h-3 w-3 text-green-600" />,
-    stripe: <Zap className="h-3 w-3 text-purple-600" />
-  }
-  
-  return icons[provider] || null
 }
 
 // ============================================================================
@@ -194,7 +144,7 @@ const UserDetailModal = ({
                   <div>
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
                       {user.full_name || 'Sem nome'}
-                      <SubscriptionBadge user={user as any} />
+                      <SubscriptionBadge isPremium={user.is_premium} tierName={user.subscription_tier_display_name} />
                     </h2>
                     <p className="text-gray-500">@{user.nickname || 'sem-nickname'}</p>
                     {user.email && (
@@ -568,32 +518,36 @@ export default function AppUsersPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-6">
-        <StatCard label="Total" value={stats.total_users} icon={Smartphone} color="#00A8E8" />
-        <StatCard label="Free" value={stats.free_users} icon={User} color="#6B7280" />
+      {/* Stats Cards */}
+      <StatCardRow columns={8} className="mb-6">
+        <StatCard label="Total" value={stats.total_users} icon={Smartphone} color="#00A8E8" isLoading={isLoading} />
+        <StatCard label="Free" value={stats.free_users} icon={User} color="#6B7280" isLoading={isLoading} />
         <StatCard 
           label="Premium" 
           value={stats.premium_users} 
           icon={Crown} 
           color="#F59E0B" 
           subtitle={`${stats.premium_percentage}%`}
+          isLoading={isLoading}
         />
-        <StatCard label="Apple" value={stats.apple_subscriptions} icon={Apple} color="#000000" />
-        <StatCard label="Google" value={stats.google_subscriptions} icon={PlayCircle} color="#34A853" />
-        <StatCard label="Stripe" value={stats.stripe_subscriptions} icon={Zap} color="#635BFF" />
+        <StatCard label="Apple" value={stats.apple_subscriptions} icon={Apple} color="#000000" isLoading={isLoading} />
+        <StatCard label="Google" value={stats.google_subscriptions} icon={Play} color="#34A853" isLoading={isLoading} />
+        <StatCard label="Stripe" value={stats.stripe_subscriptions} icon={Zap} color="#635BFF" isLoading={isLoading} />
         <StatCard 
           label="Novos (7d)" 
           value={subscriptionStats?.new_subscriptions_7d || 0} 
           icon={TrendingUp} 
           color="#10B981" 
+          isLoading={isLoading}
         />
         <StatCard 
           label="Churn (7d)" 
           value={subscriptionStats?.churned_7d || 0} 
           icon={AlertCircle} 
           color="#EF4444" 
+          isLoading={isLoading}
         />
-      </div>
+      </StatCardRow>
 
       {/* Filters Panel */}
       {showFilters && (
@@ -739,7 +693,7 @@ export default function AppUsersPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
-                        <SubscriptionBadge user={user} />
+                        <SubscriptionBadge isPremium={user.is_premium} tierName={user.subscription_tier_display_name} />
                         <ProviderIcon provider={user.subscription_provider} />
                       </div>
                     </td>
