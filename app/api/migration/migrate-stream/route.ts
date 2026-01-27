@@ -72,6 +72,9 @@ export async function POST(request: NextRequest) {
       let round = 0
       let lastUuidId = null
 
+      const startTimeExecution = Date.now()
+      const TIME_LIMIT_MS = (maxDuration - 20) * 1000 // Leave 20s buffer for cleanup
+
       try {
         sendEvent('status', { 
           message: continuousMode ? 'Starting continuous migration...' : 'Starting migration...', 
@@ -81,6 +84,29 @@ export async function POST(request: NextRequest) {
 
         // Continuous loop for processing all POIs
         while (hasMorePOIs) {
+          // Check if we are approaching timeout
+          if (Date.now() - startTimeExecution > TIME_LIMIT_MS) {
+            sendEvent('status', { 
+              message: 'Approaching execution time limit. Ending current stream to allow reconnection...',
+              phase: 'timeout_limit',
+              totalProcessed,
+              totalSuccessful,
+              totalFailed
+            })
+            
+            sendEvent('complete', {
+              total: totalProcessed,
+              processed: totalProcessed,
+              successful: totalSuccessful,
+              failed: totalFailed,
+              hasMore: true, // Signal to client that it should call again
+              message: `Processed ${totalProcessed} POIs. Reconnecting to continue...`
+            })
+            
+            controller.close()
+            return
+          }
+
           round++
           
           // Build query to get POIs from homolog

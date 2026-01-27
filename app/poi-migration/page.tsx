@@ -204,19 +204,25 @@ export default function PoiMigrationPage() {
   const [currentPoi, setCurrentPoi] = useState<{ name: string; step?: string } | null>(null)
 
   // Start migration with SSE streaming
-  const startMigration = async () => {
+  const startMigration = async (isResume: boolean = false) => {
     setIsMigrating(true)
     setError(null)
     setSuccess(null)
-    setResults([])
-    setCurrentPoi(null)
-    setProgress({
-      total: 0,
-      processed: 0,
-      successful: 0,
-      failed: 0,
-      percentage: 0
-    })
+    
+    if (!isResume) {
+      setResults([])
+      setCurrentPoi(null)
+      setProgress({
+        total: 0,
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        percentage: 0
+      })
+    }
+
+    // Flag to track if we should auto-resume
+    let shouldAutoResume = false
 
     try {
       const response = await fetch('/api/migration/migrate-stream', {
@@ -279,21 +285,24 @@ export default function PoiMigrationPage() {
                 case 'start':
                   setProgress(prev => ({
                     ...prev!,
-                    total: data.total
+                    total: isResume && (data.total === '?' || (prev?.total && prev.total > 0)) ? prev!.total : data.total
                   }))
                   break
                   
                 case 'progress':
                   setCurrentPoi({ name: data.poi_name })
-                  setProgress(prev => ({
-                    ...prev!,
-                    processed: data.current,
-                    percentage: data.percentage
-                  }))
+                  setProgress(prev => {
+                    const currentTotal = typeof data.total === 'number' ? data.total : (prev?.total || 0)
+                    return {
+                      ...prev!,
+                      processed: (prev?.processed || 0), // Don't increment yet, wait for poi_complete
+                      percentage: currentTotal > 0 ? Math.round(((prev?.processed || 0) / currentTotal) * 100) : 0
+                    }
+                  })
                   break
                   
                 case 'poi_complete':
-                  setResults(prev => [...prev, {
+                  setResults(prev => [...prev.slice(-49), { // Keep only last 50 results to avoid memory issues
                     poi_uuid_id: data.poi_id,
                     poi_name: data.poi_name,
                     success: data.success,
@@ -304,28 +313,34 @@ export default function PoiMigrationPage() {
                   setProgress(prev => {
                     const newSuccessful = prev!.successful + (data.success ? 1 : 0)
                     const newFailed = prev!.failed + (data.success ? 0 : 1)
+                    const newProcessed = prev!.processed + 1
                     const total = typeof data.total === 'number' ? data.total : prev!.total
                     return {
                       ...prev!,
-                      processed: data.current,
+                      processed: newProcessed,
                       successful: newSuccessful,
                       failed: newFailed,
-                      // In continuous mode, don't show percentage (or show based on current progress)
-                      percentage: total > 0 ? Math.round((data.current / total) * 100) : 0
+                      percentage: total > 0 ? Math.min(100, Math.round((newProcessed / total) * 100)) : 0
                     }
                   })
                   break
                   
                 case 'complete':
                   setCurrentPoi(null)
-                  setProgress({
+                  setProgress(prev => ({
                     total: data.total,
-                    processed: data.processed,
-                    successful: data.successful,
-                    failed: data.failed,
+                    processed: data.processed + (prev?.processed || 0),
+                    successful: data.successful + (prev?.successful || 0),
+                    failed: data.failed + (prev?.failed || 0),
                     percentage: 100
-                  })
-                  setSuccess(data.message)
+                  }))
+                  
+                  if (data.hasMore) {
+                    setSuccess(`${data.message} Waiting for next batch...`)
+                    shouldAutoResume = true
+                  } else {
+                    setSuccess(data.message)
+                  }
                   break
                   
                 case 'poi_skipped':
@@ -350,6 +365,13 @@ export default function PoiMigrationPage() {
     } finally {
       setIsMigrating(false)
       setCurrentPoi(null)
+      
+      // Auto-resume if needed (after a short delay to avoid flooding)
+      if (shouldAutoResume) {
+        setTimeout(() => {
+          startMigration()
+        }, 2000)
+      }
     }
   }
 
@@ -714,7 +736,7 @@ export default function PoiMigrationPage() {
 
             {/* Start Migration Button */}
             <button
-              onClick={startMigration}
+              onClick={() => startMigration()}
               disabled={isMigrating || isLoading}
               className={cn(
                 "w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl font-semibold text-lg",
