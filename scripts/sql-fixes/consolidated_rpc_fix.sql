@@ -56,12 +56,11 @@ BEGIN
   END IF;
 
   -- Determine clustering distance (epsilon) based on zoom
-  IF zoom_level <= 4 THEN eps := 3.0;
-  ELSIF zoom_level <= 6 THEN eps := 1.0;
-  ELSIF zoom_level <= 8 THEN eps := 0.5;
-  ELSIF zoom_level <= 10 THEN eps := 0.1;
-  ELSIF zoom_level <= 12 THEN eps := 0.05;
-  ELSE eps := 0; -- No clustering for high zoom
+  IF zoom_level <= 4 THEN eps := 2.0;
+  ELSIF zoom_level <= 5 THEN eps := 1.0;
+  ELSIF zoom_level <= 6 THEN eps := 0.5;
+  ELSIF zoom_level <= 7 THEN eps := 0.1;
+  ELSE eps := 0; -- No clustering for zoom 8 and above
   END IF;
 
   RETURN QUERY
@@ -392,3 +391,87 @@ $$;
 
 GRANT EXECUTE ON FUNCTION core.cms_search_pois TO authenticated;
 GRANT EXECUTE ON FUNCTION core.cms_search_pois TO service_role;
+
+-- 3. Dashboard City Stats
+DROP FUNCTION IF EXISTS core.dashboard_city_stats(uuid);
+CREATE OR REPLACE FUNCTION core.dashboard_city_stats(
+  owner_id uuid DEFAULT NULL
+)
+RETURNS TABLE (city text, poi_count bigint)
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  caller_cms_id uuid;
+  is_admin boolean := false;
+BEGIN
+  caller_cms_id := (SELECT id FROM core.cms_users WHERE email = current_setting('request.jwt.claims.email', true));
+  is_admin := EXISTS (
+    SELECT 1 FROM core.cms_users cu 
+    WHERE cu.email = current_setting('request.jwt.claims.email', true) AND cu.role IN ('admin','super_admin')
+  );
+
+  IF NOT is_admin THEN owner_id := caller_cms_id; END IF;
+
+  RETURN QUERY
+  SELECT a.city, COUNT(*)::bigint AS poi_count
+  FROM core.attractions a
+  WHERE (owner_id IS NULL OR a.created_by = owner_id)
+    AND (a.city IS NOT NULL AND a.city <> '')
+  GROUP BY a.city
+  ORDER BY poi_count DESC;
+END; $$;
+
+GRANT EXECUTE ON FUNCTION core.dashboard_city_stats(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION core.dashboard_city_stats(uuid) TO service_role;
+
+-- 4. Dashboard User Analytics
+DROP FUNCTION IF EXISTS core.dashboard_user_analytics(uuid);
+CREATE OR REPLACE FUNCTION core.dashboard_user_analytics(
+  owner_id uuid DEFAULT NULL
+)
+RETURNS TABLE (
+  total_users bigint,
+  total_trips bigint,
+  total_km_driven numeric,
+  total_pois_played bigint,
+  avg_trip_duration text,
+  trips_by_platform jsonb
+)
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  caller_cms_id uuid;
+  is_admin boolean := false;
+BEGIN
+  caller_cms_id := (SELECT id FROM core.cms_users WHERE email = current_setting('request.jwt.claims.email', true));
+  is_admin := EXISTS (
+    SELECT 1 FROM core.cms_users cu 
+    WHERE cu.email = current_setting('request.jwt.claims.email', true) AND cu.role IN ('admin','super_admin')
+  );
+
+  IF NOT is_admin THEN owner_id := caller_cms_id; END IF;
+
+  IF owner_id IS NULL THEN
+    RETURN QUERY SELECT
+      (SELECT COUNT(DISTINCT id) FROM auth.users) AS total_users,
+      (SELECT COUNT(*) FROM drive.trail_trips_unified) AS total_trips,
+      (SELECT COALESCE(SUM(distance_km),0) FROM drive.trail_trips_unified) AS total_km_driven,
+      (SELECT COUNT(*) FROM core.attraction_plays) AS total_pois_played,
+      (SELECT COALESCE(AVG(duration)::text, '00:00:00') FROM drive.trail_trips_unified) AS avg_trip_duration,
+      (SELECT jsonb_agg(jsonb_build_object('platform', platform, 'trips', trips)) FROM (
+         SELECT platform, COUNT(*) as trips FROM drive.trail_trips_unified GROUP BY platform
+      ) t) AS trips_by_platform;
+  ELSE
+    RETURN QUERY SELECT
+      (SELECT COUNT(DISTINCT t.user_id) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS total_users,
+      (SELECT COUNT(*) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS total_trips,
+      (SELECT COALESCE(SUM(t.distance_km),0) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS total_km_driven,
+      (SELECT COUNT(*) FROM core.attraction_plays ap JOIN core.attractions a ON ap.attraction_id = a.id WHERE a.created_by = owner_id) AS total_pois_played,
+      (SELECT COALESCE(AVG(t.duration)::text, '00:00:00') FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS avg_trip_duration,
+      (SELECT jsonb_agg(jsonb_build_object('platform', platform, 'trips', trips)) FROM (
+         SELECT t.platform, COUNT(*) as trips FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id GROUP BY t.platform
+      ) q) AS trips_by_platform;
+  END IF;
+END; $$;
+
+GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics(uuid) TO service_role;
+

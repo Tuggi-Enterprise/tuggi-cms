@@ -77,12 +77,11 @@ DECLARE
   min_points int := 2;
 BEGIN
   -- Determine epsilon based on zoom
-  IF zoom_level <= 4 THEN eps := 3.0;
-  ELSIF zoom_level <= 6 THEN eps := 1.0;
-  ELSIF zoom_level <= 8 THEN eps := 0.5;
-  ELSIF zoom_level <= 10 THEN eps := 0.1;
-  ELSIF zoom_level <= 12 THEN eps := 0.05;
-  ELSE eps := 0; -- No clustering for high zoom
+  IF zoom_level <= 4 THEN eps := 2.0;
+  ELSIF zoom_level <= 5 THEN eps := 1.0;
+  ELSIF zoom_level <= 6 THEN eps := 0.5;
+  ELSIF zoom_level <= 7 THEN eps := 0.1;
+  ELSE eps := 0; -- No clustering for zoom 8 and above
   END IF;
 
   RETURN QUERY

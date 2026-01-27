@@ -29,8 +29,13 @@ RETURNS TABLE (
 DECLARE
   -- Calculate epsilon for clustering based on zoom level
   zoom_factor NUMERIC := 360.0 / POWER(2, zoom_level);
-  epsilon NUMERIC := zoom_factor / 5.0; 
+  epsilon NUMERIC;
 BEGIN
+  IF zoom_level >= 8 THEN
+    epsilon := 0; -- No clustering from zoom 8
+  ELSE
+    epsilon := zoom_factor / 10.0; -- Smaller clusters at low zoom
+  END IF;
   RETURN QUERY
   WITH filtered_pois AS (
     SELECT 
