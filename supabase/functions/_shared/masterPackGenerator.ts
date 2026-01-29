@@ -36,13 +36,14 @@ export const generateMasterPack = async (
     language: string,
     apiKey: string,
     poiData: any = {},
-    audioDuration: number = 20 // Default 20s
+    audioDuration: number = 25 // Default 25s (from App requests)
 ): Promise<MasterPackResult> => {
 
     const audioTarget = `${audioDuration}s`;
-    // We use a safe estimate: ~2.5 words per second for most western languages.
-    // Gemeni's response length can vary, so we provide it as a firm constraint.
-    const maxWords = Math.floor(audioDuration * 2.5); 
+    // We use a safe estimate: ~16 characters per second (including spaces).
+    // This provides a firmer constraint for the AI than word count.
+    const minChars = Math.floor(audioDuration * 14);
+    const maxChars = Math.floor(audioDuration * 18);
     const langName = getLanguageName(language);
 
     const prompt = `
@@ -54,7 +55,7 @@ CONTENT RULES:
 1. Include the name "${poiName}".
 2. Write exactly 3-5 elegant sentences.
 3. NO mention of city, state or country names as standalone locations.
-4. TARGET LENGTH: Max ${maxWords} words for a ${audioTarget} audio narration.
+4. TARGET LENGTH: Between ${minChars} and ${maxChars} characters (including spaces) for a ${audioTarget} audio narration.
 5. Use Google Search to find: Exact foundation date, mission/founders, and one unique historical milestone.
 
 NARRATIVE STRUCTURE:
