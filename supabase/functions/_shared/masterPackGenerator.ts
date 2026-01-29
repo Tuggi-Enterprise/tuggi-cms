@@ -27,7 +27,7 @@ const getLanguageName = (code: string): string => {
 /**
  * Master Content Generator (Step A)
  * Focus: Static, premium, encyclopedic content.
- * Target: 25-30s audio (approx 65-85 words).
+ * Target: Dynamic duration (e.g., 20s, 30s, etc.)
  */
 export const generateMasterPack = async (
     poiName: string,
@@ -35,11 +35,14 @@ export const generateMasterPack = async (
     rawContext: string,
     language: string,
     apiKey: string,
-    poiData: any = {}
+    poiData: any = {},
+    audioDuration: number = 20 // Default 20s
 ): Promise<MasterPackResult> => {
 
-    const audioTarget = '15-18s';
-    const maxWords = 50; // VERY CONCISE base to avoid exceeding 30s in Step B
+    const audioTarget = `${audioDuration}s`;
+    // We use a safe estimate: ~2.5 words per second for most western languages.
+    // Gemeni's response length can vary, so we provide it as a firm constraint.
+    const maxWords = Math.floor(audioDuration * 2.5); 
     const langName = getLanguageName(language);
 
     const prompt = `
@@ -49,7 +52,7 @@ LANGUAGE: ${langName} (CRITICAL: Output must be ONLY in ${langName} - Code: ${la
 
 CONTENT RULES:
 1. Include the name "${poiName}".
-2. Write exactly 3-4 concise, elegant sentences.
+2. Write exactly 3-5 elegant sentences.
 3. NO mention of city, state or country names as standalone locations.
 4. TARGET LENGTH: Max ${maxWords} words for a ${audioTarget} audio narration.
 5. Use Google Search to find: Exact foundation date, mission/founders, and one unique historical milestone.
@@ -58,7 +61,7 @@ NARRATIVE STRUCTURE:
 - Sentence 1: Name and foundation/historical origin.
 - Sentence 2: Founding figures or original purpose.
 - Sentence 3: Architectural detail or a specific historical milestone (e.g. "Clube dos Escravos").
-- Sentence 4: Modern identity or cultural legacy (e.g. "Capital da Linguiça").
+- Sentence 4/5: Modern identity or cultural legacy (e.g. "Capital da Linguiça").
 
 OUTPUT FORMAT (XML TAGS):
 <master_description>

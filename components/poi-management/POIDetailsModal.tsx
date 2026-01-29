@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, Plus, AlertTriangle, AlertCircle } from 'lucide-react'
@@ -365,6 +365,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [currentDescription, setCurrentDescription] = useState('')
   const [originalDescription, setOriginalDescription] = useState('')
   const [generationLanguage, setGenerationLanguage] = useState('pt-br')
+  const [audioDuration, setAudioDuration] = useState<number>(20)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSavingDescription, setIsSavingDescription] = useState(false)
   const [isSavingReferenceLinks, setIsSavingReferenceLinks] = useState(false)
@@ -438,6 +439,15 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
   const queryClient = useQueryClient()
   const supabase = useSupabaseClient<any>()
+
+  // Ref to track current description value to prevent stale closures in async callbacks
+  const currentDescriptionRef = useRef(currentDescription)
+  useEffect(() => {
+    currentDescriptionRef.current = currentDescription
+  }, [currentDescription])
+
+  // Ref to track last generation time to prevent immediate background refresh from overwriting
+  const lastGenerationTimeRef = useRef(0)
 
   // Helper to invalidate all POI-related caches for instant updates across all views
   const invalidateAllPOICaches = useCallback(async () => {
@@ -585,42 +595,43 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       console.log('🔍 Portuguese descriptions:', portugueseDescriptions?.length || 0)
       console.log('🔍 Translations:', translations?.length || 0)
 
-      // Prefer group description/audio if available, then most recently updated
-      let currentDesc = null
-      if (groupInfo && groupInfo.id) {
-        currentDesc = portugueseDescriptions?.find(desc => desc.group_id === groupInfo.id)
-        console.log('🔍 Using group description:', currentDesc?.id)
-      }
-      if (!currentDesc) {
-        // Fallback to individual POI description - get the most recently updated one
-        const individualDescriptions = portugueseDescriptions?.filter(desc => desc.attraction_id === currentPoi.id) || []
-        console.log('🔍 Found individual descriptions:', individualDescriptions.length)
-        individualDescriptions.forEach((desc, index) => {
-          console.log(`  ${index + 1}. ID: ${desc.id}, Updated: ${desc.updated_at}, Created: ${desc.created_at}`)
-        })
+      console.log('🔍 Selected description search lang:', generationLanguage)
 
-        if (individualDescriptions.length > 0) {
-          // Sort by updated_at to get the most recent
-          individualDescriptions.sort((a, b) => {
-            const dateA = new Date(a.updated_at || a.created_at)
-            const dateB = new Date(b.updated_at || b.created_at)
-            return dateB.getTime() - dateA.getTime()
-          })
-          currentDesc = individualDescriptions[0]
-          console.log('🔍 Selected most recent individual description:', currentDesc.id)
-        } else {
-          currentDesc = portugueseDescriptions?.[0] || descriptionsData?.[0]
-          console.log('🔍 Using fallback description:', currentDesc?.id)
-        }
+      // 1. Try to find description in the selected language
+      let currentDesc = descriptionsData?.find(desc => 
+        desc.language?.toLowerCase() === generationLanguage.toLowerCase() ||
+        desc.language?.toLowerCase() === generationLanguage.split('-')[0].toLowerCase()
+      )
+
+      // 2. Fallback to Portuguese if nothing found and we are not explicitly on another language
+      if (!currentDesc && generationLanguage.toLowerCase().startsWith('pt')) {
+         currentDesc = descriptionsData?.find(desc => desc.language?.toLowerCase().includes('pt'))
       }
+
+      // 3. Last resort fallback to most recent record
+      if (!currentDesc && descriptionsData && descriptionsData.length > 0) {
+        currentDesc = descriptionsData[0]
+      }
+
+      console.log('🔍 Selected description record:', currentDesc?.id || 'none')
 
       console.log('🔍 Selected description:', currentDesc)
 
       if (currentDesc && currentDesc.description) {
         console.log('✅ Loading description from DB:', currentDesc.description.substring(0, 100) + '...')
-        console.log('🔍 Description ID:', currentDesc.id, 'Updated at:', currentDesc.updated_at)
-        setCurrentDescription(currentDesc.description || '')
-        setOriginalDescription(currentDesc.description || '')
+        
+        // Robust check: Only overwrite if editor is truly empty or we didn't just generate something
+        const isRecentlyGenerated = (Date.now() - lastGenerationTimeRef.current) < 8000
+        const isEditorEmpty = !currentDescriptionRef.current.trim()
+
+        if (isEditorEmpty && !isRecentlyGenerated) {
+          console.log('📝 Setting description state from fetch')
+          setCurrentDescription(currentDesc.description || '')
+          setOriginalDescription(currentDesc.description || '')
+        } else {
+          console.log('⏭️ Skipping description set (editor not empty or recently generated)')
+        }
+        
         setDescriptionStats({
           play_count: currentDesc.play_count || 0,
           last_played_at: currentDesc.last_played_at
@@ -665,9 +676,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         }
       } else {
         // No description record found at all
-        console.log('❌ No description record found for POI:', currentPoi.id)
-        setCurrentDescription('')
-        setOriginalDescription('')
+        console.log('❌ No description record found for POI:', currentPoi?.id, 'Lang:', generationLanguage)
+        
+        const isRecentlyGenerated = (Date.now() - lastGenerationTimeRef.current) < 8000
+        if (!currentDescriptionRef.current.trim() && !isRecentlyGenerated) {
+          setCurrentDescription('')
+          setOriginalDescription('')
+        }
         setDescriptionStats({ play_count: 0, last_played_at: null })
         setCurrentAudioUrl(null)
         setAudioMetadata(null)
@@ -687,7 +702,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     } finally {
       setIsLoading(false)
     }
-  }, [getPoi, groupInfo?.id, supabase])
+  }, [getPoi, groupInfo?.id, supabase, generationLanguage])
 
   const fetchNearbyPOIs = useCallback(async () => {
     console.log('🔍 MODAL: fetchNearbyPOIs called');
@@ -735,13 +750,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     try {
       console.log('🔍 Buscando dados de verificação para POI:', currentPoi.id);
 
+      // Usar a linguagem atual ou preferir pt-br para verificação
+      const verificationLang = (generationLanguage === 'pt-br' || generationLanguage === 'pt-BR') ? 'pt-br' : generationLanguage
+
       // Usar a view existente v_descriptions_with_last_score que já consolida os dados
+      // Tentar tanto lowercase quanto uppercase se necessário, ou usar a linguagem de geração
       const { data: descData, error: descError } = await supabase
         .schema('core')
         .from('v_descriptions_with_last_score')
         .select('*')
         .eq('attraction_id', getPoi()?.id || '')
-        .eq('language', 'pt-BR')
+        .ilike('language', verificationLang) // Case-insensitive search
         .eq('is_original', true)
         .maybeSingle();
 
@@ -870,7 +889,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     } catch (error) {
       console.error('❌ Erro ao buscar dados de verificação:', error);
     }
-  }, [supabase, getPoi]);
+  }, [supabase, getPoi, generationLanguage]);
 
   // useEffect hooks after function declarations
   useEffect(() => {
@@ -1395,6 +1414,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         poi_id: currentPoi.id,
         language: generationLanguage,
         generate_audio: false, // Only generate text, not audio
+        audio_duration: audioDuration,
         raw_context: additionalContext.trim() || undefined,
         force: true // Force fresh generation
       })
@@ -1416,9 +1436,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       showFeedback('✅ Native Narration Script generated successfully.', 'success')
 
+      // Mark generation time to prevent background fetches from overwriting for a few seconds
+      lastGenerationTimeRef.current = Date.now()
+
       // 1. Atualizar a descrição atual para refletir no textarea
       if (generatedDescription) {
         setCurrentDescription(generatedDescription)
+        setOriginalDescription(generatedDescription)
         
         // 2. Atualizar o resultado da verificação para mostrar o novo score
         setVerificationResult({
@@ -1431,6 +1455,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           applied: true,
           improvement_applied: generatedData.metadata?.improvement_applied || false
         })
+
+        // 2.5 Atualizar contadores locais para evitar que fetchAdditionalData ache que não tem conteúdo
+        if (currentPoi) {
+          const updated = {
+            ...currentPoi,
+            has_description: true,
+            description_count: (currentPoi.description_count || 0) + 1,
+            available_languages: [...new Set([...(currentPoi.available_languages || []), generationLanguage])]
+          }
+          setCurrentPoi(updated)
+          setEditedPoi(updated)
+        }
 
         // 3. Atualizar datas detectadas localmente para busca se necessário
         const detectedDatesArray = detectHistoricalDates(generatedDescription)
@@ -1458,6 +1494,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // Note: DB is already updated by the Edge Function (Master update)
       // Sync verification data (scores, etc)
       fetchVerificationData()
+
+      // Invalidate caches so other components know about the new description
+      invalidateAllPOICaches()
       
     } catch (error) {
       console.error('Error generating description:', error)
@@ -3702,6 +3741,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <option value="fr-fr">{t('languages.fr-fr')}</option>
                           <option value="de-de">{t('languages.de-de')}</option>
                           <option value="it-it">{t('languages.it-it')}</option>
+                        </select>
+                        <select
+                          value={audioDuration}
+                          onChange={(e) => setAudioDuration(Number(e.target.value))}
+                          disabled={isGenerating || isSavingDescription || isGeneratingAudio}
+                          className="block w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
+                        >
+                          <option value={10}>{t('labels.duration_options.10')}</option>
+                          <option value={20}>{t('labels.duration_options.20')}</option>
+                          <option value={30}>{t('labels.duration_options.30')}</option>
+                          <option value={45}>{t('labels.duration_options.45')}</option>
+                          <option value={60}>{t('labels.duration_options.60')}</option>
                         </select>
                         <button
                           onClick={generateDescription}

@@ -23,6 +23,7 @@ interface SingleRequest {
     language: string;
     gender?: "male" | "female";
     generate_audio?: boolean; // Default true
+    audio_duration?: number;
     raw_context?: string; // CMS override
     force?: boolean;
 }
@@ -39,6 +40,7 @@ interface BatchRequest {
         poi_type?: string;
     }[];
     generate_audio?: boolean;
+    audio_duration?: number;
     force?: boolean;
 }
 
@@ -95,6 +97,7 @@ async function processPOIItem(
     poiDataFromDB: any,
     rawContextOverride?: string,
     force?: boolean,
+    audioDuration?: number,
 ): Promise<any> {
     const LOG_PREFIX = `[Gen-Desc::${poi_id}]`;
     console.log(`${LOG_PREFIX} Processing for ${language} (${gender})...`);
@@ -229,6 +232,8 @@ async function processPOIItem(
                 rawContextOverride || "App Batch Generation",
                 language,
                 GEMINI_API_KEY,
+                undefined, // poiData
+                audioDuration,
             );
         }
 
@@ -411,6 +416,7 @@ serve(async (req) => {
                         poiData,
                         undefined, // context override
                         batch.force, // Use batch force if available
+                        batch.audio_duration, // Pass audio_duration from batch request
                     );
                     results.push({
                         trigger_point_id: item.trigger_point_id,
@@ -475,6 +481,7 @@ serve(async (req) => {
                 poiData,
                 manual.raw_context,
                 manual.force, // Pass force flag from CMS
+                manual.audio_duration,
             );
 
             // 📋 LOG SINGLE SUCCESS

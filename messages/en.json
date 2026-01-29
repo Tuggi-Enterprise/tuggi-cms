@@ -10,6 +10,7 @@
       "create": "Create",
       "back": "Back",
       "saving": "Saving...",
+      "generating": "Generating...",
       "approve": "Approve",
       "reject": "Reject"
     },
@@ -18,6 +19,7 @@
       "location": "Location",
       "status": "Status",
       "unknown": "Unknown",
+      "new_location": "New Location",
       "brazil": "Brazil"
     },
     "status": {
@@ -33,10 +35,20 @@
       "main": "Main",
       "migrated": "Migrated",
       "skipped": "Skipped",
-      "processed": "Processed"
+      "processed": "Processed",
+      "complete": "Complete"
+    },
+    "error": {
+      "unknown": "Unknown error"
     },
     "units": {
       "languages": "Languages"
+    },
+    "sections": {
+      "historic": "Historic"
+    },
+    "messages": {
+      "no_audio": "No audio available"
     },
     "Navigation": {
       "dashboard": "Dashboard",
@@ -607,6 +619,14 @@
         "poi_groupings": "POI Groupings",
         "review_and_approval": "Review & Approval",
         "voice_gender": "Voice Gender",
+        "audio_duration": "Audio Duration",
+        "duration_options": {
+          "10": "10s (Concise)",
+          "20": "20s (Standard)",
+          "30": "30s (Detailed)",
+          "45": "45s (Extended)",
+          "60": "60s (Long)"
+        },
         "male": "Male",
         "female": "Female",
         "languages_to_generate": "Languages to Generate",

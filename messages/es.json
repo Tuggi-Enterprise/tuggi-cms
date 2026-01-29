@@ -10,6 +10,7 @@
       "create": "Crear",
       "back": "Volver",
       "saving": "Guardando...",
+      "generating": "Generando...",
       "approve": "Aprobar",
       "reject": "Rechazar"
     },
@@ -18,6 +19,7 @@
       "location": "Ubicación",
       "status": "Estado",
       "unknown": "Desconocido",
+      "new_location": "Nueva Ubicación",
       "brazil": "Brasil"
     },
     "status": {
@@ -33,10 +35,20 @@
       "main": "Principal",
       "migrated": "Migrado",
       "skipped": "Omitido",
-      "processed": "Procesado"
+      "processed": "Procesado",
+      "complete": "Completo"
+    },
+    "error": {
+      "unknown": "Error desconocido"
     },
     "units": {
       "languages": "Idiomas"
+    },
+    "sections": {
+      "historic": "Histórico"
+    },
+    "messages": {
+      "no_audio": "No hay audio disponible"
     },
     "Navigation": {
       "dashboard": "Dashboard",
@@ -607,6 +619,14 @@
         "poi_groupings": "Agrupaciones de POIs",
         "review_and_approval": "Revisión y Aprobación",
         "voice_gender": "Género de la Voz",
+        "audio_duration": "Duración del Audio",
+        "duration_options": {
+          "10": "10s (Conciso)",
+          "20": "20s (Estándar)",
+          "30": "30s (Detallado)",
+          "45": "45s (Extendido)",
+          "60": "60s (Largo)"
+        },
         "male": "Masculino",
         "female": "Femenino",
         "languages_to_generate": "Idiomas para Generar",
