@@ -21,6 +21,7 @@ export interface ProcessingOptions {
   onProgress?: (progress: ProcessingProgress) => void
   onComplete?: (result: ProcessingResult) => void
   onError?: (error: ProcessingError) => void
+  processId?: string
 }
 
 export interface ProcessingProgress {
@@ -31,6 +32,7 @@ export interface ProcessingProgress {
   currentItem?: string
   startTime: number
   estimatedTimeRemaining?: number
+  lastResult?: ProcessingItemResult
 }
 
 export interface ProcessingResult {
@@ -46,6 +48,7 @@ export interface ProcessingResult {
     timestamp: number
     options: ProcessingOptions
   }
+  cancelled?: boolean
 }
 
 export interface ProcessingItemResult {
@@ -72,6 +75,7 @@ export type ProcessingOperation =
   | 'osm_enrichment'
   | 'audio_generation'
   | 'verification'
+  | 'migration'
 
 class ProcessingService {
   private static activeProcesses: Map<string, AbortController> = new Map()
@@ -84,7 +88,7 @@ class ProcessingService {
     options: ProcessingOptions = {}
   ): Promise<ProcessingResult> {
     const operation = 'trigger_points'
-    const processId = this.generateProcessId(operation)
+    const processId = options.processId || this.generateProcessId(operation)
     
     try {
       console.log(`🎯 Starting trigger points processing for ${poiIds.length} POIs using new motor`)
@@ -298,7 +302,7 @@ class ProcessingService {
     } = {}
   ): Promise<ProcessingResult> {
     const operation = 'descriptions'
-    const processId = this.generateProcessId(operation)
+    const processId = options.processId || this.generateProcessId(operation)
     
     try {
       console.log(`📝 Starting description processing for ${poiIds.length} POIs via central Edge Function`)
@@ -385,7 +389,7 @@ class ProcessingService {
     options: ProcessingOptions = {}
   ): Promise<ProcessingResult> {
     const operation = 'osm_enrichment'
-    const processId = this.generateProcessId(operation)
+    const processId = options.processId || this.generateProcessId(operation)
     
     try {
       console.log(`🗺️ Starting OSM enrichment for ${poiIds.length} POIs`)
@@ -450,6 +454,102 @@ class ProcessingService {
     }
   }
   
+  /**
+   * Process POIs for Migration (Homolog -> Core)
+   */
+  static async processMigration(
+    poiIds: string[],
+    options: ProcessingOptions & {
+      mode?: string
+      autoGenerateAudio?: boolean
+      autoApprove?: boolean
+      skipIfExists?: boolean
+      updateIfExists?: boolean
+      languages?: string[]
+      voiceGender?: string
+    } = {}
+  ): Promise<ProcessingResult> {
+    const operation = 'migration'
+    const processId = options.processId || this.generateProcessId(operation)
+    
+    try {
+      console.log(`📦 Starting migration for ${poiIds.length} POIs`)
+      
+      const result = await this.processBatch(
+        processId,
+        operation,
+        poiIds,
+        async (poiId: string) => {
+          const startTime = Date.now()
+          
+          try {
+            // Call migrate-poi API
+            const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ''}/api/migration/migrate-poi`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                poi_uuid_id: poiId,
+                options: {
+                  mode: options.mode,
+                  auto_generate_audio: options.autoGenerateAudio,
+                  auto_approve_if_satisfactory: options.autoApprove,
+                  skip_if_exists: options.skipIfExists,
+                  update_if_exists: options.updateIfExists,
+                  languages: options.languages,
+                  voice_gender: options.voiceGender
+                }
+              })
+            })
+            
+            const result = await response.json()
+            
+            if (!result.success) {
+               // Include steps in error if available
+               const errorMsg = result.error || 'Migration failed'
+               if (result.steps) {
+                 throw { message: errorMsg, data: { steps: result.steps } } }
+               throw new Error(errorMsg)
+            }
+            
+            // Check for warnings
+            let message = 'Migrated successfully'
+            if (result.warnings && result.warnings.length > 0) {
+              message += ` (Warnings: ${result.warnings.join(', ')})`
+            }
+            
+            return {
+              poiName: 'POI ' + poiId, // Name might not be returned, but we have ID
+              success: true,
+              message,
+              data: {
+                attraction_id: result.attraction_id,
+                steps: result.steps,
+                warnings: result.warnings,
+                processing_time: Date.now() - startTime
+              }
+            }
+          } catch (error: any) {
+            // Extract data from thrown object if structured error
+            const data = error.data || {}
+            
+            throw {
+              success: false,
+              message: error.message || 'Unknown error',
+              data: { ...data, processing_time: Date.now() - startTime }
+            }
+          }
+        },
+        options
+      )
+      
+      return result
+      
+    } catch (error: any) {
+      console.error('Error processing migration:', error)
+      return this.createErrorResult(operation, poiIds.length, error)
+    }
+  }
+
   /**
    * Generic batch processing method
    */
@@ -521,7 +621,8 @@ class ProcessingService {
               percentage: Math.round(((i + 1) / poiIds.length) * 100),
               currentItem: poiId,
               startTime,
-              estimatedTimeRemaining: this.calculateEstimatedTime(startTime, i + 1, poiIds.length)
+              estimatedTimeRemaining: this.calculateEstimatedTime(startTime, i + 1, poiIds.length),
+              lastResult: itemResult
             })
           }
           
@@ -605,7 +706,7 @@ class ProcessingService {
   /**
    * Generate unique process ID
    */
-  private static generateProcessId(operation: string): string {
+  public static generateProcessId(operation: string): string {
     return `${operation}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   }
   
@@ -626,6 +727,8 @@ class ProcessingService {
    * Create error result
    */
   private static createErrorResult(operation: string, totalItems: number, error: any): ProcessingResult {
+    const isCancelled = error instanceof Error && (error.message === 'Process aborted by user' || error.message === 'The user aborted a request.');
+    
     return {
       success: false,
       totalProcessed: 0,
@@ -633,6 +736,7 @@ class ProcessingService {
       failed: totalItems,
       results: [],
       processingTime: 0,
+      cancelled: isCancelled,
       errors: [{
         poiId: 'unknown',
         poiName: 'Unknown',
@@ -659,8 +763,19 @@ export const processingService = {
     ProcessingService.processDescriptions(poiIds, options),
   osmEnrichment: (poiIds: string[], options?: ProcessingOptions) => 
     ProcessingService.processOSMEnrichment(poiIds, options),
+  processMigration: (poiIds: string[], options?: ProcessingOptions & {
+    mode?: string
+    autoGenerateAudio?: boolean
+    autoApprove?: boolean
+    skipIfExists?: boolean
+    updateIfExists?: boolean
+    languages?: string[]
+    voiceGender?: string
+  }) => ProcessingService.processMigration(poiIds, options),
   cancel: (processId: string) => ProcessingService.cancelProcess(processId),
-  getActive: () => ProcessingService.getActiveProcesses()
+  cancelProcess: (processId: string) => ProcessingService.cancelProcess(processId),
+  getActive: () => ProcessingService.getActiveProcesses(),
+  generateProcessId: (operation: string) => ProcessingService.generateProcessId(operation)
 }
 
 export default ProcessingService

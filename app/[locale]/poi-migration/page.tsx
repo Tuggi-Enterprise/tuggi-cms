@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Loader2, AlertCircle, CheckCircle2, Play, Filter, Database, Settings, Sparkles, Target, ArrowRight, Zap, Globe, Mic2, ChevronDown } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Loader2, AlertCircle, CheckCircle2, Play, Filter, Database, Settings, Sparkles, Target, ArrowRight, Zap, Globe, Mic2, ChevronDown, StopCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
+import { usePOIProcessing } from '@/lib/hooks/use-poi-processing'
+import { poiService } from '@/lib/core/poi-service'
 
 interface MigrationResult {
   poi_uuid_id: string
@@ -98,6 +100,22 @@ export default function PoiMigrationPage() {
   
   // UI state
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
+  const isMounted = useRef(true)
+
+  // POI Processing Hook
+  const {
+    isProcessing,
+    progress: processingProgress,
+    processMigration,
+    cancelProcessing,
+    reset: resetProcessing,
+    error: processingError
+  } = usePOIProcessing({
+    batchSize: 1, // We process one by one in the backend pipeline anyway
+    onProgress: (p) => {
+      // Logic handled by the loop for global progress
+    }
+  })
 
   // Location data from homolog.pois
   const [countries, setCountries] = useState<LocationOption[]>([])
@@ -110,7 +128,6 @@ export default function PoiMigrationPage() {
   // Data state
   const [previewCount, setPreviewCount] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isMigrating, setIsMigrating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [results, setResults] = useState<MigrationResult[]>([])
@@ -207,11 +224,18 @@ export default function PoiMigrationPage() {
   // Current POI being processed (for live feedback)
   const [currentPoi, setCurrentPoi] = useState<{ name: string; step?: string } | null>(null)
 
-  // Start migration with SSE streaming
-  const startMigration = async (isResume: boolean = false) => {
-    setIsMigrating(true)
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMounted.current = false
+    }
+  }, [])
+
+  // Start migration with Chunked Loop
+  const startMigration = useCallback(async (isResume: boolean = false) => {
     setError(null)
     setSuccess(null)
+    resetProcessing()
     
     if (!isResume) {
       setResults([])
@@ -225,159 +249,108 @@ export default function PoiMigrationPage() {
       })
     }
 
-    // Flag to track if we should auto-resume
-    let shouldAutoResume = false
-
     try {
-      const response = await fetch('/api/migration/migrate-stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filters: {
-            country: country || undefined,
-            state: state || undefined,
-            city: city || undefined,
-            processing_status: processingStatus
-          },
-          options: {
-            batch_size: batchSize,
-            mode,
-            auto_generate_audio: autoGenerateAudio,
-            auto_approve_if_satisfactory: autoApprove,
-            skip_if_exists: skipIfExists,
-            languages: selectedLanguages,
-            voice_gender: voiceGender
+      let currentProcessed = isResume ? (progress?.processed || 0) : 0
+      let currentSuccessful = isResume ? (progress?.successful || 0) : 0
+      let currentFailed = isResume ? (progress?.failed || 0) : 0
+      let hasMore = true
+      
+      const chunkLimit = 50 // Fetch 50 candidates at a time
+
+      while (hasMore && isMounted.current) {
+        // 1. Fetch Candidates (next chunk)
+        const candidatesResult = await poiService.getMigrationCandidates({
+          country: country || undefined,
+          state: state || undefined,
+          city: city || undefined,
+          processingStatus: processingStatus,
+          limit: chunkLimit
+        })
+
+        if (!candidatesResult.success || !candidatesResult.data || candidatesResult.data.length === 0) {
+          hasMore = false
+          if (currentProcessed > 0) {
+            setSuccess(t('alerts.migration_complete'))
+          }
+          break
+        }
+
+        const candidateIds = candidatesResult.data.map(c => c.id)
+        
+        // Update total (at least for this chunk)
+        setProgress(prev => {
+          const total = prev?.total || 0
+          return {
+            ...prev!,
+            total: total > 0 ? total : candidatesResult.data.length
           }
         })
-      })
 
-      if (!response.ok) {
-        throw new Error(t('alerts.request_failed'))
-      }
-
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
-
-      if (!reader) {
-        throw new Error(t('alerts.body_not_readable'))
-      }
-
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
+        // 2. Process this chunk
+        console.log(`🚀 Processing chunk of ${candidateIds.length} POIs...`)
         
-        if (done) break
+        const result = await processMigration(candidateIds, {
+          mode,
+          autoGenerateAudio,
+          autoApprove,
+          skipIfExists,
+          languages: selectedLanguages,
+          voiceGender,
+          // Inner progress handler
+          onProgress: (p) => {
+             if (p.lastResult) {
+               const res = p.lastResult
+               setCurrentPoi({ name: res.poiName || res.poiId })
+               
+               // Update global counters locally
+               currentProcessed++
+               if (res.success) currentSuccessful++
+               else currentFailed++
 
-        buffer += decoder.decode(value, { stream: true })
-        
-        // Parse SSE events
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || '' // Keep incomplete line in buffer
+               // Update results list (keep last 50)
+               setResults(prev => [...prev.slice(-49), {
+                 poi_uuid_id: res.poiId,
+                 poi_name: res.poiName || res.poiId,
+                 success: res.success,
+                 attraction_id: res.data?.attraction_id,
+                  error: res.errors?.[0] || res.message,
+                 steps: res.data?.steps
+               }])
 
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i]
-          
-          if (line.startsWith('event: ')) {
-            const eventType = line.slice(7)
-            const dataLine = lines[i + 1]
-            
-            if (dataLine?.startsWith('data: ')) {
-              const data = JSON.parse(dataLine.slice(6))
-              
-              switch (eventType) {
-                case 'start':
-                  setProgress(prev => ({
-                    ...prev!,
-                    total: isResume && (data.total === '?' || (prev?.total && prev.total > 0)) ? prev!.total : data.total
-                  }))
-                  break
-                  
-                case 'progress':
-                  setCurrentPoi({ name: data.poi_name })
-                  setProgress(prev => {
-                    const currentTotal = typeof data.total === 'number' ? data.total : (prev?.total || 0)
-                    return {
-                      ...prev!,
-                      processed: (prev?.processed || 0), // Don't increment yet, wait for poi_complete
-                      percentage: currentTotal > 0 ? Math.round(((prev?.processed || 0) / currentTotal) * 100) : 0
-                    }
-                  })
-                  break
-                  
-                case 'poi_complete':
-                  setResults(prev => [...prev.slice(-49), { // Keep only last 50 results to avoid memory issues
-                    poi_uuid_id: data.poi_id,
-                    poi_name: data.poi_name,
-                    success: data.success,
-                    attraction_id: data.attraction_id,
-                    error: data.error,
-                    steps: data.steps
-                  }])
-                  setProgress(prev => {
-                    const newSuccessful = prev!.successful + (data.success ? 1 : 0)
-                    const newFailed = prev!.failed + (data.success ? 0 : 1)
-                    const newProcessed = prev!.processed + 1
-                    const total = typeof data.total === 'number' ? data.total : prev!.total
-                    return {
-                      ...prev!,
-                      processed: newProcessed,
-                      successful: newSuccessful,
-                      failed: newFailed,
-                      percentage: total > 0 ? Math.min(100, Math.round((newProcessed / total) * 100)) : 0
-                    }
-                  })
-                  break
-                  
-                case 'complete':
-                  setCurrentPoi(null)
-                  setProgress(prev => ({
-                    total: data.total,
-                    processed: data.processed + (prev?.processed || 0),
-                    successful: data.successful + (prev?.successful || 0),
-                    failed: data.failed + (prev?.failed || 0),
-                    percentage: 100
-                  }))
-                  
-                  if (data.hasMore) {
-                    setSuccess(`${data.message} ${t('alerts.waiting_batch')}`)
-                    shouldAutoResume = true
-                  } else {
-                    setSuccess(data.message)
-                  }
-                  break
-                  
-                case 'poi_skipped':
-                  // Optionally log skipped POIs to a special list or just show status
-                  setCurrentPoi({ name: `${data.poi_name} (Skipped: ${data.reason})` })
-                  break
-                  
-                case 'error':
-
-                  setError(data.error)
-                  break
-              }
-              
-              i++ // Skip the data line
-            }
+               // Update global progress state
+               setProgress(prev => {
+                 const total = prev?.total || 0
+                 return {
+                   total: Math.max(total, currentProcessed),
+                   processed: currentProcessed,
+                   successful: currentSuccessful,
+                   failed: currentFailed,
+                   percentage: total > 0 ? Math.min(100, Math.round((currentProcessed / total) * 100)) : 0
+                 }
+               })
+             }
           }
+        })
+
+        // Check if we finished or were cancelled
+        if (result.cancelled || candidatesResult.data.length < chunkLimit) {
+           hasMore = false
+           if (!result.cancelled && currentProcessed > 0) {
+               setSuccess(t('alerts.migration_complete'))
+           }
+        }
+        
+        // Brief delay before next chunk to allow UI to breathe
+        if (hasMore) {
+          await new Promise(resolve => setTimeout(resolve, 500))
         }
       }
-    } catch (error) {
-      console.error('Migration error:', error)
-      setError(error instanceof Error ? error.message : 'Unknown error')
-    } finally {
-      setIsMigrating(false)
-      setCurrentPoi(null)
-      
-      // Auto-resume if needed (after a short delay to avoid flooding)
-      if (shouldAutoResume) {
-        setTimeout(() => {
-          startMigration()
-        }, 2000)
-      }
+
+    } catch (err: any) {
+      console.error('Migration loop error:', err)
+      setError(err instanceof Error ? err.message : 'Unknown error during migration loop')
     }
-  }
+  }, [country, state, city, processingStatus, mode, autoGenerateAudio, autoApprove, skipIfExists, selectedLanguages, voiceGender, progress, processMigration, t, resetProcessing])
 
   const currentMode = PIPELINE_MODES[mode]
   const ModeIcon = currentMode.icon
@@ -428,7 +401,7 @@ export default function PoiMigrationPage() {
                     value={country}
                     onChange={(e) => setCountry(e.target.value)}
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    disabled={isMigrating || loadingCountries}
+                    disabled={isProcessing || loadingCountries}
                   >
                     <option value="">{t('filters.all_countries')}</option>
                     <option value="__missing__" className="text-orange-600">⚠️ {t('filters.missing_location')}</option>
@@ -453,7 +426,7 @@ export default function PoiMigrationPage() {
                     value={state}
                     onChange={(e) => setState(e.target.value)}
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50"
-                    disabled={isMigrating || !country || country === 'all' || loadingStates}
+                    disabled={isProcessing || !country || country === 'all' || loadingStates}
                   >
                     <option value="">{t('filters.all_states')}</option>
                     {loadingStates ? (
@@ -477,7 +450,7 @@ export default function PoiMigrationPage() {
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50"
-                    disabled={isMigrating || !state || state === 'all' || loadingCities}
+                    disabled={isProcessing || !state || state === 'all' || loadingCities}
                   >
                     <option value="">{t('filters.all_cities')}</option>
                     {loadingCities ? (
@@ -501,7 +474,7 @@ export default function PoiMigrationPage() {
                     value={processingStatus}
                     onChange={(e) => setProcessingStatus(e.target.value)}
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    disabled={isMigrating}
+                    disabled={isProcessing}
                   >
                     <option value="all">{t('filters.all_status')}</option>
                     <option value="pending">{tCommon('status.pending')}</option>
@@ -521,7 +494,7 @@ export default function PoiMigrationPage() {
                     value={batchSize}
                     onChange={(e) => setBatchSize(Number(e.target.value))}
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    disabled={isMigrating}
+                    disabled={isProcessing}
                   >
                     <option value={10}>{t('filters.pois_count', { count: 10 })}</option>
                     <option value={25}>{t('filters.pois_count', { count: 25 })}</option>
@@ -558,7 +531,7 @@ export default function PoiMigrationPage() {
                       type="checkbox"
                       checked={skipIfExists}
                       onChange={(e) => setSkipIfExists(e.target.checked)}
-                      disabled={isMigrating}
+                      disabled={isProcessing}
                       className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm text-gray-700 dark:text-gray-300">
@@ -571,7 +544,7 @@ export default function PoiMigrationPage() {
                       type="checkbox"
                       checked={autoApprove}
                       onChange={(e) => setAutoApprove(e.target.checked)}
-                      disabled={isMigrating}
+                      disabled={isProcessing}
                       className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm text-gray-700 dark:text-gray-300">
@@ -584,7 +557,7 @@ export default function PoiMigrationPage() {
                       type="checkbox"
                       checked={autoGenerateAudio}
                       onChange={(e) => setAutoGenerateAudio(e.target.checked)}
-                      disabled={isMigrating}
+                      disabled={isProcessing}
                       className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm text-gray-700 dark:text-gray-300">
@@ -615,7 +588,7 @@ export default function PoiMigrationPage() {
                       <button
                         key={key}
                         onClick={() => setMode(key as keyof typeof PIPELINE_MODES)}
-                        disabled={isMigrating}
+                        disabled={isProcessing}
                         className={cn(
                           "relative p-4 rounded-xl border-2 text-left transition-all",
                           isSelected
@@ -685,7 +658,7 @@ export default function PoiMigrationPage() {
                             setSelectedLanguages([...selectedLanguages, lang.code])
                           }
                         }}
-                        disabled={isMigrating}
+                        disabled={isProcessing}
                         className={cn(
                           "flex items-center gap-2 p-3 rounded-xl border transition-all",
                           selectedLanguages.includes(lang.code)
@@ -721,7 +694,7 @@ export default function PoiMigrationPage() {
                       <button
                         key={gender}
                         onClick={() => setVoiceGender(gender)}
-                        disabled={isMigrating}
+                        disabled={isProcessing}
                         className={cn(
                           "flex-1 p-4 rounded-xl border-2 transition-all text-center",
                           voiceGender === gender
@@ -739,30 +712,34 @@ export default function PoiMigrationPage() {
             )}
 
             {/* Start Migration Button */}
-            <button
-              onClick={() => startMigration()}
-              disabled={isMigrating || isLoading}
-              className={cn(
-                "w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl font-semibold text-lg",
-                "bg-gradient-to-r from-blue-600 to-indigo-600 text-white",
-                "hover:from-blue-700 hover:to-indigo-700",
-                "disabled:opacity-50 disabled:cursor-not-allowed",
-                "shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30",
-                "transition-all transform hover:scale-[1.01] active:scale-[0.99]"
-              )}
-            >
-              {isMigrating ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  {t('actions.processing')}
-                </>
-              ) : (
-                <>
-                  <Play className="w-5 h-5" />
-                  {t('actions.start')}
-                </>
-              )}
-            </button>
+            {isProcessing ? (
+              <button
+                onClick={() => cancelProcessing()}
+                className={cn(
+                  "w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl font-semibold text-lg",
+                  "bg-red-500 text-white hover:bg-red-600 transition-all shadow-lg"
+                )}
+              >
+                <StopCircle className="w-5 h-5" />
+                {tCommon('actions.cancel')}
+              </button>
+            ) : (
+              <button
+                onClick={() => startMigration()}
+                disabled={isLoading}
+                className={cn(
+                  "w-full flex items-center justify-center gap-3 px-6 py-4 rounded-2xl font-semibold text-lg",
+                  "bg-gradient-to-r from-blue-600 to-indigo-600 text-white",
+                  "hover:from-blue-700 hover:to-indigo-700",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                  "shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30",
+                  "transition-all transform hover:scale-[1.01] active:scale-[0.99]"
+                )}
+              >
+                <Play className="w-5 h-5" />
+                {t('actions.start')}
+              </button>
+            )}
 
             {/* Progress Section */}
             {(progress && (progress.total > 0 || progress.processed > 0)) && (

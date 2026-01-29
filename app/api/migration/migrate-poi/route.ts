@@ -49,6 +49,8 @@ export async function POST(request: NextRequest) {
     })
 
     if (!result.success) {
+      // Return 200 for business logic failures to avoid noisy console errors
+      // The client will still see success: false and handle the failure
       return NextResponse.json(
         {
           success: false,
@@ -56,7 +58,7 @@ export async function POST(request: NextRequest) {
           steps: result.steps,
           warnings: result.warnings
         },
-        { status: 500 }
+        { status: 200 }
       )
     }
 

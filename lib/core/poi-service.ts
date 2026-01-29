@@ -736,6 +736,51 @@ class POIService {
       }
     }
   }
+
+  /**
+   * Get candidates for migration
+   */
+  static async getMigrationCandidates(
+    filters: {
+      country?: string
+      state?: string
+      city?: string
+      processingStatus?: string
+      limit?: number
+    }
+  ): Promise<{ success: boolean; data: any[]; error?: string }> {
+    try {
+      const params = new URLSearchParams()
+      if (filters.country) params.set('country', filters.country)
+      if (filters.state) params.set('state', filters.state)
+      if (filters.city) params.set('city', filters.city)
+      if (filters.processingStatus) params.set('processing_status', filters.processingStatus)
+      if (filters.limit) params.set('limit', filters.limit.toString())
+
+      const response = await fetch(`/api/migration/list-candidates?${params.toString()}`)
+      const result = await response.json()
+
+      if (result.success) {
+        return {
+          success: true,
+          data: result.data || []
+        }
+      } else {
+        return {
+          success: false,
+          data: [],
+          error: result.error || 'Failed to load migration candidates'
+        }
+      }
+    } catch (error) {
+      console.error('Error getting migration candidates:', error)
+      return {
+        success: false,
+        data: [],
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
+  }
   
   /**
    * Transform database record to POI interface
@@ -840,6 +885,7 @@ export const poiService = {
     POIService.getForProcessing(type, filters),
   getById: (id: string) => POIService.getById(id),
   getStats: (filters?: any) => POIService.getStats(filters),
+  getMigrationCandidates: (filters: any) => POIService.getMigrationCandidates(filters),
   clearCache: () => POIService.clearCache(),
   getCacheStats: () => POIService.getCacheStats()
 }

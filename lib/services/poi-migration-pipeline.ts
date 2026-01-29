@@ -84,6 +84,7 @@ export class PoiMigrationPipeline {
       // Pre-flight check: Should this POI be processed?
       const shouldProcess = await MigrationService.shouldProcessPOI(uuid_id)
       if (!shouldProcess.should_process) {
+        console.log(`⏭️  Skipping POI ${uuid_id}: ${shouldProcess.reason}`)
         return {
           success: false,
           steps,
@@ -960,17 +961,19 @@ export class PoiMigrationPipeline {
       const shouldApprove = triggerPointsCount >= 1 && maxConfidence > 0.4
 
       if (!shouldApprove) {
+        const reason = triggerPointsCount === 0 
+          ? 'No active trigger points were generated' 
+          : `Max confidence ${maxConfidence.toFixed(2)} is below threshold (0.4)`
+          
+        console.warn(`❌ Simplified Approval failed for ${attraction_id}: ${reason}`)
         return {
           step: 'simplified_approval',
           success: false,
-          error: 'Criteria not met: Need at least 1 trigger point with confidence > 0.4',
-          data: {
-            trigger_points_count: triggerPointsCount,
-            max_confidence: maxConfidence
-          },
+          error: reason,
           processing_time: Date.now() - stepStart
         }
       }
+
 
       // Step 1: Activate POI (set approved = true)
       console.log(`   ✅ Activating POI ${attraction_id}...`)

@@ -42,6 +42,15 @@ export interface UsePOIProcessingReturn {
   processTriggerPoints: (poiIds: string[], options?: UsePOIProcessingOptions) => Promise<ProcessingResult>
   processDescriptions: (poiIds: string[], options?: UsePOIProcessingOptions & { language?: string; autoGenerateAudio?: boolean }) => Promise<ProcessingResult>
   processOSMEnrichment: (poiIds: string[], options?: UsePOIProcessingOptions) => Promise<ProcessingResult>
+  processMigration: (poiIds: string[], options?: UsePOIProcessingOptions & {
+    mode?: string
+    autoGenerateAudio?: boolean
+    autoApprove?: boolean
+    skipIfExists?: boolean
+    updateIfExists?: boolean
+    languages?: string[]
+    voiceGender?: string
+  }) => Promise<ProcessingResult>
   
   // Control operations
   cancelProcessing: () => void
@@ -74,12 +83,16 @@ export function usePOIProcessing(options: UsePOIProcessingOptions = {}): UsePOIP
     setResult(null)
     setError(null)
     
+    const processId = processingService.generateProcessId('trigger_points')
+    currentProcessId.current = processId
+
     try {
-      console.log(`🎯 Starting trigger points processing for ${poiIds.length} POIs`)
+      console.log(`🎯 Starting trigger points processing for ${poiIds.length} POIs (Process ID: ${processId})`)
       
       const mergedOptions: ProcessingOptions = {
         ...options,
         ...processingOptions,
+        processId,
         onProgress: (progress) => {
           setProgress(progress)
           processingOptions.onProgress?.(progress)
@@ -108,6 +121,7 @@ export function usePOIProcessing(options: UsePOIProcessingOptions = {}): UsePOIP
     } finally {
       setIsProcessing(false)
       setProgress(null)
+      currentProcessId.current = null
     }
   }, [isProcessing, options])
   
@@ -125,12 +139,16 @@ export function usePOIProcessing(options: UsePOIProcessingOptions = {}): UsePOIP
     setResult(null)
     setError(null)
     
+    const processId = processingService.generateProcessId('descriptions')
+    currentProcessId.current = processId
+
     try {
-      console.log(`📝 Starting description processing for ${poiIds.length} POIs`)
+      console.log(`📝 Starting description processing for ${poiIds.length} POIs (Process ID: ${processId})`)
       
       const mergedOptions: ProcessingOptions = {
         ...options,
         ...processingOptions,
+        processId,
         onProgress: (progress) => {
           setProgress(progress)
           processingOptions.onProgress?.(progress)
@@ -159,6 +177,7 @@ export function usePOIProcessing(options: UsePOIProcessingOptions = {}): UsePOIP
     } finally {
       setIsProcessing(false)
       setProgress(null)
+      currentProcessId.current = null
     }
   }, [isProcessing, options])
   
@@ -176,12 +195,16 @@ export function usePOIProcessing(options: UsePOIProcessingOptions = {}): UsePOIP
     setResult(null)
     setError(null)
     
+    const processId = processingService.generateProcessId('osm_enrichment')
+    currentProcessId.current = processId
+
     try {
-      console.log(`🗺️ Starting OSM enrichment for ${poiIds.length} POIs`)
+      console.log(`🗺️ Starting OSM enrichment for ${poiIds.length} POIs (Process ID: ${processId})`)
       
       const mergedOptions: ProcessingOptions = {
         ...options,
         ...processingOptions,
+        processId,
         onProgress: (progress) => {
           setProgress(progress)
           processingOptions.onProgress?.(progress)
@@ -210,18 +233,87 @@ export function usePOIProcessing(options: UsePOIProcessingOptions = {}): UsePOIP
     } finally {
       setIsProcessing(false)
       setProgress(null)
+      currentProcessId.current = null
+    }
+  }, [isProcessing, options])
+
+  // Process Migration
+  const processMigration = useCallback(async (
+    poiIds: string[], 
+    processingOptions: UsePOIProcessingOptions & {
+      mode?: string
+      autoGenerateAudio?: boolean
+      autoApprove?: boolean
+      skipIfExists?: boolean
+      updateIfExists?: boolean
+      languages?: string[]
+      voiceGender?: string
+    } = {}
+  ): Promise<ProcessingResult> => {
+    if (isProcessing) {
+      throw new Error('Another processing operation is already in progress')
+    }
+    
+    setIsProcessing(true)
+    setProgress(null)
+    setResult(null)
+    setError(null)
+    
+    const processId = processingService.generateProcessId('migration')
+    currentProcessId.current = processId
+
+    try {
+      console.log(`📦 Starting migration processing for ${poiIds.length} POIs (Process ID: ${processId})`)
+      
+      const mergedOptions: ProcessingOptions = {
+        ...options,
+        ...processingOptions,
+        processId,
+        onProgress: (progress) => {
+          setProgress(progress)
+          processingOptions.onProgress?.(progress)
+        },
+        onComplete: (result) => {
+          setResult(result)
+          processingOptions.onComplete?.(result)
+        },
+        onError: (error) => {
+          const errorMessage = error.poiId ? `${error.poiName}: ${error.error}` : error.error
+          setError(errorMessage)
+          processingOptions.onError?.(errorMessage)
+        }
+      }
+      
+      const result = await processingService.processMigration(poiIds, mergedOptions)
+      
+      setResult(result)
+      return result
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      setError(errorMessage)
+      processingOptions.onError?.(errorMessage)
+      throw error
+    } finally {
+      setIsProcessing(false)
+      setProgress(null)
+      currentProcessId.current = null
     }
   }, [isProcessing, options])
   
   // Cancel processing
   const cancelProcessing = useCallback(() => {
     if (currentProcessId.current) {
-      const cancelled = processingService.cancel(currentProcessId.current)
+      console.log(`🛑 Attempting to cancel process: ${currentProcessId.current}`)
+      const cancelled = processingService.cancelProcess(currentProcessId.current)
       if (cancelled) {
-        console.log('🛑 Processing cancelled by user')
+        console.log('✅ Processing cancelled successfully')
         setIsProcessing(false)
         setProgress(null)
         setError('Processing cancelled by user')
+        currentProcessId.current = null
+      } else {
+        console.warn('⚠️ Could not cancel process - might be already finished')
       }
     }
   }, [])
@@ -251,6 +343,7 @@ export function usePOIProcessing(options: UsePOIProcessingOptions = {}): UsePOIP
     processTriggerPoints,
     processDescriptions,
     processOSMEnrichment,
+    processMigration,
     
     // Control operations
     cancelProcessing,
