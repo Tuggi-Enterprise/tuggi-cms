@@ -438,6 +438,8 @@ export class MigrationService {
   static async migratePOI(uuid_id: string): Promise<MigrationResult> {
     const warnings: string[] = []
     const migrated_fields: string[] = []
+    let finalPOI: { id: string } | null = null
+    let wasCreated = false
 
     try {
       // 1. Fetch POI from homolog
@@ -546,7 +548,8 @@ export class MigrationService {
         .eq('id', uuid_id)
         .maybeSingle()
 
-      let finalPOI: { id: string } | null = null
+      // finalPOI defined at top scope
+
 
       if (existingPOI) {
         // POI already exists - check lock
@@ -623,6 +626,7 @@ export class MigrationService {
 
         // Use createdPOI for rest of the function
         finalPOI = createdPOI
+        wasCreated = true
       }
 
       // If we got here and existingPOI exists, we acquired the lock
@@ -706,11 +710,19 @@ export class MigrationService {
         }
       }
 
-      // 9. Update processing_status in homolog (optional, for tracking)
+      // 9. Delete from homolog after successful migration
+      // First delete coordinates (to avoid FK issues if cascade is missing)
+      await supabase
+        .schema('homolog')
+        .from('coordinates')
+        .delete()
+        .eq('poi_uuid_id', uuid_id)
+
+      // Then delete the POI itself
       await supabase
         .schema('homolog')
         .from('pois')
-        .update({ processing_status: 'migrated' })
+        .delete()
         .eq('uuid_id', uuid_id)
 
       // 9. Release lock
@@ -732,16 +744,21 @@ export class MigrationService {
     } catch (error) {
       console.error('Migration error:', error)
       
-      // Release lock on error
+      // Release lock OR Rollback on error
       try {
-        await supabase
-          .schema('core')
-          .from('attractions')
-          .update({
-            processing_lock_by: null,
-            processing_lock_at: null
-          })
-          .eq('id', uuid_id)
+        if (wasCreated) {
+           console.log(`⚠️ Rolling back: Deleting created POI ${uuid_id} from core due to error`)
+           await this.rollbackMigration(uuid_id)
+        } else {
+           await supabase
+            .schema('core')
+            .from('attractions')
+            .update({
+              processing_lock_by: null,
+              processing_lock_at: null
+            })
+            .eq('id', uuid_id)
+        }
       } catch (lockError) {
         console.error('Failed to release lock on error:', lockError)
       }
