@@ -85,11 +85,16 @@ export class PoiMigrationPipeline {
       const shouldProcess = await MigrationService.shouldProcessPOI(uuid_id)
       if (!shouldProcess.should_process) {
         console.log(`⏭️  Skipping POI ${uuid_id}: ${shouldProcess.reason}`)
+        
+        // If it's already in core, we consider this a successful "already done" state
+        const isDuplicateInRange = shouldProcess.reason?.includes('already exists')
+        
         return {
-          success: false,
+          success: isDuplicateInRange ? true : false,
           steps,
           total_time: Date.now() - startTime,
-          error: shouldProcess.reason || 'POI should not be processed'
+          error: isDuplicateInRange ? undefined : (shouldProcess.reason || 'POI should not be processed'),
+          warnings: isDuplicateInRange ? [shouldProcess.reason!] : undefined
         }
       }
 

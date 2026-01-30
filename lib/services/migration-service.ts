@@ -899,9 +899,13 @@ export class MigrationService {
         .maybeSingle()
 
       if (existingInCore) {
+        // Self-healing: If it already exists in core, we should clean it from homolog
+        console.log(`♻️  Self-healing: POI ${uuid_id} already exists in core.attractions. Cleaning up homolog...`)
+        await this.safeDeleteFromHomolog(uuid_id)
+        
         return {
           should_process: false,
-          reason: 'POI already exists in core.attractions (already migrated)'
+          reason: 'POI already exists in core.attractions (cleaned up from homolog)'
         }
       }
 
