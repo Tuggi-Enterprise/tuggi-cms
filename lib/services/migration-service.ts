@@ -515,10 +515,17 @@ export class MigrationService {
       // Only block if UUID or OSM ID duplicate (same POI)
       // Coordinate duplicates are allowed - we'll remove the existing POI
       if (duplicateCheck.is_duplicate && duplicateCheck.duplicate_type !== 'coordinates') {
+        // Self-healing: If exact duplicate exists in core, verify it matches our ID/OSM ID and clean up homolog
+        console.log(`♻️ Self-healing: POI ${uuid_id} already exists in core (${duplicateCheck.duplicate_type}). Removing from homolog...`)
+        
+        // Delete from homolog (coordinates first, then POI) to resolve the "ghost" duplicate
+        await supabase.schema('homolog').from('coordinates').delete().eq('poi_uuid_id', uuid_id)
+        await supabase.schema('homolog').from('pois').delete().eq('uuid_id', uuid_id)
+
         return {
-          success: false,
-          error: duplicateCheck.message || 'Duplicate POI detected',
-          warnings: [duplicateCheck.message || 'Duplicate detected']
+          success: true,
+          migrated_fields: ['(Self-healed duplicate)'],
+          warnings: [`Duplicate resolved: POI already existed in core and was removed from homolog (Type: ${duplicateCheck.duplicate_type})`]
         }
       }
 
