@@ -142,7 +142,7 @@
         "missing_content": "Missing Content"
       },
       "charts": {
-        "mau": "Monthly Active Users",
+        "mau": "Active Users (Last 30 Days)",
         "funnel": "Inventory Funnel",
         "recent_visits": "Recent Visits",
         "descriptions_lang": "Descriptions by Language",

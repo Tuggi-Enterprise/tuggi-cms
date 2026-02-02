@@ -184,15 +184,20 @@ export class ElevationAnalysisService {
       
       console.log(`🎯 [ElevationService] Sampling regional elevation at ${(samplingRadius * 111).toFixed(1)}km radius (${samplePoints.length} points)`);
       
-      const elevationPromises = samplePoints.map(async (point) => {
-        const url = `https://api.open-elevation.com/api/v1/lookup?locations=${point.lat},${point.lng}`;
-        const response = await fetch(url);
-        const data = await response.json();
-        return data.results?.[0]?.elevation || null;
+      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          locations: samplePoints.map(p => ({ latitude: p.lat, longitude: p.lng }))
+        })
       });
-      
-      const elevations = await Promise.all(elevationPromises);
-      const validElevations = elevations.filter(e => e !== null && !isNaN(e));
+
+      if (!response.ok) {
+        throw new Error(`Open Elevation API failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const validElevations = (data.results || []).map((r: any) => r.elevation).filter((e: any) => e !== null && !isNaN(e));
       
       if (validElevations.length === 0) {
         console.log(`❌ [ElevationService] No valid elevation samples found`);
@@ -200,10 +205,10 @@ export class ElevationAnalysisService {
       }
       
       // Calcular mediana (mais robusta que média)
-      const sortedElevations = validElevations.sort((a, b) => a - b);
+      const sortedElevations = validElevations.sort((a: number, b: number) => a - b);
       const medianElevation = sortedElevations[Math.floor(sortedElevations.length / 2)];
       
-      console.log(`📊 [ElevationService] Regional elevation samples: [${validElevations.map(e => e.toFixed(0)).join(', ')}]m`);
+      console.log(`📊 [ElevationService] Regional elevation samples: [${validElevations.map((e: number) => e.toFixed(0)).join(', ')}]m`);
       console.log(`🎯 [ElevationService] Regional median elevation: ${medianElevation}m`);
       
       return medianElevation;
@@ -259,18 +264,23 @@ export class ElevationAnalysisService {
         { lat: location.lat, lng: location.lng - samplingRadius }  // Oeste
       ];
       
-      const elevationPromises = samplePoints.map(async (point) => {
-        const url = `https://api.open-elevation.com/api/v1/lookup?locations=${point.lat},${point.lng}`;
-        const response = await fetch(url);
-        const data = await response.json();
-        return data.results?.[0]?.elevation || null;
+      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          locations: samplePoints.map(p => ({ latitude: p.lat, longitude: p.lng }))
+        })
       });
-      
-      const elevations = await Promise.all(elevationPromises);
-      const validElevations = elevations.filter(e => e !== null && !isNaN(e));
+
+      if (!response.ok) {
+        throw new Error(`Open Elevation API failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const validElevations = (data.results || []).map((r: any) => r.elevation).filter((e: any) => e !== null && !isNaN(e));
       
       if (validElevations.length >= 2) {
-        const avgElevation = validElevations.reduce((a, b) => a + b, 0) / validElevations.length;
+        const avgElevation = validElevations.reduce((a: number, b: number) => a + b, 0) / validElevations.length;
         const isCoastal = avgElevation < 100; // Se a média da região é < 100m, provavelmente é costeira
         
         console.log(`🌊 [ElevationService] Coastal detection: avg elevation ${avgElevation.toFixed(0)}m → coastal: ${isCoastal}`);

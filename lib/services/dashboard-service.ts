@@ -46,9 +46,9 @@ export interface DashboardStats {
   avgTripDuration: string
   tripsByPlatform: Array<{ platform: string; count: number }>
   
-  // Temporal Data
-  mauHistory: Array<{ month: string; count: number }>
-  userGrowth: Array<{ month: string; new_users: number }>
+  // Temporal Data (últimos 30 dias - rolling window)
+  mauHistory: Array<{ date: string; count: number }>
+  userGrowth: Array<{ date: string; new_users: number }>
   
   // Geographic - POIs por cidade
   cityDistribution: Array<{ city: string; country: string; poi_count: number; approved_count: number }>

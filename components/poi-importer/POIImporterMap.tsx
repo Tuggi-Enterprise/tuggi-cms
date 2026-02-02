@@ -24,6 +24,7 @@ interface POIImporterMapProps {
 
 const MapInner = forwardRef<POIImporterMapRef, POIImporterMapProps>((props, ref) => {
   const { onAreaChange, onDrawingModeChange, height, className, history } = props
+  const t = useTranslations('Pages.POIImporter.actions')
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const drawingManagerRef = useRef<google.maps.drawing.DrawingManager | null>(null)
@@ -215,7 +216,7 @@ const MapInner = forwardRef<POIImporterMapRef, POIImporterMapProps>((props, ref)
           <button
             onClick={clearShape}
             className="bg-red-600 text-white p-2 rounded-lg shadow-md hover:bg-red-700 transition-colors flex items-center justify-center"
-            title={useTranslations('Pages.POIImporter.actions')('clear')}
+            title={t('clear')}
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -226,6 +227,9 @@ const MapInner = forwardRef<POIImporterMapRef, POIImporterMapProps>((props, ref)
 })
 
 export const POIImporterMap = forwardRef<POIImporterMapRef, POIImporterMapProps>((props, ref) => {
+  const t = useTranslations('Common.status')
+  
+
   return (
     <div className={cn("relative w-full overflow-hidden border border-gray-200 dark:border-gray-800", props.className)} style={{ height: props.height || '600px' }}>
       <Wrapper
@@ -233,8 +237,8 @@ export const POIImporterMap = forwardRef<POIImporterMapRef, POIImporterMapProps>
         libraries={LIBRARIES}
         version="weekly"
         render={(status) => {
-          if (status === Status.LOADING) return <div className="h-full flex items-center justify-center bg-gray-100 animate-pulse">{useTranslations('Common.status')('loading')}</div>
-          if (status === Status.FAILURE) return <div className="h-full flex items-center justify-center text-red-500">{useTranslations('Common.status')('error')}</div>
+          if (status === Status.LOADING) return <div className="h-full flex items-center justify-center bg-gray-100 animate-pulse">{t('loading')}</div>
+          if (status === Status.FAILURE) return <div className="h-full flex items-center justify-center text-red-500">{t('error')}</div>
           return <MapInner {...props} ref={ref} />
         }}
       />

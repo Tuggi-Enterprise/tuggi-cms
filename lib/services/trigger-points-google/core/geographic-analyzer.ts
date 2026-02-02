@@ -3,6 +3,7 @@
 
 import { POIData, GeographicContext, BoundaryData } from '../types/interfaces';
 import { calculateVariance, calculateBearing, calculateDistance } from '../utils/calculations';
+import { ElevationAnalysisService } from '../services/elevation-service';
 
 export class GeographicContextAnalyzer {
   constructor() {
@@ -24,7 +25,7 @@ export class GeographicContextAnalyzer {
       // 🆕 Passar boundary para calculateUrbanDensity para fallback OSM
       const [urbanDensity, elevationContext, streetPattern, infrastructure] = await Promise.all([
         this.calculateUrbanDensity(analysisPoint, boundary),
-        this.analyzeElevation(analysisPoint),
+        this.analyzeElevation(analysisPoint, undefined, poiData),
         this.analyzeStreetPattern(analysisPoint),
         this.analyzeInfrastructure(analysisPoint)
       ]);
@@ -185,11 +186,43 @@ export class GeographicContextAnalyzer {
    * Analisa o contexto de elevação
    * REMOVIDO: Google Elevation API - retorna valores padrão
    */
-  private async analyzeElevation(location: { lat: number; lng: number }) {
-    // REMOVIDO: Google Elevation API
-    // Retornar valores padrão (flat) - análise de elevação não é crítica para trigger points
-    console.log(`⛰️ Elevation analysis: using default (flat) - Google Elevation API removed`);
-    return { type: 'flat' as const, variance: 0 };
+  private async analyzeElevation(location: { lat: number; lng: number }, context?: GeographicContext, poiData?: POIData) {
+    try {
+      console.log(`⛰️ Analyzing elevation for: ${location.lat}, ${location.lng}`);
+      
+      // Usar o serviço centralizado para estimar a elevação base regional
+      // Nota: o context passado aqui ainda está sendo construído, então passamos o que temos
+      const baseElevation = await ElevationAnalysisService.estimateRegionalBaseElevation(
+        location, 
+        context || this.getDefaultContext(), 
+        poiData
+      );
+      
+      // Buscar elevação real do ponto (via Open Elevation, que é free)
+      const url = `https://api.open-elevation.com/api/v1/lookup?locations=${location.lat},${location.lng}`;
+      const response = await fetch(url);
+      const data = await response.json();
+      const poiElevation = data.results?.[0]?.elevation || baseElevation;
+      
+      const elevationDiff = poiElevation - baseElevation;
+      
+      // Classificar baseado na diferença
+      let type: 'flat' | 'mountainous' | 'hilly' = 'flat';
+      if (elevationDiff > 200) type = 'mountainous';
+      else if (elevationDiff > 50) type = 'hilly';
+      
+      console.log(`✅ Elevation analysis: ${type} (base: ${baseElevation}m, poi: ${poiElevation}m, diff: ${elevationDiff}m)`);
+      
+      return { 
+        type, 
+        variance: Math.abs(elevationDiff),
+        baseElevation,
+        poiElevation
+      };
+    } catch (error) {
+      console.warn('⚠️ Elevation analysis failed, using default (flat):', error);
+      return { type: 'flat' as const, variance: 0, baseElevation: 500, poiElevation: 500 };
+    }
   }
   
   /**

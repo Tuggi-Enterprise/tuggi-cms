@@ -158,18 +158,38 @@ export class VisibilityValidator {
         Math.max(TRIGGER_POINTS_CONSTANTS.limits.minSamplePoints, Math.floor(distance / TRIGGER_POINTS_CONSTANTS.distances.lineOfSightSampleDistance)) // Pontos configuráveis
       );
 
-      // Obter elevações
-      const elevationResponse = await this.googleAPIs.getElevation([
-        candidate.location,
-        ...intermediatePoints,
-        nearestBoundaryPoint
-      ]);
+      // Obter elevações via Open Elevation API (Gratuita) para economizar Google Elevation API
+      let elevations: number[] = [];
+      try {
+        const points = [candidate.location, ...intermediatePoints, nearestBoundaryPoint];
+        const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            locations: points.map(p => ({ latitude: p.lat, longitude: p.lng }))
+          })
+        });
 
-      if (!elevationResponse.success || !elevationResponse.data?.results) {
-        throw new Error('Failed to get elevation data');
+        if (!response.ok) {
+          throw new Error(`Open Elevation API failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        elevations = data.results.map((r: any) => r.elevation);
+        console.log(`✅ Topographic analysis using Open Elevation API (${elevations.length} points)`);
+      } catch (error) {
+        console.warn('⚠️ Open Elevation API failed for visibility, falling back to Google as last resort');
+        const elevationResponse = await this.googleAPIs.getElevation([
+          candidate.location,
+          ...intermediatePoints,
+          nearestBoundaryPoint
+        ]);
+
+        if (!elevationResponse.success || !elevationResponse.data?.results) {
+          throw new Error('Failed to get elevation data from Google fallback');
+        }
+        elevations = elevationResponse.data.results.map((r: any) => r.elevation);
       }
-
-      const elevations = elevationResponse.data.results.map((r: any) => r.elevation);
       
       // Analisar linha de visão baseada em elevação
       const hasTopographicObstruction = this.checkTopographicLineOfSight(elevations, distance);

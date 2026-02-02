@@ -2,8 +2,9 @@
 // Estratégia: OSM tags → Google Elevation API → Estimativa
 
 import { GoogleAPIsService } from './google-apis.service';
-import { BoundaryData, GeographicContext } from '../types/interfaces';
+import { BoundaryData, GeographicContext, POIData } from '../types/interfaces';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { ElevationAnalysisService } from './elevation-service';
 
 export interface ElevationData {
   ground: number; // elevação do solo (metros acima do nível do mar)
@@ -42,40 +43,108 @@ export class ElevationService {
     location: { lat: number; lng: number },
     boundary?: BoundaryData,
     osmElement?: any,
-    context?: GeographicContext
+    context?: GeographicContext,
+    poiData?: POIData
   ): Promise<ElevationData> {
     console.log(`🏔️ Getting elevation for: ${location.lat.toFixed(6)}, ${location.lng.toFixed(6)}`);
 
     try {
-      // Estratégia 1: OSM Tags (se disponível)
+      // 0. Obter a elevação base regional (média da cidade) - FONTE ÚNICA DE VERDADE
+      const regionalBase = await ElevationAnalysisService.estimateRegionalBaseElevation(
+        location, 
+        context || { urbanDensity: { level: 'medium', score: 0.5 } } as any, 
+        poiData
+      );
+      
+      let groundElevation = 0;
+      let structureHeight = 0;
+      let groundSource = 'estimated';
+      let structureSource = undefined;
+      let confidence = 0.0;
+
+      // Estratégia 1: OSM Tags (se disponível) - Muito bom para altura da estrutura
       if (osmElement) {
         const osmElevation = await this.getElevationFromOSM(osmElement, location);
-        if (osmElevation.confidence > 0.7) {
-          console.log(`✅ High-confidence elevation from OSM: ${osmElevation.total}m`);
-          return osmElevation;
+        groundElevation = osmElevation.ground;
+        structureHeight = osmElevation.structure || 0;
+        groundSource = osmElevation.details.groundSource;
+        structureSource = osmElevation.details.structureSource;
+        confidence = osmElevation.confidence;
+      }
+
+      // Estratégia 2: Open Elevation API (gratuita) para o Ground
+      // Sempre tentamos o Open Elevation pois ele é o que o usuário quer como primário
+      try {
+        const openElevationResult = await this.getElevationFromOpenElevationAPI(location);
+        if (openElevationResult.confidence > 0.5) {
+          groundElevation = openElevationResult.ground;
+          groundSource = 'open_elevation';
+          confidence = Math.max(confidence, 0.8);
         }
+      } catch (error) {
+        console.warn('⚠️ Open Elevation API failed, using OSM or fallback ground');
       }
 
-      // Estratégia 2: Open Elevation API (gratuita, igual ao sistema legado)
-      const openElevation = await this.getElevationFromOpenElevationAPI(location);
-      if (openElevation.confidence > 0.5) {
-        console.log(`✅ Elevation from Open Elevation API: ${openElevation.total}m (free, like legacy system)`);
-        return openElevation;
+      // Se groundElevation ainda for 0, usar regionalBase como ground
+      if (groundElevation === 0) {
+        groundElevation = regionalBase;
+        groundSource = 'regional_base';
       }
 
-      // Estratégia 3: Google Elevation API com análise de vizinhança (fallback se Open Elevation falhar)
+      const totalElevation = groundElevation + structureHeight;
+      const elevationDiff = totalElevation - regionalBase;
+      const isElevated = elevationDiff > 50; // Threshold do usuário
+
+      console.log(`📊 Current Elevation State: Ground=${groundElevation}m, Structure=${structureHeight}m, Total=${totalElevation}m, Base=${regionalBase}m, Diff=${elevationDiff}m`);
+
+      // ✅ REGRA DE OURO DO USUÁRIO: Se temos dados do Open Elevation + OSM e a diferença é clara, SAIR CEDO
+      if (confidence >= 0.7 || (groundSource === 'open_elevation' && isElevated)) {
+        console.log(`✅ Sufficient data from Open Elevation + OSM. Diff from base: ${elevationDiff}m. Skipping Google API.`);
+        
+        return {
+          ground: groundElevation,
+          structure: structureHeight > 0 ? structureHeight : undefined,
+          total: totalElevation,
+          relative: {
+            aboveNeighborhood: elevationDiff,
+            neighborhoodAverage: regionalBase,
+            prominence: Math.min(1.0, Math.max(0.1, elevationDiff / 200)), // Estimativa de proeminência
+            isElevated: isElevated
+          },
+          confidence: confidence,
+          source: 'osm_tags', // Simplificado para indicar que não usou Google
+          details: {
+            groundSource,
+            structureSource,
+            method: 'open_elevation_osm_combination'
+          }
+        };
+      }
+
+      // Estratégia 3: Google Elevation API com análise de vizinhança (fallback FINAL se os dados acima forem fracos)
+      console.log(`🧠 Local data weak or elevation unclear, calling Google Elevation API as last resort...`);
       const googleElevation = await this.getIntelligentElevationFromGoogle(location, boundary, context);
-      if (googleElevation.confidence > 0.5) {
-        console.log(`✅ Intelligent elevation from Google API: ${googleElevation.total}m (${googleElevation.relative.aboveNeighborhood > 0 ? '+' : ''}${googleElevation.relative.aboveNeighborhood}m relative)`);
-        return googleElevation;
-      }
-
-      // Estratégia 3: Estimativa baseada em contexto (último recurso)
-      console.log(`⚠️ Using estimated elevation based on context`);
-      return this.estimateElevation(location, context);
+      
+      // Atualizar com ground do Google mas manter structure do OSM se for melhor
+      const finalGround = googleElevation.ground;
+      const finalTotal = finalGround + structureHeight;
+      const finalDiff = finalTotal - regionalBase;
+      
+      return {
+        ...googleElevation,
+        ground: finalGround,
+        structure: structureHeight > 0 ? structureHeight : undefined,
+        total: finalTotal,
+        relative: {
+          ...googleElevation.relative,
+          aboveNeighborhood: finalDiff,
+          neighborhoodAverage: regionalBase,
+          isElevated: finalDiff > 50 || googleElevation.relative.isElevated
+        }
+      };
 
     } catch (error) {
-      console.error('Error getting elevation:', error);
+      console.error('Error in integrated elevation logic:', error);
       return this.getDefaultElevation(location);
     }
   }

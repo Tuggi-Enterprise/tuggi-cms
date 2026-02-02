@@ -142,7 +142,7 @@
         "missing_content": "Conteúdo Pendente"
       },
       "charts": {
-        "mau": "Usuários Ativos Mensais",
+        "mau": "Usuários Ativos (Últimos 30 Dias)",
         "funnel": "Funil de Inventário",
         "recent_visits": "Últimas Visitas",
         "descriptions_lang": "Descrições por Idioma",

@@ -102,28 +102,26 @@ BEGIN
        ORDER BY cnt DESC
      ) sub) AS trips_by_platform,
     
-    -- MAU History ordenado do mais antigo para mais recente (ASC)
-    (SELECT COALESCE(jsonb_agg(jsonb_build_object('month', month, 'count', active_users)), '[]'::jsonb)
+    -- Daily Active Users (últimos 30 dias) - rolling window
+    (SELECT COALESCE(jsonb_agg(jsonb_build_object('date', day, 'count', active_users)), '[]'::jsonb)
      FROM (
-       SELECT to_char(date_trunc('month', visit_timestamp), 'YYYY-MM') as month, 
+       SELECT to_char(date_trunc('day', visit_timestamp), 'DD/MM') as day,
               COUNT(DISTINCT user_id)::int as active_users
        FROM drive.poi_visits
-       WHERE visit_timestamp > NOW() - INTERVAL '12 months'
-       GROUP BY 1
-       ORDER BY 1 ASC  -- MUDANÇA: era DESC, agora ASC
-       LIMIT 12
-     ) mau) AS mau_history,
-    
-    -- User Growth ordenado do mais antigo para mais recente (ASC)
-    (SELECT COALESCE(jsonb_agg(jsonb_build_object('month', month, 'new_users', new_users)), '[]'::jsonb)
+       WHERE visit_timestamp > NOW() - INTERVAL '30 days'
+       GROUP BY date_trunc('day', visit_timestamp)
+       ORDER BY date_trunc('day', visit_timestamp) ASC
+     ) dau) AS mau_history,
+
+    -- Daily User Growth (últimos 30 dias) - rolling window
+    (SELECT COALESCE(jsonb_agg(jsonb_build_object('date', day, 'new_users', new_users)), '[]'::jsonb)
      FROM (
-       SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') as month,
+       SELECT to_char(date_trunc('day', created_at), 'DD/MM') as day,
               COUNT(*)::int as new_users
        FROM drive.profiles
-       WHERE created_at > NOW() - INTERVAL '12 months'
-       GROUP BY 1
-       ORDER BY 1 ASC  -- MUDANÇA: era DESC, agora ASC
-       LIMIT 12
+       WHERE created_at > NOW() - INTERVAL '30 days'
+       GROUP BY date_trunc('day', created_at)
+       ORDER BY date_trunc('day', created_at) ASC
      ) growth) AS user_growth;
 END; $$;
 

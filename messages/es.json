@@ -142,7 +142,7 @@
         "missing_content": "Falta Contenido"
       },
       "charts": {
-        "mau": "Usuarios Activos Mensuales",
+        "mau": "Usuarios Activos (Últimos 30 Días)",
         "funnel": "Embudo de Inventario",
         "recent_visits": "Visitas Recientes",
         "descriptions_lang": "Descripciones por Idioma",

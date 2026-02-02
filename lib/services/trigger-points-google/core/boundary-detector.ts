@@ -416,7 +416,7 @@ out geom tags;
       const poiHeight = this.extractOSMHeight({ tags: poiTags });
       
       // Buscar elevação
-      const elevation = await this.elevationService.getElevation(center, undefined, { tags: poiTags });
+      const elevation = await this.elevationService.getElevation(center, undefined, { tags: poiTags }, undefined, poiData);
       let elevationData;
       if (elevation && elevation.confidence > 0.5) {
         elevationData = {
@@ -1805,7 +1805,7 @@ out tags;
                       console.log(`🔍 Step 2: Extracting elevation...`);
                       
                       // Buscar elevação
-                      const elevation = await this.elevationService.getElevation(center, undefined, { tags: poiTags });
+                      const elevation = await this.elevationService.getElevation(center, undefined, { tags: poiTags }, undefined, poiData);
                       if (elevation && elevation.confidence > 0.5) {
                         elevationData = {
                           min: elevation.ground - 10,
@@ -2026,7 +2026,7 @@ out tags;
                   } // Fechamento do bloco if (!poiHeight) - principal
                   
                   // Para Nominatim, não temos tags OSM, então pular direto para Google Elevation
-                  const elevation = await this.elevationService.getElevation(center, undefined, result);
+                  const elevation = await this.elevationService.getElevation(center, undefined, result, undefined, poiData);
                   console.log(`📊 Elevation service returned:`, { 
                     elevation: elevation ? elevation.total : null, 
                     confidence: elevation?.confidence,
@@ -2244,7 +2244,7 @@ out geom tags;
         
         // Tentar obter elevação (opcional, não bloquear se falhar)
         console.log(`🌍 Calling ElevationService.getElevation...`);
-        const elevation = await this.elevationService.getElevation(center, undefined, bestElement);
+        const elevation = await this.elevationService.getElevation(center, undefined, bestElement, undefined, poiData);
         console.log(`📊 Elevation service returned:`, { 
           elevation: elevation ? elevation.total : null, 
           confidence: elevation?.confidence,
