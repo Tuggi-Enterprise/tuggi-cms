@@ -114,5 +114,5 @@ BEGIN
      ) growth) AS user_growth;
 END; $$;
 
--- Permissões (anon incluído porque usa SECURITY DEFINER e é apenas leitura de métricas)
-GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics(uuid) TO anon, authenticated, service_role;
+-- Permissões (apenas usuários autenticados - usa JWT do usuário)
+GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics(uuid) TO authenticated, service_role;

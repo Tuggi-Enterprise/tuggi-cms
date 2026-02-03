@@ -14,7 +14,7 @@
  * - dashboard_heatmap_data: Dados para heatmap
  */
 
-import { getSupabase } from '@/lib/core/supabase-client'
+import { getSupabase, getSupabaseClient } from '@/lib/core/supabase-client'
 
 // ============================================================================
 // TIPOS
@@ -166,8 +166,11 @@ class DashboardService {
       }
       
       console.log('📊 Loading dashboard data V4...')
-      
-      const supabase = getSupabase('server')
+
+      // Use client-side Supabase (com JWT do usuário autenticado)
+      const supabase = typeof window !== 'undefined'
+        ? getSupabaseClient()
+        : getSupabase('server')
       
       // Executar todas as RPCs em paralelo
       const [
@@ -308,7 +311,9 @@ class DashboardService {
    */
   static async getInventoryDetails(): Promise<{ success: boolean; data?: InventoryDetails; error?: string }> {
     try {
-      const supabase = getSupabase('server')
+      const supabase = typeof window !== 'undefined'
+        ? getSupabaseClient()
+        : getSupabase('server')
       const { data, error } = await supabase
         .schema('core')
         .rpc('dashboard_inventory_details')
@@ -349,7 +354,9 @@ class DashboardService {
    */
   static async getHeatmapData(sampleSize = 5000): Promise<{ success: boolean; data?: HeatmapPoint[]; error?: string }> {
     try {
-      const supabase = getSupabase('server')
+      const supabase = typeof window !== 'undefined'
+        ? getSupabaseClient()
+        : getSupabase('server')
       const { data, error } = await supabase
         .schema('core')
         .rpc('dashboard_heatmap_data', { sample_size: sampleSize })
@@ -367,7 +374,9 @@ class DashboardService {
    */
   static async getUsersWithSessions(limit = 50): Promise<{ success: boolean; data?: UserWithSessions[]; error?: string }> {
     try {
-      const supabase = getSupabase('server')
+      const supabase = typeof window !== 'undefined'
+        ? getSupabaseClient()
+        : getSupabase('server')
       const { data, error } = await supabase
         .schema('core')
         .rpc('dashboard_user_sessions', { limit_count: limit })
@@ -386,7 +395,9 @@ class DashboardService {
    */
   static async getProfiles(limit = 100): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
-      const supabase = getSupabase('server')
+      const supabase = typeof window !== 'undefined'
+        ? getSupabaseClient()
+        : getSupabase('server')
       const { data, error } = await supabase
         .schema('drive')
         .from('profiles')
