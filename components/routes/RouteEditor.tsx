@@ -20,7 +20,22 @@ import {
   ChevronLeft,
   CheckCircle,
   XCircle,
-  Edit
+  Edit,
+  // Characteristics icons
+  Accessibility,
+  Car,
+  Mountain,
+  Sun,
+  Moon,
+  Sunrise,
+  Camera,
+  Trees,
+  Building2,
+  Wheat,
+  ParkingCircle,
+  ChevronDown,
+  ChevronUp,
+  MapPin
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
@@ -63,6 +78,16 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
   const [duration, setDuration] = useState<number | null>(initialData?.metadata?.duration || null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isActive, setIsActive] = useState<boolean>(initialData?.is_active ?? true)
+
+  // Characteristics State
+  const [accessibility, setAccessibility] = useState<string>(initialData?.accessibility || 'unknown')
+  const [drivability, setDrivability] = useState<string>(initialData?.drivability || 'unknown')
+  const [scenicProfile, setScenicProfile] = useState<string[]>(initialData?.scenic_profile || [])
+  const [bestTime, setBestTime] = useState<string[]>(initialData?.best_time || [])
+  const [roadConditions, setRoadConditions] = useState<string[]>(initialData?.road_conditions || [])
+  const [resources, setResources] = useState<Record<string, string>>(initialData?.resources || {})
+  const [photogenicRating, setPhotogenicRating] = useState<string>(initialData?.photogenic_rating || 'unknown')
+  const [stopsCount, setStopsCount] = useState<number>(initialData?.stops_count ?? 0)
 
   // Map Refs
   const mapRef = useRef<HTMLDivElement>(null)
@@ -258,7 +283,16 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           client_id: clientId,
           waypoints,
           snap_to_roads: snapToRoads,
-          is_active: isActive
+          is_active: isActive,
+          // Characteristics
+          accessibility,
+          drivability,
+          scenic_profile: scenicProfile,
+          best_time: bestTime,
+          road_conditions: roadConditions,
+          resources,
+          photogenic_rating: photogenicRating,
+          stops_count: stopsCount || waypoints.length
         })
       })
 
@@ -360,6 +394,257 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                   rows={2}
                   placeholder="Opcional..."
                 />
+              </div>
+            </div>
+          </section>
+
+          {/* THE EXPERIENCE - Scenic, Best Time, Photogenic */}
+          <section className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+              <Camera className="h-4 w-4" />
+              A Experiência
+            </h3>
+            
+            {/* Scenic Profile - Multi-select with icons */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Perfil Cênico</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'panoramic', label: 'Panorâmica', icon: Mountain },
+                  { id: 'historical', label: 'Histórica', icon: Building2 },
+                  { id: 'nature', label: 'Natureza', icon: Trees },
+                  { id: 'urban', label: 'Urbana', icon: Building2 },
+                  { id: 'rural', label: 'Rural', icon: Wheat },
+                ].map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setScenicProfile(prev => 
+                      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                    )}
+                    className={cn(
+                      "flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition-all text-xs font-medium",
+                      scenicProfile.includes(id) 
+                        ? "bg-tuggi-blue/10 border-tuggi-blue text-tuggi-blue" 
+                        : "bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500"
+                    )}
+                  >
+                    <Icon className="h-5 w-5" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Best Time - Multi-select */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Melhor Período</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id: 'morning', label: 'Manhã', icon: Sun },
+                  { id: 'afternoon', label: 'Tarde', icon: Sun },
+                  { id: 'sunset', label: 'Pôr do Sol', icon: Sunrise },
+                  { id: 'night', label: 'Noite', icon: Moon },
+                ].map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setBestTime(prev => 
+                      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                    )}
+                    className={cn(
+                      "flex flex-col items-center gap-1 p-2 rounded-xl border-2 transition-all text-[10px] font-medium",
+                      bestTime.includes(id) 
+                        ? "bg-orange-50 dark:bg-orange-900/20 border-orange-300 text-orange-600" 
+                        : "bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500"
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Photogenic Rating */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Fotogênica</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id: 'low', label: 'Básica' },
+                  { id: 'medium', label: 'Boa' },
+                  { id: 'high', label: 'Incrível' },
+                  { id: 'unknown', label: 'N/I' },
+                ].map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setPhotogenicRating(id)}
+                    className={cn(
+                      "py-2 px-3 rounded-xl border-2 transition-all text-xs font-bold",
+                      photogenicRating === id 
+                        ? "bg-pink-50 dark:bg-pink-900/20 border-pink-300 text-pink-600" 
+                        : "bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* THE DRIVE - Drivability, Road Conditions */}
+          <section className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+              <Car className="h-4 w-4" />
+              A Direção
+            </h3>
+            
+            {/* Drivability */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Facilidade ao Dirigir</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id: 'easy', label: 'Fácil', color: 'green' },
+                  { id: 'moderate', label: 'Moderado', color: 'yellow' },
+                  { id: 'demanding', label: 'Exigente', color: 'red' },
+                  { id: 'unknown', label: 'N/I', color: 'gray' },
+                ].map(({ id, label, color }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setDrivability(id)}
+                    className={cn(
+                      "py-2 px-3 rounded-xl border-2 transition-all text-xs font-bold",
+                      drivability === id 
+                        ? `bg-${color}-50 dark:bg-${color}-900/20 border-${color}-300 text-${color}-600` 
+                        : "bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Road Conditions - Multi-select tags */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Condições do Caminho</label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: 'paved', label: 'Asfalto' },
+                  { id: 'dirt', label: 'Terra' },
+                  { id: 'steep', label: 'Íngremes' },
+                  { id: 'curves', label: 'Curvas' },
+                ].map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setRoadConditions(prev => 
+                      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                    )}
+                    className={cn(
+                      "py-1.5 px-3 rounded-full border-2 transition-all text-xs font-medium",
+                      roadConditions.includes(id) 
+                        ? "bg-blue-50 dark:bg-blue-900/20 border-blue-300 text-blue-600" 
+                        : "bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* LOGISTICS - Accessibility, Resources, Stops */}
+          <section className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+              <MapPin className="h-4 w-4" />
+              Logística
+            </h3>
+            
+            {/* Accessibility */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Acessibilidade</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id: 'accessible', label: 'Acessível' },
+                  { id: 'partial', label: 'Parcial' },
+                  { id: 'not_accessible', label: 'Não' },
+                  { id: 'unknown', label: 'N/I' },
+                ].map(({ id, label }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setAccessibility(id)}
+                    className={cn(
+                      "py-2 px-2 rounded-xl border-2 transition-all text-[10px] font-bold",
+                      accessibility === id 
+                        ? "bg-purple-50 dark:bg-purple-900/20 border-purple-300 text-purple-600" 
+                        : "bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Stops Count */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Paradas Turísticas</label>
+              <div className="flex items-center gap-3">
+                <input 
+                  type="number" 
+                  min="0"
+                  value={stopsCount || waypoints.length}
+                  onChange={e => setStopsCount(parseInt(e.target.value) || 0)}
+                  className="w-20 px-3 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl text-center font-bold text-tuggi-blue focus:ring-2 focus:ring-tuggi-blue"
+                />
+                <span className="text-xs text-gray-500">pontos de interesse</span>
+              </div>
+            </div>
+
+            {/* Resources */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Recursos Mínimos</label>
+              <div className="space-y-2">
+                {[
+                  { id: 'parking', label: 'Estacionamento', icon: ParkingCircle },
+                  { id: 'restrooms', label: 'Banheiros', icon: Building2 },
+                  { id: 'rest_areas', label: 'Áreas de Descanso', icon: Trees },
+                ].map(({ id, label, icon: Icon }) => (
+                  <div key={id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-4 w-4 text-gray-400" />
+                      <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{label}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      {[
+                        { val: 'yes', lbl: 'Sim' },
+                        { val: 'partial', lbl: 'Alguns' },
+                        { val: 'no', lbl: 'Não' },
+                        { val: 'unknown', lbl: '?' },
+                      ].map(({ val, lbl }) => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setResources(prev => ({ ...prev, [id]: val }))}
+                          className={cn(
+                            "px-2 py-1 rounded-lg text-[10px] font-bold transition-all",
+                            resources[id] === val 
+                              ? "bg-tuggi-blue text-white" 
+                              : "bg-gray-100 dark:bg-gray-700 text-gray-500 hover:bg-gray-200"
+                          )}
+                        >
+                          {lbl}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </section>

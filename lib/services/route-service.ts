@@ -10,6 +10,21 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { OSRMService, LatLng, RouteResult } from './routing/OSRMService'
 
+// Characteristic Enums
+export type AccessibilityLevel = 'accessible' | 'partial' | 'not_accessible' | 'unknown';
+export type DrivabilityLevel = 'easy' | 'moderate' | 'demanding' | 'unknown';
+export type PhotgenicRating = 'low' | 'medium' | 'high' | 'unknown';
+export type ScenicProfile = 'panoramic' | 'historical' | 'nature' | 'urban' | 'rural';
+export type BestTime = 'morning' | 'afternoon' | 'night' | 'sunset';
+export type RoadCondition = 'paved' | 'dirt' | 'steep' | 'curves';
+export type ResourceStatus = 'yes' | 'partial' | 'no' | 'unknown';
+
+export interface RouteResources {
+  parking?: ResourceStatus;
+  restrooms?: ResourceStatus;
+  rest_areas?: ResourceStatus;
+}
+
 // Types
 export interface CustomRoute {
   id: string;
@@ -28,6 +43,15 @@ export interface CustomRoute {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  // Characteristics
+  accessibility?: AccessibilityLevel;
+  drivability?: DrivabilityLevel;
+  scenic_profile?: ScenicProfile[];
+  best_time?: BestTime[];
+  road_conditions?: RoadCondition[];
+  resources?: RouteResources;
+  photogenic_rating?: PhotgenicRating;
+  stops_count?: number;
 }
 
 export interface CreateRouteRequest {
@@ -36,6 +60,15 @@ export interface CreateRouteRequest {
   client_id: string;
   waypoints: LatLng[];
   snap_to_roads?: boolean;
+  // Characteristics
+  accessibility?: AccessibilityLevel;
+  drivability?: DrivabilityLevel;
+  scenic_profile?: ScenicProfile[];
+  best_time?: BestTime[];
+  road_conditions?: RoadCondition[];
+  resources?: RouteResources;
+  photogenic_rating?: PhotgenicRating;
+  stops_count?: number;
 }
 
 export interface UpdateRouteRequest {
@@ -44,6 +77,15 @@ export interface UpdateRouteRequest {
   waypoints?: LatLng[];
   is_active?: boolean;
   snap_to_roads?: boolean;
+  // Characteristics
+  accessibility?: AccessibilityLevel;
+  drivability?: DrivabilityLevel;
+  scenic_profile?: ScenicProfile[];
+  best_time?: BestTime[];
+  road_conditions?: RoadCondition[];
+  resources?: RouteResources;
+  photogenic_rating?: PhotgenicRating;
+  stops_count?: number;
 }
 
 /**
@@ -85,11 +127,20 @@ export class RouteService {
         p_id: null,
         p_name: data.name,
         p_description: data.description || null,
-        p_client_id: data.client_id || null, // Handle empty string as null
+        p_client_id: data.client_id || null,
         p_geometry_wkt: geometry,
         p_waypoints: data.waypoints,
         p_metadata: metadata,
-        p_is_active: true
+        p_is_active: true,
+        // Characteristics
+        p_accessibility: data.accessibility || 'unknown',
+        p_drivability: data.drivability || 'unknown',
+        p_scenic_profile: data.scenic_profile || [],
+        p_best_time: data.best_time || [],
+        p_road_conditions: data.road_conditions || [],
+        p_resources: data.resources || {},
+        p_photogenic_rating: data.photogenic_rating || 'unknown',
+        p_stops_count: data.stops_count ?? data.waypoints.length
       })
 
     if (error) {
@@ -178,7 +229,16 @@ export class RouteService {
         p_geometry_wkt: geometry,
         p_waypoints: data.waypoints ?? oldRoute.waypoints,
         p_metadata: metadata,
-        p_is_active: data.is_active ?? oldRoute.is_active
+        p_is_active: data.is_active ?? oldRoute.is_active,
+        // Characteristics (merge with existing values)
+        p_accessibility: data.accessibility ?? oldRoute.accessibility ?? 'unknown',
+        p_drivability: data.drivability ?? oldRoute.drivability ?? 'unknown',
+        p_scenic_profile: data.scenic_profile ?? oldRoute.scenic_profile ?? [],
+        p_best_time: data.best_time ?? oldRoute.best_time ?? [],
+        p_road_conditions: data.road_conditions ?? oldRoute.road_conditions ?? [],
+        p_resources: data.resources ?? oldRoute.resources ?? {},
+        p_photogenic_rating: data.photogenic_rating ?? oldRoute.photogenic_rating ?? 'unknown',
+        p_stops_count: data.stops_count ?? oldRoute.stops_count ?? (data.waypoints ?? oldRoute.waypoints ?? []).length
       })
 
     if (error) {

@@ -130,7 +130,16 @@ export async function POST(request: NextRequest) {
       description: body.description,
       client_id: body.client_id,
       waypoints: body.waypoints,
-      snap_to_roads: body.snap_to_roads ?? true
+      snap_to_roads: body.snap_to_roads ?? true,
+      // Characteristics
+      accessibility: body.accessibility,
+      drivability: body.drivability,
+      scenic_profile: body.scenic_profile,
+      best_time: body.best_time,
+      road_conditions: body.road_conditions,
+      resources: body.resources,
+      photogenic_rating: body.photogenic_rating,
+      stops_count: body.stops_count
     }, userId)
 
     return NextResponse.json({ route }, { status: 201 })

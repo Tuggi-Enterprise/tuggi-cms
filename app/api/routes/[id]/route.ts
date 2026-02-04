@@ -89,7 +89,16 @@ export async function PUT(
       description: body.description,
       waypoints: body.waypoints,
       is_active: body.is_active,
-      snap_to_roads: body.snap_to_roads
+      snap_to_roads: body.snap_to_roads,
+      // Characteristics
+      accessibility: body.accessibility,
+      drivability: body.drivability,
+      scenic_profile: body.scenic_profile,
+      best_time: body.best_time,
+      road_conditions: body.road_conditions,
+      resources: body.resources,
+      photogenic_rating: body.photogenic_rating,
+      stops_count: body.stops_count
     }, userId)
 
     return NextResponse.json({ route })
