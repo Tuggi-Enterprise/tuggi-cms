@@ -64,6 +64,7 @@
       "app_users": "Usuarios de la App",
       "visualization": "Visualización",
       "trail_map": "Mapa de Senderos",
+      "custom_routes": "Rutas Personalizadas",
       "logout": "Cerrar sesión",
       "toggle_theme": "Alternar tema"
     }
@@ -82,6 +83,7 @@
     "app_users": "Usuarios de la App",
     "visualization": "Visualización",
     "trail_map": "Mapa de Rutas",
+    "custom_routes": "Rutas Personalizadas",
     "logout": "Cerrar sesión",
     "toggle_theme": "Alternar tema"
   },
@@ -865,6 +867,45 @@
       "showing": "Mostrando {from} a {to} de {total} resultados",
       "prev": "Anterior",
       "next": "Siguiente"
+    }
+  },
+  "CustomRoutes": {
+    "title": "Rutas Personalizadas",
+    "subtitle": "Crea y gestiona rutas turísticas para la aplicación",
+    "create_new": "Crear Nueva Ruta",
+    "filters": {
+      "title": "Filtros",
+      "search_placeholder": "Buscar rutas...",
+      "active_only": "Solo Activas"
+    },
+    "table": {
+      "name": "Nombre",
+      "description": "Descripción",
+      "distance": "Distancia",
+      "duration": "Duración",
+      "status": "Estado",
+      "actions": "Acciones"
+    },
+    "editor": {
+      "title": "Editor de Rutas",
+      "edit_title": "Editar Ruta",
+      "basic_info": "Información Básica",
+      "name": "Nombre de la Ruta",
+      "description": "Descripción (opcional)",
+      "client": "Cliente / Empresa",
+      "route_details": "Detalles de la Ruta",
+      "draw_mode": "Modo Dibujo",
+      "point_mode": "Punto a Punto",
+      "snap_to_roads": "Ajustar a las Carreteras",
+      "clear_points": "Limpiar Puntos",
+      "generate": "Generar Ruta",
+      "distance": "Distancia Total",
+      "duration": "Duración Estimada",
+      "save_success": "¡Ruta guardada con éxito!",
+      "save_error": "Error al guardar la ruta",
+      "fetch_error": "Error al cargar la ruta",
+      "client_required": "Por favor, seleccione un cliente",
+      "points_required": "Añade al menos 2 puntos para generar la ruta"
     }
   }
 }

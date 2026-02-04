@@ -68,13 +68,19 @@ export function Header({ className }: HeaderProps) {
       name: t('osm_importer'),
       href: '/osm-importer',
       icon: Database,
-      category: 'pois'
+      category: 'pois',
+    },
+    {
+      name: t('custom_routes'),
+      href: '/routes',
+      icon: Route,
+      category: 'pois',
     },
     {
       name: t('poi_fetching'),
       href: '/poi-importer',
       icon: Upload,
-      category: 'pois'
+      category: 'pois',
     },
     
     // Trigger Points

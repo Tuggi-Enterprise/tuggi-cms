@@ -64,6 +64,7 @@
       "app_users": "Usuários do App",
       "visualization": "Visualização",
       "trail_map": "Mapa de Trilhas",
+      "custom_routes": "Rotas Customizadas",
       "logout": "Sair",
       "toggle_theme": "Alternar tema"
     }
@@ -82,6 +83,7 @@
     "app_users": "Usuários do App",
     "visualization": "Visualização",
     "trail_map": "Mapa de Trilhas",
+    "custom_routes": "Rotas Customizadas",
     "logout": "Sair",
     "toggle_theme": "Alternar tema"
   },
@@ -864,6 +866,45 @@
       "showing": "Mostrando {from} a {to} de {total} resultados",
       "prev": "Anterior",
       "next": "Próximo"
+    }
+  },
+  "CustomRoutes": {
+    "title": "Rotas Customizadas",
+    "subtitle": "Crie e gerencie rotas turísticas para o app",
+    "create_new": "Criar Nova Rota",
+    "filters": {
+      "title": "Filtros",
+      "search_placeholder": "Buscar rotas...",
+      "active_only": "Ativas Apenas"
+    },
+    "table": {
+      "name": "Nome",
+      "description": "Descrição",
+      "distance": "Distância",
+      "duration": "Duração",
+      "status": "Status",
+      "actions": "Ações"
+    },
+    "editor": {
+      "title": "Editor de Rota",
+      "edit_title": "Editar Rota",
+      "basic_info": "Informações Básicas",
+      "name": "Nome da Rota",
+      "description": "Descrição (opcional)",
+      "client": "Cliente / Empresa",
+      "route_details": "Detalhes da Rota",
+      "draw_mode": "Modo Desenho",
+      "point_mode": "Ponto a Ponto",
+      "snap_to_roads": "Ajustar às Estradas",
+      "clear_points": "Limpar Pontos",
+      "generate": "Gerar Rota",
+      "distance": "Distância Total",
+      "duration": "Duração Estimada",
+      "save_success": "Rota salva com sucesso!",
+      "save_error": "Erro ao salvar rota",
+      "fetch_error": "Erro ao carregar rota",
+      "client_required": "Por favor, selecione um cliente",
+      "points_required": "Adicione pelo menos 2 pontos para gerar a rota"
     }
   }
 }

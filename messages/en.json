@@ -64,6 +64,7 @@
       "app_users": "App Users",
       "visualization": "Visualization",
       "trail_map": "Trail Map",
+      "custom_routes": "Custom Routes",
       "logout": "Logout",
       "toggle_theme": "Toggle theme"
     }
@@ -82,6 +83,7 @@
     "app_users": "App Users",
     "visualization": "Visualization",
     "trail_map": "Trail Map",
+    "custom_routes": "Custom Routes",
     "logout": "Logout",
     "toggle_theme": "Toggle theme"
   },
@@ -864,6 +866,45 @@
       "showing": "Showing {from} to {to} of {total} results",
       "prev": "Prev",
       "next": "Next"
+    }
+  },
+  "CustomRoutes": {
+    "title": "Custom Routes",
+    "subtitle": "Create and manage tourist routes for the app",
+    "create_new": "Create New Route",
+    "filters": {
+      "title": "Filters",
+      "search_placeholder": "Search routes...",
+      "active_only": "Active Only"
+    },
+    "table": {
+      "name": "Name",
+      "description": "Description",
+      "distance": "Distance",
+      "duration": "Duration",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "editor": {
+      "title": "Route Editor",
+      "edit_title": "Edit Route",
+      "basic_info": "Basic Information",
+      "name": "Route Name",
+      "description": "Description (optional)",
+      "client": "Client / Company",
+      "route_details": "Route Details",
+      "draw_mode": "Draw Mode",
+      "point_mode": "Point-to-Point",
+      "snap_to_roads": "Snap to Roads",
+      "clear_points": "Clear Points",
+      "generate": "Generate Route",
+      "distance": "Total Distance",
+      "duration": "Estimated Duration",
+      "save_success": "Route saved successfully!",
+      "save_error": "Error saving route",
+      "fetch_error": "Error loading route",
+      "client_required": "Please select a client",
+      "points_required": "Add at least 2 points to generate the route"
     }
   }
 }
