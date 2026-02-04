@@ -22,7 +22,11 @@ import {
   Route,
   Users,
   UserCog,
-  Smartphone
+  Smartphone,
+  CheckCircle,
+  Sparkles,
+  MessageSquare,
+  Settings
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
