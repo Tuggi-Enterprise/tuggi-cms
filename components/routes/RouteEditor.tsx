@@ -48,8 +48,17 @@ interface LatLng {
   lng: number
 }
 
+interface WaypointMetadata {
+  wheelchair_access?: 'yes' | 'partial' | 'no' | 'unknown'
+  parking?: 'yes' | 'no' | 'unknown'
+  restrooms?: 'yes' | 'no' | 'unknown'
+  rest_areas?: 'yes' | 'no' | 'unknown'
+  photogenic_rating?: 'low' | 'medium' | 'high' | 'unknown'
+}
+
 interface Waypoint extends LatLng {
   id: string
+  metadata?: WaypointMetadata
 }
 
 interface RouteEditorProps {
@@ -87,7 +96,12 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
   const [roadConditions, setRoadConditions] = useState<string[]>(initialData?.road_conditions || [])
   const [resources, setResources] = useState<Record<string, string>>(initialData?.resources || {})
   const [photogenicRating, setPhotogenicRating] = useState<string>(initialData?.photogenic_rating || 'unknown')
-  const [stopsCount, setStopsCount] = useState<number>(initialData?.stops_count ?? 0)
+  
+  // Waypoint UI State
+  const [expandedWaypointId, setExpandedWaypointId] = useState<string | null>(null)
+  
+  // Computed: stops count = all waypoints (including start and end)
+  const stopsCount = waypoints.length
 
   // Map Refs
   const mapRef = useRef<HTMLDivElement>(null)
@@ -137,10 +151,17 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
 
       map.addListener('click', (e: google.maps.MapMouseEvent) => {
         if (e.latLng) {
-          const newWaypoint = {
+          const newWaypoint: Waypoint = {
             id: Math.random().toString(36).substr(2, 9),
             lat: e.latLng.lat(),
-            lng: e.latLng.lng()
+            lng: e.latLng.lng(),
+            metadata: {
+              wheelchair_access: 'unknown',
+              parking: 'unknown',
+              restrooms: 'unknown',
+              rest_areas: 'unknown',
+              photogenic_rating: 'unknown'
+            }
           }
           setWaypoints(prev => [...prev, newWaypoint])
         }
@@ -558,16 +579,16 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
             </div>
           </section>
 
-          {/* LOGISTICS - Accessibility, Resources, Stops */}
+          {/* LOGISTICS - Wheelchair Accessibility & Stops Summary */}
           <section className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-              <MapPin className="h-4 w-4" />
-              Logística
+              <Accessibility className="h-4 w-4" />
+              Acessibilidade & Logística
             </h3>
             
-            {/* Accessibility */}
+            {/* Wheelchair Accessibility (Route-level summary) */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-2">Acessibilidade</label>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Acesso para Cadeirantes</label>
               <div className="grid grid-cols-4 gap-2">
                 {[
                   { id: 'accessible', label: 'Acessível' },
@@ -590,62 +611,19 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                   </button>
                 ))}
               </div>
+              <p className="text-[10px] text-gray-400 mt-2 italic">
+                Configure recursos específicos em cada ponto de passagem abaixo.
+              </p>
             </div>
 
-            {/* Stops Count */}
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-2">Paradas Turísticas</label>
-              <div className="flex items-center gap-3">
-                <input 
-                  type="number" 
-                  min="0"
-                  value={stopsCount || waypoints.length}
-                  onChange={e => setStopsCount(parseInt(e.target.value) || 0)}
-                  className="w-20 px-3 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl text-center font-bold text-tuggi-blue focus:ring-2 focus:ring-tuggi-blue"
-                />
-                <span className="text-xs text-gray-500">pontos de interesse</span>
+            {/* Stops Count (Auto-calculated) */}
+            <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
+              <div className="flex items-center gap-2">
+                <MapPin className="h-4 w-4 text-tuggi-blue" />
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Paradas Turísticas:</span>
               </div>
-            </div>
-
-            {/* Resources */}
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-2">Recursos Mínimos</label>
-              <div className="space-y-2">
-                {[
-                  { id: 'parking', label: 'Estacionamento', icon: ParkingCircle },
-                  { id: 'restrooms', label: 'Banheiros', icon: Building2 },
-                  { id: 'rest_areas', label: 'Áreas de Descanso', icon: Trees },
-                ].map(({ id, label, icon: Icon }) => (
-                  <div key={id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                    <div className="flex items-center gap-2">
-                      <Icon className="h-4 w-4 text-gray-400" />
-                      <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{label}</span>
-                    </div>
-                    <div className="flex gap-1">
-                      {[
-                        { val: 'yes', lbl: 'Sim' },
-                        { val: 'partial', lbl: 'Alguns' },
-                        { val: 'no', lbl: 'Não' },
-                        { val: 'unknown', lbl: '?' },
-                      ].map(({ val, lbl }) => (
-                        <button
-                          key={val}
-                          type="button"
-                          onClick={() => setResources(prev => ({ ...prev, [id]: val }))}
-                          className={cn(
-                            "px-2 py-1 rounded-lg text-[10px] font-bold transition-all",
-                            resources[id] === val 
-                              ? "bg-tuggi-blue text-white" 
-                              : "bg-gray-100 dark:bg-gray-700 text-gray-500 hover:bg-gray-200"
-                          )}
-                        >
-                          {lbl}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <span className="text-xl font-black text-tuggi-blue">{stopsCount}</span>
+              <span className="text-[10px] text-gray-400">(calculado dos pontos)</span>
             </div>
           </section>
 
@@ -661,27 +639,216 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
               </span>
             </div>
 
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
-              {waypoints.map((wp, index) => (
-                <div key={wp.id} className="group flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-all border border-transparent hover:border-gray-200 dark:hover:border-gray-700">
-                  <div className={cn(
-                    "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0",
-                    index === 0 ? "bg-green-500" : (index === waypoints.length - 1 ? "bg-red-500" : "bg-blue-500")
-                  )}>
-                    {index + 1}
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+              {waypoints.map((wp, index) => {
+                const isExpanded = expandedWaypointId === wp.id
+                const isStartOrEnd = index === 0 || index === waypoints.length - 1
+                const pointLabel = index === 0 ? 'Início' : (index === waypoints.length - 1 ? 'Fim' : `Ponto ${index}`)
+                
+                return (
+                  <div key={wp.id} className="group">
+                    <div 
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-xl transition-all border cursor-pointer",
+                        isExpanded 
+                          ? "bg-tuggi-blue/5 border-tuggi-blue/30" 
+                          : "bg-gray-50 dark:bg-gray-800 border-transparent hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:border-gray-200 dark:hover:border-gray-700"
+                      )}
+                      onClick={() => setExpandedWaypointId(isExpanded ? null : wp.id)}
+                    >
+                      <div className={cn(
+                        "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0",
+                        index === 0 ? "bg-green-500" : (index === waypoints.length - 1 ? "bg-red-500" : "bg-blue-500")
+                      )}>
+                        {index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{pointLabel}</p>
+                        <p className="text-[10px] text-gray-500 truncate font-mono">{wp.lat.toFixed(5)}, {wp.lng.toFixed(5)}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {wp.metadata?.wheelchair_access && wp.metadata.wheelchair_access !== 'unknown' && (
+                          <Accessibility className={cn("h-3 w-3", wp.metadata.wheelchair_access === 'yes' ? "text-green-500" : "text-orange-400")} />
+                        )}
+                        {wp.metadata?.parking === 'yes' && <ParkingCircle className="h-3 w-3 text-blue-500" />}
+                      </div>
+                      {!isStartOrEnd && (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); removeWaypoint(wp.id) }}
+                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                      <ChevronDown className={cn("h-4 w-4 text-gray-400 transition-transform", isExpanded && "rotate-180")} />
+                    </div>
+                    
+                    {/* Expanded Metadata */}
+                    {isExpanded && (
+                      <div className="mt-2 ml-9 p-4 bg-white dark:bg-gray-800/80 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm space-y-4">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Recursos do Ponto</p>
+                          {isStartOrEnd && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 bg-tuggi-blue/10 text-tuggi-blue rounded-full capitalize">
+                              {index === 0 ? 'Início' : 'Fim'}
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Wheelchair Access */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Accessibility className="h-4 w-4 text-tuggi-blue" />
+                            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Cadeirante</span>
+                          </div>
+                          <div className="flex gap-1 p-1 bg-gray-50 dark:bg-gray-900 rounded-xl">
+                            {(['yes', 'partial', 'no', 'unknown'] as const).map(val => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setWaypoints(prev => prev.map(w => 
+                                    w.id === wp.id ? { ...w, metadata: { ...w.metadata, wheelchair_access: val } } : w
+                                  ))
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  wp.metadata?.wheelchair_access === val 
+                                    ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm ring-1 ring-black/5" 
+                                    : "text-gray-400 hover:text-gray-600"
+                                )}
+                              >
+                                {val === 'yes' ? 'Sim' : val === 'partial' ? 'Parcial' : val === 'no' ? 'Não' : 'N/I'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        {/* Parking */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ParkingCircle className="h-4 w-4 text-blue-500" />
+                            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Estacionamento</span>
+                          </div>
+                          <div className="flex gap-1 p-1 bg-gray-50 dark:bg-gray-900 rounded-xl">
+                            {(['yes', 'no', 'unknown'] as const).map(val => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setWaypoints(prev => prev.map(w => 
+                                    w.id === wp.id ? { ...w, metadata: { ...w.metadata, parking: val } } : w
+                                  ))
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  wp.metadata?.parking === val 
+                                    ? "bg-white dark:bg-gray-800 text-blue-600 shadow-sm ring-1 ring-black/5" 
+                                    : "text-gray-400 hover:text-gray-600"
+                                )}
+                              >
+                                {val === 'yes' ? 'Sim' : val === 'no' ? 'Não' : 'N/I'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        {/* Restrooms */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Building2 className="h-4 w-4 text-emerald-500" />
+                            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Banheiros</span>
+                          </div>
+                          <div className="flex gap-1 p-1 bg-gray-50 dark:bg-gray-900 rounded-xl">
+                            {(['yes', 'no', 'unknown'] as const).map(val => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setWaypoints(prev => prev.map(w => 
+                                    w.id === wp.id ? { ...w, metadata: { ...w.metadata, restrooms: val } } : w
+                                  ))
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  wp.metadata?.restrooms === val 
+                                    ? "bg-white dark:bg-gray-800 text-emerald-600 shadow-sm ring-1 ring-black/5" 
+                                    : "text-gray-400 hover:text-gray-600"
+                                )}
+                              >
+                                {val === 'yes' ? 'Sim' : val === 'no' ? 'Não' : 'N/I'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        {/* Rest Areas */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Trees className="h-4 w-4 text-orange-500" />
+                            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Área de Descanso</span>
+                          </div>
+                          <div className="flex gap-1 p-1 bg-gray-50 dark:bg-gray-900 rounded-xl">
+                            {(['yes', 'no', 'unknown'] as const).map(val => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setWaypoints(prev => prev.map(w => 
+                                    w.id === wp.id ? { ...w, metadata: { ...w.metadata, rest_areas: val } } : w
+                                  ))
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  wp.metadata?.rest_areas === val 
+                                    ? "bg-white dark:bg-gray-800 text-orange-600 shadow-sm ring-1 ring-black/5" 
+                                    : "text-gray-400 hover:text-gray-600"
+                                )}
+                              >
+                                {val === 'yes' ? 'Sim' : val === 'no' ? 'Não' : 'N/I'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Photogenic Rating at Waypoint level */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Camera className="h-4 w-4 text-pink-500" />
+                            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Fotogênica</span>
+                          </div>
+                          <div className="flex gap-1 p-1 bg-gray-50 dark:bg-gray-900 rounded-xl">
+                            {(['low', 'medium', 'high', 'unknown'] as const).map(val => (
+                              <button
+                                key={val}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setWaypoints(prev => prev.map(w => 
+                                    w.id === wp.id ? { ...w, metadata: { ...w.metadata, photogenic_rating: val } } : w
+                                  ))
+                                }}
+                                className={cn(
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  wp.metadata?.photogenic_rating === val 
+                                    ? "bg-white dark:bg-gray-800 text-pink-600 shadow-sm ring-1 ring-black/5" 
+                                    : "text-gray-400 hover:text-gray-600"
+                                )}
+                              >
+                                {val === 'low' ? 'Baixa' : val === 'medium' ? 'Média' : val === 'high' ? 'Alta' : 'N/I'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-gray-400 truncate">Ponto {index + 1}</p>
-                    <p className="text-[10px] text-gray-500 truncate font-mono">{wp.lat.toFixed(6)}, {wp.lng.toFixed(6)}</p>
-                  </div>
-                  <button 
-                    onClick={() => removeWaypoint(wp.id)}
-                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
+                )
+              })}
               {waypoints.length === 0 && (
                 <div className="text-center py-8 border-2 border-dashed border-gray-100 dark:border-gray-800 rounded-2xl">
                   <p className="text-xs text-gray-400 px-4">Clique no mapa para adicionar pontos</p>
