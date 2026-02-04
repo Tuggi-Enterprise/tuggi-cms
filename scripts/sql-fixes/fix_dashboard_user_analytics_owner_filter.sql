@@ -41,7 +41,7 @@ BEGIN
       (SELECT COUNT(DISTINCT u.id) FROM auth.users u) AS total_users,
       (SELECT COUNT(*) FROM drive.trail_trips_unified) AS total_trips,
       (SELECT COALESCE(SUM(distance_km),0) FROM drive.trail_trips_unified) AS total_km_driven,
-      (SELECT COUNT(*) FROM core.attraction_plays) AS total_pois_played,
+      0::bigint AS total_pois_played, -- Table core.attraction_plays does not exist yet
       (SELECT COALESCE(AVG(duration)::text, '00:00:00') FROM drive.trail_trips_unified) AS avg_trip_duration,
       (SELECT jsonb_agg(jsonb_build_object('platform', platform, 'trips', trips)) FROM (
          SELECT platform, COUNT(*) as trips FROM drive.trail_trips_unified GROUP BY platform
@@ -53,7 +53,7 @@ BEGIN
       (SELECT COUNT(DISTINCT t.user_id) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS total_users,
       (SELECT COUNT(*) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS total_trips,
       (SELECT COALESCE(SUM(t.distance_km),0) FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS total_km_driven,
-      (SELECT COUNT(*) FROM core.attraction_plays ap JOIN core.attractions a ON ap.attraction_id = a.id WHERE a.created_by = owner_id) AS total_pois_played,
+      0::bigint AS total_pois_played, -- Table core.attraction_plays does not exist yet
       (SELECT COALESCE(AVG(t.duration)::text, '00:00:00') FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id) AS avg_trip_duration,
       (SELECT jsonb_agg(jsonb_build_object('platform', platform, 'trips', trips)) FROM (
          SELECT t.platform, COUNT(*) as trips FROM drive.trail_trips_unified t JOIN core.attractions a ON t.attraction_id = a.id WHERE a.created_by = owner_id GROUP BY t.platform

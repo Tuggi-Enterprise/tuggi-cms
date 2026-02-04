@@ -79,7 +79,7 @@ class DashboardService {
       
       const [poiStatsResult, cityStatsResult] = await Promise.all([
         poiService.getStats(),
-        supabase.schema('core').rpc('dashboard_city_stats', { owner_id: ownerId || null }) // Get city statistics directly
+        supabase.schema('core').rpc('dashboard_city_stats', { p_owner_id: ownerId || null }) // Get city statistics directly
       ])
       
       if (!poiStatsResult.success) {
@@ -159,10 +159,10 @@ class DashboardService {
       
       const supabase = getSupabase('server')
       
-      // Use the new RPC function and pass owner_id when provided
+      // Use the new RPC function and pass p_owner_id when provided
       const { data, error } = await supabase
         .schema('core')
-        .rpc('dashboard_user_analytics', { owner_id: ownerId || null })
+        .rpc('dashboard_user_analytics', { p_owner_id: ownerId || null })
       
       if (error) {
         console.error('❌ User Analytics RPC failed:', error)

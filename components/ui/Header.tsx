@@ -104,6 +104,18 @@ const navigation = [
     icon: Route,
     category: 'analytics'
   },
+  {
+    name: 'Admin Clients',
+    href: '/dashboard/admin/clients',
+    icon: Settings,
+    category: 'admin'
+  },
+  {
+    name: 'Admin Users',
+    href: '/dashboard/admin/users',
+    icon: Settings,
+    category: 'admin'
+  },
 ]
 
 interface HeaderProps {
@@ -269,6 +281,12 @@ export function Header({ className }: HeaderProps) {
               const isActive = pathname === item.href
               return renderNavItem(item, isActive)
             })}
+
+            {/* Admin - Dropdown */}
+            {(() => {
+              const adminItems = navigation.filter(item => item.category === 'admin')
+              return renderDropdown('admin', adminItems, 'Admin')
+            })()}
           </nav>
 
           {/* Right side actions */}
@@ -384,6 +402,19 @@ export function Header({ className }: HeaderProps) {
                   Feedback
                 </h4>
                 <div className="space-y-1">
+
+              {/* Admin */}
+              <div>
+                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Admin
+                </h4>
+                <div className="space-y-1">
+                  {navigation.filter(item => item.category === 'admin').map((item) => {
+                    const isActive = pathname === item.href
+                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
+                  })}
+                </div>
+              </div>
                   {navigation.filter(item => item.category === 'feedback').map((item) => {
                     const isActive = pathname === item.href
                     return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)

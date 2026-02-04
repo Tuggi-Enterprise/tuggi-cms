@@ -1,3 +1,4 @@
+[] remover LIXO
 [] adicionar rate limit para requisições na api
 [] adicionar autenticação JWT
 [] criar documentação da API com Swagger das functions

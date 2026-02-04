@@ -19,6 +19,9 @@ export interface CmsUser {
   is_active: boolean
   created_at: string
   last_login_at?: string
+  /** FK to clients table - only populated for users with role='client' */
+  client_id?: string
+  updated_at?: string
 }
 
 export interface Attraction {
@@ -30,6 +33,17 @@ export interface Attraction {
   audio_guides_count: number
   created_at: string
   updated_at: string
+  /** FK to clients table - indicates which client owns this POI */
+  owner_id?: string
+  /** FK to cms_users table - indicates who created this POI */
+  created_by?: string
+  /** User ID for backward compatibility - same as created_by */
+  user_id?: string
+  state?: string
+  description?: string
+  latitude?: number
+  longitude?: number
+  google_types?: string[]
 }
 
 export interface AttractionCoordinate {
