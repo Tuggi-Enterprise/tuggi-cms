@@ -24,7 +24,7 @@ export function ClientApprovalPanel({ onApprove, onReject }: ClientApprovalPanel
 
   const fetchPendingClients = async () => {
     try {
-      const response = await fetch('/api/clients/pending')
+      const response = await fetch('/api/admin/clients/pending')
       const data = await response.json()
 
       if (data.success) {
@@ -48,7 +48,7 @@ export function ClientApprovalPanel({ onApprove, onReject }: ClientApprovalPanel
     setSubmitting(true)
 
     try {
-      const response = await fetch(`/api/clients/${selectedClient.id}/approve`, {
+      const response = await fetch(`/api/admin/clients/${selectedClient.id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cmsUserEmail, cmsUserName })
@@ -82,7 +82,7 @@ export function ClientApprovalPanel({ onApprove, onReject }: ClientApprovalPanel
     setSubmitting(true)
 
     try {
-      const response = await fetch(`/api/clients/${selectedClient.id}/reject`, {
+      const response = await fetch(`/api/admin/clients/${selectedClient.id}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rejectionReason: rejectReason })

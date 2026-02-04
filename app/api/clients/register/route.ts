@@ -6,11 +6,25 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { cookies } from 'next/headers'
 import { ClientService } from '@/lib/services/client-service'
 import { RegisterClientRequest } from '@/types/clients'
 
 export async function POST(request: NextRequest) {
   try {
+    // Require authentication
+    const cookieStore = await cookies()
+    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
+
+    if (authError || !session) {
+      return NextResponse.json(
+        { error: 'Unauthorized - Authentication required' },
+        { status: 401 }
+      )
+    }
+
     const body: RegisterClientRequest = await request.json()
 
     // Validate required fields (support either name or full_name)

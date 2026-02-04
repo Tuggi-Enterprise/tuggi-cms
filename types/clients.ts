@@ -44,7 +44,13 @@ export interface ClientCmsUser {
   linked_by?: string
 }
 
-
+/**
+ * Extended Client with related data
+ */
+export interface ClientWithUsers extends Client {
+  cms_users?: ClientCmsUser[]
+  pois_count?: number
+}
 
 /**
  * Request/Response DTOs

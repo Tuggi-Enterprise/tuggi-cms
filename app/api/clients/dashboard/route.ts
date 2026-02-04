@@ -42,8 +42,7 @@ export async function GET(request: NextRequest) {
       trigger_points_filter: null,
       limit_count: 1,
       offset_count: 0,
-      fetch_all: true,
-      owner_id: cmsUser.id
+      fetch_all: true
     }
 
     const { data: statsData, error: statsErr } = await supabase

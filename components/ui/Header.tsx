@@ -28,6 +28,93 @@ import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
 import { LanguageSwitcher } from './LanguageSwitcher' // Imported LanguageSwitcher
 
+const navigation = [
+  {
+    name: 'Dashboard',
+    href: '/dashboard',
+    icon: LayoutDashboard,
+    category: 'main'
+  },
+  {
+    name: 'POI Fetching',
+    href: '/poi-importer',
+    icon: Upload,
+    category: 'poi'
+  },
+  {
+    name: 'POI Management',
+    href: '/pois',
+    icon: MapPin,
+    category: 'poi'
+  },
+  {
+    name: 'OSM Importer',
+    href: '/osm-importer',
+    icon: Database,
+    category: 'poi'
+  },
+  {
+    name: 'POI Migration',
+    href: '/poi-migration',
+    icon: ArrowRightLeft,
+    category: 'poi'
+  },
+  {
+    name: 'Verification',
+    href: '/verification',
+    icon: CheckCircle,
+    category: 'verification'
+  },
+  {
+    name: 'Improve',
+    href: '/verification/improve',
+    icon: Sparkles,
+    category: 'verification'
+  },
+  {
+    name: 'Enrich OSM',
+    href: '/verification/enrich-osm',
+    icon: Database,
+    category: 'verification'
+  },
+  {
+    name: 'Generation',
+    href: '/trigger-points-generation',
+    icon: Target,
+    category: 'trigger_points'
+  },
+  {
+    name: 'Single Test',
+    href: '/trigger-points-single',
+    icon: Target,
+    category: 'trigger_points'
+  },
+  {
+    name: 'Reviews',
+    href: '/reviews',
+    icon: MessageSquare,
+    category: 'feedback'
+  },
+  {
+    name: 'Trail Visualization',
+    href: '/trail-visualization',
+    icon: Route,
+    category: 'analytics'
+  },
+  {
+    name: 'Admin Clients',
+    href: '/dashboard/admin/clients',
+    icon: Settings,
+    category: 'admin'
+  },
+  {
+    name: 'Admin Users',
+    href: '/dashboard/admin/users',
+    icon: Settings,
+    category: 'admin'
+  },
+]
+
 interface HeaderProps {
   className?: string
 }
@@ -259,6 +346,12 @@ export function Header({ className }: HeaderProps) {
               const isActive = pathname === item.href
               return renderNavItem(item, isActive)
             })}
+
+            {/* Admin - Dropdown */}
+            {(() => {
+              const adminItems = navigation.filter(item => item.category === 'admin')
+              return renderDropdown('admin', adminItems, 'Admin')
+            })()}
           </nav>
 
           {/* Right side actions */}

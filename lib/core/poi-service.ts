@@ -41,6 +41,10 @@ export interface POI {
   photos_references?: string[]
   google_place_id?: string
   user_id?: string
+  /** FK to clients table - indicates which client owns this POI */
+  owner_id?: string
+  /** FK to cms_users table - who created this POI */
+  created_by?: string
   coordinates?: {
     latitude: number
     longitude: number

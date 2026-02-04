@@ -116,9 +116,8 @@ export async function GET(request: NextRequest) {
     }
 
     if (cmsUser && cmsUser.role === 'client') {
-      // restrict RPC to owner
-      (rpcParams as any).owner_id = cmsUser.id
-      console.log('🔍 POI Search: applying owner filter for client:', cmsUser.id)
+      // cms_search_pois enforces owner scoping for non-admin callers
+      console.log('🔍 POI Search: client detected; RPC will be scoped by role')
     }
 
     console.log('🔍 RPC Parameters:', rpcParams)

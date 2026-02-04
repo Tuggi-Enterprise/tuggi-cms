@@ -90,7 +90,7 @@ export async function fetchPOIsForMap(
     city_filter: filters.city || null
   }
 
-  if (ownerId) rpcParams.owner_id = ownerId
+  if (ownerId) rpcParams.p_owner_id = ownerId
 
   const { data, error } = await supabase.schema('core').rpc('cms_search_pois_map', rpcParams)
 
