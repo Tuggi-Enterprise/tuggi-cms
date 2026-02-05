@@ -30,9 +30,7 @@ export interface DashboardStats {
   approvalRate: number
   
   // Content Quality
-  withDescriptionPT: number
-  withDescriptionEN: number
-  withDescriptionES: number
+  languagesBreakdown: Array<{ language: string; count: number }>
   withAudio: number
   contentCoverage: number
   
@@ -227,10 +225,8 @@ class DashboardService {
         approvalRate: 0,
         
         // Content Quality
-        withDescriptionPT: Number(contentQuality.with_description_pt || 0),
-        withDescriptionEN: Number(contentQuality.with_description_en || 0),
-        withDescriptionES: Number(contentQuality.with_description_es || 0),
-        withAudio: Number(contentQuality.with_audio || 0),
+        languagesBreakdown: contentQuality.languages_breakdown || [],
+        withAudio: Number(contentQuality.total_with_audio || 0),
         contentCoverage: Number(contentQuality.coverage_percentage || 0),
         
         // User Analytics

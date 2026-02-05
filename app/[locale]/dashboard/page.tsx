@@ -60,9 +60,7 @@ const EMPTY_STATS: DashboardStats = {
   homologPOIs: 0,
   totalInventory: 0,
   approvalRate: 0,
-  withDescriptionPT: 0,
-  withDescriptionEN: 0,
-  withDescriptionES: 0,
+  languagesBreakdown: [],
   withAudio: 0,
   contentCoverage: 0,
   totalUsers: 0,
@@ -269,11 +267,15 @@ export default function DashboardPage() {
     { name: t('kpi.total_homolog'), value: stats.homologPOIs, color: FUNNEL_COLORS.homolog }
   ]
 
-  const contentQualityData = [
-    { language: 'PT-BR', count: stats.withDescriptionPT, fill: TUGGI_COLORS.green },
-    { language: 'EN', count: stats.withDescriptionEN, fill: TUGGI_COLORS.blue },
-    { language: 'ES', count: stats.withDescriptionES, fill: TUGGI_COLORS.orange }
-  ]
+  const contentQualityData = stats.languagesBreakdown.map(lb => ({
+    language: lb.language,
+    count: lb.count,
+    fill: lb.language === 'PT' ? TUGGI_COLORS.green :
+          lb.language === 'EN' ? TUGGI_COLORS.blue :
+          lb.language === 'ES' ? TUGGI_COLORS.orange :
+          lb.language === 'IT' ? TUGGI_COLORS.purple :
+          '#60A5FA' // Default color
+  }))
 
   // Error State
   if (error) {
