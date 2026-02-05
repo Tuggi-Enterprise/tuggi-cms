@@ -625,6 +625,10 @@ BEGIN
       SELECT user_id as id FROM drive.trail_trips_unified WHERE trip_start > NOW() - INTERVAL '30 days'
       UNION
       SELECT user_id as id FROM drive.poi_visits WHERE visit_timestamp > NOW() - INTERVAL '30 days'
+      UNION
+      SELECT id FROM drive.profiles 
+      WHERE created_at > NOW() - INTERVAL '30 days' 
+         OR updated_at > NOW() - INTERVAL '30 days'
     ) u) AS active_users_30d,
     
     (SELECT COUNT(*)::bigint FROM drive.trail_trips_unified) AS total_trips,
