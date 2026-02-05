@@ -172,6 +172,9 @@
         "visitors": "visitantes",
         "audios": "audios",
         "last_7d": "Últimos 7 días"
+      },
+      "footer": {
+        "copyright": "© 2026 Tuggi - Inteligencia Territorial"
       }
     },
     "POIMigration": {

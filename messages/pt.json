@@ -154,6 +154,7 @@
         "top_cities_visited": "Cidades Mais Visitadas",
         "top_pois_visited": "POIs Mais Visitados",
         "visits_by_lang": "Visitação por Idioma",
+        "user_growth": "Crescimento de Usuários (Mensal Cumulativo)",
         "heatmap": "Mapa de Calor das Trilhas"
       },
       "table": {
@@ -173,6 +174,9 @@
         "visitors": "visitantes",
         "audios": "áudios",
         "last_7d": "Últimos 7 dias"
+      },
+      "footer": {
+        "copyright": "© 2026 Tuggi - Inteligência Territorial"
       }
     },
     "POIMigration": {

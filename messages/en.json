@@ -154,6 +154,7 @@
         "top_cities_visited": "Top Visited Cities",
         "top_pois_visited": "Top Visited POIs",
         "visits_by_lang": "Visits by Language",
+        "user_growth": "User Growth (Cumulative Monthly)",
         "heatmap": "User Trails Heatmap"
       },
       "table": {
@@ -173,6 +174,9 @@
         "visitors": "visitors",
         "audios": "audios",
         "last_7d": "Last 7 days"
+      },
+      "footer": {
+        "copyright": "© 2026 Tuggi - Territorial Intelligence"
       }
     },
     "POIMigration": {

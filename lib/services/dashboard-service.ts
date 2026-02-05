@@ -46,7 +46,7 @@ export interface DashboardStats {
   
   // Temporal Data (últimos 30 dias - rolling window)
   mauHistory: Array<{ date: string; count: number }>
-  userGrowth: Array<{ date: string; new_users: number }>
+  userGrowth: Array<{ month: string; count: number }>
   
   // Geographic - POIs por cidade
   cityDistribution: Array<{ city: string; country: string; poi_count: number; approved_count: number }>

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  PieChart, Pie, Cell, AreaChart, Area
+  PieChart, Pie, Cell, AreaChart, Area, LabelList
 } from 'recharts'
 import { 
   MapPin, CheckCircle, FileText, TrendingUp, AlertCircle, RefreshCw, 
@@ -298,49 +298,18 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
       {/* ================================================================ */}
-      {/* HEADER */}
+      {/* TAB NAVIGATION - CENTERED AT TOP */}
       {/* ================================================================ */}
-      <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl lg:text-4xl font-black text-gray-900 dark:text-white tracking-tight flex items-center">
-            <Activity className="h-8 w-8 mr-3" style={{ color: TUGGI_COLORS.blue }} />
-            {t('title')} <span className="ml-2" style={{ color: TUGGI_COLORS.blue }}>{t('subtitle')}</span>
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1 text-sm">
-            {t('meta')} • <code className="text-tuggi-blue">{stats.totalPOIVisits.toLocaleString()}</code> {t('visits')}
-          </p>
+      <nav className="flex justify-center mb-10 sticky top-0 z-10 pt-2">
+        <div className="flex flex-wrap gap-1.5 p-1.5 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xl shadow-black/5">
+          <TabButton id="overview" label={t('tabs.overview')} icon={Globe} active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+          <TabButton id="content" label={t('tabs.inventory')} icon={Layers} active={activeTab === 'content'} onClick={() => setActiveTab('content')} />
+          <TabButton id="users" label={t('tabs.users')} icon={Users} active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
+          <TabButton id="territorial" label={t('tabs.territorial')} icon={MapPin} active={activeTab === 'territorial'} onClick={() => setActiveTab('territorial')} />
+          <TabButton id="heatmap" label={t('tabs.heatmap')} icon={Map} active={activeTab === 'heatmap'} onClick={() => setActiveTab('heatmap')} />
         </div>
-        
-        <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center px-4 py-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse mr-2" />
-            <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest">
-              {stats.source === 'cache' ? t('cached') : t('live')}
-            </span>
-          </div>
-          
-          <button
-            onClick={fetchData}
-            disabled={isLoading}
-            className="flex items-center px-4 py-2 bg-tuggi-blue/10 border border-tuggi-blue/30 text-tuggi-blue rounded-xl font-bold text-sm hover:bg-tuggi-blue/20 transition-all disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            {t('sync')}
-          </button>
-        </div>
-      </header>
-
-      {/* ================================================================ */}
-      {/* TAB NAVIGATION */}
-      {/* ================================================================ */}
-      <nav className="flex flex-wrap gap-2 mb-8 p-1 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 w-fit">
-        <TabButton id="overview" label={t('tabs.overview')} icon={Globe} active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
-        <TabButton id="content" label={t('tabs.inventory')} icon={Layers} active={activeTab === 'content'} onClick={() => setActiveTab('content')} />
-        <TabButton id="users" label={t('tabs.users')} icon={Users} active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
-        <TabButton id="territorial" label={t('tabs.territorial')} icon={MapPin} active={activeTab === 'territorial'} onClick={() => setActiveTab('territorial')} />
-        <TabButton id="heatmap" label={t('tabs.heatmap')} icon={Map} active={activeTab === 'heatmap'} onClick={() => setActiveTab('heatmap')} />
       </nav>
 
       {/* ================================================================ */}
@@ -358,27 +327,26 @@ export default function DashboardPage() {
 
           {/* Row: MAU + Funnel + Recent Visits (Grid 3) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* MAU Chart */}
+            {/* User Growth Chart */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
               <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
                 <TrendingUp className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-                {t('charts.mau')}
+                {t('charts.user_growth')}
               </h3>
               <div className="h-[250px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={stats.mauHistory}>
-                    <defs>
-                      <linearGradient id="mauGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={TUGGI_COLORS.blue} stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor={TUGGI_COLORS.blue} stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
+                  <BarChart data={stats.userGrowth}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <XAxis dataKey="month" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
-                    <Area type="monotone" dataKey="count" stroke={TUGGI_COLORS.blue} fill="url(#mauGradient)" strokeWidth={2} />
-                  </AreaChart>
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                      formatter={(value: any) => [`${value} usuários`, 'Total']}
+                    />
+                    <Bar dataKey="count" fill={TUGGI_COLORS.blue} radius={[4, 4, 0, 0]}>
+                      <LabelList dataKey="count" position="top" style={{ fill: '#9ca3af', fontSize: 10, fontWeight: 'bold' }} />
+                    </Bar>
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
@@ -504,7 +472,9 @@ export default function DashboardPage() {
                     <XAxis type="number" tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} />
                     <YAxis type="category" dataKey="language" tick={{ fill: '#374151', fontSize: 12, fontWeight: 'bold' }} axisLine={false} width={60} />
                     <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
-                    <Bar dataKey="count" radius={[0, 6, 6, 0]} />
+                    <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                      <LabelList dataKey="count" position="right" style={{ fill: '#4b5563', fontSize: 10, fontWeight: 'bold' }} />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -927,6 +897,32 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+      {/* ================================================================ */}
+      {/* FOOTER */}
+      {/* ================================================================ */}
+      <footer className="mt-auto pt-10 pb-4 flex flex-col md:flex-row justify-between items-center gap-4 text-[10px] text-gray-400 uppercase tracking-widest font-bold border-t border-gray-100 dark:border-gray-800">
+        <div>
+          {t('footer.copyright')}
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <div className="flex items-center px-3 py-1.5 bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700 shadow-sm">
+            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse mr-2" />
+            <span className="text-gray-500 dark:text-gray-400">
+              {stats.source === 'cache' ? t('cached') : t('live')}
+            </span>
+          </div>
+          
+          <button
+            onClick={fetchData}
+            disabled={isLoading}
+            className="flex items-center px-3 py-1.5 bg-tuggi-blue/5 border border-tuggi-blue/20 text-tuggi-blue rounded-lg transition-all disabled:opacity-50 hover:bg-tuggi-blue/10 hover:border-tuggi-blue/40"
+          >
+            <RefreshCw className={`h-3 w-3 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            {t('sync')}
+          </button>
+        </div>
+      </footer>
     </div>
   )
 }

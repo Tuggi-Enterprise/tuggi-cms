@@ -315,8 +315,13 @@ export function Header({ className }: HeaderProps) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
           {/* Logo */}
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 flex items-center">
             <TuggiLogo size="sm" showText={true} />
+            <div className="flex items-center ml-2 pl-2 border-l border-gray-200 dark:border-gray-700">
+              <span className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight">
+                City OS
+              </span>
+            </div>
           </div>
 
           {/* Desktop Navigation */}

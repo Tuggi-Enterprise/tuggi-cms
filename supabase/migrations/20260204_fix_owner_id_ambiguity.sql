@@ -658,15 +658,15 @@ BEGIN
        ORDER BY date_trunc('day', visit_timestamp) ASC
      ) dau) AS mau_history,
 
-    (SELECT COALESCE(jsonb_agg(jsonb_build_object('date', day, 'new_users', new_users)), '[]'::jsonb)
+    -- User Growth (Month-over-Month) - Cumulative from the beginning
+    (SELECT COALESCE(jsonb_agg(jsonb_build_object('month', m, 'count', c)), '[]'::jsonb)
      FROM (
-       SELECT to_char(date_trunc('day', created_at), 'DD/MM') as day,
-              COUNT(*)::int as new_users
+       SELECT to_char(date_trunc('month', created_at), 'MM/YY') as m,
+              SUM(COUNT(*)) OVER (ORDER BY date_trunc('month', created_at))::int as c
        FROM drive.profiles
-       WHERE created_at > NOW() - INTERVAL '30 days'
-       GROUP BY date_trunc('day', created_at)
-       ORDER BY date_trunc('day', created_at) ASC
-     ) growth) AS user_growth;
+       GROUP BY date_trunc('month', created_at)
+       ORDER BY date_trunc('month', created_at) ASC
+     ) sub) AS user_growth;
 END;
 $$;
 
