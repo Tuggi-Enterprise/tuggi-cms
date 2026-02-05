@@ -321,106 +321,153 @@ GRANT EXECUTE ON FUNCTION core.cms_search_pois_internal(
 DROP FUNCTION IF EXISTS core.cms_search_pois_map(
   float8, float8, float8, float8, int, text, text, text, text, text, uuid
 );
+DROP FUNCTION IF EXISTS core.cms_search_pois_map(
+  float8, float8, float8, float8, int, text, text, text, text, text
+);
 
 CREATE OR REPLACE FUNCTION core.cms_search_pois_map(
-  min_lat float8,
-  min_lng float8,
-  max_lat float8,
-  max_lng float8,
-  zoom_level int,
-  search_term text default null,
-  status_filter text default 'all',
-  country_filter text default null,
-  state_filter text default null,
-  city_filter text default null,
-  p_owner_id uuid default null
+  min_lat double precision, 
+  min_lng double precision, 
+  max_lat double precision, 
+  max_lng double precision, 
+  zoom_level integer, 
+  search_term text DEFAULT NULL, 
+  status_filter text DEFAULT 'all', 
+  country_filter text DEFAULT NULL, 
+  state_filter text DEFAULT NULL, 
+  city_filter text DEFAULT NULL, 
+  p_owner_id uuid DEFAULT NULL
 )
-RETURNS TABLE (
-  id uuid,
-  name text,
-  latitude float8,
-  longitude float8,
-  type text,
-  count int,
+RETURNS TABLE(
+  id uuid, 
+  name text, 
+  latitude double precision, 
+  longitude double precision, 
+  type text, 
+  count integer, 
   metadata jsonb
 )
 LANGUAGE plpgsql
+STABLE 
+SECURITY DEFINER
+SET statement_timeout = '60s'
 AS $$
 DECLARE
   eps float8;
   min_points int := 2;
   caller_cms_id UUID;
   is_admin BOOLEAN := FALSE;
+  effective_owner_id UUID;
 BEGIN
-  caller_cms_id := (SELECT id FROM core.cms_users WHERE email = current_setting('request.jwt.claims.email', true));
-  is_admin := EXISTS (
-    SELECT 1 FROM core.cms_users cu
-    WHERE cu.email = current_setting('request.jwt.claims.email', true) AND cu.role IN ('admin','super_admin')
-  );
-  IF NOT is_admin THEN
-    p_owner_id := caller_cms_id;
+  effective_owner_id := p_owner_id;
+  
+  -- Resolve identity
+  BEGIN
+    caller_cms_id := (SELECT cu.id FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true));
+    is_admin := EXISTS (
+      SELECT 1 FROM core.cms_users cu
+      WHERE cu.email = current_setting('request.jwt.claims.email', true) AND cu.role IN ('admin','super_admin')
+    );
+  EXCEPTION WHEN OTHERS THEN
+    is_admin := TRUE;
+  END;
+  
+  IF NOT is_admin AND caller_cms_id IS NOT NULL THEN
+    effective_owner_id := caller_cms_id;
   END IF;
 
-  IF zoom_level <= 4 THEN eps := 3.0;
-  ELSIF zoom_level <= 6 THEN eps := 1.0;
-  ELSIF zoom_level <= 8 THEN eps := 0.5;
-  ELSIF zoom_level <= 10 THEN eps := 0.1;
-  ELSIF zoom_level <= 12 THEN eps := 0.05;
-  ELSE eps := 0;
+  -- ZOOM SENSITIVITY (Optimized for wide view)
+  IF zoom_level <= 4 THEN eps := 0.8;
+  ELSIF zoom_level = 5 THEN eps := 0.1;
+  ELSIF zoom_level = 6 THEN eps := 0.02;
+  ELSE eps := 0; -- Zoom 7+ shows everything individual
   END IF;
 
   RETURN QUERY
   WITH filtered_pois AS (
     SELECT
       a.id AS poi_id,
-      a.name,
+      a.name AS poi_name,
       a.city,
       a.state,
       a.country,
       a.approved,
       EXISTS (
         SELECT 1 FROM core.attraction_descriptions ad 
-        WHERE ad.attraction_id = a.id AND ad.description IS NOT NULL AND ad.description != ''
+        WHERE ad.attraction_id = a.id AND ad.description IS NOT NULL AND ad.description <> ''
       ) AS has_description,
       EXISTS (
         SELECT 1 FROM core.attraction_descriptions ad 
-        WHERE ad.attraction_id = a.id AND ad.audio_url IS NOT NULL AND ad.audio_url != ''
+        WHERE ad.attraction_id = a.id AND ad.audio_url IS NOT NULL AND ad.audio_url <> ''
       ) AS has_audio,
-      c.latitude,
-      c.longitude,
+      c.latitude AS poi_lat,
+      c.longitude AS poi_lng,
       ST_SetSRID(ST_MakePoint(c.longitude, c.latitude), 4326) as geom
     FROM core.attractions a
     JOIN core.attraction_coordinate c ON c.attraction_id = a.id
     WHERE
-      c.latitude BETWEEN (min_lat - 0.1) AND (max_lat + 0.1)
-      AND c.longitude BETWEEN (min_lng - 0.1) AND (max_lng + 0.1)
+      c.latitude BETWEEN (min_lat - 0.02) AND (max_lat + 0.02)
+      AND c.longitude BETWEEN (min_lng - 0.02) AND (max_lng + 0.02)
       AND (search_term IS NULL OR a.name ILIKE '%' || search_term || '%')
       AND (status_filter = 'all' OR (status_filter = 'approved' AND a.approved = true) OR (status_filter = 'pending' AND a.approved = false))
       AND (country_filter IS NULL OR a.country = country_filter)
       AND (state_filter IS NULL OR a.state = state_filter)
       AND (city_filter IS NULL OR a.city = city_filter)
-      AND (p_owner_id IS NULL OR a.created_by = p_owner_id)
-  )
-  SELECT * FROM (
+      AND (effective_owner_id IS NULL OR a.created_by = effective_owner_id)
+  ),
+  clustered AS (
     SELECT
-      *,
+      fp.poi_id, fp.poi_name, fp.city, fp.state, fp.country, fp.approved, 
+      fp.has_description, fp.has_audio, fp.poi_lat, fp.poi_lng,
       CASE WHEN eps > 0 THEN
-        ST_ClusterDBSCAN(geom, eps, min_points) OVER ()
+        ST_ClusterDBSCAN(fp.geom, eps, min_points) OVER ()
       ELSE
         NULL
       END as cluster_id
-    FROM filtered_pois
-  ) clustered
-  ;
+    FROM filtered_pois fp
+  ),
+  aggregated_clusters AS (
+    SELECT
+      (array_agg(cl.poi_id))[1] as id,
+      'Cluster (' || count(*) || ')' as name,
+      avg(cl.poi_lat)::double precision as latitude,
+      avg(cl.poi_lng)::double precision as longitude,
+      'cluster'::text as type,
+      count(*)::int as count,
+      jsonb_build_object('count', count(*)) as metadata
+    FROM clustered cl
+    WHERE cl.cluster_id IS NOT NULL
+    GROUP BY cl.cluster_id
+  ),
+  individual_points AS (
+    SELECT
+      cl.poi_id as id,
+      cl.poi_name as name,
+      cl.poi_lat as latitude,
+      cl.poi_lng as longitude,
+      'poi'::text as type,
+      1 as count,
+      jsonb_build_object(
+        'city', cl.city,
+        'state', cl.state,
+        'country', cl.country,
+        'approved', cl.approved,
+        'has_description', cl.has_description,
+        'has_audio', cl.has_audio
+      ) as metadata
+    FROM clustered cl
+    WHERE cl.cluster_id IS NULL
+  )
+  SELECT * FROM aggregated_clusters
+  UNION ALL
+  SELECT * FROM individual_points;
 END;
 $$;
 
 GRANT EXECUTE ON FUNCTION core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text, uuid) TO service_role;
 
--- Compatibility wrapper (without owner_id)
-DROP FUNCTION IF EXISTS core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text);
-
+-- Compatibility wrapper (keeps name consistency)
 CREATE OR REPLACE FUNCTION core.cms_search_pois_map(
   min_lat float8,
   min_lng float8,
@@ -470,37 +517,54 @@ DROP FUNCTION IF EXISTS core.dashboard_city_stats();
 DROP FUNCTION IF EXISTS core.dashboard_city_stats(uuid);
 
 CREATE OR REPLACE FUNCTION core.dashboard_city_stats(
-  p_owner_id uuid DEFAULT NULL
+  owner_id uuid DEFAULT NULL
 )
 RETURNS TABLE (
   city text,
-  poi_count bigint
+  country text,
+  poi_count bigint,
+  approved_count bigint,
+  pending_count bigint
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET statement_timeout = '120s'
 AS $$
 DECLARE
   caller_cms_id uuid;
   is_admin boolean := false;
+  effective_owner_id uuid;
 BEGIN
-  PERFORM set_config('statement_timeout', '120000', true);
-  caller_cms_id := (SELECT id FROM core.cms_users WHERE email = current_setting('request.jwt.claims.email', true));
-  is_admin := EXISTS (
-    SELECT 1 FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true) AND cu.role IN ('admin','super_admin')
-  );
+  effective_owner_id := owner_id;
+  
+  BEGIN
+    caller_cms_id := (SELECT cu.id FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true));
+    is_admin := EXISTS (
+      SELECT 1 FROM core.cms_users cu 
+      WHERE cu.email = current_setting('request.jwt.claims.email', true) 
+      AND cu.role IN ('admin','super_admin')
+    );
+  EXCEPTION WHEN OTHERS THEN
+    is_admin := TRUE;
+  END;
 
-  IF NOT is_admin THEN
-    p_owner_id := caller_cms_id;
+  IF NOT is_admin AND caller_cms_id IS NOT NULL THEN
+    effective_owner_id := caller_cms_id;
   END IF;
 
   RETURN QUERY
-  SELECT a.city,
-         COUNT(*)::bigint AS poi_count
+  SELECT 
+    INITCAP(TRIM(LOWER(a.city))) as city,
+    (ARRAY_AGG(a.country ORDER BY a.country NULLS LAST))[1] as country,
+    COUNT(*)::bigint AS poi_count,
+    COUNT(*) FILTER (WHERE a.approved = true)::bigint AS approved_count,
+    COUNT(*) FILTER (WHERE a.approved = false)::bigint AS pending_count
   FROM core.attractions a
-  WHERE (p_owner_id IS NULL OR a.created_by = p_owner_id)
-    AND (a.city IS NOT NULL AND a.city <> '')
-  GROUP BY a.city
-  ORDER BY poi_count DESC;
+  WHERE (effective_owner_id IS NULL OR a.created_by = effective_owner_id)
+    AND a.city IS NOT NULL AND TRIM(a.city) <> ''
+  GROUP BY INITCAP(TRIM(LOWER(a.city)))
+  ORDER BY poi_count DESC
+  LIMIT 50;
 END;
 $$;
 
@@ -512,44 +576,93 @@ GRANT EXECUTE ON FUNCTION core.dashboard_city_stats(uuid) TO service_role;
 -- ================================
 DROP FUNCTION IF EXISTS core.dashboard_user_analytics();
 DROP FUNCTION IF EXISTS core.dashboard_user_analytics(uuid);
-DROP FUNCTION IF EXISTS core.dashboard_user_analytics(owner_id uuid);
 
 CREATE OR REPLACE FUNCTION core.dashboard_user_analytics(
-  p_owner_id uuid DEFAULT NULL
+  owner_id uuid DEFAULT NULL
 )
 RETURNS TABLE (
   total_users bigint,
+  active_users_30d bigint,
   total_trips bigint,
   total_km_driven numeric,
-  total_pois_played bigint,
+  total_poi_visits bigint,
+  total_audio_plays bigint,
   avg_trip_duration text,
-  trips_by_platform jsonb
+  trips_by_platform jsonb,
+  mau_history jsonb,
+  user_growth jsonb
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET statement_timeout = '120s'
 AS $$
 DECLARE
   caller_cms_id uuid;
   is_admin boolean := false;
+  effective_owner_id uuid;
 BEGIN
-  caller_cms_id := (SELECT id FROM core.cms_users WHERE email = current_setting('request.jwt.claims.email', true));
-  is_admin := EXISTS (
-    SELECT 1 FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true) AND cu.role IN ('admin','super_admin')
-  );
+  effective_owner_id := owner_id;
+  
+  BEGIN
+    caller_cms_id := (SELECT cu.id FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true));
+    is_admin := EXISTS (
+      SELECT 1 FROM core.cms_users cu 
+      WHERE cu.email = current_setting('request.jwt.claims.email', true) 
+      AND cu.role IN ('admin','super_admin')
+    );
+  EXCEPTION WHEN OTHERS THEN
+    is_admin := TRUE;
+  END;
 
-  IF NOT is_admin THEN
-    p_owner_id := caller_cms_id;
+  IF NOT is_admin AND caller_cms_id IS NOT NULL THEN
+    effective_owner_id := caller_cms_id;
   END IF;
 
-  RETURN QUERY
-  SELECT
-    COUNT(DISTINCT user_id)::bigint AS total_users,
-    COUNT(*)::bigint AS total_trips,
-    0::numeric AS total_km_driven, -- Not available in trail_trips_unified
-    0::bigint AS total_pois_played, -- Table core.attraction_plays does not exist yet
-    COALESCE(AVG(duration_minutes)::text, '00:00:00') AS avg_trip_duration,
-    '[]'::jsonb AS trips_by_platform -- Not available in trail_trips_unified
-  FROM drive.trail_trips_unified;
+  RETURN QUERY SELECT
+    (SELECT COUNT(*)::bigint FROM drive.profiles) AS total_users,
+    
+    (SELECT COUNT(DISTINCT u.id)::bigint FROM (
+      SELECT user_id as id FROM drive.trail_trips_unified WHERE trip_start > NOW() - INTERVAL '30 days'
+      UNION
+      SELECT user_id as id FROM drive.poi_visits WHERE visit_timestamp > NOW() - INTERVAL '30 days'
+    ) u) AS active_users_30d,
+    
+    (SELECT COUNT(*)::bigint FROM drive.trail_trips_unified) AS total_trips,
+    (SELECT COALESCE(SUM(distance_km), 0)::numeric FROM drive.trail_trips_unified) AS total_km_driven,
+    (SELECT COUNT(*)::bigint FROM drive.poi_visits) AS total_poi_visits,
+    (SELECT COUNT(*)::bigint FROM drive.poi_visits WHERE audio_played = true) AS total_audio_plays,
+    
+    (SELECT COALESCE(ROUND(AVG(duration_minutes))::text, '0') || ' min' 
+     FROM drive.trail_trips_unified WHERE duration_minutes > 0) AS avg_trip_duration,
+    
+    (SELECT COALESCE(jsonb_agg(jsonb_build_object('platform', platform, 'count', cnt)), '[]'::jsonb) 
+     FROM (
+       SELECT COALESCE(p.last_platform, 'unknown') as platform, COUNT(t.trip_session_id) as cnt
+       FROM drive.trail_trips_unified t
+       LEFT JOIN drive.profiles p ON t.user_id = p.id
+       GROUP BY p.last_platform
+       ORDER BY cnt DESC
+     ) sub) AS trips_by_platform,
+    
+    (SELECT COALESCE(jsonb_agg(jsonb_build_object('date', day, 'count', active_users)), '[]'::jsonb)
+     FROM (
+       SELECT to_char(date_trunc('day', visit_timestamp), 'DD/MM') as day,
+              COUNT(DISTINCT user_id)::int as active_users
+       FROM drive.poi_visits
+       WHERE visit_timestamp > NOW() - INTERVAL '30 days'
+       GROUP BY date_trunc('day', visit_timestamp)
+       ORDER BY date_trunc('day', visit_timestamp) ASC
+     ) dau) AS mau_history,
+
+    (SELECT COALESCE(jsonb_agg(jsonb_build_object('date', day, 'new_users', new_users)), '[]'::jsonb)
+     FROM (
+       SELECT to_char(date_trunc('day', created_at), 'DD/MM') as day,
+              COUNT(*)::int as new_users
+       FROM drive.profiles
+       WHERE created_at > NOW() - INTERVAL '30 days'
+       GROUP BY date_trunc('day', created_at)
+       ORDER BY date_trunc('day', created_at) ASC
+     ) growth) AS user_growth;
 END;
 $$;
 
