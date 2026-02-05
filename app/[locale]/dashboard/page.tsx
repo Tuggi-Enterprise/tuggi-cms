@@ -79,6 +79,7 @@ const EMPTY_STATS: DashboardStats = {
   mostVisitedCities: [],
   topVisitedPOIs: [],
   recentVisitedPOIs: [],
+  visitsByLanguage: [],
   lastUpdated: new Date(),
   source: 'database'
 }
@@ -244,6 +245,9 @@ export default function DashboardPage() {
         const result = await dashboardService.getHeatmapData(5000)
         if (result.success && result.data) {
           setHeatmapData(result.data)
+          console.log(`✅ Heatmap loaded: ${result.data.length} points`)
+        } else {
+          console.warn('⚠️ Heatmap fetch failed:', result.error || 'No data returned')
         }
         setIsLoadingHeatmap(false)
       }
@@ -643,92 +647,244 @@ export default function DashboardPage() {
       {/* TAB: TERRITORIAL */}
       {/* ================================================================ */}
       {activeTab === 'territorial' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in slide-in-from-bottom duration-500">
-          {/* Most Visited Cities */}
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center">
-              <Navigation className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-              {t('charts.top_cities_visited')}
-            </h3>
-            <div className="space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar">
-              {stats.mostVisitedCities.length > 0 ? (
-                stats.mostVisitedCities.map((city, index) => (
-                  <div key={`${city.city}-${index}`} className="group">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center">
-                        <span className="text-xs font-black text-gray-400 w-6">{index + 1}</span>
-                        <span className="font-bold text-gray-900 dark:text-white">{city.city}</span>
-                      </div>
-                      <span className="text-sm font-black" style={{ color: TUGGI_COLORS.blue }}>{city.visit_count}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-gray-500 mb-1">
-                      <span>{city.unique_visitors} {t('labels.visitors')} • {city.audio_plays} {t('labels.audios')}</span>
-                      <span>{city.country}</span>
-                    </div>
-                    <div className="h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-bottom duration-500">
+          
+          {/* LEFT COLUMN (4/12) - Aggregate Stats & Cities */}
+          <div className="lg:col-span-4 space-y-6">
+            
+            {/* Visits by Language */}
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
+                <Globe className="h-5 w-5 mr-2" style={{ color: '#8B5CF6' }} />
+                {t('charts.visits_by_lang')}
+              </h3>
+              <div className="h-[220px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={stats.visitsByLanguage}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={4}
+                      dataKey="visit_count"
+                      nameKey="language_code"
+                    >
+                      {stats.visitsByLanguage.map((entry, index) => (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={
+                            entry.language_code.startsWith('pt') ? '#10B981' : 
+                            entry.language_code.startsWith('en') ? '#00A8E8' : 
+                            entry.language_code.startsWith('es') ? '#FF6F00' : 
+                            entry.language_code.startsWith('it') ? '#EF4444' : 
+                            '#8B5CF6'
+                          } 
+                          strokeWidth={0}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'rgba(26, 26, 26, 0.95)', 
+                        border: 'none', 
+                        borderRadius: '12px',
+                        color: 'white',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                      }}
+                      itemStyle={{ color: 'white' }}
+                      formatter={(value: number) => [`${value} visitas`, '']}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              
+              <div className="mt-2 space-y-2">
+                {stats.visitsByLanguage.map((entry) => (
+                  <div key={entry.language_code} className="flex items-center justify-between p-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg transition-colors cursor-default">
+                    <div className="flex items-center gap-2">
                       <div 
-                        className="h-full transition-all duration-1000"
+                        className="w-2 h-2 rounded-full" 
                         style={{ 
-                          width: `${Math.min(100, (city.visit_count / (stats.mostVisitedCities[0]?.visit_count || 1)) * 100)}%`,
-                          background: `linear-gradient(90deg, ${TUGGI_COLORS.blue}, ${TUGGI_COLORS.green})`
+                          backgroundColor: 
+                            entry.language_code.startsWith('pt') ? '#10B981' : 
+                            entry.language_code.startsWith('en') ? '#00A8E8' : 
+                            entry.language_code.startsWith('es') ? '#FF6F00' : 
+                            entry.language_code.startsWith('it') ? '#EF4444' : 
+                            '#8B5CF6'
                         }}
                       />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300 uppercase">{entry.language_code}</span>
                     </div>
-                  </div>
-                ))
-              ) : (
-                stats.cityDistribution.slice(0, 15).map((city, index) => (
-                  <div key={city.city} className="group">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center">
-                        <span className="text-xs font-black text-gray-400 w-6">{index + 1}</span>
-                        <span className="font-bold text-gray-900 dark:text-white truncate">{city.city}</span>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="text-sm font-bold block text-gray-900 dark:text-gray-100">{entry.visit_count}</span>
+                        <span className="text-[10px] text-gray-400">visitas</span>
                       </div>
-                      <span className="text-sm font-black" style={{ color: TUGGI_COLORS.blue }}>{city.poi_count} POIs</span>
-                    </div>
-                    <div className="h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                      <div className="h-full transition-all duration-1000" style={{ width: `${Math.min(100, (city.poi_count / (stats.cityDistribution[0]?.poi_count || 1)) * 100)}%`, backgroundColor: TUGGI_COLORS.blue }} />
+                      <div className="text-right border-l border-gray-100 dark:border-gray-800 pl-3">
+                        <span className="text-sm font-bold block text-gray-900 dark:text-gray-100">{entry.audio_played_count}</span>
+                        <span className="text-[10px] text-gray-400">áudios</span>
+                      </div>
                     </div>
                   </div>
-                ))
-              )}
+                ))}
+              </div>
+            </div>
+
+            {/* Most Visited Cities */}
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 flex-1">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center">
+                <Navigation className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
+                {t('charts.top_cities_visited')}
+              </h3>
+              <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                {stats.mostVisitedCities.length > 0 ? (
+                  stats.mostVisitedCities.map((city, index) => (
+                    <div key={`${city.city}-${index}`} className="group hover:bg-gray-50 dark:hover:bg-gray-800/30 p-2 rounded-xl transition-all -mx-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <span className={`
+                            text-xs font-black w-6 h-6 flex items-center justify-center rounded-full
+                            ${index < 3 ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400' : 'text-gray-400 bg-gray-50 dark:bg-gray-800'}
+                          `}>
+                            {index + 1}
+                          </span>
+                          <div>
+                            <span className="font-bold text-gray-900 dark:text-white block text-sm">{city.city}</span>
+                            <span className="text-[10px] text-gray-400">{city.country}</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sm font-black block" style={{ color: TUGGI_COLORS.blue }}>{city.visit_count}</span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                        <div 
+                          className="h-full rounded-full transition-all duration-1000"
+                          style={{ 
+                            width: `${Math.min(100, (city.visit_count / (stats.mostVisitedCities[0]?.visit_count || 1)) * 100)}%`,
+                            background: `linear-gradient(90deg, ${TUGGI_COLORS.blue}, #60A5FA)`
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  stats.cityDistribution.slice(0, 15).map((city, index) => (
+                    <div key={city.city} className="group hover:bg-gray-50 dark:hover:bg-gray-800/30 p-2 rounded-xl transition-all -mx-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-black text-gray-400 w-6">{index + 1}</span>
+                          <span className="font-bold text-gray-900 dark:text-white truncate block text-sm">{city.city}</span>
+                        </div>
+                        <span className="text-sm font-black" style={{ color: TUGGI_COLORS.blue }}>{city.poi_count} POIs</span>
+                      </div>
+                      <div className="h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                        <div className="h-full transition-all duration-1000" style={{ width: `${Math.min(100, (city.poi_count / (stats.cityDistribution[0]?.poi_count || 1)) * 100)}%`, backgroundColor: TUGGI_COLORS.blue }} />
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+          </div>
+
+          {/* RIGHT COLUMN (8/12) - Detailed Lists */}
+          <div className="lg:col-span-8">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 h-full">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center">
+                <Play className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.orange }} />
+                {t('charts.top_pois_visited')}
+              </h3>
+              
+              <div className="space-y-4 max-h-[800px] overflow-y-auto custom-scrollbar pr-2">
+                {stats.topVisitedPOIs.length > 0 ? (
+                  stats.topVisitedPOIs.map((poi, index) => (
+                    <div key={poi.poi_id} className="group flex items-start p-4 bg-gray-50 dark:bg-gray-800/30 rounded-2xl border border-transparent hover:border-gray-200 dark:hover:border-gray-700 hover:bg-white dark:hover:bg-gray-800 hover:shadow-sm transition-all duration-200">
+                      
+                      {/* Ranking Badge */}
+                      <div className={`
+                        flex-shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center mr-4 shadow-sm
+                        ${index === 0 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' : 
+                          index === 1 ? 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300' : 
+                          index === 2 ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' : 
+                          'bg-white text-gray-500 border border-gray-100 dark:bg-gray-800 dark:border-gray-700'}
+                      `}>
+                        <span className="text-lg font-black">{index + 1}</span>
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0 pt-1">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h4 className="font-bold text-gray-900 dark:text-white text-base truncate pr-4 group-hover:text-tuggi-blue transition-colors">
+                              {poi.poi_name}
+                            </h4>
+                            <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+                              <MapPin className="w-3 h-3" />
+                              <span>{poi.city}, {poi.country}</span>
+                              {poi.category && (
+                                <>
+                                  <span className="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-700" />
+                                  <span className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700/50 text-xs font-medium">
+                                    {poi.category}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {/* Metrics */}
+                          <div className="flex items-center gap-6 text-right">
+                            <div className="flex flex-col items-end">
+                              <div className="flex items-center text-gray-900 dark:text-white font-black text-lg">
+                                <Eye className="w-4 h-4 mr-1.5 text-tuggi-blue opacity-50" />
+                                {poi.total_visits}
+                              </div>
+                              <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Visitas</span>
+                            </div>
+                            
+                            <div className="w-px h-8 bg-gray-200 dark:bg-gray-800" />
+                            
+                            <div className="flex flex-col items-end min-w-[60px]">
+                              <div className="flex items-center text-gray-900 dark:text-white font-bold text-base">
+                                <Headphones className="w-3.5 h-3.5 mr-1.5 text-tuggi-orange opacity-50" />
+                                {poi.audio_plays}
+                              </div>
+                              <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Áudios</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Audio Conversion Bar */}
+                        <div className="mt-4 flex items-center gap-3">
+                          <div className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-700/50 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-tuggi-orange rounded-full opacity-80"
+                              style={{ width: `${Math.min(100, (poi.audio_plays / (poi.total_visits || 1)) * 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] font-medium text-gray-400">
+                            {Math.round((poi.audio_plays / (poi.total_visits || 1)) * 100)}% conv.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-20">
+                    <div className="w-16 h-16 bg-gray-50 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Play className="h-6 w-6 text-gray-400" />
+                    </div>
+                    <p className="text-gray-500 font-medium">{t('empty_visits')}</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Top POIs */}
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6 flex items-center">
-              <Play className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.orange }} />
-              {t('charts.top_pois_visited')}
-            </h3>
-            <div className="space-y-3 max-h-[500px] overflow-y-auto custom-scrollbar">
-              {stats.topVisitedPOIs.length > 0 ? (
-                stats.topVisitedPOIs.map((poi, index) => (
-                  <div key={poi.poi_id} className="flex items-center p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-tuggi-blue/30 transition-all">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-tuggi-blue/10 flex items-center justify-center mr-3">
-                      <span className="text-sm font-black text-tuggi-blue">{index + 1}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold text-gray-900 dark:text-white truncate">{poi.poi_name}</p>
-                      <p className="text-xs text-gray-500">{poi.city}, {poi.country}</p>
-                    </div>
-                    <div className="text-right ml-3">
-                      <div className="flex items-center text-tuggi-blue">
-                        <Eye className="h-4 w-4 mr-1" />
-                        <span className="font-black">{poi.total_visits}</span>
-                      </div>
-                      <p className="text-[10px] text-gray-400">{poi.audio_plays} {t('labels.audios')}</p>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-12 text-gray-500">
-                  <Play className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p>{t('empty_visits')}</p>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       )}
 

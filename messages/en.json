@@ -153,6 +153,7 @@
         "community": "Community Profiles",
         "top_cities_visited": "Top Visited Cities",
         "top_pois_visited": "Top Visited POIs",
+        "visits_by_lang": "Visits by Language",
         "heatmap": "User Trails Heatmap"
       },
       "table": {

@@ -668,3 +668,57 @@ $$;
 
 GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics(uuid) TO service_role;
+
+-- ================================
+-- 5) dashboard_heatmap_data
+-- Uses materialized view drive.trail_heatmap_grid when available (pre-aggregated, all data)
+-- Falls back to real-time query from drive.route_trail if view doesn't exist
+-- ================================
+DROP FUNCTION IF EXISTS core.dashboard_heatmap_data(int);
+
+CREATE OR REPLACE FUNCTION core.dashboard_heatmap_data(sample_size int DEFAULT 5000)
+RETURNS TABLE (
+  lat double precision,
+  lng double precision,
+  weight int
+)
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  -- Try materialized view first (covers ALL data, pre-aggregated by 100m grid)
+  IF EXISTS (
+    SELECT 1 FROM pg_matviews WHERE schemaname = 'drive' AND matviewname = 'trail_heatmap_grid'
+  ) THEN
+    RETURN QUERY
+    SELECT
+      g.grid_lat::double precision AS lat,
+      g.grid_lng::double precision AS lng,
+      g.point_count::int AS weight
+    FROM drive.trail_heatmap_grid g
+    WHERE g.point_count > 1
+    ORDER BY g.point_count DESC
+    LIMIT sample_size;
+  ELSE
+    -- Fallback: real-time aggregation from raw table
+    RETURN QUERY
+    WITH gridded AS (
+      SELECT
+        ROUND(rt.latitude::numeric, 3) AS grid_lat,
+        ROUND(rt.longitude::numeric, 3) AS grid_lng,
+        COUNT(*)::int AS density
+      FROM drive.route_trail rt
+      WHERE rt.latitude IS NOT NULL
+        AND rt.longitude IS NOT NULL
+      GROUP BY ROUND(rt.latitude::numeric, 3), ROUND(rt.longitude::numeric, 3)
+    )
+    SELECT
+      grid_lat::double precision AS lat,
+      grid_lng::double precision AS lng,
+      density AS weight
+    FROM gridded
+    ORDER BY density DESC
+    LIMIT sample_size;
+  END IF;
+END; $$;
+
+GRANT EXECUTE ON FUNCTION core.dashboard_heatmap_data(int) TO authenticated;
+GRANT EXECUTE ON FUNCTION core.dashboard_heatmap_data(int) TO service_role;

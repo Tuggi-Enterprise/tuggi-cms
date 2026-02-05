@@ -82,6 +82,9 @@ export interface DashboardStats {
     visit_source: string
     platform: string
   }>
+
+  // Visits by Language
+  visitsByLanguage: Array<{ language_code: string; visit_count: number; audio_played_count: number }>
   
   // Metadata
   lastUpdated: Date
@@ -180,7 +183,8 @@ class DashboardService {
         topPOIsResult,
         recentPOIsResult,
         inventoryFunnelResult,
-        contentQualityResult
+        contentQualityResult,
+        visitsByLanguageResult
       ] = await Promise.all([
         supabase.schema('core').rpc('dashboard_user_analytics', { owner_id: ownerId || null }),
         supabase.schema('core').rpc('dashboard_city_stats', { owner_id: ownerId || null }),
@@ -188,7 +192,8 @@ class DashboardService {
         supabase.schema('core').rpc('dashboard_top_visited_pois', { limit_count: 10 }),
         supabase.schema('core').rpc('dashboard_recent_visited_pois', { limit_count: 10 }),
         supabase.schema('core').rpc('dashboard_inventory_funnel'),
-        supabase.schema('core').rpc('dashboard_content_quality')
+        supabase.schema('core').rpc('dashboard_content_quality'),
+        supabase.schema('core').rpc('dashboard_visits_by_language')
       ])
       
       // Log de erros individuais (não fatal)
@@ -199,6 +204,7 @@ class DashboardService {
       if (recentPOIsResult.error) console.warn('⚠️ Recent POIs error:', recentPOIsResult.error.message)
       if (inventoryFunnelResult.error) console.warn('⚠️ Inventory funnel error:', inventoryFunnelResult.error.message)
       if (contentQualityResult.error) console.warn('⚠️ Content quality error:', contentQualityResult.error.message)
+      if (visitsByLanguageResult?.error) console.warn('⚠️ Visits by language error:', visitsByLanguageResult.error.message)
       
       // Parse dos resultados (com fallbacks seguros)
       const userAnalytics = userAnalyticsResult.data?.[0] || {}
@@ -208,6 +214,7 @@ class DashboardService {
       const mostVisitedCities = mostVisitedCitiesResult.data || []
       const topPOIs = topPOIsResult.data || []
       const recentPOIs = recentPOIsResult.data || []
+      const visitsByLanguage = visitsByLanguageResult?.data || []
       
       // Construir objeto final
       const dashboardData: DashboardStats = {
@@ -282,6 +289,13 @@ class DashboardService {
           audio_played: p.audio_played,
           visit_source: p.visit_source,
           platform: p.platform
+        })),
+        
+        // Visits by Language
+        visitsByLanguage: visitsByLanguage.map((v: any) => ({
+          language_code: v.language_code,
+          visit_count: Number(v.visit_count),
+          audio_played_count: Number(v.audio_played_count)
         })),
         
         // Metadata
