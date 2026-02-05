@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 import { CmsUser } from '@/lib/supabase'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
+import { UserFormAdmin } from '@/components/admin/UserFormAdmin'
 
 export default function AdminEditUserPage({
   params
@@ -81,21 +82,6 @@ export default function AdminEditUserPage({
     return null
   }
 
-  // Fetch user data
-  const { data: user } = await supabase
-    .schema('core')
-    .from('cms_users')
-    .select('*')
-    .eq('id', params.userId)
-    .single()
-
-  if (!user) {
-    redirect('/dashboard/admin/users')
-  }
-
-  // Dynamic import to use client component
-  const { UserFormAdmin } = await import('@/components/admin/UserFormAdmin')
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header with breadcrumb */}
@@ -122,13 +108,13 @@ export default function AdminEditUserPage({
           <p className="text-gray-600 mb-8">Update user information</p>
 
           <UserFormAdmin 
-            user={user as CmsUser}
+            user={user}
             onSubmit={(user) => {
               // Redirect after success
-              window.location.href = `/dashboard/admin/users`
+              router.push('/dashboard/admin/users')
             }}
             onCancel={() => {
-              window.history.back()
+              router.back()
             }}
           />
         </div>

@@ -695,8 +695,7 @@ BEGIN
       g.point_count::int AS weight
     FROM drive.trail_heatmap_grid g
     WHERE g.point_count > 1
-    ORDER BY g.point_count DESC
-    LIMIT sample_size;
+    ORDER BY g.point_count DESC;
   ELSE
     -- Fallback: real-time aggregation from raw table
     RETURN QUERY
@@ -715,8 +714,7 @@ BEGIN
       grid_lng::double precision AS lng,
       density AS weight
     FROM gridded
-    ORDER BY density DESC
-    LIMIT sample_size;
+    ORDER BY density DESC;
   END IF;
 END; $$;
 

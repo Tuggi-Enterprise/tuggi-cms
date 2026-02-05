@@ -694,7 +694,7 @@ export default function DashboardPage() {
                         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                       }}
                       itemStyle={{ color: 'white' }}
-                      formatter={(value: number) => [`${value} visitas`, '']}
+                      formatter={(value: any) => [`${value} visitas`, '']}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -913,8 +913,8 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <TrailMap
-                  center={{ lat: -23.5505, lng: -46.6333 }}
-                  zoom={10}
+                  center={{ lat: -32.0, lng: -58.0 }}
+                  zoom={4}
                   height="600px"
                   showHeatMap={true}
                   showTrails={false}
