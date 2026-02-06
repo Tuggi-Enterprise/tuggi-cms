@@ -20,7 +20,11 @@
       "status": "Status",
       "unknown": "Desconhecido",
       "new_location": "Nova Localização",
-      "brazil": "Brasil"
+      "brazil": "Brasil",
+      "none": "Nenhum",
+      "yes": "Sim",
+      "no": "Não",
+      "empty": "Vazio"
     },
     "status": {
       "loading": "Carregando...",
@@ -536,6 +540,8 @@
         "price_level": "Nível de Preço",
         "rating": "Avaliação",
         "status": "Status",
+        "active": "Ativo",
+        "inactive": "Inativo",
         "location_boundary": "Localização e Limite do POI",
         "location_hint": "Clique no mapa para marcar a localização. {hint}",
         "drawing_hint": "Clique para desenhar o polígono do limite.",
@@ -716,6 +722,10 @@
           "has_audio_url": "Possui URL de Áudio: {hasAudio}"
         }
       },
+      "sidebar": {
+        "navigation": "Navegação",
+        "engine_description": "Configure e monetize seus pontos de interesse com facilidade."
+      },
       "languages": {
         "pt-br": "🇧🇷 Português (BR)",
         "pt": "🇧🇷 Português",
@@ -754,7 +764,9 @@
         "enrich_error": "Falha ao enriquecer POI",
         "boundary_success": "Limite salvo com sucesso!",
         "boundary_error": "Erro ao salvar limite",
-        "nearby_error": "Erro ao buscar POIs próximos"
+        "nearby_error": "Erro ao buscar POIs próximos",
+        "poi_activated": "POI ativado com sucesso",
+        "poi_deactivated": "POI desativado com sucesso"
       },
       "messages": {
         "draw_poi_boundary_instruction": "Clique no mapa para desenhar um polígono representando o limite do POI. Isso é importante para trigger points de alta precisão.",
@@ -785,7 +797,15 @@
         "moving_poi": "Movendo POI...",
         "drag_hint": "Arraste para atualizar localização",
         "poi_reference": "Ponto de referência para gatilhos",
-        "poi_location": "Localização do POI"
+        "poi_location": "Localização do POI",
+        "direction": "Direção",
+        "status": "Status",
+        "bearing": "Azimute",
+        "trigger": "Gatilho",
+        "not_set": "Não definido",
+        "trigger_points_with_count": "Trigger Points ({count})",
+        "updating_poi_location": "Atualizando POI...",
+        "poi_location_updated": "POI Atualizado!"
       },
       "actions": {
         "save": "Salvar",
@@ -810,7 +830,15 @@
         "front": "Frente",
         "right": "Direita",
         "left": "Esquerda",
-        "back": "Trás"
+        "back": "Trás",
+        "north": "Norte",
+        "south": "Sul",
+        "east": "Leste",
+        "west": "Oeste",
+        "northeast": "Nordeste",
+        "northwest": "Noroeste",
+        "southeast": "Sudeste",
+        "southwest": "Sudoeste"
       }
     }
   },
@@ -856,7 +884,10 @@
       "rejected": "Rejeitado",
       "all_trigger_points": "Todos os Trigger Points",
       "with_trigger_points": "Com Trigger Points",
-      "without_trigger_points": "Sem Trigger Points"
+      "without_trigger_points": "Sem Trigger Points",
+      "all_active": "Todos os POIs",
+      "active": "Ativo",
+      "inactive": "Inativo"
     },
     "controls": {
       "pois_found": "{count} POIs encontrados",

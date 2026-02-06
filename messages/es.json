@@ -20,7 +20,11 @@
       "status": "Estado",
       "unknown": "Desconocido",
       "new_location": "Nueva Ubicación",
-      "brazil": "Brasil"
+      "brazil": "Brasil",
+      "none": "Ninguno",
+      "yes": "Sí",
+      "no": "No",
+      "empty": "Vacío"
     },
     "status": {
       "loading": "Cargando...",
@@ -481,6 +485,7 @@
         "description": "Descripción y Medios",
         "trigger_points": "Puntos de Activación",
         "narration": "Narración y Audio",
+        "audio": "Audio",
         "group_pois": "Agrupación de POIs",
         "review": "Revisión y Aprobación"
       },
@@ -533,6 +538,8 @@
         "price_level": "Nivel de Precio",
         "rating": "Valoración",
         "status": "Estado",
+        "active": "Activo",
+        "inactive": "Inactivo",
         "location_boundary": "Ubicación y Límite del POI",
         "location_hint": "Haz clic en el mapa para marcar la ubicación. {hint}",
         "drawing_hint": "Haz clic para dibujar el polígono del límite.",
@@ -714,6 +721,10 @@
           "first_description_preview": "Vista Previa de la Primera Descripción: {preview}..."
         }
       },
+      "sidebar": {
+        "navigation": "Navegación",
+        "engine_description": "Configure y monetice sus puntos de interés con facilidad."
+      },
       "languages": {
         "pt-br": "🇧🇷 Portugués (BR)",
         "pt": "🇧🇷 Portugués",
@@ -752,7 +763,9 @@
         "enrich_error": "Error al enriquecer el POI",
         "boundary_success": "¡Límite guardado con éxito!",
         "boundary_error": "Error al guardar el límite",
-        "nearby_error": "Error al buscar POIs cercanos"
+        "nearby_error": "Error al buscar POIs cercanos",
+        "poi_activated": "POI activado con éxito",
+        "poi_deactivated": "POI desactivado con éxito"
       },
       "messages": {
         "draw_poi_boundary_instruction": "Haz clic en el mapa para dibujar un polígono que represente el límite del POI. Esto es importante para puntos de activación de alta precisión.",
@@ -766,6 +779,65 @@
         "audio_task_status": "{current}/{total}",
         "reference_links_hint": "Añade fuentes de autoridad (Wikipedia, sitios oficiales, etc.) para ayudar a la IA a generar descripciones más precisas",
         "core_attractions_only": "Nota: Los enlaces de referencia solo se pueden guardar para atracciones core, no para POIs homólogos."
+      }
+    },
+    "TriggerPointsManager": {
+      "labels": {
+        "expected_bearing": "Orientación Esperada",
+        "radius": "Radio",
+        "details": "Detalles",
+        "click_drag_compass": "Haz clic y arrastra en la brújula o ingresa um valor (0-360°)",
+        "direction_label": "Dirección: {dir}",
+        "clear": "Limpiar",
+        "priority": "Prioridad",
+        "active": "Activo",
+        "inactive": "Inactivo",
+        "drag_to_move": "Arrastra para mover",
+        "moving_poi": "Moviendo POI...",
+        "drag_hint": "Arrastra para actualizar ubicación",
+        "poi_reference": "Punto de referencia para colocación de disparadores",
+        "poi_location": "Ubicación del POI",
+        "direction": "Dirección",
+        "status": "Estado",
+        "bearing": "Rumbo",
+        "trigger": "Activador",
+        "not_set": "No definido",
+        "trigger_points_with_count": "Puntos de Activación ({count})",
+        "updating_poi_location": "Actualizando POI...",
+        "poi_location_updated": "POI Actualizado!"
+      },
+      "actions": {
+        "save": "Guardar",
+        "create": "Crear",
+        "cancel": "Cancelar",
+        "delete": "Eliminar"
+      },
+      "types": {
+        "primary": "Principal",
+        "fallback": "Reserva",
+        "entry": "Entrada",
+        "exit": "Salida",
+        "approach": "Aproximación",
+        "custom": "Personalizado"
+      },
+      "access": {
+        "walk": "Peatón",
+        "car": "Coche",
+        "both": "Ambos"
+      },
+      "directions": {
+        "front": "Frente",
+        "right": "Derecha",
+        "left": "Izquierda",
+        "back": "Atrás",
+        "north": "Norte",
+        "south": "Sur",
+        "east": "Este",
+        "west": "Oeste",
+        "northeast": "Noreste",
+        "northwest": "Noroeste",
+        "southeast": "Sureste",
+        "southwest": "Suroeste"
       }
     }
   },
@@ -811,7 +883,10 @@
       "rejected": "Rechazado",
       "all_trigger_points": "Todos los Puntos de Activación",
       "with_trigger_points": "Con Puntos de Activación",
-      "without_trigger_points": "Sin Puntos de Activación"
+      "without_trigger_points": "Sin Puntos de Activación",
+      "all_active": "Todos los POIs",
+      "active": "Activo",
+      "inactive": "Inactivo"
     },
     "controls": {
       "pois_found": "{count} POIs encontrados",

@@ -57,6 +57,7 @@ export interface POI {
   available_languages: string[]
   trigger_points_count: number
   active_trigger_points_count: number
+  is_active: boolean
   reference_links?: string[]
   descriptions?: any[]
   // Group status indicators
@@ -104,6 +105,7 @@ export interface POISearchFilters {
   page?: number
   fetch_all?: boolean  // New parameter for map view
   map_view?: boolean   // New parameter to indicate map context
+  isActiveFilter?: 'all' | 'active' | 'inactive'
 }
 
 export interface POISearchResult {
@@ -198,9 +200,10 @@ class POIService {
         google_types_filter: filters.googleTypes || null,
         category_filter: filters.category || null,
         content_status_filter: filters.contentStatus || null,
-        group_status_filter: filters.groupStatus || null,
-        score_filter: filters.scoreFilter || null,
-        trigger_points_filter: filters.triggerPointsFilter || null,
+        group_status_filter: filters.groupStatus || 'all',
+        score_filter: filters.scoreFilter || 'all',
+        trigger_points_filter: filters.triggerPointsFilter || 'all',
+        is_active_filter: filters.isActiveFilter || 'all',
         limit_count: filters.fetch_all ? 0 : (filters.limit || 1000),
         offset_count: filters.fetch_all ? 0 : ((filters.page || 1) - 1) * (filters.limit || 1000),
         fetch_all: filters.fetch_all || false
@@ -311,6 +314,7 @@ class POIService {
           rating: row.rating,
           image_url: row.image_url,
           approved: row.approved,
+          is_active: row.is_active ?? true,
           created_at: row.created_at,
           updated_at: row.updated_at,
           user_id: row.user_id,
@@ -798,6 +802,7 @@ class POIService {
       state: data.state,
       category: data.google_types?.[0] || 'point_of_interest',
       approved: data.approved,
+      is_active: data.is_active ?? true,
       approved_by: data.approved_by,
       approved_at: data.approved_at,
       rating: data.rating,

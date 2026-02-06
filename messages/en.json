@@ -20,7 +20,11 @@
       "status": "Status",
       "unknown": "Unknown",
       "new_location": "New Location",
-      "brazil": "Brazil"
+      "brazil": "Brazil",
+      "none": "None",
+      "yes": "Yes",
+      "no": "No",
+      "empty": "Empty"
     },
     "status": {
       "loading": "Loading...",
@@ -536,6 +540,8 @@
         "price_level": "Price Level",
         "rating": "Rating",
         "status": "Status",
+        "active": "Active",
+        "inactive": "Inactive",
         "location_boundary": "POI Location & Boundary",
         "location_hint": "Click on the map to mark location. {hint}",
         "drawing_hint": "Click to draw polygon boundary.",
@@ -716,6 +722,10 @@
           "has_audio_url": "Has Audio URL: {hasAudio}"
         }
       },
+      "sidebar": {
+        "navigation": "Navigation",
+        "engine_description": "Configure and monetize your points of interest with ease."
+      },
       "languages": {
         "pt-br": "🇧🇷 Portuguese (BR)",
         "pt": "🇧🇷 Portuguese",
@@ -754,7 +764,9 @@
         "enrich_error": "Failed to enrich POI",
         "boundary_success": "Boundary saved successfully!",
         "boundary_error": "Error saving boundary",
-        "nearby_error": "Error searching for nearby POIs"
+        "nearby_error": "Error fetching nearby POIs",
+        "poi_activated": "POI activated successfully",
+        "poi_deactivated": "POI deactivated successfully"
       },
       "messages": {
         "draw_poi_boundary_instruction": "Click on the map to draw a polygon representing the POI boundary. This is important for high-precision trigger points.",
@@ -768,7 +780,8 @@
         "audio_task_status": "{current}/{total}",
         "reference_links_hint": "Add authoritative sources (Wikipedia, official sites, etc.) to help AI generate more accurate descriptions",
         "core_attractions_only": "Note: Reference links can only be saved for core attractions, not homolog POIs."
-      },
+      }
+    },
     "TriggerPointsManager": {
       "labels": {
         "expected_bearing": "Expected Bearing",
@@ -784,7 +797,15 @@
         "moving_poi": "Moving POI...",
         "drag_hint": "Drag to update POI location",
         "poi_reference": "Reference point for trigger placement",
-        "poi_location": "POI Location"
+        "poi_location": "POI Location",
+        "direction": "Direction",
+        "status": "Status",
+        "bearing": "Bearing",
+        "trigger": "Trigger",
+        "not_set": "Not set",
+        "trigger_points_with_count": "Trigger Points ({count})",
+        "updating_poi_location": "Updating POI...",
+        "poi_location_updated": "POI Updated!"
       },
       "actions": {
         "save": "Save",
@@ -809,9 +830,16 @@
         "front": "Front",
         "right": "Right",
         "left": "Left",
-        "back": "Back"
+        "back": "Back",
+        "north": "North",
+        "south": "South",
+        "east": "East",
+        "west": "West",
+        "northeast": "Northeast",
+        "northwest": "Northwest",
+        "southeast": "Southeast",
+        "southwest": "Southwest"
       }
-    }
     }
   },
   "POIManagement": {
@@ -856,7 +884,10 @@
       "rejected": "Rejected",
       "all_trigger_points": "All Trigger Points",
       "with_trigger_points": "With Trigger Points",
-      "without_trigger_points": "Without Trigger Points"
+      "without_trigger_points": "Without Trigger Points",
+      "all_active": "All POIs",
+      "active": "Active",
+      "inactive": "Inactive"
     },
     "controls": {
       "pois_found": "{count} POIs found",

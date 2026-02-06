@@ -33,6 +33,7 @@ export interface MapSearchFilters {
   city?: string
   status?: 'all' | 'approved' | 'pending'
   search?: string
+  isActiveFilter?: 'all' | 'active' | 'inactive'
 }
 
 export interface MapSearchOptions {
@@ -87,7 +88,8 @@ export async function fetchPOIsForMap(
     status_filter: filters.status || 'all',
     country_filter: filters.country || null,
     state_filter: filters.state || null,
-    city_filter: filters.city || null
+    city_filter: filters.city || null,
+    is_active_filter: filters.isActiveFilter || 'all'
   }
 
   if (ownerId) rpcParams.p_owner_id = ownerId
@@ -154,6 +156,9 @@ async function getMapPOICount(filters: MapSearchFilters): Promise<number> {
   if (filters.search) {
     query = query.or(`name.ilike.%${filters.search}%,city.ilike.%${filters.search}%,country.ilike.%${filters.search}%`)
   }
+  if (filters.isActiveFilter && filters.isActiveFilter !== 'all') {
+    query = query.eq('is_active', filters.isActiveFilter === 'active')
+  }
   
   const { count, error } = await query
   
@@ -187,7 +192,8 @@ export async function fetchMapPOIsPage(
     status_filter: filters.status || 'all',
     country_filter: filters.country || null,
     state_filter: filters.state || null,
-    city_filter: filters.city || null
+    city_filter: filters.city || null,
+    is_active_filter: filters.isActiveFilter || 'all'
   })
   
   if (error || !data) return []

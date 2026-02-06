@@ -53,6 +53,7 @@ function POIListWithSearchParams() {
   const [groupStatusFilter, setGroupStatusFilter] = useState<'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'>('all')
   const [scoreFilter, setScoreFilter] = useState<'all' | 'no_score' | 'rejected' | 'pending' | 'approved'>('all')
   const [triggerPointsFilter, setTriggerPointsFilter] = useState<'all' | 'with_trigger_points' | 'without_trigger_points'>('all')
+  const [isActiveFilter, setIsActiveFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [countryFilter, setCountryFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
@@ -92,6 +93,7 @@ function POIListWithSearchParams() {
     groupStatus?: string
     scoreFilter?: string
     triggerPointsFilter?: string
+    isActiveFilter?: string
     page?: number
     view?: string
   }) => {
@@ -127,6 +129,9 @@ function POIListWithSearchParams() {
     if (filters.triggerPointsFilter && filters.triggerPointsFilter !== 'all') {
       params.set('triggerPointsFilter', filters.triggerPointsFilter)
     }
+    if (filters.isActiveFilter && filters.isActiveFilter !== 'all') {
+      params.set('isActiveFilter', filters.isActiveFilter)
+    }
     if (filters.page && filters.page > 1) {
       params.set('page', filters.page.toString())
     }
@@ -150,6 +155,7 @@ function POIListWithSearchParams() {
     const groupStatus = (searchParams.get('groupStatus') as 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member') || 'all'
     const score = (searchParams.get('scoreFilter') as 'all' | 'no_score' | 'rejected' | 'pending' | 'approved') || 'all'
     const triggerPoints = (searchParams.get('triggerPointsFilter') as 'all' | 'with_trigger_points' | 'without_trigger_points') || 'all'
+    const isActive = (searchParams.get('isActiveFilter') as 'all' | 'active' | 'inactive') || 'all'
     const page = parseInt(searchParams.get('page') || '1')
     const view = (searchParams.get('view') as 'list' | 'cards' | 'map') || 'cards'
 
@@ -163,6 +169,7 @@ function POIListWithSearchParams() {
     setGroupStatusFilter(groupStatus)
     setScoreFilter(score)
     setTriggerPointsFilter(triggerPoints)
+    setIsActiveFilter(isActive)
     setCurrentPage(page)
     setViewMode(view)
   }, [searchParams])
@@ -234,7 +241,8 @@ function POIListWithSearchParams() {
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
-        triggerPointsFilter: triggerPointsFilter
+        triggerPointsFilter: triggerPointsFilter,
+        isActiveFilter: isActiveFilter
     }),
     search: debouncedSearchTerm,
     status: statusFilter,
@@ -245,6 +253,7 @@ function POIListWithSearchParams() {
     groupStatus: groupStatusFilter,
     scoreFilter: scoreFilter,
     triggerPointsFilter: triggerPointsFilter,
+    isActiveFilter: isActiveFilter,
     page: currentPage,
     limit: itemsPerPage
   })
@@ -252,7 +261,9 @@ function POIListWithSearchParams() {
   // Derived data
   const pois = useMemo(() => searchResult?.data || [], [searchResult])
 
+  // Use the results directly from the backend (no more frontend-side filtering)
   const filteredPois = pois
+  
   const totalCount = searchResult?.pagination?.totalCount || 0
   const totalPages = searchResult?.pagination?.totalPages || 1
 
@@ -345,11 +356,12 @@ function POIListWithSearchParams() {
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
         triggerPointsFilter: triggerPointsFilter,
+        isActiveFilter: isActiveFilter,
         page: currentPage,
         view: viewMode
       })
     }
-  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, currentPage, viewMode, isInitializing, updateURL])
+  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, currentPage, viewMode, isInitializing, updateURL])
 
   // Transform POI from service to modal format
   const transformPOIForModal = (poi: POIType): POI => ({
@@ -530,6 +542,7 @@ function POIListWithSearchParams() {
     setGroupStatusFilter('all')
     setScoreFilter('all')
     setTriggerPointsFilter('all')
+    setIsActiveFilter('all')
     setCurrentPage(1)
   }
 
@@ -581,6 +594,11 @@ function POIListWithSearchParams() {
       { value: 'all', label: t('status_options.all_trigger_points') },
       { value: 'with_trigger_points', label: t('status_options.with_trigger_points') },
       { value: 'without_trigger_points', label: t('status_options.without_trigger_points') }
+    ],
+    isActiveFilter: [
+      { value: 'all', label: t('status_options.all_active') },
+      { value: 'active', label: t('status_options.active') },
+      { value: 'inactive', label: t('status_options.inactive') }
     ]
   }), [locationData.countries, locationData.states, locationData.cities, countryFilter, stateFilter, t])
   const hasActiveFilters = useMemo(() => {
@@ -592,8 +610,9 @@ function POIListWithSearchParams() {
            contentStatusFilter !== 'all' || 
            groupStatusFilter !== 'all' || 
            scoreFilter !== 'all' || 
-           triggerPointsFilter !== 'all'
-  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter])
+           triggerPointsFilter !== 'all' ||
+           isActiveFilter !== 'all'
+  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
@@ -709,6 +728,18 @@ function POIListWithSearchParams() {
                       className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
                     >
                       {filterOptions.contentStatus.map((status) => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={isActiveFilter}
+                      onChange={(e) => setIsActiveFilter(e.target.value as any)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                    >
+                      {filterOptions.isActiveFilter.map((status) => (
                         <option key={status.value} value={status.value}>
                           {status.label}
                         </option>

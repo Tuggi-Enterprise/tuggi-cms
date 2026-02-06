@@ -56,6 +56,7 @@ export interface POI {
   available_languages: string[]
   trigger_points_count: number
   active_trigger_points_count: number
+  is_active?: boolean
   reference_links?: string[] // Add reference links field
   descriptions?: any[] // Add descriptions field for filtering
   // Group status indicators
@@ -89,6 +90,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const isCreateMode = !poi || !poi.id || mode === 'create'
   const [currentPoi, setCurrentPoi] = useState<POI | null>(poi)
   const [editedPoi, setEditedPoi] = useState<POI | null>(poi)
+  
+  // Ref to track when we have a local update that should not be overwritten by props
+  const localUpdateRef = useRef<{ poiId: string; timestamp: number } | null>(null)
   
   // Hook para chamar edge functions com autenticação
   const { callFunction } = useAuthenticatedFunctionCall()
@@ -135,6 +139,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       poiProp: poi ? { id: poi.id, name: poi.name } : null,
       currentPoiState: currentPoi ? { id: currentPoi.id, name: currentPoi.name } : null
     })
+    
+    // Check if we have a recent local update that should be preserved
+    if (localUpdateRef.current && poi?.id === localUpdateRef.current.poiId) {
+      const timeSinceUpdate = Date.now() - localUpdateRef.current.timestamp
+      // Ignore prop updates for 3 seconds after a local update
+      if (timeSinceUpdate < 3000) {
+        console.log('🔄 [POI useEffect] Ignoring prop update - recent local update detected')
+        return
+      } else {
+        // Clear the ref after timeout
+        localUpdateRef.current = null
+      }
+    }
+    
     if (poi) {
       console.log('🔄 [POI useEffect] Setting state from poi prop')
       setCurrentPoi(poi)
@@ -1276,6 +1294,60 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }
 
+  const handleTogglePoiActive = async () => {
+    const poi = getPoi()
+    if (!poi) return
+
+    const currentIsActive = poi.is_active ?? true
+    const newIsActive = !currentIsActive
+    
+    // OPTIMISTIC UPDATE: Update UI immediately BEFORE database call
+    const updatedPOI = {
+      ...poi,
+      is_active: newIsActive
+    } as POI
+    
+    setCurrentPoi(updatedPOI)
+    setEditedPoi(updatedPOI)
+    
+    // Mark this as a local update so useEffect doesn't overwrite it
+    localUpdateRef.current = { poiId: poi.id, timestamp: Date.now() }
+    
+    setIsSaving(true)
+    
+    try {
+      const { error } = await supabase
+        .schema('core')
+        .from('attractions')
+        .update({
+          is_active: newIsActive,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', poi.id)
+
+      if (error) throw error
+      
+      // Invalidate caches
+      invalidateAllPOICaches()
+      
+      if (onPOIUpdated) {
+        onPOIUpdated(updatedPOI)
+      } else {
+        await onUpdate()
+      }
+      
+      showFeedback(newIsActive ? t('validation.poi_activated') : t('validation.poi_deactivated'), 'success')
+    } catch (error) {
+      console.error('Error toggling POI active status:', error)
+      // ROLLBACK: Revert to previous state on error
+      setCurrentPoi(poi)
+      setEditedPoi(poi)
+      showFeedback(tCommon('error.unknown'), 'error')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const handleDelete = async () => {
     const currentPoi = getPoi()
     if (!currentPoi) {
@@ -2333,6 +2405,36 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         {currentPoi.approved ? 'HOMOLOGADO' : 'EM ANÁLISE'}
                       </div>
                     )}
+
+                    {/* Status Toggle (Active/Inactive) */}
+                    {currentPoi?.id && mode !== 'create' && (
+                      <div className="flex items-center gap-2 px-2 py-1 bg-gray-50 dark:bg-gray-800/55 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm ml-2">
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePoiActive()}
+                          disabled={isSaving}
+                          className={cn(
+                            "relative inline-flex h-4 w-8 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-all duration-300 ease-in-out focus:outline-none ring-offset-2 focus:ring-2 focus:ring-tuggi-blue",
+                            (currentPoi.is_active ?? true) ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600",
+                            isSaving && "opacity-50 cursor-not-allowed"
+                          )}
+                          title={(currentPoi.is_active ?? true) ? t('labels.active') : t('labels.inactive')}
+                        >
+                          <span
+                            className={cn(
+                              "pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow-md ring-0 transition duration-300 ease-in-out",
+                              (currentPoi.is_active ?? true) ? "translate-x-4" : "translate-x-0"
+                            )}
+                          />
+                        </button>
+                        <span className={cn(
+                          "text-[9px] font-extrabold uppercase tracking-[0.1em] transition-colors",
+                          (currentPoi.is_active ?? true) ? "text-green-600 dark:text-green-400" : "text-gray-400"
+                        )}>
+                          {(currentPoi.is_active ?? true) ? t('labels.active') : t('labels.inactive')}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2348,7 +2450,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               {/* Lateral Menu (Sidebar) */}
               <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex flex-col gap-2 z-20">
                 <div className="mb-4">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3">Navegação</span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3">{t('sidebar.navigation')}</span>
                 </div>
                 
                 {mode === 'create' && (
@@ -2456,7 +2558,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     <Zap className="h-4 w-4 text-tuggi-blue" />
                     <span className="text-[10px] font-bold text-tuggi-blue uppercase tracking-widest">Tuggi Engine</span>
                   </div>
-                  <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Configure e monetize seus pontos de interesse com facilidade.</p>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">{t('sidebar.engine_description')}</p>
                 </div>
               </aside>
 
@@ -4134,10 +4236,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   <div className="text-xs text-yellow-700 dark:text-yellow-300 space-y-1">
                     <p><strong>{t('debug.description_length', { count: currentDescription.length })}</strong></p>
                     <p><strong>{t('debug.descriptions_found', { count: descriptions.length })}</strong></p>
-                    <p><strong>{t('debug.available_languages', { languages: descriptions.map(d => d.language).join(', ') || 'None' })}</strong></p>
-                    <p><strong>{t('debug.has_audio_url', { hasAudio: currentAudioUrl ? 'Yes' : 'No' })}</strong></p>
+                    <p><strong>{t('debug.available_languages', { languages: descriptions.map(d => d.language).join(', ') || tCommon('labels.none') })}</strong></p>
+                    <p><strong>{t('debug.has_audio_url', { hasAudio: currentAudioUrl ? tCommon('labels.yes') : tCommon('labels.no') })}</strong></p>
                     {descriptions.length > 0 && (
-                      <p><strong>{t('debug.first_description_preview', { preview: descriptions[0]?.description?.substring(0, 50) || 'Empty' })}</strong></p>
+                      <p><strong>{t('debug.first_description_preview', { preview: descriptions[0]?.description?.substring(0, 50) || tCommon('labels.empty') })}</strong></p>
                     )}
                   </div>
                 </div> */}
