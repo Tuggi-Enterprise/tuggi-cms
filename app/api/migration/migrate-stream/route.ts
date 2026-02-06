@@ -13,7 +13,7 @@ const supabase = getSupabase('service')
  * 
  * batch_size = 0 means "process ALL POIs until none are left"
  */
-export const maxDuration = 300 // 5 minutes to handle batch processing
+export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
 
 export async function POST(request: NextRequest) {
   // Authentication check
