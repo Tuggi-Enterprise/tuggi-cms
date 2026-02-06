@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useCallback } from 'react'
+import { useTranslations } from 'next-intl'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import { TriggerPoint, TriggerPointMapProps, TRIGGER_POINT_TYPES, DIRECTION_OPTIONS } from '@/types/trigger-points'
 
@@ -25,6 +26,7 @@ function TriggerPointsMapContent({
   onResetMapView,
   onPOILocationChange
 }: Omit<TriggerPointMapProps, 'height' | 'className'>) {
+  const t = useTranslations('Modals.TriggerPointsManager')
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<Map<string, google.maps.Marker>>(new Map())
@@ -332,27 +334,27 @@ function TriggerPointsMapContent({
       const directionInfo = triggerPoint.direction ? 
         (() => {
           const dirOption = DIRECTION_OPTIONS.find(dir => dir.value === triggerPoint.direction);
-          return dirOption ? `${dirOption.emoji} ${dirOption.label}` : 'Not set';
-        })() : 'Not set';
+          return dirOption ? `${dirOption.emoji} ${t(`directions.${dirOption.value}`)}` : t('labels.not_set');
+        })() : t('labels.not_set');
 
       const infoWindow = new google.maps.InfoWindow({
         content: `
           <div style="padding: 8px; min-width: 200px;">
             <h3 style="margin: 0 0 8px 0; font-weight: 600; color: ${color};">
-              ${triggerPoint.type.charAt(0).toUpperCase() + triggerPoint.type.slice(1)} Trigger
+              ${t(`types.${triggerPoint.type}`)} ${t('labels.trigger')}
             </h3>
             <div style="font-size: 12px; color: #666; line-height: 1.4;">
-              <div><strong>Priority:</strong> ${triggerPoint.priority}</div>
-              <div><strong>Radius:</strong> ${triggerPoint.radius_meters}m</div>
+              <div><strong>${t('labels.priority')}:</strong> ${triggerPoint.priority}</div>
+              <div><strong>${t('labels.radius')}:</strong> ${triggerPoint.radius_meters}m</div>
               ${triggerPoint.direction ? 
-                 `<div><strong>Direction:</strong> ${directionInfo}</div>` : 
+                 `<div><strong>${t('labels.direction')}:</strong> ${directionInfo}</div>` : 
                  ''
                }
               ${(triggerPoint.expected_bearing !== undefined && triggerPoint.expected_bearing !== null) ? 
-                 `<div><strong>Bearing:</strong> ${triggerPoint.expected_bearing}° (±${triggerPoint.bearing_threshold}°)</div>` : 
+                 `<div><strong>${t('labels.bearing')}:</strong> ${triggerPoint.expected_bearing}° (±${triggerPoint.bearing_threshold}°)</div>` : 
                  ''
                }
-              <div><strong>Status:</strong> <span style="color: ${triggerPoint.is_active ? '#059669' : '#DC2626'}; font-weight: 500;">${triggerPoint.is_active ? 'Active' : 'Inactive'}</span></div>
+              <div><strong>${t('labels.status')}:</strong> <span style="color: ${triggerPoint.is_active ? '#059669' : '#DC2626'}; font-weight: 500;">${triggerPoint.is_active ? t('labels.active') : t('labels.inactive')}</span></div>
             </div>
           </div>
         `

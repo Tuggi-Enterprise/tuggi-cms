@@ -26,13 +26,13 @@ export async function GET(req: NextRequest) {
       .from('attraction_group_members')
       .select('group_id')
       .eq('attraction_id', poiId)
-      .single();
+      .maybeSingle();
 
     console.log('🔍 API: Member query result:', { member, memberError });
 
     if (memberError || !member) {
       console.log('🔍 API: No group membership found, returning null');
-      return NextResponse.json({ group: null });
+      return NextResponse.json({ group: null, members: [] });
     }
 
     // Fetch group details
@@ -50,16 +50,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ group: null });
     }
 
-    // Fetch all members
+    // Fetch all members, ordered so 'main' comes first
     const { data: members } = await supabase
       .schema('core')
       .from('attraction_group_members')
-      .select('attraction_id')
-      .eq('group_id', group.id);
+      .select('attraction_id, group_role')
+      .eq('group_id', group.id)
+      .order('group_role', { ascending: true }); // 'main' < 'member' alphabetically
 
     console.log('🔍 API: Members query result:', { members });
 
-    const result = { group, members: members?.map(m => m.attraction_id) || [] };
+    const result = { 
+      group, 
+      members: members?.map(m => m.attraction_id) || [],
+      memberDetails: members || []
+    };
     console.log('✅ API: Returning result:', result);
     
     return NextResponse.json(result);

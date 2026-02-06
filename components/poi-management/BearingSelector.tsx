@@ -231,13 +231,13 @@ export function BearingSelector({
           {value !== null && value !== undefined && (
             <div className="text-xs text-gray-500 dark:text-gray-400">
               {t('labels.direction_label', { 
-                  dir: value === 0 || value === 360 ? 'North' : 
-                         value === 90 ? 'East' : 
-                         value === 180 ? 'South' : 
-                         value === 270 ? 'West' : 
-                         value < 90 ? 'Northeast' :
-                         value < 180 ? 'Southeast' :
-                         value < 270 ? 'Southwest' : 'Northwest'
+                  dir: value === 0 || value === 360 ? t('directions.north') : 
+                         value === 90 ? t('directions.east') : 
+                         value === 180 ? t('directions.south') : 
+                         value === 270 ? t('directions.west') : 
+                         value < 90 ? t('directions.northeast') :
+                         value < 180 ? t('directions.southeast') :
+                         value < 270 ? t('directions.southwest') : t('directions.northwest')
                 })}
             </div>
           )}

@@ -56,6 +56,18 @@ export const POST = async function(req: NextRequest) {
   if (deleteError) {
     console.error('Error deleting group members:', deleteError);
   }
+  
+  // Also remove these specific POIs from ANY other groups they might belong to (due to unique attraction_id constraint)
+  const { error: clearError } = await supabase
+    .schema('core')
+    .from('attraction_group_members')
+    .delete()
+    .in('attraction_id', poiIds);
+  
+  if (clearError) {
+    console.error('Error clearing old memberships:', clearError);
+    return NextResponse.json({ error: 'Failed to clear old memberships' }, { status: 500 });
+  }
 
   // Insert new members with roles (first POI is main, others are members)
   const members = poiIds.map((attraction_id: string, index: number) => ({ 

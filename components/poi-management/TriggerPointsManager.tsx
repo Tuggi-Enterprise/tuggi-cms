@@ -567,18 +567,18 @@ export function TriggerPointsManager({
               <div className="flex items-center">
                 <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
                 <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                  Trigger Points ({filteredTriggerPoints.length})
+                  {t('labels.trigger_points_with_count', { count: filteredTriggerPoints.length })}
                 </h3>
                 {isUpdatingPOILocation && (
                   <div className="ml-2 flex items-center text-xs text-tuggi-orange">
                     <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                    Updating POI...
+                    {t('labels.updating_poi_location')}
                   </div>
                 )}
                 {poiUpdateSuccess && (
                   <div className="ml-2 flex items-center text-xs text-green-600">
                     <CheckCircle className="h-3 w-3 mr-1" />
-                    POI Updated!
+                    {t('labels.poi_location_updated')}
                   </div>
                 )}
                 {poiUpdateError && (
@@ -688,17 +688,45 @@ export function TriggerPointsManager({
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center justify-between pt-2 gap-2">
-                   {isEditing && selectedTriggerPoint?.id ? (
-                    <button
-                      onClick={() => deleteTriggerPoint(selectedTriggerPoint.id!)}
-                      disabled={isLoading}
-                      className="px-3 py-2 text-xs font-medium text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  ) : <div></div>}
+                <div className="flex items-center justify-between pt-4 mt-2 border-t border-gray-100 dark:border-gray-800 gap-2">
+                   <div className="flex items-center gap-2">
+                     {isEditing && selectedTriggerPoint?.id && (
+                      <button
+                        onClick={() => deleteTriggerPoint(selectedTriggerPoint.id!)}
+                        disabled={isLoading}
+                        className="px-3 py-2 text-xs font-medium text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                    
+                    {/* Status Toggle */}
+                    <div className="flex items-center gap-2 px-2 py-1 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-700">
+                      <button
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, is_active: !prev.is_active }))}
+                        className={cn(
+                          "relative inline-flex h-4 w-8 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                          formData.is_active ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"
+                        )}
+                        title={formData.is_active ? t('labels.active') : t('labels.inactive')}
+                      >
+                        <span
+                          className={cn(
+                            "pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                            formData.is_active ? "translate-x-4" : "translate-x-0"
+                          )}
+                        />
+                      </button>
+                      <span className={cn(
+                        "text-[10px] font-bold uppercase tracking-widest",
+                        formData.is_active ? "text-green-600 dark:text-green-400" : "text-gray-400"
+                      )}>
+                        {formData.is_active ? t('labels.active') : t('labels.inactive')}
+                      </span>
+                    </div>
+                  </div>
                   
                   <div className="flex items-center gap-2">
                     <button

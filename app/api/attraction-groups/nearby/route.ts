@@ -66,6 +66,7 @@ export const GET = async function(req: NextRequest) {
   let details: any[] = [];
   if (ids.length > 0) {
     const { data: pois } = await supabase
+      .schema('core')
       .from('attractions')
       .select('id, name, google_types, category')
       .in('id', ids);
@@ -189,6 +190,7 @@ export const POST = async function(req: NextRequest) {
     let details: any[] = [];
     if (ids.length > 0) {
       const { data: pois } = await supabase
+        .schema('core')
         .from('attractions')
         .select(`
           id, 
