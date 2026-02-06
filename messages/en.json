@@ -69,6 +69,9 @@
       "visualization": "Visualization",
       "trail_map": "Trail Map",
       "custom_routes": "Custom Routes",
+      "clients": "Clients",
+      "admin_clients": "Clients",
+      "admin_users": "Users",
       "logout": "Logout",
       "toggle_theme": "Toggle theme"
     }
@@ -88,6 +91,9 @@
     "visualization": "Visualization",
     "trail_map": "Trail Map",
     "custom_routes": "Custom Routes",
+    "clients": "Clients",
+    "admin_clients": "Clients",
+    "admin_users": "Users",
     "logout": "Logout",
     "toggle_theme": "Toggle theme"
   },
