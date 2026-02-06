@@ -1,7 +1,10 @@
-'use client'
-
 import UserEditPage from '@/app/dashboard/admin/users/[userId]/edit/page'
 
-export default function LocalizedUserEditPage() {
-  return <UserEditPage />
+export default async function LocalizedUserEditPage({
+  params
+}: {
+  params: Promise<{ userId: string }>
+}) {
+  const resolvedParams = await params
+  return <UserEditPage params={resolvedParams} />
 }
