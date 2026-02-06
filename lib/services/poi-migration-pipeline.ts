@@ -34,7 +34,8 @@ export interface PipelineOptions {
   // - 'migration_description': Migration -> Description
   // - 'migration_description_audio': Migration -> Description -> Audio
   // - 'full': All steps with full approval criteria
-  mode?: 'enrichment_migration_triggers' | 'migration_only' | 'migration_description' | 'migration_description_audio' | 'full'
+  // - 'reprocess_triggers_core': Skip Enrichment/Migration, run ONLY Trigger Points generation on Core DB
+  mode?: 'enrichment_migration_triggers' | 'migration_only' | 'migration_description' | 'migration_description_audio' | 'full' | 'reprocess_triggers_core'
   // Optional: languages for description/audio generation (when mode includes description/audio)
   languages?: string[]
   // Optional: voice gender for audio generation
@@ -81,6 +82,41 @@ export class PoiMigrationPipeline {
     } = options
 
     try {
+      // SPECIAL MODE: Reprocess Triggers (Core Only)
+      if (mode === 'reprocess_triggers_core') {
+        console.log(`🎯 MODE: Reprocess Triggers (Core) for ${uuid_id}`)
+        
+        // Skip Homolog checks and Enrichment/Migration steps
+        // The uuid_id passed here IS the attraction_id in core
+        const attraction_id = uuid_id
+        
+        // Directly to Step 4: Generate Trigger Points
+        console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
+        const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id)
+        steps.push(triggerPointsStep)
+
+        if (!triggerPointsStep.success) {
+           console.error(`❌ Trigger points generation failed for ${attraction_id}: ${triggerPointsStep.error}`)
+           return {
+             success: false,
+             attraction_id,
+             steps,
+             total_time: Date.now() - startTime,
+             error: `Trigger points generation failed: ${triggerPointsStep.error}`,
+             warnings
+           }
+        }
+        
+        console.log(`✅ Trigger points reprocessed successfully for ${attraction_id}`)
+        return {
+          success: true,
+          attraction_id,
+          steps,
+          total_time: Date.now() - startTime,
+          warnings: warnings.length > 0 ? warnings : undefined
+        }
+      }
+
       // Pre-flight check: Should this POI be processed?
       const shouldProcess = await MigrationService.shouldProcessPOI(uuid_id)
       if (!shouldProcess.should_process) {

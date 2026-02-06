@@ -838,12 +838,15 @@ export class MigrationService {
         }
       }
 
+      /* 
+      // Comentado para permitir self-healing de migrações interrompidas
       if (!corePOI.approved) {
         return {
           success: false,
           error: `POI ${uuid_id} is not approved in core. Cannot delete from homolog.`
         }
       }
+      */
 
       // Delete from homolog.coordinates (cascade will handle it, but we can be explicit)
       // Actually, coordinates has foreign key with CASCADE, so deleting pois will delete coordinates
@@ -894,18 +897,27 @@ export class MigrationService {
       const { data: existingInCore } = await supabase
         .schema('core')
         .from('attractions')
-        .select('id')
+        .select('id, approved')
         .eq('id', uuid_id)
         .maybeSingle()
-
       if (existingInCore) {
-        // Self-healing: If it already exists in core, we should clean it from homolog
-        console.log(`♻️  Self-healing: POI ${uuid_id} already exists in core.attractions. Cleaning up homolog...`)
-        await this.safeDeleteFromHomolog(uuid_id)
-        
+        if (existingInCore.approved) {
+          // Self-healing: Se já está aprovado no core, limpa do homolog e pula
+          console.log(`♻️  Self-healing: POI ${uuid_id} already approved in core. Cleaning up homolog...`)
+          await this.safeDeleteFromHomolog(uuid_id)
+          
+          return {
+            should_process: false,
+            reason: 'POI already exists and is approved in core.attractions'
+          }
+        }
+
+        // Se existe no core mas NÃO está aprovado, permite retomar o processamento
+        // Isso garante que trigger points e outras etapas sejam finalizadas
+        console.log(`🔄 Partial migration found for ${uuid_id}: resuming pipeline...`)
         return {
-          should_process: false,
-          reason: 'POI already exists in core.attractions (cleaned up from homolog)'
+          should_process: true,
+          reason: 'Partial migration found: exists in core but not approved. Resuming pipeline.'
         }
       }
 

@@ -63,6 +63,14 @@ const PIPELINE_MODES = {
     icon: Target,
     color: 'from-orange-500 to-red-600',
     recommended: false
+  },
+  'reprocess_triggers_core': {
+    name: 'Reprocess Trigger Points (Core)',
+    description: 'Regenerate triggers for existing POIs',
+    steps: ['Fetch Core', 'Trigger Points', 'Save'],
+    icon: Target,
+    color: 'from-pink-500 to-rose-600',
+    recommended: false
   }
 }
 
@@ -97,6 +105,13 @@ export default function PoiMigrationPage() {
   const [skipIfExists, setSkipIfExists] = useState(true)
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['pt-br'])
   const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('male')
+  
+  // Reset processing status filter when switching to core reprocessing mode
+  useEffect(() => {
+    if (mode === 'reprocess_triggers_core') {
+      setProcessingStatus('all') // Status doesn't apply to core the same way
+    }
+  }, [mode])
   
   // UI state
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
@@ -473,8 +488,8 @@ export default function PoiMigrationPage() {
                   <select
                     value={processingStatus}
                     onChange={(e) => setProcessingStatus(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    disabled={isProcessing}
+                    className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={isProcessing || mode === 'reprocess_triggers_core'}
                   >
                     <option value="all">{t('filters.all_status')}</option>
                     <option value="pending">{tCommon('status.pending')}</option>

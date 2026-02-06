@@ -230,6 +230,10 @@
           "full": {
             "name": "Pipeline Completo",
             "description": "Legado: Todos los pasos incluyendo aprobación"
+          },
+          "reprocess_triggers_core": {
+            "name": "Reprocesar Gatillos (Core)",
+            "description": "Regenerar gatillos para POIs existentes"
           }
         },
         "steps": {

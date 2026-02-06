@@ -58,8 +58,8 @@ const navigation = [
     category: 'poi'
   },
   {
-    name: 'POI Migration',
-    href: '/poi-migration',
+    name: 'POI Processing',
+    href: '/poi-processing',
     icon: ArrowRightLeft,
     category: 'poi'
   },
@@ -81,12 +81,7 @@ const navigation = [
     icon: Database,
     category: 'verification'
   },
-  {
-    name: 'Generation',
-    href: '/trigger-points-generation',
-    icon: Target,
-    category: 'trigger_points'
-  },
+
   {
     name: 'Single Test',
     href: '/trigger-points-single',
@@ -151,7 +146,7 @@ export function Header({ className }: HeaderProps) {
     },
     {
       name: t('poi_migration'),
-      href: '/poi-migration',
+      href: '/poi-processing',
       icon: ArrowRightLeft,
       category: 'pois'
     },
@@ -175,12 +170,7 @@ export function Header({ className }: HeaderProps) {
     },
     
     // Trigger Points
-    {
-      name: t('generation'),
-      href: '/trigger-points-generation',
-      icon: Target,
-      category: 'trigger_points'
-    },
+
     {
       name: t('single_test'),
       href: '/trigger-points-single',

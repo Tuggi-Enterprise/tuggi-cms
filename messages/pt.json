@@ -57,7 +57,7 @@
     "Navigation": {
       "dashboard": "Dashboard",
       "pois": "Pontos de Interesse",
-      "poi_migration": "Migração de POIs",
+      "poi_migration": "Processamento de POIs",
       "osm_importer": "Importador OSM",
       "poi_fetching": "Busca de POIs",
       "trigger_points": "Trigger Points",
@@ -76,7 +76,7 @@
   "Navigation": {
     "dashboard": "Dashboard",
     "pois": "Pontos de Interesse",
-    "poi_migration": "Migração de POIs",
+    "poi_migration": "Processamento de POIs",
     "osm_importer": "Importador OSM",
     "poi_fetching": "Busca de POIs",
     "trigger_points": "Trigger Points",
@@ -232,6 +232,10 @@
           "full": {
             "name": "Pipeline Completo",
             "description": "Legado: Todos os passos incluindo aprovação"
+          },
+          "reprocess_triggers_core": {
+            "name": "Reprocessar Gatilhos (Core)",
+            "description": "Regerar gatilhos para POIs existentes"
           }
         },
         "steps": {

@@ -232,6 +232,10 @@
           "full": {
             "name": "Full Pipeline",
             "description": "Legacy: All steps including approval"
+          },
+          "reprocess_triggers_core": {
+            "name": "Reprocess Trigger Points (Core)",
+            "description": "Regenerate triggers for existing POIs"
           }
         },
         "steps": {
