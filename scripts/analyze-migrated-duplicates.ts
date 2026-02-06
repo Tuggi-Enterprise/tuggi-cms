@@ -18,7 +18,7 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-const BATCH_SIZE = 20
+const BATCH_SIZE = 100
 const OUTPUT_FILE = 'migrated_duplicates.json'
 
 async function analyzeMigratedDuplicates() {

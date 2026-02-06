@@ -32,6 +32,8 @@
     "poi-validation:review": "tsx --env-file=.env scripts/poi-validation-review.ts",
     "investigate:duplicates": "tsx --env-file=.env scripts/investigate-duplicates-same-city.ts",
     "cleanup:duplicates": "tsx --env-file=.env scripts/cleanup-duplicates-same-city.ts",
+    "analyze:migrated": "tsx --env-file=.env scripts/analyze-migrated-duplicates.ts",
+    "cleanup:migrated": "tsx --env-file=.env scripts/delete-migrated-duplicates.ts",
     "osm:pbf": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts pbf",
     "osm:split": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts split",
     "osm:preview": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts preview",
