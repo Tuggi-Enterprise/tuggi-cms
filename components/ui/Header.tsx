@@ -26,7 +26,13 @@ import {
   CheckCircle,
   Sparkles,
   MessageSquare,
-  Settings
+
+  Settings,
+  Activity,
+  FileText,
+  Map,
+  LayoutList,
+  Globe
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -149,6 +155,44 @@ export function Header({ className }: HeaderProps) {
       href: '/routes',
       icon: Route,
       category: 'pois',
+    },
+
+    // Reports
+    {
+      name: t('inventory'),
+      href: '/dashboard/reports/inventory',
+      icon: Database,
+      category: 'reports'
+    },
+    {
+      name: t('territorial'),
+      href: '/dashboard/reports/territorial',
+      icon: Globe,
+      category: 'reports'
+    },
+    {
+      name: t('heatmap'),
+      href: '/dashboard/reports/heatmap',
+      icon: Map,
+      category: 'reports'
+    },
+    {
+      name: t('users'),
+      href: '/dashboard/reports/users',
+      icon: Users,
+      category: 'reports'
+    },
+    {
+      name: t('engagement'), 
+      href: '/dashboard/reports/engagement',
+      icon: Activity,
+      category: 'reports'
+    },
+    {
+      name: t('content_coverage'), 
+      href: '/dashboard/reports/content-coverage',
+      icon: FileText,
+      category: 'reports'
     },
 
     // POI Management (New)
@@ -340,13 +384,13 @@ export function Header({ className }: HeaderProps) {
               return renderDropdown('pois', poiItems, t('pois'))
             })()}
 
-            {/* POI Management - Dropdown */}
-            {(() => {
-              const poiManagementItems = navigation.filter(item => item.category === 'poi_management')
-              return renderDropdown('poi_management', poiManagementItems, t('poi_management'))
-            })()}
+            {/* POI Management Dropdown */}
+            {renderDropdown('poi_management', navigation.filter(item => item.category === 'poi_management'), t('poi_management'))}
 
-            {/* Users - Dropdown */}
+            <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-2" />
+
+            {/* Reports Dropdown */}
+            {renderDropdown('reports', navigation.filter(item => item.category === 'reports'), t('reports'))}
 
             {/* Users - Dropdown */}
             {(() => {

@@ -5,7 +5,9 @@ import { useTranslations } from 'next-intl'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import { TriggerPoint, TriggerPointMapProps, TRIGGER_POINT_TYPES, DIRECTION_OPTIONS } from '@/types/trigger-points'
 
-const LIBRARIES: any[] = ['drawing', 'places', 'geometry', 'visualization']
+import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+
+const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
 // The actual Google Map component for trigger points
 function TriggerPointsMapContent({
@@ -1033,7 +1035,7 @@ export function TriggerPointsMap({
         apiKey={apiKey}
         render={renderFunction}
         libraries={LIBRARIES}
-        version="weekly"
+        version={GOOGLE_MAPS_VERSION}
       />
     </div>
   )

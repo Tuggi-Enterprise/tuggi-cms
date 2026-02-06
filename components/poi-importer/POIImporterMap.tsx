@@ -7,7 +7,9 @@ import { cn } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
 import { SavedPolygon } from '@/types/poi-importer'
 
-const LIBRARIES: any[] = ['drawing', 'places', 'geometry']
+import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+
+const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
 export interface POIImporterMapRef {
   setBounds: (bounds: google.maps.LatLngBounds) => void
@@ -235,7 +237,7 @@ export const POIImporterMap = forwardRef<POIImporterMapRef, POIImporterMapProps>
       <Wrapper
         apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}
         libraries={LIBRARIES}
-        version="weekly"
+        version={GOOGLE_MAPS_VERSION}
         render={(status) => {
           if (status === Status.LOADING) return <div className="h-full flex items-center justify-center bg-gray-100 animate-pulse">{t('loading')}</div>
           if (status === Status.FAILURE) return <div className="h-full flex items-center justify-center text-red-500">{t('error')}</div>

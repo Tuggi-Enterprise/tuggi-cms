@@ -33,6 +33,7 @@ export interface DashboardStats {
   languagesBreakdown: Array<{ language: string; count: number }>
   withAudio: number
   contentCoverage: number
+  citiesCovered: number
   
   // User Analytics
   totalUsers: number
@@ -228,6 +229,7 @@ class DashboardService {
         languagesBreakdown: contentQuality.languages_breakdown || [],
         withAudio: Number(contentQuality.total_with_audio || 0),
         contentCoverage: Number(contentQuality.coverage_percentage || 0),
+        citiesCovered: cityStats.length,
         
         // User Analytics
         totalUsers: Number(userAnalytics.total_users || 0),

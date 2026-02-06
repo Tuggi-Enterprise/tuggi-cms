@@ -40,8 +40,9 @@ import {
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { useRouter } from '@/navigation'
+import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
 
-const LIBRARIES: any[] = ['drawing', 'geometry', 'places']
+const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
 interface LatLng {
   lat: number
@@ -361,12 +362,12 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
               <ChevronLeft className="h-6 w-6" />
             </button>
             <div>
-              <h2 className="text-3xl font-black text-gray-900 dark:text-white tracking-tighter uppercase italic flex items-center gap-2">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
                 {isEditing ? <Edit className="h-6 w-6 text-tuggi-blue" /> : <Plus className="h-6 w-6 text-tuggi-blue" />}
                 {isEditing ? t('edit_title') : t('create_title')}
               </h2>
-              <p className="text-sm text-gray-500 font-medium leading-relaxed">
-                Configure os detalhes da sua rota turística e defina os pontos no mapa.
+              <p className="text-[11px] text-gray-400 font-medium whitespace-nowrap overflow-hidden text-ellipsis leading-tight mt-1">
+                Configure os detalhes da rota e defina os pontos no mapa.
               </p>
             </div>
           </div>
@@ -390,6 +391,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                 />
               </div>
 
+{/* 
               {userRole === 'admin' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('client')}</label>
@@ -405,6 +407,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                   </select>
                 </div>
               )}
+*/}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('description')}</label>
@@ -1005,7 +1008,7 @@ export function RouteEditor(props: RouteEditorProps) {
       <Wrapper
         apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}
         libraries={LIBRARIES}
-        version="weekly"
+        version={GOOGLE_MAPS_VERSION}
         render={(status) => {
           if (status === Status.LOADING) {
              return (

@@ -3,7 +3,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 
-const LIBRARIES: any[] = ['drawing', 'places', 'geometry', 'visualization']
+import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+
+const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
 interface GoogleMapComponentProps {
   center?: { lat: number; lng: number }
@@ -769,7 +771,7 @@ export function GoogleMapComponent({
         apiKey={apiKey}
         render={renderFunction}
         libraries={LIBRARIES}
-        version="weekly"
+        version={GOOGLE_MAPS_VERSION}
       />
     </div>
   )

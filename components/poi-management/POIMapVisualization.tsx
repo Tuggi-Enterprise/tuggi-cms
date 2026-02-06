@@ -7,7 +7,9 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const LIBRARIES: any[] = ['drawing', 'places', 'geometry', 'visualization']
+import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+
+const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
 
 // POI interface to match existing structure
@@ -490,7 +492,7 @@ export function POIMapVisualization(props: POIMapVisualizationProps) {
         <Wrapper
           apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}
           libraries={LIBRARIES}
-          version="weekly"
+          version={GOOGLE_MAPS_VERSION}
           render={(status) => {
             if (status === Status.LOADING) return <div className="p-4 flex items-center justify-center h-full">Loading Map...</div>
             if (status === Status.FAILURE) return <div className="p-4 flex items-center justify-center h-full text-red-500">Failed to load Google Maps</div>

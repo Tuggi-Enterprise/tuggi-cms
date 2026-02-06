@@ -4,7 +4,9 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
 
-const LIBRARIES: any[] = ['drawing', 'places', 'geometry', 'visualization']
+import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+
+const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
 export interface TrailPoint {
   id: string
@@ -317,7 +319,7 @@ export function TrailMap(props: TrailMapProps) {
         apiKey={apiKey}
         render={renderFunction}
         libraries={LIBRARIES}
-        version="weekly"
+        version={GOOGLE_MAPS_VERSION}
       />
     </div>
   )

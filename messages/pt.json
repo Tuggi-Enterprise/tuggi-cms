@@ -11,8 +11,10 @@
       "back": "Voltar",
       "saving": "Salvando...",
       "generating": "Gerando...",
-      "approve": "Aprovar",
-      "reject": "Rejeitar"
+      "approve": "Aprobar",
+      "reject": "Rechazar",
+      "export": "Exportar",
+      "download_list": "Baixar Lista"
     },
     "labels": {
       "types": "Tipos",
@@ -53,29 +55,6 @@
     },
     "messages": {
       "no_audio": "Nenhum áudio disponível"
-    },
-    "Navigation": {
-      "dashboard": "Dashboard",
-      "pois": "Pontos de Interesse",
-      "poi_migration": "Processamento de POIs",
-      "osm_importer": "Importador OSM",
-      "poi_fetching": "Busca de POIs",
-      "trigger_points": "Trigger Points",
-      "poi_management": "Gestão de POIs",
-      "generation": "Geração",
-      "single_test": "Teste Único",
-      "tp_single_test": "TP Teste Único",
-      "users": "Usuários",
-      "cms_team": "Equipe CMS",
-      "app_users": "Usuários do App",
-      "visualization": "Visualização",
-      "trail_map": "Mapa de Trilhas",
-      "custom_routes": "Rotas Customizadas",
-      "clients": "Clientes",
-      "admin_clients": "Clientes (Admin)",
-      "admin_users": "Usuários (Admin)",
-      "logout": "Sair",
-      "toggle_theme": "Alternar tema"
     }
   },
   "Navigation": {
@@ -84,12 +63,18 @@
     "poi_migration": "Processamento de POIs",
     "osm_importer": "Importador OSM",
     "poi_fetching": "Busca de POIs",
+    "reports": "Relatórios",
+    "inventory": "Inventário",
+    "territorial": "Territorial",
+    "heatmap": "Mapa de Calor",
+    "users": "Usuários",
+    "engagement": "Engajamento",
+    "content_coverage": "Cobertura de Conteúdo",
     "trigger_points": "Trigger Points",
     "poi_management": "Gestão de POIs",
     "generation": "Geração",
     "single_test": "Teste Único",
     "tp_single_test": "TP Teste Único",
-    "users": "Usuários",
     "cms_team": "Equipe CMS",
     "app_users": "Usuários do App",
     "visualization": "Visualização",
@@ -143,6 +128,8 @@
         "audio_plays": "Reproduções de Áudio",
         "avg_duration": "Duração Média",
         "cities_covered": "Cidades Cobertas",
+        "engagement_score": "Score de Engajamento",
+        "content_score": "Score de Conteúdo",
         "total_users": "Total de Usuários",
         "total_core": "Total Core",
         "pending": "Pendentes",
@@ -155,7 +142,12 @@
         "with_description": "Com Descrição",
         "all_languages": "3 Idiomas",
         "with_audio": "Com Áudio",
-        "missing_content": "Conteúdo Pendente"
+        "missing_content": "Conteúdo Pendente",
+        "missing_audio": "Áudios Faltando",
+        "missing_descriptions": "Descrições Faltando",
+        "optimized": "Idealmente Otimizado",
+        "export": "Exportar",
+        "download_list": "Baixar Lista"
       },
       "charts": {
         "mau": "Usuários Ativos (Últimos 30 Dias)",
@@ -181,16 +173,50 @@
         "last_active": "Última Atividade"
       },
       "labels": {
-        "core_homolog": "core + homolog",
+        "core_homolog": "Pontos",
         "approval_rate": "taxa de aprovação",
         "of_total": "do total de usuários",
         "km_driven": "km percorridos",
-        "visitors": "visitantes",
-        "audios": "áudios",
-        "last_7d": "Últimos 7 dias"
+        "visitors": "Visitantes",
+        "audios": "Áudios",
+        "last_7d": "Últimos 7 dias",
+        "last_30d": "Últimos 30 dias",
+        "needing_narration": "POIs precisando de narração",
+        "pois_empty": "POIs sem conteúdo",
+        "optimized_subtitle": "3 idiomas + Áudio",
+        "action_items": "Itens de Ação",
+        "generate_missing_audios": "Gerar Áudios Faltantes",
+        "complete_translations": "Completar Traduções",
+        "missing_content": "com conteúdo faltando"
       },
       "footer": {
         "copyright": "© 2026 Tuggi - Inteligência Territorial"
+      },
+      "reports": {
+        "inventory": {
+          "title": "Relatório de Inventário",
+          "subtitle": "Detalhamento de POIs e status de conteúdo"
+        },
+        "territorial": {
+          "title": "Relatório Territorial",
+          "subtitle": "Distribuição geográfica e análise de cobertura"
+        },
+        "heatmap": {
+          "title": "Mapa de Calor",
+          "subtitle": "Densidade espacial de trilhas e atividades"
+        },
+        "users": {
+          "title": "Análise de Usuários",
+          "subtitle": "Demografia e padrões de uso por plataforma"
+        },
+        "engagement": {
+          "title": "Relatório de Engajamento",
+          "subtitle": "Métricas de interação e uso de recursos"
+        },
+        "content_coverage": {
+          "title": "Cobertura de Conteúdo",
+          "subtitle": "Status de disponibilidade de idiomas e mídia"
+        }
       }
     },
     "POIMigration": {
@@ -983,6 +1009,7 @@
     },
     "editor": {
       "title": "Editor de Rota",
+      "create_title": "Criar Nova Rota",
       "edit_title": "Editar Rota",
       "basic_info": "Informações Básicas",
       "name": "Nome da Rota",
