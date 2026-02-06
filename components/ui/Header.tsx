@@ -209,6 +209,19 @@ export function Header({ className }: HeaderProps) {
       icon: Route,
       category: 'visualization'
     },
+    // Admin
+    {
+      name: t('clients'),
+      href: '/dashboard/admin/clients',
+      icon: Settings,
+      category: 'admin'
+    },
+    {
+      name: t('users'),
+      href: '/dashboard/admin/users',
+      icon: Settings,
+      category: 'admin'
+    },
   ]
 
   // Close dropdown when clicking outside
@@ -354,7 +367,7 @@ export function Header({ className }: HeaderProps) {
             {/* Admin - Dropdown */}
             {(() => {
               const adminItems = navigation.filter(item => item.category === 'admin')
-              return renderDropdown('admin', adminItems, 'Admin')
+              return renderDropdown('admin', adminItems, t('clients'))
             })()}
           </nav>
 
@@ -462,6 +475,19 @@ export function Header({ className }: HeaderProps) {
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'visualization').map((item) => {
+                    const isActive = pathname === item.href
+                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
+                  })}
+                </div>
+              </div>
+
+              {/* Admin */}
+              <div>
+                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  {t('clients')}
+                </h4>
+                <div className="space-y-1">
+                  {navigation.filter(item => item.category === 'admin').map((item) => {
                     const isActive = pathname === item.href
                     return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
                   })}

@@ -65,6 +65,9 @@
       "visualization": "Visualización",
       "trail_map": "Mapa de Senderos",
       "custom_routes": "Rutas Personalizadas",
+      "clients": "Clientes",
+      "admin_clients": "Clientes",
+      "admin_users": "Usuarios",
       "logout": "Cerrar sesión",
       "toggle_theme": "Alternar tema"
     }
@@ -84,6 +87,9 @@
     "visualization": "Visualización",
     "trail_map": "Mapa de Rutas",
     "custom_routes": "Rutas Personalizadas",
+    "clients": "Clientes",
+    "admin_clients": "Clientes",
+    "admin_users": "Usuarios",
     "logout": "Cerrar sesión",
     "toggle_theme": "Alternar tema"
   },
