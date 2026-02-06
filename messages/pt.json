@@ -246,7 +246,9 @@
           "description": "Descrição",
           "audio": "Áudio",
           "triggers": "Gatilhos",
-          "approval": "Aprovação"
+          "approval": "Aprovação",
+          "fetch_core": "Buscar Core",
+          "save": "Salvar"
         }
       },
       "languages": {

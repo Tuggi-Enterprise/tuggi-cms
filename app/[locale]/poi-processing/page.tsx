@@ -5,6 +5,7 @@ import { Loader2, AlertCircle, CheckCircle2, Play, Filter, Database, Settings, S
 import { cn } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
 import { usePOIProcessing } from '@/lib/hooks/use-poi-processing'
+import { locationService } from '@/lib/core/location-service'
 import { poiService } from '@/lib/core/poi-service'
 
 interface MigrationResult {
@@ -106,12 +107,7 @@ export default function PoiMigrationPage() {
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>(['pt-br'])
   const [voiceGender, setVoiceGender] = useState<'male' | 'female'>('male')
   
-  // Reset processing status filter when switching to core reprocessing mode
-  useEffect(() => {
-    if (mode === 'reprocess_triggers_core') {
-      setProcessingStatus('all') // Status doesn't apply to core the same way
-    }
-  }, [mode])
+
   
   // UI state
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
@@ -163,11 +159,24 @@ export default function PoiMigrationPage() {
     const loadCountries = async () => {
       setLoadingCountries(true)
       try {
-        const response = await fetch('/api/migration/locations?type=countries')
-        if (response.ok) {
-          const data = await response.json()
-          if (data.success && data.data) {
-            setCountries(data.data)
+        if (mode === 'reprocess_triggers_core') {
+          // Use efficient RPC for Core
+          const result = await locationService.countries()
+          if (result.success && result.data) {
+            setCountries(result.data.map(c => ({
+              value: c.name,
+              label: c.name,
+              count: c.totalPOIs
+            })))
+          }
+        } else {
+          // Use API for Homolog (Migration)
+          const response = await fetch('/api/migration/locations?type=countries&source=homolog')
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success && data.data) {
+              setCountries(data.data)
+            }
           }
         }
       } catch (error) {
@@ -177,7 +186,7 @@ export default function PoiMigrationPage() {
       }
     }
     loadCountries()
-  }, [])
+  }, [mode])
 
   // Load states when country changes
   useEffect(() => {
@@ -189,11 +198,22 @@ export default function PoiMigrationPage() {
       
       const loadStates = async () => {
         try {
-          const response = await fetch(`/api/migration/locations?type=states&country=${encodeURIComponent(country)}`)
-          if (response.ok) {
-            const data = await response.json()
-            if (data.success && data.data) {
-              setStates(data.data)
+          if (mode === 'reprocess_triggers_core') {
+            const result = await locationService.states(country)
+            if (result.success && result.data) {
+              setStates(result.data.map(s => ({
+                value: s.value,
+                label: s.label,
+                count: s.totalPOIs
+              })))
+            }
+          } else {
+            const response = await fetch(`/api/migration/locations?type=states&country=${encodeURIComponent(country)}&source=homolog`)
+            if (response.ok) {
+              const data = await response.json()
+              if (data.success && data.data) {
+                setStates(data.data)
+              }
             }
           }
         } catch (error) {
@@ -207,7 +227,7 @@ export default function PoiMigrationPage() {
       setStates([])
       setCities([])
     }
-  }, [country])
+  }, [country, mode])
 
   // Load cities when state changes
   useEffect(() => {
@@ -217,11 +237,22 @@ export default function PoiMigrationPage() {
       
       const loadCities = async () => {
         try {
-          const response = await fetch(`/api/migration/locations?type=cities&country=${encodeURIComponent(country)}&state=${encodeURIComponent(state)}`)
-          if (response.ok) {
-            const data = await response.json()
-            if (data.success && data.data) {
-              setCities(data.data)
+          if (mode === 'reprocess_triggers_core') {
+            const result = await locationService.cities(country, state === 'all' ? undefined : state)
+            if (result.success && result.data) {
+              setCities(result.data.map(c => ({
+                value: c.name,
+                label: c.name,
+                count: c.totalPOIs
+              })))
+            }
+          } else {
+            const response = await fetch(`/api/migration/locations?type=cities&country=${encodeURIComponent(country)}&state=${encodeURIComponent(state)}&source=homolog`)
+            if (response.ok) {
+              const data = await response.json()
+              if (data.success && data.data) {
+                setCities(data.data)
+              }
             }
           }
         } catch (error) {
@@ -234,7 +265,7 @@ export default function PoiMigrationPage() {
     } else {
       setCities([])
     }
-  }, [country, state])
+  }, [country, state, mode])
 
   // Current POI being processed (for live feedback)
   const [currentPoi, setCurrentPoi] = useState<{ name: string; step?: string } | null>(null)
@@ -279,7 +310,8 @@ export default function PoiMigrationPage() {
           state: state || undefined,
           city: city || undefined,
           processingStatus: processingStatus,
-          limit: chunkLimit
+          limit: chunkLimit,
+          source: mode === 'reprocess_triggers_core' ? 'core' : 'homolog'
         })
 
         if (!candidatesResult.success || !candidatesResult.data || candidatesResult.data.length === 0) {
@@ -489,7 +521,7 @@ export default function PoiMigrationPage() {
                     value={processingStatus}
                     onChange={(e) => setProcessingStatus(e.target.value)}
                     className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={isProcessing || mode === 'reprocess_triggers_core'}
+                    disabled={isProcessing}
                   >
                     <option value="all">{t('filters.all_status')}</option>
                     <option value="pending">{tCommon('status.pending')}</option>

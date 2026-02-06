@@ -246,7 +246,9 @@
           "description": "Description",
           "audio": "Audio",
           "triggers": "Triggers",
-          "approval": "Approval"
+          "approval": "Approval",
+          "fetch_core": "Fetch Core",
+          "save": "Save"
         }
       },
       "languages": {

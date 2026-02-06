@@ -32,15 +32,26 @@ export async function GET(request: NextRequest) {
     const city = searchParams.get('city')
     const processingStatus = searchParams.get('processing_status')
     const limit = parseInt(searchParams.get('limit') || '50')
+    const source = searchParams.get('source') || 'homolog'
 
-    // Build query to get POIs from homolog
+    // Configure query target
+    const targetSchema = source === 'core' ? 'core' : 'homolog'
+    const targetTable = source === 'core' ? 'attractions' : 'pois'
+    
+    // Select columns based on source
+    // Core uses 'id', Homolog uses 'uuid_id'
+    const selectColumns = source === 'core' 
+      ? 'id, name, city, state, country, approved' 
+      : 'uuid_id, name, city, state, country, processing_status'
+
+    // Build query
     let query = supabaseService
-      .schema('homolog')
-      .from('pois')
-      .select('uuid_id, name, city, state, country, processing_status')
-      .order('uuid_id', { ascending: true })
+      .schema(targetSchema)
+      .from(targetTable)
+      .select(selectColumns)
+      .order(source === 'core' ? 'id' : 'uuid_id', { ascending: true })
 
-    // Apply filters matching migrate-stream logic
+    // Apply filters
     if (country === '__missing__') {
       query = query.or('country.is.null,country.eq.,state.is.null,state.eq.,city.is.null,city.eq.')
     } else if (country && country !== 'all') {
@@ -55,8 +66,28 @@ export async function GET(request: NextRequest) {
       query = query.eq('city', city)
     }
     
+    // Apply Status Filter
     if (processingStatus && processingStatus !== 'all') {
-      query = query.eq('processing_status', processingStatus)
+      if (source === 'core') {
+        // For Core, map 'pending' to 'approved=true' (Active but needing triggers)
+        // Or strictly filter.
+        // User wants to find valid POIs. Usually active ones.
+        if (processingStatus === 'pending') {
+           // Maybe we want Approved POIs?
+           query = query.eq('approved', true)
+        } else if (processingStatus === 'failed') {
+          // No direct mapping, maybe approved=false?
+          query = query.eq('approved', false)
+        }
+        // 'all' passes through
+      } else {
+        // Homolog standard filtering
+        query = query.eq('processing_status', processingStatus)
+      }
+    } else if (source === 'core' && (!processingStatus || processingStatus === 'all')) {
+      // Default for Core if no status specified: Usually we want Approved items to reprocess
+      // query = query.eq('approved', true) 
+      // User might select 'all' to see everything? Let's leave it open if 'all'.
     }
 
     // Limit results
@@ -74,13 +105,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: pois?.map(p => ({
-        id: p.uuid_id,
+      data: pois?.map((p: any) => ({
+        id: p.uuid_id || p.id,
         name: p.name,
         city: p.city,
         state: p.state,
         country: p.country,
-        processing_status: p.processing_status
+        processing_status: p.processing_status || (p.approved ? 'approved' : 'pending')
       })) || []
     })
 
