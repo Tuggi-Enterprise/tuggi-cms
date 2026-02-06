@@ -3,7 +3,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, Plus, AlertTriangle, AlertCircle } from 'lucide-react'
+import { 
+  X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, 
+  Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, 
+  Plus, AlertTriangle, AlertCircle, Layers, Zap, Navigation 
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getScoreDescription, getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute'
 import { formatDate } from '@/lib/utils'
@@ -2304,121 +2308,160 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           )}
 
           {/* Header */}
-          <div className="bg-white dark:bg-gray-800 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-                {tCommon('Navigation.pois')}
-              </h3>
+          <div className="bg-white dark:bg-gray-900 rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[90vh] max-h-[90vh] border border-gray-100 dark:border-gray-800 transition-all duration-500 ease-out scale-100">
+            {/* Modal Header - Fixed */}
+            <header className="px-8 py-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-white/80 dark:bg-gray-900/80 backdrop-blur-md z-30">
+              <div className="flex items-center gap-4">
+                <div className="p-3 bg-tuggi-blue/10 rounded-2xl">
+                  <MapPin className="h-6 w-6 text-tuggi-blue" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight leading-none mb-1">
+                    {mode === 'create' ? t('actions.create_poi') : (currentPoi?.name || 'POI Details')}
+                  </h2>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest leading-none">
+                      {mode === 'create' ? 'NOVO REGISTRO' : (currentPoi?.city || 'LATITUDE / LONGITUDE')}
+                    </span>
+                    {currentPoi?.approved !== undefined && (
+                      <div className={cn(
+                        "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-widest border",
+                        currentPoi.approved 
+                          ? "bg-green-500/10 text-green-500 border-green-500/20" 
+                          : "bg-orange-500/10 text-orange-500 border-orange-500/20"
+                      )}>
+                        {currentPoi.approved ? 'HOMOLOGADO' : 'EM ANÁLISE'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
               <button
                 onClick={onClose}
-                className="rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
+                className="p-3 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5 rounded-2xl transition-all"
               >
                 <X className="h-6 w-6" />
               </button>
-            </div>
+            </header>
 
-            {/* Tabs */}
-            <div className="mt-4 border-b border-gray-200 dark:border-gray-700">
-              <nav className="-mb-px flex space-x-8">
-                {/* Show 'create' tab only if POI doesn't exist or has no ID */}
-                {(!currentPoi || !currentPoi.id) && (
+            <div className="flex-1 flex overflow-hidden">
+              {/* Lateral Menu (Sidebar) */}
+              <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex flex-col gap-2 z-20">
+                <div className="mb-4">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3">Navegação</span>
+                </div>
+                
+                {mode === 'create' && (
                   <button
                     onClick={() => setActiveTab('create')}
                     className={cn(
-                      'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
-                      activeTab === 'create'
-                        ? 'border-tuggi-blue text-tuggi-blue'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                      'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                      activeTab === 'create' 
+                        ? 'bg-tuggi-blue text-white' 
+                        : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
                     )}
                   >
-                    <Plus className="h-4 w-4 inline mr-2" />
+                    <Plus className={cn("h-5 w-5", activeTab === 'create' && "animate-pulse")} />
                     {t('tabs.create')}
                   </button>
                 )}
-                {/* Show 'details' tab only if POI exists and has ID */}
-                {currentPoi && currentPoi.id && (
-                  <button
-                    onClick={() => setActiveTab('details')}
-                    className={cn(
-                      'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
-                      activeTab === 'details'
-                        ? 'border-tuggi-blue text-tuggi-blue'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                    )}
-                  >
-                    <Info className="h-4 w-4 inline mr-2" />
-                    {t('tabs.details')}
-                  </button>
+
+                {mode === 'view' && (
+                  <>
+                    <button
+                      onClick={() => setActiveTab('details')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'details' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <MapPin className={cn("h-5 w-5", activeTab === 'details' && "animate-pulse")} />
+                      {t('tabs.details')}
+                    </button>
+                    
+                    <button
+                      onClick={() => setActiveTab('description')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'description' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <FileText className={cn("h-5 w-5", activeTab === 'description' && "animate-pulse")} />
+                      {t('tabs.description')}
+                    </button>
+                    
+                    <button
+                      onClick={() => setActiveTab('narration-audio')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'narration-audio' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <Volume2 className={cn("h-5 w-5", activeTab === 'narration-audio' && "animate-pulse")} />
+                      {t('tabs.audio')}
+                    </button>
+                    
+                    <button
+                      onClick={() => setActiveTab('group-pois')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'group-pois' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <Layers className={cn("h-5 w-5", activeTab === 'group-pois' && "animate-pulse")} />
+                      {t('tabs.group_pois')}
+                    </button>
+                    
+                    <button
+                      onClick={() => setActiveTab('trigger-points')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'trigger-points' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <Target className={cn("h-5 w-5", activeTab === 'trigger-points' && "animate-pulse")} />
+                      {t('tabs.trigger_points')}
+                    </button>
+                    
+                    <div className="my-4 border-t border-gray-100 dark:border-gray-800" />
+                    
+                    <button
+                      onClick={() => setActiveTab('review')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'review' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <CheckCircle className={cn("h-5 w-5", activeTab === 'review' && "animate-pulse")} />
+                      {t('tabs.review')}
+                    </button>
+                  </>
                 )}
-                {/* Other tabs appear always - they're part of the creation/editing flow */}
-                <button
-                  onClick={() => setActiveTab('group-pois')}
-                  className={cn(
-                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
-                    activeTab === 'group-pois'
-                      ? 'border-tuggi-blue text-tuggi-blue'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                  )}
-                >
-                  <Users className="h-4 w-4 inline mr-2" />
-                  {t('tabs.group_pois')}
-                </button>
-                <button
-                  onClick={() => setActiveTab('description')}
-                  className={cn(
-                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
-                    activeTab === 'description'
-                      ? 'border-tuggi-blue text-tuggi-blue'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                  )}
-                >
-                  <FileText className="h-4 w-4 inline mr-2" />
-                  {t('tabs.description')}
-                </button>
+                
+                {/* Visual Accent */}
+                <div className="mt-auto p-4 bg-gradient-to-br from-tuggi-blue/10 to-transparent rounded-2xl border border-tuggi-blue/5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Zap className="h-4 w-4 text-tuggi-blue" />
+                    <span className="text-[10px] font-bold text-tuggi-blue uppercase tracking-widest">Tuggi Engine</span>
+                  </div>
+                  <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">Configure e monetize seus pontos de interesse com facilidade.</p>
+                </div>
+              </aside>
 
-                <button
-                  onClick={() => setActiveTab('narration-audio')}
-                  className={cn(
-                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
-                    activeTab === 'narration-audio'
-                      ? 'border-tuggi-blue text-tuggi-blue'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                  )}
-                >
-                  <Volume2 className="h-4 w-4 inline mr-2" />
-                  {t('tabs.narration')}
-                </button>
-                <button
-                  onClick={() => setActiveTab('trigger-points')}
-                  className={cn(
-                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
-                    activeTab === 'trigger-points'
-                      ? 'border-tuggi-blue text-tuggi-blue'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                  )}
-                >
-                  <Target className="h-4 w-4 inline mr-2" />
-                  {t('tabs.trigger_points')}
-                </button>
-                <button
-                  onClick={() => setActiveTab('review')}
-                  className={cn(
-                    'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm',
-                    activeTab === 'review'
-                      ? 'border-tuggi-blue text-tuggi-blue'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                  )}
-                >
-                  <CheckCircle className="h-4 w-4 inline mr-2" />
-                  {t('tabs.review')}
-                </button>
-
-              </nav>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="bg-white dark:bg-gray-800 flex-1 overflow-hidden">
+              {/* Main Content Area */}
+              <main className="flex-1 bg-white dark:bg-gray-900 overflow-y-auto custom-scrollbar">
             {activeTab === 'create' ? (
               <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
                 <div className="space-y-6">
@@ -2542,7 +2585,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             {createLocation.country && (
                               <p><strong>{t('labels.country')}:</strong> {createLocation.country}</p>
                             )}
-                            {createLocation.formatted_address && (
+                      {createLocation.formatted_address && (
                               <p className="text-xs mt-2 text-blue-600 dark:text-blue-400">
                                 {createLocation.formatted_address}
                               </p>
@@ -2615,25 +2658,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
                           {t('labels.content_status_title')}
                         </h3>
-                        {currentPoi && (
-                          <button
-                            onClick={handleReEnrichOSM}
-                            disabled={isEnrichingOSM}
-                            className="px-3 py-1.5 text-sm font-medium text-white bg-tuggi-blue rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                          >
-                            {isEnrichingOSM ? (
-                              <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                {t('actions.enriching')}
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="h-4 w-4 mr-2" />
-                                {t('actions.enrich_osm')}
-                              </>
-                            )}
-                          </button>
-                        )}
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2767,235 +2791,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       </div>
                     </div>
 
-                    {/* SECTION 2: Status & Ratings - Two Column Layout */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Left Column: Status & Ratings */}
-                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                          <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
-                          {t('labels.approval_status')} & {t('labels.rating')}
-                        </h3>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          {/* Approval Status */}
-                          <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.approval_status')}</div>
-                            <span className={cn(
-                              'inline-flex items-center px-3 py-1 text-sm font-medium rounded-full',
-                              getPoi()?.approved
-                                ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
-                                : 'bg-tuggi-orange/10 text-tuggi-orange border border-tuggi-orange/20'
-                            )}>
-                              {getPoi()?.approved ? (
-                                <>
-                                  <CheckCircle className="h-4 w-4 mr-1" />
-                                  {tCommon('status.approved')}
-                                </>
-                              ) : (
-                                <>
-                                  <Clock className="h-4 w-4 mr-1" />
-                                  {tCommon('status.pending')}
-                                </>
-                              )}
-                            </span>
-                          </div>
-
-                          {/* Rating */}
-                          {getPoi()?.rating ? (
-                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.rating')}</div>
-                              <div className="flex items-center">
-                                <Star className="h-5 w-5 text-yellow-400 mr-1" />
-                                <span className="text-lg font-semibold text-gray-900 dark:text-white">
-                                  {getPoi()!.rating!.toFixed(1)}
-                                </span>
-                                {getPoi()?.user_ratings_total && (
-                                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
-                                    ({getPoi()!.user_ratings_total})
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.rating')}</div>
-                              <div className="text-sm text-gray-500 dark:text-gray-400">N/A</div>
-                            </div>
-                          )}
-
-                          {/* Verification Score */}
-                          {((verificationResult?.score || 0) > 0 || (getPoi()?.verification_score !== null && getPoi()?.verification_score !== undefined)) ? (
-                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.verification_score')}</div>
-                              <div className="flex items-center">
-                                {(() => {
-                                  const score = verificationResult?.score || 
-                                               (getPoi()?.verification_score ? Math.round(getPoi()!.verification_score! * 100) : 0);
-                                  return (
-                                    <span className={cn(
-                                      "text-lg font-semibold",
-                                      score >= 80 ? "text-green-600 dark:text-green-400" :
-                                        score >= 60 ? "text-yellow-600 dark:text-yellow-400" :
-                                          "text-red-600 dark:text-red-400"
-                                    )}>
-                                      {score}%
-                                    </span>
-                                  );
-                                })()}
-                              </div>
-                            </div>
-                          ) : null}
-
-                          {/* Group Status */}
-                          {getPoi()?.group_status && getPoi()!.group_status!.is_in_group ? (
-                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.group')}</div>
-                              <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                                {getPoi()!.group_status!.group_role === 'main' ? t('labels.group_main') : t('labels.group_member')}
-                              </div>
-                              {getPoi()!.group_status!.group_name && (
-                                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                  {getPoi()!.group_status!.group_name}
-                                </div>
-                              )}
-                            </div>
-                          ) : null}
-
-                          {/* Business Status */}
-                          {getPoi()?.business_status ? (
-                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{t('labels.business_status')}</div>
-                              <div className="text-sm font-semibold text-gray-900 dark:text-white capitalize">
-                                {getPoi()!.business_status!.replace(/_/g, ' ')}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      {/* Right Column: Importance & Classification */}
-                      {poi?._homologData ? (
-                        <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                            <Star className="h-5 w-5 mr-2 text-amber-600" />
-                            {t('labels.importance_score')} & {t('labels.importance_level')}
-                          </h3>
-
-                          <div className="space-y-3">
-                            {/* Importance Score */}
-                            {(poi?._homologData?.importance !== null && poi?._homologData?.importance !== undefined) ? (
-                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.importance_score')}</div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                      {Number(poi?._homologData?.importance).toFixed(2)}
-                                      {poi?._homologData?.importance_level && ` • ${poi?._homologData?.importance_level}`}
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center">
-                                    <span className={cn(
-                                      "text-lg font-semibold",
-                                      Number(poi?._homologData?.importance) >= 0.7 ? "text-green-600 dark:text-green-400" :
-                                        Number(poi?._homologData?.importance) >= 0.4 ? "text-yellow-600 dark:text-yellow-400" :
-                                          "text-gray-600 dark:text-gray-400"
-                                    )}>
-                                      {Number(poi?._homologData?.importance).toFixed(2)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {/* Importance Level (if no importance score but has level) */}
-                            {(poi?._homologData?.importance === null || poi?._homologData?.importance === undefined) &&
-                              poi?._homologData?.importance_level ? (
-                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.importance_level')}</div>
-                                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('labels.touristic_hint')}</div>
-                                  </div>
-                                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 capitalize">
-                                    {poi?._homologData?.importance_level}
-                                  </span>
-                                </div>
-                              </div>
-                            ) : null}
-
-                            {/* Historic Classification */}
-                            {(() => {
-                              const isHistoric = poi?._homologData?.is_historic;
-                              // Debug: uncomment to check values
-                              // console.log('is_historic value:', isHistoric, 'type:', typeof isHistoric);
-                              return isHistoric === true || isHistoric === 'true' || isHistoric === 1 ? (
-                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="flex items-center justify-between">
-                                    <div>
-                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.historic_site')}</div>
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('labels.historic_hint')}</div>
-                                    </div>
-                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                                      <Calendar className="h-4 w-4 mr-1" />
-                                      {tCommon('sections.historic')}
-                                    </span>
-                                  </div>
-                                </div>
-                              ) : null;
-                            })()}
-
-                            {/* Touristic Classification */}
-                            {(() => {
-                              const isTouristic = poi?._homologData?.is_touristic;
-                              // Debug: uncomment to check values
-                              // console.log('is_touristic value:', isTouristic, 'type:', typeof isTouristic);
-                              return isTouristic === true || isTouristic === 'true' || isTouristic === 1 ? (
-                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                  <div className="flex items-center justify-between">
-                                    <div>
-                                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('labels.touristic_site')}</div>
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('labels.touristic_hint')}</div>
-                                    </div>
-                                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                                      <Target className="h-4 w-4 mr-1" />
-                                      Touristic
-                                    </span>
-                                  </div>
-                                </div>
-                              ) : null;
-                            })()}
-
-                            {/* Show message if no data available */}
-                            {(() => {
-                              const hasImportance = poi?._homologData?.importance !== null && poi?._homologData?.importance !== undefined;
-                              const hasImportanceLevel = !!poi?._homologData?.importance_level;
-                              const isHistoric = poi?._homologData?.is_historic;
-                              const isTouristic = poi?._homologData?.is_touristic;
-                              const hasHistoric = isHistoric === true || isHistoric === 'true' || isHistoric === 1;
-                              const hasTouristic = isTouristic === true || isTouristic === 'true' || isTouristic === 1;
-
-                              if (!hasImportance && !hasImportanceLevel && !hasHistoric && !hasTouristic) {
-                                return (
-                                  <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                    <div className="text-sm text-gray-500 dark:text-gray-400 text-center">
-                                      {t('labels.no_homolog_data')}
-                                    </div>
-                                  </div>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
 
                     {/* SECTION 3: Location Details & Image - Two Column Layout */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {/* Left Column: Location Details */}
-                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                          <MapPin className="h-5 w-5 mr-2 text-red-600" />
+                      {/* Left Column: Location Details */}
+                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-100 dark:border-gray-800">
+                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
                           {t('labels.location_details')}
                         </h3>
 
@@ -3047,32 +2849,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </div>
                       </div>
 
-                      {/* Boundary Drawing Section */}
-                      {(() => {
+                      {/* Boundary Drawing Section - COMMENTED OUT AS PER USER REQUEST */}
+                      {/* {(() => {
                         const currentPoi = getPoi()
-                        console.log('🗺️ [POIDetailsModal] Boundary section rendering check:', {
-                          activeTab,
-                          isDetailsTab: activeTab === 'details',
-                          isLoading,
-                          hasPoi: !!currentPoi,
-                          hasCurrentPoi: !!currentPoi,
-                          poiId: currentPoi?.id,
-                          hasCoordinates: !!currentPoi?.coordinates,
-                          coordinates: currentPoi?.coordinates ? {
-                            lat: currentPoi.coordinates.latitude,
-                            lng: currentPoi.coordinates.longitude
-                          } : null,
-                          // Also check prop poi
-                          hasPropPoi: !!poi,
-                          propPoiId: poi?.id,
-                          hasPropCoordinates: !!poi?.coordinates
-                        })
                         return null
                       })()}
-                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 mt-6 col-span-full">
+                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-100 dark:border-gray-800 mt-6 col-span-full">
                         <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-                            <MapPin className="h-5 w-5 mr-2 text-tuggi-blue" />
+                          <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
                             {t('labels.poi_boundary')}
                           </h3>
                           {boundaryPolygon && boundaryPolygon.length >= 3 && (
@@ -3113,28 +2897,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           {(() => {
                             const currentPoi = getPoi()
                             if (!currentPoi || !currentPoi.coordinates) {
-                              console.log('🗺️ [POIDetailsModal] Cannot render boundary map: POI or coordinates missing', {
-                                hasPoi: !!currentPoi,
-                                hasCoordinates: !!currentPoi?.coordinates
-                              })
                               return (
                                 <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
                                   {t('messages.poi_coordinates_not_available')}
                                 </div>
                               )
                             }
-                            console.log('🗺️ [POIDetailsModal] Rendering GoogleMapComponent with:', {
-                              componentId: 'boundary-drawing',
-                              hasHandleBoundaryPolygonComplete: !!handleBoundaryPolygonComplete,
-                              handleBoundaryPolygonCompleteType: typeof handleBoundaryPolygonComplete,
-                              isFunction: typeof handleBoundaryPolygonComplete === 'function',
-                              hasPoiCoordinates: !!currentPoi.coordinates,
-                              poiId: currentPoi.id,
-                              handleBoundaryPolygonCompleteValue: handleBoundaryPolygonComplete,
-                              willPassOnPolygonComplete: true
-                            })
 
-                            // CRITICAL: Verify the callback is actually a function before passing
                             if (typeof handleBoundaryPolygonComplete !== 'function') {
                               console.error('❌ CRITICAL: handleBoundaryPolygonComplete is NOT a function!', {
                                 type: typeof handleBoundaryPolygonComplete,
@@ -3190,7 +2959,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             </div>
                           </div>
                         )}
-                      </div>
+                      </div> */}
 
                       {/* Right Column: Image Preview */}
                       <div>
@@ -4891,40 +4660,41 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                 </div>
               </div>
             ) : null}
-          </div>
-
-          {/* Footer - Show buttons only for review tab */}
-          {activeTab === 'review' && (
-            <div className="bg-gray-50 dark:bg-gray-900 px-6 py-4">
-              <div className="flex items-center justify-between">
-                <div></div>
-                <div className="flex items-center space-x-3">
-                  <button
-                    onClick={onClose}
-                    className="px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"
-                  >
-                    {t('actions.cancel')}
-                  </button>
-                  {!getPoi()?.approved && cmsUserRole === 'admin' && (
-                    <button
-                      onClick={handleApprove}
-                      disabled={isSaving || !currentDescription.trim() || translatedDescriptions.length === 0}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
-                    >
-                       <CheckCircle className="h-4 w-4 mr-2" />
-                       {isSaving ? t('labels.approving') : tCommon('actions.approve')}
-                     </button>
-                  )}
-                  {getPoi()?.approved && cmsUserRole === 'admin' && (
-                    <div className="inline-flex items-center px-4 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-md">
-                       <CheckCircle className="h-4 w-4 mr-2" />
-                       {t('labels.poi_approved')}
-                     </div>
-                  )}
-                </div>
-              </div>
+                {/* Footer - Show buttons only for review tab - Now inside main/content area */}
+                {activeTab === 'review' && (
+                  <div className="bg-gray-50 dark:bg-gray-900 px-8 py-6 border-t border-gray-100 dark:border-gray-800 mt-auto">
+                    <div className="flex items-center justify-between">
+                      <div></div>
+                      <div className="flex items-center space-x-4">
+                        <button
+                          onClick={onClose}
+                          className="px-6 py-3 text-sm font-black text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-2xl transition-all uppercase tracking-widest"
+                        >
+                          {t('actions.cancel')}
+                        </button>
+                        {!getPoi()?.approved && cmsUserRole === 'admin' && (
+                          <button
+                            onClick={handleApprove}
+                            disabled={isSaving || !currentDescription.trim() || translatedDescriptions.length === 0}
+                            className="inline-flex items-center px-8 py-3 bg-green-600 text-white rounded-2xl font-black text-sm hover:shadow-xl hover:shadow-green-600/30 transition-all uppercase tracking-widest disabled:opacity-50 active:scale-95"
+                          >
+                             <CheckCircle className="h-4 w-4 mr-2" />
+                             {isSaving ? t('labels.approving') : tCommon('actions.approve')}
+                           </button>
+                        )}
+                        {getPoi()?.approved && cmsUserRole === 'admin' && (
+                          <div className="inline-flex items-center px-6 py-3 text-sm font-black text-green-700 bg-green-50 border border-green-200 rounded-2xl uppercase tracking-widest">
+                             <CheckCircle className="h-4 w-4 mr-2" />
+                             {t('labels.poi_approved')}
+                           </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </main>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

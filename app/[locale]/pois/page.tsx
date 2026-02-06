@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Plus, Search, Filter, Edit, XCircle, Eye, Trash2, Calendar, Users, ChevronLeft, ChevronRight, List, Map, Grid, X, MapPin } from 'lucide-react'
+import {
+  MapPin, CheckCircle, FileText, Search, Filter, Plus, Grid, List, Map,
+  Trash2, Eye, ChevronLeft, ChevronRight, RotateCcw, Target, Volume2, Clock, Edit, XCircle, Calendar, Users, X
+} from 'lucide-react'
 import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -580,249 +583,179 @@ function POIListWithSearchParams() {
       { value: 'without_trigger_points', label: t('status_options.without_trigger_points') }
     ]
   }), [locationData.countries, locationData.states, locationData.cities, countryFilter, stateFilter, t])
+  const hasActiveFilters = useMemo(() => {
+    return searchTerm !== '' || 
+           statusFilter !== 'all' || 
+           cityFilter !== '' || 
+           countryFilter !== '' || 
+           stateFilter !== '' || 
+           contentStatusFilter !== 'all' || 
+           groupStatusFilter !== 'all' || 
+           scoreFilter !== 'all' || 
+           triggerPointsFilter !== 'all'
+  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter])
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
-              <MapPin className="h-8 w-8 mr-3 text-tuggi-orange" />
-              {t('title')}
-            </h1>
-            <p className="text-gray-600 dark:text-gray-400 mt-2">
-              {t('subtitle')}
-            </p>
-          </div>
-          <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setSelectedPoi(null)
-                  setIsModalOpen(true)
-                }}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                {t('add_manually')}
-              </button>
-            {cmsUserRole === 'admin' && (
-              <Link
-                href="/poi-importer"
-                className="px-4 py-2 bg-tuggi-blue text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                {t('import_pois')}
-              </Link>
-            )}
-          </div>
-        </div>
-      </div>
-
-
-      <div className="flex gap-6">
-        {/* Left Column - Filters */}
-        <div className="w-[15%]">
-          {/* Search and Filters */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
+      <div className="flex gap-8 flex-1 pt-6">
+        {/* Left Column - Filters Sidebar */}
+        <div className="w-[18%] flex-shrink-0">
+          <div className="bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 sticky top-24">
             <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-                  <Filter className="h-5 w-5 mr-2 text-tuggi-blue" />
-                  {t('filters.title')}
-                </h2>
-                <button
-                  onClick={clearFilters}
-                  className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                >
-                  {t('filters.clear_all')}
-                </button>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-tuggi-blue/10 rounded-xl">
+                    <Filter className="h-5 w-5 text-tuggi-blue" />
+                  </div>
+                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight">
+                    {t('filters.title')}
+                  </h2>
+                </div>
+                {hasActiveFilters && (
+                  <button
+                    onClick={clearFilters}
+                    className="p-2 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5 rounded-lg transition-all"
+                    title={t('filters.clear_all')}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                )}
               </div>
 
               {/* Search Bar */}
-              <div className="mb-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <div className="mb-6">
+                <div className="relative group">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-4 w-4 text-gray-400 group-focus-within:text-tuggi-blue transition-colors" />
+                  </div>
                   <input
                     type="text"
                     placeholder={t('filters.search_placeholder')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50/50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-tuggi-blue focus:border-transparent transition-all outline-none"
                   />
                 </div>
               </div>
 
-              {/* Filters */}
-              <div className="space-y-4">
-                {/* Country Filter */}
+              {/* Filters List */}
+              <div className="space-y-5">
+                {/* Location Section */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('filters.country')}
-                  </label>
-                  <select
-                    value={countryFilter}
-                    onChange={(e) => setCountryFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                    disabled={locationData.countriesLoading}
-                  >
-                    <option value="">{t('filters.all_countries')}</option>
-                    {filterOptions.countries.map((country) => (
-                      <option key={country.value} value={country.value}>
-                        {country.label}
-                      </option>
-                    ))}
-                  </select>
-                  {locationData.countriesLoading && (
-                    <div className="flex items-center mt-1 text-sm text-gray-500">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-tuggi-blue mr-1"></div>
-                      {t('filters.loading_countries')}
-                    </div>
-                  )}
+                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Localização</h3>
+                  <div className="space-y-3">
+                    <select
+                      value={countryFilter}
+                      onChange={(e) => setCountryFilter(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                      disabled={locationData.countriesLoading}
+                    >
+                      <option value="">{t('filters.all_countries')}</option>
+                      {filterOptions.countries.map((country) => (
+                        <option key={country.value} value={country.value}>
+                          {country.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={stateFilter}
+                      onChange={(e) => setStateFilter(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all disabled:opacity-50"
+                      disabled={!countryFilter || locationData.statesLoading}
+                    >
+                      <option value="">{t('filters.all_states')}</option>
+                      {filterOptions.states.map((state) => (
+                        <option key={state.value} value={state.value}>
+                          {state.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={cityFilter}
+                      onChange={(e) => setCityFilter(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all disabled:opacity-50"
+                      disabled={!countryFilter || locationData.citiesLoading}
+                    >
+                      <option value="">{t('filters.all_cities')}</option>
+                      {filterOptions.cities.map((city) => (
+                        <option key={city.value} value={city.value}>
+                          {city.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
-                {/* State Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('filters.state')}
-                  </label>
-                  <select
-                    value={stateFilter}
-                    onChange={(e) => setStateFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                    disabled={!countryFilter || locationData.statesLoading}
-                  >
-                    <option value="">{t('filters.all_states')}</option>
-                    {filterOptions.states.map((state) => (
-                      <option key={state.value} value={state.value}>
-                        {state.label}
-                      </option>
-                    ))}
-                  </select>
-                  {locationData.statesLoading && (
-                    <div className="flex items-center mt-1 text-sm text-gray-500">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-tuggi-blue mr-1"></div>
-                      {t('filters.loading_states')}
-                    </div>
-                  )}
+                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">{t('filters.status')}</h3>
+                  <div className="space-y-3">
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value as any)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                    >
+                      {filterOptions.status.map((status) => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={contentStatusFilter}
+                      onChange={(e) => setContentStatusFilter(e.target.value as any)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                    >
+                      {filterOptions.contentStatus.map((status) => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
-                {/* City Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('filters.city')}
-                  </label>
-                  <select
-                    value={cityFilter}
-                    onChange={(e) => setCityFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                    disabled={!countryFilter || locationData.citiesLoading}
-                  >
-                    <option value="">{t('filters.all_cities')}</option>
-                    {filterOptions.cities.map((city) => (
-                      <option key={city.value} value={city.value}>
-                        {city.label}
-                      </option>
-                    ))}
-                  </select>
-                  {locationData.citiesLoading && (
-                    <div className="flex items-center mt-1 text-sm text-gray-500">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-tuggi-blue mr-1"></div>
-                      {t('filters.loading_cities')}
-                    </div>
-                  )}
-                </div>
+                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Avançado</h3>
+                  <div className="space-y-3">
+                    <select
+                      value={groupStatusFilter}
+                      onChange={(e) => setGroupStatusFilter(e.target.value as any)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                    >
+                      {filterOptions.groupStatus.map((status) => (
+                        <option key={status.value} value={status.value}>
+                          {status.label}
+                        </option>
+                      ))}
+                    </select>
 
-                {/* Status Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('filters.status')}
-                  </label>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                  >
-                    {filterOptions.status.map((status) => (
-                      <option key={status.value} value={status.value}>
-                        {status.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    <select
+                      value={scoreFilter}
+                      onChange={(e) => setScoreFilter(e.target.value as any)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                    >
+                      {filterOptions.scoreFilter.map((score) => (
+                        <option key={score.value} value={score.value}>
+                          {score.label}
+                        </option>
+                      ))}
+                    </select>
 
-                {/* Content Status Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('filters.content_status')}
-                  </label>
-                  <select
-                    value={contentStatusFilter}
-                    onChange={(e) => setContentStatusFilter(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                  >
-                    {filterOptions.contentStatus.map((status) => (
-                      <option key={status.value} value={status.value}>
-                        {status.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-
-
-                {/* Group Status Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('filters.group_status')}
-                  </label>
-                  <select
-                    value={groupStatusFilter}
-                    onChange={(e) => setGroupStatusFilter(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                  >
-                    {filterOptions.groupStatus.map((status) => (
-                      <option key={status.value} value={status.value}>
-                        {status.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Score Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('filters.score')}
-                  </label>
-                  <select
-                    value={scoreFilter}
-                    onChange={(e) => setScoreFilter(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                  >
-                    {filterOptions.scoreFilter.map((score) => (
-                      <option key={score.value} value={score.value}>
-                        {score.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Trigger Points Filter */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {t('filters.trigger_points')}
-                  </label>
-                  <select
-                    value={triggerPointsFilter}
-                    onChange={(e) => setTriggerPointsFilter(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
-                  >
-                    {filterOptions.triggerPointsFilter.map((filter) => (
-                      <option key={filter.value} value={filter.value}>
-                        {filter.label}
-                      </option>
-                    ))}
-                  </select>
+                    <select
+                      value={triggerPointsFilter}
+                      onChange={(e) => setTriggerPointsFilter(e.target.value as any)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                    >
+                      {filterOptions.triggerPointsFilter.map((filter) => (
+                        <option key={filter.value} value={filter.value}>
+                          {filter.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>
@@ -830,256 +763,413 @@ function POIListWithSearchParams() {
         </div>
 
         {/* Right Column - Content */}
-        <div className="w-[85%]">
-          {/* View Controls and Bulk Actions */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+        <div className="w-[82%]">
+          {/* Stats Summary Bar */}
+          <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 mb-8 sticky top-0 z-30">
             <div className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-8 pl-2">
+                <div className="flex flex-col">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total POIs</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-bold text-gray-900 dark:text-white leading-none">{totalCount}</span>
+                    <div className="w-1.5 h-1.5 rounded-full bg-tuggi-blue animate-pulse" />
+                  </div>
+                </div>
+
+                <div className="h-8 w-px bg-gray-200 dark:bg-gray-800" />
+
+                {/* View Modes In Header */}
+                <div className="flex items-center gap-1 p-1 bg-gray-50/50 dark:bg-gray-950/50 rounded-2xl border border-gray-100 dark:border-gray-800">
                   <button
                     onClick={() => handleViewModeChange('cards')}
                     className={cn(
-                      "p-2 rounded-lg transition-colors",
-                      viewMode === 'cards' ? "bg-tuggi-blue text-white" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                      "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300",
+                      viewMode === 'cards' 
+                        ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-md shadow-black/5" 
+                        : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                     )}
                   >
-                    <Grid className="h-4 w-4" />
+                    <Grid className="h-3.5 w-3.5" />
+                    Cards
                   </button>
                   <button
                     onClick={() => handleViewModeChange('list')}
                     className={cn(
-                      "p-2 rounded-lg transition-colors",
-                      viewMode === 'list' ? "bg-tuggi-blue text-white" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                      "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300",
+                      viewMode === 'list' 
+                        ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-md shadow-black/5" 
+                        : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                     )}
                   >
-                    <List className="h-4 w-4" />
+                    <List className="h-3.5 w-3.5" />
+                    List
                   </button>
                   <button
                     onClick={() => handleViewModeChange('map')}
                     className={cn(
-                      "p-2 rounded-lg transition-colors",
-                      viewMode === 'map' ? "bg-tuggi-blue text-white" : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                      "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300",
+                      viewMode === 'map' 
+                        ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-md shadow-black/5" 
+                        : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                     )}
                   >
-                    <Map className="h-4 w-4" />
+                    <Map className="h-3.5 w-3.5" />
+                    Map
                   </button>
                 </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">
-                  {t('controls.pois_found', { count: totalCount })}
+
+                <div className="h-8 w-px bg-gray-200 dark:bg-gray-800" />
+                
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedPoi(null)
+                        setIsModalOpen(true)
+                      }}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-xs bg-tuggi-blue text-white hover:bg-tuggi-blue/90 shadow-lg shadow-tuggi-blue/20 transition-all duration-300"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {t('add_manually')}
+                    </button>
+
+                    {cmsUserRole === 'admin' && (
+                      <Link
+                        href="/poi-importer"
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-xs bg-green-600 text-white hover:bg-green-600/90 shadow-lg shadow-green-600/20 transition-all duration-300"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        {t('import_pois')}
+                      </Link>
+                    )}
+                  </div>
+                  
+                  {selectedPois.length > 0 && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-tuggi-blue/10 rounded-xl">
+                      <span className="text-xs font-bold text-tuggi-blue">{selectedPois.length}</span>
+                      <span className="text-[10px] font-bold text-tuggi-blue/60 uppercase tracking-tighter">Selecionados</span>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              
+              <div className="flex items-center gap-3 pr-2">
                 {selectedPois.length > 0 && cmsUserRole === 'admin' && (
                   <button
                     onClick={handleBulkDelete}
-                    className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-xl font-bold text-xs hover:bg-red-500/20 transition-all border border-red-500/10"
                   >
-                    {t('controls.delete_selected', { count: selectedPois.length })}
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Excluir
                   </button>
                 )}
-                  <button
-                    onClick={handleSelectAll}
-                    className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
-                  >
-                    {t('controls.select_all')}
-                  </button>
-                  <button
-                    onClick={handleDeselectAll}
-                    className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-                  >
-                    {t('controls.deselect_all')}
-                  </button>
+                <button
+                  onClick={handleSelectAll}
+                  className="px-4 py-2 bg-tuggi-blue/10 text-tuggi-blue font-bold text-xs rounded-xl hover:bg-tuggi-blue/20 transition-all"
+                >
+                  {t('controls.select_all')}
+                </button>
+                <button
+                  onClick={() => setSelectedPois([])}
+                  className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-bold text-xs rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
+                >
+                  {t('controls.deselect_all')}
+                </button>
               </div>
             </div>
           </div>
 
-          {/* Content */}
-          {viewMode === 'map' ? (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-              <OptimizedPOIMap
-                searchTerm={searchTerm}
-                statusFilter={statusFilter}
-                countryFilter={countryFilter}
-                stateFilter={stateFilter}
-                cityFilter={cityFilter}
-                contentStatusFilter={contentStatusFilter}
-                groupStatusFilter={groupStatusFilter}
-                triggerPointsFilter={triggerPointsFilter}
-                onPOIClick={handleSelectPoiForMap}
-                height="600px"
-                className="w-full rounded-lg"
-              />
-            </div>
-          ) : (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-              {isLoading ? (
-                <div className="p-8 text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-tuggi-blue mx-auto"></div>
-                  <p className="mt-2 text-gray-500 dark:text-gray-400">{t('list.loading')}</p>
-                </div>
-              ) : filteredPois.length === 0 ? (
-                <div className="p-8 text-center">
-                  <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">{t('list.no_pois_found')}</h3>
-                  <p className="text-gray-500 dark:text-gray-400">{t('list.no_pois_subtitle')}</p>
-                </div>
-              ) : (
-                <>
-                  {/* POI List */}
-                  <div className={cn(
-                    "divide-y divide-gray-200 dark:divide-gray-700",
-                    viewMode === 'cards' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4" : ""
-                  )}>
-                    {filteredPois.map((poi) => (
-                      <div
-                        key={poi.id}
-                        className={cn(
-                          "p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer",
-                          viewMode === 'cards' && "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
-                        )}
-                        onClick={() => handleSelectPoi(poi)}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-start">
-                            <input
-                              type="checkbox"
-                              checked={selectedPois.includes(poi.id)}
-                              onChange={(e) => {
-                                e.stopPropagation()
-                                handlePoiSelection(poi.id, e.target.checked)
-                              }}
-                              className="h-4 w-4 text-tuggi-blue rounded border-gray-300 focus:ring-tuggi-blue focus:ring-offset-0 mt-1"
-                            />
-                            {/* POI Image */}
-                            <div className="flex-shrink-0">
-                              {getThumbnailUrl(poi) ? (
-                                <img
-                                  src={getThumbnailUrl(poi)!}
-                                  alt={poi.name}
-                                  className="w-12 h-12 rounded-lg object-cover bg-gray-100 dark:bg-gray-700"
-                                  loading="lazy"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    target.style.display = 'none';
-                                    target.nextElementSibling?.classList.remove('hidden');
-                                  }}
-                                />
-                              ) : null}
-                              <div className={`w-12 h-12 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center ${getThumbnailUrl(poi) ? 'hidden' : ''}`}>
-                                <MapPin className="w-5 h-5 text-gray-400" />
-                              </div>
-                            </div>
-
-                            <div className="ml-3 flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <h3 className="text-sm font-medium text-gray-900 dark:text-white">{poi.name}</h3>
-                                <VerificationBadge
-                                  attractionId={poi.id}
-                                  verificationData={poi.verification_data}
-                                />
-                              </div>
-                              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                                {poi.city}, {poi.state && `${poi.state}, `}{poi.country}
-                              </p>
-                              <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
-                                <span>{t('list.trigger_points')}: {poi.trigger_points_count || 0}</span>
-                                <span>{t('list.descriptions')}: {poi.description_count || 0}</span>
-                                <span>{t('list.audio')}: {poi.audio_count || 0}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleSelectPoi(poi)
-                              }}
-                              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </button>
-                            {cmsUserRole === 'admin' && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleDeletePoi(poi.id)
-                                }}
-                                className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Pagination */}
-                  {totalPages > 1 && (
-                    <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                      <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
-                        <span>
-                          {t('pagination.showing', {
-                            from: ((currentPage - 1) * itemsPerPage) + 1,
-                            to: Math.min(currentPage * itemsPerPage, totalCount),
-                            total: totalCount
-                          })}
-                          {totalCount > 1000 && (
-                            <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">
-                              {t('pagination.supabase_limit')}
-                            </span>
-                          )}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <label htmlFor="itemsPerPage" className="text-sm font-medium">
-                            {t('pagination.items_per_page')}
-                          </label>
-                          <select
-                            id="itemsPerPage"
-                            value={itemsPerPage}
-                            onChange={(e) => {
-                              setItemsPerPage(Number(e.target.value))
-                              setCurrentPage(1) // Reset to first page when changing items per page
-                            }}
-                            className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                          >
-                            <option value={20}>20</option>
-                            <option value={50}>50</option>
-                            <option value={100}>100</option>
-                            <option value={200}>200</option>
-                            <option value={500}>500</option>
-                            <option value={1000}>1000 (Max - {Math.ceil(totalCount / 1000)} requests)</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handlePageChange(currentPage - 1)}
-                          disabled={currentPage === 1}
-                          className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                        >
-                          <ChevronLeft className="h-4 w-4 mr-1" />
-                          {t('pagination.previous')}
-                        </button>
-                        <span className="px-3 py-1 text-sm text-gray-700 dark:text-gray-300">
-                          {t('pagination.page_x_of_y', { current: currentPage, total: totalPages })}
-                        </span>
-                        <button
-                          onClick={() => handlePageChange(currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                          className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                        >
-                          {t('pagination.next')}
-                          <ChevronRight className="h-4 w-4 ml-1" />
-                        </button>
+          {/* Content Area */}
+          <div className="flex-1">
+            {viewMode === 'map' ? (
+              <div className="bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 overflow-hidden">
+                <OptimizedPOIMap
+                  searchTerm={searchTerm}
+                  statusFilter={statusFilter}
+                  countryFilter={countryFilter}
+                  stateFilter={stateFilter}
+                  cityFilter={cityFilter}
+                  contentStatusFilter={contentStatusFilter}
+                  groupStatusFilter={groupStatusFilter}
+                  triggerPointsFilter={triggerPointsFilter}
+                  onPOIClick={handleSelectPoiForMap}
+                  height="70vh"
+                  className="w-full"
+                />
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {isLoading ? (
+                  <div className="h-96 flex flex-col items-center justify-center bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm rounded-3xl border border-gray-200 dark:border-gray-800">
+                    <div className="relative">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue"></div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-2 h-2 bg-tuggi-blue rounded-full animate-pulse" />
                       </div>
                     </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
+                    <p className="mt-4 text-gray-500 font-semibold dark:text-gray-400 uppercase tracking-widest text-xs">Carregando POIs...</p>
+                  </div>
+                ) : filteredPois.length === 0 ? (
+                  <div className="h-96 flex flex-col items-center justify-center bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm rounded-3xl border border-gray-200 dark:border-gray-800">
+                    <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-2xl mb-4">
+                      <MapPin className="h-10 w-10 text-gray-400" />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 tracking-tight">{t('list.no_pois_found')}</h3>
+                    <p className="text-gray-500 dark:text-gray-400 font-medium">{t('list.no_pois_subtitle')}</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* POI Content */}
+                    <div className={cn(
+                      "transition-all duration-500",
+                      viewMode === 'cards' 
+                        ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 gap-6" 
+                        : "space-y-3"
+                    )}>
+                      {filteredPois.map((poi) => (
+                        <div
+                          key={poi.id}
+                          className={cn(
+                            "group transition-all duration-300 cursor-pointer overflow-hidden relative",
+                            viewMode === 'cards' 
+                              ? "bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border border-gray-200/60 dark:border-gray-800/60 rounded-[1.5rem] hover:shadow-2xl hover:shadow-tuggi-blue/5 hover:-translate-y-1 hover:border-tuggi-blue/30 p-5" 
+                              : "bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl p-4 border border-gray-200/60 dark:border-gray-800/60 rounded-2xl hover:border-tuggi-blue/30 hover:shadow-xl hover:shadow-black/5"
+                          )}
+                          onClick={() => handleSelectPoi(poi)}
+                        >
+                          {/* Premium Status Light */}
+                          <div className={cn(
+                            "absolute top-0 left-0 w-full h-1 opacity-80",
+                            poi.approved 
+                              ? "bg-gradient-to-r from-green-400 to-emerald-500" 
+                              : "bg-gradient-to-r from-orange-400 to-amber-500"
+                          )} />
+
+                          <div className={cn(
+                            "flex",
+                            viewMode === 'cards' ? "flex-col h-full" : "items-center gap-6"
+                          )}>
+                            {/* Card Header Layer */}
+                            {viewMode === 'cards' && (
+                              <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                  {poi.category ? (
+                                    <span className="text-[10px] font-bold text-tuggi-blue uppercase tracking-widest px-2.5 py-1 bg-tuggi-blue/5 rounded-full border border-tuggi-blue/10">
+                                      {poi.category}
+                                    </span>
+                                  ) : (
+                                    <div className="w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700" />
+                                  )}
+                                </div>
+                                <div 
+                                  className="relative cursor-pointer group/checkbox"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePoiSelection(poi.id, !selectedPois.includes(poi.id));
+                                  }}
+                                >
+                                  <div className={cn(
+                                    "h-5 w-5 rounded-lg border-2 transition-all duration-300 flex items-center justify-center",
+                                    selectedPois.includes(poi.id)
+                                      ? "bg-tuggi-blue border-tuggi-blue scale-105 shadow-lg shadow-tuggi-blue/20"
+                                      : "border-gray-200 dark:border-gray-700 group-hover/checkbox:border-tuggi-blue/50 bg-white dark:bg-gray-900"
+                                  )}>
+                                    {selectedPois.includes(poi.id) && (
+                                      <div className="w-2 h-2 rounded-[2px] bg-white animate-in zoom-in-50 duration-200" />
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* List View Checkbox & Status icon */}
+                            {viewMode === 'list' && (
+                              <div className="flex items-center gap-3 flex-shrink-0">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedPois.includes(poi.id)}
+                                  onChange={(e) => {
+                                    e.stopPropagation()
+                                    handlePoiSelection(poi.id, e.target.checked)
+                                  }}
+                                  className="h-3.5 w-3.5 text-tuggi-blue rounded border-gray-200 dark:bg-gray-800 focus:ring-0"
+                                />
+                                <div className={cn(
+                                  "p-1.5 rounded-lg",
+                                  poi.approved ? "bg-green-500/10 text-green-500" : "bg-orange-500/10 text-orange-500"
+                                )}>
+                                  <MapPin className="h-4 w-4" />
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                              <div className={cn(
+                                "mb-3",
+                                viewMode === 'list' && "grid grid-cols-1 md:grid-cols-4 gap-4 items-center"
+                              )}>
+                                <div className={cn(viewMode === 'list' && "col-span-2")}>
+                                  <div className="h-[3rem] flex items-center mb-1">
+                                    <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 line-clamp-2 group-hover:text-tuggi-blue transition-colors leading-tight w-full">
+                                      {poi.name}
+                                    </h3>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 font-medium">
+                                    <MapPin className="h-3.5 w-3.5 text-tuggi-blue/60 flex-shrink-0" />
+                                    <span className="truncate">{poi.city}{poi.state ? `, ${poi.state}` : ''}</span>
+                                  </div>
+                                </div>
+
+                                {viewMode === 'list' && (
+                                  <div className="hidden md:flex items-center gap-4 text-[11px] text-gray-400">
+                                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-800">
+                                      <Target className="h-3 w-3 text-tuggi-blue/60" />
+                                      <span className="font-medium text-gray-700 dark:text-gray-300">{poi.trigger_points_count || 0}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-800">
+                                      <FileText className="h-3 w-3 text-orange-400/60" />
+                                      <span className="font-medium text-gray-700 dark:text-gray-300">{poi.description_count || 0}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-800">
+                                      <Volume2 className="h-3 w-3 text-green-400/60" />
+                                      <span className="font-medium text-gray-700 dark:text-gray-300">{poi.audio_count || 0}</span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Cards Stats Area */}
+                              {viewMode === 'cards' && (
+                                <div className="mt-auto pt-4 border-t border-gray-100/80 dark:border-gray-800/50 flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <div 
+                                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800/50 group-hover:border-tuggi-blue/10 transition-colors"
+                                      title="Trigger Points"
+                                    >
+                                      <Target className="h-3.5 w-3.5 text-tuggi-blue" />
+                                      <span className="text-xs font-bold text-gray-600 dark:text-gray-400 leading-none">{poi.trigger_points_count || 0}</span>
+                                    </div>
+                                    <div 
+                                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800/50 group-hover:border-orange-400/10 transition-colors"
+                                      title="Descriptions"
+                                    >
+                                      <FileText className="h-3.5 w-3.5 text-orange-400" />
+                                      <span className="text-xs font-bold text-gray-600 dark:text-gray-400 leading-none">{poi.description_count || 0}</span>
+                                    </div>
+                                    <div 
+                                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800/50 group-hover:border-green-500/10 transition-colors"
+                                      title="Audios"
+                                    >
+                                      <Volume2 className="h-3.5 w-3.5 text-green-500" />
+                                      <span className="text-xs font-bold text-gray-600 dark:text-gray-400 leading-none">{poi.audio_count || 0}</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-2">
+                                    <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center gap-1">
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleSelectPoi(poi)
+                                        }}
+                                        className="p-2 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/10 rounded-xl transition-all border border-transparent hover:border-tuggi-blue/20"
+                                      >
+                                        <Eye className="h-4 w-4" />
+                                      </button>
+                                      {cmsUserRole === 'admin' && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleDeletePoi(poi.id)
+                                          }}
+                                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all border border-transparent hover:border-red-500/20"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* List Row End Actions */}
+                              {viewMode === 'list' && (
+                                <div className="ml-auto flex items-center gap-2">
+                                  <VerificationBadge
+                                    attractionId={poi.id}
+                                    verificationData={poi.verification_data}
+                                  />
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleSelectPoi(poi)
+                                      }}
+                                      className="p-1.5 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5 rounded-lg transition-all"
+                                    >
+                                      <Eye className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Pagination - Premium Style */}
+                    {totalPages > 1 && (
+                      <div className="mt-10 px-6 py-5 bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 flex items-center justify-between">
+                        <div className="flex items-center gap-6">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Página</span>
+                            <span className="text-xl font-bold text-gray-900 dark:text-white leading-none">
+                              {currentPage} <span className="text-gray-300 dark:text-gray-700 mx-1">/</span> {totalPages}
+                            </span>
+                          </div>
+                          
+                          <div className="flex flex-col">
+                            <label htmlFor="itemsPerPage" className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Items</label>
+                            <select
+                              id="itemsPerPage"
+                              value={itemsPerPage}
+                              onChange={(e) => {
+                                setItemsPerPage(Number(e.target.value))
+                                setCurrentPage(1)
+                              }}
+                              className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                            >
+                              {[20, 50, 100, 200, 500].map(val => (
+                                <option key={val} value={val}>{val}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => handlePageChange(currentPage - 1)}
+                            disabled={currentPage === 1}
+                            className="p-3 bg-gray-50 dark:bg-gray-800 text-gray-500 rounded-2xl hover:bg-tuggi-blue hover:text-white disabled:opacity-30 disabled:hover:bg-gray-50 disabled:hover:text-gray-500 transition-all duration-300 border border-gray-100 dark:border-gray-700 shadow-sm"
+                          >
+                            <ChevronLeft className="h-6 w-6" />
+                          </button>
+                          <button
+                            onClick={() => handlePageChange(currentPage + 1)}
+                            disabled={currentPage === totalPages}
+                            className="p-3 bg-gray-50 dark:bg-gray-800 text-gray-500 rounded-2xl hover:bg-tuggi-blue hover:text-white disabled:opacity-30 disabled:hover:bg-gray-50 disabled:hover:text-gray-500 transition-all duration-300 border border-gray-100 dark:border-gray-700 shadow-sm"
+                          >
+                            <ChevronRight className="h-6 w-6" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

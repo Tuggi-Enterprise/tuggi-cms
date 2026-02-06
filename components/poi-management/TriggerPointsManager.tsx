@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useTranslations } from 'next-intl'
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react'
 import {
   Plus, MapPin, Target, Trash2, Edit3, Save, X,
@@ -31,6 +32,8 @@ export function TriggerPointsManager({
 }: TriggerPointsManagerProps) {
   const supabase = useSupabaseClient()
   const user = useUser()
+  const t = useTranslations('Modals.TriggerPointsManager')
+  const tCommon = useTranslations('Common.actions')
 
   // State
   const [triggerPoints, setTriggerPoints] = useState<TriggerPoint[]>([])
@@ -41,6 +44,7 @@ export function TriggerPointsManager({
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [filterType, setFilterType] = useState<string>('all')
+  const [showBearingDetails, setShowBearingDetails] = useState(false)
   const [availableDescriptions, setAvailableDescriptions] = useState<AttractionDescription[]>([])
 
   const [isUpdatingPOILocation, setIsUpdatingPOILocation] = useState(false)
@@ -113,15 +117,24 @@ export function TriggerPointsManager({
 
 
   // Handle map click for adding new trigger point
-  const handleMapClick = useCallback((lat: number, lng: number) => {
+  const handleMapClick = useCallback((lat: number, lng: number, bearing?: number) => {
     if (isAddingMode) {
       setFormData(prev => ({
         ...prev,
         latitude: lat,
-        longitude: lng
+        longitude: lng,
+        expected_bearing: bearing !== undefined ? bearing : prev.expected_bearing
       }))
+      
       setShowForm(true)
       setIsEditing(false)
+      
+      // Auto-open details if bearing is set via map drag
+      if (bearing !== undefined) {
+         setShowBearingDetails(true)
+      } else {
+         setShowBearingDetails(false)
+      }
     }
   }, [isAddingMode])
 
@@ -132,6 +145,8 @@ export function TriggerPointsManager({
     setShowForm(true)
     setIsEditing(true)
     setIsAddingMode(false)
+    // Open details if bearing is set
+    setShowBearingDetails(!!triggerPoint.expected_bearing)
   }, [])
 
   // Handle trigger point drag
@@ -427,6 +442,38 @@ export function TriggerPointsManager({
     return TRIGGER_POINT_TYPES.find(t => t.value === type) || TRIGGER_POINT_TYPES[0]
   }
 
+  // Create a preview trigger point from formData
+  const previewTriggerPoint = showForm ? {
+    ...formData,
+    id: (isEditing && selectedTriggerPoint?.id) ? selectedTriggerPoint.id : 'temp-preview',
+    attraction_id: attractionId,
+    // Ensure all required fields for TriggerPoint are present
+    bearing_threshold: formData.bearing_threshold || 15, // Default if missing
+  } : null
+
+  // Calculate trigger points to display
+  // If editing, replace the selected point with the preview
+  // If creating, append the preview
+  // Always respect the filter
+  const displayTriggerPoints = (() => {
+    let points = [...triggerPoints]
+    
+    if (showForm && previewTriggerPoint) {
+      if (isEditing && selectedTriggerPoint) {
+        // Replace existing point with preview
+        points = points.map(tp => tp.id === selectedTriggerPoint.id ? (previewTriggerPoint as TriggerPoint) : tp)
+      } else {
+        // Add new point (if valid location set)
+        if (previewTriggerPoint.latitude && previewTriggerPoint.longitude) {
+           points.push(previewTriggerPoint as TriggerPoint)
+        }
+      }
+    }
+    
+    // Apply filter
+    return points.filter(tp => filterType === 'all' || tp.type === filterType)
+  })()
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -502,8 +549,8 @@ export function TriggerPointsManager({
             zoom={14}
             height="100%"
             attractionName={attractionName}
-            triggerPoints={filteredTriggerPoints}
-            selectedTriggerPoint={selectedTriggerPoint}
+            triggerPoints={displayTriggerPoints}
+            selectedTriggerPoint={showForm ? (previewTriggerPoint as TriggerPoint) : selectedTriggerPoint}
             onMapClick={handleMapClick}
             onTriggerPointClick={handleTriggerPointClick}
             onTriggerPointDrag={handleTriggerPointDrag}
@@ -560,6 +607,125 @@ export function TriggerPointsManager({
           </div>
 
 
+
+
+
+          {/* Inline Form (Replaces Modal) */}
+          {showForm && (
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 overflow-y-auto max-h-[60vh]">
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">
+                  {isEditing ? 'Edit Trigger Point' : 'New Trigger Point'}
+                </h3>
+  
+                {/* Lat/Lng hidden (state kept) */}
+                <div className="hidden">
+                  <input type="number" readOnly value={formData.latitude || ''} />
+                  <input type="number" readOnly value={formData.longitude || ''} />
+                </div>
+  
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Type */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Type
+                    </label>
+                    <select
+                      value={formData.type || 'primary'}
+                      onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value as any }))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                    >
+                      {TRIGGER_POINT_TYPES.filter(t => ['primary', 'fallback'].includes(t.value)).map(type => (
+                        <option key={type.value} value={type.value}>
+                          {t(`types.${type.value}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+    
+                  {/* Radius */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      {t('labels.radius')}
+                    </label>
+                    <select
+                      value={formData.radius_meters || 30}
+                      onChange={(e) => setFormData(prev => ({ ...prev, radius_meters: parseInt(e.target.value) }))}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                    >
+                      <option value={5}>5m</option>
+                      <option value={10}>10m</option>
+                      <option value={20}>20m</option>
+                      <option value={30}>30m</option>
+                      <option value={40}>40m</option>
+                      <option value={50}>50m</option>
+                    </select>
+                  </div>
+                </div>
+  
+
+  
+                {/* Bearing (Collapsible) */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setShowBearingDetails(!showBearingDetails)}
+                    className="flex items-center text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 mb-2 transition-colors"
+                  >
+                    {showBearingDetails ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+                    {t('labels.details')}
+                  </button>
+                  
+                  {showBearingDetails && (
+                    <div className="flex justify-center bg-white dark:bg-gray-800 rounded-lg p-2 border border-blue-100 dark:border-gray-700 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <BearingSelector
+                        value={formData.expected_bearing}
+                        onChange={(bearing) => setFormData(prev => ({ ...prev, expected_bearing: bearing }))}
+                        disabled={isLoading}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div className="flex items-center justify-between pt-2 gap-2">
+                   {isEditing && selectedTriggerPoint?.id ? (
+                    <button
+                      onClick={() => deleteTriggerPoint(selectedTriggerPoint.id!)}
+                      disabled={isLoading}
+                      className="px-3 py-2 text-xs font-medium text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : <div></div>}
+                  
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleCloseForm}
+                      className="px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+                    >
+                      {t('actions.cancel')}
+                    </button>
+                    <button
+                      onClick={saveTriggerPoint}
+                      disabled={isLoading}
+                      className="flex-1 px-4 py-2 text-xs font-medium text-white bg-tuggi-blue rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[80px]"
+                    >
+                      {isLoading ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <>
+                          <Save className="h-3 w-3 mr-1.5" />
+                          {isEditing ? t('actions.save') : t('actions.create')}
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Filter and Controls */}
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -731,222 +897,7 @@ export function TriggerPointsManager({
         </div>
       </div>
 
-      {/* Form Modal */}
-      {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4">
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {isEditing ? 'Edit Trigger Point' : 'Add Trigger Point'}
-              </h3>
-              <button
-                onClick={handleCloseForm}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
 
-            <div className="p-4 space-y-4">
-              {/* Location */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Latitude
-                  </label>
-                  <input
-                    type="number"
-                    step="0.000001"
-                    value={formData.latitude || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, latitude: parseFloat(e.target.value) }))}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Longitude
-                  </label>
-                  <input
-                    type="number"
-                    step="0.000001"
-                    value={formData.longitude || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, longitude: parseFloat(e.target.value) }))}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              {/* Type and Priority */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Type
-                  </label>
-                  <select
-                    value={formData.type || 'primary'}
-                    onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value as any }))}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  >
-                    {TRIGGER_POINT_TYPES.map(type => (
-                      <option key={type.value} value={type.value}>
-                        {type.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Priority
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={formData.priority || 1}
-                    onChange={(e) => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) }))}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              {/* Radius */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Radius (meters)
-                </label>
-                <input
-                  type="range"
-                  min="10"
-                  max="500"
-                  step="10"
-                  value={formData.radius_meters || 30}
-                  onChange={(e) => setFormData(prev => ({ ...prev, radius_meters: parseInt(e.target.value) }))}
-                  className="w-full"
-                />
-                <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                  <span>10m</span>
-                  <span className="font-medium">{formData.radius_meters}m</span>
-                  <span>500m</span>
-                </div>
-              </div>
-
-              {/* Bearing Selector */}
-              <BearingSelector
-                value={formData.expected_bearing}
-                onChange={(bearing) => setFormData(prev => ({ ...prev, expected_bearing: bearing }))}
-                disabled={isLoading}
-              />
-
-              {/* Bearing Threshold */}
-              {/* {formData.expected_bearing !== null && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Bearing Threshold (degrees)
-                  </label>
-                  <input
-                    type="range"
-                    min="5"
-                    max="90"
-                    step="5"
-                    value={formData.bearing_threshold || 15}
-                    onChange={(e) => setFormData(prev => ({ ...prev, bearing_threshold: parseInt(e.target.value) }))}
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                    <span>5°</span>
-                    <span className="font-medium">±{formData.bearing_threshold}°</span>
-                    <span>90°</span>
-                  </div>
-                </div>
-              )} */}
-
-              {/* Description */}
-              {/* {availableDescriptions.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Custom Description (optional)
-                  </label>
-                  <select
-                    value={formData.custom_description_id || ''}
-                    onChange={(e) => setFormData(prev => ({ 
-                      ...prev, 
-                      custom_description_id: e.target.value || null 
-                    }))}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-                  >
-                    <option value="">Default description</option>
-                    {availableDescriptions.map(desc => (
-                      <option key={desc.id} value={desc.id}>
-                        {desc.description.substring(0, 50)}...
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )} */}
-
-              {/* Direction Selector - Hidden */}
-              {/* <DirectionSelector 
-                value={formData.direction || null}
-                onChange={(direction) => setFormData(prev => ({ ...prev, direction }))}
-                disabled={isLoading}
-              /> */}
-
-              {/* Active Status */}
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="is_active"
-                  checked={formData.is_active !== false}
-                  onChange={(e) => setFormData(prev => ({ ...prev, is_active: e.target.checked }))}
-                  className="h-4 w-4 text-tuggi-blue rounded border-gray-300 dark:border-gray-600"
-                />
-                <label htmlFor="is_active" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                  Active trigger point
-                </label>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between p-4 border-t border-gray-200 dark:border-gray-700">
-              {isEditing && selectedTriggerPoint?.id ? (
-                <button
-                  onClick={() => deleteTriggerPoint(selectedTriggerPoint.id!)}
-                  disabled={isLoading}
-                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
-                </button>
-              ) : (
-                <div></div>
-              )}
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={handleCloseForm}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={saveTriggerPoint}
-                  disabled={isLoading}
-                  className="px-4 py-2 text-sm font-medium text-white bg-tuggi-blue rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                >
-                  {isLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4 mr-2" />
-                      {isEditing ? 'Update' : 'Create'}
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
 
 

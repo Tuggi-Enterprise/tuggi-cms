@@ -91,7 +91,7 @@ export interface TriggerPointMapProps {
   attractionName?: string
   triggerPoints: TriggerPoint[]
   selectedTriggerPoint?: TriggerPoint | null
-  onMapClick?: (lat: number, lng: number) => void
+  onMapClick?: (lat: number, lng: number, bearing?: number) => void
   onTriggerPointClick?: (triggerPoint: TriggerPoint) => void
   onTriggerPointDrag?: (triggerPoint: TriggerPoint, newLat: number, newLng: number) => void
   isAddingMode?: boolean
@@ -167,7 +167,7 @@ export const TRIGGER_POINT_TYPES: TriggerPointTypeInfo[] = [
 export const DEFAULT_TRIGGER_POINT: TriggerPointFormData = {
   latitude: 0,
   longitude: 0,
-  radius_meters: 30,
+  radius_meters: 10,
   expected_bearing: null,
   bearing_threshold: 30,
   type: 'primary',

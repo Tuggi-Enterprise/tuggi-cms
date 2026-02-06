@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useRef, useCallback, useEffect } from 'react'
+import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 
 interface BearingSelectorProps {
@@ -16,6 +17,7 @@ export function BearingSelector({
   disabled = false,
   className 
 }: BearingSelectorProps) {
+  const t = useTranslations('Modals.TriggerPointsManager')
   const [isDragging, setIsDragging] = useState(false)
   const compassRef = useRef<HTMLDivElement>(null)
   const size = 120
@@ -99,7 +101,7 @@ export function BearingSelector({
   return (
     <div className={cn('space-y-2', className)}>
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-        Expected Bearing (degrees, optional)
+        {t('labels.expected_bearing')}
       </label>
       
       <div className="flex items-center space-x-4">
@@ -222,24 +224,26 @@ export function BearingSelector({
               disabled={disabled || value === null}
               className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Clear
+              {t('labels.clear')}
             </button>
           </div>
           
           {value !== null && value !== undefined && (
             <div className="text-xs text-gray-500 dark:text-gray-400">
-              Direction: {value === 0 || value === 360 ? 'North' : 
-                        value === 90 ? 'East' : 
-                        value === 180 ? 'South' : 
-                        value === 270 ? 'West' : 
-                        value < 90 ? 'Northeast' :
-                        value < 180 ? 'Southeast' :
-                        value < 270 ? 'Southwest' : 'Northwest'}
+              {t('labels.direction_label', { 
+                  dir: value === 0 || value === 360 ? 'North' : 
+                         value === 90 ? 'East' : 
+                         value === 180 ? 'South' : 
+                         value === 270 ? 'West' : 
+                         value < 90 ? 'Northeast' :
+                         value < 180 ? 'Southeast' :
+                         value < 270 ? 'Southwest' : 'Northwest'
+                })}
             </div>
           )}
           
           <div className="text-xs text-gray-400 dark:text-gray-500">
-            Click and drag on the compass or enter a value (0-360°)
+            {t('labels.click_drag_compass')}
           </div>
         </div>
       </div>

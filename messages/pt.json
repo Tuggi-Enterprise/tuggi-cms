@@ -483,6 +483,7 @@
         "description": "Descrição e Mídia",
         "trigger_points": "Trigger Points",
         "narration": "Narração e Áudio",
+        "audio": "Áudio",
         "group_pois": "Agrupamento de POIs",
         "review": "Revisão e Aprovação"
       },
@@ -767,6 +768,49 @@
         "audio_task_status": "{current}/{total}",
         "reference_links_hint": "Adicione fontes autoritativas (Wikipedia, sites oficiais, etc.) para ajudar a IA a gerar descrições mais precisas",
         "core_attractions_only": "Nota: Links de referência só podem ser salvos para atrações core, não para POIs homólogos."
+      }
+    },
+    "TriggerPointsManager": {
+      "labels": {
+        "expected_bearing": "Direção Esperada",
+        "radius": "Raio",
+        "details": "Detalhes",
+        "click_drag_compass": "Clique e arraste na bússola ou digite um valor (0-360°)",
+        "direction_label": "Direção: {dir}",
+        "clear": "Limpar",
+        "priority": "Prioridade",
+        "active": "Ativo",
+        "inactive": "Inativo",
+        "drag_to_move": "Arraste para mover",
+        "moving_poi": "Movendo POI...",
+        "drag_hint": "Arraste para atualizar localização",
+        "poi_reference": "Ponto de referência para gatilhos",
+        "poi_location": "Localização do POI"
+      },
+      "actions": {
+        "save": "Salvar",
+        "create": "Criar",
+        "cancel": "Cancelar",
+        "delete": "Excluir"
+      },
+      "types": {
+        "primary": "Principal",
+        "fallback": "Reserva",
+        "entry": "Entrada",
+        "exit": "Saída",
+        "approach": "Aproximação",
+        "custom": "Personalizado"
+      },
+      "access": {
+        "walk": "Pedestre",
+        "car": "Carro",
+        "both": "Ambos"
+      },
+      "directions": {
+        "front": "Frente",
+        "right": "Direita",
+        "left": "Esquerda",
+        "back": "Trás"
       }
     }
   },

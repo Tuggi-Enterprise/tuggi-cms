@@ -483,6 +483,7 @@
         "description": "Description & Media",
         "trigger_points": "Trigger Points",
         "narration": "Narration & Audio",
+        "audio": "Audio",
         "group_pois": "Group POIs",
         "review": "Review & Verify"
       },
@@ -767,7 +768,50 @@
         "audio_task_status": "{current}/{total}",
         "reference_links_hint": "Add authoritative sources (Wikipedia, official sites, etc.) to help AI generate more accurate descriptions",
         "core_attractions_only": "Note: Reference links can only be saved for core attractions, not homolog POIs."
+      },
+    "TriggerPointsManager": {
+      "labels": {
+        "expected_bearing": "Expected Bearing",
+        "radius": "Radius",
+        "details": "Details",
+        "click_drag_compass": "Click and drag on the compass or enter a value (0-360°)",
+        "direction_label": "Direction: {dir}",
+        "clear": "Clear",
+        "priority": "Priority",
+        "active": "Active",
+        "inactive": "Inactive",
+        "drag_to_move": "Drag to move",
+        "moving_poi": "Moving POI...",
+        "drag_hint": "Drag to update POI location",
+        "poi_reference": "Reference point for trigger placement",
+        "poi_location": "POI Location"
+      },
+      "actions": {
+        "save": "Save",
+        "create": "Create",
+        "cancel": "Cancel",
+        "delete": "Delete"
+      },
+      "types": {
+        "primary": "Primary",
+        "fallback": "Fallback",
+        "entry": "Entry",
+        "exit": "Exit",
+        "approach": "Approach",
+        "custom": "Custom"
+      },
+      "access": {
+        "walk": "Walk",
+        "car": "Car",
+        "both": "Both"
+      },
+      "directions": {
+        "front": "Front",
+        "right": "Right",
+        "left": "Left",
+        "back": "Back"
       }
+    }
     }
   },
   "POIManagement": {
