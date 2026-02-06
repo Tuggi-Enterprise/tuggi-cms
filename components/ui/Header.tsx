@@ -58,8 +58,8 @@ const navigation = [
     category: 'poi'
   },
   {
-    name: 'POI Migration',
-    href: '/poi-migration',
+    name: 'POI Processing',
+    href: '/poi-processing',
     icon: ArrowRightLeft,
     category: 'poi'
   },
@@ -81,12 +81,7 @@ const navigation = [
     icon: Database,
     category: 'verification'
   },
-  {
-    name: 'Generation',
-    href: '/trigger-points-generation',
-    icon: Target,
-    category: 'trigger_points'
-  },
+
   {
     name: 'Single Test',
     href: '/trigger-points-single',
@@ -142,7 +137,7 @@ export function Header({ className }: HeaderProps) {
       category: 'main'
     },
     
-    // POI Management
+    // Points of Interest (Simplified)
     {
       name: t('pois'),
       href: '/pois',
@@ -150,42 +145,36 @@ export function Header({ className }: HeaderProps) {
       category: 'pois'
     },
     {
-      name: t('poi_migration'),
-      href: '/poi-migration',
-      icon: ArrowRightLeft,
-      category: 'pois'
-    },
-    {
-      name: t('osm_importer'),
-      href: '/osm-importer',
-      icon: Database,
-      category: 'pois',
-    },
-    {
       name: t('custom_routes'),
       href: '/routes',
       icon: Route,
       category: 'pois',
     },
+
+    // POI Management (New)
+    {
+      name: t('poi_migration'),
+      href: '/poi-processing',
+      icon: ArrowRightLeft,
+      category: 'poi_management'
+    },
+    {
+      name: t('osm_importer'),
+      href: '/osm-importer',
+      icon: Database,
+      category: 'poi_management',
+    },
     {
       name: t('poi_fetching'),
       href: '/poi-importer',
       icon: Upload,
-      category: 'pois',
-    },
-    
-    // Trigger Points
-    {
-      name: t('generation'),
-      href: '/trigger-points-generation',
-      icon: Target,
-      category: 'trigger_points'
+      category: 'poi_management',
     },
     {
-      name: t('single_test'),
+      name: t('tp_single_test'),
       href: '/trigger-points-single',
       icon: Target,
-      category: 'trigger_points'
+      category: 'poi_management'
     },
     
     // Users Management
@@ -207,7 +196,7 @@ export function Header({ className }: HeaderProps) {
       name: t('trail_map'),
       href: '/trail-visualization',
       icon: Route,
-      category: 'visualization'
+      category: 'pois'
     },
     // Admin
     {
@@ -351,23 +340,19 @@ export function Header({ className }: HeaderProps) {
               return renderDropdown('pois', poiItems, t('pois'))
             })()}
 
-            {/* Trigger Points - Dropdown */}
+            {/* POI Management - Dropdown */}
             {(() => {
-              const triggerPointsItems = navigation.filter(item => item.category === 'trigger_points')
-              return renderDropdown('trigger_points', triggerPointsItems, t('trigger_points'))
+              const poiManagementItems = navigation.filter(item => item.category === 'poi_management')
+              return renderDropdown('poi_management', poiManagementItems, t('poi_management'))
             })()}
+
+            {/* Users - Dropdown */}
 
             {/* Users - Dropdown */}
             {(() => {
               const userItems = navigation.filter(item => item.category === 'users')
-              return renderDropdown('users', userItems, t('users')) // Fixed: was using variable categoryName passed to function, now passing translated title
+              return renderDropdown('users', userItems, t('users'))
             })()}
-
-            {/* Trail Map - Single item */}
-            {navigation.filter(item => item.category === 'visualization').map((item) => {
-              const isActive = pathname === item.href
-              return renderNavItem(item, isActive)
-            })}
 
             {/* Admin - Dropdown */}
             {(() => {
@@ -447,13 +432,13 @@ export function Header({ className }: HeaderProps) {
                 </div>
               </div>
 
-              {/* Trigger Points */}
+              {/* POI Management */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  {t('trigger_points')}
+                  {t('poi_management')}
                 </h4>
                 <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'trigger_points').map((item) => {
+                  {navigation.filter(item => item.category === 'poi_management').map((item) => {
                     const isActive = pathname === item.href
                     return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
                   })}
@@ -467,19 +452,6 @@ export function Header({ className }: HeaderProps) {
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'users').map((item) => {
-                    const isActive = pathname === item.href
-                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
-                  })}
-                </div>
-              </div>
-
-              {/* Visualization */}
-              <div>
-                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  {t('visualization')}
-                </h4>
-                <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'visualization').map((item) => {
                     const isActive = pathname === item.href
                     return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
                   })}

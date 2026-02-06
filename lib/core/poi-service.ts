@@ -755,6 +755,7 @@ class POIService {
       city?: string
       processingStatus?: string
       limit?: number
+      source?: string
     }
   ): Promise<{ success: boolean; data: any[]; error?: string }> {
     try {
@@ -764,6 +765,7 @@ class POIService {
       if (filters.city) params.set('city', filters.city)
       if (filters.processingStatus) params.set('processing_status', filters.processingStatus)
       if (filters.limit) params.set('limit', filters.limit.toString())
+      if (filters.source) params.set('source', filters.source)
 
       const response = await fetch(`/api/migration/list-candidates?${params.toString()}`)
       const result = await response.json()

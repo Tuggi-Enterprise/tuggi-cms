@@ -61,8 +61,10 @@
       "osm_importer": "OSM Importer",
       "poi_fetching": "POI Fetching",
       "trigger_points": "Trigger Points",
+      "poi_management": "POI Management",
       "generation": "Generation",
       "single_test": "Single Test",
+      "tp_single_test": "TP Single Test",
       "users": "Users",
       "cms_team": "CMS Team",
       "app_users": "App Users",
@@ -83,8 +85,10 @@
     "osm_importer": "OSM Importer",
     "poi_fetching": "POI Fetching",
     "trigger_points": "Trigger Points",
+    "poi_management": "POI Management",
     "generation": "Generation",
     "single_test": "Single Test",
+    "tp_single_test": "TP Single Test",
     "users": "Users",
     "cms_team": "CMS Team",
     "app_users": "App Users",
@@ -238,6 +242,10 @@
           "full": {
             "name": "Full Pipeline",
             "description": "Legacy: All steps including approval"
+          },
+          "reprocess_triggers_core": {
+            "name": "Reprocess Trigger Points (Core)",
+            "description": "Regenerate triggers for existing POIs"
           }
         },
         "steps": {
@@ -248,7 +256,9 @@
           "description": "Description",
           "audio": "Audio",
           "triggers": "Triggers",
-          "approval": "Approval"
+          "approval": "Approval",
+          "fetch_core": "Fetch Core",
+          "save": "Save"
         }
       },
       "languages": {

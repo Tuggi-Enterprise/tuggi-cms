@@ -29,6 +29,11 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type') // 'countries', 'states', 'cities'
     const country = searchParams.get('country')
     const state = searchParams.get('state')
+    const source = searchParams.get('source') || 'homolog'
+
+    // Determine target based on source
+    const targetSchema = source === 'core' ? 'core' : 'homolog'
+    const targetTable = source === 'core' ? 'attractions' : 'pois'
 
     if (!type) {
       return NextResponse.json(
@@ -50,8 +55,8 @@ export async function GET(request: NextRequest) {
     while (hasMore) {
       // Build query based on type
       let query = supabase
-        .schema('homolog')
-        .from('pois')
+        .schema(targetSchema)
+        .from(targetTable)
         .select(fieldName)
         .not(fieldName, 'is', null)
         .not(fieldName, 'eq', '')
@@ -85,9 +90,9 @@ export async function GET(request: NextRequest) {
         allData = [...allData, ...pageData]
         page++
 
-        // Safety check to prevent infinite loops
-        if (page > 50) { // Max 50,000 items
-          console.warn(`⚠️ ${type}: Reached safety limit of 50,000 items`)
+        // Safety check to prevent infinite loops (increased to support large datasets like Brazil/Italy)
+        if (page > 500) { // Max 500,000 items
+          console.warn(`⚠️ ${type}: Reached safety limit of 500,000 items for source ${source}`)
           break
         }
 

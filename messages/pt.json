@@ -57,12 +57,14 @@
     "Navigation": {
       "dashboard": "Dashboard",
       "pois": "Pontos de Interesse",
-      "poi_migration": "Migração de POIs",
+      "poi_migration": "Processamento de POIs",
       "osm_importer": "Importador OSM",
       "poi_fetching": "Busca de POIs",
       "trigger_points": "Trigger Points",
+      "poi_management": "Gestão de POIs",
       "generation": "Geração",
       "single_test": "Teste Único",
+      "tp_single_test": "TP Teste Único",
       "users": "Usuários",
       "cms_team": "Equipe CMS",
       "app_users": "Usuários do App",
@@ -79,12 +81,14 @@
   "Navigation": {
     "dashboard": "Dashboard",
     "pois": "Pontos de Interesse",
-    "poi_migration": "Migração de POIs",
+    "poi_migration": "Processamento de POIs",
     "osm_importer": "Importador OSM",
     "poi_fetching": "Busca de POIs",
     "trigger_points": "Trigger Points",
+    "poi_management": "Gestão de POIs",
     "generation": "Geração",
     "single_test": "Teste Único",
+    "tp_single_test": "TP Teste Único",
     "users": "Usuários",
     "cms_team": "Equipe CMS",
     "app_users": "Usuários do App",
@@ -238,6 +242,10 @@
           "full": {
             "name": "Pipeline Completo",
             "description": "Legado: Todos os passos incluindo aprovação"
+          },
+          "reprocess_triggers_core": {
+            "name": "Reprocessar Gatilhos (Core)",
+            "description": "Regerar gatilhos para POIs existentes"
           }
         },
         "steps": {
@@ -248,7 +256,9 @@
           "description": "Descrição",
           "audio": "Áudio",
           "triggers": "Gatilhos",
-          "approval": "Aprovação"
+          "approval": "Aprovação",
+          "fetch_core": "Buscar Core",
+          "save": "Salvar"
         }
       },
       "languages": {

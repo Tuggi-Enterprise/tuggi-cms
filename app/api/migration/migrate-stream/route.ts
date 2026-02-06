@@ -109,32 +109,62 @@ export async function POST(request: NextRequest) {
 
           round++
           
-          // Build query to get POIs from homolog
-          let query = supabase
-            .schema('homolog')
-            .from('pois')
-            .select('uuid_id, name, city, state, country, processing_status, approved')
-            .order('uuid_id', { ascending: true })
+          // Build query based on mode (homolog or core)
+          let query: any
 
-          // Apply pagination
-          if (lastUuidId) {
-            query = query.gt('uuid_id', lastUuidId)
-          }
+          if (mode === 'reprocess_triggers_core') {
+            // CORE MODE: Get from core.attractions
+            query = supabase
+              .schema('core')
+              .from('attractions')
+              .select('id, name, city, state, country, approved') // selecting 'id' but we'll map to 'uuid_id'
+              .order('id', { ascending: true })
+              
+             if (lastUuidId) {
+               query = query.gt('id', lastUuidId)
+             }
+             
+             // Apply filters for Core
+             if (filters.country === '__missing__') {
+               query = query.or('country.is.null,country.eq.,state.is.null,state.eq.,city.is.null,city.eq.')
+             } else if (filters.country && filters.country !== 'all') {
+               query = query.eq('country', filters.country)
+             }
+             if (filters.state && filters.state !== 'all' && filters.country !== '__missing__') {
+               query = query.eq('state', filters.state)
+             }
+             if (filters.city && filters.city !== 'all' && filters.country !== '__missing__') {
+               query = query.eq('city', filters.city)
+             }
+             // NOTE: 'processing_status' does not apply to core.attractions in the same way, ignored for now.
+             
+          } else {
+             // DEFAULT HOMOLOG MODE: Get from homolog.pois
+             query = supabase
+              .schema('homolog')
+              .from('pois')
+              .select('uuid_id, name, city, state, country, processing_status, approved')
+              .order('uuid_id', { ascending: true })
 
-          // Apply filters
-          if (filters.country === '__missing__') {
-            query = query.or('country.is.null,country.eq.,state.is.null,state.eq.,city.is.null,city.eq.')
-          } else if (filters.country && filters.country !== 'all') {
-            query = query.eq('country', filters.country)
-          }
-          if (filters.state && filters.state !== 'all' && filters.country !== '__missing__') {
-            query = query.eq('state', filters.state)
-          }
-          if (filters.city && filters.city !== 'all' && filters.country !== '__missing__') {
-            query = query.eq('city', filters.city)
-          }
-          if (filters.processing_status && filters.processing_status !== 'all') {
-            query = query.eq('processing_status', filters.processing_status)
+            if (lastUuidId) {
+              query = query.gt('uuid_id', lastUuidId)
+            }
+
+            // Apply filters
+            if (filters.country === '__missing__') {
+              query = query.or('country.is.null,country.eq.,state.is.null,state.eq.,city.is.null,city.eq.')
+            } else if (filters.country && filters.country !== 'all') {
+              query = query.eq('country', filters.country)
+            }
+            if (filters.state && filters.state !== 'all' && filters.country !== '__missing__') {
+              query = query.eq('state', filters.state)
+            }
+            if (filters.city && filters.city !== 'all' && filters.country !== '__missing__') {
+              query = query.eq('city', filters.city)
+            }
+            if (filters.processing_status && filters.processing_status !== 'all') {
+              query = query.eq('processing_status', filters.processing_status)
+            }
           }
 
           query = query.limit(fetchLimit)
@@ -142,8 +172,16 @@ export async function POST(request: NextRequest) {
 
           const { data: pois, error: poisError } = await query
           
+          
           if (pois && pois.length > 0) {
-            lastUuidId = pois[pois.length - 1].uuid_id
+            if (mode === 'reprocess_triggers_core') {
+               // Map core 'id' to 'uuid_id' for consistent pipeline processing
+               // @ts-ignore
+               pois.forEach(p => p.uuid_id = p.id)
+               lastUuidId = pois[pois.length - 1].id
+            } else {
+               lastUuidId = pois[pois.length - 1].uuid_id
+            }
           }
 
 

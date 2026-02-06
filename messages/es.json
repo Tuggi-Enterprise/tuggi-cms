@@ -61,8 +61,10 @@
       "osm_importer": "Importador OSM",
       "poi_fetching": "Búsqueda de POIs",
       "trigger_points": "Trigger Points",
+      "poi_management": "Gestión de POIs",
       "generation": "Generación",
       "single_test": "Prueba Única",
+      "tp_single_test": "TP Prueba Única",
       "users": "Usuarios",
       "cms_team": "Equipo CMS",
       "app_users": "Usuarios de la App",
@@ -83,8 +85,10 @@
     "osm_importer": "Importador OSM",
     "poi_fetching": "Búsqueda de POIs",
     "trigger_points": "Puntos de Activación",
+    "poi_management": "Gestión de POIs",
     "generation": "Generación",
     "single_test": "Prueba Única",
+    "tp_single_test": "TP Prueba Única",
     "users": "Usuarios",
     "cms_team": "Equipo CMS",
     "app_users": "Usuarios de la App",
@@ -236,6 +240,10 @@
           "full": {
             "name": "Pipeline Completo",
             "description": "Legado: Todos los pasos incluyendo aprobación"
+          },
+          "reprocess_triggers_core": {
+            "name": "Reprocesar Gatillos (Core)",
+            "description": "Regenerar gatillos para POIs existentes"
           }
         },
         "steps": {
@@ -246,7 +254,9 @@
           "description": "Descripción",
           "audio": "Audio",
           "triggers": "Gatillos",
-          "approval": "Aprobación"
+          "approval": "Aprobación",
+          "fetch_core": "Obtener Core",
+          "save": "Guardar"
         }
       },
       "languages": {
