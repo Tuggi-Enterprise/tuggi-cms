@@ -3,6 +3,8 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { getSupabase } from '../../../../lib/core/supabase-client'
 
+export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
+
 // Use service role for database operations (has full access)
 const supabase = getSupabase('service')
 
@@ -360,6 +362,32 @@ export async function POST(request: NextRequest) {
         if (saveResult.saved > 0) {
           console.log(`✅ ${poi.name}: Generated and saved ${saveResult.saved} TPs`)
           
+          // Auto-approval logic: If we have good trigger points, activate the POI
+          const maxConfidence = predictionResult.triggerPoints.length > 0
+            ? Math.max(...predictionResult.triggerPoints.map(tp => tp.confidence || 0))
+            : 0
+            
+          const shouldAutoApprove = saveResult.saved >= 1 && maxConfidence > 0.4
+          let autoApproved = false
+          
+          if (shouldAutoApprove) {
+            console.log(`🚀 Auto-approving POI ${poi.id} (${poi.name}) due to good trigger points (max confidence: ${maxConfidence})`)
+            const { error: approveError } = await supabase
+              .schema('core')
+              .from('attractions')
+              .update({ 
+                approved: true,
+                processing_status: 'completed'
+              })
+              .eq('id', poi.id)
+            
+            if (!approveError) {
+              autoApproved = true
+            } else {
+              console.error(`❌ Failed to auto-approve POI ${poi.id}:`, approveError.message)
+            }
+          }
+
           const approvedTPs = predictionResult.triggerPoints.filter(tp => 
             (tp.confidence || 0) >= 0.7 && 
             (tp.type === 'primary' || tp.type === 'secondary')
@@ -375,7 +403,9 @@ export async function POST(request: NextRequest) {
             trigger_points_generated: predictionResult.triggerPoints.length,
             trigger_points_saved: saveResult.saved,
             trigger_points_skipped: saveResult.skipped || 0,
-            message: `Successfully processed: ${saveResult.saved} TPs saved`,
+            message: autoApproved 
+              ? `Successfully processed and auto-approved: ${saveResult.saved} TPs saved`
+              : `Successfully processed: ${saveResult.saved} TPs saved`,
             boundary_source: predictionResult.boundary?.source || 'unknown',
             processing_time: Date.now() - processingStart
           })

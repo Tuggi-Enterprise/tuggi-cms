@@ -4,6 +4,8 @@ import { cookies } from 'next/headers'
 import { PoiMigrationPipeline, PipelineOptions } from '@/lib/services/poi-migration-pipeline'
 import { MigrationService } from '@/lib/services/migration-service'
 
+export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
+
 /**
  * API Endpoint: Safe migration of single POI from homolog to core
  * POST /api/migration/migrate-poi-safe

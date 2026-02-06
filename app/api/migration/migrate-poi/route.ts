@@ -3,13 +3,15 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { PoiMigrationPipeline, PipelineOptions } from '@/lib/services/poi-migration-pipeline'
 
+export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
+
 /**
  * API Endpoint: Migrate single POI from homolog to core
  * POST /api/migration/migrate-poi
  */
 export async function POST(request: NextRequest) {
   try {
-    // Authentication check
+// Authentication check
     const cookieStore = await cookies()
     const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any })
     const { data: { session }, error: authError } = await supabase.auth.getSession()

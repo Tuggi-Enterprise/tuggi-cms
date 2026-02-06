@@ -107,6 +107,34 @@ export class PoiMigrationPipeline {
            }
         }
         
+        // Auto-approve POI if trigger points were generated successfully
+        // Since we're not generating descriptions/audio anymore, TPs are the main criteria
+        if (triggerPointsStep.data?.trigger_points_saved > 0) {
+          const maxConfidence = triggerPointsStep.data?.confidence_score || 0
+          const shouldAutoApprove = triggerPointsStep.data.trigger_points_saved >= 1 && maxConfidence > 0.4
+          
+          if (shouldAutoApprove) {
+            console.log(`🚀 Auto-approving POI ${attraction_id} (${triggerPointsStep.data.trigger_points_saved} TPs, max confidence: ${maxConfidence})`)
+            const { error: approveError } = await supabase
+              .schema('core')
+              .from('attractions')
+              .update({ 
+                approved: true,
+                processing_status: 'completed'
+              })
+              .eq('id', attraction_id)
+            
+            if (approveError) {
+              console.error(`⚠️  Failed to auto-approve POI: ${approveError.message}`)
+              warnings.push(`Failed to auto-approve POI: ${approveError.message}`)
+            } else {
+              console.log(`✅ POI auto-approved and marked as completed`)
+            }
+          } else {
+            console.log(`⏳ POI not auto-approved (TPs: ${triggerPointsStep.data.trigger_points_saved}, confidence: ${maxConfidence})`)
+          }
+        }
+        
         console.log(`✅ Trigger points reprocessed successfully for ${attraction_id}`)
         return {
           success: true,
@@ -932,7 +960,10 @@ export class PoiMigrationPipeline {
       const { error: updateError } = await supabase
         .schema('core')
         .from('attractions')
-        .update({ approved: true })
+        .update({ 
+          approved: true,
+          processing_status: 'completed'
+        })
         .eq('id', attraction_id)
 
       if (updateError) {
@@ -1016,12 +1047,15 @@ export class PoiMigrationPipeline {
       }
 
 
-      // Step 1: Activate POI (set approved = true)
+      // Step 1: Activate POI (set approved = true and status = completed)
       console.log(`   ✅ Activating POI ${attraction_id}...`)
       const { error: updateError } = await supabase
         .schema('core')
         .from('attractions')
-        .update({ approved: true })
+        .update({ 
+          approved: true,
+          processing_status: 'completed'
+        })
         .eq('id', attraction_id)
 
       if (updateError) {

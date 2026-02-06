@@ -5,6 +5,8 @@ import { getSupabase } from '@/lib/core/supabase-client'
 import { PoiMigrationPipeline, PipelineOptions } from '@/lib/services/poi-migration-pipeline'
 import { MigrationService } from '@/lib/services/migration-service'
 
+export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
+
 const supabase = getSupabase('service')
 
 interface BatchMigrationRequest {
@@ -39,6 +41,7 @@ interface BatchMigrationResult {
  * API Endpoint: Migrate POIs in batch from homolog to core
  * POST /api/migration/migrate-batch
  */
+export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     // Authentication check

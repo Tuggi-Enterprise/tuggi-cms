@@ -7,6 +7,7 @@ import { CoreTriggerPointPredictor } from '@/lib/services/trigger-points-google/
 import { POIData, TriggerPointGenerationOptions } from '@/lib/services/trigger-points-google/types/interfaces';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60; // Vercel Hobby plan limit (max 60s)
 
 export async function POST(request: NextRequest) {
   try {
@@ -94,6 +95,33 @@ export async function POST(request: NextRequest) {
     };
     
     console.log(`✅ API: Generated ${predictionResult.triggerPoints.length} trigger points for ${poiData.name}`);
+    
+    // Auto-approval logic: If we have good trigger points, activate the POI
+    const maxConfidence = predictionResult.triggerPoints.length > 0
+      ? Math.max(...predictionResult.triggerPoints.map(tp => tp.confidence || 0))
+      : 0
+      
+    if (predictionResult.triggerPoints.length >= 1 && maxConfidence > 0.4) {
+      console.log(`🚀 API: Auto-approving POI ${poiData.id} (${poiData.name}) due to good trigger points (max confidence: ${maxConfidence})`);
+      
+      const { getSupabase } = await import('@/lib/core/supabase-client');
+      const supabase = getSupabase('service');
+      
+      const { error: approveError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .update({ 
+          approved: true,
+          processing_status: 'completed'
+        })
+        .eq('id', poiData.id);
+      
+      if (approveError) {
+        console.error(`❌ API: Failed to auto-approve POI ${poiData.id}:`, approveError.message);
+      } else {
+        (result as any).auto_approved = true;
+      }
+    }
     
     return NextResponse.json(result);
     

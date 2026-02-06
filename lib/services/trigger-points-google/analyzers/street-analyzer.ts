@@ -27,14 +27,14 @@ export class StreetAnalyzer {
   private async retryOSMQuery(
     query: string,
     description: string,
-    maxRetries: number = 5,
+    maxRetries: number = 3,
     initialDelay: number = 2000 // 2 segundos inicial
   ): Promise<Response> {
     let lastError: Error | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const timeout = 100000; // 100s timeout por tentativa
+        const timeout = 30000; // 30s timeout por tentativa (limitado pelo Vercel)
         const response = await fetch('https://overpass-api.de/api/interpreter', {
           method: 'POST',
           body: query,
@@ -349,7 +349,7 @@ export class StreetAnalyzer {
         
         // Raio dinâmico: POIs muito altos precisam de raio maior para capturar prédios similares
         if (poiHeight > 100) {
-          analysisRadius = TRIGGER_POINTS_CONSTANTS.distances.surroundingHeightsRadiusMax; // 1500m para POIs muito altos
+          analysisRadius = 1500; // Raio máximo para POIs muito altos (m)
           console.log(`🏗️ Using extended radius (${analysisRadius}m) for very tall POI (${poiHeight}m)`);
         } else if (poiHeight > 50) {
           analysisRadius = Math.min(1200, TRIGGER_POINTS_CONSTANTS.distances.surroundingHeightsRadius * 1.5); // 1200m para POIs altos
@@ -359,7 +359,7 @@ export class StreetAnalyzer {
         const surroundingHeights = await Promise.race([
           this.calculateSurroundingBuildingsHeight(boundary.center, analysisRadius),
           new Promise<{ average: number; max: number; buildingCount: number }>((_, reject) => 
-            setTimeout(() => reject(new Error('Timeout')), TRIGGER_POINTS_CONSTANTS.distances.heightAnalysisTimeout) // Timeout configurável (QUALIDADE > PERFORMANCE)
+            setTimeout(() => reject(new Error('Timeout')), 15000) // Timeout configurável (QUALIDADE > PERFORMANCE)
           )
         ]);
         

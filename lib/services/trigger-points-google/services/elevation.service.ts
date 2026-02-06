@@ -342,8 +342,8 @@ export class ElevationService {
       };
 
     } catch (error) {
-      console.error('Intelligent Google Elevation API error:', error);
-      throw error;
+      console.warn('⚠️ Intelligent Google Elevation API error, using default:', error instanceof Error ? error.message : 'Unknown error');
+      return this.getDefaultElevation(location);
     }
   }
 
@@ -368,7 +368,8 @@ export class ElevationService {
       const response = await this.googleAPIs.getElevation(locations);
 
       if (!response.success || !response.data?.results || response.data.results.length === 0) {
-        throw new Error('Google Elevation API failed');
+        console.warn('⚠️ Google Elevation API returned no data, using default');
+        return this.getDefaultElevation(location);
       }
 
       const elevations = response.data.results.map((r: any) => r.elevation);
@@ -397,8 +398,8 @@ export class ElevationService {
       };
 
     } catch (error) {
-      console.error('Google Elevation API error:', error);
-      throw error;
+      console.warn('⚠️ Google Elevation API error, using default:', error instanceof Error ? error.message : 'Unknown error');
+      return this.getDefaultElevation(location);
     }
   }
 

@@ -70,7 +70,7 @@ export const TRIGGER_POINTS_CONSTANTS = {
     // Distâncias para análise de altura
     surroundingHeightsRadius: 800, // Raio base para análise de altura do entorno (m) - aumentado de 500m
     surroundingHeightsRadiusMax: 1500, // Raio máximo para POIs muito altos (m)
-    heightAnalysisTimeout: 30000, // Timeout para análise de altura (ms)
+    heightAnalysisTimeout: 15000, // Timeout para análise de altura (ms) - reduzido de 30s
   },
 
   // ⏱️ TIMEOUTS E LIMITES DE TEMPO
@@ -80,8 +80,8 @@ export const TRIGGER_POINTS_CONSTANTS = {
     osmQueryMedium: 15, // Timeout médio para queries padrão (s)
     osmQueryLong: 30, // Timeout longo para queries complexas (s)
     osmQueryVeryLong: 60, // Timeout muito longo para queries pesadas (s)
-    osmQueryExtreme: 90, // Timeout extremo para queries muito pesadas (s)
-    osmQueryMax: 200, // Timeout máximo para queries críticas (s) - AUMENTADO para qualidade
+    osmQueryExtreme: 60, // Timeout extremo para queries muito pesadas (s) - reduzido de 90s
+    osmQueryMax: 60, // Timeout máximo para queries críticas (s) - limitado pelo Vercel
     
     // Timeouts para APIs externas
     googleAPITimeout: 10000, // Timeout para APIs do Google (ms)
