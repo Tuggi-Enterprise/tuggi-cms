@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
+import { logAuditEvent } from '@/lib/services/audit-service'
 
 const supabaseService = getSupabase('service')
 
@@ -56,6 +57,16 @@ export async function DELETE(request: NextRequest, { params }: { params: { poiId
       console.error('Error deleting POI:', delErr)
       return NextResponse.json({ error: 'Failed to delete POI' }, { status: 500 })
     }
+
+    await logAuditEvent({
+      request,
+      action: 'DELETE_POI',
+      entity: 'POI',
+      entityId: poiId,
+      userId: cmsUser.id,
+      userEmail: session.user.email || null,
+      description: `Deleted POI "${attraction.name}"`
+    })
 
     return NextResponse.json({ success: true, deleted: deleted })
 
@@ -129,6 +140,17 @@ export async function PATCH(request: NextRequest, { params }: { params: { poiId:
       console.error('Error updating POI:', updErr)
       return NextResponse.json({ error: 'Failed to update POI' }, { status: 500 })
     }
+
+    const updatedFields = Object.keys(updatePayload)
+    await logAuditEvent({
+      request,
+      action: 'UPDATE_POI',
+      entity: 'POI',
+      entityId: poiId,
+      userId: cmsUser.id,
+      userEmail: session.user.email || null,
+      description: `Updated POI fields: ${updatedFields.join(', ')}`
+    })
 
     return NextResponse.json({ success: true, updated })
 

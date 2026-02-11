@@ -31,6 +31,28 @@ export function Providers({ children }: { children: React.ReactNode }) {
     localStorage.setItem('theme', theme)
   }, [theme])
 
+  useEffect(() => {
+    const { data: subscription } = supabaseClient.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN') {
+        fetch('/api/audit/auth-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'LOGIN_SUCCESS',
+            description: 'Login successful',
+            user_email: session?.user?.email
+          })
+        }).catch((err) => {
+          console.warn('Auth audit log failed (non-blocking):', err)
+        })
+      }
+    })
+
+    return () => {
+      subscription.subscription?.unsubscribe()
+    }
+  }, [supabaseClient])
+
   const toggleTheme = () => {
     setTheme(prev => prev === 'light' ? 'dark' : 'light')
   }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
+import { logAuditEvent } from '@/lib/services/audit-service'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,7 +21,7 @@ export async function PUT(request: NextRequest) {
     const { data: cmsUser, error: cmsError } = await supabaseAuth
       .schema('core')
       .from('cms_users')
-      .select('role, is_active')
+      .select('id, role, is_active')
       .eq('email', session.user.email as string)
       .eq('is_active', true)
       .single()
@@ -43,6 +44,17 @@ export async function PUT(request: NextRequest) {
       .eq('uuid_id', id)
     
     if (error) throw error
+
+    const updatedFields = updates ? Object.keys(updates) : []
+    await logAuditEvent({
+      request,
+      action: 'UPDATE_POI',
+      entity: 'POI',
+      entityId: id,
+      userId: cmsUser.id,
+      userEmail: session.user.email || null,
+      description: `Updated POI fields: ${updatedFields.join(', ')}`
+    })
     
     return NextResponse.json({ success: true })
   } catch (error) {

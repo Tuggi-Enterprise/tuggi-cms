@@ -3,6 +3,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { invalidatePOICache } from '@/lib/cache/poi-cache-invalidator'
 import { getSupabase } from '@/lib/core/supabase-client'
+import { logAuditEvent } from '@/lib/services/audit-service'
 
 /**
  * Calculate polygon area using spherical geometry (reused from existing implementations)
@@ -76,6 +77,9 @@ function coordinatesToGeoJSON(coordinates: Array<{ lat: number; lng: number }>):
 
 export async function POST(request: NextRequest) {
   try {
+    let auditUserId: string | null = null
+    let auditUserEmail: string | null = null
+
     // Check authentication first
     // Allow service role key in header for testing (same pattern as other endpoints)
     const serviceRoleKey = request.headers.get('x-service-role-key')
@@ -96,13 +100,16 @@ export async function POST(request: NextRequest) {
       const { data: cmsUser, error: cmsError } = await authSupabase
         .schema('core')
         .from('cms_users')
-        .select('role, is_active')
+        .select('id, role, is_active')
         .eq('email', user.email as string)
         .eq('is_active', true)
         .single()
       if (cmsError || !cmsUser || cmsUser.role !== 'admin') {
         return NextResponse.json({ error: 'Unauthorized - Admin only' }, { status: 403 })
       }
+
+      auditUserId = cmsUser.id
+      auditUserEmail = user.email || null
     } else {
       console.log('🔑 Using service role authentication for boundary update (test mode)')
     }
@@ -326,6 +333,16 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`✅ Successfully updated boundary for POI: ${attraction.name}`)
+
+    await logAuditEvent({
+      request,
+      action: 'UPDATE_POI',
+      entity: 'POI',
+      entityId: attractionId,
+      userId: auditUserId,
+      userEmail: auditUserEmail,
+      description: `Updated POI boundary (${coordinates.length} points)`
+    })
 
     // Invalidate cache
     invalidatePOICache('POI boundary updated')

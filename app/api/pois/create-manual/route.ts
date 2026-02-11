@@ -5,6 +5,7 @@ import { getSupabase } from '@/lib/core/supabase-client'
 import { ReverseGeocodingService } from '@/lib/services/reverse-geocoding.service'
 import { OSMEnrichmentService } from '@/lib/services/poi-processing/osm-enrichment.service'
 import { POICreationService } from '@/lib/services/poi-creation.service'
+import { logAuditEvent } from '@/lib/services/audit-service'
 
 // Use service role client to bypass RLS for fetching created POI
 const supabase = getSupabase('service')
@@ -231,6 +232,16 @@ export async function POST(request: NextRequest) {
     if (fetchError || !completePOI) {
       console.error('❌ Error fetching created POI:', fetchError)
     }
+
+    await logAuditEvent({
+      request,
+      action: 'CREATE_POI',
+      entity: 'POI',
+      entityId: attractionId,
+      userId: cmsUser.id,
+      userEmail: session.user.email || null,
+      description: `Created POI "${name.trim()}" in ${city}, ${country}`
+    })
 
     return NextResponse.json({
       success: true,

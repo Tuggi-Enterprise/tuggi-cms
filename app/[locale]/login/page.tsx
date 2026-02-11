@@ -21,6 +21,22 @@ export default function LoginPage() {
   const supabase = createClientComponentClient()
   const router = useRouter()
 
+  const logAuthEvent = async (action: 'LOGIN_SUCCESS' | 'LOGIN_FAILURE', description: string) => {
+    try {
+      await fetch('/api/audit/auth-event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          description,
+          user_email: email.trim() || undefined
+        })
+      })
+    } catch (err) {
+      console.warn('Auth audit log failed (non-blocking):', err)
+    }
+  }
+
   // Check if user is already logged in
   useEffect(() => {
     const checkUser = async () => {
@@ -75,11 +91,13 @@ export default function LoginPage() {
         } else {
           setError(authError.message)
         }
+        await logAuthEvent('LOGIN_FAILURE', `Login failed: ${authError.message}`)
         return
       }
 
       if (!authData.user) {
         setError('Authentication failed')
+        await logAuthEvent('LOGIN_FAILURE', 'Login failed: no user returned')
         return
       }
 
@@ -105,6 +123,7 @@ export default function LoginPage() {
         console.error('❌ LOGIN: CMS user error:', cmsError)
         await supabase.auth.signOut()
         setError(`Database error: ${cmsError.message}`)
+        await logAuthEvent('LOGIN_FAILURE', `CMS access check failed: ${cmsError.message}`)
         return
       }
 
@@ -112,6 +131,7 @@ export default function LoginPage() {
         console.error('❌ LOGIN: CMS user not found or inactive - session metadata:', authData.user?.app_metadata, authData.user?.user_metadata)
         await supabase.auth.signOut()
         setError('Access denied. You are not authorized to use this CMS.')
+        await logAuthEvent('LOGIN_FAILURE', 'CMS access denied: user not found or inactive')
         return
       }
 
@@ -121,6 +141,7 @@ export default function LoginPage() {
         console.error('❌ LOGIN: Insufficient privileges:', cmsUser.role)
         await supabase.auth.signOut()
         setError('Access denied. Insufficient privileges.')
+        await logAuthEvent('LOGIN_FAILURE', `CMS access denied: role ${cmsUser.role}`)
         return
       }
 

@@ -118,6 +118,12 @@ const navigation = [
     icon: Settings,
     category: 'admin'
   },
+  {
+    name: 'Audit Logs',
+    href: '/dashboard/admin/audit-logs',
+    icon: Activity,
+    category: 'admin'
+  },
 ]
 
 interface HeaderProps {
@@ -253,6 +259,12 @@ export function Header({ className }: HeaderProps) {
       name: t('users'),
       href: '/dashboard/admin/users',
       icon: Settings,
+      category: 'admin'
+    },
+    {
+      name: 'Audit Logs',
+      href: '/dashboard/admin/audit-logs',
+      icon: Activity,
       category: 'admin'
     },
   ]

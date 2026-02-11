@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { invalidatePOICache } from '@/lib/cache/poi-cache-invalidator'
+import { logAuditEvent } from '@/lib/services/audit-service'
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,6 +17,13 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       )
     }
+
+    const { data: cmsUser } = await supabase
+      .schema('core')
+      .from('cms_users')
+      .select('id, email')
+      .eq('email', user.email as string)
+      .maybeSingle()
 
     const body = await request.json()
     const { attractionId, latitude, longitude } = body
@@ -118,6 +126,16 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`✅ Successfully updated coordinates for POI: ${attraction.name}`)
+
+    await logAuditEvent({
+      request,
+      action: 'UPDATE_POI',
+      entity: 'POI',
+      entityId: attractionId,
+      userId: cmsUser?.id ?? user.id,
+      userEmail: user.email || null,
+      description: 'Updated POI coordinates'
+    })
 
     // Invalidar cache de POIs após atualização de coordenadas
     invalidatePOICache('POI coordinates updated')

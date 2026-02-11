@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { logAuditEvent } from '@/lib/services/audit-service'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -24,7 +25,7 @@ async function getAdminUser(request: NextRequest) {
   const { data: cmsUser, error: cmsError } = await supabaseAuth
     .schema('core')
     .from('cms_users')
-    .select('id, role, is_active')
+    .select('id, email, role, is_active')
     .eq('email', session.user.email as string)
     .eq('is_active', true)
     .single()
@@ -147,6 +148,17 @@ export async function PATCH(
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
+
+    const updatedFields = Object.keys(updateData)
+    await logAuditEvent({
+      request,
+      action: 'UPDATE_PROFILE',
+      entity: 'USER',
+      entityId: userId,
+      userId: adminData.cmsUser.id,
+      userEmail: adminData.cmsUser.email ?? null,
+      description: `Updated CMS user fields: ${updatedFields.join(', ')}`
+    })
 
     return NextResponse.json({
       success: true,

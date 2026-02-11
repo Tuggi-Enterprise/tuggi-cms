@@ -3,6 +3,7 @@ import { getSupabase } from '../../../../lib/core/supabase-client'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { memoryCache } from '@/lib/cache/memory-cache'
+import { logAuditEvent } from '@/lib/services/audit-service'
 
 const supabase = getSupabase('service')
 
@@ -18,7 +19,7 @@ export async function DELETE(request: NextRequest) {
     const { data: cmsUser, error: cmsError } = await supabaseAuth
       .schema('core')
       .from('cms_users')
-      .select('role, is_active')
+      .select('id, role, is_active')
       .eq('email', session.user.email as string)
       .eq('is_active', true)
       .single()
@@ -60,6 +61,16 @@ export async function DELETE(request: NextRequest) {
         { status: 500 }
       )
     }
+
+    await logAuditEvent({
+      request,
+      action: 'DELETE_POI',
+      entity: 'POI',
+      entityId: poiIds.join(', '),
+      userId: cmsUser.id,
+      userEmail: session.user.email || null,
+      description: `Bulk deleted ${data?.length || 0} POIs`
+    })
 
     console.log(`Successfully deleted ${data?.length || 0} POIs`)
 
