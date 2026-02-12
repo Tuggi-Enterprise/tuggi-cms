@@ -56,10 +56,50 @@ export class OSMImporterService {
   }
 
   /**
+   * Blacklist of OSM categories that are generally not useful as tourist attractions
+   */
+  private static readonly CATEGORY_BLACKLIST = [
+    'bench', 'waste_basket', 'trash_can', 'telephone', 'bicycle_parking', 
+    'parking', 'path', 'track', 'fence', 'wall', 'hedge', 'pole', 'post',
+    'surveillance', 'vending_machine', 'atm', 'recycling', 'toilets', 
+    'outdoor_seating', 'waste_disposal', 'picnic_table', 'steps',
+    'resort', 'beach_resort'
+  ]
+
+  /**
+   * Validates if a POI should be imported based on its tags and prominence
+   */
+  shouldImportPOI(properties: Record<string, any> | undefined): boolean {
+    if (!properties) return false
+    const tags = properties.tags || properties
+    
+    const type = tags.type
+    const tourism = tags.tourism
+    const amenity = tags.amenity
+    
+    // Check if the primary category is blacklisted
+    const isBlacklisted = OSMImporterService.CATEGORY_BLACKLIST.includes(type) || 
+                         OSMImporterService.CATEGORY_BLACKLIST.includes(tourism) ||
+                         OSMImporterService.CATEGORY_BLACKLIST.includes(amenity)
+
+    if (isBlacklisted) {
+      // PROMINENCE EXCEPTION: If it has Wikipedia or Wikidata, it's likely a notable landmark
+      // even if the category is technically in the blacklist (e.g. a historic wall or famous steps)
+      const hasWiki = tags.wikipedia || tags.wikidata
+      if (hasWiki) return true
+      
+      return false
+    }
+
+    return true
+  }
+
+  /**
    * Get primary OSM category for a feature
    */
   getPrimaryCategory(properties: Record<string, any> | undefined): string | null {
     if (!properties) return null
+    if (!this.shouldImportPOI(properties)) return null
     
     // Handle both direct properties and nested tags structure
     const tags = properties.tags || properties
@@ -177,6 +217,11 @@ export class OSMImporterService {
 
     for (const poi of pois) {
       try {
+        if (!this.shouldImportPOI(poi.properties)) {
+          results.skipped.push(poi._id)
+          continue
+        }
+
         const location = poi._edited 
           ? poi._editedFields 
           : this.extractLocationFromOSMTags(poi.properties)
