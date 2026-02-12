@@ -464,6 +464,10 @@ serve(async (req) => {
         alt_name: el.tags.alt_name,
         is_historic: !!el.tags.historic,
         is_touristic: !!el.tags.tourism,
+        // Novos campos técnicos
+        elevation: el.tags.ele ? parseFloat(el.tags.ele) : null,
+        building_levels: el.tags['building:levels'] ? parseInt(el.tags['building:levels']) : null,
+        denomination: el.tags.denomination,
         source_type: 'osm',
         processing_status: 'pending'
       };
