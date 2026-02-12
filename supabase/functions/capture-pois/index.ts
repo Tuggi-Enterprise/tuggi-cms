@@ -27,30 +27,99 @@ interface RequestBody {
 }
 
 const FILTER_CONFIG = {
-  GLOBAL_BLOCKLIST: [
-    "distrito", "bairro", "comuna", "subúrbio", "suburbio",
-    "secretaria", "departamento", "divisão", "divisao", "serviço", "servico", "diretoria", "superintendência", "superintendencia",
-    "fundação casa", "poupatempo", "detran", "cartório", "cartorio", "fórum", "forum", "vara do", "tribunal", "procuradoria",
-    "prefeitura do campus", "sede comunal", "delegacia",
-    "caixa econômica", "caixa economica", "lotérica", "loterica", "câmbio", "cambio", "atm",
-    "oxxo", "carrefour", "extra", "pão de açúcar", "pao de acucar", "dia%", "assai", "atacadao", "atacadão",
-    "smart fit", "bluefit", "droga", "farma", "hospital", "clínica", "clinica", "unidade de saúde", "upa", "ubs", "posto de saúde", "posto de atendimento", "centro de atendimento", "pat -",
-    "estacionamento", "parking", "garage", "banca de", "quiosque", "terminais de ônibus", "terminal de onibus",
-    "rotary", "lions club", "maçonaria", "loja maçônica", "loja maçonica",
-    "business center", "comercial center", "office", "escritório", "escritorio", "coworking",
-    "condomínio", "condominio", "edifício residencial", "edificio residencial", "residencial", "vilagio", "villagio",
-    "feira livre", "distribuidora", "depósito", "deposito", "armazém", "armazem", "oficina", "auto pecas", "auto peças",
-    "pneus", "lava rapido", "lava rápido", "pet shop", "veterinária", "veterinaria", "escola", "colégio", "colegio", "faculdade", "universidade",
-    "academia", "fitness", "crossfit", "correio", "post office", "administrativo", "governo",
-    "center", "centro", "horta", "letreiro",
-    "recreational area", "green area", "open space", "public space",
-    "cíles", "ciles", "centro integrado"
+  // Categorias que barramos totalmente a menos que sejam famosos (Wiki/Wikidata)
+  TAG_BLOCKLIST: [
+    'bench', 'waste_basket', 'trash_can', 'telephone', 'bicycle_parking', 
+    'parking', 'path', 'track', 'fence', 'wall', 'hedge', 'pole', 'post',
+    'surveillance', 'vending_machine', 'atm', 'recycling', 'toilets', 
+    'outdoor_seating', 'waste_disposal', 'picnic_table', 'steps',
+    'resort', 'beach_resort',
+    'supermarket', 'convenience', 'bakery', 'laundry', 'dry_cleaning',
+    'hairdresser', 'beauty', 'dentist', 'veterinary', 'car_repair', 'car_wash',
+    'fuel', 'bank', 'pharmacy', 'atm', 'fast_food', 'food_court',
+    'restaurant', 'cafe', 'pub', 'bar', 'ice_cream', 'nightclub', 'dance', 'studio',
+    'fitness_centre', 'sports_centre', 'swimming_pool', 'camp_site', 'love_hotel',
+    'car_rental', 'bicycle_rental', 'fishing', 'public_bath', 'cinema', 'theatre',
+    'information', 'chalet', 'events_venue', 'theme_park', 'picnic_site', 'horse_riding',
+    'school', 'university', 'college', 'kindergarten', 'childcare', 'language_school', 'driving_school',
+    'hospital', 'clinic', 'doctors', 'social_facility', 'community_centre', 'social_centre',
+    'police', 'fire_station', 'post_office', 'government', 'office', 'courthouse', 'townhall_legacy', 
+    'public_building', 'industrial', 'works', 'wastewater_plant', 'power_plant', 'pumping_station', 
+    'prison', 'jail', 'bus_station', 'taxi', 'ferry_terminal', 'airport', 'station', 'stop_position', 
+    'bus_stop', 'survey_point', 'funeral_hall', 'dojo', 'slipway', 'pipeline', 'monitoring_station',
+    'common', 'vehicle_inspection', 'boundary', 'storage_tank', 'bridge',
+    'drinking_water', 'bureau_de_change', 'bbq', 'bandstand',
+    'wayside_cross', 'wayside_shrine', 'flagpole', 'service', 'military', 'quarry',
+    'studio', 'tunnel', 'mast', 'boundary_stone', 'crematorium', 'reservoir_covered',
+    'reservoir', 'water_tower', 'bridge',
+    'brothel', 'nursing_home', 'animal_breeding', 'internet_cafe', 'recreation_ground', 'shelter',
+    'music_school', 'charity', 'social_centre', 'dormitory', 'nursery', 'prep_school', 'animal_shelter',
+    'caravan_site', 'bowling_alley', 'charging_station', 'antenna', 'stripclub', 'animal_boarding',
+    'coworking_space', 'clock', 'shipping_company', 'waste_transfer_station', 'emergency_service',
+    'wilderness_hut', 'hunting_stand', 'communications_tower', 'mast',
+    'breakwater', 'wreck', 'amusement_arcade', 'dancing_school', 'mineshaft', 
+    'bicycle_repair_station', 'mortuary', 'parking_entrance', 'water_point',
+    'advertising', 'traffic_signals', 'bollard', 'pitch', 'cross', 'parking_space',
+    'Matadouro', 'container_terminal', 'embankment', 'water_works', 'boundary', 'multipolygon',
+    'conference_centre', 'exhibition_centre', 'rescue_station', 'escape_game', 'route', 'indoor',
+    'car_pooling', 'district', 'club', 'pista_de_Kart', 'enforcement', 'farm', 'training_school',
+    'gate', 'Fepam', 'kindergarden', 'sport', 'crane', 'spa', 'hangar', 'watering_place',
+    'trail_riding_station', 'comun', 'canteen', 'watershed', 'building', 'NDB', 'institutional',
+    'site', 'propriedade_particular_-_local_fechado', 'motorcycle_rental', 'Creche', 'stone',
+    'events_centre', 'dispõem_de_quadras_de_futebol_para_lazer.', '*', 'no', 'office',
+    'house', 'sauna', 'dressing_room', 'courtyard', 'kiln', 'antenna', 'mast', 'ticket_validator',
+    'auditorium', 'casino', 'register_office', 'miniature_golf', 'boat_rental', 'street_cabinet',
+    'driver_training', 'water_tap', 'payment_centre', 'compressed_air', 'public_bookcase', 'cabin',
+    'morgue', 'clearcut', 'goods_conveyor', 'adult_gaming_centre', 'summer_camp', 'Presídio',
+    'camp_pitch', 'karaoke_box', 'archive', 'trampoline_park', 'railway', 'cutline', 'training',
+    'swimming_area', 'sanitary_dump_station', 'money_transfer', 'lavoir', 'dam', 'substation',
+    'pet', 'ship', 'canteen', 'no', 'watershed', 'greenhouse', 'sailing_club', 'cannon_modern',
+    'store', 'stock_exchange', 'vacant', 'audiologist', 'post_box', 'bunker_silo', 'gallows',
+    'event_center', 'company', 'governament', 'toy_library', 'pastry', 'travel agency', 'civic',
+    'protected_area', 'animal_training', 'dive_centre', 'gambling', 'stage', 'wood store',
+    'fixme', 'place_of_mourning', 'veterinary_pharmacy', 'internet_service_provider', 'piscina',
+    'submarine_cable', 'pat', 'dyke', 'piste:halfpipe', 'gantry',
+    'motorcycle_parking', 'dog_toilet', 'motorcycle_taxi',
+    'yes', 'building', 'way', 'node'
   ],
 
+  // Categorias que SÓ passam se forem explicitamente históricas (Mesmo com Wiki)
+  RESTRICTED_UTILITY_TAGS: [
+    'school', 'university', 'college', 'kindergarten', 'childcare',
+    'hospital', 'clinic', 'doctors', 'social_facility', 'community_centre', 'social_centre',
+    'police', 'fire_station', 'post_office', 'government', 'office', 'courthouse', 'townhall_legacy',
+    'public_building', 'bureau_de_change', 'bank', 'pharmacy', 'atm',
+    'research_institute', 'golf_course', 'sports_centre', 'monastery',
+    'church', 'tomb', 'biergarten', 'village_hall', 'hotel', 'watermill', 'alpine_hut', 
+    'guest_house', 'hostel', 'fort', 'battlefield', 'manor', 'windmill', 'bathing_place', 
+    'masonic_lodge', 'quilombo', 'heritage', 'protected_building', 'culture_center', 
+    'Casa_da_Memória', 'Casa_Histórica', 'railway_station', 'square', 'hackerspace',
+    'território_de_práticas_ancestrais_afrogaúchas', 'Araucária_Centenária'
+  ],
+
+  // Termos no nome que indicam lixo urbano ou infraestrutura
+  NAME_BLOCKLIST: [
+    "secretaria", "departamento", "sede comunal", "delegación",
+    "clínica", "clinica", "odontologia", "escola", "colégio", "colegio",
+    "banco", "caixa", "atm", "lotérica", "loterica", "correio", "post office",
+    "academia", "fitness", "crossfit", "estacionamento", "parking",
+    "edifício", "edificio", "condomínio", "condominio", "residencial",
+    "farmácia", "drogaria", "pharmacy", "oxxo", "7-eleven",
+    "mercado", "supermercado", "panificadora", "padaria", "lavanderia",
+    "auto center", "borracharia", "oficina",
+    "estação tubo", "estacao tubo", "ponto de ônibus", "ponto de onibus",
+    "parada de ", "terminal de ", "agência ", "agencia ",
+    "centro de saúde", "centro de saude", "posto de saúde", "posto de saude",
+    "posto policial", "delegacia", "fórum", "forum",
+    "câmara municipal", "camara municipal", "vereadores"
+  ],
+
+  // Marcas de igrejas genéricas
   RELIGIOUS_BRANDS: [
-    "igreja universal", "reino de deus", "assembléia de deus",
-    "testemunhas de jeová", "salão do reino", "congregacao cristã",
-    "reino de dios", "asamblea de dios", "testigos de jehová", "salón del reino", "congregación cristiana"
+    "universal do reino", "igreja universal", "mundial do poder",
+    "internacional da graça", "deus é amor", "renascer em cristo",
+    "bola de neve", "assembléia de deus", "testemunhas de jeová",
+    "salão do reino", "congregacao cristã", "congregacao crista"
   ],
 
   ACCOMMODATION_TYPES: [
@@ -61,36 +130,6 @@ const FILTER_CONFIG = {
 
   SINGLE_WORD_WHITELIST: [
     "masp", "pinacoteca", "copan", "catavento", "maracanã", "corcovado", "obelisco", "obelisk", "panteon", "panteão", "louvre", "prado"
-  ],
-
-  CATEGORY_BLOCKLIST: {
-    amenity: [
-      "bank", "pharmacy", "school", "hospital", "fuel", "parking", "post_office", "atm", "toilets", 
-      "bench", "telephone", "waste_basket", "recycling", "bicycle_parking", "motorcycle_parking", 
-      "vending_machine", "drinking_water", "police", "fire_station", "prison", "social_facility", 
-      "community_centre", "clinic", "dentist", "doctors", "veterinary", "car_wash", "car_sharing",
-      "nightclub", "pub", "bar", "fast_food", "food_court", "biergarten"
-    ],
-    shop: [
-      "supermarket", "convenience", "hairdresser", "car_repair", "laundry", "dry_cleaning", "beauty", 
-      "optician", "chemist", "hardware", "butcher", "bakery", "mobile_phone", "boutique", "fashion", 
-      "furniture", "kiosk", "mall", "department_store", "clothes", "shoes", "alcohol"
-    ],
-    office: [
-      "yes", "government", "it", "employment_agency", "foundation", "administrative", "estate_agent", 
-      "travel_agent", "lawyer", "accountant", "architect", "engineer", "telecommunication"
-    ],
-    leisure: [
-      "pitch", "track", "fitness_station", "playground", "dog_park", "picnic_site", "swimming_pool", 
-      "sports_centre", "fitness_centre", "sauna", "adult_gaming_centre", "escape_game", "miniature_golf"
-    ],
-    natural: ["tree_row", "hedge", "scrub", "heath", "grassland", "tree"],
-    man_made: ["pipeline", "storage_tank", "surveillance", "waste_disposal", "street_cabinet"]
-  },
-
-  RELIGIOUS_BLOCKLIST: [
-    "pentecostal", "evangelical", "jehovahs_witness", "mormon", "baptist", "methodist", 
-    "seventh_day_adventist", "assembly_of_god", "universal_church_of_the_kingdom_of_god"
   ]
 };
 
@@ -107,17 +146,18 @@ function shouldFilterPOI(poi: any): { remove: boolean; reason?: string } {
   const isFamous = hasWikipedia || hasHeritage || hasHistoric || hasWikidata;
   const hasReference = hasWikipedia || hasWikidata;
 
-  if (!name) return { remove: true, reason: "Strict: Local sem nome" };
+  // --- 1. FILTROS BÁSICOS ---
+  if (!name || name.length < 2) return { remove: true, reason: "Strict: Local sem nome" };
 
   if (props.route || props.type === "route") {
     return { remove: true, reason: "Category: Rota/Trajeto (não é um ponto fixo)" };
   }
 
+  // --- 2. EXCEÇÕES DE ELITE (Isenção total de filtros se for um marco reconhecido) ---
   const isCulturalExemption = (
     props.tourism === "museum" || 
     !!props.museum ||
     props.amenity === "theatre" || 
-    props.amenity === "marketplace" ||
     props.amenity === "arts_centre" ||
     props.tourism === "gallery" ||
     props.tourism === "information" ||
@@ -136,159 +176,84 @@ function shouldFilterPOI(poi: any): { remove: boolean; reason?: string } {
     props.aerialway === "gondola" ||
     (props.railway === "station" && (props.historic || hasWikipedia))
   );
-  
-  const isCenterExemption = (nameLower.includes("center") || nameLower.includes("centro")) && (isFamous || isCulturalExemption);
-  const isMunicipalExemption = nameLower.includes("municipal") && (isCulturalExemption || isGovernmentExemption);
-  const isHortaExemption = nameLower.startsWith("horta") && isFamous;
 
-  if (!isFamous && !isCulturalExemption && !isTransportLandmark) {
-    for (const [key, blockedValues] of Object.entries(FILTER_CONFIG.CATEGORY_BLOCKLIST)) {
-      if (props[key] && (blockedValues as string[]).includes(props[key])) {
-        return { remove: true, reason: `Category Blocklist: ${key}=${props[key]}` };
-      }
+  // Elite Market Hall pattern
+  const isMajorMarket = props.amenity === "marketplace" && ["municipal", "mercadão", "mercadao", "market hall", "público", "publico", "paco", "paço", "mercado de", "mercado da", "mercado do"].some(t => nameLower.includes(t));
+
+  if (isCulturalExemption || isGovernmentExemption || isTransportLandmark || isMajorMarket) {
+    return { remove: false };
+  }
+
+  // --- 3. TAG_BLOCKLIST (CRÍTICO - BLOQUEIA MESMO COM WIKI SE FOR INFRAESTRUTURA) ---
+  const tagKeys = ['amenity', 'tourism', 'leisure', 'man_made', 'historic', 'highway', 'public_transport', 'place', 'office', 'shop'];
+  
+  for (const key of tagKeys) {
+    if (!props[key]) continue;
+    const individualTags = String(props[key]).split(';');
+    if (individualTags.some(t => FILTER_CONFIG.TAG_BLOCKLIST.includes(t.trim()))) {
+      return { remove: true, reason: `TAG_BLOCKLIST: ${key}=${props[key]}` };
     }
   }
 
-  if (!isCenterExemption && !isHortaExemption && !isMunicipalExemption && !isTransportLandmark && !isCulturalExemption) {
-    for (const term of FILTER_CONFIG.GLOBAL_BLOCKLIST) {
+  // --- 4. NAME_BLOCKLIST ---
+  if (!isFamous) {
+    for (const term of FILTER_CONFIG.NAME_BLOCKLIST) {
       if (nameLower.includes(term)) {
-        if (term === "shopping" && !hasWikipedia) {
-           return { remove: true, reason: "Blacklist: Shopping Center genérico" };
-        }
-        return { remove: true, reason: `Blacklist: Termo proibido '${term}'` };
+        return { remove: true, reason: `NAME_BLOCKLIST: Termo proibido '${term}'` };
       }
     }
   }
 
-  if (FILTER_CONFIG.RELIGIOUS_BRANDS.some((b) => nameLower.includes(b)) || nameLower === "universal") {
-    if (props.amenity === "place_of_worship" && !isFamous) {
-      return { remove: true, reason: "Blacklist: Marca religiosa genérica" };
-    }
+  // --- 5. RESTRICTED_UTILITY_TAGS (SÓ passa se for HISTÓRICO/FAMOSO) ---
+  const isUtility = tagKeys.some(key => {
+    if (!props[key]) return false;
+    const individualTags = String(props[key]).split(';');
+    return individualTags.some(t => FILTER_CONFIG.RESTRICTED_UTILITY_TAGS.includes(t.trim()));
+  });
+
+  if (isUtility && !isFamous) {
+    return { remove: true, reason: "RESTRICTED_UTILITY: Requer tag historic/heritage ou wiki para passar" };
   }
 
-  if (nameLower.startsWith("residência") || nameLower.startsWith("residencia")) {
-    if (!isFamous && props.tourism !== "museum") {
-      return { remove: true, reason: "Category: Residência privada sem valor histórico" };
-    }
-  }
-
-  if (props.boundary) {
-    const bureaucratic = ["registrars_district", "statistical", "polling_station", "postal", "census", "political"];
-    if (bureaucratic.includes(props.boundary) && !hasWikipedia) {
-      return { remove: true, reason: `Category: Limite burocrático (${props.boundary})` };
-    }
-
-    if (props.boundary === "administrative") {
-      const level = parseInt(props.admin_level || "0");
-      if (level > 8) return { remove: true, reason: "Category: Distrito/Bairro (admin_level > 8)" };
-    }
-
-    if (props.boundary === "historic_parish" && !isFamous) {
-      return { remove: true, reason: "Category: Paróquia histórica sem contexto" };
-    }
-  }
-
-  if (props.natural === "peak" && !isFamous && !props.tourism) {
-    return { remove: true, reason: "Category: Pico geográfico sem relevância (sem Wiki)" };
-  }
-
-  const isPrivate = props["operator:type"] === "private" || props.access === "private";
-  const isResidential = props.building === "apartments" || props.residential === "yes";
-  if ((isPrivate || isResidential) && !isFamous) {
-    return { remove: true, reason: "Category: Privado/Residencial sem fama" };
-  }
-
-  const isGenericPlace = FILTER_CONFIG.GENERIC_PARK_NAMES.some((t) => nameLower.startsWith(t) || nameLower.includes(" " + t));
-  
-  if (props.leisure) {
-    if (FILTER_CONFIG.CATEGORY_BLOCKLIST.leisure.includes(props.leisure)) {
-      return { remove: true, reason: `Category: Lazer utilitário (${props.leisure})` };
-    }
-    
-    if (["sauna", "dance", "adult_gaming_centre"].includes(props.leisure) && !hasWikipedia) {
-       return { remove: true, reason: "Category: Lazer adulto/noturno sem fama" };
-    }
-
-    const isPark = ["park", "garden", "nature_reserve"].includes(props.leisure);
-    if (isPark) {
-      if (nameLower.includes("shopping")) return { remove: true, reason: "Blacklist: Shopping tagged as Park" };
-      if (isGenericPlace && !isFamous && !props.tourism) {
-        return { remove: true, reason: "Category: Praça/Largo/Jardim comum" };
-      }
-      if (poi.type === "node" && !isFamous && !props.tourism) {
-        return { remove: true, reason: "Category: Ponto de lazer menor" };
-      }
-    }
-  }
-
-  if (isGenericPlace && !isFamous && !props.tourism && !props.historic && !isCulturalExemption) {
-      return { remove: true, reason: "Category: Local de nome genérico sem relevância" };
-  }
-
-  if (FILTER_CONFIG.ACCOMMODATION_TYPES.includes(props.tourism)) {
-    if (props.tourism === "apartment") return { remove: true, reason: "Category: Apartamento" };
-    if (!isFamous && !hasHistoric) return { remove: true, reason: "Category: Hotel comum (sem Fama/Histórico)" };
-  }
-
-  const attractionTypes = ["attraction", "artwork", "gallery", "picnic_site", "viewpoint"];
-  if (attractionTypes.includes(props.tourism) || props.historic === "memorial") {
-    if (props.memorial === "ghost_bike") return { remove: true, reason: "Category: Memorial Ghost Bike" };
-    if (["plaque", "blue_plaque", "bust"].includes(props.memorial) && !hasWikipedia) {
-       return { remove: true, reason: "Category: Memorial menor (Busto/Placa)" };
-    }
-    if (["lighthouse", "windmill"].includes(props.man_made)) return { remove: false };
-
-    if (!isFamous && !["museum", "theme_park", "zoo"].includes(props.tourism)) {
-      return { remove: true, reason: "Category: Atração/Arte/Memorial sem Wikipedia/Histórico" };
-    }
-  }
-
+  // --- 6. RELIGIÃO E ACOMODAÇÃO ---
   if (props.amenity === "place_of_worship") {
     const denomination = (props.denomination || "").toLowerCase();
     const isCatholic = ["catholic", "roman_catholic"].includes(denomination);
     
-    if (nameLower.startsWith("comunidade") || nameLower.startsWith("salão") || nameLower.startsWith("salao") || nameLower.startsWith("salon")) {
-      if (!isFamous) return { remove: true, reason: "Category: Comunidade/Salão de bairro" };
+    if (FILTER_CONFIG.RELIGIOUS_BRANDS.some((b) => nameLower.includes(b))) {
+      if (!isFamous) return { remove: true, reason: "RELIGIOUS_BRAND: Marca religiosa genérica" };
     }
 
-    if (FILTER_CONFIG.RELIGIOUS_BLOCKLIST.some(d => denomination.includes(d)) && !isFamous) {
-      return { remove: true, reason: `Category: Denominação religiosa bloqueada (${denomination})` };
-    }
-
-    if (!isCatholic && !isFamous && !props.historic) {
-      return { remove: true, reason: "Category: Religião local sem relevância histórica" };
+    if (!isCatholic && !isFamous && !hasHistoric) {
+       return { remove: true, reason: "Category: Religião local sem relevância histórica" };
     }
   }
 
-  const otherCommercial = ["shop", "office", "craft", "industrial"];
-  if (props.amenity === "marketplace") {
-    // Elite Market Hall pattern
-    const isMajorMarket = ["municipal", "mercadão", "mercadao", "market hall", "público", "publico", "paco", "paço", "mercado de", "mercado da", "mercado do"].some(t => nameLower.includes(t));
-    
-    if (!isFamous && !isMajorMarket) {
-      return { remove: true, reason: "Category: Mercado local sem fama/histórico" };
+  if (FILTER_CONFIG.ACCOMMODATION_TYPES.includes(props.tourism)) {
+    if (props.tourism === "apartment") return { remove: true, reason: "ACCOMMODATION: Apartamento" };
+    if (!isFamous) return { remove: true, reason: "ACCOMMODATION: Hotel comum sem fama" };
+  }
+
+  // --- 7. OUTRAS REGRAS ---
+  if (nameLower.startsWith("residência") || nameLower.startsWith("residencia")) {
+    if (!isFamous && props.tourism !== "museum") {
+      return { remove: true, reason: "RESIDENTIAL: Residência privada sem fama" };
     }
-    return { remove: false };
   }
 
-  if (otherCommercial.some((t) => !!props[t]) && !isFamous && !isCulturalExemption) {
-    return { remove: true, reason: "Category: Comércio/Serviço genérico" };
-  }
-
-  if (props.amenity === "townhall") return { remove: false };
-
-  if (props.tourism === "information" && !isFamous) {
-    return { remove: true, reason: "Category: Informação turística sem fama" };
+  if (props.boundary === "administrative") {
+    const level = parseInt(props.admin_level || "0");
+    if (level > 8) return { remove: true, reason: "BOUNDARY: Distrito/Bairro menor" };
   }
 
   if (["tower", "water_tower"].includes(props.man_made) && !isFamous && !props.tourism && !props.historic && !hasReference) {
-    return { remove: true, reason: "Category: Torre/Infraestrutura sem valor" };
+    return { remove: true, reason: "INFRASTRUCTURE: Torre/Caixa d'água sem valor" };
   }
 
+  // Nomes de uma palavra - Bloqueio estrito
   const words = name.split(/\s+/).filter((w: string) => w.length > 0);
-  if (words.length === 1) {
-    if (hasReference || FILTER_CONFIG.SINGLE_WORD_WHITELIST.includes(nameLower) || isTransportLandmark || isCulturalExemption) return { remove: false };
-    return { remove: true, reason: "Strict: Nome de palavra única sem referência" };
+  if (words.length === 1 && !isFamous && !FILTER_CONFIG.SINGLE_WORD_WHITELIST.includes(nameLower) && !isCulturalExemption) {
+    return { remove: true, reason: "STRICT: Nome de palavra única sem referência" };
   }
 
   return { remove: false };

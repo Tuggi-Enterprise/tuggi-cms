@@ -1293,6 +1293,14 @@ async function executeEtapa4_5_Unified(
       "center", "centro", "horta", "shopping"
     ],
 
+    TAG_BLOCKLIST: [
+      "bench", "waste_basket", "trash_can", "telephone", "bicycle_parking", 
+      "parking", "path", "track", "fence", "wall", "hedge", "pole", "post",
+      "surveillance", "vending_machine", "atm", "recycling", "toilets", 
+      "outdoor_seating", "waste_disposal", "picnic_table", "steps",
+      "resort", "beach_resort"
+    ],
+
     RELIGIOUS_BRANDS: [
       "universal do reino", "igreja universal", "mundial do poder",
       "internacional da graça", "deus é amor", "renascer em cristo",
@@ -1301,7 +1309,7 @@ async function executeEtapa4_5_Unified(
     ],
 
     ACCOMMODATION_TYPES: [
-      "hotel", "motel", "guest_house", "hostel", "apartment", "chalet", "alpine_hut"
+      "hotel", "motel", "guest_house", "hostel", "apartment", "chalet", "alpine_hut", "camp_site"
     ],
 
     GENERIC_PARK_NAMES: ["praça", "praca", "plaza", "plazoleta", "largo"],
@@ -1417,10 +1425,23 @@ async function executeEtapa4_5_Unified(
       }
     }
 
-    // --- 8. ACCOMMODATION ---
-    if (FILTER_CONFIG.ACCOMMODATION_TYPES.includes(props.tourism)) {
-      if (props.tourism === "apartment") return { remove: true, reason: "Category: Apartamento" };
-      if (!isFamous) return { remove: true, reason: "Category: Hotel comum (sem Wiki/Histórico)" };
+    // --- 7.5. TAG BLOCKLIST (Elite Validation) ---
+    const tagValues = [props.amenity, props.tourism, props.leisure, props.man_made, props.historic, props.type];
+    const hasBlacklistedTag = tagValues.some(t => FILTER_CONFIG.TAG_BLOCKLIST.includes(t));
+
+    if (hasBlacklistedTag && !isFamous) {
+      return { remove: true, reason: "Blacklist: Categoria de baixo valor ou infraestrutura" };
+    }
+
+    // --- 8. ACCOMMODATION (Elite Rule) ---
+    const isAccommodationTerm = FILTER_CONFIG.ACCOMMODATION_TYPES.includes(props.tourism) || 
+                               FILTER_CONFIG.ACCOMMODATION_TYPES.includes(props.amenity) ||
+                               ["hotel", "hostel", "pousada", "albergo", "b&b"].some(k => nameLower.includes(k));
+
+    if (isAccommodationTerm) {
+      if (props.tourism === "apartment") return { remove: true, reason: "Category: Apartamento comercial" };
+      if (!isFamous) return { remove: true, reason: "Category: Acomodação comum (sem Wiki/Histórico)" };
+      return { remove: false }; // Keep if famous (historic hotels, etc.)
     }
 
     // --- 9. ATTRACTIONS & ART ---
