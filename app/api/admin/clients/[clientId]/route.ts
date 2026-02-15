@@ -9,8 +9,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
 async function getAdminUser(request: NextRequest) {
   const cookieStore = await cookies()
@@ -47,7 +46,7 @@ export async function GET(
     }
 
     const { clientId } = await params
-    const supabaseService = createClient(supabaseUrl, supabaseServiceKey)
+    const supabaseService = getSupabaseService()
 
     // Get client
     const { data: client, error: clientError } = await supabaseService
@@ -92,7 +91,7 @@ export async function PATCH(
     }
 
     const { clientId } = await params
-    const supabaseService = createClient(supabaseUrl, supabaseServiceKey)
+    const supabaseService = getSupabaseService()
     const body = await request.json()
 
     // Get current client

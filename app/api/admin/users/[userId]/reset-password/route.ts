@@ -8,8 +8,7 @@ import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { logAuditEvent } from '@/lib/services/audit-service'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
 export async function POST(
   request: NextRequest,
@@ -58,7 +57,7 @@ export async function POST(
     }
 
     // Reset password using service role
-    const supabaseService = createClient(supabaseUrl, supabaseServiceKey)
+    const supabaseService = getSupabaseService()
     const { error: resetError } = await supabaseService.auth.admin.updateUserById(
       params.userId,
       { password }

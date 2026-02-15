@@ -230,7 +230,11 @@ export const useSupabase = () => {
 /**
  * Legacy compatibility - maintains existing API
  */
-export const supabase = getSupabaseServer()
+export const supabase = new Proxy({} as SupabaseClient, {
+  get: (target, prop) => {
+    return (getSupabaseServer() as any)[prop]
+  }
+})
 
 /**
  * Database types (moved from lib/supabase.ts)

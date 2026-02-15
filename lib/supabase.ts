@@ -1,11 +1,13 @@
 import { getSupabase } from './core/supabase-client'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+import { SupabaseClient } from '@supabase/supabase-js'
 
 // Server-side Supabase client
-export const supabase = getSupabase('server')
+export const supabase = new Proxy({} as SupabaseClient, {
+  get: (target, prop) => {
+    return (getSupabase('server') as any)[prop]
+  }
+})
 
 // Client-side Supabase client for auth helpers
 export const createClientComponent = () => createClientComponentClient()

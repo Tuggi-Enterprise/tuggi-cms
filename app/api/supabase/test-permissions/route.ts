@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
 export const dynamic = 'force-dynamic'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
 // Cliente sem configuração de schema
-const supabase = createClient(supabaseUrl, supabaseKey)
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = getSupabaseService()
     console.log('🔍 [TEST] Testando permissões do Supabase...')
 
     // Teste 1: Verificar se consegue acessar o schema homolog

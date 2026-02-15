@@ -9,8 +9,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
 export async function GET(
   request: NextRequest,
@@ -74,7 +73,7 @@ export async function GET(
     }
 
     const supabaseQueryClient = cmsUser.role === 'admin'
-      ? createClient(supabaseUrl, supabaseServiceKey)
+      ? getSupabaseService()
       : supabaseAuth
 
     const { data, error } = await supabaseQueryClient

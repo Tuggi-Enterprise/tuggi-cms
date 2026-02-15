@@ -10,8 +10,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
 export async function GET(request: NextRequest) {
   try {
@@ -135,7 +134,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert client
-    const supabaseService = createClient(supabaseUrl, supabaseServiceKey)
+    const supabaseService = getSupabaseService()
     const { data: client, error: clientError } = await supabaseService
       .schema('core')
       .from('clients')

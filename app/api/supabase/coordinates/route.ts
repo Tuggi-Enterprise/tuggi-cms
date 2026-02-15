@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-const supabase = createClient(supabaseUrl, supabaseKey)
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = getSupabaseService()
     const { coordinates, poiUuidId } = await request.json()
     
     console.log(`📊 [SUPABASE] Received coordinates data:`, { coordinates, poiUuidId })
@@ -119,6 +115,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = getSupabaseService()
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '50')
@@ -190,6 +187,7 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const supabase = getSupabaseService()
     const { ids } = await request.json()
     
     if (!ids || !Array.isArray(ids) || ids.length === 0) {

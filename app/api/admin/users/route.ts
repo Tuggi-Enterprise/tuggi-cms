@@ -11,8 +11,7 @@ import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { randomUUID } from 'crypto'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
 export async function GET(request: NextRequest) {
   try {
@@ -146,7 +145,7 @@ export async function POST(request: NextRequest) {
 
     if (password) {
       // Use service role client to create auth user
-      const supabaseService = createClient(supabaseUrl, supabaseServiceKey)
+      const supabaseService = getSupabaseService()
 
       const { data: authUser, error: authError } = await supabaseService.auth.admin.createUser({
         email,
@@ -186,7 +185,7 @@ export async function POST(request: NextRequest) {
     if (cmsError) {
       // If email conflict and we created auth user, try to delete it
       if (cmsError.code === '23505' && newUserId && password) {
-        const supabaseService = createClient(supabaseUrl, supabaseServiceKey)
+        const supabaseService = getSupabaseService()
         try {
           await supabaseService.auth.admin.deleteUser(newUserId)
         } catch (e) {

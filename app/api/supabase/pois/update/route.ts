@@ -1,19 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { logAuditEvent } from '@/lib/services/audit-service'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function PUT(request: NextRequest) {
   try {
     // Ensure requester is an admin
     const cookieStore = await cookies()
     const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabase = getSupabaseService()
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
     if (authError || !session) {
       return NextResponse.json({ error: 'Unauthorized - Authentication required' }, { status: 401 })

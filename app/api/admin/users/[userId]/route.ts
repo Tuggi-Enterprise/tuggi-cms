@@ -10,8 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { logAuditEvent } from '@/lib/services/audit-service'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
 async function getAdminUser(request: NextRequest) {
   const cookieStore = await cookies()
@@ -207,15 +206,13 @@ export async function DELETE(
     }
 
     // Try to delete auth user if it exists (with same ID)
-    if (supabaseServiceKey) {
-      try {
-        const supabaseService = createClient(supabaseUrl, supabaseServiceKey)
+    try {
+      const supabaseService = getSupabaseService()
         // Note: We can't directly delete by ID through service role easily
         // The auth user should cascade delete via FK, or admin can manually delete from Auth UI
         console.log(`✅ Deleted cms_user: ${userId}. Auth user deletion should be handled separately or cascaded.`)
-      } catch (e) {
-        console.error('Note: Auth user cleanup may need manual action:', e)
-      }
+    } catch (e) {
+      console.error('Note: Auth user cleanup may need manual action:', e)
     }
 
     return NextResponse.json({

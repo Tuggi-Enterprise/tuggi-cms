@@ -12,19 +12,26 @@ import {
   ClientCmsUser
 } from '@/types/clients'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+let supabaseInstance: any = null
 
-if (!supabaseUrl || !supabaseKey) {
-  // eslint-disable-next-line no-console
-  console.error('Supabase environment variables missing or invalid', {
-    NEXT_PUBLIC_SUPABASE_URL: !!supabaseUrl,
-    SUPABASE_SERVICE_ROLE_KEY: !!supabaseKey
-  })
-  throw new Error('Missing environment variables: NEXT_PUBLIC_SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY')
+function getSupabase() {
+  if (supabaseInstance) return supabaseInstance
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+
+  if (!supabaseUrl || !supabaseKey) {
+    // eslint-disable-next-line no-console
+    console.error('Supabase environment variables missing or invalid', {
+      NEXT_PUBLIC_SUPABASE_URL: !!supabaseUrl,
+      SUPABASE_SERVICE_ROLE_KEY: !!supabaseKey
+    })
+    throw new Error('Missing environment variables: NEXT_PUBLIC_SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY')
+  }
+
+  supabaseInstance = createClient(supabaseUrl, supabaseKey)
+  return supabaseInstance
 }
-
-const supabase = createClient(supabaseUrl, supabaseKey)
 
 export class ClientService {
   /**
@@ -48,7 +55,7 @@ export class ClientService {
       is_active: false
     }
 
-    const res = await supabase
+    const res = await getSupabase()
       .schema('core')
       .from('cms_users')
       .insert([cmsUserPayload])
@@ -78,7 +85,7 @@ export class ClientService {
    * Get pending clients (admin only)
    */
   static async getPendingClients(limit = 50): Promise<Client[]> {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .schema('core')
       .from('clients')
       .select('*')
@@ -97,7 +104,7 @@ export class ClientService {
    * Get all clients for a CMS user (client role)
    */
   static async getClientsByUser(userId: string): Promise<Client[]> {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .schema('core')
       .from('clients')
       .select('*')
@@ -114,7 +121,7 @@ export class ClientService {
    * Get a single client by ID
    */
   static async getClientById(clientId: string): Promise<Client | null> {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .schema('core')
       .from('clients')
       .select('*')
@@ -133,7 +140,7 @@ export class ClientService {
    */
   static async approveClient(clientId: string, approverUserId: string, cmsUserEmail: string, cmsUserName: string): Promise<Client> {
     // 1. Create CMS user with role 'client'
-    const { data: cmsUser, error: cmsError } = await supabase
+    const { data: cmsUser, error: cmsError } = await getSupabase()
       .schema('core')
       .from('cms_users')
       .insert([
@@ -152,7 +159,7 @@ export class ClientService {
     }
 
     // 2. Update client with approval status and link to CMS user
-    const { data: client, error: clientError } = await supabase
+    const { data: client, error: clientError } = await getSupabase()
       .schema('core')
       .from('clients')
       .update({
@@ -170,7 +177,7 @@ export class ClientService {
     }
 
     // 3. Link the CMS user as 'owner' of the client
-    await supabase
+    await getSupabase()
       .schema('core')
       .from('client_cms_users')
       .insert([
@@ -189,7 +196,7 @@ export class ClientService {
    * Reject a client registration
    */
   static async rejectClient(clientId: string, rejectionReason: string, rejecterUserId: string): Promise<Client> {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .schema('core')
       .from('clients')
       .update({
@@ -213,7 +220,7 @@ export class ClientService {
    * Link a CMS user to a client
    */
   static async linkCmsUser(clientId: string, cmsUserId: string, userId: string, clientRole = 'viewer'): Promise<ClientCmsUser> {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .schema('core')
       .from('client_cms_users')
       .insert([
@@ -238,7 +245,7 @@ export class ClientService {
    * Unlink a CMS user from a client
    */
   static async unlinkCmsUser(linkId: string): Promise<void> {
-    const { error } = await supabase
+    const { error } = await getSupabase()
       .schema('core')
       .from('client_cms_users')
       .delete()
@@ -253,7 +260,7 @@ export class ClientService {
    * Get CMS users linked to a client
    */
   static async getClientCmsUsers(clientId: string): Promise<(ClientCmsUser & { cms_user?: any })[]> {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .schema('core')
       .from('client_cms_users')
       .select('*, cms_users:cms_user_id(id, email, full_name, role)')
