@@ -74,9 +74,11 @@ export class SupabaseClientManager {
     if (!this.serviceClient) {
       const config = this.getConfig('service')
       if (!config.serviceRoleKey) {
-        throw new Error('SUPABASE_SERVICE_ROLE_KEY is required for service client')
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('⚠️ SUPABASE_SERVICE_ROLE_KEY is missing for service client')
+        }
       }
-      this.serviceClient = createClient(config.url, config.serviceRoleKey, {
+      this.serviceClient = createClient(config.url, config.serviceRoleKey || '', {
         auth: {
           autoRefreshToken: false,
           persistSession: false,
@@ -154,11 +156,15 @@ export class SupabaseClientManager {
     }
     
     if (!url || !anonKey) {
-      throw new Error(
-        `Missing required Supabase environment variables. ` +
-        `Required: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY. ` +
-        `For service operations: SUPABASE_SERVICE_ROLE_KEY`
-      )
+      // Don't throw during module evaluation/build time. 
+      // createClient will be called with empty strings, and 
+      // actual errors will happen at runtime when requests are made.
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(
+          `⚠️ Supabase environment variables missing. ` +
+          `Requests will fail until NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set.`
+        )
+      }
     }
     
     return {
@@ -205,20 +211,36 @@ export class SupabaseClientManager {
  */
 
 // For API routes and server components
-export const getSupabaseServer = () => SupabaseClientManager.getInstance().getServerClient()
+export const getSupabaseServer = () => new Proxy({} as SupabaseClient, {
+  get: (target, prop) => {
+    return (SupabaseClientManager.getInstance().getServerClient() as any)[prop]
+  }
+})
 
 // For admin operations
-export const getSupabaseService = () => SupabaseClientManager.getInstance().getServiceClient()
+export const getSupabaseService = () => new Proxy({} as SupabaseClient, {
+  get: (target, prop) => {
+    return (SupabaseClientManager.getInstance().getServiceClient() as any)[prop]
+  }
+})
 
 // For Edge Functions
-export const getSupabaseEdge = () => SupabaseClientManager.getInstance().getEdgeClient()
+export const getSupabaseEdge = () => new Proxy({} as SupabaseClient, {
+  get: (target, prop) => {
+    return (SupabaseClientManager.getInstance().getEdgeClient() as any)[prop]
+  }
+})
 
-// For React components (use this instead of useSupabaseClient)
+// For React components (returns a new instance each call as per auth-helpers)
 export const getSupabaseClient = () => SupabaseClientManager.getInstance().getClientComponent()
 
 // For scripts and utilities
 export const getSupabase = (type: SupabaseClientType = 'server') => 
-  SupabaseClientManager.getInstance().getClient(type)
+  new Proxy({} as SupabaseClient, {
+    get: (target, prop) => {
+      return (SupabaseClientManager.getInstance().getClient(type) as any)[prop]
+    }
+  })
 
 /**
  * React hook for components (replaces useSupabaseClient)
