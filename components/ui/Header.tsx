@@ -32,7 +32,8 @@ import {
   FileText,
   Map,
   LayoutList,
-  Globe
+  Globe,
+  Bell
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -258,13 +259,19 @@ export function Header({ className }: HeaderProps) {
     {
       name: t('users'),
       href: '/dashboard/admin/users',
-      icon: Settings,
+      icon: Users,
       category: 'admin'
     },
     {
       name: 'Audit Logs',
       href: '/dashboard/admin/audit-logs',
       icon: Activity,
+      category: 'admin'
+    },
+    {
+      name: t('notifications'),
+      href: '/dashboard/notifications',
+      icon: Bell,
       category: 'admin'
     },
   ]
@@ -413,7 +420,7 @@ export function Header({ className }: HeaderProps) {
             {/* Admin - Dropdown */}
             {(() => {
               const adminItems = navigation.filter(item => item.category === 'admin')
-              return renderDropdown('admin', adminItems, t('clients'))
+              return renderDropdown('admin', adminItems, t('admin'))
             })()}
           </nav>
 
@@ -517,7 +524,7 @@ export function Header({ className }: HeaderProps) {
               {/* Admin */}
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  {t('clients')}
+                  {t('admin')}
                 </h4>
                 <div className="space-y-1">
                   {navigation.filter(item => item.category === 'admin').map((item) => {

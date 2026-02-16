@@ -84,7 +84,9 @@
     "admin_clients": "Clientes (Admin)",
     "admin_users": "Usuários (Admin)",
     "logout": "Sair",
-    "toggle_theme": "Alternar tema"
+    "toggle_theme": "Alternar tema",
+    "notifications": "Notificações",
+    "admin": "Admin"
   },
   "Pages": {
     "Login": {

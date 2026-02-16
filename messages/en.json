@@ -84,7 +84,9 @@
     "admin_clients": "Clients",
     "admin_users": "Users",
     "logout": "Logout",
-    "toggle_theme": "Toggle theme"
+    "toggle_theme": "Toggle theme",
+    "notifications": "Notifications",
+    "admin": "Admin"
   },
   "Pages": {
     "Login": {
