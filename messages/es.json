@@ -84,7 +84,9 @@
     "admin_clients": "Clientes",
     "admin_users": "Usuarios",
     "logout": "Cerrar sesión",
-    "toggle_theme": "Alternar tema"
+    "toggle_theme": "Alternar tema",
+    "notifications": "Notificaciones",
+    "admin": "Admin"
   },
   "Pages": {
     "Login": {
