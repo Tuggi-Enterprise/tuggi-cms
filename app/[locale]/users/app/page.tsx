@@ -5,7 +5,7 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { 
   Smartphone, Search, RefreshCw, Filter, Crown, 
   CreditCard, TrendingUp, AlertCircle, ChevronDown,
-  Apple, Zap, User, Activity, Mail, Play
+  Apple, Zap, User, Activity, Mail, Play, ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
@@ -30,6 +30,7 @@ interface AppUser {
   email: string | null
   country: string | null
   language: string | null
+  timezone: string | null
   voice_preference: string | null
   driver_type: string | null
   last_platform: string | null
@@ -75,6 +76,11 @@ interface UserDetail extends AppUser {
     previous_tier_name: string | null
     created_at: string
   }>
+}
+
+type SortConfig = {
+  key: keyof AppUser
+  direction: 'asc' | 'desc'
 }
 
 // ============================================================================
@@ -376,6 +382,12 @@ export default function AppUsersPage() {
   const [filterPlatform, setFilterPlatform] = useState<string>('')
   const [filterSubscription, setFilterSubscription] = useState<string>('')
   const [showFilters, setShowFilters] = useState(false)
+  
+  // Sorting
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ 
+    key: 'last_sign_in_at', 
+    direction: 'desc' 
+  })
 
   // Fetch users
   const fetchUsers = useCallback(async () => {
@@ -440,6 +452,13 @@ export default function AppUsersPage() {
     fetchSubscriptionStats()
   }, [fetchUsers, fetchSubscriptionStats])
 
+  const handleSort = (key: keyof AppUser) => {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc'
+    }))
+  }
+
   // Get unique countries for filter
   const countries = [...new Set(users.map(u => u.country).filter(Boolean))] as string[]
   
@@ -460,6 +479,21 @@ export default function AppUsersPage() {
     return matchesSearch && matchesSubscription
   })
 
+  // Apply sorting
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    const aValue = a[sortConfig.key]
+    const bValue = b[sortConfig.key]
+
+    if (aValue === bValue) return 0
+    
+    // Abstract null checks for dates/numbers
+    if (aValue === null) return 1 // Nulls last
+    if (bValue === null) return -1
+
+    const comparison = aValue > bValue ? 1 : -1
+    return sortConfig.direction === 'asc' ? comparison : -comparison
+  })
+
   // Stats from subscription stats or computed
   const stats = subscriptionStats || {
     total_users: users.length,
@@ -476,6 +510,13 @@ export default function AppUsersPage() {
     setFilterPlatform('')
     setFilterSubscription('')
     setSearchQuery('')
+  }
+  
+  const SortIcon = ({ column }: { column: keyof AppUser }) => {
+    if (sortConfig.key !== column) return <ArrowUpDown className="h-3 w-3 ml-1 text-gray-400" />
+    return sortConfig.direction === 'asc' 
+      ? <ArrowUp className="h-3 w-3 ml-1 text-tuggi-blue" />
+      : <ArrowDown className="h-3 w-3 ml-1 text-tuggi-blue" />
   }
 
   return (
@@ -517,7 +558,6 @@ export default function AppUsersPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
       {/* Stats Cards */}
       <StatCardRow columns={8} className="mb-6">
         <StatCard label="Total" value={stats.total_users} icon={Smartphone} color="#00A8E8" isLoading={isLoading} />
@@ -641,13 +681,43 @@ export default function AppUsersPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Usuário</th>
+                <th 
+                  className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"
+                >
+                  Usuário
+                </th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Assinatura</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">País</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Idioma</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Timezone</th>
                 <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Device</th>
-                <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Trips</th>
-                <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Visits</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Último Login</th>
+                <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Logins</th>
+                <th 
+                  className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50"
+                  onClick={() => handleSort('trip_count')}
+                >
+                  <div className="flex items-center justify-end">
+                    Trips
+                    <SortIcon column="trip_count" />
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50"
+                  onClick={() => handleSort('created_at')}
+                >
+                  <div className="flex items-center justify-end">
+                    Criado Em
+                    <SortIcon column="created_at" />
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50"
+                  onClick={() => handleSort('last_sign_in_at')}
+                >
+                  <div className="flex items-center">
+                    Último Login
+                    <SortIcon column="last_sign_in_at" />
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -658,19 +728,21 @@ export default function AppUsersPage() {
                     <td className="px-6 py-4"><div className="h-6 w-20 bg-gray-200 dark:bg-gray-700 rounded-full" /></td>
                     <td className="px-6 py-4"><div className="h-6 w-16 bg-gray-200 dark:bg-gray-700 rounded" /></td>
                     <td className="px-6 py-4"><div className="h-6 w-24 bg-gray-200 dark:bg-gray-700 rounded" /></td>
+                    <td className="px-6 py-4"><div className="h-6 w-20 bg-gray-200 dark:bg-gray-700 rounded" /></td>
+                    <td className="px-6 py-4"><div className="h-4 w-12 bg-gray-200 dark:bg-gray-700 rounded ml-auto" /></td>
                     <td className="px-6 py-4"><div className="h-4 w-8 bg-gray-200 dark:bg-gray-700 rounded ml-auto" /></td>
-                    <td className="px-6 py-4"><div className="h-4 w-8 bg-gray-200 dark:bg-gray-700 rounded ml-auto" /></td>
+                    <td className="px-6 py-4"><div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded ml-auto" /></td>
                     <td className="px-6 py-4"><div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded" /></td>
                   </tr>
                 ))
-              ) : filteredUsers.length === 0 ? (
+              ) : sortedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                     Nenhum usuário encontrado
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((user) => (
+                sortedUsers.map((user) => (
                   <tr 
                     key={user.user_id} 
                     className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
@@ -699,7 +771,12 @@ export default function AppUsersPage() {
                     </td>
                     <td className="px-6 py-4">
                       <span className="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">
-                        {user.country || 'N/A'}
+                        {user.language || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-xs text-gray-500">
+                        {user.timezone || 'N/A'}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -719,11 +796,17 @@ export default function AppUsersPage() {
                         )}
                       </div>
                     </td>
+                    <td className="px-6 py-4 text-right font-medium text-gray-700 dark:text-gray-300">
+                      {user.login_count || 0}
+                    </td>
                     <td className="px-6 py-4 text-right font-bold text-gray-900 dark:text-white">
                       {user.trip_count || 0}
                     </td>
-                    <td className="px-6 py-4 text-right font-bold text-tuggi-blue">
-                      {user.poi_visits_count || 0}
+                    <td className="px-6 py-4 text-right text-sm text-gray-500">
+                      {user.created_at 
+                        ? new Date(user.created_at).toLocaleDateString('pt-BR')
+                        : 'N/A'
+                      }
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {user.last_sign_in_at 
