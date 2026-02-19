@@ -199,7 +199,14 @@ export function UsersListAdmin({ onCreateNew }: UsersListAdminProps) {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
-                      {user.client_id ? '✓ Linked' : '-'}
+                      {user.clients && user.clients.length > 0 ? (
+                        <div className="flex flex-col">
+                          <span className="font-medium text-gray-900">{user.clients.map(c => c.name || c.id).join(', ')}</span>
+                          <span className="text-xs text-gray-500">{user.clients.map(c => c.client_role).filter(Boolean).join(', ')}</span>
+                        </div>
+                      ) : (
+                        user.client_name ? <span className="font-medium text-gray-900">{user.client_name}</span> : '-'
+                      )}
                     </td>
                     <td className="px-6 py-4 text-center">
                       <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${

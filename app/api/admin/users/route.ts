@@ -78,9 +78,78 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: usersError.message }, { status: 500 })
     }
 
+    // Use service-role client for admin-only reads (bypass RLS issues)
+    const supabaseService = getSupabaseService()
+
+    // Enrich users with linked clients (primary client_id + client_cms_users links)
+    const pageUsers = (users || []) as any[]
+    const userIds = pageUsers.map(u => u.id).filter(Boolean)
+    const primaryClientIds = pageUsers.map(u => u.client_id).filter(Boolean)
+    const allClientIdsSet = new Set<string>(primaryClientIds)
+
+    // Fetch client_cms_users links for users on this page (service role)
+    let links: any[] = []
+    if (userIds.length > 0) {
+      const { data: ldata, error: lerr } = await supabaseService
+        .schema('core')
+        .from('client_cms_users')
+        .select('cms_user_id, client_id, client_role')
+        .in('cms_user_id', userIds)
+
+      if (!lerr && ldata) {
+        links = ldata
+        ldata.forEach((r: any) => { if (r.client_id) allClientIdsSet.add(r.client_id) })
+      } else if (lerr) {
+        console.warn('GET /api/admin/users - failed to load client_cms_users links:', lerr)
+      }
+    }
+
+    const allClientIds = Array.from(allClientIdsSet)
+    const clientsMap: Record<string, { id: string; name?: string }> = {}
+    if (allClientIds.length > 0) {
+      const { data: cdata, error: cerr } = await supabaseService
+        .schema('core')
+        .from('clients')
+        .select('id, name')
+        .in('id', allClientIds)
+
+      if (!cerr && cdata) {
+        cdata.forEach((c: any) => { clientsMap[c.id] = { id: c.id, name: c.name } })
+      } else if (cerr) {
+        console.warn('GET /api/admin/users - failed to load clients:', cerr)
+      }
+    }
+
+    const linksByUser: Record<string, any[]> = {}
+    links.forEach(l => {
+      if (!linksByUser[l.cms_user_id]) linksByUser[l.cms_user_id] = []
+      linksByUser[l.cms_user_id].push({ id: l.client_id, client_role: l.client_role })
+    })
+
+    const finalUsers = pageUsers.map(u => {
+      const linked = linksByUser[u.id] || []
+      const merged: Array<{ id: string; name?: string; client_role?: string }> = []
+
+      // primary client_id (if present)
+      if (u.client_id) {
+        merged.push({ id: u.client_id, name: clientsMap[u.client_id]?.name || undefined, client_role: 'owner' })
+      }
+
+      // add linked clients
+      linked.forEach((lc: any) => {
+        if (!merged.find(m => m.id === lc.id)) merged.push({ id: lc.id, name: clientsMap[lc.id]?.name || undefined, client_role: lc.client_role })
+      })
+
+      return {
+        ...u,
+        clients: merged,
+        client_name: merged.length > 0 ? (merged[0].name || merged[0].id) : null
+      }
+    })
+
     return NextResponse.json({
       success: true,
-      users: users || [],
+      users: finalUsers || [],
       pagination: {
         page,
         limit,
