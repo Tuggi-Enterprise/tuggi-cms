@@ -44,8 +44,11 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '10')
     const offset = (page - 1) * limit
 
-    // Build query
-    let query = supabaseAuth
+    // Use service-role for admin reads (bypass RLS)
+    const supabaseService = getSupabaseService()
+
+    // Build query (service role)
+    let query = supabaseService
       .schema('core')
       .from('clients')
       .select('id, name, email, phone, status, cms_user_id, created_at, updated_at', { count: 'exact' })
@@ -69,21 +72,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: clientsError.message }, { status: 500 })
     }
 
-    // Get user count for each client
-    const clientsWithUserCount = await Promise.all(
-      (clients || []).map(async (client) => {
-        const { count: userCount } = await supabaseAuth
-          .schema('core')
-          .from('client_cms_users')
-          .select('id', { count: 'exact' })
-          .eq('client_id', client.id)
+    // Efficiently count linked users for all clients returned (single query)
+    const clientIds = (clients || []).map((c: any) => c.id).filter(Boolean)
+    const usersCountMap: Record<string, number> = {}
 
-        return {
-          ...client,
-          users_count: userCount || 0
-        }
-      })
-    )
+    if (clientIds.length > 0) {
+      const { data: links, error: linksErr } = await supabaseService
+        .schema('core')
+        .from('client_cms_users')
+        .select('client_id')
+        .in('client_id', clientIds)
+
+      if (linksErr) {
+        console.warn('Failed to fetch client_cms_users for counts:', linksErr)
+      } else if (links) {
+        links.forEach((l: any) => {
+          usersCountMap[l.client_id] = (usersCountMap[l.client_id] || 0) + 1
+        })
+      }
+    }
+
+    const clientsWithUserCount = (clients || []).map((client: any) => ({
+      ...client,
+      users_count: usersCountMap[client.id] || 0
+    }))
+
+    console.log(`GET /api/admin/clients -> returning ${clientsWithUserCount.length} clients (user counts computed)`)
 
     return NextResponse.json({
       success: true,

@@ -32,6 +32,14 @@ export async function middleware(req: NextRequest) {
   // Path is like /en/dashboard or /pt/login
   const pathname = req.nextUrl.pathname;
   const match = pathname.match(/^\/(en|pt|es)(\/.*)?$/);
+
+  // If URL is missing locale prefix, redirect to default locale (/en)
+  // - skip api/_next and file-like paths
+  // - keep same pathname so direct links without locale continue to work
+  if (!match && pathname !== '/' && !pathname.startsWith('/api') && !pathname.startsWith('/_next') && !pathname.includes('.')) {
+    return NextResponse.redirect(new URL(`/en${pathname}`, req.url));
+  }
+
   const locale = match ? match[1] : 'en'; // Default fallback
   const pathWithoutLocale = match ? (match[2] || '/') : pathname;
 

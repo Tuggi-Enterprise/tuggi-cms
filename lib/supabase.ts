@@ -24,6 +24,10 @@ export interface CmsUser {
   /** FK to clients table - only populated for users with role='client' */
   client_id?: string
   updated_at?: string
+
+  /** Optional: populated by admin endpoints for UI */
+  clients?: Array<{ id: string; name?: string; client_role?: string }>
+  client_name?: string | null
 }
 
 export interface Attraction {

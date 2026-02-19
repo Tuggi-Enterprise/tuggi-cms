@@ -29,35 +29,31 @@ export default function AdminEditClientPage({
       }
 
       try {
-        const { data: cmsUser } = await supabase
-          .schema('core')
-          .from('cms_users')
-          .select('role')
-          .eq('email', session.user.email)
-          .single()
+        // Prefer server-side admin API which uses service-role and validates admin status.
+        const res = await fetch(`/api/admin/clients/${params.clientId}`)
 
-        if (cmsUser?.role !== 'admin') {
+        if (res.status === 403) {
+          // Server says user is not admin / not authorized
           router.push('/unauthorized')
           return
         }
 
-        // Fetch client data
-        const { data: clientData } = await supabase
-          .schema('core')
-          .from('clients')
-          .select('*')
-          .eq('id', params.clientId)
-          .single()
-
-        if (!clientData) {
+        if (res.status === 404) {
           router.push('/dashboard/admin/clients')
           return
         }
 
-        setClient(clientData as Client)
+        if (!res.ok) {
+          console.error('Failed to fetch client (admin API):', await res.text())
+          router.push('/dashboard/admin/clients')
+          return
+        }
+
+        const data = await res.json()
+        setClient(data.client as Client)
         setIsAuthorized(true)
       } catch (error) {
-        console.error('Auth error:', error)
+        console.error('Auth/error fetching client via admin API:', error)
         router.push('/unauthorized')
       } finally {
         setIsLoading(false)
@@ -65,7 +61,7 @@ export default function AdminEditClientPage({
     }
 
     checkAuth()
-  }, [session, sessionLoading, router, supabase, params.clientId])
+  }, [session, sessionLoading, router, params.clientId])
 
   if (isLoading) {
     return (
