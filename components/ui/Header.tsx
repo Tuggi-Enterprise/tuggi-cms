@@ -288,6 +288,28 @@ export function Header({ className }: HeaderProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [openDropdown])
 
+  const [userRole, setUserRole] = useState<string | null>(null)
+
+  // determine if the current user is an admin (includes super_admin)
+  const isAdmin = userRole === 'admin' || userRole === 'super_admin'
+
+  // fetch role on mount using the existing auth check endpoint
+  useEffect(() => {
+    const fetchRole = async () => {
+      try {
+        const res = await fetch('/api/auth/check')
+        if (res.ok) {
+          const data = await res.json()
+          setUserRole(data.user?.role || null)
+        }
+      } catch (err) {
+        console.error('Failed to fetch user role for header:', err)
+      }
+    }
+
+    fetchRole()
+  }, [])
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/login')
@@ -392,10 +414,12 @@ export function Header({ className }: HeaderProps) {
           {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center space-x-2">
             {/* Dashboard */}
-            {navigation.filter(item => item.category === 'main').map((item) => {
-              const isActive = pathname === item.href
-              return renderNavItem(item, isActive)
-            })}
+            {navigation
+              .filter(item => item.category === 'main')
+              .map((item) => {
+                const isActive = pathname === item.href
+                return renderNavItem(item, isActive)
+              })}
 
             {/* POIs - Dropdown */}
             {(() => {
@@ -418,7 +442,7 @@ export function Header({ className }: HeaderProps) {
             })()}
 
             {/* Admin - Dropdown */}
-            {(() => {
+            {isAdmin && (() => {
               const adminItems = navigation.filter(item => item.category === 'admin')
               return renderDropdown('admin', adminItems, t('admin'))
             })()}
@@ -522,17 +546,19 @@ export function Header({ className }: HeaderProps) {
               </div>
 
               {/* Admin */}
-              <div>
-                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  {t('admin')}
-                </h4>
-                <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'admin').map((item) => {
-                    const isActive = pathname === item.href
-                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
-                  })}
+              {isAdmin && (
+                <div>
+                  <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    {t('admin')}
+                  </h4>
+                  <div className="space-y-1">
+                    {navigation.filter(item => item.category === 'admin').map((item) => {
+                      const isActive = pathname === item.href
+                      return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </nav>
           </div>
         )}

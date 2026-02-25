@@ -185,8 +185,9 @@ class DashboardService {
         contentQualityResult,
         visitsByLanguageResult
       ] = await Promise.all([
-        supabase.schema('core').rpc('dashboard_user_analytics', { owner_id: ownerId || null }),
-        supabase.schema('core').rpc('dashboard_city_stats', { owner_id: ownerId || null }),
+        // parameter renamed to p_owner_id to avoid naming conflict
+        supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId || null }),
+        supabase.schema('core').rpc('dashboard_city_stats', { p_owner_id: ownerId || null }),
         supabase.schema('core').rpc('dashboard_most_visited_cities', { limit_count: 20 }),
         supabase.schema('core').rpc('dashboard_top_visited_pois', { limit_count: 10 }),
         supabase.schema('core').rpc('dashboard_recent_visited_pois', { limit_count: 10 }),
