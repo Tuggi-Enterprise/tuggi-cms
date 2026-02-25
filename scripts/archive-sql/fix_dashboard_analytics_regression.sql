@@ -1,74 +1,12 @@
--- patch_dashboard_rpc_scope.sql
---
--- Ensure every dashboard RPC accepts an optional owner_id parameter and
--- strictly filters data to that client's scope when the caller is NOT an
--- admin.  Existing functions may have used wrong columns (created_by) or not
--- accepted the parameter at all; this script replaces them with scoped
--- versions and provides compatibility wrappers.
---
--- Run this script in the Supabase SQL editor or via psql against the database.
+-- REPAIR SCRIPT: Fix dashboard analytics regression
+-- This script restores missing columns (active_users_30d, history, growth) 
+-- and ensures proper scoping by owner_id or created_by.
+-- 
+-- Date: 2026-02-25
+-- Regression fix for: patch_dashboard_rpc_scope.sql
+-- Fix: Replace non-existent attraction_id with bridge via poi_visits
 
--- 1. dashboard_city_stats (POIs por cidade)
-DROP FUNCTION IF EXISTS core.dashboard_city_stats(uuid);
-DROP FUNCTION IF EXISTS core.dashboard_city_stats();
-
-CREATE OR REPLACE FUNCTION core.dashboard_city_stats(
-  p_owner_id uuid DEFAULT NULL
-)
-RETURNS TABLE (
-  city text,
-  country text,
-  poi_count bigint,
-  approved_count bigint,
-  pending_count bigint
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-  caller_cms_id uuid;
-  is_admin boolean := false;
-  target_owner_id uuid;
-BEGIN
-  -- Resolve identity
-  BEGIN
-    caller_cms_id := (SELECT cu.id FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true));
-    is_admin := EXISTS (
-      SELECT 1 FROM core.cms_users cu 
-      WHERE cu.email = current_setting('request.jwt.claims.email', true) 
-      AND cu.role IN ('admin','super_admin')
-    );
-  EXCEPTION WHEN OTHERS THEN
-    is_admin := TRUE;
-  END;
-
-  -- Default target scoping
-  IF NOT is_admin AND caller_cms_id IS NOT NULL THEN
-    target_owner_id := COALESCE(p_owner_id, caller_cms_id);
-  ELSE
-    target_owner_id := p_owner_id;
-  END IF;
-
-  RETURN QUERY
-  SELECT 
-    INITCAP(TRIM(LOWER(a.city))) as city,
-    (ARRAY_AGG(a.country ORDER BY a.country NULLS LAST))[1] as country,
-    COUNT(*)::bigint AS poi_count,
-    COUNT(*) FILTER (WHERE a.approved = true)::bigint AS approved_count,
-    COUNT(*) FILTER (WHERE a.approved = false)::bigint AS pending_count
-  FROM core.attractions a
-  WHERE (target_owner_id IS NULL OR a.owner_id = target_owner_id OR a.created_by = target_owner_id)
-    AND a.city IS NOT NULL AND TRIM(a.city) <> ''
-  GROUP BY INITCAP(TRIM(LOWER(a.city)))
-  ORDER BY poi_count DESC
-  LIMIT 50;
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION core.dashboard_city_stats(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION core.dashboard_city_stats(uuid) TO service_role;
-
--- 2. dashboard_user_analytics (usuários/trips)
+-- 1. dashboard_user_analytics
 DROP FUNCTION IF EXISTS core.dashboard_user_analytics(uuid);
 DROP FUNCTION IF EXISTS core.dashboard_user_analytics();
 
@@ -97,7 +35,7 @@ DECLARE
 BEGIN
   -- Security Resolution
   BEGIN
-    caller_cms_id := (SELECT cu.id FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true));
+    caller_cms_id := (SELECT id FROM core.cms_users WHERE email = current_setting('request.jwt.claims.email', true));
     is_admin := EXISTS (
       SELECT 1 FROM core.cms_users cu
       WHERE cu.email = current_setting('request.jwt.claims.email', true)
@@ -250,34 +188,68 @@ BEGIN
 END;
 $$;
 
+-- 2. dashboard_city_stats
+DROP FUNCTION IF EXISTS core.dashboard_city_stats(uuid);
+DROP FUNCTION IF EXISTS core.dashboard_city_stats();
 
-GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics(uuid) TO service_role;
-
--- compatibility wrapper
-DROP FUNCTION IF EXISTS core.dashboard_user_analytics_old();
-CREATE OR REPLACE FUNCTION core.dashboard_user_analytics_old()
-RETURNS TABLE (total_users bigint, total_trips bigint, total_km_driven numeric, total_pois_played bigint, avg_trip_duration text, trips_by_platform jsonb)
-LANGUAGE sql
-STABLE
+CREATE OR REPLACE FUNCTION core.dashboard_city_stats(
+  p_owner_id uuid DEFAULT NULL
+)
+RETURNS TABLE (
+  city text,
+  country text,
+  poi_count bigint,
+  approved_count bigint,
+  pending_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
-  SELECT total_users, total_trips, total_km_driven, total_audio_plays, avg_trip_duration, trips_by_platform 
-  FROM core.dashboard_user_analytics(NULL::uuid);
+DECLARE
+  caller_cms_id uuid;
+  is_admin boolean := false;
+  target_owner_id uuid;
+BEGIN
+  -- Resolve identity
+  BEGIN
+    caller_cms_id := (SELECT cu.id FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true));
+    is_admin := EXISTS (
+      SELECT 1 FROM core.cms_users cu 
+      WHERE cu.email = current_setting('request.jwt.claims.email', true) 
+      AND cu.role IN ('admin','super_admin')
+    );
+  EXCEPTION WHEN OTHERS THEN
+    is_admin := TRUE;
+  END;
+
+  -- Default target scoping
+  IF NOT is_admin AND caller_cms_id IS NOT NULL THEN
+    target_owner_id := COALESCE(p_owner_id, caller_cms_id);
+  ELSE
+    target_owner_id := p_owner_id;
+  END IF;
+
+  RETURN QUERY
+  SELECT 
+    INITCAP(TRIM(LOWER(a.city))) as city,
+    (ARRAY_AGG(a.country ORDER BY a.country NULLS LAST))[1] as country,
+    COUNT(*)::bigint AS poi_count,
+    COUNT(*) FILTER (WHERE a.approved = true)::bigint AS approved_count,
+    COUNT(*) FILTER (WHERE a.approved = false)::bigint AS pending_count
+  FROM core.attractions a
+  WHERE (target_owner_id IS NULL OR a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+    AND a.city IS NOT NULL AND TRIM(a.city) <> ''
+  GROUP BY INITCAP(TRIM(LOWER(a.city)))
+  ORDER BY poi_count DESC
+  LIMIT 50;
+END;
 $$;
 
-GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics_old() TO authenticated;
-GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics_old() TO service_role;
+-- 3. Compatibility wrappers for common frontend calls
+CREATE OR REPLACE FUNCTION core.dashboard_user_analytics_old()
+RETURNS TABLE (total_users bigint, total_trips bigint, total_km_driven numeric, total_pois_played bigint, avg_trip_duration text, trips_by_platform jsonb)
+LANGUAGE sql STABLE AS $$ SELECT total_users, total_trips, total_km_driven, total_audio_plays, avg_trip_duration, trips_by_platform FROM core.dashboard_user_analytics(NULL); $$;
 
-
--- #########################################
--- 3. other rpc skeletons: similar modifications below if needed
---    (dashboard_most_visited_cities, dashboard_top_visited_pois,
---     dashboard_recent_visited_pois,
---     dashboard_inventory_funnel,
---     dashboard_content_quality,
---     dashboard_visits_by_language)
---    These functions are not versioned in repo; inspect existing SQL and
---    add owner_id param + corresponding WHERE clauses.
--- #########################################
-
--- END OF PATCH
+GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION core.dashboard_city_stats(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION core.dashboard_user_analytics_old() TO authenticated, service_role;
