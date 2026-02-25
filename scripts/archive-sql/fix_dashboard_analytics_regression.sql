@@ -132,7 +132,7 @@ BEGIN
     (SELECT (COALESCE(ROUND(AVG(duration)), 0)::text || ' min')
      FROM (
        SELECT t.duration_minutes as duration FROM drive.trail_trips_unified t 
-       WHERE target_owner_id IS NULL AND t.duration_minutes > 0
+       WHERE target_owner_id IS NULL AND t.duration_minutes > 0.1 AND t.duration_minutes < 1440
        UNION ALL
        SELECT t.duration_minutes as duration FROM drive.trail_trips_unified t 
        WHERE target_owner_id IS NOT NULL 
@@ -141,7 +141,7 @@ BEGIN
            JOIN core.attractions a ON v.poi_id = a.id
            WHERE v.trip_session_id = t.trip_session_id 
              AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
-         ) AND t.duration_minutes > 0
+         ) AND t.duration_minutes > 0.1 AND t.duration_minutes < 1440
      ) durations) AS avg_trip_duration,
 
     -- trips_by_platform
