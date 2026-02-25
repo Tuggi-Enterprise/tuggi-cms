@@ -2,7 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 
-export async function withAuth(handler: (req: NextRequest) => Promise<NextResponse>, allowedRoles: string[] = ['admin', 'client']) {
+export async function withAuth(handler: (req: NextRequest) => Promise<NextResponse>, allowedRoles: string[] = ['admin', 'client', 'editor']) {
   return async (req: NextRequest) => {
     try {
       console.log('🔐 SIMPLE AUTH: Starting authentication check...')

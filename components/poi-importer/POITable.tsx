@@ -9,6 +9,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { CheckSquare, Square, Edit3, Save, X, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
@@ -34,6 +35,7 @@ interface POITableProps {
 export function POITable({ features, selectedFeatures, onToggleSelection, onEditPOI, onDeletePOI }: POITableProps) {
   const t = useTranslations('Pages.POIImporter.table')
   const tCommon = useTranslations('Common')
+  const { isViewer, canEdit, isAdmin } = useCmsUser()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Record<string, any>>({})
 

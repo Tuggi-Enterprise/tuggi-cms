@@ -3,6 +3,7 @@
 import React from 'react'
 import { Direction, DIRECTION_OPTIONS } from '@/types/trigger-points'
 import { cn } from '@/lib/utils'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
 interface DirectionSelectorProps {
   value: Direction | null
@@ -17,9 +18,11 @@ export function DirectionSelector({
   disabled = false, 
   className = '' 
 }: DirectionSelectorProps) {
-  
+  const { isViewer } = useCmsUser()
+  const effectiveDisabled = disabled || isViewer
+
   const handleDirectionClick = (direction: Direction) => {
-    if (disabled) return
+    if (effectiveDisabled) return
     
     // Toggle behavior - if clicking the same direction, deselect it
     if (value === direction) {

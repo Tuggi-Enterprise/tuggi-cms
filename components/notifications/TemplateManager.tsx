@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useCmsUser } from '@/lib/hooks/useCmsUser';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +21,7 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newMode, setNewMode] = useState(false);
+  const { canEdit } = useCmsUser();
   
   const [formData, setFormData] = useState<Partial<NotificationTemplate>>({
       name: '',
@@ -97,7 +99,7 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
           </h2>
           <p className="text-sm text-gray-500 font-medium">Create reusable messages to save time during campaigns.</p>
         </div>
-        {!newMode && !editingId && (
+        {!newMode && !editingId && canEdit && (
           <Button 
             className="rounded-xl bg-tuggi-blue hover:bg-blue-600 font-bold px-6 py-5 shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
             onClick={() => { setNewMode(true); setEditingId(null); setFormData({}); }}
@@ -164,13 +166,15 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
                       >
                         Cancel
                       </Button>
-                      <Button 
-                        className="rounded-xl px-8 bg-tuggi-blue hover:bg-blue-600 font-bold" 
-                        onClick={handleSave}
-                      >
-                        <Check className="h-4 w-4 mr-2" />
-                        Save Template
-                      </Button>
+                      {canEdit && (
+                        <Button 
+                          className="rounded-xl px-8 bg-tuggi-blue hover:bg-blue-600 font-bold" 
+                          onClick={handleSave}
+                        >
+                          <Check className="h-4 w-4 mr-2" />
+                          Save Template
+                        </Button>
+                      )}
                   </div>
               </CardContent>
           </Card>
@@ -216,22 +220,26 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
                             LOAD
                         </Button>
                         <div className="flex gap-1">
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-8 w-8 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-400 hover:text-tuggi-blue" 
-                              onClick={() => startEdit(t)}
-                            >
-                                <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-8 w-8 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500" 
-                              onClick={() => handleDelete(t.id)}
-                            >
-                                <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {canEdit && (
+                              <>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-400 hover:text-tuggi-blue" 
+                                  onClick={() => startEdit(t)}
+                                >
+                                    <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500" 
+                                  onClick={() => handleDelete(t.id)}
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
                         </div>
                     </div>
                 </CardContent>
@@ -246,13 +254,15 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
               </div>
               <p className="text-gray-900 dark:text-white font-black text-xl">No templates found</p>
               <p className="text-gray-500 max-w-xs mx-auto mt-1">Create your first template to quickly send common notifications.</p>
-              <Button 
-                variant="outline"
-                className="mt-6 rounded-xl font-bold border-gray-200 hover:bg-white"
-                onClick={() => setNewMode(true)}
-              >
-                + Create Template
-              </Button>
+              {canEdit && (
+                <Button 
+                  variant="outline"
+                  className="mt-6 rounded-xl font-bold border-gray-200 hover:bg-white"
+                  onClick={() => setNewMode(true)}
+                >
+                  + Create Template
+                </Button>
+              )}
           </div>
       )}
 

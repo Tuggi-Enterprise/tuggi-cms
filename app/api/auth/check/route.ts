@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    if (!['admin', 'client', 'client'].includes(cmsUser.role)) {
+    if (!['admin', 'client', 'editor'].includes(cmsUser.role)) {
       console.error('❌ Insufficient privileges:', cmsUser.role)
       return NextResponse.json(
         { 

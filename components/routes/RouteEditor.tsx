@@ -965,7 +965,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
 
           <button
             onClick={handleSave}
-            disabled={isSaving || isGenerating || !name || waypoints.length < 2}
+            disabled={!canEdit || isViewer || isSaving || isGenerating || !name || waypoints.length < 2}
             className="w-full py-4 bg-tuggi-blue text-white font-black rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/30 active:scale-[0.98] flex items-center justify-center gap-3 text-lg"
           >
             {isSaving ? <RefreshCw className="h-6 w-6 animate-spin" /> : <Save className="h-6 w-6" />}
