@@ -59,7 +59,7 @@ function POIListWithSearchParams() {
   const [stateFilter, setStateFilter] = useState('')
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [cmsUserRole, setCmsUserRole] = useState<string | null>(null)
+  const { role: cmsUserRole, isViewer, isAdmin, canEdit } = useCmsUser()
 
   // View state
   const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
@@ -853,16 +853,18 @@ function POIListWithSearchParams() {
                 
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setSelectedPoi(null)
-                        setIsModalOpen(true)
-                      }}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-xs bg-tuggi-blue text-white hover:bg-tuggi-blue/90 shadow-lg shadow-tuggi-blue/20 transition-all duration-300"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {t('add_manually')}
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => {
+                          setSelectedPoi(null)
+                          setIsModalOpen(true)
+                        }}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-xs bg-tuggi-blue text-white hover:bg-tuggi-blue/90 shadow-lg shadow-tuggi-blue/20 transition-all duration-300"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        {t('add_manually')}
+                      </button>
+                    )}
 
                     {cmsUserRole === 'admin' && (
                       <Link
@@ -885,7 +887,7 @@ function POIListWithSearchParams() {
               </div>
               
               <div className="flex items-center gap-3 pr-2">
-                {selectedPois.length > 0 && cmsUserRole === 'admin' && (
+                {selectedPois.length > 0 && isAdmin && (
                   <button
                     onClick={handleBulkDelete}
                     className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-xl font-bold text-xs hover:bg-red-500/20 transition-all border border-red-500/10"

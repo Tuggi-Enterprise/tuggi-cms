@@ -5,11 +5,13 @@ import { useParams } from 'next/navigation'
 import { RouteEditor } from '@/components/routes/RouteEditor'
 import { useTranslations } from 'next-intl'
 import { AlertCircle, RefreshCw } from 'lucide-react'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
 export default function EditRoutePage() {
   const { id } = useParams()
   const t = useTranslations('CustomRoutes.editor')
   const [route, setRoute] = useState<any>(null)
+  const { isViewer } = useCmsUser()
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,6 +42,14 @@ export default function EditRoutePage() {
       <div className="h-full flex flex-col items-center justify-center gap-4">
         <div className="w-12 h-12 border-4 border-tuggi-blue/10 border-t-tuggi-blue rounded-full animate-spin" />
         <p className="text-gray-400 font-bold animate-pulse">Carregando dados da rota...</p>
+      </div>
+    )
+  }
+
+  if (isViewer) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <p className="text-red-500 font-bold">Você não tem permissão para editar rotas.</p>
       </div>
     )
   }

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, Clock, AlertTriangle, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCmsUser } from '@/lib/hooks/useCmsUser';
 
 interface VerificationData {
   verification_status: 'pending' | 'approved' | 'needs_review' | 'rejected' | null;
@@ -39,6 +40,7 @@ export function VerificationBadge({
   );
   const [isLoading, setIsLoading] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  const { canEdit } = useCmsUser();
 
   // Only render on client side
   useEffect(() => {
@@ -220,7 +222,7 @@ export function VerificationBadge({
         )}
       </div>
 
-      {showVerifyButton && verificationData.verification_status !== 'approved' && (
+      {showVerifyButton && canEdit && verificationData.verification_status !== 'approved' && (
         <button
           onClick={handleVerify}
           disabled={isVerifying}

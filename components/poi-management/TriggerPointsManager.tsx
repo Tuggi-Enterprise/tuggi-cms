@@ -40,6 +40,7 @@ export function TriggerPointsManager({
   const [selectedTriggerPoint, setSelectedTriggerPoint] = useState<TriggerPoint | null>(null)
   const [isAddingMode, setIsAddingMode] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
+  const { canEdit, isViewer } = useCmsUser()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -690,10 +691,10 @@ export function TriggerPointsManager({
                 {/* Actions */}
                 <div className="flex items-center justify-between pt-4 mt-2 border-t border-gray-100 dark:border-gray-800 gap-2">
                    <div className="flex items-center gap-2">
-                     {isEditing && selectedTriggerPoint?.id && (
+                     {isEditing && selectedTriggerPoint?.id && canEdit && (
                       <button
                         onClick={() => deleteTriggerPoint(selectedTriggerPoint.id!)}
-                        disabled={isLoading}
+                        disabled={isLoading || isViewer}
                         className="px-3 py-2 text-xs font-medium text-red-600 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
                         title="Delete"
                       >
@@ -737,7 +738,7 @@ export function TriggerPointsManager({
                     </button>
                     <button
                       onClick={saveTriggerPoint}
-                      disabled={isLoading}
+                      disabled={isLoading || !canEdit || isViewer}
                       className="flex-1 px-4 py-2 text-xs font-medium text-white bg-tuggi-blue rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[80px]"
                     >
                       {isLoading ? (

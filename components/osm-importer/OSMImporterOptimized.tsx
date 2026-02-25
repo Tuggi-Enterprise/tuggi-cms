@@ -12,6 +12,7 @@ import { useState, Suspense } from 'react'
 import { Upload, Trash2, Download, RefreshCw, CheckSquare, Square, X, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
 // Hooks
 import { useOSMFilters } from '@/lib/hooks/use-osm-filters'
@@ -132,6 +133,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
   // Pagination info
   const pagination = poisResponse?.pagination || { total: 0, totalPages: 1, currentPage: 1, limit: 50 }
   const hasData = pagination.total > 0 || initialHasData
+  const { canEdit, isViewer } = useCmsUser()
 
   // Handle POI click
   const handlePOIClick = (poi: any) => {
@@ -268,12 +270,13 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
               <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
             )}
             
+            {canEdit && (
             <button
               onClick={handleDeleteSelected}
-              disabled={selectedCount === 0 || isDeleting}
+              disabled={!canEdit || isViewer || selectedCount === 0 || isDeleting}
               className={cn(
                 "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center",
-                selectedCount === 0 || isDeleting
+                selectedCount === 0 || isDeleting || !canEdit || isViewer
                   ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                   : "bg-red-600 text-white hover:bg-red-700"
               )}
@@ -282,11 +285,12 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
               {isDeleting ? t('status.deleting') : t('actions.delete_selected')}
             </button>
             
+            {canEdit && (
             <button
-              disabled={selectedCount === 0}
+              disabled={!canEdit || isViewer || selectedCount === 0}
               className={cn(
                 "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center",
-                selectedCount === 0
+                selectedCount === 0 || !canEdit || isViewer
                   ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                   : "bg-green-600 text-white hover:bg-green-700"
               )}

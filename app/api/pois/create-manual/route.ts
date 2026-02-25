@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     if (cmsError || !cmsUser) {
       return NextResponse.json({ error: 'Unauthorized - CMS access denied' }, { status: 403 })
     }
-    if (!['admin', 'client'].includes(cmsUser.role)) {
+    if (!['admin', 'client', 'editor'].includes(cmsUser.role)) {
       return NextResponse.json({ error: 'Unauthorized - Insufficient privileges' }, { status: 403 })
     }
     const body = await request.json()

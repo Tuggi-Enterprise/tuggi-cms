@@ -123,7 +123,8 @@ export function UserFilter({ selectedUserIds, onSelectionChange, className }: Us
             <div className="mb-3">
               <button
                 onClick={handleSelectAll}
-                className="text-sm text-tuggi-blue hover:text-blue-600 dark:text-blue-400"
+                disabled={!canEdit}
+                className="text-sm text-tuggi-blue hover:text-blue-600 dark:text-blue-400 disabled:opacity-50"
               >
                 {selectedUserIds.length === filteredUsers.length ? 'Deselect All' : 'Select All'}
               </button>

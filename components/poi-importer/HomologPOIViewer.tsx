@@ -331,7 +331,8 @@ export function HomologPOIViewer() {
                   <div className="flex items-center space-x-2">
                     <button
                       onClick={handleSelectAll}
-                      className="flex items-center space-x-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
+                      disabled={!canEdit || isViewer}
+                      className="flex items-center space-x-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-50"
                     >
                       {selectedFeatures.size === currentFeaturesCount ? (
                         <Square className="w-4 h-4" />

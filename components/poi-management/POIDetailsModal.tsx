@@ -125,7 +125,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [createError, setCreateError] = useState<string | null>(null)
   const [createBoundary, setCreateBoundary] = useState<Array<{ lat: number; lng: number }> | null>(null)
   const [isEnrichingOSM, setIsEnrichingOSM] = useState(false)
-  const [cmsUserRole, setCmsUserRole] = useState<string | null>(null)
+
+  // compute CMS role / editing permissions for UI
+  const { role: cmsUserRole, isViewer, isAdmin, canEdit } = useCmsUser()
 
   // Boundary drawing state
   const [boundaryPolygon, setBoundaryPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
@@ -172,20 +174,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poi])
 
-  // Fetch CMS user role (for client-side UI decisions)
-  useEffect(() => {
-    const fetchRole = async () => {
-      try {
-        const res = await fetch('/api/auth/check')
-        if (!res.ok) return
-        const data = await res.json()
-        setCmsUserRole(data?.user?.role || null)
-      } catch (err) {
-        console.warn('Failed to fetch cms user role:', err)
-      }
-    }
-    fetchRole()
-  }, [])
 
   // Reverse geocoding when coordinates change in create mode (with debounce)
   useEffect(() => {
@@ -3545,7 +3533,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                     {/* Action Buttons */}
                     <div className="flex items-center space-x-3 pt-4 border-t border-gray-200 dark:border-gray-600">
-                      {cmsUserRole === 'admin' && (
+                      {isAdmin && (
                         <button
                           onClick={handleDelete}
                           disabled={isSaving}
@@ -3561,7 +3549,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       >
                         {t('actions.cancel')}
                       </button>
-                      {(isCreateMode || cmsUserRole === 'admin') && (
+                      {(isCreateMode || canEdit) && (
                         <button
                           onClick={handleSaveChanges}
                           disabled={isSaving}
@@ -4774,7 +4762,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         >
                           {t('actions.cancel')}
                         </button>
-                        {!getPoi()?.approved && cmsUserRole === 'admin' && (
+                        {!getPoi()?.approved && isAdmin && (
                           <button
                             onClick={handleApprove}
                             disabled={isSaving || !currentDescription.trim() || translatedDescriptions.length === 0}
@@ -4784,7 +4772,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                              {isSaving ? t('labels.approving') : tCommon('actions.approve')}
                            </button>
                         )}
-                        {getPoi()?.approved && cmsUserRole === 'admin' && (
+                        {getPoi()?.approved && isAdmin && (
                           <div className="inline-flex items-center px-6 py-3 text-sm font-black text-green-700 bg-green-50 border border-green-200 rounded-2xl uppercase tracking-widest">
                              <CheckCircle className="h-4 w-4 mr-2" />
                              {t('labels.poi_approved')}

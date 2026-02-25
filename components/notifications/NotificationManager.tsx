@@ -341,16 +341,18 @@ export function NotificationManager() {
                         )}
                     </div>
 
-                    <Button 
-                        size="lg"
-                        className={cn(
-                          "w-full rounded-2xl font-black text-lg py-6 shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]",
-                          activeTab === 'test' ? "bg-tuggi-purple hover:bg-purple-600" :
-                          scheduleAt ? "bg-tuggi-orange hover:bg-orange-600" : "bg-tuggi-blue hover:bg-blue-600"
-                        )}
-                        onClick={handleSend}
-                        disabled={isSending || !notification.title || !notification.body || (activeTab === 'test' && !selectedUser)}
-                    >
+                    {canEdit && (
+                      <Button 
+                          size="lg"
+                          className={cn(
+                            "w-full rounded-2xl font-black text-lg py-6 shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]",
+                            activeTab === 'test' ? "bg-tuggi-purple hover:bg-purple-600" :
+                            scheduleAt ? "bg-tuggi-orange hover:bg-orange-600" : "bg-tuggi-blue hover:bg-blue-600"
+                          )}
+                          onClick={handleSend}
+                          disabled={isSending || !notification.title || !notification.body || (activeTab === 'test' && !selectedUser)}
+                      >
+                    )}
                         {isSending ? (
                           <div className="flex items-center gap-2">
                             <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -363,6 +365,7 @@ export function NotificationManager() {
                           </div>
                         )}
                     </Button>
+                    )}
                     <p className="text-[10px] text-center text-gray-400 uppercase tracking-widest font-bold">Secure Delivery via Firebase FCM</p>
                   </CardContent>
                </Card>

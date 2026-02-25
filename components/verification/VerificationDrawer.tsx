@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { getScoreDescription, getScoreColor } from '@/lib/score/compute';
+import { useCmsUser } from '@/lib/hooks/useCmsUser';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,6 +58,7 @@ interface VerificationDrawerProps {
 }
 
 export function VerificationDrawer({ description, isOpen, onClose, onReprocess }: VerificationDrawerProps) {
+  const { canEdit } = useCmsUser();
   const [claims, setClaims] = useState<Claim[]>([]);
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
   const [claimEvidence, setClaimEvidence] = useState<ClaimEvidence[]>([]);
@@ -382,6 +384,7 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
             <div className="px-6 py-4 border-t border-gray-200">
               <div className="flex items-center justify-between">
                 <div className="flex gap-2">
+                  {canEdit && (
                   <button
                     onClick={onReprocess}
                     disabled={actionLoading}
@@ -389,24 +392,29 @@ export function VerificationDrawer({ description, isOpen, onClose, onReprocess }
                   >
                     {actionLoading ? 'Processing...' : 'Reprocess'}
                   </button>
+                )}
                 </div>
                 
                 <div className="flex gap-2">
-                  <button
-                    onClick={handleMarkForReview}
-                    disabled={actionLoading}
-                    className="px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-100 border border-yellow-300 rounded-md hover:bg-yellow-200 disabled:opacity-50"
-                  >
-                    {actionLoading ? 'Processing...' : 'Mark for Review'}
-                  </button>
-                  
-                  <button
-                    onClick={handleApprove}
-                    disabled={actionLoading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 disabled:opacity-50"
-                  >
-                    {actionLoading ? 'Processing...' : 'Approve'}
-                  </button>
+                  {canEdit && (
+                    <>
+                      <button
+                        onClick={handleMarkForReview}
+                        disabled={actionLoading}
+                        className="px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-100 border border-yellow-300 rounded-md hover:bg-yellow-200 disabled:opacity-50"
+                      >
+                        {actionLoading ? 'Processing...' : 'Mark for Review'}
+                      </button>
+                      
+                      <button
+                        onClick={handleApprove}
+                        disabled={actionLoading}
+                        className="px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {actionLoading ? 'Processing...' : 'Approve'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

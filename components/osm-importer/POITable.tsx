@@ -9,6 +9,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { CheckSquare, Square, Edit3, Save, X, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SimpleOSMPOI } from '@/lib/types/osm-types'
@@ -25,6 +26,7 @@ interface POITableProps {
 
 export function POITable({ features, selectedFeatures, onToggleSelection, onEditPOI, onPOIClick }: POITableProps) {
   const t = useTranslations('Pages.OSMImporter.table')
+  const { canEdit } = useCmsUser()
   const tCommon = useTranslations('Common')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Record<string, any>>({})
@@ -186,12 +188,14 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
               <div className="col-span-1 flex items-center gap-2">
                 {isEditing ? (
                   <>
-                    <button
-                      onClick={() => handleSave(poiId)}
-                      className="text-green-600 hover:text-green-700"
-                    >
-                      <Save className="w-4 h-4" />
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => handleSave(poiId)}
+                        className="text-green-600 hover:text-green-700"
+                      >
+                        <Save className="w-4 h-4" />
+                      </button>
+                    )}
                     <button
                       onClick={handleCancel}
                       className="text-red-600 hover:text-red-700"
@@ -201,16 +205,18 @@ export function POITable({ features, selectedFeatures, onToggleSelection, onEdit
                   </>
                 ) : (
                   <>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleEdit(poi)
-                      }}
-                      className="text-blue-600 hover:text-blue-700"
-                      title={tCommon('actions.edit')}
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleEdit(poi)
+                        }}
+                        className="text-blue-600 hover:text-blue-700"
+                        title={tCommon('actions.edit')}
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    )}
                     {onPOIClick && (
                       <button
                         onClick={(e) => {
