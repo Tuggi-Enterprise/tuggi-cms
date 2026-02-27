@@ -41,6 +41,7 @@ import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { useRouter } from '@/navigation'
 import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
 const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
@@ -71,6 +72,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
   const t = useTranslations('CustomRoutes.editor')
   const commonT = useTranslations('Common')
   const router = useRouter()
+  const { canEdit, isViewer, isAdmin, role: cmsRole } = useCmsUser()
 
   // Form State
   const [name, setName] = useState(initialData?.name || '')

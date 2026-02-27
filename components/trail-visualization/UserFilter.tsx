@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Search, Users, X, Check, Loader2 } from 'lucide-react'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
 export interface User {
   id: string
@@ -18,6 +19,7 @@ interface UserFilterProps {
 }
 
 export function UserFilter({ selectedUserIds, onSelectionChange, className }: UserFilterProps) {
+  const { canEdit, isViewer } = useCmsUser()
   const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)

@@ -15,12 +15,14 @@ import { useTranslations } from 'next-intl'
 import { useHomologPOIViewer } from '@/lib/hooks/use-homolog-poi-viewer'
 import { POITable } from './POITable'
 import { OptimizedOSMMap } from '@/components/osm-importer/OptimizedOSMMap'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
 export function HomologPOIViewer() {
   const t = useTranslations('Pages.POIImporter.viewer')
   const tImporter = useTranslations('Pages.POIImporter')
   const tShared = useTranslations('Shared')
   const tCommon = useTranslations('Common')
+  const { canEdit, isViewer } = useCmsUser()
   console.log('🏗️ [HOMOLOG-POI-VIEWER] Component rendering')
   
   // KISS: Single hook call with all functionality and state

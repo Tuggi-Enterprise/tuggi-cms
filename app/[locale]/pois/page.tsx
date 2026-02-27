@@ -21,6 +21,7 @@ import { useLocationData } from '@/lib/hooks/use-location-data'
 import { poiService, POI as POIType, POISearchFilters } from '@/lib/core/poi-service'
 import { usePOIs } from '@/lib/hooks/use-pois'
 import { useTranslations } from 'next-intl'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
 // Custom hook for debouncing
 function useDebounce<T>(value: T, delay: number): T {
@@ -290,20 +291,7 @@ function POIListWithSearchParams() {
   }, [locationData.loadCities])
 
   // Load states when country changes
-  useEffect(() => {
-    // Fetch current CMS role for UI role-based decisions
-    const fetchRole = async () => {
-      try {
-        const response = await fetch('/api/auth/check')
-        if (!response.ok) return
-        const data = await response.json()
-        setCmsUserRole(data?.user?.role || null)
-      } catch (err) {
-        console.warn('Failed to fetch cms user role:', err)
-      }
-    }
-    fetchRole()
-  }, [])
+
 
   useEffect(() => {
     if (countryFilter) {

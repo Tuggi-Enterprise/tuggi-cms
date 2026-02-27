@@ -17,6 +17,7 @@ import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/G
 import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getFullSizeImageUrl } from '@/lib/imageUtils'
 import { useAuthenticatedFunctionCall } from '@/lib/hooks/useAuthenticatedFunctionCall'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
 export interface POI {
   id: string

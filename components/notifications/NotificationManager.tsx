@@ -12,6 +12,7 @@ import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import { AudienceFilter } from './AudienceFilter';
 import { TemplateManager } from './TemplateManager';
+import { useCmsUser } from '@/lib/hooks/useCmsUser';
 import { NotificationService, NotificationPayload, AudienceFilters } from '@/lib/services/notification-service';
 import { dashboardService } from '@/lib/services/dashboard-service';
 
@@ -32,6 +33,7 @@ export function NotificationManager() {
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [userSearch, setUserSearch] = useState('');
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const { canEdit, isViewer } = useCmsUser();
 
   const t = useTranslations('Navigation');
 
@@ -352,7 +354,6 @@ export function NotificationManager() {
                           onClick={handleSend}
                           disabled={isSending || !notification.title || !notification.body || (activeTab === 'test' && !selectedUser)}
                       >
-                    )}
                         {isSending ? (
                           <div className="flex items-center gap-2">
                             <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -364,7 +365,7 @@ export function NotificationManager() {
                             {activeTab === 'test' ? 'Send Test Push' : scheduleAt ? 'Schedule' : 'Send Now'}
                           </div>
                         )}
-                    </Button>
+                      </Button>
                     )}
                     <p className="text-[10px] text-center text-gray-400 uppercase tracking-widest font-bold">Secure Delivery via Firebase FCM</p>
                   </CardContent>

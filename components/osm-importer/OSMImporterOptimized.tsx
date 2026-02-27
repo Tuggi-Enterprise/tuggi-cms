@@ -271,33 +271,35 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
             )}
             
             {canEdit && (
-            <button
-              onClick={handleDeleteSelected}
-              disabled={!canEdit || isViewer || selectedCount === 0 || isDeleting}
-              className={cn(
-                "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center",
-                selectedCount === 0 || isDeleting || !canEdit || isViewer
-                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                  : "bg-red-600 text-white hover:bg-red-700"
-              )}
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              {isDeleting ? t('status.deleting') : t('actions.delete_selected')}
-            </button>
-            
-            {canEdit && (
-            <button
-              disabled={!canEdit || isViewer || selectedCount === 0}
-              className={cn(
-                "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center",
-                selectedCount === 0 || !canEdit || isViewer
-                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                  : "bg-green-600 text-white hover:bg-green-700"
-              )}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              {t('actions.import')}
-            </button>
+              <>
+                <button
+                  onClick={handleDeleteSelected}
+                  disabled={!canEdit || isViewer || selectedCount === 0 || isDeleting}
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center",
+                    selectedCount === 0 || isDeleting || !canEdit || isViewer
+                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      : "bg-red-600 text-white hover:bg-red-700"
+                  )}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  {isDeleting ? t('status.deleting') : t('actions.delete_selected')}
+                </button>
+                
+                <button
+                  disabled={!canEdit || isViewer || selectedCount === 0}
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center",
+                    selectedCount === 0 || !canEdit || isViewer
+                      ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                      : "bg-green-600 text-white hover:bg-green-700"
+                  )}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {t('actions.import')}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react'
 import {
   Plus, MapPin, Target, Trash2, Edit3, Save, X,
