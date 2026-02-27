@@ -69,7 +69,8 @@ export async function POST(request: NextRequest) {
       attraction_id: result.attraction_id,
       steps: result.steps,
       total_time: result.total_time,
-      warnings: result.warnings
+      warnings: result.warnings,
+      skipped: result.skipped
     })
   } catch (error) {
     console.error('Migration API error:', error)

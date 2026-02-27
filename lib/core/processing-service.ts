@@ -525,7 +525,8 @@ class ProcessingService {
                 attraction_id: result.attraction_id,
                 steps: result.steps,
                 warnings: result.warnings,
-                processing_time: Date.now() - startTime
+                processing_time: Date.now() - startTime,
+                skipped: result.skipped
               }
             }
           } catch (error: any) {

@@ -313,6 +313,7 @@
         "title": "Resultados",
         "successful": "Sucesso",
         "failed": "Falha",
+        "skipped": "Pulados",
         "clear": "Limpar Resultados",
         "poi_name": "Nome do POI",
         "status": "Status",

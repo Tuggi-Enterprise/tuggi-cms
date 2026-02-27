@@ -15,6 +15,7 @@ interface MigrationResult {
   attraction_id?: string
   error?: string
   steps?: any[]
+  skipped?: boolean
 }
 
 interface LocationOption {
@@ -147,6 +148,7 @@ export default function PoiMigrationPage() {
     processed: number
     successful: number
     failed: number
+    skipped: number
     percentage: number
   } | null>(null)
 
@@ -291,6 +293,7 @@ export default function PoiMigrationPage() {
         processed: 0,
         successful: 0,
         failed: 0,
+        skipped: 0,
         percentage: 0
       })
     }
@@ -299,6 +302,7 @@ export default function PoiMigrationPage() {
       let currentProcessed = isResume ? (progress?.processed || 0) : 0
       let currentSuccessful = isResume ? (progress?.successful || 0) : 0
       let currentFailed = isResume ? (progress?.failed || 0) : 0
+      let currentSkipped = isResume ? ((progress as any)?.skipped || 0) : 0
       let hasMore = true
       
       const chunkLimit = 50 // Fetch 50 candidates at a time
@@ -322,14 +326,20 @@ export default function PoiMigrationPage() {
           break
         }
 
-        const candidateIds = candidatesResult.data.map(c => c.id)
+        // 1.5. Shuffle candidate IDs to improve parallelism 
+        // (Prevents multiple workers from clashing on the same ID in sequence)
+        const candidateIds = candidatesResult.data.map(c => c.id).sort(() => Math.random() - 0.5)
         
         // Update total (at least for this chunk)
         setProgress(prev => {
           const total = prev?.total || 0
           return {
-            ...prev!,
-            total: total > 0 ? total : candidatesResult.data.length
+            total: total > 0 ? total : candidatesResult.data.length,
+            processed: prev?.processed || 0,
+            successful: prev?.successful || 0,
+            failed: prev?.failed || 0,
+            skipped: prev?.skipped || 0,
+            percentage: prev?.percentage || 0
           }
         })
 
@@ -351,7 +361,8 @@ export default function PoiMigrationPage() {
                
                // Update global counters locally
                currentProcessed++
-               if (res.success) currentSuccessful++
+               if (res.data?.skipped) currentSkipped++
+               else if (res.success) currentSuccessful++
                else currentFailed++
 
                // Update results list (keep last 50)
@@ -359,6 +370,7 @@ export default function PoiMigrationPage() {
                  poi_uuid_id: res.poiId,
                  poi_name: res.poiName || res.poiId,
                  success: res.success,
+                 skipped: res.data?.skipped,
                  attraction_id: res.data?.attraction_id,
                   error: res.errors?.[0] || res.message,
                  steps: res.data?.steps
@@ -372,6 +384,7 @@ export default function PoiMigrationPage() {
                    processed: currentProcessed,
                    successful: currentSuccessful,
                    failed: currentFailed,
+                   skipped: currentSkipped,
                    percentage: total > 0 ? Math.min(100, Math.round((currentProcessed / total) * 100)) : 0
                  }
                })
@@ -855,6 +868,10 @@ export default function PoiMigrationPage() {
                       <div className="text-2xl font-bold text-red-600 dark:text-red-400">{progress.failed}</div>
                       <div className="text-xs text-red-600/70 dark:text-red-400/70 uppercase tracking-wide">{t('results.failed')}</div>
                     </div>
+                    <div className="text-center p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
+                      <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{(progress as any).skipped || 0}</div>
+                      <div className="text-xs text-amber-600/70 dark:text-amber-400/70 uppercase tracking-wide">{t('results.skipped') || 'Skipped'}</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -897,7 +914,12 @@ export default function PoiMigrationPage() {
                         <tr key={idx} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                           <td className="py-3 px-5 text-gray-900 dark:text-white font-medium">{result.poi_name}</td>
                           <td className="py-3 px-5">
-                            {result.success ? (
+                            {result.skipped ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs rounded-full">
+                                <Zap className="w-3 h-3" />
+                                {tCommon('status.skipped')}
+                              </span>
+                            ) : result.success ? (
                               <span className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs rounded-full">
                                 <CheckCircle2 className="w-3 h-3" />
                                 {t('results.successful')}

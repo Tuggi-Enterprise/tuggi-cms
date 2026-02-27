@@ -57,6 +57,7 @@ export interface PipelineResult {
   total_time: number
   error?: string
   warnings?: string[]
+  skipped?: boolean
 }
 
 export class PoiMigrationPipeline {
@@ -154,11 +155,12 @@ export class PoiMigrationPipeline {
         const isDuplicateInRange = shouldProcess.reason?.includes('already exists')
         
         return {
-          success: isDuplicateInRange ? true : false,
+          success: true,
+          skipped: true,
           steps,
           total_time: Date.now() - startTime,
-          error: isDuplicateInRange ? undefined : (shouldProcess.reason || 'POI should not be processed'),
-          warnings: isDuplicateInRange ? [shouldProcess.reason!] : undefined
+          warnings: isDuplicateInRange ? [shouldProcess.reason!] : [shouldProcess.reason || 'POI should not be processed'],
+          error: isDuplicateInRange ? undefined : (shouldProcess.reason || 'POI should not be processed')
         }
       }
 
@@ -167,7 +169,8 @@ export class PoiMigrationPipeline {
       if (!claim.claimed) {
         console.log(`⏭️  Skipping POI ${uuid_id}: ${claim.reason}`)
         return {
-          success: true, // Not an error, just skipped
+          success: true,
+          skipped: true,
           steps,
           total_time: Date.now() - startTime,
           warnings: [`Skipped: ${claim.reason}`]

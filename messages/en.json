@@ -314,6 +314,7 @@
         "title": "Results",
         "successful": "Successful",
         "failed": "Failed",
+        "skipped": "Skipped",
         "clear": "Clear Results",
         "poi_name": "POI Name",
         "status": "Status",
