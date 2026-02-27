@@ -1039,6 +1039,44 @@ export class MigrationService {
   }
 
   /**
+   * Atomically claim a POI for processing.
+   * Uses UPDATE...WHERE to ensure only one worker can claim a POI.
+   * If the POI is already being processed by another worker, this returns false.
+   * This eliminates the race condition between checking status and updating it.
+   */
+  static async claimForProcessing(uuid_id: string): Promise<{ claimed: boolean; reason?: string }> {
+    try {
+      // Atomic UPDATE: only claim if status is 'pending' or retryable 'failed'
+      const { data, error } = await supabase
+        .schema('homolog')
+        .from('pois')
+        .update({
+          processing_status: 'processing',
+          last_migration_attempt_at: new Date().toISOString()
+        })
+        .eq('uuid_id', uuid_id)
+        .in('processing_status', ['pending', 'failed'])
+        .select('uuid_id')
+
+      if (error) {
+        console.warn(`⚠️ claimForProcessing error for ${uuid_id}:`, error.message)
+        return { claimed: false, reason: `DB error: ${error.message}` }
+      }
+
+      if (!data || data.length === 0) {
+        // No rows updated = another worker claimed it, or status isn't claimable
+        return { claimed: false, reason: 'Already claimed by another worker or status not claimable' }
+      }
+
+      console.log(`🔒 Claimed POI ${uuid_id} for processing`)
+      return { claimed: true }
+    } catch (error) {
+      console.error('Error claiming POI for processing:', error)
+      return { claimed: false, reason: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  /**
    * Find and remove duplicate POIs by coordinates (within ~50m radius)
    * This is called after successful approval to clean up old duplicates
    */

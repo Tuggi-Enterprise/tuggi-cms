@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Loader2, AlertCircle, CheckCircle2, Play, Filter, Database, Settings, Sparkles, Target, ArrowRight, Zap, Globe, Mic2, ChevronDown, StopCircle } from 'lucide-react'
+import { Loader2, AlertCircle, CheckCircle2, Play, Filter, Database, Settings, Sparkles, Target, ArrowRight, Zap, Globe, Mic2, ChevronDown, StopCircle, Layers } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
 import { usePOIProcessing } from '@/lib/hooks/use-poi-processing'
@@ -613,6 +613,19 @@ export default function PoiMigrationPage() {
                   </label>
                 </div>
               )}
+            </div>
+
+            {/* Parallel Processing Info */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-2xl border border-blue-200 dark:border-blue-800 overflow-hidden">
+              <div className="px-5 py-4 flex items-start gap-3">
+                <Layers className="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h3 className="font-semibold text-blue-900 dark:text-blue-100 text-sm">Parallel Processing</h3>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                    💡 You can open multiple tabs of this page and click START in each one. Each tab will automatically pick different POIs to process — no configuration needed.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

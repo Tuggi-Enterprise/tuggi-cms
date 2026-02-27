@@ -162,8 +162,17 @@ export class PoiMigrationPipeline {
         }
       }
 
-      // Mark as processing
-      await MigrationService.updateProcessingStatus(uuid_id, 'processing')
+      // Atomic claim: prevent multiple workers from processing the same POI
+      const claim = await MigrationService.claimForProcessing(uuid_id)
+      if (!claim.claimed) {
+        console.log(`⏭️  Skipping POI ${uuid_id}: ${claim.reason}`)
+        return {
+          success: true, // Not an error, just skipped
+          steps,
+          total_time: Date.now() - startTime,
+          warnings: [`Skipped: ${claim.reason}`]
+        }
+      }
 
       // Step 0: Enrichment (Homolog) - NEW STEP
       console.log(`🌍 Step 0: Enriching Homolog POI ${uuid_id}...`)

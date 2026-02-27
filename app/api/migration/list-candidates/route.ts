@@ -69,25 +69,17 @@ export async function GET(request: NextRequest) {
     // Apply Status Filter
     if (processingStatus && processingStatus !== 'all') {
       if (source === 'core') {
-        // For Core, map 'pending' to 'approved=true' (Active but needing triggers)
-        // Or strictly filter.
-        // User wants to find valid POIs. Usually active ones.
         if (processingStatus === 'pending') {
-           // Maybe we want Approved POIs?
            query = query.eq('approved', true)
         } else if (processingStatus === 'failed') {
-          // No direct mapping, maybe approved=false?
           query = query.eq('approved', false)
         }
-        // 'all' passes through
       } else {
         // Homolog standard filtering
         query = query.eq('processing_status', processingStatus)
       }
     } else if (source === 'core' && (!processingStatus || processingStatus === 'all')) {
-      // Default for Core if no status specified: Usually we want Approved items to reprocess
-      // query = query.eq('approved', true) 
-      // User might select 'all' to see everything? Let's leave it open if 'all'.
+      // Default for Core if no status specified
     }
 
     // Limit results
