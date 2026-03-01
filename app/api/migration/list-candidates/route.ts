@@ -49,7 +49,6 @@ export async function GET(request: NextRequest) {
       .schema(targetSchema)
       .from(targetTable)
       .select(selectColumns)
-      .order(source === 'core' ? 'id' : 'uuid_id', { ascending: true })
 
     // Apply filters
     if (country === '__missing__') {
@@ -67,19 +66,22 @@ export async function GET(request: NextRequest) {
     }
     
     // Apply Status Filter
-    if (processingStatus && processingStatus !== 'all') {
-      if (source === 'core') {
-        if (processingStatus === 'pending') {
-           query = query.eq('approved', true)
-        } else if (processingStatus === 'failed') {
-          query = query.eq('approved', false)
-        }
-      } else {
-        // Homolog standard filtering
+    if (source === 'homolog') {
+      if (processingStatus && processingStatus !== 'all') {
+        // Explicit filter from user
         query = query.eq('processing_status', processingStatus)
+      } else {
+        // DEFAULT for parallel processing: only return actionable POIs
+        // This ensures Worker B never sees POIs already claimed by Worker A
+        // Include null status (POIs imported before the field existed)
+        query = query.or('processing_status.in.(pending,failed,new),processing_status.is.null')
       }
-    } else if (source === 'core' && (!processingStatus || processingStatus === 'all')) {
-      // Default for Core if no status specified
+    } else if (source === 'core') {
+      if (processingStatus === 'pending') {
+         query = query.eq('approved', true)
+      } else if (processingStatus === 'failed') {
+        query = query.eq('approved', false)
+      }
     }
 
     // Limit results
