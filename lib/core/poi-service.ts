@@ -232,7 +232,6 @@ class POIService {
             .rpc('cms_search_pois', chunkParams)
           
           if (chunkError) {
-            console.error('❌ POI Search RPC chunk failed:', chunkError)
             throw new Error(`RPC error: ${chunkError.message}`)
           }
           
@@ -249,13 +248,10 @@ class POIService {
             
             // Safety check to prevent infinite loops
             if (currentOffset > 100000) {
-              console.warn('⚠️ Reached safety limit of 100k POIs')
               hasMore = false
             }
           }
         }
-        
-        console.log(`🎉 Total POIs fetched: ${allData.length}`)
         
         data = allData
         error = null
@@ -264,16 +260,6 @@ class POIService {
         const result = await supabase.schema('core').rpc('cms_search_pois', rpcParams)
         data = result.data || []
         error = result.error
-      }
-      
-      console.log('🔍 RPC Error:', error)
-      console.log('🔍 RPC Data:', data)
-      console.log('🔍 RPC Response data length:', data?.length)
-      console.log('🔍 RPC Response first item:', data?.[0])
-      
-      if (error) {
-        console.error('❌ POI Search RPC failed:', error)
-        throw new Error(`RPC error: ${error.message}`)
       }
       
       if (data && data.length > 0) {
@@ -287,8 +273,6 @@ class POIService {
           withTriggerPoints: data[0].with_trigger_points_count || 0,
           complete: data[0].complete_count || 0
         }
-        
-        console.log('🔍 Extracted stats:', stats)
         
         // Transform the data to match our POI interface
         const pois = data.map((row: any) => ({
@@ -360,6 +344,7 @@ class POIService {
         this.cache.set(cacheKey, { data: searchResult, timestamp: startTime })
         
         return searchResult
+      } else {
         return {
           success: true,
           data: [],
@@ -380,7 +365,6 @@ class POIService {
       }
       
     } catch (error) {
-      console.error('Error searching POIs with RPC:', error)
       return {
         success: false,
         data: [],
@@ -416,10 +400,8 @@ class POIService {
       language?: string
     }
   ): Promise<{ success: boolean; data: POI[]; error?: string }> {
-    const startTime = Date.now()
     
     try {
-      console.log(`🎯 Getting POIs for ${type} processing:`, filters)
       
       // Use specific API endpoints for processing
       let endpoint = ''

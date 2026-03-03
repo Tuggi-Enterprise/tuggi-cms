@@ -91,8 +91,6 @@ class LocationService {
         }
       }
 
-      console.log(`🌍 Loading countries from RPC (category: ${category || 'all'})...`)
-      
       // Use RPC for optimized performance
       const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
@@ -125,7 +123,6 @@ class LocationService {
       }
       
     } catch (error) {
-      console.error('Error loading countries:', error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -158,8 +155,6 @@ class LocationService {
         }
       }
 
-      console.log(`🏛️ Loading states for ${country} from RPC (category: ${category || 'all'})...`)
-      
       // Use RPC for optimized performance
       const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
@@ -194,7 +189,6 @@ class LocationService {
       }
       
     } catch (error) {
-      console.error(`Error loading states for ${country}:`, error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -227,8 +221,6 @@ class LocationService {
         }
       }
 
-      console.log(`🏙️ Loading cities for ${country}${state ? `, ${state}` : ''} from RPC (category: ${category || 'all'})...`)
-      
       // Use RPC for optimized performance
       const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
@@ -263,7 +255,6 @@ class LocationService {
       }
       
     } catch (error) {
-      console.error(`Error loading cities for ${country}${state ? `, ${state}` : ''}:`, error)
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
