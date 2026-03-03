@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { X, Save, MapPin, Loader2, Volume2, Globe, FileText, RotateCcw, Download } from 'lucide-react'
+import { X, Save, MapPin, Loader2, Volume2, Globe, FileText, RotateCcw, Download, LocateFixed } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { useTranslations } from 'next-intl'
 import { useAuthenticatedFunctionCall } from '@/lib/hooks/useAuthenticatedFunctionCall'
+import { useUserLocation } from '@/components/providers/UserLocationProvider'
 
 export function GeofenceModal({
   poi,
@@ -22,8 +23,9 @@ export function GeofenceModal({
   onUpdate: () => void
   mode?: 'view' | 'create' | 'edit'
 }) {
-  const isCreateMode = !poi || mode === 'create'
-  const [activeTab, setActiveTab] = useState<'config' | 'boundary' | 'description' | 'audio'>('config')
+  const [poiId, setPoiId] = useState<string | null>(poi?.id || null)
+  const isCreateMode = (!poi || mode === 'create') && !poiId
+  const [activeTab, setActiveTab] = useState<'boundary' | 'config' | 'description' | 'audio' | 'review'>('boundary')
 
   const [name, setName] = useState(poi?.name || '')
   const [country, setCountry] = useState(poi?.country || '')
@@ -61,19 +63,57 @@ export function GeofenceModal({
   const [isSaving, setIsSaving] = useState(false)
   const [isLoadingData, setIsLoadingData] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [currentMapCenter, setCurrentMapCenter] = useState<{ lat: number; lng: number } | null>(null)
+
+  const { userLocation, requestLocation } = useUserLocation()
+  const defaultCenter = userLocation ? { lat: userLocation.lat, lng: userLocation.lng } : { lat: -23.5505, lng: -46.6333 } // SP as fallback
 
   useEffect(() => {
     if (isOpen) {
       fetchClients()
-      if (!isCreateMode && poi?.id) {
+      if (poiId) {
         fetchDescriptionData()
         fetchBoundary()
       }
+
+      // Set initial map center
+      if (poi?.coordinates?.latitude) {
+        setCurrentMapCenter({ lat: poi.coordinates.latitude, lng: poi.coordinates.longitude })
+      } else if (userLocation) {
+        setCurrentMapCenter({ lat: userLocation.lat, lng: userLocation.lng })
+      } else {
+        setCurrentMapCenter({ lat: -23.5505, lng: -46.6333 })
+      }
     }
-  }, [isOpen, isCreateMode, poi])
+  }, [isOpen, poiId, poi, userLocation])
+
+  const handleCenterOnUser = async () => {
+    let location = userLocation
+    
+    if (!location) {
+      location = await requestLocation()
+    }
+
+    if (location) {
+      setCurrentMapCenter({ 
+        lat: location.lat, 
+        lng: location.lng,
+      })
+      // Force a slight change if it's already the same to trigger useEffect in MapComponent
+      setTimeout(() => {
+        setCurrentMapCenter({ lat: location!.lat, lng: location!.lng })
+      }, 50)
+    } else {
+      alert("Não foi possível obter sua localização. Por favor, verifique as permissões do navegador.")
+    }
+  }
 
   const fetchClients = async () => {
-    const { data } = await supabase.from('clients').select('id, name').eq('status', 'active')
+    const { data } = await supabase
+      .schema('core')
+      .from('clients')
+      .select('id, name')
+      .eq('status', 'approved')
     if (data) {
       setClients(data)
       if (isCreateMode && data.length > 0 && !isAdmin) {
@@ -86,10 +126,11 @@ export function GeofenceModal({
   }
 
   const fetchBoundary = async () => {
+    if (!poiId) return
     try {
        const res = await fetch(`/api/pois/update-boundary`, {
          method: 'POST',
-         body: JSON.stringify({ poi_id: poi.id, get_only: true })
+         body: JSON.stringify({ poi_id: poiId, get_only: true })
        })
        const data = await res.json()
        if(data.boundary) setExistingBoundary(data.boundary)
@@ -97,12 +138,13 @@ export function GeofenceModal({
   }
 
   const fetchDescriptionData = async () => {
+    if (!poiId) return
     setIsLoadingData(true)
     const { data } = await supabase
       .schema('core')
       .from('attraction_descriptions')
       .select('*')
-      .eq('attraction_id', poi.id)
+      .eq('attraction_id', poiId)
       .order('updated_at', { ascending: false })
       .order('created_at', { ascending: false })
       
@@ -119,8 +161,19 @@ export function GeofenceModal({
     setIsLoadingData(false)
   }
 
-  const handleSave = async () => {
-    if (!name.trim()) return setErrorMsg(t('nameRequired'))
+  const saveGeofenceData = async () => {
+    if (!name.trim()) {
+      setErrorMsg(t('nameRequired'))
+      setActiveTab('config')
+      return null
+    }
+    
+    if (!boundaryPolygon && !poiId) {
+      setErrorMsg(t('drawWarning'))
+      setActiveTab('boundary')
+      return null
+    }
+
     setIsSaving(true)
     setErrorMsg('')
     
@@ -132,12 +185,13 @@ export function GeofenceModal({
         city,
         owner_id: ownerId,
         category: 'geofence',
-        business_status: behavior, // We hijack business_status for behavior
+        business_status: behavior,
         description: description,
         boundary: boundaryPolygon
       }
 
-      const endpoint = isCreateMode ? '/api/pois/geofences/create' : `/api/pois/geofences/update?id=${poi.id}`
+      const targetId = poiId
+      const endpoint = targetId ? `/api/pois/geofences/update?id=${targetId}` : '/api/pois/geofences/create'
       
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -145,15 +199,26 @@ export function GeofenceModal({
         body: JSON.stringify(payload)
       })
       
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to save')
+      const resData = await res.json()
+      if (!res.ok) throw new Error(resData.error || 'Failed to save')
+      
+      const newId = resData.data?.id || targetId
+      if (newId) setPoiId(newId)
       
       onUpdate()
-      onClose()
+      return newId
     } catch (e: any) {
       setErrorMsg(e.message)
+      return null
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleSave = async () => {
+    const savedId = await saveGeofenceData()
+    if (savedId) {
+      onClose()
     }
   }
 
@@ -173,7 +238,7 @@ export function GeofenceModal({
     }
 
     if (selectedLanguages.length === 0) {
-      setErrorMsg('Please select at least one language.')
+      setErrorMsg(t('selectLanguageError'))
       return
     }
 
@@ -183,37 +248,25 @@ export function GeofenceModal({
     setAudioResults([])
     setErrorMsg('')
 
-    setAudioProgress({ current: 0, total: selectedLanguages.length, currentTask: 'Starting...' })
+    setAudioProgress({ current: 0, total: selectedLanguages.length, currentTask: t('audioTaskStarting') })
 
     try {
       const results: string[] = []
 
       for (let i = 0; i < selectedLanguages.length; i++) {
         const langCode = selectedLanguages[i]
-        const langName = {
-          'pt-br': 'Portuguese (BR)',
-          'pt-pt': 'Portuguese (PT)',
-          'en-us': 'English (US)',
-          'en-gb': 'English (UK)',
-          'es-es': 'Spanish (ES)',
-          'de-de': 'German',
-          'fr-fr': 'French',
-          'it-it': 'Italian',
-          'ja-jp': 'Japanese',
-          'cmn-cn': 'Chinese',
-          'ko-kr': 'Korean',
-          'ru-ru': 'Russian',
-        }[langCode as 'pt-br' | 'pt-pt' | 'en-us' | 'en-gb' | 'es-es' | 'de-de' | 'fr-fr' | 'it-it' | 'ja-jp' | 'cmn-cn' | 'ko-kr' | 'ru-ru'] || langCode.toUpperCase()
+        const langDisplayName = tPOIDetails(`languages.${langCode}`)
+        const genderLabel = selectedGender === 'male' ? tPOIDetails('labels.male') : tPOIDetails('labels.female')
 
         setAudioProgress({
           current: i + 1,
           total: selectedLanguages.length,
-          currentTask: `Generating ${langName} (${selectedGender}) audio...`
+          currentTask: t('audioTaskGenerating', { lang: langDisplayName, gender: genderLabel })
         })
 
         try {
           const { data: result, error: invokeError } = await callFunction('generate-translated-audio', {
-            attractionId: poi.id,
+            attractionId: poiId,
             targetLanguage: langCode,
             voiceGender: selectedGender
           })
@@ -221,20 +274,20 @@ export function GeofenceModal({
           if (invokeError) throw new Error(invokeError.message || 'Failed to generate audio')
           if (!result?.success) throw new Error(result?.error || 'Failed to generate audio')
 
-          results.push(`✅ ${langName} (${selectedGender}): generated successfully`)
+          results.push(`✅ ${langDisplayName} (${genderLabel}): ${t('generatedSuccessfully')}`)
         } catch (error: any) {
-          results.push(`❌ ${langName} (${selectedGender}): failed - ${error instanceof Error ? error.message : 'Unknown error'}`)
+          results.push(`❌ ${langDisplayName} (${genderLabel}): ${t('failedToGenerate')} - ${error instanceof Error ? error.message : tCommon('error.unknown')}`)
         }
       }
 
-      setAudioProgress({ current: selectedLanguages.length, total: selectedLanguages.length, currentTask: 'Completed!' })
+      setAudioProgress({ current: selectedLanguages.length, total: selectedLanguages.length, currentTask: t('audioTaskCompleted') })
       setAudioResults(results)
       setShowResults(true)
 
       setTimeout(() => fetchDescriptionData(), 1000)
     } catch (e: any) {
       setErrorMsg(e.message)
-      setAudioResults([`❌ General error: ${e instanceof Error ? e.message : 'Unknown error'}`])
+      setAudioResults([`❌ ${t('audioTaskGeneralError')}: ${e instanceof Error ? e.message : tCommon('error.unknown')}`])
       setShowResults(true)
     } finally {
       setIsGeneratingAudio(false)
@@ -253,7 +306,7 @@ export function GeofenceModal({
         <header className="flex-none px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl z-30">
           <div>
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-              {isCreateMode ? t('newGeofence') : t('editGeofence') + name}
+              {isCreateMode ? t('newGeofence') : (t('editGeofence') + ' ' + (name || ''))}
             </h2>
             <p className="text-sm text-gray-500">{t('defineArea')}</p>
           </div>
@@ -266,21 +319,9 @@ export function GeofenceModal({
           {/* Lateral Menu (Sidebar) */}
           <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex flex-col gap-2 z-20">
             <div className="mb-4">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3">Menu</span>
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3">{t('menuLabel')}</span>
             </div>
             
-            <button
-              onClick={() => setActiveTab('config')}
-              className={cn(
-                'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
-                activeTab === 'config' 
-                  ? 'bg-tuggi-blue text-white' 
-                  : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
-              )}
-            >
-              <Globe className={cn("h-5 w-5", activeTab === 'config' && "animate-pulse")} />
-              {t('generalConfig')}
-            </button>
             <button
               onClick={() => setActiveTab('boundary')}
               className={cn(
@@ -293,6 +334,20 @@ export function GeofenceModal({
               <MapPin className={cn("h-5 w-5", activeTab === 'boundary' && "animate-pulse")} />
               {t('triggerBoundary')}
             </button>
+
+            <button
+              onClick={() => setActiveTab('config')}
+              className={cn(
+                'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                activeTab === 'config' 
+                  ? 'bg-tuggi-blue text-white' 
+                  : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+              )}
+            >
+              <Globe className={cn("h-5 w-5", activeTab === 'config' && "animate-pulse")} />
+              {t('generalConfig')}
+            </button>
+            
             <button
               onClick={() => setActiveTab('description')}
               className={cn(
@@ -317,6 +372,19 @@ export function GeofenceModal({
               <Volume2 className={cn("h-5 w-5", activeTab === 'audio' && "animate-pulse")} />
               {t('alertMessage')}
             </button>
+
+            <button
+              onClick={() => setActiveTab('review')}
+              className={cn(
+                'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                activeTab === 'review' 
+                  ? 'bg-tuggi-blue text-white' 
+                  : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+              )}
+            >
+              <Save className={cn("h-5 w-5", activeTab === 'review' && "animate-pulse")} />
+              {t('finalReview')}
+            </button>
           </aside>
 
           {/* Content Area */}
@@ -324,6 +392,47 @@ export function GeofenceModal({
           {errorMsg && (
             <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-xl text-sm border border-red-100">
               {errorMsg}
+            </div>
+          )}
+
+          {activeTab === 'boundary' && (
+            <div className="h-full flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <p className="text-sm text-gray-500">{t('drawPolygonalArea')}</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCenterOnUser}
+                    className="p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-300 hover:text-tuggi-blue hover:border-tuggi-blue transition-all"
+                    title="Centralizar na minha localização"
+                  >
+                    <LocateFixed className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
+                    className={cn("px-4 py-2 rounded-lg text-sm font-medium border", isDrawingEnabled ? 'bg-red-50 text-red-600 border-red-200' : 'bg-tuggi-blue text-white')}
+                  >
+                    {isDrawingEnabled ? t('disableDrawing') : t('drawBoundary')}
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0 rounded-xl overflow-hidden border">
+                <GoogleMapComponent
+                  center={currentMapCenter || defaultCenter}
+                  zoom={12}
+                  height="100%"
+                  onPolygonComplete={handlePolygonChange}
+                  enableDrawing={isDrawingEnabled}
+                  polygon={existingBoundary || undefined}
+                />
+              </div>
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={() => setActiveTab('config')}
+                  className="px-8 py-3 bg-tuggi-blue text-white rounded-xl font-bold hover:bg-tuggi-blue/90 transition-all flex items-center gap-2"
+                >
+                  {t('nextStep')}
+                </button>
+              </div>
             </div>
           )}
 
@@ -384,28 +493,14 @@ export function GeofenceModal({
                   {!isAdmin && <p className="text-xs text-gray-500 mt-1">{t('ownerTied')}</p>}
                 </div>
               </div>
-            </div>
-          )}
-
-          {activeTab === 'boundary' && (
-            <div className="h-full flex flex-col space-y-4">
-              <div className="flex justify-between items-center">
-                <p className="text-sm text-gray-500">{t('drawPolygonalArea')}</p>
+              
+              <div className="pt-6 flex justify-end">
                 <button
-                  onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
-                  className={cn("px-4 py-2 rounded-lg text-sm font-medium border", isDrawingEnabled ? 'bg-red-50 text-red-600 border-red-200' : 'bg-tuggi-blue text-white')}
+                  onClick={() => setActiveTab('description')}
+                  className="px-8 py-3 bg-tuggi-blue text-white rounded-xl font-bold hover:bg-tuggi-blue/90 transition-all flex items-center gap-2"
                 >
-                  {isDrawingEnabled ? t('disableDrawing') : t('drawBoundary')}
+                  {t('nextStep')}
                 </button>
-              </div>
-              <div className="flex-1 rounded-xl overflow-hidden border">
-                <GoogleMapComponent
-                  center={poi?.coordinates ? { lat: poi.coordinates.latitude, lng: poi.coordinates.longitude } : { lat: -23.5505, lng: -46.6333 }}
-                  zoom={12}
-                  onPolygonComplete={handlePolygonChange}
-                  enableDrawing={isDrawingEnabled}
-                  polygon={existingBoundary || undefined}
-                />
               </div>
             </div>
           )}
@@ -424,8 +519,21 @@ export function GeofenceModal({
                       className="w-full p-4 rounded-xl border focus:border-tuggi-blue focus:ring-1 focus:ring-tuggi-blue transition-all"
                     />
                     <div className="flex justify-between items-center mt-2">
-                       <p className="text-xs text-gray-500">{tPOIDetails('labels.description_hint') || "This is the primary Portuguese (BR) text. Save it to translate and generate audios."}</p>
+                       <p className="text-xs text-gray-500">{tPOIDetails('labels.description_hint')}</p>
                     </div>
+                  </div>
+                  <div className="pt-6 flex justify-end">
+                    <button
+                      onClick={async () => {
+                        const savedId = await saveGeofenceData()
+                        if (savedId) setActiveTab('audio')
+                      }}
+                      disabled={isSaving}
+                      className="px-8 py-3 bg-tuggi-blue text-white rounded-xl font-bold hover:bg-tuggi-blue/90 transition-all flex items-center gap-2 disabled:opacity-50"
+                    >
+                      {isSaving && <Loader2 className="w-5 h-5 animate-spin" />}
+                      {t('nextStep')}
+                    </button>
                   </div>
                 </div>
               )}
@@ -436,13 +544,14 @@ export function GeofenceModal({
             <div className="space-y-6">
               {isLoadingData ? <Loader2 className="w-5 h-5 animate-spin mx-auto text-tuggi-blue" /> : (
                 <div className="space-y-6">
+                  {/* (Audio generation UI content remains same) */}
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="text-lg font-medium text-gray-900 dark:text-white">
                         {tPOIDetails('labels.narration_audios')}
                       </h4>
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Generate audio narration from attraction descriptions using OpenAI TTS
+                        {t('audioTabSubtitle')}
                       </p>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -496,25 +605,27 @@ export function GeofenceModal({
                       </label>
                       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
                         {[
-                          { code: 'pt-br', name: '🇧🇷 Português (Brasil)' },
-                          { code: 'pt-pt', name: '🇵🇹 Português (Portugal)' },
-                          { code: 'en-us', name: '🇺🇸 English (US)' },
-                          { code: 'en-gb', name: '🇬🇧 English (UK)' },
-                          { code: 'es-es', name: '🇪🇸 Spanish (Spain)' },
-                          { code: 'de-de', name: '🇩🇪 German' },
-                          { code: 'fr-fr', name: '🇫🇷 French' },
-                          { code: 'it-it', name: '🇮🇹 Italian' },
-                          { code: 'ja-jp', name: '🇯🇵 Japanese' },
-                          { code: 'cmn-cn', name: '🇨🇳 Mandarin' },
-                          { code: 'ko-kr', name: '🇰🇷 Korean' },
-                          { code: 'ru-ru', name: '🇷🇺 Russian' },
+                          { code: 'pt-br', icon: '🇧🇷' },
+                          { code: 'pt-pt', icon: '🇵🇹' },
+                          { code: 'en-us', icon: '🇺🇸' },
+                          { code: 'en-gb', icon: '🇬🇧' },
+                          { code: 'es-es', icon: '🇪🇸' },
+                          { code: 'de-de', icon: '🇩🇪' },
+                          { code: 'fr-fr', icon: '🇫🇷' },
+                          { code: 'it-it', icon: '🇮🇹' },
+                          { code: 'ja-jp', icon: '🇯🇵' },
+                          { code: 'cmn-cn', icon: '🇨🇳' },
+                          { code: 'ko-kr', icon: '🇰🇷' },
+                          { code: 'ru-ru', icon: '🇷🇺' },
                         ].map((lang) => (
                           <label key={lang.code} className={cn("flex items-start p-2 rounded border cursor-pointer min-h-[40px]", selectedLanguages.includes(lang.code) ? "bg-tuggi-blue/10 border-tuggi-blue" : "bg-white border-gray-300")}>
                             <input type="checkbox" checked={selectedLanguages.includes(lang.code)} onChange={(e) => {
                               if (e.target.checked) setSelectedLanguages([...selectedLanguages, lang.code])
                               else setSelectedLanguages(selectedLanguages.filter(l => l !== lang.code))
                             }} className="mt-0.5 mr-2 text-tuggi-blue" />
-                            <span className="text-xs font-medium text-gray-900 leading-snug">{lang.name}</span>
+                            <span className="text-xs font-medium text-gray-900 leading-snug">
+                              {lang.icon} {tPOIDetails(`languages.${lang.code}`)}
+                            </span>
                           </label>
                         ))}
                       </div>
@@ -558,7 +669,7 @@ export function GeofenceModal({
                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700">{tPOIDetails('labels.language')}</th>
                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700">{tPOIDetails('labels.gender')}</th>
                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700">{tPOIDetails('labels.description')}</th>
-                               <th className="text-left py-2 px-3 text-sm font-medium text-gray-700">Audio</th>
+                               <th className="text-left py-2 px-3 text-sm font-medium text-gray-700">{tPOIDetails('tabs.audio')}</th>
                                <th className="text-left py-2 px-3 text-sm font-medium text-gray-700">{tPOIDetails('labels.actions')}</th>
                             </tr>
                           </thead>
@@ -601,15 +712,83 @@ export function GeofenceModal({
                   ) : (
                     <div className="text-center py-12 px-4 border rounded-xl bg-gray-50 flex flex-col items-center">
                       <Volume2 className="w-12 h-12 text-gray-300 mb-4" />
-                      <h4 className="text-lg font-medium text-gray-900">No Audio Available</h4>
-                      <p className="text-sm text-gray-500 mt-2">Generate narration audio from the description to provide rich spoken content.</p>
+                      <h4 className="text-lg font-medium text-gray-900">{t('noAudioAvailableTitle')}</h4>
+                      <p className="text-sm text-gray-500 mt-2">{t('noAudioAvailableDesc')}</p>
                       {!description.trim() && (
-                        <p className="text-xs text-tuggi-orange font-medium mt-4">⚠️ Please save a description first before generating audio narration.</p>
+                        <p className="text-xs text-tuggi-orange font-medium mt-4">{t('saveDescriptionWarning')}</p>
                       )}
                     </div>
                   )}
+
+                  <div className="pt-6 flex justify-end">
+                    <button
+                      onClick={() => setActiveTab('review')}
+                      className="px-8 py-3 bg-tuggi-blue text-white rounded-xl font-bold hover:bg-tuggi-blue/90 transition-all flex items-center gap-2"
+                    >
+                      {t('finishReview')}
+                    </button>
+                  </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'review' && (
+            <div className="space-y-8 max-w-3xl">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 p-8 shadow-sm space-y-6">
+                <div className="flex items-center gap-4 text-tuggi-blue mb-4">
+                  <Save className="w-8 h-8" />
+                  <h3 className="text-2xl font-bold">{t('finalReview')}</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t('generalInfo')}</p>
+                    <p className="text-lg font-semibold text-gray-900">{name || tPOIDetails('placeholders.enter_name')}</p>
+                    <p className="text-sm text-gray-500">{city}, {state} - {country}</p>
+                    <p className="text-sm font-medium mt-2">{t('triggerBehavior')}: <span className="text-tuggi-blue">{behavior}</span></p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t('boundaryStatus')}</p>
+                    <div className="flex items-center gap-2">
+                       {boundaryPolygon ? (
+                         <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold bg-green-100 text-green-700">{t('boundaryDrawn')}</span>
+                       ) : (
+                         <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-700">{t('boundaryMissing')}</span>
+                       )}
+                    </div>
+                    <p className="text-sm text-gray-500 mt-2">{t('ownerClient')}: {ownerId || t('noOwner')}</p>
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-gray-100 space-y-4">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t('contentNarration')}</p>
+                  <div className="p-4 bg-gray-50 rounded-xl">
+                    <p className="text-sm text-gray-700 line-clamp-3 italic">"{description || t('noMessage')}"</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {translatedDescriptions.map(d => (
+                      <span key={d.id} className="px-3 py-1 bg-blue-50 text-tuggi-blue rounded-full text-[10px] font-bold">
+                        {d.language?.toUpperCase()} ✓
+                      </span>
+                    ))}
+                    {translatedDescriptions.length === 0 && <span className="text-xs text-gray-400">{t('noAudioGenerated')}</span>}
+                  </div>
+                </div>
+
+                <div className="pt-8 flex flex-col gap-4">
+                   <button
+                    onClick={handleSave}
+                    disabled={isSaving || !name.trim() || !boundaryPolygon}
+                    className="w-full py-4 bg-gradient-to-r from-tuggi-blue to-blue-600 text-white rounded-2xl font-bold shadow-xl shadow-blue-500/20 hover:shadow-blue-500/30 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+                  >
+                    {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                    {isSaving ? t('saving') : t('confirmedSave')}
+                   </button>
+                   {!boundaryPolygon && <p className="text-center text-xs text-red-500 font-medium">{t('drawWarning')}</p>}
+                </div>
+              </div>
             </div>
           )}
           </main>
@@ -619,14 +798,6 @@ export function GeofenceModal({
         <footer className="flex-none px-6 py-4 border-t border-gray-100 dark:border-gray-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex justify-end gap-3 z-30">
           <button onClick={onClose} className="px-5 py-2.5 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors">
             {t('cancel')}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-6 py-2.5 bg-gradient-to-r from-tuggi-blue to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl font-medium shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all active:scale-95 disabled:opacity-50 disabled:pointer-events-none flex items-center"
-          >
-            {isSaving ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <Save className="w-5 h-5 mr-2" />}
-            {isSaving ? t('saving') : t('saveGeofence')}
           </button>
         </footer>
       </div>
