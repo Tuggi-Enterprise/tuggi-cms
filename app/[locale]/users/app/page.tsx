@@ -10,6 +10,7 @@ import {
 import { cn } from '@/lib/utils'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
 import { SubscriptionBadge, ProviderIcon, PlatformBadge } from '@/components/ui/SubscriptionBadge'
+import { useTranslations } from 'next-intl'
 
 // PlayCircle icon (not in lucide-react standard)
 const PlayCircle = ({ className }: { className?: string }) => (
@@ -90,14 +91,24 @@ type SortConfig = {
 const UserDetailModal = ({ 
   userId,
   onClose,
+  onUpdate,
   supabase
 }: { 
   userId: string | null
   onClose: () => void
+  onUpdate?: () => void
   supabase: any
 }) => {
+  const t = useTranslations('Pages.AppUsers.modal')
   const [user, setUser] = useState<UserDetail | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+
+  // Edit Subscription State
+  const [isEditingSub, setIsEditingSub] = useState(false)
+  const [tiers, setTiers] = useState<any[]>([])
+  const [selectedTierId, setSelectedTierId] = useState<string>('')
+  const [selectedEndDate, setSelectedEndDate] = useState<string>('')
+  const [isSavingSub, setIsSavingSub] = useState(false)
 
   useEffect(() => {
     if (!userId) {
@@ -126,19 +137,97 @@ const UserDetailModal = ({
     fetchDetail()
   }, [userId, supabase])
 
+  const handleEditClick = async () => {
+    if (tiers.length === 0) {
+      try {
+        const { data, error } = await supabase
+          .schema('drive')
+          .from('subscription_tiers')
+          .select('id, display_name, name')
+          .eq('is_active', true)
+        
+        if (!error && data) {
+          setTiers(data)
+        }
+      } catch (err) {
+        console.error('Error fetching tiers:', err)
+      }
+    }
+    
+    // Set initial values from user
+    setSelectedTierId(user?.subscription_tier_id || '')
+    if (user?.subscription_end_date) {
+      setSelectedEndDate(new Date(user.subscription_end_date).toISOString().split('T')[0])
+    } else {
+      setSelectedEndDate('')
+    }
+    
+    setIsEditingSub(true)
+  }
+
+  const handleSaveSub = async () => {
+    if (!userId || !user) return
+    
+    try {
+      setIsSavingSub(true)
+      
+      const payload: Record<string, any> = {
+        subscription_tier_id: selectedTierId || null,
+      }
+      
+      if (selectedEndDate) {
+        payload.subscription_end_date = new Date(selectedEndDate).toISOString()
+      } else {
+        payload.subscription_end_date = null
+      }
+
+      const res = await fetch(`/api/admin/users/${user.user_id}/subscription`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      const result = await res.json()
+      
+      if (!res.ok) {
+        throw new Error(result.error || t('save_error'))
+      }
+      
+      // Refresh user details to show new tier immediately inside modal
+      const { data: refreshedData, error: refreshError } = await supabase
+        .schema('core')
+        .rpc('dashboard_user_detail', { target_user_id: user.user_id })
+      
+      if (!refreshError && refreshedData && refreshedData.length > 0) {
+        setUser(refreshedData[0])
+      }
+      
+      // Tell parent to refresh the grid
+      if (onUpdate) onUpdate()
+      
+      setIsEditingSub(false)
+    } catch (err) {
+      console.error('Error updating subscription:', err)
+      alert(err instanceof Error ? err.message : t('save_error'))
+    } finally {
+      setIsSavingSub(false)
+    }
+  }
+
   if (!userId) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div 
-        className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl mx-4 max-h-[90vh] overflow-y-auto animate-in zoom-in-95 duration-300"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {isLoading ? (
-          <div className="p-12 flex items-center justify-center">
-            <RefreshCw className="h-8 w-8 animate-spin text-tuggi-blue" />
-          </div>
-        ) : user ? (
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div 
+          className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl relative animate-in zoom-in-95 duration-300"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {isLoading ? (
+            <div className="p-12 flex items-center justify-center">
+              <RefreshCw className="h-8 w-8 animate-spin text-tuggi-blue" />
+            </div>
+          ) : user ? (
           <>
             {/* Header */}
             <div className="p-6 border-b border-gray-200 dark:border-gray-700">
@@ -149,10 +238,10 @@ const UserDetailModal = ({
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                      {user.full_name || 'Sem nome'}
+                      {user.full_name || t('unnamed')}
                       <SubscriptionBadge isPremium={user.is_premium} tierName={user.subscription_tier_display_name} />
                     </h2>
-                    <p className="text-gray-500">@{user.nickname || 'sem-nickname'}</p>
+                    <p className="text-gray-500">@{user.nickname || t('no_nickname')}</p>
                     {user.email && (
                       <p className="text-sm text-gray-400 flex items-center mt-1">
                         <Mail className="h-3 w-3 mr-1" />
@@ -167,7 +256,7 @@ const UserDetailModal = ({
             {/* Content */}
             <div className="p-6 space-y-6">
               {/* Quick Stats */}
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="text-center p-4 bg-tuggi-blue/10 rounded-xl">
                   <p className="text-2xl font-black text-tuggi-blue">{user.trip_count || 0}</p>
                   <p className="text-xs text-gray-500">Trips</p>
@@ -182,35 +271,35 @@ const UserDetailModal = ({
                 </div>
                 <div className="text-center p-4 bg-orange-500/10 rounded-xl">
                   <p className="text-2xl font-black text-orange-600">{user.unique_cities_visited || 0}</p>
-                  <p className="text-xs text-gray-500">Cidades</p>
+                  <p className="text-xs text-gray-500">{t('cities')}</p>
                 </div>
               </div>
 
               {/* Info Grid */}
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Profile Info */}
                 <div className="space-y-3">
                   <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center">
                     <User className="h-4 w-4 mr-2" />
-                    Perfil
+                    {t('profile')}
                   </h3>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-gray-500">País</span>
+                      <span className="text-gray-500">{t('country')}</span>
                       <span className="font-medium text-gray-900 dark:text-white">{user.country || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Idioma</span>
+                      <span className="text-gray-500">{t('language')}</span>
                       <span className="font-medium text-gray-900 dark:text-white">{user.language || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Driver Type</span>
+                      <span className="text-gray-500">{t('driver_type')}</span>
                       <span className="font-medium text-gray-900 dark:text-white">{user.driver_type || 'N/A'}</span>
                     </div>
-                    <div className="flex justify-between">
+                    {/* <div className="flex justify-between">
                       <span className="text-gray-500">Voz</span>
                       <span className="font-medium text-gray-900 dark:text-white">{user.voice_preference || 'N/A'}</span>
-                    </div>
+                    </div> */}
                   </div>
                 </div>
 
@@ -218,11 +307,11 @@ const UserDetailModal = ({
                 <div className="space-y-3">
                   <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center">
                     <Smartphone className="h-4 w-4 mr-2" />
-                    Dispositivo
+                    {t('device')}
                   </h3>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Plataforma</span>
+                      <span className="text-gray-500">{t('platform')}</span>
                       <span className={cn(
                         "px-2 py-0.5 rounded text-xs font-bold",
                         user.last_platform === 'ios' ? 'bg-blue-100 text-blue-700' : 
@@ -232,15 +321,15 @@ const UserDetailModal = ({
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Modelo</span>
+                      <span className="text-gray-500">{t('model')}</span>
                       <span className="font-medium text-gray-900 dark:text-white">{user.last_device_model || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-500">App Version</span>
+                      <span className="text-gray-500">{t('app_version')}</span>
                       <span className="font-medium text-gray-900 dark:text-white">{user.last_app_version || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Logins</span>
+                      <span className="text-gray-500">{t('logins')}</span>
                       <span className="font-medium text-gray-900 dark:text-white">{user.login_count || 0}</span>
                     </div>
                   </div>
@@ -249,41 +338,99 @@ const UserDetailModal = ({
 
               {/* Subscription */}
               <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800/50 dark:to-gray-800 rounded-xl">
-                <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center">
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Assinatura
-                </h3>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-xs text-gray-500">Tier</p>
-                    <p className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                      {user.is_premium ? (
-                        <>
-                          <Crown className="h-4 w-4 text-yellow-500" />
-                          {user.subscription_tier_display_name || 'Premium'}
-                        </>
-                      ) : (
-                        'Free'
-                      )}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Provider</p>
-                    <p className="font-medium text-gray-900 dark:text-white flex items-center gap-1">
-                      <ProviderIcon provider={user.subscription_provider} />
-                      {user.subscription_provider || 'N/A'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Vence em</p>
-                    <p className="font-medium text-gray-900 dark:text-white">
-                      {user.subscription_end_date 
-                        ? new Date(user.subscription_end_date).toLocaleDateString('pt-BR')
-                        : 'N/A'
-                      }
-                    </p>
-                  </div>
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center">
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    {t('subscription')}
+                  </h3>
+                  {!isEditingSub ? (
+                    <button 
+                      onClick={handleEditClick}
+                      className="text-xs text-tuggi-blue hover:underline font-medium"
+                    >
+                      {t('edit')}
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <button 
+                        onClick={() => setIsEditingSub(false)}
+                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-medium"
+                      >
+                        {t('cancel')}
+                      </button>
+                      <button 
+                        onClick={handleSaveSub}
+                        disabled={isSavingSub}
+                        className="text-xs bg-tuggi-blue text-white px-3 py-1 rounded-md hover:bg-tuggi-blue/80 disabled:opacity-50 transition-colors font-medium"
+                      >
+                        {isSavingSub ? t('saving') : t('save')}
+                      </button>
+                    </div>
+                  )}
                 </div>
+
+                {!isEditingSub ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-xs text-gray-500">{t('tier')}</p>
+                      <p className="font-bold text-gray-900 dark:text-white flex items-center gap-2 mt-1">
+                        {user.is_premium ? (
+                          <>
+                            <Crown className="h-4 w-4 text-amber-500" />
+                            {user.subscription_tier_display_name || 'Premium'}
+                          </>
+                        ) : (
+                          'Free'
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">{t('provider')}</p>
+                      <p className="font-medium text-gray-900 dark:text-white flex items-center gap-1 mt-1">
+                        <ProviderIcon provider={user.subscription_provider} />
+                        {user.subscription_provider || 'N/A'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">{t('expires_at')}</p>
+                      <p className="font-medium text-gray-900 dark:text-white mt-1">
+                        {user.subscription_end_date 
+                          ? new Date(user.subscription_end_date).toLocaleDateString()
+                          : 'N/A'
+                        }
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 bg-white dark:bg-gray-900 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
+                        {t('tier')}
+                      </label>
+                      <select 
+                        value={selectedTierId} 
+                        onChange={e => setSelectedTierId(e.target.value)}
+                        className="w-full text-sm py-1.5 px-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-tuggi-blue"
+                      >
+                        <option value="">{t('select_tier')}</option>
+                        {tiers.map(t => (
+                          <option key={t.id} value={t.id}>{t.display_name} ({t.name})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
+                        {t('exp_date')}
+                      </label>
+                      <input 
+                        type="date" 
+                        value={selectedEndDate} 
+                        onChange={e => setSelectedEndDate(e.target.value)}
+                        className="w-full text-sm py-1.5 px-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-tuggi-blue"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Subscription History */}
@@ -291,7 +438,7 @@ const UserDetailModal = ({
                 <div>
                   <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center">
                     <Activity className="h-4 w-4 mr-2" />
-                    Histórico de Assinatura
+                    {t('history')}
                   </h3>
                   <div className="space-y-2">
                     {user.subscription_history.map((h, i) => (
@@ -313,7 +460,7 @@ const UserDetailModal = ({
                           )}
                         </div>
                         <span className="text-gray-400 text-xs">
-                          {new Date(h.created_at).toLocaleDateString('pt-BR')}
+                          {new Date(h.created_at).toLocaleDateString()}
                         </span>
                       </div>
                     ))}
@@ -322,23 +469,23 @@ const UserDetailModal = ({
               )}
 
               {/* Timestamps */}
-              <div className="grid grid-cols-3 gap-4 text-sm text-gray-500 border-t border-gray-200 dark:border-gray-700 pt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm text-gray-500 border-t border-gray-200 dark:border-gray-700 pt-4">
                 <div>
-                  <p className="text-xs">Cadastro</p>
+                  <p className="text-xs">{t('created_at')}</p>
                   <p className="font-medium text-gray-700 dark:text-gray-300">
-                    {new Date(user.created_at).toLocaleDateString('pt-BR')}
+                    {new Date(user.created_at).toLocaleDateString()}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs">Último login</p>
+                  <p className="text-xs">{t('last_login')}</p>
                   <p className="font-medium text-gray-700 dark:text-gray-300">
-                    {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString('pt-BR') : 'Nunca'}
+                    {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString() : t('never')}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs">Última trip</p>
+                  <p className="text-xs">{t('last_trip')}</p>
                   <p className="font-medium text-gray-700 dark:text-gray-300">
-                    {user.last_trip_at ? new Date(user.last_trip_at).toLocaleDateString('pt-BR') : 'Nunca'}
+                    {user.last_trip_at ? new Date(user.last_trip_at).toLocaleDateString() : t('never')}
                   </p>
                 </div>
               </div>
@@ -350,15 +497,16 @@ const UserDetailModal = ({
                 onClick={onClose}
                 className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
               >
-                Fechar
+                {t('close')}
               </button>
             </div>
           </>
         ) : (
           <div className="p-12 text-center text-gray-500">
-            Usuário não encontrado
+            {t('not_found')}
           </div>
         )}
+        </div>
       </div>
     </div>
   )
@@ -369,6 +517,7 @@ const UserDetailModal = ({
 // ============================================================================
 
 export default function AppUsersPage() {
+  const t = useTranslations('Pages.AppUsers')
   const supabase = useSupabaseClient()
   const [users, setUsers] = useState<AppUser[]>([])
   const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats | null>(null)
@@ -425,7 +574,7 @@ export default function AppUsersPage() {
       setUsers(data || [])
     } catch (err) {
       console.error('Error fetching app users:', err)
-      setError(err instanceof Error ? err.message : 'Erro ao carregar usuários')
+      setError(err instanceof Error ? err.message : t('table.load_error'))
     } finally {
       setIsLoading(false)
     }
@@ -526,10 +675,10 @@ export default function AppUsersPage() {
         <div>
           <h1 className="text-3xl font-black text-gray-900 dark:text-white flex items-center">
             <Smartphone className="h-8 w-8 mr-3 text-tuggi-blue" />
-            App Users
+            {t('title')}
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            Usuários do aplicativo Tuggi com dados de assinatura
+            {t('subtitle')}
           </p>
         </div>
         
@@ -544,7 +693,7 @@ export default function AppUsersPage() {
             )}
           >
             <Filter className="h-4 w-4 mr-2" />
-            Filtros
+            {t('filters.title')}
             <ChevronDown className={cn("h-4 w-4 ml-2 transition-transform", showFilters && "rotate-180")} />
           </button>
           
@@ -560,28 +709,28 @@ export default function AppUsersPage() {
 
       {/* Stats Cards */}
       <StatCardRow columns={8} className="mb-6">
-        <StatCard label="Total" value={stats.total_users} icon={Smartphone} color="#00A8E8" isLoading={isLoading} />
-        <StatCard label="Free" value={stats.free_users} icon={User} color="#6B7280" isLoading={isLoading} />
+        <StatCard label={t('stats.total')} value={stats.total_users} icon={Smartphone} color="#00A8E8" isLoading={isLoading} />
+        <StatCard label={t('stats.free')} value={stats.free_users} icon={User} color="#6B7280" isLoading={isLoading} />
         <StatCard 
-          label="Premium" 
+          label={t('stats.premium')} 
           value={stats.premium_users} 
           icon={Crown} 
           color="#F59E0B" 
           subtitle={`${stats.premium_percentage}%`}
           isLoading={isLoading}
         />
-        <StatCard label="Apple" value={stats.apple_subscriptions} icon={Apple} color="#000000" isLoading={isLoading} />
-        <StatCard label="Google" value={stats.google_subscriptions} icon={Play} color="#34A853" isLoading={isLoading} />
-        <StatCard label="Stripe" value={stats.stripe_subscriptions} icon={Zap} color="#635BFF" isLoading={isLoading} />
+        <StatCard label={t('stats.apple')} value={stats.apple_subscriptions} icon={Apple} color="#000000" isLoading={isLoading} />
+        <StatCard label={t('stats.google')} value={stats.google_subscriptions} icon={Play} color="#34A853" isLoading={isLoading} />
+        <StatCard label={t('stats.stripe')} value={stats.stripe_subscriptions} icon={Zap} color="#635BFF" isLoading={isLoading} />
         <StatCard 
-          label="Novos (7d)" 
+          label={t('stats.new_7d')} 
           value={subscriptionStats?.new_subscriptions_7d || 0} 
           icon={TrendingUp} 
           color="#10B981" 
           isLoading={isLoading}
         />
         <StatCard 
-          label="Churn (7d)" 
+          label={t('stats.churn_7d')} 
           value={subscriptionStats?.churned_7d || 0} 
           icon={AlertCircle} 
           color="#EF4444" 
@@ -595,14 +744,14 @@ export default function AppUsersPage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                País
+                {t('filters.country')}
               </label>
               <select
                 value={filterCountry}
                 onChange={(e) => setFilterCountry(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
               >
-                <option value="">Todos</option>
+                <option value="">{t('filters.all')}</option>
                 {countries.map(country => (
                   <option key={country} value={country}>{country}</option>
                 ))}
@@ -610,28 +759,28 @@ export default function AppUsersPage() {
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                Plataforma
+                {t('filters.platform')}
               </label>
               <select
                 value={filterPlatform}
                 onChange={(e) => setFilterPlatform(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
               >
-                <option value="">Todas</option>
+                <option value="">{t('filters.all_platforms')}</option>
                 <option value="ios">iOS</option>
                 <option value="android">Android</option>
               </select>
             </div>
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-                Assinatura
+                {t('filters.subscription')}
               </label>
               <select
                 value={filterSubscription}
                 onChange={(e) => setFilterSubscription(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
               >
-                <option value="">Todas</option>
+                <option value="">{t('filters.all_subscriptions')}</option>
                 <option value="premium">Premium</option>
                 <option value="free">Free</option>
               </select>
@@ -641,7 +790,7 @@ export default function AppUsersPage() {
                 onClick={clearFilters}
                 className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
               >
-                Limpar filtros
+                {t('filters.clear')}
               </button>
             </div>
           </div>
@@ -656,7 +805,7 @@ export default function AppUsersPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar por nome, email, nickname ou país..."
+            placeholder={t('table.search_placeholder')}
             className="w-full pl-10 pr-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-tuggi-blue focus:border-transparent"
           />
         </div>
@@ -672,7 +821,7 @@ export default function AppUsersPage() {
 
       {/* Results count */}
       <p className="text-sm text-gray-500 mb-4">
-        Mostrando {filteredUsers.length} de {users.length} usuários
+        {t('table.results_info', { filtered: filteredUsers.length, total: users.length })}
       </p>
 
       {/* Users Table */}
@@ -684,19 +833,19 @@ export default function AppUsersPage() {
                 <th 
                   className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"
                 >
-                  Usuário
+                  {t('table.user')}
                 </th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Assinatura</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Idioma</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Timezone</th>
-                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Device</th>
-                <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Logins</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.subscription')}</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.language')}</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.timezone')}</th>
+                <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.device')}</th>
+                <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">{t('table.logins')}</th>
                 <th 
                   className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700/50"
                   onClick={() => handleSort('trip_count')}
                 >
                   <div className="flex items-center justify-end">
-                    Trips
+                    {t('table.trips')}
                     <SortIcon column="trip_count" />
                   </div>
                 </th>
@@ -705,7 +854,7 @@ export default function AppUsersPage() {
                   onClick={() => handleSort('created_at')}
                 >
                   <div className="flex items-center justify-end">
-                    Criado Em
+                    {t('table.created_at')}
                     <SortIcon column="created_at" />
                   </div>
                 </th>
@@ -714,7 +863,7 @@ export default function AppUsersPage() {
                   onClick={() => handleSort('last_sign_in_at')}
                 >
                   <div className="flex items-center">
-                    Último Login
+                    {t('table.last_login')}
                     <SortIcon column="last_sign_in_at" />
                   </div>
                 </th>
@@ -738,7 +887,7 @@ export default function AppUsersPage() {
               ) : sortedUsers.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
-                    Nenhum usuário encontrado
+                    {t('table.no_results')}
                   </td>
                 </tr>
               ) : (
@@ -755,7 +904,7 @@ export default function AppUsersPage() {
                         </div>
                         <div>
                           <p className="font-medium text-gray-900 dark:text-white">
-                            {user.full_name || 'Sem nome'}
+                            {user.full_name || t('modal.unnamed')}
                           </p>
                           <p className="text-sm text-gray-500">
                             {user.email || `@${user.nickname || 'none'}`}
@@ -804,14 +953,14 @@ export default function AppUsersPage() {
                     </td>
                     <td className="px-6 py-4 text-right text-sm text-gray-500">
                       {user.created_at 
-                        ? new Date(user.created_at).toLocaleDateString('pt-BR')
+                        ? new Date(user.created_at).toLocaleDateString()
                         : 'N/A'
                       }
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {user.last_sign_in_at 
-                        ? new Date(user.last_sign_in_at).toLocaleDateString('pt-BR')
-                        : 'Nunca'
+                        ? new Date(user.last_sign_in_at).toLocaleDateString()
+                        : t('modal.never')
                       }
                     </td>
                   </tr>
@@ -827,6 +976,10 @@ export default function AppUsersPage() {
         userId={selectedUserId} 
         onClose={() => setSelectedUserId(null)}
         supabase={supabase}
+        onUpdate={() => {
+          fetchUsers();
+          fetchSubscriptionStats();
+        }}
       />
     </div>
   )
