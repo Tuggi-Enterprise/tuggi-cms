@@ -12,6 +12,7 @@ import { poiService, POI as POIType } from '@/lib/core/poi-service'
 import { usePOIs } from '@/lib/hooks/use-pois'
 import { useTranslations } from 'next-intl'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
+import { useLocationData } from '@/lib/hooks/use-location-data'
 
 import { GeofenceModal } from '@/components/geofences/GeofenceModal'
 
@@ -112,6 +113,46 @@ export default function GeofencesPage() {
            countryFilter !== '' || 
            stateFilter !== ''
 
+  // Location data for filters
+  const locationData = useLocationData({ autoLoadCountries: false })
+
+  const filterOptions = useMemo(() => ({
+    countries: locationData.countries.map((country: any) => ({
+      value: country.name,
+      label: country.name
+    })),
+    states: locationData.states.map((state: any) => ({
+      value: state.value,
+      label: state.label
+    })),
+    cities: locationData.cities.map((city: any) => ({
+      value: city.name,
+      label: city.name
+    }))
+  }), [locationData.countries, locationData.states, locationData.cities])
+
+  // Load states when country changes
+  useEffect(() => {
+    if (countryFilter) {
+      locationData.loadStates(countryFilter, 'geofence')
+      setStateFilter('')
+      setCityFilter('')
+    }
+  }, [countryFilter])
+
+  // Load cities when state changes
+  useEffect(() => {
+    if (countryFilter && stateFilter) {
+      locationData.loadCities(countryFilter, stateFilter, 'geofence')
+      setCityFilter('')
+    }
+  }, [countryFilter, stateFilter])
+
+  // Initial country load with category
+  useEffect(() => {
+    locationData.loadCountries('geofence')
+  }, [])
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
       <div className="flex gap-8 flex-1 pt-6">
@@ -160,27 +201,47 @@ export default function GeofencesPage() {
                 <div>
                   <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 px-1">{t('locationFilters')}</h3>
                   <div className="space-y-3">
-                    <input
-                      type="text"
-                      placeholder={t('country')}
+                    <select
                       value={countryFilter}
                       onChange={(e) => setCountryFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-transparent rounded-lg text-sm"
-                    />
-                    <input
-                      type="text"
-                      placeholder={t('state')}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                      disabled={locationData.countriesLoading}
+                    >
+                      <option value="">{t('allCountries') || 'All Countries'}</option>
+                      {filterOptions.countries.map((country: any) => (
+                        <option key={country.value} value={country.value}>
+                          {country.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
                       value={stateFilter}
                       onChange={(e) => setStateFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-transparent rounded-lg text-sm"
-                    />
-                    <input
-                      type="text"
-                      placeholder={t('city')}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all disabled:opacity-50"
+                      disabled={!countryFilter || locationData.statesLoading}
+                    >
+                      <option value="">{t('allStates') || 'All States'}</option>
+                      {filterOptions.states.map((state: any) => (
+                        <option key={state.value} value={state.value}>
+                          {state.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
                       value={cityFilter}
                       onChange={(e) => setCityFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 bg-transparent rounded-lg text-sm"
-                    />
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all disabled:opacity-50"
+                      disabled={!countryFilter || !stateFilter || locationData.citiesLoading}
+                    >
+                      <option value="">{t('allCities') || 'All Cities'}</option>
+                      {filterOptions.cities.map((city: any) => (
+                        <option key={city.value} value={city.value}>
+                          {city.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 

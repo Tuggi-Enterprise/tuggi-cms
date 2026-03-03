@@ -184,11 +184,8 @@ class POIService {
         }
       }
       
-      console.log('🔍 Searching POIs with RPC:', filters)
-      console.log('🔍 Country filter value:', filters.country)
-      console.log('🔍 Country filter type:', typeof filters.country)
       
-      const supabase = getSupabase('server')
+      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
       // Use the new RPC function for efficient search
       const rpcParams = {
@@ -210,17 +207,11 @@ class POIService {
         p_owner_id: (filters as any).ownerId || null
       }
       
-      console.log('🔍 RPC Parameters:', rpcParams)
-      console.log('🔍 Country filter in RPC:', rpcParams.country_filter)
-      
-      console.log('🔍 Calling RPC with params:', JSON.stringify(rpcParams, null, 2))
       
       let data: any[] = []
       let error: any = null
       
-      // For fetch_all, we need to paginate in chunks to bypass Supabase's 1000 limit
       if (rpcParams.fetch_all) {
-        console.log('🔍 Fetching ALL POIs with pagination...')
         
         let allData: any[] = []
         let currentOffset = 0
@@ -235,7 +226,6 @@ class POIService {
             offset_count: currentOffset
           }
           
-          console.log(`🔍 Fetching chunk at offset ${currentOffset}...`)
           
           const { data: chunkData, error: chunkError } = await supabase
             .schema('core')
@@ -251,8 +241,6 @@ class POIService {
           } else {
             allData = [...allData, ...chunkData]
             currentOffset += chunkSize
-            
-            console.log(`✅ Fetched chunk: ${chunkData.length} POIs (total so far: ${allData.length})`)
             
             // If we got less than chunkSize, we've reached the end
             if (chunkData.length < chunkSize) {
@@ -371,10 +359,7 @@ class POIService {
         // Cache the result
         this.cache.set(cacheKey, { data: searchResult, timestamp: startTime })
         
-        console.log(`✅ POI Search RPC completed in ${Date.now() - startTime}ms - Found ${pois.length} POIs`)
         return searchResult
-      } else {
-        console.log('✅ POI Search RPC completed - No POIs found')
         return {
           success: true,
           data: [],

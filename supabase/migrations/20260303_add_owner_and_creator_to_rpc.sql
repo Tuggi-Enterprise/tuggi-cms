@@ -1,4 +1,4 @@
--- Migration: Add owner_id and created_by to cms_search_pois RPC returns and cleanup unused fields
+-- Migration: Add owner_id and created_by to cms_search_pois RPC returns and implement Super Tenant logic
 -- Date: 2026-03-03
 
 DROP FUNCTION IF EXISTS core.cms_search_pois(
@@ -20,7 +20,7 @@ CREATE OR REPLACE FUNCTION core.cms_search_pois(
   limit_count INTEGER DEFAULT 1000,
   offset_count INTEGER DEFAULT 0,
   fetch_all BOOLEAN DEFAULT FALSE,
-  p_owner_id UUID DEFAULT NULL, -- Renamed from owner_id to avoid collision
+  p_owner_id UUID DEFAULT NULL, 
   is_active_filter TEXT DEFAULT 'all'
 )
 RETURNS TABLE (
@@ -65,23 +65,35 @@ DECLARE
   stats_query TEXT;
   stats_result RECORD;
   caller_cms_id UUID;
-  is_admin BOOLEAN := FALSE;
+  caller_client_id UUID;
+  caller_role TEXT;
+  is_platform_admin BOOLEAN := FALSE;
+  is_client_restrict BOOLEAN := FALSE;
 BEGIN
-  -- Resolve caller identity
+  -- Resolve caller identity and scope
   BEGIN
-    caller_cms_id := (SELECT cu.id FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true));
-    is_admin := EXISTS (
-      SELECT 1 FROM core.cms_users cu
-      WHERE cu.email = current_setting('request.jwt.claims.email', true) AND cu.role IN ('admin','super_admin')
-    );
-  EXCEPTION WHEN OTHERS THEN
-    is_admin := TRUE;
-  END;
+    SELECT cu.id, cu.role, cu.client_id INTO caller_cms_id, caller_role, caller_client_id 
+    FROM core.cms_users cu 
+    WHERE cu.email = current_setting('request.jwt.claims.email', true);
 
-  -- If not admin, restrict to caller's POIs
-  IF NOT is_admin AND caller_cms_id IS NOT NULL THEN
-    p_owner_id := caller_cms_id;
-  END IF;
+    IF caller_role IS NULL THEN
+      is_platform_admin := TRUE; -- Fallback for safety in dev/server calls
+    ELSE
+      -- Check if it is a Platform Admin (Tuggi staff with admin role)
+      is_platform_admin := EXISTS (
+        SELECT 1 FROM core.clients c 
+        WHERE c.id = caller_client_id AND c.is_platform_owner = TRUE
+      ) AND caller_role IN ('admin', 'super_admin');
+    END IF;
+
+    -- Determine if we should restrict to a specific client
+    IF NOT is_platform_admin THEN
+      is_client_restrict := TRUE;
+      p_owner_id := caller_client_id;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    is_platform_admin := TRUE;
+  END;
 
   -- Build WHERE conditions
   IF search_term IS NOT NULL AND search_term != '' THEN
@@ -114,8 +126,12 @@ BEGIN
     where_conditions := array_append(where_conditions, format('a.category = %L', category_filter));
   END IF;
 
-  IF p_owner_id IS NOT NULL THEN
-    where_conditions := array_append(where_conditions, format('a.created_by = %L', p_owner_id));
+  -- Security Restriction: If restricted, only show POIs for the caller's client
+  IF is_client_restrict AND p_owner_id IS NOT NULL THEN
+    where_conditions := array_append(where_conditions, format('a.owner_id = %L', p_owner_id));
+  ELSIF NOT is_platform_admin AND p_owner_id IS NOT NULL THEN
+    -- If manually passed p_owner_id by an admin (can see other clients)
+    where_conditions := array_append(where_conditions, format('a.owner_id = %L', p_owner_id));
   END IF;
 
   IF is_active_filter IS NOT NULL AND is_active_filter != 'all' THEN
@@ -296,9 +312,157 @@ BEGIN
 END;
 $$;
 
+-- 2. Location Lookup RPCs for Filters (Respecting Super Tenant & Category)
+
+-- Get countries
+CREATE OR REPLACE FUNCTION core.cms_get_countries(p_category TEXT DEFAULT NULL)
+RETURNS TABLE (
+  value TEXT,
+  label TEXT,
+  count BIGINT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  caller_client_id UUID;
+  caller_role TEXT;
+  is_platform_admin BOOLEAN := FALSE;
+BEGIN
+  -- Resolve identity with fallback
+  BEGIN
+    SELECT cu.client_id, cu.role INTO caller_client_id, caller_role
+    FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true);
+
+    IF caller_role IS NULL THEN
+      is_platform_admin := TRUE;
+    ELSE
+      is_platform_admin := EXISTS (
+        SELECT 1 FROM core.clients c 
+        WHERE c.id = caller_client_id AND c.is_platform_owner = TRUE
+      ) AND (caller_role IN ('admin', 'super_admin'));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    is_platform_admin := TRUE;
+  END;
+
+  RETURN QUERY
+  SELECT 
+    a.country as value,
+    a.country as label,
+    COUNT(*)::BIGINT as count
+  FROM core.attractions a
+  WHERE (is_platform_admin OR a.owner_id = caller_client_id)
+    AND (p_category IS NULL OR a.category = p_category)
+    AND a.country IS NOT NULL AND a.country != ''
+  GROUP BY a.country
+  ORDER BY count DESC;
+END;
+$$;
+
+-- Get states for a country
+CREATE OR REPLACE FUNCTION core.cms_get_states(country_name TEXT, p_category TEXT DEFAULT NULL)
+RETURNS TABLE (
+  value TEXT,
+  label TEXT,
+  count BIGINT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  caller_client_id UUID;
+  caller_role TEXT;
+  is_platform_admin BOOLEAN := FALSE;
+BEGIN
+  -- Resolve identity with fallback
+  BEGIN
+    SELECT cu.client_id, cu.role INTO caller_client_id, caller_role
+    FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true);
+
+    IF caller_role IS NULL THEN
+      is_platform_admin := TRUE;
+    ELSE
+      is_platform_admin := EXISTS (
+        SELECT 1 FROM core.clients c 
+        WHERE c.id = caller_client_id AND c.is_platform_owner = TRUE
+      ) AND (caller_role IN ('admin', 'super_admin'));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    is_platform_admin := TRUE;
+  END;
+
+  RETURN QUERY
+  SELECT 
+    a.state as value,
+    a.state as label,
+    COUNT(*)::BIGINT as count
+  FROM core.attractions a
+  WHERE (is_platform_admin OR a.owner_id = caller_client_id)
+    AND a.country = country_name
+    AND (p_category IS NULL OR a.category = p_category)
+    AND a.state IS NOT NULL AND a.state != ''
+  GROUP BY a.state
+  ORDER BY count DESC;
+END;
+$$;
+
+-- Get cities for a country and state
+CREATE OR REPLACE FUNCTION core.cms_get_cities(country_name TEXT, state_name TEXT DEFAULT NULL, p_category TEXT DEFAULT NULL)
+RETURNS TABLE (
+  value TEXT,
+  label TEXT,
+  count BIGINT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  caller_client_id UUID;
+  caller_role TEXT;
+  is_platform_admin BOOLEAN := FALSE;
+BEGIN
+  -- Resolve identity with fallback
+  BEGIN
+    SELECT cu.client_id, cu.role INTO caller_client_id, caller_role
+    FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true);
+
+    IF caller_role IS NULL THEN
+      is_platform_admin := TRUE;
+    ELSE
+      is_platform_admin := EXISTS (
+        SELECT 1 FROM core.clients c 
+        WHERE c.id = caller_client_id AND c.is_platform_owner = TRUE
+      ) AND (caller_role IN ('admin', 'super_admin'));
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    is_platform_admin := TRUE;
+  END;
+
+  RETURN QUERY
+  SELECT 
+    a.city as value,
+    a.city as label,
+    COUNT(*)::BIGINT as count
+  FROM core.attractions a
+  WHERE (is_platform_admin OR a.owner_id = caller_client_id)
+    AND a.country = country_name
+    AND (state_name IS NULL OR a.state = state_name)
+    AND (p_category IS NULL OR a.category = p_category)
+    AND a.city IS NOT NULL AND a.city != ''
+  GROUP BY a.city
+  ORDER BY count DESC;
+END;
+$$;
+
 GRANT EXECUTE ON FUNCTION core.cms_search_pois(
   TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, INTEGER, INTEGER, BOOLEAN, UUID, TEXT
 ) TO authenticated;
 GRANT EXECUTE ON FUNCTION core.cms_search_pois(
   TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, INTEGER, INTEGER, BOOLEAN, UUID, TEXT
 ) TO service_role;
+
+GRANT EXECUTE ON FUNCTION core.cms_get_countries(TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION core.cms_get_states(TEXT, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION core.cms_get_cities(TEXT, TEXT, TEXT) TO authenticated;
+

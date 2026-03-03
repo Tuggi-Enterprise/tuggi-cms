@@ -1037,7 +1037,10 @@
   },
   "Geofences": {
     "title": "Geofences",
-    "locationFilters": "Location Manual Filters",
+    "locationFilters": "Location",
+    "allCountries": "All Countries",
+    "allStates": "All States",
+    "allCities": "All Cities",
     "country": "Country",
     "state": "State",
     "city": "City",

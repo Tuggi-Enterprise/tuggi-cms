@@ -39,6 +39,7 @@ export interface LocationFilters {
   country?: string
   state?: string
   city?: string
+  category?: string
   limit?: number
 }
 
@@ -72,31 +73,32 @@ class LocationService {
   /**
    * Get all countries with POI counts
    */
-  static async getCountries(): Promise<LocationResult<Country>> {
+  static async getCountries(category?: string): Promise<LocationResult<Country>> {
     const startTime = Date.now()
+    const cacheKey = `countries_${category || 'all'}`
     
     try {
-      // Check cache first
-      if (this.isCacheValid(this.cache.countries)) {
+      // Check cache (using states/cities style for countries too now)
+      if ((this.cache as any)[cacheKey] && this.isCacheValid((this.cache as any)[cacheKey])) {
         return {
           success: true,
-          data: this.cache.countries.data,
+          data: (this.cache as any)[cacheKey].data,
           metadata: {
             source: 'cache',
             timestamp: startTime,
-            filters: {}
+            filters: { category }
           }
         }
       }
-      
-      console.log('🌍 Loading countries from RPC...')
+
+      console.log(`🌍 Loading countries from RPC (category: ${category || 'all'})...`)
       
       // Use RPC for optimized performance
-      const supabase = getSupabase('server')
+      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
       const { data, error } = await supabase
         .schema('core')
-        .rpc('cms_get_countries')
+        .rpc('cms_get_countries', { p_category: category || null })
       
       if (error) {
         throw new Error(`RPC error: ${error.message}`)
@@ -105,12 +107,12 @@ class LocationService {
       const countries = (data || []).map((country: any) => ({
         name: country.value || country.label,
         code: country.value || country.label,
-        cityCount: 0, // Not available in this RPC
+        cityCount: 0, 
         totalPOIs: country.count || 0
       }))
       
       // Update cache
-      this.cache.countries = { data: countries, timestamp: startTime }
+      ;(this.cache as any)[cacheKey] = { data: countries, timestamp: startTime }
       
       return {
         success: true,
@@ -118,7 +120,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: {}
+          filters: { category }
         }
       }
       
@@ -130,7 +132,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: {}
+          filters: { category }
         }
       }
     }
@@ -139,12 +141,11 @@ class LocationService {
   /**
    * Get states for a specific country
    */
-  static async getStates(country: string): Promise<LocationResult<State>> {
+  static async getStates(country: string, category?: string): Promise<LocationResult<State>> {
     const startTime = Date.now()
-    const cacheKey = country.toLowerCase()
+    const cacheKey = `${country.toLowerCase()}_${category || 'all'}`
     
     try {
-      // Check cache first
       if (this.cache.states[cacheKey] && this.isCacheValid(this.cache.states[cacheKey])) {
         return {
           success: true,
@@ -152,19 +153,22 @@ class LocationService {
           metadata: {
             source: 'cache',
             timestamp: startTime,
-            filters: { country }
+            filters: { country, category }
           }
         }
       }
-      
-      console.log(`🏛️ Loading states for ${country} from RPC...`)
+
+      console.log(`🏛️ Loading states for ${country} from RPC (category: ${category || 'all'})...`)
       
       // Use RPC for optimized performance
-      const supabase = getSupabase('server')
+      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
       const { data, error } = await supabase
         .schema('core')
-        .rpc('cms_get_states', { country_name: country })
+        .rpc('cms_get_states', { 
+          country_name: country,
+          p_category: category || null 
+        })
       
       if (error) {
         throw new Error(`RPC error: ${error.message}`)
@@ -173,11 +177,10 @@ class LocationService {
       const states = (data || []).map((state: any) => ({
         value: state.value || state.label,
         label: state.label || state.value,
-        cityCount: 0, // Not available in this RPC
+        cityCount: 0,
         totalPOIs: state.count || 0
       }))
-      
-      // Update cache
+
       this.cache.states[cacheKey] = { data: states, timestamp: startTime }
       
       return {
@@ -186,7 +189,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: { country }
+          filters: { country, category }
         }
       }
       
@@ -198,7 +201,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: { country }
+          filters: { country, category }
         }
       }
     }
@@ -207,12 +210,11 @@ class LocationService {
   /**
    * Get cities for a specific country and optional state
    */
-  static async getCities(country: string, state?: string): Promise<LocationResult<City>> {
+  static async getCities(country: string, state?: string, category?: string): Promise<LocationResult<City>> {
     const startTime = Date.now()
-    const cacheKey = `${country.toLowerCase()}_${state?.toLowerCase() || 'all'}`
+    const cacheKey = `${country.toLowerCase()}_${state?.toLowerCase() || 'all'}_${category || 'all'}`
     
     try {
-      // Check cache first
       if (this.cache.cities[cacheKey] && this.isCacheValid(this.cache.cities[cacheKey])) {
         return {
           success: true,
@@ -220,21 +222,22 @@ class LocationService {
           metadata: {
             source: 'cache',
             timestamp: startTime,
-            filters: { country, state }
+            filters: { country, state, category }
           }
         }
       }
-      
-      console.log(`🏙️ Loading cities for ${country}${state ? `, ${state}` : ''} from RPC...`)
+
+      console.log(`🏙️ Loading cities for ${country}${state ? `, ${state}` : ''} from RPC (category: ${category || 'all'})...`)
       
       // Use RPC for optimized performance
-      const supabase = getSupabase('server')
+      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
       const { data, error } = await supabase
         .schema('core')
         .rpc('cms_get_cities', { 
           country_name: country, 
-          state_name: state || null 
+          state_name: state || null,
+          p_category: category || null
         })
       
       if (error) {
@@ -243,11 +246,10 @@ class LocationService {
       
       const cities = (data || []).map((city: any) => ({
         name: city.value || city.label,
-        cityCount: 0, // Not available in this RPC
+        cityCount: 0,
         totalPOIs: city.count || 0
       }))
-      
-      // Update cache
+
       this.cache.cities[cacheKey] = { data: cities, timestamp: startTime }
       
       return {
@@ -256,7 +258,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: { country, state }
+          filters: { country, state, category }
         }
       }
       
@@ -268,7 +270,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: { country, state }
+          filters: { country, state, category }
         }
       }
     }
@@ -338,9 +340,9 @@ class LocationService {
  * Convenience functions for common use cases
  */
 export const locationService = {
-  countries: () => LocationService.getCountries(),
-  states: (country: string) => LocationService.getStates(country),
-  cities: (country: string, state?: string) => LocationService.getCities(country, state),
+  countries: (category?: string) => LocationService.getCountries(category),
+  states: (country: string, category?: string) => LocationService.getStates(country, category),
+  cities: (country: string, state?: string, category?: string) => LocationService.getCities(country, state, category),
   clearCache: (type?: 'countries' | 'states' | 'cities', key?: string) => 
     LocationService.clearCache(type, key),
   getCacheStats: () => LocationService.getCacheStats()

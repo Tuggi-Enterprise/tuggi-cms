@@ -26,19 +26,19 @@ export interface UseLocationDataReturn {
   countries: Country[]
   countriesLoading: boolean
   countriesError: string | null
-  loadCountries: () => Promise<void>
+  loadCountries: (category?: string) => Promise<void>
   
   // States
   states: State[]
   statesLoading: boolean
   statesError: string | null
-  loadStates: (country: string) => Promise<void>
+  loadStates: (country: string, category?: string) => Promise<void>
   
   // Cities
   cities: City[]
   citiesLoading: boolean
   citiesError: string | null
-  loadCities: (country: string, state?: string) => Promise<void>
+  loadCities: (country: string, state?: string, category?: string) => Promise<void>
   
   // Cache management
   clearCache: () => void
@@ -71,12 +71,12 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
   const [citiesError, setCitiesError] = useState<string | null>(null)
   
   // Load countries
-  const loadCountries = useCallback(async () => {
+  const loadCountries = useCallback(async (category?: string) => {
     setCountriesLoading(true)
     setCountriesError(null)
     
     try {
-      const result = await locationService.countries()
+      const result = await locationService.countries(category)
       
       if (result.success && result.data) {
         setCountries(result.data)
@@ -95,7 +95,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
   }, [onError])
   
   // Load states for a country
-  const loadStates = useCallback(async (country: string) => {
+  const loadStates = useCallback(async (country: string, category?: string) => {
     if (!country) {
       setStates([])
       return
@@ -105,7 +105,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
     setStatesError(null)
     
     try {
-      const result = await locationService.states(country)
+      const result = await locationService.states(country, category)
       
       if (result.success && result.data) {
         setStates(result.data)
@@ -124,7 +124,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
   }, [onError])
   
   // Load cities for a country and optional state
-  const loadCities = useCallback(async (country: string, state?: string) => {
+  const loadCities = useCallback(async (country: string, state?: string, category?: string) => {
     if (!country) {
       setCities([])
       return
@@ -134,7 +134,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
     setCitiesError(null)
     
     try {
-      const result = await locationService.cities(country, state)
+      const result = await locationService.cities(country, state, category)
       
       if (result.success && result.data) {
         setCities(result.data)
