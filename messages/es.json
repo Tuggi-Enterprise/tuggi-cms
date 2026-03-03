@@ -1051,7 +1051,7 @@
     "defineArea": "Definir un área poligonal interactiva",
     "generalConfig": "Configuración General",
     "triggerBoundary": "Área de Disparo",
-    "alertMessage": "Mensaje de Alerta",
+    "alertMessage": "Locución (Audio/Mensaje)",
     "nameRequired": "El nombre es obligatorio",
     "commercialName": "Nombre Comercial",
     "namePlaceholder": "Ej. Puerta del Aeropuerto NY",

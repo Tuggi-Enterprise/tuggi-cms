@@ -1056,7 +1056,7 @@
     "defineArea": "Defina uma área poligonal interativa",
     "generalConfig": "Configuração Geral",
     "triggerBoundary": "Área de Gatilho",
-    "alertMessage": "Mensagem de Alerta",
+    "alertMessage": "Locução (Áudio/Mensagem)",
     "nameRequired": "O nome é obrigatório",
     "commercialName": "Nome Comercial",
     "namePlaceholder": "Ex. Portão do Aeroporto RJ",

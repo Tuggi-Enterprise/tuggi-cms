@@ -1056,7 +1056,7 @@
     "defineArea": "Define an interactive polygonal area",
     "generalConfig": "General Config",
     "triggerBoundary": "Trigger Boundary",
-    "alertMessage": "Alert Message",
+    "alertMessage": "Narration (Audio/Message)",
     "nameRequired": "Name is required",
     "commercialName": "Commercial Name",
     "namePlaceholder": "E.g. NY Airport Gate",
