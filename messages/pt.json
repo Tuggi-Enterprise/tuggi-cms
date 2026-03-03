@@ -86,7 +86,8 @@
     "logout": "Sair",
     "toggle_theme": "Alternar tema",
     "notifications": "Notificações",
-    "admin": "Admin"
+    "admin": "Admin",
+    "geofences": "Geofences"
   },
   "Pages": {
     "Login": {
@@ -1032,5 +1033,52 @@
       "client_required": "Por favor, selecione um cliente",
       "points_required": "Adicione pelo menos 2 pontos para gerar a rota"
     }
+  },
+  "Geofences": {
+    "title": "Geofences",
+    "locationFilters": "Filtros de Localização",
+    "country": "País",
+    "state": "Estado",
+    "city": "Cidade",
+    "status": "Status",
+    "statusAll": "Todos",
+    "statusApproved": "Aprovado",
+    "statusPending": "Pendente",
+    "totalGeofences": "Total de Geofences",
+    "newGeofence": "Nova Geofence",
+    "nameAndLocation": "Nome e Localização",
+    "owner": "Proprietário",
+    "actions": "Ações",
+    "noGeofences": "Nenhuma Geofence encontrada. Adicione a sua primeira para testar.",
+    "active": "Ativo",
+    "system": "Sistema",
+    "editGeofence": "Editar Geofence: ",
+    "defineArea": "Defina uma área poligonal interativa",
+    "generalConfig": "Configuração Geral",
+    "triggerBoundary": "Área de Gatilho",
+    "alertMessage": "Mensagem de Alerta",
+    "nameRequired": "O nome é obrigatório",
+    "commercialName": "Nome Comercial",
+    "namePlaceholder": "Ex. Portão do Aeroporto RJ",
+    "businessRules": "Regras de Negócio",
+    "triggerBehavior": "Comportamento de Gatilho",
+    "enterOnly": "APENAS ENTRADA (dispara ao cruzar a fronteira para dentro)",
+    "insideOnly": "APENAS DENTRO (dispara se o app for aberto dentro da área)",
+    "bothBehavior": "AMBOS (ENTRADA e DENTRO)",
+    "ownerClient": "Proprietário / Cliente",
+    "noOwner": "-- Sem Proprietário --",
+    "ownerTied": "Isso está vinculado à sua conta e não pode ser alterado.",
+    "drawPolygonalArea": "Desenhe a área poligonal. O aplicativo será acionado com base nessa área.",
+    "disableDrawing": "Desativar Desenho",
+    "drawBoundary": "Desenhar Área",
+    "messageText": "Texto da Mensagem",
+    "messagePlaceholder": "Bem-vindo ao aeroporto! Dirija com segurança...",
+    "saveBeforeAudio": "Salve as alterações antes de gerar o áudio.",
+    "generatingAudio": "Gerando Áudio com IA e Traduções...",
+    "generateAudio": "Gerar Áudio com IA",
+    "currentAudioPreview": "Prévia do Áudio Atual",
+    "cancel": "Cancelar",
+    "saving": "Salvando...",
+    "saveGeofence": "Salvar Geofence"
   }
 }

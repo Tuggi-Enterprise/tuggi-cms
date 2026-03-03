@@ -59,6 +59,12 @@ const navigation = [
     category: 'poi'
   },
   {
+    name: 'Geofences',
+    href: '/geofences',
+    icon: MapPin,
+    category: 'poi'
+  },
+  {
     name: 'OSM Importer',
     href: '/osm-importer',
     icon: Database,
@@ -161,6 +167,12 @@ export function Header({ className }: HeaderProps) {
       name: t('custom_routes'),
       href: '/routes',
       icon: Route,
+      category: 'pois',
+    },
+    {
+      name: t('geofences'),
+      href: '/geofences',
+      icon: MapPin, // or Target/Activity etc.
       category: 'pois',
     },
 
