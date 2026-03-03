@@ -206,7 +206,8 @@ class POIService {
         is_active_filter: filters.isActiveFilter || 'all',
         limit_count: filters.fetch_all ? 0 : (filters.limit || 1000),
         offset_count: filters.fetch_all ? 0 : ((filters.page || 1) - 1) * (filters.limit || 1000),
-        fetch_all: filters.fetch_all || false
+        fetch_all: filters.fetch_all || false,
+        p_owner_id: (filters as any).ownerId || null
       }
       
       console.log('🔍 RPC Parameters:', rpcParams)
@@ -305,19 +306,17 @@ class POIService {
         const pois = data.map((row: any) => ({
             id: row.id,
             name: row.name,
-          city: row.city,
-          state: row.state,
-          country: row.country,
-          google_place_id: row.google_place_id,
-          google_types: row.google_types,
-          category: row.category,
-          rating: row.rating,
-          image_url: row.image_url,
-          approved: row.approved,
-          is_active: row.is_active ?? true,
-          created_at: row.created_at,
-          updated_at: row.updated_at,
+            city: row.city,
+            state: row.state,
+            country: row.country,
+            category: row.category,
+            approved: row.approved,
+            is_active: row.is_active ?? true,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
           user_id: row.user_id,
+          owner_id: row.owner_id,
+          created_by: row.created_by,
           business_status: row.business_status,
           formatted_phone_number: row.formatted_phone_number,
           coordinates: row.latitude && row.longitude ? {
@@ -802,50 +801,41 @@ class POIService {
       city: data.city,
       country: data.country,
       state: data.state,
-      category: data.google_types?.[0] || 'point_of_interest',
+      category: data.category || 'point_of_interest',
       approved: data.approved,
       is_active: data.is_active ?? true,
       approved_by: data.approved_by,
       approved_at: data.approved_at,
-      rating: data.rating,
-      image_url: data.image_url,
+      rating: 0,
       created_at: data.created_at,
       updated_at: data.updated_at,
-      user_ratings_total: data.user_ratings_total,
       formatted_address: data.address,
       vicinity: data.vicinity,
       website: data.website,
       formatted_phone_number: data.formatted_phone_number,
       business_status: data.business_status,
-      price_level: data.price_level,
-      opening_hours: data.opening_hours,
-      google_types: data.google_types,
-      photos_references: data.photos_references,
-      google_place_id: data.google_place_id,
       user_id: data.user_id,
-      coordinates: data.coordinates?.latitude && data.coordinates?.longitude ? {
-        latitude: data.coordinates.latitude,
-        longitude: data.coordinates.longitude
+      owner_id: data.owner_id,
+      created_by: data.created_by,
+      coordinates: data.latitude && data.longitude ? {
+        latitude: data.latitude,
+        longitude: data.longitude
       } : undefined,
-      has_description: (data.attraction_descriptions?.length || 0) > 0,
-      has_audio: false, // TODO: Implement audio detection
-      description_count: data.attraction_descriptions?.length || 0,
-      audio_count: 0, // TODO: Implement audio count
-      available_languages: data.attraction_descriptions?.map((d: any) => d.language) || [],
-      trigger_points_count: data.attraction_trigger_points?.length || 0,
-      active_trigger_points_count: data.attraction_trigger_points?.filter((tp: any) => tp.is_active)?.length || 0,
-      reference_links: [],
-      descriptions: data.attraction_descriptions,
-      group_status: data.attraction_group_members?.[0] ? {
+      has_description: (data.descriptions?.length || 0) > 0,
+      has_audio: (data.descriptions?.filter((d: any) => d.audio_url)?.length || 0) > 0,
+      description_count: data.descriptions?.length || 0,
+      audio_count: data.descriptions?.filter((d: any) => d.audio_url)?.length || 0,
+      available_languages: data.descriptions?.map((d: any) => d.language) || [],
+      trigger_points_count: data.trigger_points?.length || 0,
+      active_trigger_points_count: data.trigger_points?.filter((tp: any) => tp.is_active)?.length || 0,
+      descriptions: data.descriptions,
+      group_status: data.group_membership?.[0] ? {
         is_in_group: true,
-        group_id: data.attraction_group_members[0].attraction_groups?.id,
-        group_name: data.attraction_group_members[0].attraction_groups?.name,
-        group_role: data.attraction_group_members[0].group_role || 'main',
-        group_member_count: data.attraction_group_members.length
+        group_id: data.group_membership[0].group_id,
+        group_name: data.group_membership[0].group_name,
+        group_role: data.group_membership[0].group_role || 'main',
+        group_member_count: data.group_membership.length
       } : undefined,
-      verification_score: data.verification_score,
-      processing_status: data.processing_status,
-      last_processed: data.last_processed,
       has_boundary: data.has_boundary,
       boundary_source: data.boundary_source
     }

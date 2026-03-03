@@ -70,8 +70,18 @@ export function GeofenceModal({
 
   useEffect(() => {
     if (isOpen) {
+      if (poi) {
+        setName(poi.name || '')
+        setCountry(poi.country || '')
+        setState(poi.state || '')
+        setCity(poi.city || '')
+        setBehavior(poi.business_status || 'ENTER_ONLY')
+        setOwnerId(poi.owner_id || '')
+        setPoiId(poi.id || null)
+      }
+      
       fetchClients()
-      if (poiId) {
+      if (poiId || poi?.id) {
         fetchDescriptionData()
         fetchBoundary()
       }
@@ -85,7 +95,7 @@ export function GeofenceModal({
         setCurrentMapCenter({ lat: -23.5505, lng: -46.6333 })
       }
     }
-  }, [isOpen, poiId, poi, userLocation])
+  }, [isOpen, poi])
 
   const handleCenterOnUser = async () => {
     let location = userLocation
@@ -95,6 +105,7 @@ export function GeofenceModal({
     }
 
     if (location) {
+      console.log('📍 [GeofenceModal] Centering on location:', location)
       setCurrentMapCenter({ 
         lat: location.lat, 
         lng: location.lng,
@@ -108,6 +119,18 @@ export function GeofenceModal({
     }
   }
 
+  const handlePolygonChange = (polygon: google.maps.Polygon | null) => {
+    console.log('📍 [GeofenceModal] handlePolygonChange called:', !!polygon)
+    if (!polygon) {
+      setBoundaryPolygon(null)
+      setExistingBoundary(null)
+      return
+    }
+    const coords = extractPolygonCoordinates(polygon)
+    setBoundaryPolygon(coords)
+    setExistingBoundary(coords) // Ensure it persists when switching tabs
+  }
+
   const fetchClients = async () => {
     const { data } = await supabase
       .schema('core')
@@ -116,25 +139,36 @@ export function GeofenceModal({
       .eq('status', 'approved')
     if (data) {
       setClients(data)
-      if (isCreateMode && data.length > 0 && !isAdmin) {
-        // Auto-select for non-admins if only one client is available in their scope
-        setOwnerId(data[0].id)
-      } else if (!isCreateMode && poi?.owner_id) {
+      // Robust owner auto-selection:
+      // 1. If we already have a selected ownerId, keep it.
+      // 2. If it's empty, and the POI has one, use it.
+      // 3. If it's empty, we're not admin, and there's only one client, auto-select it.
+      if (!ownerId && poi?.owner_id) {
         setOwnerId(poi.owner_id)
+      } else if (!ownerId && data.length > 0 && !isAdmin) {
+        setOwnerId(data[0].id)
       }
     }
   }
 
   const fetchBoundary = async () => {
     if (!poiId) return
+    console.log(`🔍 [GeofenceModal] fetchBoundary: Fetching for poiId: ${poiId}`)
     try {
        const res = await fetch(`/api/pois/update-boundary`, {
          method: 'POST',
          body: JSON.stringify({ poi_id: poiId, get_only: true })
        })
        const data = await res.json()
-       if(data.boundary) setExistingBoundary(data.boundary)
-    } catch(e) {}
+       console.log(`📥 [GeofenceModal] fetchBoundary Response:`, data)
+       if(data.boundary) {
+         setExistingBoundary(data.boundary)
+         // Sync boundaryPolygon if it's not already set
+         if (!boundaryPolygon) setBoundaryPolygon(data.boundary)
+       }
+    } catch(e) {
+      console.error('📍 [GeofenceModal] Error fetching boundary:', e)
+    }
   }
 
   const fetchDescriptionData = async () => {
@@ -162,6 +196,14 @@ export function GeofenceModal({
   }
 
   const saveGeofenceData = async () => {
+    console.log('💾 [GeofenceModal] saveGeofenceData called', {
+      name,
+      hasBoundary: !!boundaryPolygon,
+      boundaryCount: boundaryPolygon?.length,
+      poiId,
+      ownerId
+    })
+
     if (!name.trim()) {
       setErrorMsg(t('nameRequired'))
       setActiveTab('config')
@@ -192,6 +234,7 @@ export function GeofenceModal({
 
       const targetId = poiId
       const endpoint = targetId ? `/api/pois/geofences/update?id=${targetId}` : '/api/pois/geofences/create'
+      console.log(`🌐 [GeofenceModal] Sending request to ${endpoint} with payload:`, JSON.stringify(payload, null, 2))
       
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -200,6 +243,7 @@ export function GeofenceModal({
       })
       
       const resData = await res.json()
+      console.log('📥 [GeofenceModal] Response from server:', resData)
       if (!res.ok) throw new Error(resData.error || 'Failed to save')
       
       const newId = resData.data?.id || targetId
@@ -222,14 +266,7 @@ export function GeofenceModal({
     }
   }
 
-  const handlePolygonChange = (polygon: google.maps.Polygon | null) => {
-    if (!polygon) {
-      setBoundaryPolygon(null)
-      return
-    }
-    const coords = extractPolygonCoordinates(polygon)
-    setBoundaryPolygon(coords)
-  }
+
 
   const regenerateAllAudios = async () => {
     if (!description.trim()) {

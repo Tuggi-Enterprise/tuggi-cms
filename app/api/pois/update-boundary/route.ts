@@ -118,18 +118,63 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabase('service')
 
     const body = await request.json()
-    const { attractionId, coordinates } = body
+    const { attractionId: attrId, poi_id, coordinates, get_only } = body
+
+    // Support both parameter names
+    const attractionId = attrId || poi_id
 
     console.log(`📥 Received request body:`, {
       attractionId,
+      poi_id,
+      get_only,
       coordinates_count: coordinates?.length,
-      coordinates_sample: coordinates?.slice(0, 3),
-      full_coordinates: coordinates
     })
 
-    if (!attractionId || !coordinates || !Array.isArray(coordinates) || coordinates.length < 3) {
+    if (!attractionId) {
+      return NextResponse.json({ error: 'attractionId or poi_id is required' }, { status: 400 })
+    }
+
+    // Handle GET ONLY mode
+    if (get_only) {
+      console.log(`🔍 Fetching existing boundary for POI: ${attractionId}`)
+      
+      // Use RPC function to get boundary as GeoJSON string safely
+      const { data, error } = await supabase
+        .schema('core')
+        .rpc('get_boundary_geometry', { p_attraction_id: attractionId })
+
+      if (error) {
+        console.error('Error fetching boundary via RPC:', error)
+        return NextResponse.json({ error: 'Failed to fetch boundary' }, { status: 500 })
+      }
+
+      if (!data) {
+        return NextResponse.json({ boundary: null })
+      }
+
+      // Transform GeoJSON to coordinate array
+      try {
+        const geojson = typeof data === 'string' ? JSON.parse(data) : data
+        
+        if (geojson.type === 'Polygon' && geojson.coordinates?.[0]) {
+          const coords = geojson.coordinates[0].map((c: [number, number]) => ({
+            lat: c[1],
+            lng: c[0]
+          }))
+          // Remove the closing point (which is same as first point in GeoJSON)
+          if (coords.length > 1) coords.pop()
+          
+          return NextResponse.json({ boundary: coords })
+        }
+      } catch (e) {
+        console.error('Error parsing boundary geometry from RPC:', e)
+      }
+
+      return NextResponse.json({ boundary: null })
+    }
+
+    if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 3) {
       console.error('❌ Validation failed:', {
-        has_attractionId: !!attractionId,
         has_coordinates: !!coordinates,
         is_array: Array.isArray(coordinates),
         length: coordinates?.length

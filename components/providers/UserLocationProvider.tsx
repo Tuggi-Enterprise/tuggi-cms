@@ -96,9 +96,8 @@ export function UserLocationProvider({ children }: { children: React.ReactNode }
       }
     }
 
-    // Don't auto-request on mount to avoid blocking UI or browsers ignoring it
-    // We only rely on saved or explicit requestLocation() from components
-    setIsLoading(false)
+    // Attempt to get fresh location
+    requestLocation()
   }, [])
 
   return (

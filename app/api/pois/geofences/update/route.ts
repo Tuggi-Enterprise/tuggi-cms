@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
+import { calculatePolygonArea, calculatePolygonCenter } from '@/lib/utils/geometry'
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,21 +20,51 @@ export async function POST(request: NextRequest) {
     if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 })
 
     const body = await request.json()
+    console.log(`📥 [GEOFENCE UPDATE] ID: ${id}, Body:`, JSON.stringify(body, null, 2))
     const { name, country, state, city, owner_id, business_status, description, boundary } = body
 
-    if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    if (!name) {
+      return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+    }
 
-    // 1. Update Attraction
+    // 1. Get CMS User ID (Single Source of Truth for created_by)
+    const { data: cmsUser, error: cmsError } = await supabase
+      .schema('core')
+      .from('cms_users')
+      .select('id')
+      .eq('email', session.user.email)
+      .single()
+
+    if (cmsError || !cmsUser) {
+      console.error('❌ [GEOFENCE UPDATE] CMS User not found:', cmsError)
+      return NextResponse.json({ error: 'CMS User not found' }, { status: 403 })
+    }
+
+    // 2. Prepare Attraction Update
     const updatePayload: any = {
       name,
       city,
       state,
       country,
-      business_status // Trigger Behavior stored here
+      business_status, // Trigger Behavior
+      updated_at: new Date().toISOString(),
+      owner_id: owner_id || null, // Directly assign owner_id
+      created_by: cmsUser.id // Always ensure created_by is set
     }
 
-    if (owner_id !== undefined) updatePayload.owner_id = owner_id || null
+    let boundaryData: any = null
+    if (boundary && boundary.length >= 3) {
+      const { lat, lng } = calculatePolygonCenter(boundary)
+      const area = calculatePolygonArea(boundary)
+      
+      updatePayload.boundary_area_m2 = area
+      updatePayload.boundary_source = 'manual_drawing'
+      updatePayload.boundary_confidence = 1.0
 
+      boundaryData = { lat, lng, area }
+    }
+
+    console.log('🔄 [GEOFENCE UPDATE] Updating attraction with payload:', JSON.stringify(updatePayload, null, 2))
     const { error: poiError } = await supabase
       .schema('core')
       .from('attractions')
@@ -41,35 +72,46 @@ export async function POST(request: NextRequest) {
       .eq('id', id)
 
     if (poiError) {
-      console.error(poiError)
+      console.error('❌ [GEOFENCE UPDATE] Error updating attraction:', poiError.message, poiError)
       return NextResponse.json({ error: 'Failed to update Geofence' }, { status: 500 })
     }
+    console.log('✅ [GEOFENCE UPDATE] Attraction updated successfully.')
 
     // 2. Update Coordinate/Boundary if provided
-    if (boundary && boundary.length >= 3) {
-      const lat = boundary.reduce((sum: number, p: any) => sum + p.lat, 0) / boundary.length
-      const lng = boundary.reduce((sum: number, p: any) => sum + p.lng, 0) / boundary.length
+    if (boundaryData && boundary) {
+      const { lat, lng, area } = boundaryData
 
-      const geoJson = {
+      const geoJsonString = JSON.stringify({
         type: 'Polygon',
         coordinates: [[
           ...boundary.map((p: any) => [p.lng, p.lat]),
           [boundary[0].lng, boundary[0].lat]
         ]]
+      })
+
+      const rpcParams = {
+        p_attraction_id: id,
+        p_latitude: lat,
+        p_longitude: lng,
+        p_boundary_geometry_geojson: geoJsonString,
+        p_boundary_type: 'polygon',
+        p_boundary_source: 'manual_drawing',
+        p_boundary_confidence: 1.0,
+        p_boundary_area_m2: area,
+        p_boundary_centroid_lat: lat,
+        p_boundary_centroid_lng: lng,
+        p_show_in_map: true
       }
 
-      await supabase
+      const { error: rpcError } = await supabase
         .schema('core')
-        .rpc('update_boundary_geometry', {
-          p_attraction_id: id,
-          p_geojson: JSON.stringify(geoJson),
-          p_boundary_type: 'manual',
-          p_boundary_source: 'manual_drawing',
-          p_boundary_confidence: 1.0,
-          p_boundary_area_m2: 0,
-          p_boundary_centroid_lat: lat,
-          p_boundary_centroid_lng: lng
-        })
+        .rpc('insert_coordinate_safe', rpcParams)
+      
+      if (rpcError) {
+        console.error('❌ [GEOFENCE UPDATE] Error saving boundary via RPC:', rpcError.message, rpcError)
+      } else {
+        console.log('✅ [GEOFENCE UPDATE] insert_coordinate_safe successful')
+      }
     }
 
     // 3. Update Description

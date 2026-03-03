@@ -560,22 +560,51 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   }, [cityBoundary, cityName])
 
   const updateDrawingMode = useCallback(() => {
-    if (!drawingManagerRef.current || !drawingButtonRef.current) return
+    if (!drawingManagerRef.current) return
 
-    console.log('Drawing mode updated:', enableDrawing ? 'ENABLED' : 'DISABLED')
+    const drawingManager = drawingManagerRef.current
+    const instanceId = (drawingManager as any).__instanceId
+    const button = (drawingManager as any).__controlButton
+
+    console.log(`🗺️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] updateDrawingMode:`, {
+      enableDrawing,
+      instanceId,
+      hasButton: !!button
+    })
 
     if (enableDrawing) {
       // Enable drawing mode
-      drawingManagerRef.current.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
-      drawingButtonRef.current.innerHTML = '⏹️ Stop Drawing'
-      drawingButtonRef.current.style.backgroundColor = '#FF6F00'
+      drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
+      if (button) {
+        button.innerHTML = '⏹️ Stop Drawing'
+        button.style.backgroundColor = '#FF6F00'
+      }
+
+      // REGISTER in global registry if not already there
+      if (instanceId && !activeDrawingComponentRegistry.has(instanceId) && mapInstanceRef.current) {
+        activeDrawingComponentRegistry.set(instanceId, {
+          componentId: componentId || 'unknown',
+          drawingManager: drawingManager,
+          map: mapInstanceRef.current,
+          callback: onPolygonCompleteRef.current
+        })
+        console.log(`🟢 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Registered via prop update`)
+      }
     } else {
       // Disable drawing mode
-      drawingManagerRef.current.setDrawingMode(null)
-      drawingButtonRef.current.innerHTML = '🔸 Draw Polygon'
-      drawingButtonRef.current.style.backgroundColor = '#00A8E8'
+      drawingManager.setDrawingMode(null)
+      if (button) {
+        button.innerHTML = '🔸 Draw Polygon'
+        button.style.backgroundColor = '#00A8E8'
+      }
+
+      // UNREGISTER if it was drawing
+      if (instanceId && activeDrawingComponentRegistry.has(instanceId)) {
+        activeDrawingComponentRegistry.delete(instanceId)
+        console.log(`🔴 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Unregistered via prop update`)
+      }
     }
-  }, [enableDrawing])
+  }, [enableDrawing, componentId])
 
   const updateCircle = useCallback(() => {
     if (!mapInstanceRef.current) return
