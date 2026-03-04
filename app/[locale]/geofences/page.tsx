@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
-  MapPin, Search, Filter, Plus, List, Trash2, Edit, RotateCcw
+  MapPin, Search, Filter, Plus, List, Trash2, Edit, RotateCcw, Grid, Eye, FileText, Volume2, Map
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -45,6 +45,7 @@ export default function GeofencesPage() {
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isCreateMode, setIsCreateMode] = useState(false)
+  const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
   
   const { role: cmsUserRole, isViewer, isAdmin, canEdit } = useCmsUser()
 
@@ -277,6 +278,45 @@ export default function GeofencesPage() {
               </div>
               
               <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1 p-1 bg-gray-50/50 dark:bg-gray-950/50 rounded-2xl border border-gray-100 dark:border-gray-800 mr-4">
+                  <button
+                    onClick={() => setViewMode('cards')}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300",
+                      viewMode === 'cards' 
+                        ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-md shadow-black/5" 
+                        : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    )}
+                  >
+                    <Grid className="h-3.5 w-3.5" />
+                    {tPOI('controls.view_cards')}
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300",
+                      viewMode === 'list' 
+                        ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-md shadow-black/5" 
+                        : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    )}
+                  >
+                    <List className="h-3.5 w-3.5" />
+                    {tPOI('controls.view_list')}
+                  </button>
+                  {/* <button
+                    onClick={() => setViewMode('map')}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300",
+                      viewMode === 'map' 
+                        ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-md shadow-black/5" 
+                        : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                    )}
+                  >
+                    <Map className="h-3.5 w-3.5" />
+                    {tPOI('controls.view_map')}
+                  </button> */}
+                </div>
+
                 {canEdit && (
                   <button
                     onClick={handleCreateNew}
@@ -290,87 +330,176 @@ export default function GeofencesPage() {
             </div>
           </div>
 
-          {/* List View */}
-          <div className="bg-white/50 dark:bg-gray-900/50 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 shadow-xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
-                <thead className="bg-gray-50 dark:bg-gray-900">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      {t('nameAndLocation')}
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      {t('status')}
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      {t('owner')}
-                    </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      {t('actions')}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-800">
-                  {isLoading ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
-                        {tPOI('list.loading')}
-                      </td>
-                    </tr>
-                  ) : pois.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
-                        {t('noGeofences')}
-                      </td>
-                    </tr>
-                  ) : (
-                    pois.map((poi) => (
-                      <tr key={poi.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-semibold text-gray-900 dark:text-white">
-                              {poi.name}
-                            </span>
-                            <span className="text-xs text-gray-500">
-                              {[poi.city, poi.state, poi.country].filter(Boolean).join(', ')}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+          {/* Content Area */}
+          <div className="flex-1">
+            {isLoading ? (
+              <div className="h-96 flex flex-col items-center justify-center bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm rounded-3xl border border-gray-200 dark:border-gray-800">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue"></div>
+                <p className="mt-4 text-gray-500 font-semibold dark:text-gray-400 uppercase tracking-widest text-xs">{tPOI('list.loading')}</p>
+              </div>
+            ) : pois.length === 0 ? (
+              <div className="h-96 flex flex-col items-center justify-center bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm rounded-3xl border border-gray-200 dark:border-gray-800">
+                <div className="p-4 bg-gray-100 dark:bg-gray-800 rounded-2xl mb-4">
+                  <MapPin className="h-10 w-10 text-gray-400" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 tracking-tight">{t('noGeofences')}</h3>
+              </div>
+            ) : viewMode === 'map' ? (
+              <div className="h-96 flex flex-col items-center justify-center bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm rounded-3xl border border-gray-200 dark:border-gray-800">
+                <Map className="h-10 w-10 text-gray-400 mb-4" />
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 tracking-tight">Map View coming soon</h3>
+                <p className="text-gray-500">We are working on bringing map visualization to Geofences.</p>
+              </div>
+            ) : (
+              <div className={cn(
+                "transition-all duration-500",
+                viewMode === 'cards' 
+                  ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6" 
+                  : "bg-white/50 dark:bg-gray-900/50 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 shadow-xl overflow-hidden"
+              )}>
+                {viewMode === 'list' ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800">
+                      <thead className="bg-gray-50 dark:bg-gray-900">
+                        <tr>
+                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {t('nameAndLocation')}
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {t('status')}
+                          </th>
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {t('actions')}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-800">
+                        {pois.map((poi) => (
+                          <tr key={poi.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer" onClick={() => handleSelectPoi(poi)}>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <div className="flex flex-col">
+                                <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                                  {poi.name}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {[poi.city, poi.state, poi.country].filter(Boolean).join(', ')}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap">
+                              <span className={cn(
+                                "px-2.5 py-1 text-xs font-medium rounded-full border",
+                                poi.approved
+                                  ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800"
+                                  : "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800"
+                              )}>
+                                {poi.approved ? t('active') : t('statusPending')}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleSelectPoi(poi); }}
+                                className="text-tuggi-blue hover:text-blue-800 mr-4"
+                              >
+                                <Edit className="h-4 w-4 inline" />
+                              </button>
+                              {canEdit && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeletePoi(poi.id); }}
+                                  className="text-red-600 hover:text-red-900"
+                                >
+                                  <Trash2 className="h-4 w-4 inline" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  pois.map((poi) => (
+                    <div
+                      key={poi.id}
+                      className="group transition-all duration-300 cursor-pointer overflow-hidden relative bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border border-gray-200/60 dark:border-gray-800/60 rounded-[1.5rem] hover:shadow-2xl hover:shadow-tuggi-blue/5 hover:-translate-y-1 hover:border-tuggi-blue/30 p-5"
+                      onClick={() => handleSelectPoi(poi)}
+                    >
+                      {/* Premium Status Light */}
+                      <div className={cn(
+                        "absolute top-0 left-0 w-full h-1 opacity-80",
+                        poi.approved 
+                          ? "bg-gradient-to-r from-green-400 to-emerald-500" 
+                          : "bg-gradient-to-r from-yellow-400 to-amber-500"
+                      )} />
+
+                      <div className="flex flex-col h-full">
+                        <div className="flex items-center justify-between mb-4">
+                          <span className="text-[10px] font-bold text-tuggi-blue uppercase tracking-widest px-2.5 py-1 bg-tuggi-blue/5 rounded-full border border-tuggi-blue/10">
+                            Geofence
+                          </span>
                           <span className={cn(
-                            "px-2.5 py-1 text-xs font-medium rounded-full border",
-                            poi.approved
-                              ? "bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800"
-                              : "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800"
+                            "px-2 py-0.5 text-[10px] font-bold rounded-full uppercase tracking-tighter",
+                            poi.approved ? "text-green-500 bg-green-500/10" : "text-yellow-500 bg-yellow-500/10"
                           )}>
                             {poi.approved ? t('active') : t('statusPending')}
                           </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                           {(poi as any).created_by || poi.owner_id || t('system')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <button
-                            onClick={() => handleSelectPoi(poi)}
-                            className="text-tuggi-blue hover:text-blue-800 mr-4"
-                          >
-                            <Edit className="h-4 w-4 inline" />
-                          </button>
-                          {canEdit && (
-                            <button
-                              onClick={() => handleDeletePoi(poi.id)}
-                              className="text-red-600 hover:text-red-900"
-                            >
-                              <Trash2 className="h-4 w-4 inline" />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                        </div>
+
+                        <div className="h-[3.5rem] flex items-center mb-2">
+                          <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 line-clamp-2 group-hover:text-tuggi-blue transition-colors leading-tight w-full">
+                            {poi.name}
+                          </h3>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 font-medium mb-4">
+                          <MapPin className="h-3.5 w-3.5 text-tuggi-blue/60 flex-shrink-0" />
+                          <span className="truncate">{[poi.city, poi.state, poi.country].filter(Boolean).join(', ')}</span>
+                        </div>
+
+                        <div className="mt-auto pt-4 border-t border-gray-100/80 dark:border-gray-800/50 flex flex-col gap-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+
+                              <div 
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800/50 group-hover:border-orange-400/10 transition-colors"
+                                title="Descriptions"
+                              >
+                                <FileText className="h-3.5 w-3.5 text-orange-400" />
+                                <span className="text-xs font-bold text-gray-600 dark:text-gray-400 leading-none">{poi.description_count || 0}</span>
+                              </div>
+                              <div 
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800/50 group-hover:border-green-500/10 transition-colors"
+                                title="Audios"
+                              >
+                                <Volume2 className="h-3.5 w-3.5 text-green-500" />
+                                <span className="text-xs font-bold text-gray-600 dark:text-gray-400 leading-none">{poi.audio_count || 0}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleSelectPoi(poi); }}
+                                className="p-2 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/10 rounded-xl transition-all"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </button>
+                              {canEdit && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeletePoi(poi.id); }}
+                                  className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
