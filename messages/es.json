@@ -924,10 +924,16 @@
         "status": "Estado",
         "bearing": "Rumbo",
         "trigger": "Activador",
+        "trigger_point": "Punto de Activación",
+        "type": "Tipo",
         "not_set": "No definido",
         "trigger_points_with_count": "Puntos de Activación ({count})",
         "updating_poi_location": "Actualizando POI...",
-        "poi_location_updated": "POI Actualizado!"
+        "poi_location_updated": "POI Actualizado!",
+        "title": "Gestión de Puntos de Activación",
+        "all_types": "Todos los Tipos",
+        "show_all": "Mostrar Todo",
+        "no_triggers_found": "No se encontraron puntos de activación"
       },
       "actions": {
         "save": "Guardar",

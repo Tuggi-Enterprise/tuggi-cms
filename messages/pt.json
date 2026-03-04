@@ -928,11 +928,17 @@
         "direction": "Direção",
         "status": "Status",
         "bearing": "Azimute",
-        "trigger": "Gatilho",
+        "trigger": "Trigger Point",
+        "trigger_point": "Trigger Point",
+        "type": "Tipo",
         "not_set": "Não definido",
         "trigger_points_with_count": "Trigger Points ({count})",
         "updating_poi_location": "Atualizando POI...",
-        "poi_location_updated": "POI Atualizado!"
+        "poi_location_updated": "POI Atualizado!",
+        "title": "Gestão de Trigger Points",
+        "all_types": "Todos os Tipos",
+        "show_all": "Mostrar Tudo",
+        "no_triggers_found": "Nenhum trigger point encontrado"
       },
       "actions": {
         "save": "Salvar",

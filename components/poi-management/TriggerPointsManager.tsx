@@ -482,7 +482,7 @@ export function TriggerPointsManager({
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Trigger Points Management
+            {t('labels.title')}
           </h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
             {attractionName} • {triggerPoints.length} trigger points
@@ -617,7 +617,7 @@ export function TriggerPointsManager({
             <div className="p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 overflow-y-auto max-h-[60vh]">
               <div className="space-y-4">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">
-                  {isEditing ? 'Edit Trigger Point' : 'New Trigger Point'}
+                  {isEditing ? t('actions.save') : t('actions.create')} {t('labels.trigger')}
                 </h3>
   
                 {/* Lat/Lng hidden (state kept) */}
@@ -630,7 +630,7 @@ export function TriggerPointsManager({
                   {/* Type */}
                   <div>
                     <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Type
+                      {t('labels.type')}
                     </label>
                     <select
                       value={formData.type || 'primary'}
@@ -764,7 +764,7 @@ export function TriggerPointsManager({
                 onClick={() => setFilterType('all')}
                 className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
               >
-                Show All
+                {t('labels.show_all')}
               </button>
             </div>
 
@@ -773,10 +773,10 @@ export function TriggerPointsManager({
               onChange={(e) => setFilterType(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
             >
-              <option value="all">All Types</option>
+              <option value="all">{t('labels.all_types')}</option>
               {TRIGGER_POINT_TYPES.map(type => (
                 <option key={type.value} value={type.value}>
-                  {type.label}
+                  {t(`types.${type.value}`)}
                 </option>
               ))}
             </select>
@@ -792,7 +792,7 @@ export function TriggerPointsManager({
             ) : filteredTriggerPoints.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-32 text-gray-500 dark:text-gray-400">
                 <Target className="h-8 w-8 mb-2" />
-                <p className="text-sm">No trigger points found</p>
+                <p className="text-sm">{t('labels.no_triggers_found')}</p>
               </div>
             ) : (
               <div className="space-y-2 p-4">

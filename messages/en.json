@@ -928,11 +928,17 @@
         "direction": "Direction",
         "status": "Status",
         "bearing": "Bearing",
-        "trigger": "Trigger",
+        "trigger": "Trigger Point",
+        "trigger_point": "Trigger Point",
+        "type": "Type",
         "not_set": "Not set",
         "trigger_points_with_count": "Trigger Points ({count})",
         "updating_poi_location": "Updating POI...",
-        "poi_location_updated": "POI Updated!"
+        "poi_location_updated": "POI Updated!",
+        "title": "Trigger Points Management",
+        "all_types": "All Types",
+        "show_all": "Show All",
+        "no_triggers_found": "No trigger points found"
       },
       "actions": {
         "save": "Save",

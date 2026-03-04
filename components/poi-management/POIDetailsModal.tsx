@@ -2312,11 +2312,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen p-4">
-        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={onClose} />
-
-        <div className="relative bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all w-[80vw] h-[95vh] flex flex-col">
+    <div className="fixed inset-0 z-[100] flex justify-end bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-[85vw] bg-white dark:bg-gray-900 h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-300" onClick={(e) => e.stopPropagation()}>
           {/* Feedback Messages */}
           {showSuccessMessage && (
             <div className="bg-green-50 dark:bg-green-900/20 border-l-4 border-green-400 p-4">
@@ -2367,9 +2364,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               </div>
             </div>
           )}
-
-          {/* Header */}
-          <div className="bg-white dark:bg-gray-900 rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[90vh] max-h-[90vh] border border-gray-100 dark:border-gray-800 transition-all duration-500 ease-out scale-100">
             {/* Modal Header - Fixed */}
             <header className="px-8 py-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between bg-white/80 dark:bg-gray-900/80 backdrop-blur-md z-30">
               <div className="flex items-center gap-4">
@@ -4785,8 +4779,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                 )}
               </main>
             </div>
-          </div>
-        </div>
       </div>
     </div>
   )
