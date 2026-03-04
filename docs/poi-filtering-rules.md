@@ -7,11 +7,16 @@ filtragem de POIs (Points of Interest) para o sistema Tuggi. O objetivo é
 extrair apenas POIs com valor turístico real, removendo ruído como
 estabelecimentos comerciais genéricos, órgãos burocráticos e infraestrutura.
 
-## Arquivos Principais
+## Arquivos Principais (SSOT)
 
-- `scripts/filter-pbf-tourism.ts` - Script de produção para processar arquivos
-  PBF
-- `scripts/test-overpass.ts` - Script de teste usando a API Overpass
+- **`lib/shared/poi-filter.ts`** - **A FONTE ÚNICA DE VERDADE (SSOT)**. Contém
+  toda a lógica do "Elite Filter" e blocklists sincronizadas.
+- `scripts/refine-pbf-elite.ts` - Script principal para processamento de
+  arquivos PBF (consome o SSOT).
+- `lib/services/osm-importer-service.ts` - Serviço do CMS para importação manual
+  (consome o SSOT).
+- `supabase/functions/capture-pois/index.ts` - Edge Function para captura via
+  Overpass (consome o SSOT via `_shared/poi-filter.ts`).
 
 ---
 
