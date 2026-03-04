@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react'
  */
 export function useCmsUser() {
   const [role, setRole] = useState<string | null>(null)
+  const [clientId, setClientId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -19,6 +20,7 @@ export function useCmsUser() {
         if (res.ok) {
           const data = await res.json()
           setRole(data.user?.role || null)
+          setClientId(data.user?.clientId || null)
         }
       } catch (err) {
         console.error('useCmsUser: failed to fetch role', err)
@@ -34,5 +36,5 @@ export function useCmsUser() {
   const isAdmin = role === 'admin' || role === 'super_admin'
   const canEdit = !!role && !isViewer
 
-  return { role, isViewer, isClient, isAdmin, canEdit, isLoading }
+  return { role, isViewer, isClient, isAdmin, canEdit, isLoading, clientId }
 }

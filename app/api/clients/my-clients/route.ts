@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { ClientService } from '@/lib/services/client-service'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,12 +42,15 @@ export async function GET(request: NextRequest) {
     // Admins can see all clients, clients can only see their own
     let clients
     if (cmsUser.role === 'admin') {
-      const { data, error } = await supabaseAuth
+      const supabaseService = getSupabaseService()
+      const { data, error } = await supabaseService
         .schema('core')
         .from('clients')
         .select('*')
         .eq('status', 'approved')
         .order('created_at', { ascending: false })
+
+      console.log('Admin client fetch result from core.clients:', { data, error })
 
       if (error) throw error
       clients = data || []

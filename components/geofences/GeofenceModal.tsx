@@ -53,7 +53,7 @@ export function GeofenceModal({
   const [translatedDescriptions, setTranslatedDescriptions] = useState<any[]>([])
   const [isTranslating, setIsTranslating] = useState(false)
 
-  const { role: cmsUserRole, isAdmin } = useCmsUser()
+  const { role: cmsUserRole, isAdmin, clientId } = useCmsUser()
   const { callFunction } = useAuthenticatedFunctionCall()
   const supabase = useSupabaseClient()
   const t = useTranslations('Geofences')
@@ -132,22 +132,28 @@ export function GeofenceModal({
   }
 
   const fetchClients = async () => {
-    const { data } = await supabase
-      .schema('core')
-      .from('clients')
-      .select('id, name')
-      .eq('status', 'approved')
-    if (data) {
-      setClients(data)
-      // Robust owner auto-selection:
-      // 1. If we already have a selected ownerId, keep it.
-      // 2. If it's empty, and the POI has one, use it.
-      // 3. If it's empty, we're not admin, and there's only one client, auto-select it.
-      if (!ownerId && poi?.owner_id) {
-        setOwnerId(poi.owner_id)
-      } else if (!ownerId && data.length > 0 && !isAdmin) {
-        setOwnerId(data[0].id)
+    try {
+      const res = await fetch('/api/clients/my-clients')
+      if (res.ok) {
+        const { clients: data } = await res.json()
+        if (data) {
+          setClients(data)
+          // Robust owner auto-selection:
+          // 1. If we already have a selected ownerId, keep it.
+          // 2. If it's empty, and the POI has one, use it.
+          // 3. If it's empty, and the user has a linked client (clientId), use it.
+          // 4. If it's empty, we're not admin, and there's only one client, auto-select it.
+          if (!ownerId && poi?.owner_id) {
+            setOwnerId(poi.owner_id)
+          } else if (!ownerId && clientId) {
+            setOwnerId(clientId)
+          } else if (!ownerId && data.length > 0 && !isAdmin) {
+            setOwnerId(data[0].id)
+          }
+        }
       }
+    } catch(err) {
+      console.error('Failed to fetch clients', err)
     }
   }
 
@@ -213,6 +219,13 @@ export function GeofenceModal({
     if (!boundaryPolygon && !poiId) {
       setErrorMsg(t('drawWarning'))
       setActiveTab('boundary')
+      return null
+    }
+
+    if (!ownerId) {
+      // Re-using a basic fallback string since the exact translation key might not exist
+      setErrorMsg(t('ownerTied') || 'Selecione um Cliente / Responsável.')
+      setActiveTab('config')
       return null
     }
 
@@ -524,7 +537,7 @@ export function GeofenceModal({
                     disabled={!isAdmin}
                     className="w-full px-4 py-2 border rounded-xl disabled:bg-gray-100 disabled:text-gray-500"
                   >
-                    <option value="">{t('noOwner')}</option>
+                    <option value="" disabled>{t('noOwner')}</option>
                     {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                   {!isAdmin && <p className="text-xs text-gray-500 mt-1">{t('ownerTied')}</p>}
@@ -642,18 +655,18 @@ export function GeofenceModal({
                       </label>
                       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
                         {[
-                          { code: 'pt-br', icon: '🇧🇷' },
-                          { code: 'pt-pt', icon: '🇵🇹' },
-                          { code: 'en-us', icon: '🇺🇸' },
-                          { code: 'en-gb', icon: '🇬🇧' },
-                          { code: 'es-es', icon: '🇪🇸' },
-                          { code: 'de-de', icon: '🇩🇪' },
-                          { code: 'fr-fr', icon: '🇫🇷' },
-                          { code: 'it-it', icon: '🇮🇹' },
-                          { code: 'ja-jp', icon: '🇯🇵' },
-                          { code: 'cmn-cn', icon: '🇨🇳' },
-                          { code: 'ko-kr', icon: '🇰🇷' },
-                          { code: 'ru-ru', icon: '🇷🇺' },
+                          { code: 'pt-br' },
+                          { code: 'pt-pt' },
+                          { code: 'en-us' },
+                          { code: 'en-gb' },
+                          { code: 'es-es' },
+                          { code: 'de-de' },
+                          { code: 'fr-fr' },
+                          { code: 'it-it' },
+                          { code: 'ja-jp' },
+                          { code: 'cmn-cn' },
+                          { code: 'ko-kr' },
+                          { code: 'ru-ru' },
                         ].map((lang) => (
                           <label key={lang.code} className={cn("flex items-start p-2 rounded border cursor-pointer min-h-[40px]", selectedLanguages.includes(lang.code) ? "bg-tuggi-blue/10 border-tuggi-blue" : "bg-white border-gray-300")}>
                             <input type="checkbox" checked={selectedLanguages.includes(lang.code)} onChange={(e) => {
@@ -661,7 +674,7 @@ export function GeofenceModal({
                               else setSelectedLanguages(selectedLanguages.filter(l => l !== lang.code))
                             }} className="mt-0.5 mr-2 text-tuggi-blue" />
                             <span className="text-xs font-medium text-gray-900 leading-snug">
-                              {lang.icon} {tPOIDetails(`languages.${lang.code}`)}
+                              {tPOIDetails(`languages.${lang.code}`)}
                             </span>
                           </label>
                         ))}
