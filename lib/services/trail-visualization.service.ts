@@ -118,7 +118,7 @@ export class TrailVisualizationService {
     error?: string
   }> {
     try {
-      const supabase = getSupabase('server')
+      const supabase = getSupabase('service')
 
       // Build optimized query with spatial filtering
       // Note: We don't use count: 'exact' to avoid timeout on large datasets
@@ -158,17 +158,22 @@ export class TrailVisualizationService {
         query = query.eq('is_moving', true)
       }
 
-      // Apply pagination WITHOUT ordering to avoid timeout
-      // Ordering large datasets before limiting causes timeout
-      // We'll sort in memory after fetching
-      const limit = Math.min(params.limit || 2000, 2000) // Max 2000 points per query
+      // Apply pagination
+      // If we have specific filters (userIds or tripSessionIds), we can afford a bit more data
+      // and we SHOULD order by timestamp to get recent/logical points
+      const isFiltered = (params.userIds && params.userIds.length > 0) || (params.tripSessionIds && params.tripSessionIds.length > 0)
+      
+      const limit = params.fetchAll ? 50000 : Math.min(params.limit || (isFiltered ? 20000 : 5000), 50000)
       const offset = params.offset || 0
+
+      if (isFiltered) {
+        // If searching for specific users/trips, we MUST order to get logical paths
+        // and recent activity. This is usually safe because the indexed subset is small.
+        query = query.order('timestamp', { ascending: false })
+      }
+
       query = query.range(offset, offset + limit - 1)
 
-      // DO NOT order here - it causes timeout on large datasets
-      // We'll sort the results in memory after fetching
-
-      // Set a timeout for the query (Supabase default is 60s, but we want to fail faster)
       const { data, error } = await query
 
       if (error) {
@@ -283,7 +288,7 @@ export class TrailVisualizationService {
     error?: string
   }> {
     try {
-      const supabase = getSupabase('server')
+      const supabase = getSupabase('service')
       const gridSize = params.gridSize || 0.001
 
       // Try to use materialized view first

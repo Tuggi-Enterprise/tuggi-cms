@@ -82,6 +82,7 @@ function TrailMapContent({
   const polylinesRef = useRef<Map<string, google.maps.Polyline>>(new Map())
   const heatmapLayerRef = useRef<google.maps.visualization.HeatmapLayer | null>(null)
   const boundsListenerRef = useRef<google.maps.MapsEventListener | null>(null)
+  const lastFittedSelectionRef = useRef<string>('')
 
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
@@ -117,9 +118,10 @@ function TrailMapContent({
       updateBounds()
 
       // Listen to bounds changes
+      const timeoutRef = { current: null as NodeJS.Timeout | null }
       boundsListenerRef.current = map.addListener('bounds_changed', () => {
-        // Debounce bounds updates
-        setTimeout(updateBounds, 500)
+        if (timeoutRef.current) clearTimeout(timeoutRef.current)
+        timeoutRef.current = setTimeout(updateBounds, 500)
       })
 
       // Also listen to drag and zoom
@@ -187,7 +189,31 @@ function TrailMapContent({
       polylinesRef.current.set(trailKey, polyline)
     })
 
-    // Note: Removed automatic fitBounds to give users full control over zoom
+    // State management for fitting bounds (only fit once per selection change)
+    const currentSelectionKey = selectedUserIds.sort().join(',')
+    if (
+      mapInstanceRef.current &&
+      filteredTrails.length > 0 &&
+      selectedUserIds.length > 0 &&
+      lastFittedSelectionRef.current !== currentSelectionKey
+    ) {
+      const bounds = new google.maps.LatLngBounds()
+      let hasPoints = false
+
+      filteredTrails.forEach(trail => {
+        trail.points.forEach(point => {
+          bounds.extend({ lat: point.latitude, lng: point.longitude })
+          hasPoints = true
+        })
+      })
+
+      if (hasPoints) {
+        mapInstanceRef.current.fitBounds(bounds)
+        lastFittedSelectionRef.current = currentSelectionKey
+      }
+    } else if (selectedUserIds.length === 0) {
+      lastFittedSelectionRef.current = ''
+    }
   }, [trails, showTrails, selectedUserIds])
 
   // Render heat map

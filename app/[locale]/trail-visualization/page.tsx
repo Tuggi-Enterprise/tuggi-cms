@@ -64,19 +64,27 @@ export default function TrailVisualizationPage() {
       setError(null)
 
       const params = new URLSearchParams()
-      params.append('bounds', buildBoundsParam(mapBounds)) // DRY: Use utility
-
-      if (selectedUserIds.length > 0) {
-        params.append('userIds', selectedUserIds.join(','))
+      
+      const isUserSpecific = selectedUserIds.length > 0
+      
+      // If we have selected users, do NOT filter by bounds in the API
+      // Instead, get their data and move the map in the component
+      if (mapBounds && !isUserSpecific) {
+        params.append('bounds', buildBoundsParam(mapBounds))
       }
 
-      params.append('startDate', getDaysAgoDate(timeRange)) // DRY: Use utility
+      if (isUserSpecific) {
+        params.append('userIds', selectedUserIds.join(','))
+        params.append('limit', '10000') // Higher limit for specialized user view
+      } else {
+        params.append('limit', '2000') // Lower limit for general heatmap view
+      }
+
+      params.append('startDate', getDaysAgoDate(timeRange))
 
       if (onlyMoving) {
         params.append('onlyMoving', 'true')
       }
-
-      params.append('limit', '50000') // Increased limit to fetch more data (will be chunked in service)
 
       const response = await fetch(`/api/trail-visualization/trails?${params.toString()}`, {
         signal: trailsAbortControllerRef.current.signal
