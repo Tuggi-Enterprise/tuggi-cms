@@ -150,9 +150,15 @@ export function Header({ className }: HeaderProps) {
   const navigation = [
     // Main
     {
-      name: t('dashboard'),
+      name: t('overview'),
       href: '/dashboard',
       icon: LayoutDashboard,
+      category: 'main'
+    },
+    {
+      name: t('realtime'),
+      href: '/dashboard/realtime',
+      icon: Activity,
       category: 'main'
     },
     
@@ -425,13 +431,11 @@ export function Header({ className }: HeaderProps) {
 
           {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center space-x-2">
-            {/* Dashboard */}
-            {navigation
-              .filter(item => item.category === 'main')
-              .map((item) => {
-                const isActive = pathname === item.href
-                return renderNavItem(item, isActive)
-              })}
+            {/* Dashboard - Dropdown */}
+            {(() => {
+              const mainItems = navigation.filter(item => item.category === 'main')
+              return renderDropdown('main', mainItems, t('dashboard'))
+            })()}
 
             {/* POIs - Dropdown */}
             {(() => {

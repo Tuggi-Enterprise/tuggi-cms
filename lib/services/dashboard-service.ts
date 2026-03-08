@@ -427,6 +427,36 @@ class DashboardService {
   }
   
   /**
+   * Busca atividades em tempo real para o Realtime Dashboard
+   */
+  static async getRealtimeActivity(intervalMinutes = 10): Promise<{ 
+    success: boolean; 
+    data?: {
+      active_users: Array<{ user_id: string; lat: number; lng: number; timestamp: string }>;
+      active_pois: Array<{ visit_id: string; poi_id: string; poi_name: string; poi_city: string; poi_country: string; poi_category: string; user_nickname: string; visit_timestamp: string; audio_played: boolean; platform: string }>;
+      interval_minutes: number;
+      generated_at: string;
+    }; 
+    error?: string 
+  }> {
+    try {
+      const supabase = typeof window !== 'undefined'
+        ? getSupabaseClient()
+        : getSupabase('server')
+        
+      const { data, error } = await supabase
+        .schema('core')
+        .rpc('dashboard_realtime_activity', { interval_minutes: intervalMinutes })
+
+      if (error) throw error
+      return { success: true, data: data as any }
+    } catch (error) {
+      console.error('Error fetching realtime activity:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  /**
    * Limpa o cache
    */
   static clearCache(): void {
@@ -454,6 +484,7 @@ export const dashboardService = {
   getHeatmapData: (sampleSize?: number) => DashboardService.getHeatmapData(sampleSize),
   getUsersWithSessions: (limit?: number) => DashboardService.getUsersWithSessions(limit),
   getProfiles: (limit?: number) => DashboardService.getProfiles(limit),
+  getRealtimeActivity: (intervalMinutes?: number) => DashboardService.getRealtimeActivity(intervalMinutes),
   clearCache: () => DashboardService.clearCache(),
   getCacheStats: () => DashboardService.getCacheStats()
 }

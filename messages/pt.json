@@ -59,6 +59,8 @@
   },
   "Navigation": {
     "dashboard": "Dashboard",
+    "overview": "Visão Geral",
+    "realtime": "Tempo Real",
     "pois": "Pontos de Interesse",
     "poi_migration": "Processamento de POIs",
     "osm_importer": "Importador OSM",
@@ -115,6 +117,16 @@
       "retry": "Tentar Novamente",
       "empty_visits": "Nenhuma visita registrada",
       "loading_map": "Carregando mapa...",
+      "realtime": {
+        "title": "Painel Real-Time",
+        "subtitle": "Monitoramento de usuários ativos e interações nos últimos 10 minutos",
+        "syncing": "Sincronizando...",
+        "refresh_btn": "Refresh",
+        "active_users_radar": "Usuários Ativos (Radar)",
+        "users_detected": "usuários detectados",
+        "recent_interactions": "Interações Recentes",
+        "no_interactions_10m": "Nenhuma interação registrada nos últimos 10 minutos."
+      },
       "tabs": {
         "overview": "Visão Geral",
         "inventory": "Inventário",

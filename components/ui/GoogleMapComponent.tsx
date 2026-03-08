@@ -86,6 +86,7 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   cityBoundary,
   cityName,
   enableDrawing = true,
+  showDrawingButton = true,
   circle,
   circles = [],
   polygonOptions,
@@ -100,7 +101,8 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     hasOnPolygonComplete: !!onPolygonComplete,
     type: typeof onPolygonComplete,
     isFunction: typeof onPolygonComplete === 'function',
-    enableDrawing
+    enableDrawing,
+    showDrawingButton
   })
   
   const mapRef = useRef<HTMLDivElement>(null)
@@ -193,8 +195,8 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
       controlButton.innerHTML = '🔸 Draw Polygon'
       controlButton.title = 'Click to start drawing a polygon'
       
-      // Hide button if enableDrawing is explicitly false
-      if (!enableDrawing) {
+      // Hide button if enableDrawing or showDrawingButton is explicitly false
+      if (enableDrawing === false || showDrawingButton === false) {
         controlButton.style.display = 'none'
       }
       
@@ -568,6 +570,7 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
 
     console.log(`🗺️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] updateDrawingMode:`, {
       enableDrawing,
+      showDrawingButton,
       instanceId,
       hasButton: !!button
     })
@@ -578,6 +581,7 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
       if (button) {
         button.innerHTML = '⏹️ Stop Drawing'
         button.style.backgroundColor = '#FF6F00'
+        button.style.display = showDrawingButton !== false ? 'block' : 'none'
       }
 
       // REGISTER in global registry if not already there
@@ -596,6 +600,7 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
       if (button) {
         button.innerHTML = '🔸 Draw Polygon'
         button.style.backgroundColor = '#00A8E8'
+        button.style.display = 'none'
       }
 
       // UNREGISTER if it was drawing
@@ -604,7 +609,7 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
         console.log(`🔴 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Unregistered via prop update`)
       }
     }
-  }, [enableDrawing, componentId])
+  }, [enableDrawing, showDrawingButton, componentId])
 
   const updateCircle = useCallback(() => {
     if (!mapInstanceRef.current) return

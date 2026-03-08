@@ -56,3 +56,4 @@ scripts/*.json
 scripts/*.txt
 scripts/*.log
 tsconfig.tsbuildinfo
+data/geofabrik/
