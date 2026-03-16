@@ -9,6 +9,7 @@ export interface NotificationPayload {
   body: string;
   data?: Record<string, any>;
   imageUrl?: string;
+  badge?: number;
 }
 
 export interface ScheduleRequest {
@@ -126,54 +127,61 @@ export const NotificationService = {
     return response.json();
   },
 
-  // Template Management
+  // Template Management (RPC Based)
   async getTemplates() {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-      .schema('core')
-      .from('notification_templates')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
+    const { data, error } = await supabase.rpc('get_notification_templates');
     if (error) throw error;
     return data as NotificationTemplate[];
   },
 
   async createTemplate(template: Omit<NotificationTemplate, 'id' | 'created_at'>) {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-      .schema('core')
-      .from('notification_templates')
-      .insert(template)
-      .select()
-      .single();
-    
+    const { data, error } = await supabase.rpc('create_notification_template', {
+      p_template: template
+    });
     if (error) throw error;
     return data;
   },
   
   async updateTemplate(id: string, updates: Partial<NotificationTemplate>) {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase
-      .schema('core')
-      .from('notification_templates')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
-
+    const { data, error } = await supabase.rpc('update_notification_template', {
+      p_id: id,
+      p_updates: updates
+    });
     if (error) throw error;
     return data;
   },
 
   async deleteTemplate(id: string) {
     const supabase = getSupabaseClient();
-    const { error } = await supabase
-      .schema('core')
-      .from('notification_templates')
-      .delete()
-      .eq('id', id);
-    
+    const { error } = await supabase.rpc('delete_notification_template', {
+      p_id: id
+    });
     if (error) throw error;
+  },
+
+  // Log Management (RPC Based)
+  async getLogs() {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.rpc('get_notification_logs', {
+      p_limit: 50
+    });
+    if (error) throw error;
+    return data as NotificationLog[];
   }
 };
+
+export interface NotificationLog {
+  id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  data: Record<string, any>;
+  user_ids: string[];
+  topic?: string;
+  status: 'sent' | 'failed' | 'scheduled';
+  sent_at: string;
+  created_at: string;
+}

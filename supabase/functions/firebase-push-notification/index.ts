@@ -1,5 +1,4 @@
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -7,72 +6,87 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Firebase configuration
-const FIREBASE_PROJECT_ID = Deno.env.get('FIREBASE_PROJECT_ID');
-const FIREBASE_PRIVATE_KEY = Deno.env.get('FIREBASE_PRIVATE_KEY');
-const FIREBASE_CLIENT_EMAIL = Deno.env.get('FIREBASE_CLIENT_EMAIL');
-
-// Notification Templates
-interface NotificationPayload {
-  title: string;
-  body: string;
-  data?: Record<string, any>;
-  imageUrl?: string;
-  priority?: 'high' | 'normal';
-  ttl?: number;
-}
-
-serve(async (req) => {
+Deno.serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const requestId = crypto.randomUUID();
+  console.log(`[${requestId}] 🚀 Function started: ${req.method} ${req.url}`);
+
   try {
     const url = new URL(req.url);
-    const path = url.pathname.replace('/firebase-push-notification', '') || '/';
+    const path = url.pathname.replace(/.*\/firebase-push-notification/, '') || '/';
+    console.log(`[${requestId}] 📍 Path: ${path}`);
+
+    // Get environment variables inside handler to be safe
+    const FIREBASE_PROJECT_ID = Deno.env.get('FIREBASE_PROJECT_ID');
+    const FIREBASE_PRIVATE_KEY = Deno.env.get('FIREBASE_PRIVATE_KEY');
+    const FIREBASE_CLIENT_EMAIL = Deno.env.get('FIREBASE_CLIENT_EMAIL');
+    const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+    // Diagnostics
+    if (!FIREBASE_PRIVATE_KEY) console.error(`[${requestId}] ❌ FIREBASE_PRIVATE_KEY is missing`);
+    if (!FIREBASE_PROJECT_ID) console.error(`[${requestId}] ❌ FIREBASE_PROJECT_ID is missing`);
 
     // Initialize Supabase client
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
       },
     });
 
-    // Helper: Get user tokens from database
-    const getUserTokens = async (userIds: string[]): Promise<string[]> => {
-      // FIX: Use 'drive' schema explicitly
-      const { data: tokens } = await supabase
-        .schema('drive')
-        .from('fcm_tokens')
-        .select('fcm_token')
-        .in('user_id', userIds)
-        .eq('is_active', true);
-
-      return tokens?.map((t: any) => t.fcm_token) || [];
-    };
-
-    // Helper: Get all active tokens for broadcast
-    const getAllTokens = async (): Promise<string[]> => {
-      // FIX: Use 'drive' schema explicitly
-      const { data: tokens } = await supabase
-        .schema('drive')
-        .from('fcm_tokens')
-        .select('fcm_token')
-        .eq('is_active', true);
-
-      return tokens?.map((t: any) => t.fcm_token) || [];
-    };
-
-    // Helper: Create Firebase JWT
-    const createFirebaseJWT = async (): Promise<string> => {
+    // Helper: JWT Creation
+    const createAccessToken = async () => {
+      console.log(`[${requestId}] 🔑 Generating Firebase Access Token...`);
+      
       if (!FIREBASE_PROJECT_ID || !FIREBASE_PRIVATE_KEY || !FIREBASE_CLIENT_EMAIL) {
         throw new Error('Firebase credentials not configured');
       }
 
+      // 1. Clean up private key aggressively
+      console.log(`[${requestId}] 🧹 Cleaning PEM key...`);
+      let pemContents = FIREBASE_PRIVATE_KEY
+        .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+        .replace(/-----END PRIVATE KEY-----/g, '')
+        .replace(/\\n/g, '')
+        .replace(/[\s\n\r]/g, '')
+        .replace(/[^A-Za-z0-9+/=]/g, '');
+
+      // 2. Fix padding if necessary
+      while (pemContents.length % 4 !== 0) {
+        pemContents += '=';
+      }
+
+      console.log(`[${requestId}] 🛠 Cleaned length: ${pemContents.length}`);
+      console.log(`[${requestId}] 🔍 Key preview: ${pemContents.substring(0, 10)}...${pemContents.substring(pemContents.length - 10)}`);
+
+      // 3. Decode Base64 to Binary
+      let binaryDer;
+      try {
+        const binaryDerString = atob(pemContents);
+        binaryDer = new Uint8Array(binaryDerString.length);
+        for (let i = 0; i < binaryDerString.length; i++) {
+          binaryDer[i] = binaryDerString.charCodeAt(i);
+        }
+      } catch (e) {
+        console.error(`[${requestId}] ❌ Final atob failure:`, e.message);
+        throw new Error(`Invalid FIREBASE_PRIVATE_KEY format: ${e.message}`);
+      }
+
+      // 3. Import Key
+      const key = await crypto.subtle.importKey(
+        'pkcs8',
+        binaryDer,
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+
+      // 4. Create JWT Payload
       const now = Math.floor(Date.now() / 1000);
       const header = { alg: 'RS256', typ: 'JWT' };
       const payload = {
@@ -83,383 +97,192 @@ serve(async (req) => {
         exp: now + 3600,
       };
 
+      const encodeBase64Url = (str: string) => btoa(str).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+      const headerPart = encodeBase64Url(JSON.stringify(header));
+      const payloadPart = encodeBase64Url(JSON.stringify(payload));
+      
       const encoder = new TextEncoder();
-      const headerB64 = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-      const payloadB64 = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-
-      // Import private key
-      const pemHeader = "-----BEGIN PRIVATE KEY-----";
-      const pemFooter = "-----END PRIVATE KEY-----";
-      const pemContents = FIREBASE_PRIVATE_KEY
-        .replace(/\\n/g, '\n')
-        .replace(pemHeader, '')
-        .replace(pemFooter, '')
-        .replace(/\s/g, '');
-
-      const binaryDerString = atob(pemContents);
-      const binaryDer = new Uint8Array(binaryDerString.length);
-      for (let i = 0; i < binaryDerString.length; i++) {
-        binaryDer[i] = binaryDerString.charCodeAt(i);
-      }
-
-      const key = await crypto.subtle.importKey(
-        'pkcs8',
-        binaryDer,
-        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-        false,
-        ['sign']
-      );
-
       const signature = await crypto.subtle.sign(
         'RSASSA-PKCS1-v1_5',
         key,
-        encoder.encode(`${headerB64}.${payloadB64}`)
+        encoder.encode(`${headerPart}.${payloadPart}`)
       );
 
-      const signatureB64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
-        .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+      const signatureArray = new Uint8Array(signature);
+      let binarySignature = '';
+      for (let i = 0; i < signatureArray.length; i++) {
+        binarySignature += String.fromCharCode(signatureArray[i]);
+      }
+      const signaturePart = btoa(binarySignature).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 
-      return `${headerB64}.${payloadB64}.${signatureB64}`;
-    };
+      const jwt = `${headerPart}.${payloadPart}.${signaturePart}`;
 
-    // Helper: Get Firebase Access Token
-    const getAccessToken = async (): Promise<string> => {
-      const jwt = await createFirebaseJWT();
+      // 5. Exchange JWT for Access Token
       const response = await fetch('https://oauth2.googleapis.com/token', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
       });
 
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(`Failed to get access token: ${data.error}`);
-      }
-
+      if (!response.ok) throw new Error(`Firebase Auth Failed: ${JSON.stringify(data)}`);
+      
       return data.access_token;
     };
 
-    // Helper: Send FCM Notification
-    const sendFCMNotification = async (
-      tokens: string[],
-      notification: NotificationPayload,
-      priority: string = 'normal',
-      ttl: number = 3600
-    ) => {
-      if (tokens.length === 0) {
-        return { success: 0, failure: 0, errors: ['No tokens provided'] };
-      }
-
-      const accessToken = await getAccessToken();
-      const results = { success: 0, failure: 0, errors: [] as string[] };
-
-      // Batch sending is deprecated/unreliable in HTTP v1, sending individually
-      // In production, consider parallelizing requests with Promise.all() in batches of 50
-      const BATCH_SIZE = 10;
+    // Helper: Send Notification
+    const sendNotification = async (tokens: string[], notification: any, priority: string, ttl: number) => {
+      if (tokens.length === 0) return { success: 0, failure: 0, errors: [] };
       
-      for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
-        const batch = tokens.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map(async (token) => {
-          const message = {
-            message: {
-              token: token,
-              notification: {
-                title: notification.title,
-                body: notification.body,
-                ...(notification.imageUrl && { image: notification.imageUrl }),
-              },
-              data: notification.data || {},
-              android: {
-                priority: priority === 'high' ? 'high' : 'normal',
-                ttl: `${ttl}s`,
-              },
-              apns: {
-                headers: {
-                  'apns-priority': priority === 'high' ? '10' : '5',
-                },
-                payload: {
-                  aps: {
-                    'content-available': 1,
-                  },
-                },
-              },
-            },
-          };
+      const accessToken = await createAccessToken();
+      console.log(`[${requestId}] 📡 Sending to ${tokens.length} devices...`);
 
-          try {
-            const response = await fetch(
-              `https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`,
-              {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${accessToken}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(message),
-              }
-            );
-
-            const result = await response.json();
-            if (response.ok) {
-              results.success++;
-            } else {
-              results.failure++;
-              const errorMsg = result.error?.message || 'Unknown error';
-              results.errors.push(`Token ${token.substring(0, 10)}...: ${errorMsg}`);
-              
-              // Optional: Mark token as invalid if error is specific
-              if (errorMsg.includes('UNREGISTERED') || errorMsg.includes('INVALID_ARGUMENT')) {
-                 await supabase.schema('drive').from('fcm_tokens').update({ is_active: false }).eq('fcm_token', token);
-              }
-            }
-          } catch (error: any) {
-            results.failure++;
-            results.errors.push(`Token ${token.substring(0, 10)}...: ${error.message}`);
-          }
-        }));
-      }
-
-      return results;
-    };
-
-    const sendToTopic = async (
-        topic: string,
-        notification: NotificationPayload,
-        priority: string = 'normal',
-        ttl: number = 3600
-    ) => {
-        const accessToken = await getAccessToken();
-        
+      const results = { success: 0, failure: 0, errors: [] as string[] };
+      
+      // Process in smaller batches to avoid memory issues
+      for (const token of tokens) {
         const message = {
-            message: {
-                topic: topic,
-                notification: {
-                    title: notification.title,
-                    body: notification.body,
-                    ...(notification.imageUrl && { image: notification.imageUrl }),
-                },
-                data: notification.data || {},
-                android: {
-                    priority: priority === 'high' ? 'high' : 'normal',
-                    ttl: `${ttl}s`,
-                },
-                apns: {
-                    headers: {
-                        'apns-priority': priority === 'high' ? '10' : '5',
-                    },
-                    payload: {
-                        aps: {
-                            'content-available': 1,
-                        },
-                    },
-                },
+          message: {
+            token,
+            notification: {
+              title: notification.title,
+              body: notification.body,
+              ...(notification.imageUrl && { image: notification.imageUrl }),
             },
+            data: notification.data || {},
+            android: {
+              priority: priority === 'high' ? 'high' : 'normal',
+              ttl: `${ttl}s`,
+            },
+            apns: {
+              headers: { 'apns-priority': priority === 'high' ? '10' : '5' },
+              payload: {
+                aps: {
+                  'content-available': 1,
+                  ...(notification.badge !== undefined && { badge: notification.badge }),
+                },
+              },
+            },
+          },
         };
 
         try {
-            const response = await fetch(
-                `https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(message),
-                }
-            );
+          const res = await fetch(`https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(message),
+          });
 
-            const result = await response.json();
-            if (response.ok) {
-                return { success: 1, failure: 0, errors: [] };
-            } else {
-                return { success: 0, failure: 1, errors: [result.error?.message || 'Unknown error'] };
+          const data = await res.json();
+          if (res.ok) {
+            results.success++;
+          } else {
+            const error = data.error?.message || 'Unknown';
+            results.failure++;
+            results.errors.push(`Token ${token.substring(0, 8)}...: ${error}`);
+            
+            if (error.includes('UNREGISTERED')) {
+              await supabase.schema('drive').from('fcm_tokens').update({ is_active: false }).eq('fcm_token', token);
             }
-        } catch (error: any) {
-            return { success: 0, failure: 1, errors: [error.message] };
+          }
+        } catch (e) {
+          results.failure++;
+          results.errors.push(`Token ${token.substring(0, 8)}...: ${e.message}`);
         }
-    }
-
-    const logNotification = async (type: string, title: string, body: string, data: any, userIds: string[], topic: string | undefined, status: string, errorDetails: string | null = null) => {
-        try {
-            await supabase.schema('core').from('notification_logs').insert({
-                type,
-                title,
-                body,
-                data,
-                user_ids: userIds || [],
-                topic,
-                status,
-                error_details: errorDetails,
-                sent_at: new Date().toISOString()
-            });
-        } catch (error) {
-            console.error('Failed to log notification:', error);
-        }
+      }
+      return results;
     };
 
-    // Route Logic
-    switch (path) {
-      case '/health':
-        return new Response(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+    // Logging helper
+    const logResult = async (type: string, notification: any, userIds: string[], topic: string | undefined, status: string, stats: any) => {
+      console.log(`[${requestId}] 📝 Logging result to core.notification_logs...`);
+      try {
+        // Ensure userIds are valid UUIDs to avoid DB errors
+        const validUserIds = (userIds || []).filter(id => 
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+        );
 
-      // -----------------------------------------------------------------------
-      // PROCESSOR: Check and send scheduled notifications
-      // -----------------------------------------------------------------------
-      case '/process-scheduled':
-        if (req.method !== 'POST') {
-             return new Response('Method not allowed', { status: 405, headers: corsHeaders });
-        }
+        const logData: any = {
+          type,
+          title: notification.title || 'No Title',
+          body: notification.body || 'No Body',
+          data: notification.data || {},
+          user_ids: validUserIds,
+          topic: topic || null,
+          status,
+          sent_at: new Date().toISOString()
+        };
 
-        // 1. Fetch pending notifications scheduled for now or earlier
-        const { data: scheduledItems, error: fetchError } = await supabase
-            .schema('core')
-            .from('scheduled_notifications')
-            .select('*')
-            .eq('status', 'pending')
-            .lte('scheduled_for', new Date().toISOString())
-            .limit(5); // Process in batches of 5 to avoid timeouts
+        console.log(`[${requestId}] 📄 Log payload:`, JSON.stringify(logData));
 
-        if (fetchError) {
-             return new Response(JSON.stringify({ error: fetchError.message }), { status: 500, headers: corsHeaders });
-        }
-
-        if (!scheduledItems || scheduledItems.length === 0) {
-             return new Response(JSON.stringify({ message: 'No pending notifications' }), { status: 200, headers: corsHeaders });
-        }
-
-        const results = [];
-
-        // 2. Process each item
-        for (const item of scheduledItems) {
-            // Update status to processing to prevent double send
-            await supabase.schema('core').from('scheduled_notifications')
-                .update({ status: 'processing' })
-                .eq('id', item.id);
-
-            let sendResult;
-            let tokens = [];
-
-            try {
-                // Determine target
-                if (item.type === 'user') {
-                    tokens = await getUserTokens(item.user_ids);
-                    sendResult = await sendFCMNotification(tokens, item, item.priority, item.ttl);
-                } else if (item.type === 'topic') {
-                    sendResult = await sendToTopic(item.topic, item, item.priority, item.ttl);
-                } else if (item.type === 'broadcast') {
-                    tokens = await getAllTokens();
-                    sendResult = await sendFCMNotification(tokens, item, item.priority, item.ttl);
-                }
-
-                // Update status to sent/failed
-                const status = sendResult && sendResult.failure === 0 ? 'sent' : 'failed'; // Or 'partial'
-                const errorDetails = sendResult?.errors?.join(', ');
-
-                await supabase.schema('core').from('scheduled_notifications')
-                    .update({ 
-                        status: status,
-                        processed_at: new Date().toISOString(),
-                        error_details: errorDetails
-                    })
-                    .eq('id', item.id);
-
-                // Log to history
-                await logNotification(item.type, item.title, item.body, item.data, item.user_ids, item.topic, status, errorDetails);
-                
-                results.push({ id: item.id, status, result: sendResult });
-
-            } catch (err: any) {
-                // Mark as failed
-                await supabase.schema('core').from('scheduled_notifications')
-                    .update({ 
-                        status: 'failed',
-                        processed_at: new Date().toISOString(),
-                        error_details: err.message
-                    })
-                    .eq('id', item.id);
-                 results.push({ id: item.id, status: 'failed', error: err.message });
-            }
-        }
-
-        return new Response(JSON.stringify({ success: true, processed: results.length, results }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-
-      // -----------------------------------------------------------------------
-      // SEND: Immediate send
-      // -----------------------------------------------------------------------
-      case '/send':
-        if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: corsHeaders });
+        const { data: insertData, error } = await supabase
+          .schema('core')
+          .from('notification_logs')
+          .insert(logData)
+          .select();
         
-        try {
-            const { type, notification, userIds, topic, priority, ttl } = await req.json();
-
-            let tokens = [];
-            let result;
-
-            if (type === 'user') {
-                tokens = await getUserTokens(userIds);
-                result = await sendFCMNotification(tokens, notification, priority, ttl);
-            } else if (type === 'topic') {
-                result = await sendToTopic(topic, notification, priority, ttl);
-            } else if (type === 'broadcast') {
-                tokens = await getAllTokens();
-                result = await sendFCMNotification(tokens, notification, priority, ttl);
-            } else {
-                 return new Response(JSON.stringify({ error: 'Invalid type' }), { status: 400, headers: corsHeaders });
-            }
-
-            await logNotification(type, notification.title, notification.body, notification.data, userIds, topic, result.success > 0 ? 'sent' : 'failed');
-
-            return new Response(JSON.stringify({ success: true, result }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-
-        } catch (err: any) {
-            return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: corsHeaders });
+        if (error) {
+          console.error(`[${requestId}] ❌ Supabase log error:`, JSON.stringify(error));
+        } else {
+          console.log(`[${requestId}] ✅ Log created:`, insertData?.[0]?.id);
         }
-        
-      // -----------------------------------------------------------------------
-      // SCHEDULE: Add to queue
-      // -----------------------------------------------------------------------
-      case '/schedule':
-         if (req.method !== 'POST') return new Response('Method not allowed', { status: 405, headers: corsHeaders });
-         
-         const scheduleReq = await req.json();
-         // Basic validation
-         if (!scheduleReq.scheduleAt || !scheduleReq.notification) {
-              return new Response(JSON.stringify({ error: 'Missing scheduleAt or notification' }), { status: 400, headers: corsHeaders });
-         }
+      } catch (e) {
+        console.error(`[${requestId}] 📝 Log function crashed:`, e.message);
+      }
+    };
 
-         const { data, error } = await supabase.schema('core').from('scheduled_notifications').insert({
-             type: scheduleReq.type,
-             user_ids: scheduleReq.userIds || [],
-             topic: scheduleReq.topic,
-             title: scheduleReq.notification.title,
-             body: scheduleReq.notification.body,
-             data: scheduleReq.notification.data || {},
-             image_url: scheduleReq.notification.imageUrl,
-             priority: scheduleReq.priority || 'normal',
-             ttl: scheduleReq.ttl || 3600,
-             scheduled_for: scheduleReq.scheduleAt,
-             status: 'pending' // Default
-         }).select();
+    // -------- ROUTES --------
+    if (path === '/send') {
+      const body = await req.json();
+      const { type, notification, userIds, topic, priority = 'normal', ttl = 3600 } = body;
+      
+      let tokens = [];
+      let stats;
 
-         if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: corsHeaders });
-
-         return new Response(JSON.stringify({ success: true, notification: data?.[0] }), { status: 201, headers: corsHeaders });
-
-      default:
-        return new Response(JSON.stringify({ error: 'Endpoint not found', available: ['/process-scheduled', '/send', '/schedule'] }), {
-          status: 404,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      if (type === 'user') {
+        const { data } = await supabase.schema('drive').from('fcm_tokens').select('fcm_token').in('user_id', userIds).eq('is_active', true);
+        tokens = data?.map(t => t.fcm_token) || [];
+        stats = await sendNotification(tokens, notification, priority, ttl);
+      } else if (type === 'broadcast') {
+        const { data } = await supabase.schema('drive').from('fcm_tokens').select('fcm_token').eq('is_active', true);
+        tokens = data?.map(t => t.fcm_token) || [];
+        stats = await sendNotification(tokens, notification, priority, ttl);
+      } else if (type === 'topic') {
+        // Topic send (direct call to FCM)
+        const accessToken = await createAccessToken();
+        const res = await fetch(`https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: { topic, notification: { title: notification.title, body: notification.body }, data: notification.data || {} } }),
         });
+        const data = await res.json();
+        stats = res.ok ? { success: 1, failure: 0 } : { success: 0, failure: 1, errors: [data.error?.message] };
+      }
+
+      await logResult(type, notification, userIds, topic, stats.success > 0 ? 'sent' : 'failed', stats);
+      
+      return new Response(JSON.stringify({ success: true, result: stats }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
-  } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), {
+
+    if (path === '/health') {
+      return new Response(JSON.stringify({ status: 'ok' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers: corsHeaders });
+
+  } catch (err: any) {
+    console.error(`[${requestId}] 💥 Fatal error:`, err);
+    return new Response(JSON.stringify({ 
+      error: 'Internal Server Error',
+      message: err.message,
+      requestId,
+      stack: err.stack 
+    }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

@@ -87,7 +87,7 @@
     "admin_users": "Users",
     "logout": "Logout",
     "toggle_theme": "Toggle theme",
-    "notifications": "Notifications",
+    "notifications": "Push Notifications",
     "admin": "Admin",
     "geofences": "Geofences"
   },
@@ -614,6 +614,70 @@
         "logins": "Logins",
         "unnamed": "Unnamed",
         "no_nickname": "no-nickname"
+      }
+    },
+    "Notifications": {
+      "title": "Push Notifications",
+      "subtitle": "Create, schedule and manage push notifications for your application users.",
+      "tabs": {
+        "broadcast": "Broadcast",
+        "direct": "Direct Push (CRM)",
+        "templates": "Templates",
+        "history": "History"
+      },
+      "direct": {
+        "title": "Select Clients for Envoys",
+        "selected": "SELECTED",
+        "search_placeholder": "Search by nickname, name or email...",
+        "no_clients": "No clients selected",
+        "target_summary": "Target Summary",
+        "recipients_label": "Target Recipients",
+        "bypass_hint": "Direct Delivery Bypass Scheduling"
+      },
+      "content": {
+        "title": "Notification Content",
+        "label_title": "Title",
+        "label_body": "Message Body",
+        "label_image": "Image URL (Optional)",
+        "label_badge": "Badge Count (App Icon)",
+        "placeholder_title": "e.g. Personalized offer for you! 🎁",
+        "placeholder_body": "Enter the main content of your notification...",
+        "placeholder_badge": "0 to reset, 1+ to show number"
+      },
+      "scheduling": {
+        "title": "Scheduling Settings",
+        "label_date": "Scheduled Date & Time",
+        "status_immediate": "Will be sent immediately",
+        "status_scheduled": "Scheduled for "
+      },
+      "advanced": {
+        "title": "Advanced Settings",
+        "label_link": "Deep Link (URL/Route)",
+        "placeholder_link": "e.g. /trail/123 or https://...",
+        "label_priority": "High Priority",
+        "priority_hint": "Deliver immediately, bypass battery mode"
+      },
+      "preview": {
+        "title": "Live Preview",
+        "app_name": "Tuggi App",
+        "now": "Now",
+        "placeholder_title": "Notification Title",
+        "placeholder_body": "Type a message to see how it looks on your users devices..."
+      },
+      "actions": {
+        "send_now": "Send Now",
+        "send_direct": "Send Direct Push",
+        "schedule": "Schedule",
+        "sending": "Sending...",
+        "footer": "Secure Delivery via Firebase FCM"
+      },
+      "alerts": {
+        "select_client": "Please select at least one client to send the notification.",
+        "success_broadcast": "Broadcast Notification Sent Successfully!",
+        "success_scheduled": "Notification Scheduled Successfully!",
+        "success_direct": "Notification sent to {count} client(s)!",
+        "error_send": "Failed to send notification. Please check your configuration.",
+        "no_tokens_found": "Warning: The message was processed, but we couldn't find any active devices (tokens) for the selected user(s). Check if the client has enabled notifications in the app."
       }
     }
   },

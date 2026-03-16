@@ -87,7 +87,7 @@
     "admin_users": "Usuários (Admin)",
     "logout": "Sair",
     "toggle_theme": "Alternar tema",
-    "notifications": "Notificações",
+    "notifications": "Push Notifications",
     "admin": "Admin",
     "geofences": "Geofences"
   },
@@ -614,6 +614,71 @@
         "logins": "Logins",
         "unnamed": "Sem nome",
         "no_nickname": "sem-nickname"
+      }
+    },
+    "Notifications": {
+      "title": "Push Notifications",
+      "subtitle": "Crie, agende e gerencie notificações push para os usuários do seu aplicativo.",
+      "tabs": {
+        "broadcast": "Broadcast",
+        "direct": "Envio Direto (CRM)",
+        "templates": "Modelos",
+        "history": "Histórico"
+      },
+      "direct": {
+        "title": "Selecionar Clientes para Envio",
+        "selected": "SELECIONADO(S)",
+        "search_placeholder": "Buscar por apelido, nome ou email...",
+        "no_clients": "Nenhum cliente selecionado",
+        "target_summary": "Resumo do Alvo",
+        "recipients_label": "Destinatários Alvo",
+        "bypass_hint": "Entrega Direta Sem Agendamento"
+      },
+      "content": {
+        "title": "Conteúdo da Notificação",
+        "label_title": "Título",
+        "label_body": "Corpo da Mensagem",
+        "label_image": "URL da Imagem (Opcional)",
+        "label_badge": "Contagem de Badge (Ícone do App)",
+        "placeholder_title": "ex: Oferta personalizada para você! 🎁",
+        "placeholder_body": "Digite o conteúdo principal da sua notificação...",
+        "placeholder_badge": "0 para resetar, 1+ para mostrar número"
+      },
+      "scheduling": {
+        "title": "Configurações de Agendamento",
+        "label_date": "Data e Hora Agendada",
+        "status_immediate": "Será enviado imediatamente",
+        "status_scheduled": "Agendado para "
+      },
+      "advanced": {
+        "title": "Configurações Avançadas",
+        "label_link": "Deep Link (URL/Rota)",
+        "placeholder_link": "ex: /trilha/123 ou https://...",
+        "label_priority": "Alta Prioridade",
+        "priority_hint": "Entrega imediata, ignora economia de bateria"
+      },
+      "preview": {
+        "title": "Prévia em Tempo Real",
+        "app_name": "Tuggi App",
+        "now": "Agora",
+        "placeholder_title": "Título da Notificação",
+        "placeholder_body": "Digite uma mensagem para ver como ela aparece nos dispositivos dos seus usuários..."
+      },
+      "actions": {
+        "send_now": "Enviar Agora",
+        "send_direct": "Enviar Push Direto",
+        "schedule": "Agendar",
+        "sending": "Enviando...",
+        "footer": "Entrega Segura via Firebase FCM"
+      },
+      "alerts": {
+        "select_client": "Por favor, selecione pelo menos um cliente.",
+        "success_broadcast": "Broadcast enviado com sucesso!",
+        "success_scheduled": "Notificação Agendada com Sucesso!",
+        "success_direct": "Notificação enviada para {count} cliente(s)!",
+        "error_send": "Houve um erro ao enviar a notificação.",
+        "no_tokens_found": "Atenção: A mensagem foi processada, mas não encontramos nenhum dispositivo ativo (token) para o(s) usuário(s) selecionado(s). Verifique se o cliente permitiu notificações no app.",
+        "unknown_error": "Erro desconhecido"
       }
     }
   },
