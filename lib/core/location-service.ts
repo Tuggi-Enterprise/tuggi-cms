@@ -107,7 +107,7 @@ class LocationService {
         code: country.value || country.label,
         cityCount: 0, 
         totalPOIs: country.count || 0
-      }))
+      })).sort((a: Country, b: Country) => a.name.localeCompare(b.name))
       
       // Update cache
       ;(this.cache as any)[cacheKey] = { data: countries, timestamp: startTime }
@@ -174,7 +174,7 @@ class LocationService {
         label: state.label || state.value,
         cityCount: 0,
         totalPOIs: state.count || 0
-      }))
+      })).sort((a: State, b: State) => a.label.localeCompare(b.label))
 
       this.cache.states[cacheKey] = { data: states, timestamp: startTime }
       
@@ -240,7 +240,7 @@ class LocationService {
         name: city.value || city.label,
         cityCount: 0,
         totalPOIs: city.count || 0
-      }))
+      })).sort((a: City, b: City) => a.name.localeCompare(b.name))
 
       this.cache.cities[cacheKey] = { data: cities, timestamp: startTime }
       
