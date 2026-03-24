@@ -19,7 +19,7 @@ interface ScriptOptions {
   approved?: boolean
   category?: string
   batch_size?: number
-  mode?: 'migration_only' | 'migration_description' | 'migration_description_audio' | 'full'
+  mode?: 'enrichment_migration_triggers' | 'migration_only' | 'migration_description' | 'migration_description_audio' | 'full'
   auto_generate_audio?: boolean
   auto_approve_if_satisfactory?: boolean
   skip_if_exists?: boolean
@@ -83,9 +83,9 @@ async function main() {
 
   // Default values
   const batchSize = options.batch_size || 25
-  const mode = options.mode || 'full'
-  const autoGenerateAudio = options.auto_generate_audio ?? true
-  const autoApprove = options.auto_approve_if_satisfactory ?? false
+  const mode = options.mode || 'enrichment_migration_triggers'
+  const autoGenerateAudio = options.auto_generate_audio ?? false
+  const autoApprove = options.auto_approve_if_satisfactory ?? true
   const skipIfExists = options.skip_if_exists ?? true
   const updateIfExists = options.update_if_exists ?? false
 

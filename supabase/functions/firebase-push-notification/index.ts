@@ -130,41 +130,52 @@ Deno.serve(async (req) => {
       return data.access_token;
     };
 
+    // Helper: Construct Multi-platform Message
+    const constructMessage = (notification: any, priority: string, ttl: number) => {
+      return {
+        notification: {
+          title: notification.title,
+          body: notification.body,
+          ...(notification.imageUrl && { image: notification.imageUrl }),
+        },
+        data: notification.data || {},
+        android: {
+          priority: priority === 'high' ? 'high' : 'normal',
+          ttl: `${ttl}s`,
+          notification: {
+            sound: 'default',
+          },
+        },
+        apns: {
+          headers: { 
+            'apns-priority': priority === 'high' ? '10' : '5',
+            'apns-push-type': 'alert'
+          },
+          payload: {
+            aps: {
+              alert: {
+                title: notification.title,
+                body: notification.body,
+              },
+              'mutable-content': 1,
+              sound: 'default',
+              ...(notification.badge !== undefined && { badge: notification.badge }),
+            },
+          },
+        },
+      };
+    };
+
     // Helper: Send Notification
     const sendNotification = async (tokens: string[], notification: any, priority: string, ttl: number) => {
       if (tokens.length === 0) return { success: 0, failure: 0, errors: [] };
       
       const accessToken = await createAccessToken();
-      console.log(`[${requestId}] 📡 Sending to ${tokens.length} devices...`);
-
       const results = { success: 0, failure: 0, errors: [] as string[] };
-      
-      // Process in smaller batches to avoid memory issues
+      const baseMessage = constructMessage(notification, priority, ttl);
+
       for (const token of tokens) {
-        const message = {
-          message: {
-            token,
-            notification: {
-              title: notification.title,
-              body: notification.body,
-              ...(notification.imageUrl && { image: notification.imageUrl }),
-            },
-            data: notification.data || {},
-            android: {
-              priority: priority === 'high' ? 'high' : 'normal',
-              ttl: `${ttl}s`,
-            },
-            apns: {
-              headers: { 'apns-priority': priority === 'high' ? '10' : '5' },
-              payload: {
-                aps: {
-                  'content-available': 1,
-                  ...(notification.badge !== undefined && { badge: notification.badge }),
-                },
-              },
-            },
-          },
-        };
+        const message = { message: { ...baseMessage, token } };
 
         try {
           const res = await fetch(`https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`, {
@@ -183,8 +194,9 @@ Deno.serve(async (req) => {
             const error = data.error?.message || 'Unknown';
             results.failure++;
             results.errors.push(`Token ${token.substring(0, 8)}...: ${error}`);
+            console.error(`[${requestId}] ⚠️ FCM error for token ${token.substring(0, 8)}:`, JSON.stringify(data));
             
-            if (error.includes('UNREGISTERED')) {
+            if (error.includes('UNREGISTERED') || error.includes('INVALID_ARGUMENT')) {
               await supabase.schema('drive').from('fcm_tokens').update({ is_active: false }).eq('fcm_token', token);
             }
           }
@@ -243,23 +255,42 @@ Deno.serve(async (req) => {
       let stats;
 
       if (type === 'user') {
-        const { data } = await supabase.schema('drive').from('fcm_tokens').select('fcm_token').in('user_id', userIds).eq('is_active', true);
-        tokens = data?.map(t => t.fcm_token) || [];
+        // Fetch from both tables to ensure we have the latest "organized" token too
+        const [fcmResult, profileResult] = await Promise.all([
+          supabase.schema('drive').from('fcm_tokens').select('fcm_token').in('user_id', userIds).eq('is_active', true),
+          supabase.schema('drive').from('profiles').select('push_token').in('id', userIds)
+        ]);
+        
+        const fcmTokens = fcmResult.data?.map(t => t.fcm_token) || [];
+        const profileTokens = profileResult.data?.map(p => p.push_token).filter(Boolean) || [];
+        
+        tokens = Array.from(new Set([...fcmTokens, ...profileTokens]));
         stats = await sendNotification(tokens, notification, priority, ttl);
       } else if (type === 'broadcast') {
-        const { data } = await supabase.schema('drive').from('fcm_tokens').select('fcm_token').eq('is_active', true);
-        tokens = data?.map(t => t.fcm_token) || [];
+        const [fcmResult, profileResult] = await Promise.all([
+          supabase.schema('drive').from('fcm_tokens').select('fcm_token').eq('is_active', true),
+          supabase.schema('drive').from('profiles').select('push_token').not('push_token', 'is', null)
+        ]);
+
+        const fcmTokens = fcmResult.data?.map(t => t.fcm_token) || [];
+        const profileTokens = profileResult.data?.map(p => p.push_token) || [];
+        
+        tokens = Array.from(new Set([...fcmTokens, ...profileTokens]));
         stats = await sendNotification(tokens, notification, priority, ttl);
       } else if (type === 'topic') {
         // Topic send (direct call to FCM)
         const accessToken = await createAccessToken();
+        const baseMessage = constructMessage(notification, priority, ttl);
         const res = await fetch(`https://fcm.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/messages:send`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: { topic, notification: { title: notification.title, body: notification.body }, data: notification.data || {} } }),
+          body: JSON.stringify({ message: { ...baseMessage, topic } }),
         });
         const data = await res.json();
         stats = res.ok ? { success: 1, failure: 0 } : { success: 0, failure: 1, errors: [data.error?.message] };
+        if (!res.ok) {
+          console.error(`[${requestId}] ❌ Topic FCM Error:`, JSON.stringify(data));
+        }
       }
 
       await logResult(type, notification, userIds, topic, stats.success > 0 ? 'sent' : 'failed', stats);

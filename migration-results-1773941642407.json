@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-03-19T17:34:02.415Z",
+  "options": {
+    "country": "Brazil",
+    "city": "Campinas",
+    "batch_size": 5,
+    "limit": 5
+  },
+  "stats": {
+    "total": 5,
+    "successful": 3,
+    "failed": 2,
+    "skipped": 0,
+    "errors": [
+      {
+        "uuid_id": "8deb47c4-dd8d-5018-b22d-2e5cbbe7de0e",
+        "name": "Praça Arautos da Paz",
+        "error": "Migration succeeded but no attraction_id returned"
+      },
+      {
+        "uuid_id": "c2caac35-28b6-5697-8f57-a0b5ff38e21e",
+        "name": "Balão do Bom Retiro",
+        "error": "Migration succeeded but no attraction_id returned"
+      }
+    ]
+  },
+  "errors": [
+    {
+      "uuid_id": "8deb47c4-dd8d-5018-b22d-2e5cbbe7de0e",
+      "name": "Praça Arautos da Paz",
+      "error": "Migration succeeded but no attraction_id returned"
+    },
+    {
+      "uuid_id": "c2caac35-28b6-5697-8f57-a0b5ff38e21e",
+      "name": "Balão do Bom Retiro",
+      "error": "Migration succeeded but no attraction_id returned"
+    }
+  ]
+}

@@ -124,14 +124,32 @@ export const FILTER_CONFIG = {
     "universal do reino", "igreja universal", "mundial do poder",
     "internacional da graça", "deus é amor", "renascer em cristo",
     "bola de neve", "assembléia de deus", "testemunhas de jeová",
-    "salão do reino", "congregacao cristã", "congregacao crista"
+    "salão do reino", "congregacao cristã", "congregacao crista",
+    "adventista", "iasd", "sétimo dia", "setimo dia"
   ],
 
   ACCOMMODATION_TYPES: [
     "hotel", "motel", "guest_house", "hostel", "apartment", "chalet", "alpine_hut"
   ],
 
-  GENERIC_PARK_NAMES: ["praça", "praca", "pça", "pça.", "plaza", "plazoleta", "largo", "jardim", "provincia de ", "provincia das ", "paseo "],
+  GENERIC_PARK_NAMES: [
+    "praça", "praca", "pça", "pça.", "largo", "jardim", "praceta", "rotunda", // PT
+    "plaza", "plazoleta", "paseo", "alameda", "parque de ", // ES
+    "piazza", "piazzale", // IT
+    "square", "plaza", "garden", "park of " // EN
+  ],
+
+  STREET_KEYWORDS: {
+    PREFIXES: [
+      "rua ", "avenida ", "av. ", "travessa ", "viela ", "alameda ", "rodovia ", "estrada ", "beira mar ", "beiramar ", // PT
+      "calle ", "avenida ", "av. ", "paseo ", "camino ", "carretera ", // ES
+      "via ", "viale ", "corso ", "strada ", // IT
+      "street ", "avenue ", "st. ", "ave. ", "road ", "rd. ", "lane ", "way ", "drive ", "dr. ", "boulevard ", "blvd. ", "highway " // EN
+    ],
+    SUFFIXES: [
+      " street", " avenue", " st.", " ave", " road", " rd.", " lane", " way", " drive", " dr.", " boulevard", " blvd." // EN
+    ]
+  },
 
   SINGLE_WORD_WHITELIST: [
     "masp", "pinacoteca", "copan", "catavento", "maracanã", "corcovado", "obelisco", "obelisk", "panteon", "panteão", "louvre", "prado"
@@ -269,11 +287,21 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
     return { remove: true, reason: "INFRASTRUCTURE: Torre/Caixa d'água sem valor" };
   }
 
-  // Generic Park Names check
-  const isGenericPark = (props.leisure === "park" || props.amenity === "plaza") && 
-    FILTER_CONFIG.GENERIC_PARK_NAMES.some(p => nameLower.startsWith(p) && name.length < p.length + 5);
-  if (isGenericPark && !isFamous) {
-    return { remove: true, reason: "PARK: Praça/Parque genérico sem fama" };
+  // Generic Park Names check - more aggressive for Elite filter
+  const isGenericParkName = FILTER_CONFIG.GENERIC_PARK_NAMES.some(p => nameLower.startsWith(p));
+  const isParkCategory = props.leisure === "park" || props.amenity === "plaza" || props.place === "square";
+  
+  if (isGenericParkName && isParkCategory && !isFamous) {
+    return { remove: true, reason: "PARK: Praça/Largo genérico sem fama ou histórico" };
+  }
+
+  // Generic Street Names check - streets should not be POIs unless they are landmarks
+  const isGenericStreet = 
+    FILTER_CONFIG.STREET_KEYWORDS.PREFIXES.some(p => nameLower.startsWith(p)) ||
+    FILTER_CONFIG.STREET_KEYWORDS.SUFFIXES.some(s => nameLower.endsWith(s));
+    
+  if (isGenericStreet && !isFamous) {
+    return { remove: true, reason: "STREET: Rua/Avenida/Street genérica sem fama ou histórico" };
   }
 
   // Single word names - Strict block
