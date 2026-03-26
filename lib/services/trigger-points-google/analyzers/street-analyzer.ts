@@ -28,7 +28,7 @@ export class StreetAnalyzer {
   private async retryOSMQuery(
     query: string,
     description: string,
-    maxRetries: number = 3,
+    maxRetries: number = 7,
     initialDelay: number = 2000 // 2 segundos inicial
   ): Promise<Response> {
     // Lista de mirrors do Overpass API para resiliência
@@ -987,7 +987,7 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       const response = await this.retryOSMQuery(
         query,
         'OSM query for streets around boundary',
-        3,
+        7,
         2000
       );
       
@@ -1210,7 +1210,7 @@ out geom tags;
         const response = await this.retryOSMQuery(
           query,
           'OSM query for roads for boundary point',
-          2, // Fewer retries here because it's in a loop
+          7, // Aumentado para 7 para cobrir todos os mirrors
           1000
         );
         
@@ -1348,7 +1348,7 @@ out geom tags;
       const response = await this.retryOSMQuery(
         query,
         'OSM query for roads (fast)',
-        2,
+        7,
         1500
       );
       
@@ -1490,7 +1490,7 @@ out geom tags;
       const response = await this.retryOSMQuery(
         query,
         'OSM query for roads around point',
-        2,
+        7,
         1500
       );
       
@@ -1664,7 +1664,7 @@ out geom;
       const response = await this.retryOSMQuery(
         query,
         'OSM query for all streets',
-        2,
+        7,
         2000
       );
       
@@ -1772,7 +1772,7 @@ out tags;
       const response = await this.retryOSMQuery(
         query,
         'OSM surrounding buildings query',
-        2,
+        7,
         1500
       );
       
@@ -1858,7 +1858,7 @@ out geom tags;
       const response = await this.retryOSMQuery(
         query,
         'OSM query for streets around point',
-        3,
+        7,
         2000
       );
       

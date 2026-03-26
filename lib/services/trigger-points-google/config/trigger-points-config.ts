@@ -363,8 +363,8 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
     minDistanceBetweenTPs: 100,
     visibilityThreshold: 0.3,  // Menos restritivo (visível de longe)
     strategy: 'circular',
-    streetPriority: ['motorway', 'trunk', 'primary'],  // Apenas grandes vias
-    blockStreets: ['residential', 'unclassified', 'tertiary', 'secondary']  // Bloquear ruas locais
+    streetPriority: ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'],  // Incluídas rodovias, avenidas e ruas coletoras/principais de bairro
+    blockStreets: ['residential', 'unclassified']  // Bloquear apenas ruas residenciais muito pequenas (muitas árvores/prédios)
   },
   
   // 🏗️ MEDIUM: Baixa elevação + estrutura alta (>50m)

@@ -19,7 +19,7 @@ export class BoundaryDetector {
   private async retryOSMQuery(
     query: string,
     description: string,
-    maxRetries: number = 5,
+    maxRetries: number = 7,
     initialDelay: number = 2000 // 2 segundos inicial
   ): Promise<Response> {
     // Lista de mirrors do Overpass API para resiliência
@@ -343,7 +343,7 @@ out geom tags;
       const response = await this.retryOSMQuery(
         query,
         `OSM ID query: ${osmType}(${osmID})`,
-        3,
+        7,
         2000
       );
       
@@ -467,7 +467,7 @@ out geom tags;
       const consolidatedResponseInitial = await this.retryOSMQuery(
         consolidatedQueryInitial,
         'Consolidated OSM query (POI + streets + buildings)',
-        5, // 5 tentativas
+        7, // 7 tentativas
         2000 // 2s delay inicial
       );
       
@@ -585,8 +585,8 @@ out geom tags;
           const expandedStreetsResponse = await this.retryOSMQuery(
             expandedStreetsQuery,
             `Expanded streets query (${requiredRadius}m radius)`,
-            5, // ✅ 5 tentativas (igual ao padrão, crítico para POIs grandes)
-            3000 // 3s delay inicial (backoff exponencial: 3s, 6s, 12s, 24s, 48s)
+            7, // 7 tentativas (crítico para POIs grandes)
+            3000 // 3s delay inicial (backoff exponencial: 3s, 6s, 12s, 24s, 48s, 96s, 192s)
           );
           
           if (expandedStreetsResponse.ok) {
@@ -1704,7 +1704,7 @@ out geom tags;
                       const osmTagsResponseInitial = await this.retryOSMQuery(
                         consolidatedQueryInitial,
                         'Consolidated OSM query (POI + streets + buildings)',
-                        5, // 5 tentativas
+                        7, // 7 tentativas
                         2000 // 2s delay inicial
                       );
                       
@@ -1774,7 +1774,7 @@ out tags;
                               const heightResponse = await this.retryOSMQuery(
                                 heightQuery,
                                 `Direct height query for ${result.osm_type}(${targetOSMID})`,
-                                3,
+                                7,
                                 2000
                               );
                               
@@ -1915,11 +1915,16 @@ out tags;
                         const expandedBoundaryFinal = this.expandBoundary(processed.coordinates, requiredRadius);
                         const expandedPolygonFinal = expandedBoundaryFinal.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
                         
-                        // Query expandida apenas para ruas (mais leve que buscar tudo)
+                        // 🚀 OPTIMIZATION: Only search for relevant streets for the group (very important for large radius)
+                        const streetTypes = classification.streetPriority && classification.streetPriority.length > 0
+                          ? classification.streetPriority.join('|')
+                          : 'motorway|trunk|primary|secondary|tertiary|residential|unclassified';
+                          
+                        // Query expandida apenas para ruas (mais leve que buscar apenas o que importa)
                         const expandedStreetsQuery = `
 [out:json][timeout:180];
 (
-  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"]["access"!~"^(no)$"](poly:"${expandedPolygonFinal}");
+  way["highway"~"^(${streetTypes})$"]["access"!~"^(no)$"](poly:"${expandedPolygonFinal}");
 );
 out geom tags;
 `;
@@ -1927,11 +1932,11 @@ out geom tags;
                         try {
                           // 🔄 RETRY COM BACKOFF: Query expandida é importante para POIs grandes
                           // ✅ QUALIDADE > VELOCIDADE: Aumentar tentativas para garantir dados
-                          console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry up to 5 times if timeout`);
+                          console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry up to 7 times using mirror rotation`);
                           const expandedStreetsResponse = await this.retryOSMQuery(
                             expandedStreetsQuery,
                             `Expanded streets query (${requiredRadius}m radius)`,
-                            5, // ✅ 5 tentativas (igual ao padrão, crítico para POIs grandes)
+                            7, // 7 tentativas (crítico para POIs grandes)
                             3000 // 3s delay inicial (backoff exponencial: 3s, 6s, 12s, 24s, 48s)
                           );
                           
@@ -2004,7 +2009,7 @@ out tags;
                         const response = await this.retryOSMQuery(
                           architecturalQuery,
                           'Architectural elements query (for POI height)',
-                          3, // 3 tentativas (menos crítico que query consolidada)
+                          7, // 7 tentativas
                           3000 // 3s delay inicial
                         );
                         
@@ -2177,7 +2182,7 @@ out geom tags;
       const response = await this.retryOSMQuery(
         query,
         `OSM query: ${searchType}`,
-        3, // 3 retries for these secondary queries
+        7, // 7 retries to use all mirrors
         2000
       );
       
