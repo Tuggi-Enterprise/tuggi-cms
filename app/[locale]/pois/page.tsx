@@ -472,7 +472,7 @@ function POIListWithSearchParams() {
 
     try {
       const response = await fetch('/api/pois/bulk-delete', {
-        method: 'POST',
+        method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ poiIds: selectedPois })
       })
