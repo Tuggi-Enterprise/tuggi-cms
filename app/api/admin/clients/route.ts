@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     let query = supabaseService
       .schema('core')
       .from('clients')
-      .select('id, name, email, phone, status, cms_user_id, created_at, updated_at', { count: 'exact' })
+      .select('id, name, email, phone, company_name, status, cms_user_id, created_at, updated_at', { count: 'exact' })
 
     // Filter by status
     if (status !== 'all') {
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 
     // Filter by search (name or email)
     if (search) {
-      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`)
+      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,company_name.ilike.%${search}%`)
     }
 
     // Apply sorting, pagination

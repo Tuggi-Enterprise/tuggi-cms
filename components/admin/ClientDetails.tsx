@@ -232,7 +232,7 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
           <ChevronRight className="w-3 h-3" />
           <Link href="/admin/clients" className="hover:text-tuggi-blue transition-colors">Admin</Link>
           <ChevronRight className="w-3 h-3 text-tuggi-blue" />
-          <span className="text-gray-900 dark:text-white">{client.name}</span>
+          <span className="text-gray-900 dark:text-white">{client.company_name || client.name}</span>
         </nav>
       )}
 
@@ -240,7 +240,7 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div className="space-y-1">
           <div className="flex items-center gap-4">
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">{client.name}</h1>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white tracking-tight">{client.company_name || client.name}</h1>
             <span className={cn(
               "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border",
               client.status === 'approved' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'
@@ -248,7 +248,11 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
               {client.status}
             </span>
           </div>
-          <p className="text-gray-500 font-medium text-sm">{client.email}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-gray-500 font-semibold text-sm">{client.name}</p>
+            <div className="w-1 h-1 bg-gray-300 rounded-full" />
+            <p className="text-gray-400 font-medium text-sm">{client.email}</p>
+          </div>
         </div>
         <div className="flex gap-3">
           <button onClick={() => setShowQrCode(!showQrCode)} className="flex items-center gap-2 px-5 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-black font-semibold text-xs transition-all shadow-md">
@@ -328,11 +332,11 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
       {/* Main Content — 3 Section Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start pb-20">
         
-        {/* === Section 1: Company Profile === */}
         <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
           <SectionHeader icon={<Building2 className="w-4 h-4 text-tuggi-blue" />} title="Company Profile" color="tuggi-blue" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
-            <EditField label="Company / Trade Name" value={isEditing ? editedClient.name || '' : client.name} isEditing={isEditing} onChange={(v) => updateField('name', v)} />
+            <EditField label="Company Trade Name" value={isEditing ? editedClient.company_name || '' : client.company_name || '-'} isEditing={isEditing} onChange={(v) => updateField('company_name', v)} />
+            <EditField label="Legal Name / Razão Social" value={isEditing ? editedClient.name || '' : client.name} isEditing={isEditing} onChange={(v) => updateField('name', v)} />
             <EditField label="Contact Email" value={isEditing ? editedClient.email || '' : client.email} isEditing={isEditing} onChange={(v) => updateField('email', v)} type="email" />
             <EditField label="Phone" value={isEditing ? editedClient.phone || '' : client.phone || '-'} isEditing={isEditing} onChange={(v) => updateField('phone', v)} type="tel" />
             <EditField label="Website" value={isEditing ? editedClient.website || '' : client.website || '-'} isEditing={isEditing} isLink={!isEditing && !!client.website} onChange={(v) => updateField('website', v)} />
