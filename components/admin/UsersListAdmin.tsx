@@ -247,7 +247,7 @@ export function UsersListAdmin({ onCreateNew }: UsersListAdminProps) {
                         <span className="text-[11px] font-bold text-gray-900 dark:text-white uppercase truncate max-w-[180px]">
                           {user.clients?.length ? user.clients.map(c => c.name).join(', ') : user.client_name || '—'}
                         </span>
-                        {user.clients?.length > 1 && <span className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Multiple Entities</span>}
+                        {(user.clients?.length ?? 0) > 1 && <span className="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Multiple Entities</span>}
                       </div>
                     </td>
                     <td className="px-8 py-6 text-center">

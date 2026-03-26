@@ -48,6 +48,8 @@ export interface EditableOSMPOI extends OSMFeature {
     city?: string
     state?: string
     country?: string
+    address?: string
+    website?: string
     coordinates?: [number, number]
   }
 }

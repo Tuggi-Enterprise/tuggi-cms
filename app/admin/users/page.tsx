@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
@@ -8,7 +8,7 @@ import { UsersListAdmin } from '@/components/admin/UsersListAdmin'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { Container } from '@/components/ui/Container'
 
-export default function AdminUsersPage() {
+function AdminUsersContent() {
   const router = useRouter()
   const { session, isLoading: sessionLoading } = useSessionContext()
   const supabase = useSupabaseClient()
@@ -87,5 +87,17 @@ export default function AdminUsersPage() {
         />
       </Container>
     </div>
+  )
+}
+
+export default function AdminUsersPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue mx-auto" />
+      </div>
+    }>
+      <AdminUsersContent />
+    </Suspense>
   )
 }
