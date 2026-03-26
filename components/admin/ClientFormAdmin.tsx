@@ -60,8 +60,9 @@ export function ClientFormAdmin({ client, onSubmit, onCancel, isLoading = false 
     bank_account_number: client?.bank_account_number || '',
     bank_routing_number: client?.bank_routing_number || '',
     bank_name: client?.bank_name || '',
-    commission_rate: client?.commission_rate ?? 0.20,
-    is_platform_owner: client?.is_platform_owner ?? false
+    commission_rate: client?.commission_rate || 0.200,
+    is_platform_owner: client?.is_platform_owner || false,
+    welcome_poi_id: client?.welcome_poi_id || ''
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -162,6 +163,7 @@ export function ClientFormAdmin({ client, onSubmit, onCancel, isLoading = false 
           <FormField label="Legal Name / Razão Social *" name="name" value={formData.name} onChange={handleChange} error={errors.name} disabled={isSaving} required />
           <FormField label="Contact Email *" name="email" value={formData.email} onChange={handleChange} error={errors.email} disabled={isSaving || !!client} required type="email" />
           <FormField label="Phone" name="phone" value={formData.phone} onChange={handleChange} disabled={isSaving} type="tel" />
+          <FormField label="Welcome POI ID (UUID)" name="welcome_poi_id" value={formData.welcome_poi_id} onChange={handleChange} disabled={isSaving} placeholder="Enter POI ID for welcome audio..." />
           
           <div className="md:col-span-2">
             <FormField label="Address" name="address" value={formData.address} onChange={handleChange} disabled={isSaving} />

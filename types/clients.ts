@@ -45,6 +45,7 @@ export interface Client {
   // Commission
   commission_rate?: number
   is_platform_owner?: boolean
+  welcome_poi_id?: string
 }
 
 export type TaxIdType = 'cnpj' | 'nipc' | 'nif' | 'vat' | 'ein' | 'other'

@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
     const groupStatus = searchParams.get('groupStatus') || 'all'
     const scoreFilter = searchParams.get('scoreFilter') || 'all'
     const triggerPointsFilter = searchParams.get('triggerPointsFilter') || 'all'
+    const ownerId = searchParams.get('ownerId') || null
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
     const all = searchParams.get('all') === 'true' // New parameter for total counts
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     // Enhanced caching for better performance with large datasets
     const sortedParams = Object.entries({
       search, status, country, state, city, googleTypes, category, contentStatus,
-      groupStatus, scoreFilter, triggerPointsFilter, page, limit
+      groupStatus, scoreFilter, triggerPointsFilter, page, limit, ownerId
     })
       .filter(([_, value]) => value !== null && value !== undefined && value !== '' && value !== 'all')
       .sort(([a], [b]) => a.localeCompare(b))
@@ -90,7 +91,8 @@ export async function GET(request: NextRequest) {
       trigger_points_filter: triggerPointsFilter,
       limit_count: mapView ? 10000 : limit, // Higher limit for map view
       offset_count: mapView ? 0 : startIndex,
-      fetch_all: mapView || all || false
+      fetch_all: mapView || all || false,
+      p_owner_id: ownerId
     }
     
     // Try to detect logged user and, if client, restrict results to their own POIs

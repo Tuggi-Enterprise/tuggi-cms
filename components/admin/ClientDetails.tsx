@@ -3,11 +3,13 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronRight, Edit2, Trash2, AlertCircle, Check, QrCode, Download, Copy, Users, Save, Building2, Scale, Landmark, Percent, Globe } from 'lucide-react'
+import { ChevronRight, Edit2, Trash2, AlertCircle, Check, QrCode, Download, Copy, Users, Save, Building2, Scale, Landmark, Percent, Globe, X } from 'lucide-react'
 import { QRCodeCanvas } from 'qrcode.react'
 import { Client, TaxIdType } from '@/types/clients'
 import { CmsUser } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
+import { useSupabaseClient } from '@supabase/auth-helpers-react'
+import { MapPin as Pin, ExternalLink } from 'lucide-react'
 
 interface ClientDetailsProps {
   clientId: string
@@ -64,6 +66,18 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
   
   const [showQrCode, setShowQrCode] = useState(false)
   const [copied, setCopied] = useState(false)
+  const supabase = useSupabaseClient()
+
+  // Linked POIs state
+  const [linkedPois, setLinkedPois] = useState<any[]>([])
+  const [loadingPois, setLoadingPois] = useState(false)
+  const [poiIdToLink, setPoiIdToLink] = useState('')
+  const [isLinkingPoi, setIsLinkingPoi] = useState(false)
+  const [isUnlinkingPoiId, setIsUnlinkingPoiId] = useState<string | null>(null)
+
+  // Welcome POI state
+  const [welcomePoi, setWelcomePoi] = useState<any | null>(null)
+  const [isSettingWelcomePoi, setIsSettingWelcomePoi] = useState(false)
 
   // Determine current country for dynamic form
   const currentCountry = isEditing ? (editedClient.country || '') : (client?.country || '')
@@ -74,6 +88,7 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
     if (!clientId) return
     fetchClientDetails()
     fetchLinkedUsers()
+    fetchLinkedPois()
   }, [clientId])
 
   const fetchClientDetails = async () => {
@@ -83,6 +98,13 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
       const data = await response.json()
       setClient(data.client)
       setEditedClient(data.client)
+      
+      // If client has welcome_poi_id, fetch its minimal details
+      if (data.client?.welcome_poi_id) {
+        fetchWelcomePoi(data.client.welcome_poi_id)
+      } else {
+        setWelcomePoi(null)
+      }
     } catch (err) {
       setError('Failed to load client details')
       console.error(err)
@@ -99,6 +121,114 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
       console.error('Failed to load linked users:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchLinkedPois = async () => {
+    try {
+      setLoadingPois(true)
+      const response = await fetch(`/api/pois/search?ownerId=${clientId}&limit=100`)
+      if (!response.ok) throw new Error('Failed to fetch POIs')
+      const data = await response.json()
+      setLinkedPois(data.data || [])
+    } catch (err) {
+      console.error('Failed to load linked POIs:', err)
+    } finally {
+      setLoadingPois(false)
+    }
+  }
+
+  const handleLinkPoi = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!poiIdToLink.trim()) return
+
+    try {
+      setIsLinkingPoi(true)
+      setError(null)
+      
+      const { data, error: updateError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .update({ owner_id: clientId })
+        .eq('id', poiIdToLink.trim())
+        .select()
+
+      if (updateError) throw updateError
+      
+      if (!data || data.length === 0) {
+        throw new Error('POI not found. Check if the ID is correct.')
+      }
+
+      setPoiIdToLink('')
+      await fetchLinkedPois()
+      setSuccessMsg(`POI "${data[0].name}" linked successfully`)
+      setTimeout(() => setSuccessMsg(null), 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to link POI')
+    } finally {
+      setIsLinkingPoi(false)
+    }
+  }
+
+  const handleUnlinkPoi = async (poiId: string) => {
+    try {
+      setIsUnlinkingPoiId(poiId)
+      const { error: updateError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .update({ owner_id: null })
+        .eq('id', poiId)
+
+      if (updateError) throw updateError
+      
+      await fetchLinkedPois()
+    } catch (err) {
+      console.error('Failed to unlink POI:', err)
+      setError('Failed to unlink POI')
+    } finally {
+      setIsUnlinkingPoiId(null)
+    }
+  }
+
+  const fetchWelcomePoi = async (poiId: string) => {
+    try {
+      const { data, error: fetchError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, name, city, country, approved')
+        .eq('id', poiId)
+        .single()
+      
+      if (!fetchError && data) setWelcomePoi(data)
+    } catch (err) { console.error('Failed to load welcome POI:', err) }
+  }
+
+  const handleSetWelcomePoi = async (poiId: string | null) => {
+    try {
+      setIsSettingWelcomePoi(true)
+      const { error: updateError } = await supabase
+        .schema('core')
+        .from('clients')
+        .update({ welcome_poi_id: poiId })
+        .eq('id', clientId)
+
+      if (updateError) throw updateError
+      
+      if (poiId) {
+        await fetchWelcomePoi(poiId)
+      } else {
+        setWelcomePoi(null)
+      }
+      
+      // Update local client state
+      setClient(prev => prev ? { ...prev, welcome_poi_id: poiId ?? undefined } : null)
+      setSuccessMsg(poiId ? 'Welcome POI set successfully' : 'Welcome POI removed')
+      setTimeout(() => setSuccessMsg(null), 3000)
+    } catch (err) {
+      setError('Failed to update Welcome POI')
+      console.error(err)
+    } finally {
+      setIsSettingWelcomePoi(false)
     }
   }
 
@@ -611,6 +741,165 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+
+        {/* === Section 5: Welcome Flow & QR === */}
+        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+          <SectionHeader icon={<QrCode className="w-4 h-4 text-tuggi-blue" />} title="Welcome Scan Flow" color="tuggi-blue" />
+          <p className="text-xs text-gray-500 font-medium mb-6 leading-relaxed">
+            Link a specific POI to play a welcome audio automatically when the user scans this client's QR code.
+          </p>
+          
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Welcome POI (Audio Link)</label>
+              
+              {welcomePoi ? (
+                <div className="flex items-center justify-between p-4 bg-tuggi-blue/5 border border-tuggi-blue/10 rounded-2xl animate-in fade-in zoom-in-95 duration-300">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-tuggi-blue/10 rounded-xl">
+                      <Pin className="w-5 h-5 text-tuggi-blue" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-gray-900 dark:text-white text-sm flex items-center gap-2">
+                        {welcomePoi.name}
+                        <Link href={`/pois?search=${welcomePoi.id}`} className="p-1 text-gray-400 hover:text-tuggi-blue transition-colors">
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </Link>
+                      </div>
+                      <div className="text-[11px] text-gray-400 font-medium">{welcomePoi.city}, {welcomePoi.country}</div>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => handleSetWelcomePoi(null)}
+                    disabled={isSettingWelcomePoi}
+                    className="p-2 text-gray-300 hover:text-red-500 transition-colors"
+                    title="Remove Welcome POI"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="p-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-800 flex gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="Enter POI UUID for welcome audio..." 
+                    className="flex-1 bg-transparent border-none outline-none px-4 text-xs font-semibold text-gray-900 dark:text-white placeholder:text-gray-400 placeholder:font-medium"
+                    id="welcome-poi-input"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handleSetWelcomePoi((e.target as HTMLInputElement).value)
+                        ;(e.target as HTMLInputElement).value = ''
+                      }
+                    }}
+                  />
+                  <button 
+                    onClick={() => {
+                      const input = document.getElementById('welcome-poi-input') as HTMLInputElement
+                      if (input.value) {
+                        handleSetWelcomePoi(input.value)
+                        input.value = ''
+                      }
+                    }}
+                    disabled={isSettingWelcomePoi}
+                    className="px-6 py-2 bg-tuggi-blue text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-tuggi-blue/90 shadow-md shadow-tuggi-blue/10 transition-all font-mono"
+                  >
+                    Set
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="p-5 bg-gray-50 dark:bg-gray-950/20 rounded-2xl border border-gray-100 dark:border-gray-800">
+              <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Target Reference Link</h4>
+              <div className="flex items-center justify-between gap-4">
+                <code className="text-[11px] font-mono text-tuggi-blue font-bold truncate">/download?ID={client.id}</code>
+                <button onClick={() => { navigator.clipboard.writeText(finalQrUrl); setCopied(true); setTimeout(() => setCopied(false), 2000) }} className="p-2 hover:bg-white rounded-lg transition-colors text-gray-400">
+                  {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-[9px] text-gray-400 mt-2">QR Code already points to this ID. Welcome audio is triggered by this link.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* === Section 6: Linked POIs (Inventory) === */}
+        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">
+          <div className="flex items-center justify-between mb-6">
+            <SectionHeader icon={<Pin className="w-4 h-4 text-tuggi-blue" />} title="Linked POIs" color="tuggi-blue" />
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">
+              {linkedPois.length} POIs
+            </div>
+          </div>
+
+          <form onSubmit={handleLinkPoi} className="mb-6 flex gap-3 p-4 bg-gray-50 dark:bg-gray-800/30 rounded-2xl border border-gray-100 dark:border-gray-800 transition-all focus-within:ring-2 focus-within:ring-tuggi-blue/10">
+            <div className="flex-1">
+              <input 
+                type="text" 
+                placeholder="Paste POI ID (UUID) here..." 
+                value={poiIdToLink}
+                onChange={(e) => setPoiIdToLink(e.target.value)}
+                className="w-full bg-transparent border-none outline-none text-sm font-semibold text-gray-900 dark:text-white placeholder:text-gray-400 placeholder:font-medium"
+                disabled={isLinkingPoi}
+              />
+            </div>
+            <button 
+              type="submit" 
+              disabled={isLinkingPoi || !poiIdToLink.trim()}
+              className="flex items-center gap-2 px-6 py-2 bg-tuggi-blue text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-tuggi-blue/90 disabled:opacity-50 shadow-lg shadow-tuggi-blue/20 transition-all shrink-0"
+            >
+              {isLinkingPoi ? 'Linking...' : 'Link POI'}
+            </button>
+          </form>
+
+          <div className="overflow-hidden rounded-2xl border border-gray-100 dark:border-gray-800">
+            <table className="w-full">
+              <thead className="bg-gray-50 dark:bg-gray-800/50">
+                <tr>
+                  <th className="px-5 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">POI Name / Location</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
+                  <th className="px-5 py-3 text-right text-[10px] font-bold text-gray-400 uppercase tracking-widest">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {loadingPois ? (
+                  <tr><td colSpan={3} className="px-5 py-8 text-center"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-tuggi-blue mx-auto" /></td></tr>
+                ) : linkedPois.length === 0 ? (
+                  <tr><td colSpan={3} className="px-5 py-8 text-center text-gray-400 text-xs font-medium">No POIs linked to this client</td></tr>
+                ) : linkedPois.map(poi => (
+                  <tr key={poi.id} className="group hover:bg-gray-50 dark:hover:bg-gray-800/20 transition-colors">
+                    <td className="px-5 py-4">
+                      <div className="font-bold text-gray-900 dark:text-white text-sm flex items-center gap-2">
+                        {poi.name}
+                        <Link href={`/pois?search=${poi.id}`} className="p-1 text-gray-300 hover:text-tuggi-blue transition-colors">
+                          <ExternalLink className="w-3 h-3" />
+                        </Link>
+                      </div>
+                      <div className="text-[11px] text-gray-400 font-medium">{poi.city}, {poi.state || poi.country}</div>
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className={cn(
+                        "inline-flex px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-widest",
+                        poi.approved ? "bg-green-50 text-green-700 border border-green-100" : "bg-orange-50 text-orange-700 border border-orange-100"
+                      )}>
+                        {poi.approved ? 'Approved' : 'Pending'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-right">
+                      <button 
+                        onClick={() => handleUnlinkPoi(poi.id)} 
+                        disabled={isUnlinkingPoiId === poi.id} 
+                        className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                        title="Unlink POI from this client"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
