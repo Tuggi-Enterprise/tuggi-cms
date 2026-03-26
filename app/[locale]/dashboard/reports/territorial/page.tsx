@@ -182,7 +182,7 @@ export default function TerritorialReportPage() {
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
                         <span className={`
-                          text-xs font-black w-6 h-6 flex items-center justify-center rounded-full
+                          text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full
                           ${index < 3 ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400' : 'text-gray-400 bg-gray-50 dark:bg-gray-800'}
                         `}>
                           {index + 1}
@@ -193,7 +193,7 @@ export default function TerritorialReportPage() {
                         </div>
                       </div>
                       <div className="text-right">
-                        <span className="text-sm font-black block" style={{ color: TUGGI_COLORS.blue }}>{city.visit_count}</span>
+                        <span className="text-sm font-bold block" style={{ color: TUGGI_COLORS.blue }}>{city.visit_count}</span>
                       </div>
                     </div>
                     <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-1.5 overflow-hidden">
@@ -236,7 +236,7 @@ export default function TerritorialReportPage() {
                         index === 2 ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400' : 
                         'bg-white text-gray-500 border border-gray-100 dark:bg-gray-800 dark:border-gray-700'}
                     `}>
-                      <span className="text-lg font-black">{index + 1}</span>
+                      <span className="text-lg font-bold">{index + 1}</span>
                     </div>
 
                     {/* Content */}
@@ -263,7 +263,7 @@ export default function TerritorialReportPage() {
                         {/* Metrics */}
                         <div className="flex items-center gap-6 text-right">
                           <div className="flex flex-col items-end">
-                            <div className="flex items-center text-gray-900 dark:text-white font-black text-lg">
+                            <div className="flex items-center text-gray-900 dark:text-white font-bold text-lg">
                               <Eye className="w-4 h-4 mr-1.5 text-tuggi-blue opacity-50" />
                               {poi.total_visits}
                             </div>

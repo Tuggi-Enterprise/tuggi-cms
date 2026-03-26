@@ -258,19 +258,19 @@ const UserDetailModal = ({
               {/* Quick Stats */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="text-center p-4 bg-tuggi-blue/10 rounded-xl">
-                  <p className="text-2xl font-black text-tuggi-blue">{user.trip_count || 0}</p>
+                  <p className="text-2xl font-bold text-tuggi-blue">{user.trip_count || 0}</p>
                   <p className="text-xs text-gray-500">Trips</p>
                 </div>
                 <div className="text-center p-4 bg-green-500/10 rounded-xl">
-                  <p className="text-2xl font-black text-green-600">{user.poi_visits_count || 0}</p>
+                  <p className="text-2xl font-bold text-green-600">{user.poi_visits_count || 0}</p>
                   <p className="text-xs text-gray-500">POI Visits</p>
                 </div>
                 <div className="text-center p-4 bg-purple-500/10 rounded-xl">
-                  <p className="text-2xl font-black text-purple-600">{Math.round(user.total_km || 0)}</p>
+                  <p className="text-2xl font-bold text-purple-600">{Math.round(user.total_km || 0)}</p>
                   <p className="text-xs text-gray-500">KM</p>
                 </div>
                 <div className="text-center p-4 bg-orange-500/10 rounded-xl">
-                  <p className="text-2xl font-black text-orange-600">{user.unique_cities_visited || 0}</p>
+                  <p className="text-2xl font-bold text-orange-600">{user.unique_cities_visited || 0}</p>
                   <p className="text-xs text-gray-500">{t('cities')}</p>
                 </div>
               </div>
@@ -673,7 +673,7 @@ export default function AppUsersPage() {
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white flex items-center">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
             <Smartphone className="h-8 w-8 mr-3 text-tuggi-blue" />
             {t('title')}
           </h1>

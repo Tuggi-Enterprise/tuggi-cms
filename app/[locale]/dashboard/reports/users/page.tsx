@@ -98,10 +98,10 @@ export default function UsersReportPage() {
                     </span>
                   </td>
                   <td className="p-4 text-right">
-                    <span className="font-black text-gray-900 dark:text-white">{user.trip_count || 0}</span>
+                    <span className="font-bold text-gray-900 dark:text-white">{user.trip_count || 0}</span>
                   </td>
                   <td className="p-4 text-right">
-                    <span className="font-black text-tuggi-blue">{user.poi_visits_count || 0}</span>
+                    <span className="font-bold text-tuggi-blue">{user.poi_visits_count || 0}</span>
                   </td>
                   <td className="p-4 text-right">
                     <span className="font-medium text-gray-600 dark:text-gray-400">{Math.round(user.total_km || 0)}</span>

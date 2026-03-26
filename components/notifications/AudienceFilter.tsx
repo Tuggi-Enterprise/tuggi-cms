@@ -69,7 +69,7 @@ export function AudienceFilter({ filters, onChange }: AudienceFilterProps) {
             Target Audience
           </div>
           <div className={cn(
-            "px-3 py-1 rounded-full text-xs font-black transition-all duration-300",
+            "px-3 py-1 rounded-full text-[10px] font-bold transition-all duration-300 tracking-widest",
             loading ? "bg-gray-100 text-gray-400 animate-pulse" : "bg-tuggi-purple/10 text-tuggi-purple"
           )}>
             {loading ? 'CALCULATING...' : (estimate !== null ? `${estimate.toLocaleString()} RECIPIENTS` : 'UNKNOWN')}
@@ -84,18 +84,18 @@ export function AudienceFilter({ filters, onChange }: AudienceFilterProps) {
           <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
              <div className="flex items-center gap-2 mb-1">
                 <Database className="h-3 w-3 text-gray-400" />
-                <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest leading-none">Push Base</p>
+                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest leading-none">Push Base</p>
              </div>
-             <p className="text-lg font-black text-gray-900 dark:text-white leading-tight">
+             <p className="text-lg font-bold text-gray-900 dark:text-white leading-tight">
                 {totalBase !== null ? totalBase.toLocaleString() : '---'}
              </p>
           </div>
           <div className="p-4 bg-tuggi-purple/5 rounded-2xl border border-tuggi-purple/10">
              <div className="flex items-center gap-2 mb-1">
                 <Users className="h-3 w-3 text-tuggi-purple" />
-                <p className="text-[9px] font-black text-tuggi-purple/60 uppercase tracking-widest leading-none">Targeted</p>
+                <p className="text-[9px] font-bold text-tuggi-purple/60 uppercase tracking-widest leading-none">Targeted</p>
              </div>
-             <p className="text-lg font-black text-tuggi-purple leading-tight">
+             <p className="text-lg font-bold text-tuggi-purple leading-tight">
                 {estimate !== null ? estimate.toLocaleString() : '---'}
              </p>
           </div>

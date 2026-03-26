@@ -627,7 +627,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                 <MapPin className="h-4 w-4 text-tuggi-blue" />
                 <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Paradas Turísticas:</span>
               </div>
-              <span className="text-xl font-black text-tuggi-blue">{stopsCount}</span>
+              <span className="text-xl font-bold text-tuggi-blue">{stopsCount}</span>
               <span className="text-[10px] text-gray-400">(calculado dos pontos)</span>
             </div>
           </section>
@@ -692,7 +692,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                     {isExpanded && (
                       <div className="mt-2 ml-9 p-4 bg-white dark:bg-gray-800/80 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm space-y-4">
                         <div className="flex items-center justify-between">
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Recursos do Ponto</p>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em]">Recursos do Ponto</p>
                           {isStartOrEnd && (
                             <span className="text-[10px] font-bold px-2 py-0.5 bg-tuggi-blue/10 text-tuggi-blue rounded-full capitalize">
                               {index === 0 ? 'Início' : 'Fim'}
@@ -718,7 +718,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                                   ))
                                 }}
                                 className={cn(
-                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all",
                                   wp.metadata?.wheelchair_access === val 
                                     ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm ring-1 ring-black/5" 
                                     : "text-gray-400 hover:text-gray-600"
@@ -748,7 +748,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                                   ))
                                 }}
                                 className={cn(
-                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all",
                                   wp.metadata?.parking === val 
                                     ? "bg-white dark:bg-gray-800 text-blue-600 shadow-sm ring-1 ring-black/5" 
                                     : "text-gray-400 hover:text-gray-600"
@@ -778,7 +778,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                                   ))
                                 }}
                                 className={cn(
-                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all",
                                   wp.metadata?.restrooms === val 
                                     ? "bg-white dark:bg-gray-800 text-emerald-600 shadow-sm ring-1 ring-black/5" 
                                     : "text-gray-400 hover:text-gray-600"
@@ -808,7 +808,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                                   ))
                                 }}
                                 className={cn(
-                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all",
                                   wp.metadata?.rest_areas === val 
                                     ? "bg-white dark:bg-gray-800 text-orange-600 shadow-sm ring-1 ring-black/5" 
                                     : "text-gray-400 hover:text-gray-600"
@@ -838,7 +838,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                                   ))
                                 }}
                                 className={cn(
-                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                                  "px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all",
                                   wp.metadata?.photogenic_rating === val 
                                     ? "bg-white dark:bg-gray-800 text-pink-600 shadow-sm ring-1 ring-black/5" 
                                     : "text-gray-400 hover:text-gray-600"
@@ -873,7 +873,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
 
           {/* Settings Group */}
           <section className="space-y-3 pt-6 border-t border-gray-100 dark:border-gray-800">
-            <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2 px-1">Configurações de Exibição</h3>
+            <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-2 px-1">Configurações de Exibição</h3>
             
              <div 
               className={cn(
@@ -950,7 +950,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                 <div className="flex items-center gap-2 text-xs text-gray-400 font-bold uppercase mb-1">
                   <Activity className="h-3 w-3" /> Distância
                 </div>
-                <div className="text-lg font-black text-tuggi-blue font-mono leading-none">
+                <div className="text-lg font-bold text-tuggi-blue font-mono leading-none">
                   {isGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : formatDistance(distance)}
                 </div>
               </div>
@@ -958,7 +958,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                 <div className="flex items-center gap-2 text-xs text-gray-400 font-bold uppercase mb-1">
                   <Clock className="h-3 w-3" /> Duração
                 </div>
-                <div className="text-lg font-black text-tuggi-blue font-mono leading-none">
+                <div className="text-lg font-bold text-tuggi-blue font-mono leading-none">
                   {isGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : formatDuration(duration)}
                 </div>
               </div>
@@ -968,7 +968,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           <button
             onClick={handleSave}
             disabled={!canEdit || isViewer || isSaving || isGenerating || !name || waypoints.length < 2}
-            className="w-full py-4 bg-tuggi-blue text-white font-black rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/30 active:scale-[0.98] flex items-center justify-center gap-3 text-lg"
+            className="w-full py-4 bg-tuggi-blue text-white font-bold rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/30 active:scale-[0.98] flex items-center justify-center gap-3 text-lg"
           >
             {isSaving ? <RefreshCw className="h-6 w-6 animate-spin" /> : <Save className="h-6 w-6" />}
             {commonT('actions.save')}
@@ -987,7 +987,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
               <Plus className="h-6 w-6" />
             </div>
             <div>
-              <p className="font-black text-gray-900 dark:text-white uppercase tracking-tighter italic">Comece aqui</p>
+              <p className="font-bold text-gray-900 dark:text-white uppercase tracking-tighter">Comece aqui</p>
               <p className="text-xs text-gray-500 font-medium">Clique no mapa para definir o ponto de partida</p>
             </div>
           </div>

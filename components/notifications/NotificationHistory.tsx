@@ -54,7 +54,7 @@ export function NotificationHistory() {
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <History className="h-6 w-6 text-tuggi-blue" />
             {t('tabs.history')}
           </h2>
@@ -108,7 +108,7 @@ export function NotificationHistory() {
                         {log.type === 'user' && <Users className="h-3.5 w-3.5 text-tuggi-purple" />}
                         {log.type === 'broadcast' && <Send className="h-3.5 w-3.5 text-tuggi-blue" />}
                         {log.type === 'topic' && <Hash className="h-3.5 w-3.5 text-tuggi-green" />}
-                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">
                           {log.type}
                         </span>
                         <div className="h-1 w-1 rounded-full bg-gray-300" />
@@ -129,7 +129,7 @@ export function NotificationHistory() {
                             <Users className="h-4 w-4 text-gray-400" />
                          </div>
                          <div>
-                            <p className="text-[9px] font-black text-gray-400 uppercase leading-none">Recipients</p>
+                            <p className="text-[9px] font-bold text-gray-400 uppercase leading-none">Recipients</p>
                             <p className="text-sm font-bold text-gray-700 dark:text-gray-300">
                                {log.type === 'broadcast' ? 'All Users' : 
                                 log.type === 'topic' ? `Topic: ${log.topic}` : 
@@ -144,7 +144,7 @@ export function NotificationHistory() {
                               <Filter className="h-4 w-4 text-gray-400" />
                           </div>
                           <div>
-                              <p className="text-[9px] font-black text-gray-400 uppercase leading-none">Payload</p>
+                              <p className="text-[9px] font-bold text-gray-400 uppercase leading-none">Payload</p>
                               <p className="text-sm font-bold text-gray-700 dark:text-gray-300">
                                 {Object.keys(log.data).length} Keys
                               </p>
@@ -156,7 +156,7 @@ export function NotificationHistory() {
                     {/* Status Badge */}
                     <div className="lg:col-span-3 flex items-center justify-end gap-3">
                       <div className={cn(
-                        "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider",
+                        "flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider",
                         log.status === 'sent' ? "bg-tuggi-green/10 text-tuggi-green" : 
                         log.status === 'failed' ? "bg-red-500/10 text-red-500" : "bg-tuggi-orange/10 text-tuggi-orange"
                       )}>
@@ -180,8 +180,8 @@ export function NotificationHistory() {
             <div className="p-4 bg-white dark:bg-gray-900 rounded-full w-fit mx-auto shadow-sm mb-4">
               <History className="h-12 w-12 text-gray-200" />
             </div>
-            <p className="text-gray-900 dark:text-white font-black text-xl">No history found</p>
-            <p className="text-gray-500 max-w-xs mx-auto mt-1">Sent notifications will appear here for you to track and analyze.</p>
+            <p className="text-gray-900 dark:text-white font-bold text-xl">No history found</p>
+            <p className="text-gray-500 max-w-xs mx-auto mt-1 font-medium">Sent notifications will appear here for you to track and analyze.</p>
           </div>
         )}
       </div>

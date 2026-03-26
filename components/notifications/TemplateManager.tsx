@@ -93,7 +93,7 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Layout className="h-6 w-6 text-tuggi-blue" />
             Notification Templates
           </h2>
@@ -113,7 +113,7 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
       {(newMode || editingId) && (
           <Card className="rounded-2xl border-gray-200 dark:border-gray-800 shadow-xl border-t-4 border-t-tuggi-blue bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm">
               <CardHeader>
-                <CardTitle className="text-lg font-black flex items-center gap-2">
+                <CardTitle className="text-lg font-bold flex items-center gap-2">
                   <FileEdit className="h-5 w-5 text-tuggi-blue" />
                   {newMode ? 'Create New Template' : 'Edit Template'}
                 </CardTitle>
@@ -186,17 +186,17 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
                 <div className="h-1 bg-gray-100 dark:bg-gray-800 transition-colors group-hover:bg-tuggi-blue" />
                 <CardHeader className="pb-2">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="p-1 px-2 rounded-lg bg-tuggi-blue/10 text-tuggi-blue text-[10px] font-black uppercase tracking-widest">
+                      <div className="p-1 px-2 rounded-lg bg-tuggi-blue/10 text-tuggi-blue text-[10px] font-bold uppercase tracking-widest leading-none">
                         Template
                       </div>
                     </div>
-                    <CardTitle className="text-xl font-black text-gray-900 dark:text-white group-hover:text-tuggi-blue transition-colors">
+                    <CardTitle className="text-xl font-bold text-gray-900 dark:text-white group-hover:text-tuggi-blue transition-colors">
                       {t.name}
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                     <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700 space-y-1">
-                      <p className="text-sm font-black text-gray-800 dark:text-gray-200 line-clamp-1 flex items-center gap-1.5">
+                      <p className="text-sm font-bold text-gray-800 dark:text-gray-200 line-clamp-1 flex items-center gap-1.5">
                         <MessageSquare className="h-3.5 w-3.5 text-gray-400" />
                         {t.title}
                       </p>
@@ -212,7 +212,7 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
                     
                     <div className="flex justify-between items-center mt-4 pt-2 border-t border-gray-50 dark:border-gray-800">
                         <Button 
-                          className="rounded-xl bg-gray-900 dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-white text-xs font-black px-4" 
+                          className="rounded-xl bg-gray-900 dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-white text-xs font-bold px-4 transition-all duration-300" 
                           size="sm" 
                           onClick={() => onLoadTemplate(t)}
                         >
@@ -252,8 +252,8 @@ export function TemplateManager({ onLoadTemplate }: TemplateManagerProps) {
               <div className="p-4 bg-white dark:bg-gray-900 rounded-full w-fit mx-auto shadow-sm mb-4">
                 <Layout className="h-12 w-12 text-gray-200" />
               </div>
-              <p className="text-gray-900 dark:text-white font-black text-xl">No templates found</p>
-              <p className="text-gray-500 max-w-xs mx-auto mt-1">Create your first template to quickly send common notifications.</p>
+              <p className="text-gray-900 dark:text-white font-bold text-xl">No templates found</p>
+              <p className="text-gray-500 max-w-xs mx-auto mt-1 font-medium">Create your first template to quickly send common notifications.</p>
               {canEdit && (
                 <Button 
                   variant="outline"

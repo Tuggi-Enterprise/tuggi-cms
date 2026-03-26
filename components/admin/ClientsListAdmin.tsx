@@ -1,25 +1,25 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Search, ChevronLeft, ChevronRight, Plus, Eye, Edit2, Trash2, AlertCircle } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import { Search, ChevronLeft, ChevronRight, Plus, Eye, Edit2, Trash2, AlertCircle, Users, CheckCircle, Clock, Grid, List, RotateCcw, Filter, User, MapPin, Target, FileText, Music } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Client } from '@/types/clients'
+import { cn } from '@/lib/utils'
 
 interface ClientsListAdminProps {
   onCreateNew?: () => void
 }
 
-const statusColors = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  approved: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800'
-}
-
 export function ClientsListAdmin({ onCreateNew }: ClientsListAdminProps) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [clients, setClients] = useState<(Client & { users_count: number })[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [viewMode, setViewMode] = useState<'list' | 'cards'>('cards')
   const [status, setStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all')
+  const [selectedClients, setSelectedClients] = useState<string[]>([])
   const [page, setPage] = useState(1)
   const [pagination, setPagination] = useState({
     page: 1,
@@ -35,23 +35,18 @@ export function ClientsListAdmin({ onCreateNew }: ClientsListAdminProps) {
     try {
       setLoading(true)
       setError(null)
-
       const params = new URLSearchParams({
         page: searchPage.toString(),
-        limit: '10'
+        limit: '50' // Same as POI management
       })
-
       if (search) params.append('search', search)
       if (status !== 'all') params.append('status', status)
-
       const response = await fetch(`/api/admin/clients?${params}`)
-
       if (!response.ok) {
         const data = await response.json()
         setError(data.error || 'Failed to fetch clients')
         return
       }
-
       const data = await response.json()
       setClients(data.clients || [])
       setPagination(data.pagination)
@@ -73,19 +68,14 @@ export function ClientsListAdmin({ onCreateNew }: ClientsListAdminProps) {
       setDeleteConfirm(clientId)
       return
     }
-
     try {
       setDeleting(true)
-      const response = await fetch(`/api/admin/clients/${clientId}`, {
-        method: 'DELETE'
-      })
-
+      const response = await fetch(`/api/admin/clients/${clientId}`, { method: 'DELETE' })
       if (!response.ok) {
         const data = await response.json()
         setError(data.error || 'Failed to delete client')
         return
       }
-
       setClients(prev => prev.filter(c => c.id !== clientId))
       setDeleteConfirm(null)
     } catch (err) {
@@ -96,187 +86,265 @@ export function ClientsListAdmin({ onCreateNew }: ClientsListAdminProps) {
     }
   }
 
+  const handleClientClick = (clientId: string) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('clientId', clientId)
+    router.push(`/admin/clients?${params.toString()}`, { scroll: false })
+  }
+
+  const handleClientSelection = (clientId: string, isSelected: boolean) => {
+    if (isSelected) {
+      setSelectedClients(prev => [...prev, clientId])
+    } else {
+      setSelectedClients(prev => prev.filter(id => id !== clientId))
+    }
+  }
+
+  const handleSelectAll = () => setSelectedClients(clients.map(c => c.id))
+  const handleDeselectAll = () => setSelectedClients([])
+  const clearFilters = () => { setSearch(''); setStatus('all'); }
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Clients Management</h2>
-          <p className="text-gray-600 text-sm mt-1">Manage all clients and their linked users</p>
-        </div>
-        <Link
-          href="/dashboard/admin/clients/new"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-        >
-          <Plus className="w-4 h-4" />
-          New Client
-        </Link>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-          <p className="text-red-700">{error}</p>
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search by name or email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as any)}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">All Status</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-        </select>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Email</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
-                <th className="px-6 py-3 text-center text-sm font-semibold text-gray-700">Users</th>
-                <th className="px-6 py-3 text-left text-sm font-semibold text-gray-700">Created</th>
-                <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                    Loading...
-                  </td>
-                </tr>
-              ) : clients.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                    No clients found
-                  </td>
-                </tr>
-              ) : (
-                clients.map(client => (
-                  <tr key={client.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="px-6 py-4 font-medium text-gray-900">{client.name}</td>
-                    <td className="px-6 py-4 text-gray-600 text-sm">{client.email}</td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${statusColors[client.status]}`}>
-                        {client.status.charAt(0).toUpperCase() + client.status.slice(1)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <span className="inline-block px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-medium">
-                        {client.users_count}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {new Date(client.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Link
-                          href={`/dashboard/admin/clients/${client.id}`}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                          title="View details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Link>
-
-                        <Link
-                          href={`/dashboard/admin/clients/${client.id}/edit`}
-                          className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
-                          title="Edit"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </Link>
-
-                        <button
-                          onClick={() => handleDelete(client.id)}
-                          disabled={deleting || deleteConfirm === client.id}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-
-                        {deleteConfirm === client.id && (
-                          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                            <div className="bg-white rounded-lg p-6 max-w-sm mx-4">
-                              <h3 className="font-bold text-lg mb-2">Delete Client?</h3>
-                              <p className="text-gray-600 mb-4">
-                                Are you sure? {client.users_count > 0 && `This client has ${client.users_count} linked user(s).`}
-                              </p>
-                              <div className="flex gap-3 justify-end">
-                                <button
-                                  onClick={() => setDeleteConfirm(null)}
-                                  className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  onClick={() => handleDelete(client.id)}
-                                  disabled={deleting}
-                                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-                                >
-                                  {deleting ? 'Deleting...' : 'Delete'}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+    <div className="flex gap-8 flex-1 animate-in fade-in duration-500">
+      {/* Sidebar - Matching /pois exactly */}
+      <div className="w-[18%] flex-shrink-0">
+        <div className="bg-white/70 dark:bg-gray-900/70 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 sticky top-24">
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-tuggi-blue/10 rounded-xl">
+                  <Filter className="h-5 w-5 text-tuggi-blue" />
+                </div>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white tracking-tight">
+                  Filters
+                </h2>
+              </div>
+              {(search || status !== 'all') && (
+                <button
+                  onClick={clearFilters}
+                  className="p-2 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5 rounded-lg transition-all"
+                  title="Clear All"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </div>
 
-      {/* Pagination */}
-      {pagination.pages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-600">
-            Page {pagination.page} of {pagination.pages} ({pagination.total} total)
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => fetchClients(page - 1)}
-              disabled={page === 1 || loading}
-              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => fetchClients(page + 1)}
-              disabled={page === pagination.pages || loading}
-              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </button>
+            {/* Search Bar */}
+            <div className="mb-6">
+              <div className="relative group">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-gray-400 group-focus-within:text-tuggi-blue transition-colors" />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search Clients..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50/50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-tuggi-blue focus:border-transparent transition-all outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Filters List */}
+            <div className="space-y-5">
+              <div>
+                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Status</h3>
+                <div className="space-y-2">
+                  <select
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as any)}
+                    className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                  >
+                    <option value="all">All Clients</option>
+                    <option value="pending">Pending Approval</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Main Content Column */}
+      <div className="w-[82%]">
+        {/* Stats Summary Bar */}
+        <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl shadow-black/5 mb-8 sticky top-0 z-30">
+          <div className="p-4 flex items-center justify-between">
+            <div className="flex items-center gap-8 pl-2">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total Clients</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl font-bold text-gray-900 dark:text-white leading-none">{pagination.total}</span>
+                  <div className="w-1.5 h-1.5 rounded-full bg-tuggi-blue animate-pulse" />
+                </div>
+              </div>
+
+              <div className="h-8 w-px bg-gray-200 dark:bg-gray-800" />
+
+              {/* View Modes In Header */}
+              <div className="flex items-center gap-1 p-1 bg-gray-50/50 dark:bg-gray-950/50 rounded-2xl border border-gray-100 dark:border-gray-800">
+                <button
+                  onClick={() => setViewMode('cards')}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300",
+                    viewMode === 'cards' 
+                      ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-md shadow-black/5" 
+                      : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  )}
+                >
+                  <Grid className="h-3.5 w-3.5" />
+                  Cards
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300",
+                    viewMode === 'list' 
+                      ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-md shadow-black/5" 
+                      : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  )}
+                >
+                  <List className="h-3.5 w-3.5" />
+                  List
+                </button>
+              </div>
+
+              <div className="h-8 w-px bg-gray-200 dark:bg-gray-800" />
+
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={onCreateNew}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-xs bg-tuggi-blue text-white hover:bg-tuggi-blue/90 shadow-lg shadow-tuggi-blue/20 transition-all duration-300"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  New Client
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 pr-2">
+              <button
+                onClick={handleSelectAll}
+                className="px-4 py-2 bg-tuggi-blue/10 text-tuggi-blue font-bold text-xs rounded-xl hover:bg-tuggi-blue/20 transition-all"
+              >
+                Select All
+              </button>
+              <button
+                onClick={handleDeselectAll}
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-bold text-xs rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
+              >
+                Deselect All
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Clients Grid */}
+        {loading ? (
+          <div className="h-96 flex flex-col items-center justify-center bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm rounded-3xl border border-gray-200 dark:border-gray-800">
+             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue" />
+          </div>
+        ) : (
+          <div className={cn(
+            "transition-all duration-500",
+            viewMode === 'cards' 
+              ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6" 
+              : "space-y-3"
+          )}>
+            {clients.map((client) => (
+              <div
+                key={client.id}
+                onClick={() => handleClientClick(client.id)}
+                className={cn(
+                  "group transition-all duration-300 cursor-pointer overflow-hidden relative",
+                  viewMode === 'cards' 
+                    ? "bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border border-gray-200/60 dark:border-gray-800/60 rounded-[1.5rem] hover:shadow-2xl hover:shadow-tuggi-blue/5 hover:-translate-y-1 hover:border-tuggi-blue/30 p-5" 
+                    : "bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl p-4 border border-gray-200/60 dark:border-gray-800/60 rounded-2xl hover:border-tuggi-blue/30 hover:shadow-xl hover:shadow-black/5"
+                )}
+              >
+                <div className={cn(
+                  "absolute top-0 left-0 w-full h-1 opacity-80",
+                  client.status === 'approved' ? "bg-gradient-to-r from-green-400 to-emerald-500" : "bg-gradient-to-r from-orange-400 to-amber-500"
+                )} />
+
+                <div className={cn(
+                  "flex",
+                  viewMode === 'cards' ? "flex-col h-full" : "items-center gap-6"
+                )}>
+                  {/* Card Header (Category/Checkbox) */}
+                  {viewMode === 'cards' && (
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-tuggi-blue uppercase tracking-widest px-2.5 py-1 bg-tuggi-blue/5 rounded-full border border-tuggi-blue/10">
+                          Client
+                        </span>
+                      </div>
+                      <div 
+                        className="relative cursor-pointer group/checkbox"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClientSelection(client.id, !selectedClients.includes(client.id));
+                        }}
+                      >
+                        <div className={cn(
+                          "h-5 w-5 rounded-lg border-2 transition-all duration-300 flex items-center justify-center",
+                          selectedClients.includes(client.id)
+                            ? "bg-tuggi-blue border-tuggi-blue scale-105 shadow-lg shadow-tuggi-blue/20"
+                            : "border-gray-200 dark:border-gray-700 group-hover/checkbox:border-tuggi-blue/50 bg-white dark:bg-gray-900"
+                        )}>
+                          {selectedClients.includes(client.id) && (
+                            <div className="w-2 h-2 rounded-[2px] bg-white animate-in zoom-in-50 duration-200" />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex-1 min-w-0">
+                    <div className={cn(
+                      "mb-3",
+                      viewMode === 'list' && "grid grid-cols-1 md:grid-cols-4 gap-4 items-center"
+                    )}>
+                      <div className={cn(viewMode === 'list' && "col-span-2")}>
+                        <div className="h-[3rem] flex items-center mb-1">
+                          <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 line-clamp-2 group-hover:text-tuggi-blue transition-colors leading-tight w-full">
+                            {client.name}
+                          </h3>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 font-medium">
+                          <MapPin className="h-3.5 w-3.5 text-tuggi-blue/60 flex-shrink-0" />
+                          <span className="truncate">{client.email}</span>
+                        </div>
+                      </div>
+
+                      {viewMode === 'list' && (
+                        <div className="hidden md:flex items-center gap-4 text-[11px] text-gray-400">
+                          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-800">
+                            <Users className="h-3 w-3 text-tuggi-blue/60" />
+                            <span className="font-medium text-gray-700 dark:text-gray-300">{client.users_count || 0}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {viewMode === 'cards' && (
+                      <div className="flex items-center gap-4 text-[11px] text-gray-400/80 mt-auto pt-4 border-t border-gray-100 dark:border-gray-800">
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-800 transition-colors group-hover:bg-tuggi-blue/5">
+                          <Users className="h-3 w-3 text-tuggi-blue/60" />
+                          <span className="font-semibold text-gray-700 dark:text-gray-300">{client.users_count || 0} Users</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

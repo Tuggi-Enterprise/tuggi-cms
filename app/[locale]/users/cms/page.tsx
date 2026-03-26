@@ -320,7 +320,7 @@ export default function CMSUsersPage() {
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white flex items-center">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center">
             <UserCog className="h-8 w-8 mr-3 text-tuggi-blue" />
             CMS Team
           </h1>

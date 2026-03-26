@@ -155,13 +155,13 @@ export function NotificationManager() {
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-gray-900 dark:text-white flex items-center gap-3">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3 tracking-tight">
             <div className="p-2 bg-tuggi-blue/10 rounded-xl">
               <Bell className="h-8 w-8 text-tuggi-blue" />
             </div>
             {t('title')}
           </h1>
-          <p className="text-gray-500 mt-2 font-medium">{t('subtitle')}</p>
+          <p className="text-gray-500 mt-1 font-medium">{t('subtitle')}</p>
         </div>
       </div>
 
@@ -203,7 +203,7 @@ export function NotificationManager() {
                         {t('direct.title')}
                       </div>
                       {selectedUsers.length > 0 && (
-                        <div className="px-3 py-1 bg-tuggi-purple text-white text-[10px] rounded-full font-black animate-in zoom-in">
+                        <div className="px-3 py-1 bg-tuggi-purple text-white text-[10px] rounded-full font-bold animate-in zoom-in">
                           {selectedUsers.length} {t('direct.selected')}
                         </div>
                       )}
@@ -389,12 +389,12 @@ export function NotificationManager() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                        <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl border border-gray-100 dark:border-gray-700">
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">{t('direct.recipients_label')}</p>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">{t('direct.recipients_label')}</p>
                           {selectedUsers.length > 0 ? (
                             <div className="space-y-3">
                                {selectedUsers.slice(0, 3).map(user => (
                                  <div key={user.id} className="flex items-center gap-3">
-                                    <div className="h-8 w-8 bg-tuggi-purple rounded-lg flex items-center justify-center text-white font-black text-xs">
+                                    <div className="h-8 w-8 bg-tuggi-purple rounded-lg flex items-center justify-center text-white font-bold text-xs">
                                        {(user.nickname || user.full_name || '?')[0].toUpperCase()}
                                     </div>
                                     <div>
@@ -404,7 +404,7 @@ export function NotificationManager() {
                                ))}
                                {selectedUsers.length > 3 && (
                                  <p className="text-xs font-bold text-gray-400 pl-11">+ {selectedUsers.length - 3} more clients</p>
-                               )}
+                                )}
                             </div>
                           ) : (
                             <p className="text-sm font-bold text-gray-400 italic">{t('direct.no_clients')}</p>
@@ -428,14 +428,14 @@ export function NotificationManager() {
                   <CardContent className="space-y-6">
                     <div className="border border-gray-100 dark:border-gray-800 rounded-3xl p-5 bg-white dark:bg-gray-950 shadow-inner">
                         <div className="flex items-center gap-3 mb-3">
-                          <div className="h-10 w-10 bg-tuggi-blue rounded-xl flex items-center justify-center text-white font-black text-xl">T</div>
+                          <div className="h-10 w-10 bg-tuggi-blue rounded-xl flex items-center justify-center text-white font-bold text-xl">T</div>
                           <div>
-                            <p className="text-xs font-black text-gray-400 uppercase tracking-widest">{t('preview.app_name')}</p>
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t('preview.app_name')}</p>
                             <p className="text-[10px] text-gray-400 uppercase">{t('preview.now')}</p>
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <p className="font-black text-gray-900 dark:text-white text-base leading-tight">{notification.title || t('preview.placeholder_title')}</p>
+                          <p className="font-bold text-gray-900 dark:text-white text-base leading-tight">{notification.title || t('preview.placeholder_title')}</p>
                           <p className="text-sm text-gray-600 dark:text-gray-400 leading-snug">{notification.body || t('preview.placeholder_body')}</p>
                         </div>
                         {notification.imageUrl && (
@@ -449,7 +449,7 @@ export function NotificationManager() {
                       <Button 
                           size="lg"
                           className={cn(
-                            "w-full rounded-2xl font-black text-lg py-6 shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]",
+                            "w-full rounded-2xl font-bold text-lg py-6 shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]",
                             activeTab === 'direct' ? "bg-tuggi-purple hover:bg-purple-600" :
                             scheduleAt ? "bg-tuggi-orange hover:bg-orange-600" : "bg-tuggi-blue hover:bg-blue-600"
                           )}

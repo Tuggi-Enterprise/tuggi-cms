@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-// import Link from 'next/link' // Replaced by next-intl Link
 import { Link, usePathname, useRouter } from '@/navigation'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { useTheme } from '@/app/[locale]/providers'
@@ -26,7 +25,6 @@ import {
   CheckCircle,
   Sparkles,
   MessageSquare,
-
   Settings,
   Activity,
   FileText,
@@ -37,107 +35,9 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
-import { LanguageSwitcher } from './LanguageSwitcher' // Imported LanguageSwitcher
+import { LanguageSwitcher } from './LanguageSwitcher'
 
-const navigation = [
-  {
-    name: 'Dashboard',
-    href: '/dashboard',
-    icon: LayoutDashboard,
-    category: 'main'
-  },
-  {
-    name: 'POI Fetching',
-    href: '/poi-importer',
-    icon: Upload,
-    category: 'poi'
-  },
-  {
-    name: 'POI Management',
-    href: '/pois',
-    icon: MapPin,
-    category: 'poi'
-  },
-  {
-    name: 'Geofences',
-    href: '/geofences',
-    icon: MapPin,
-    category: 'poi'
-  },
-  {
-    name: 'OSM Importer',
-    href: '/osm-importer',
-    icon: Database,
-    category: 'poi'
-  },
-  {
-    name: 'POI Processing',
-    href: '/poi-processing',
-    icon: ArrowRightLeft,
-    category: 'poi'
-  },
-  {
-    name: 'Verification',
-    href: '/verification',
-    icon: CheckCircle,
-    category: 'verification'
-  },
-  {
-    name: 'Improve',
-    href: '/verification/improve',
-    icon: Sparkles,
-    category: 'verification'
-  },
-  {
-    name: 'Enrich OSM',
-    href: '/verification/enrich-osm',
-    icon: Database,
-    category: 'verification'
-  },
-
-  {
-    name: 'Single Test',
-    href: '/trigger-points-single',
-    icon: Target,
-    category: 'trigger_points'
-  },
-  {
-    name: 'Reviews',
-    href: '/reviews',
-    icon: MessageSquare,
-    category: 'feedback'
-  },
-  {
-    name: 'Trail Visualization',
-    href: '/trail-visualization',
-    icon: Route,
-    category: 'analytics'
-  },
-  {
-    name: 'Admin Clients',
-    href: '/dashboard/admin/clients',
-    icon: Settings,
-    category: 'admin'
-  },
-  {
-    name: 'Admin Users',
-    href: '/dashboard/admin/users',
-    icon: Settings,
-    category: 'admin'
-  },
-  {
-    name: 'Audit Logs',
-    href: '/dashboard/admin/audit-logs',
-    icon: Activity,
-    category: 'admin'
-  },
-]
-
-interface HeaderProps {
-  className?: string
-}
-
-export function Header({ className }: HeaderProps) {
+export function Header({ className }: { className?: string }) {
   const t = useTranslations('Navigation');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
@@ -146,172 +46,44 @@ export function Header({ className }: HeaderProps) {
   const router = useRouter()
   const { theme, toggleTheme } = useTheme()
 
-  // Navigation definition needs to be inside component to use translations
   const navigation = [
-    // Main
-    {
-      name: t('overview'),
-      href: '/dashboard',
-      icon: LayoutDashboard,
-      category: 'main'
-    },
-    {
-      name: t('realtime'),
-      href: '/dashboard/realtime',
-      icon: Activity,
-      category: 'main'
-    },
-    
-    // Points of Interest (Simplified)
-    {
-      name: t('pois'),
-      href: '/pois',
-      icon: MapPin,
-      category: 'pois'
-    },
-    {
-      name: t('custom_routes'),
-      href: '/routes',
-      icon: Route,
-      category: 'pois',
-    },
-    {
-      name: t('geofences'),
-      href: '/geofences',
-      icon: MapPin, // or Target/Activity etc.
-      category: 'pois',
-    },
-
-    // Reports
-    {
-      name: t('inventory'),
-      href: '/dashboard/reports/inventory',
-      icon: Database,
-      category: 'reports'
-    },
-    {
-      name: t('territorial'),
-      href: '/dashboard/reports/territorial',
-      icon: Globe,
-      category: 'reports'
-    },
-    {
-      name: t('heatmap'),
-      href: '/dashboard/reports/heatmap',
-      icon: Map,
-      category: 'reports'
-    },
-    {
-      name: t('users'),
-      href: '/dashboard/reports/users',
-      icon: Users,
-      category: 'reports'
-    },
-    {
-      name: t('engagement'), 
-      href: '/dashboard/reports/engagement',
-      icon: Activity,
-      category: 'reports'
-    },
-    {
-      name: t('content_coverage'), 
-      href: '/dashboard/reports/content-coverage',
-      icon: FileText,
-      category: 'reports'
-    },
-
-    // POI Management (New)
-    {
-      name: t('poi_migration'),
-      href: '/poi-processing',
-      icon: ArrowRightLeft,
-      category: 'poi_management'
-    },
-    {
-      name: t('osm_importer'),
-      href: '/osm-importer',
-      icon: Database,
-      category: 'poi_management',
-    },
-    {
-      name: t('poi_fetching'),
-      href: '/poi-importer',
-      icon: Upload,
-      category: 'poi_management',
-    },
-    {
-      name: t('tp_single_test'),
-      href: '/trigger-points-single',
-      icon: Target,
-      category: 'poi_management'
-    },
-    
-    // Users Management
-    {
-      name: t('cms_team'),
-      href: '/users/cms',
-      icon: UserCog,
-      category: 'users'
-    },
-    {
-      name: t('app_users'),
-      href: '/users/app',
-      icon: Smartphone,
-      category: 'users'
-    },
-    
-    // Analytics / Visualization
-    {
-      name: t('trail_map'),
-      href: '/trail-visualization',
-      icon: Route,
-      category: 'pois'
-    },
-    // Admin
-    {
-      name: t('clients'),
-      href: '/dashboard/admin/clients',
-      icon: Settings,
-      category: 'admin'
-    },
-    {
-      name: t('users'),
-      href: '/dashboard/admin/users',
-      icon: Users,
-      category: 'admin'
-    },
-    {
-      name: 'Audit Logs',
-      href: '/dashboard/admin/audit-logs',
-      icon: Activity,
-      category: 'admin'
-    },
-    {
-      name: t('notifications'),
-      href: '/dashboard/notifications',
-      icon: Bell,
-      category: 'admin'
-    },
+    { name: t('overview'), href: '/dashboard', icon: LayoutDashboard, category: 'main' },
+    { name: t('realtime'), href: '/dashboard/realtime', icon: Activity, category: 'main' },
+    { name: t('pois'), href: '/pois', icon: MapPin, category: 'pois' },
+    { name: t('custom_routes'), href: '/routes', icon: Route, category: 'pois' },
+    { name: t('geofences'), href: '/geofences', icon: MapPin, category: 'pois' },
+    { name: t('inventory'), href: '/dashboard/reports/inventory', icon: Database, category: 'reports' },
+    { name: t('territorial'), href: '/dashboard/reports/territorial', icon: Globe, category: 'reports' },
+    { name: t('heatmap'), href: '/dashboard/reports/heatmap', icon: Map, category: 'reports' },
+    { name: t('users'), href: '/dashboard/reports/users', icon: Users, category: 'reports' },
+    { name: t('engagement'), href: '/dashboard/reports/engagement', icon: Activity, category: 'reports' },
+    { name: t('content_coverage'), href: '/dashboard/reports/content-coverage', icon: FileText, category: 'reports' },
+    { name: t('poi_migration'), href: '/poi-processing', icon: ArrowRightLeft, category: 'poi_management' },
+    { name: t('osm_importer'), href: '/osm-importer', icon: Database, category: 'poi_management' },
+    { name: t('poi_fetching'), href: '/poi-importer', icon: Upload, category: 'poi_management' },
+    { name: t('tp_single_test'), href: '/trigger-points-single', icon: Target, category: 'poi_management' },
+    { name: t('cms_team'), href: '/users/cms', icon: UserCog, category: 'users' },
+    { name: t('app_users'), href: '/users/app', icon: Smartphone, category: 'users' },
+    { name: t('trail_map'), href: '/trail-visualization', icon: Route, category: 'pois' },
+    { name: t('clients'), href: '/admin/clients', icon: Settings, category: 'admin' },
+    { name: t('users'), href: '/admin/users', icon: Users, category: 'admin' },
+    { name: 'Audit Logs', href: '/admin/audit-logs', icon: Activity, category: 'admin' },
+    { name: t('notifications'), href: '/dashboard/notifications', icon: Bell, category: 'admin' },
   ]
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (openDropdown && !(event.target as Element).closest('.dropdown-container')) {
         setOpenDropdown(null)
       }
     }
-
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [openDropdown])
 
   const [userRole, setUserRole] = useState<string | null>(null)
-
-  // determine if the current user is an admin (includes super_admin)
   const isAdmin = userRole === 'admin' || userRole === 'super_admin'
 
-  // fetch role on mount using the existing auth check endpoint
   useEffect(() => {
     const fetchRole = async () => {
       try {
@@ -324,7 +96,6 @@ export function Header({ className }: HeaderProps) {
         console.error('Failed to fetch user role for header:', err)
       }
     }
-
     fetchRole()
   }, [])
 
@@ -335,7 +106,7 @@ export function Header({ className }: HeaderProps) {
 
   const renderNavItem = (item: any, isActive: boolean, onClick?: () => void, showCategory?: boolean) => (
     <Link
-      key={item.href} // Changed key to href for uniqueness
+      key={item.href}
       href={item.href}
       className={cn(
         'flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-all duration-300 relative group overflow-hidden',
@@ -419,162 +190,53 @@ export function Header({ className }: HeaderProps) {
     )}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
-          {/* Logo */}
           <div className="flex-shrink-0 flex items-center">
             <TuggiLogo size="sm" showText={true} />
             <div className="flex items-center ml-2 pl-2 border-l border-gray-200 dark:border-gray-700">
-              <span className="text-lg md:text-xl font-black text-gray-900 dark:text-white tracking-tight">
+              <span className="text-lg md:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
                 City OS
               </span>
             </div>
           </div>
 
-          {/* Desktop Navigation */}
           <nav className="hidden lg:flex items-center space-x-2">
-            {/* Dashboard - Dropdown */}
-            {(() => {
-              const mainItems = navigation.filter(item => item.category === 'main')
-              return renderDropdown('main', mainItems, t('dashboard'))
-            })()}
-
-            {/* POIs - Dropdown */}
-            {(() => {
-              const poiItems = navigation.filter(item => item.category === 'pois')
-              return renderDropdown('pois', poiItems, t('pois'))
-            })()}
-
-            {/* POI Management Dropdown */}
+            {renderDropdown('main', navigation.filter(item => item.category === 'main'), t('dashboard'))}
+            {renderDropdown('pois', navigation.filter(item => item.category === 'pois'), t('pois'))}
             {renderDropdown('poi_management', navigation.filter(item => item.category === 'poi_management'), t('poi_management'))}
-
             <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-2" />
-
-            {/* Reports Dropdown */}
             {renderDropdown('reports', navigation.filter(item => item.category === 'reports'), t('reports'))}
-
-            {/* Users - Dropdown */}
-            {(() => {
-              const userItems = navigation.filter(item => item.category === 'users')
-              return renderDropdown('users', userItems, t('users'))
-            })()}
-
-            {/* Admin - Dropdown */}
-            {isAdmin && (() => {
-              const adminItems = navigation.filter(item => item.category === 'admin')
-              return renderDropdown('admin', adminItems, t('admin'))
-            })()}
+            {renderDropdown('users', navigation.filter(item => item.category === 'users'), t('users'))}
+            {isAdmin && renderDropdown('admin', navigation.filter(item => item.category === 'admin'), t('admin'))}
           </nav>
 
-          {/* Right side actions */}
           <div className="flex items-center space-x-1">
-            {/* Language Switcher */}
             <LanguageSwitcher />
-
-            {/* Theme toggle */}
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-all duration-300 hover:scale-105 hover:shadow-sm"
-              title={t('toggle_theme')}
-            >
-              {theme === 'dark' ? (
-                <Sun className="h-4 w-4 text-gray-600 dark:text-gray-400 transition-transform duration-300 hover:rotate-12" />
-              ) : (
-                <Moon className="h-4 w-4 text-gray-600 dark:text-gray-400 transition-transform duration-300 hover:rotate-12" />
-              )}
+            <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-all duration-300 hover:scale-105">
+              {theme === 'dark' ? <Sun className="h-4 w-4 text-gray-600 dark:text-gray-400" /> : <Moon className="h-4 w-4 text-gray-600 dark:text-gray-400" />}
             </button>
-
-            {/* Logout button */}
-            <button
-              onClick={handleLogout}
-              className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 hover:scale-105 hover:shadow-sm text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400"
-              title={t('logout')}
-            >
-              <LogOut className="h-4 w-4 transition-transform duration-300 hover:translate-x-0.5" />
+            <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all duration-300 hover:scale-105 text-gray-600 dark:text-gray-400 hover:text-red-600">
+              <LogOut className="h-4 w-4" />
             </button>
-
-            {/* Mobile menu button */}
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="lg:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-all duration-300 hover:scale-105"
-            >
-              {isMobileMenuOpen ? (
-                <X className="h-4 w-4 text-gray-600 dark:text-gray-400 transition-transform duration-300 rotate-90" />
-              ) : (
-                <Menu className="h-4 w-4 text-gray-600 dark:text-gray-400 transition-transform duration-300" />
-              )}
+            <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="lg:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-all duration-300">
+              {isMobileMenuOpen ? <X className="h-4 w-4 text-gray-600 dark:text-gray-400" /> : <Menu className="h-4 w-4 text-gray-600 dark:text-gray-400" />}
             </button>
           </div>
         </div>
 
-        {/* Mobile Navigation */}
         {isMobileMenuOpen && (
           <div className="lg:hidden border-t border-tuggi-border/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm animate-in slide-in-from-top-2 duration-300">
             <nav className="px-2 pt-2 pb-3 space-y-4">
-              {/* Dashboard */}
-              <div>
-                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  {t('dashboard')}
-                </h4>
-                <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'main').map((item) => {
-                    const isActive = pathname === item.href
-                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
-                  })}
-                </div>
-              </div>
-
-              {/* POIs */}
-              <div>
-                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  {t('pois')}
-                </h4>
-                <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'pois').map((item) => {
-                    const isActive = pathname === item.href
-                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
-                  })}
-                </div>
-              </div>
-
-              {/* POI Management */}
-              <div>
-                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  {t('poi_management')}
-                </h4>
-                <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'poi_management').map((item) => {
-                    const isActive = pathname === item.href
-                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
-                  })}
-                </div>
-              </div>
-
-              {/* Users */}
-              <div>
-                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  {t('users')}
-                </h4>
-                <div className="space-y-1">
-                  {navigation.filter(item => item.category === 'users').map((item) => {
-                    const isActive = pathname === item.href
-                    return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
-                  })}
-                </div>
-              </div>
-
-              {/* Admin */}
-              {isAdmin && (
-                <div>
-                  <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    {t('admin')}
-                  </h4>
-                  <div className="space-y-1">
-                    {navigation.filter(item => item.category === 'admin').map((item) => {
-                      const isActive = pathname === item.href
-                      return renderNavItem(item, isActive, () => setIsMobileMenuOpen(false), false)
-                    })}
+              {['dashboard', 'pois', 'poi_management', 'users', 'admin'].map(cat => {
+                if (cat === 'admin' && !isAdmin) return null
+                return (
+                  <div key={cat}>
+                    <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t(cat) || cat}</h4>
+                    <div className="space-y-1">
+                      {navigation.filter(item => item.category === (cat === 'dashboard' ? 'main' : cat === 'admin' ? 'admin' : cat)).map(item => renderNavItem(item, pathname === item.href, () => setIsMobileMenuOpen(false)))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )
+              })}
             </nav>
           </div>
         )}

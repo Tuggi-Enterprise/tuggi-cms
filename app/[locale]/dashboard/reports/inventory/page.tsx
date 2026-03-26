@@ -143,11 +143,11 @@ export default function InventoryReportPage() {
             {inventory.topCities.length > 0 ? inventory.topCities.map((city, index) => (
               <div key={city.city} className="flex items-center justify-between">
                 <div className="flex items-center">
-                  <span className="text-xs font-black text-gray-400 w-5">{index + 1}</span>
+                  <span className="text-xs font-bold text-gray-400 w-5">{index + 1}</span>
                   <span className="font-medium text-gray-900 dark:text-white">{city.city}</span>
                   <span className="text-[10px] text-gray-500 ml-2">({city.country})</span>
                 </div>
-                <span className="font-black text-tuggi-blue">{city.count}</span>
+                <span className="font-bold text-tuggi-blue">{city.count}</span>
               </div>
             )) : (
               <div className="text-center py-8 text-gray-500">Loading...</div>
@@ -165,7 +165,7 @@ export default function InventoryReportPage() {
             {inventory.categoriesBreakdown.map((cat) => (
               <div key={cat.category} className="px-3 py-2 bg-gray-100 dark:bg-gray-800 rounded-lg flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300 capitalize">{cat.category}</span>
-                <span className="px-2 py-0.5 bg-tuggi-blue/20 text-tuggi-blue text-xs font-black rounded-full">{cat.count}</span>
+                <span className="px-2 py-0.5 bg-tuggi-blue/20 text-tuggi-blue text-xs font-bold rounded-full">{cat.count}</span>
               </div>
             ))}
           </div>

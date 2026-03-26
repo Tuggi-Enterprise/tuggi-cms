@@ -196,7 +196,7 @@ export default function DashboardPage() {
                 <div key={item.name} className="text-center">
                   <div className="w-2 h-2 rounded-full mx-auto mb-1" style={{ backgroundColor: item.color }} />
                   <p className="text-[9px] font-bold text-gray-500 uppercase">{item.name}</p>
-                  <p className="text-sm font-black text-gray-900 dark:text-white">{item.value.toLocaleString()}</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white">{item.value.toLocaleString()}</p>
                 </div>
               ))}
             </div>

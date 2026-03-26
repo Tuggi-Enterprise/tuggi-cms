@@ -3,30 +3,16 @@
 import { cn } from '@/lib/utils'
 import { LucideIcon } from 'lucide-react'
 
-// ============================================================================
-// STAT CARD COMPONENT
-// Reusable statistics card with icon, value, and optional subtitle
-// ============================================================================
-
 interface StatCardProps {
-  /** Icon component from lucide-react */
   icon: LucideIcon | any
-  /** Card label/title (label is preferred, title is alias) */
   label?: string
   title?: string
-  /** Main value to display */
   value: string | number
-  /** Optional subtitle text */
   subtitle?: string
-  /** Hex color for icon background and accents */
   color?: string
-  /** Show loading skeleton */
   isLoading?: boolean
-  /** Size variant */
   size?: 'normal' | 'compact'
-  /** Show a subtle glow effect with the theme color */
   glow?: boolean
-  /** Additional className */
   className?: string
 }
 
@@ -73,7 +59,6 @@ export const StatCard = ({
       isCompact ? "p-3" : "p-4",
       className
     )}>
-      {/* Glow Effect */}
       {glow && (
         <div 
           className="absolute -top-20 -right-20 w-40 h-40 opacity-10 blur-3xl group-hover:opacity-20 transition-opacity duration-500" 
@@ -100,7 +85,7 @@ export const StatCard = ({
           {displayLabel}
         </p>
         <p className={cn(
-          "font-black text-gray-900 dark:text-white",
+          "font-bold text-gray-900 dark:text-white",
           isCompact ? "text-xl" : "text-2xl"
         )}>
           {typeof value === 'number' ? value.toLocaleString() : value}
@@ -112,11 +97,6 @@ export const StatCard = ({
     </div>
   )
 }
-
-// ============================================================================
-// STAT CARD ROW
-// Responsive grid container for stat cards
-// ============================================================================
 
 interface StatCardRowProps {
   children: React.ReactNode
