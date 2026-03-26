@@ -22,7 +22,8 @@ export class StreetAnalyzer {
   
   /**
    * 🔄 RETRY COM BACKOFF EXPONENCIAL para queries OSM (QUALIDADE > VELOCIDADE)
-   * Retry até conseguir os dados necessários, não continua sem eles
+   * Retry até conseguir os dados necessários, não continua sem eles.
+   * Agora usa MÚLTIPLOS MIRRORS para evitar rate limiting (429/504).
    */
   private async retryOSMQuery(
     query: string,
@@ -30,12 +31,26 @@ export class StreetAnalyzer {
     maxRetries: number = 3,
     initialDelay: number = 2000 // 2 segundos inicial
   ): Promise<Response> {
+    // Lista de mirrors do Overpass API para resiliência
+    const mirrors = [
+      'https://overpass-api.de/api/interpreter',
+      'https://lz4.overpass-api.de/api/interpreter',
+      'https://z.overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass.osm.ch/api/interpreter',
+      'https://overpass.be/api/interpreter',
+      'https://overpass-api.enit.it/api/interpreter'
+    ];
+    
     let lastError: Error | null = null;
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      // Rotacionar mirror a cada tentativa
+      const mirror = mirrors[(attempt - 1) % mirrors.length];
+      
       try {
-        const timeout = 30000; // 30s timeout por tentativa (limitado pelo Vercel)
-        const response = await fetch('https://overpass-api.de/api/interpreter', {
+        const timeout = 30000; // 30s timeout por tentativa
+        const response = await fetch(mirror, {
           method: 'POST',
           body: query,
           headers: { 'Content-Type': 'text/plain' },
@@ -46,35 +61,32 @@ export class StreetAnalyzer {
           return response;
         }
         
-        // Se não for timeout (504), pode ser outro erro - tentar novamente
-        if (response.status === 504 || response.status === 429) {
-          console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} failed: ${response.status} (timeout/rate limit)`);
-        } else {
-          console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} failed: ${response.status}`);
-        }
+        console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} failed (mirror: ${new URL(mirror).hostname}): ${response.status}`);
         
         lastError = new Error(`OSM query failed: ${response.status}`);
         
-        // Se não for a última tentativa, aguardar antes de retry
+        // Se não for a última tentativa, aguardar antes de retry com backoff + jitter
         if (attempt < maxRetries) {
-          const delay = initialDelay * Math.pow(2, attempt - 1); // Backoff exponencial: 2s, 4s, 8s, 16s, 32s
+          // Backoff exponencial: 2s, 4s, 8s... + jitter de até 1s
+          const jitter = Math.random() * 1000;
+          const delay = (initialDelay * Math.pow(2, attempt - 1)) + jitter;
           await new Promise(resolve => setTimeout(resolve, delay));
         }
         
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} error:`, lastError.message);
+        console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} error (mirror: ${new URL(mirror).hostname}):`, lastError.message);
         
-        // Se não for a última tentativa, aguardar antes de retry
         if (attempt < maxRetries) {
-          const delay = initialDelay * Math.pow(2, attempt - 1);
+          const jitter = Math.random() * 1000;
+          const delay = (initialDelay * Math.pow(2, attempt - 1)) + jitter;
           await new Promise(resolve => setTimeout(resolve, delay));
         }
       }
     }
     
     // Se chegou aqui, todas as tentativas falharam
-    console.error(`❌ [RETRY FAILED] ${description} failed after ${maxRetries} attempts`);
+    console.error(`❌ [RETRY FAILED] ${description} failed after ${maxRetries} attempts across multiple mirrors`);
     throw lastError || new Error(`OSM query failed after ${maxRetries} attempts`);
   }
   

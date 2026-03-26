@@ -187,9 +187,9 @@ export async function GET(request: NextRequest) {
       user_id: row.user_id,
       business_status: row.business_status,
       formatted_phone_number: row.formatted_phone_number,
-      coordinates: row.latitude && row.longitude ? {
-        latitude: row.latitude,
-        longitude: row.longitude
+      coordinates: (row.latitude && row.longitude) ? {
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude)
       } : null,
       descriptions: row.descriptions || [],
       trigger_points: row.trigger_points || [],

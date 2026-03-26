@@ -8,27 +8,45 @@ import { calculatePolygonArea, calculatePolygonCenter, calculatePolygonPerimeter
 
 /**
  * Query Overpass API with rate limiting and retry logic
+ * Agora usa MÚLTIPLOS MIRRORS para evitar rate limiting (429/504)
  */
 export async function queryOverpassAPI(query: string, purpose: string, timeout: number = 30): Promise<OverpassResponse | null> {
   const maxRetries = 3;
-  const baseDelay = 1000; // 1 second base delay
+  const baseDelay = 1000;
+  
+  // Lista de mirrors do Overpass API para resiliência
+  const mirrors = [
+    'https://overpass-api.de/api/interpreter',
+    'https://lz4.overpass-api.de/api/interpreter',
+    'https://z.overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.osm.ch/api/interpreter',
+    'https://overpass.be/api/interpreter',
+    'https://overpass-api.enit.it/api/interpreter'
+  ];
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // Rotacionar mirror a cada tentativa
+    const mirror = mirrors[(attempt - 1) % mirrors.length];
+    
     try {
-      console.log(`🔍 Querying Overpass API (attempt ${attempt}/${maxRetries}) for: ${purpose}`);
+      console.log(`🔍 Querying Overpass API (attempt ${attempt}/${maxRetries}) (mirror: ${new URL(mirror).hostname}) for: ${purpose}`);
       
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
+      const response = await fetch(mirror, {
         method: 'POST',
         body: query,
         headers: {
           'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)',
           'Content-Type': 'text/plain'
-        }
+        },
+        signal: AbortSignal.timeout(timeout * 1000)
       });
 
-      if (response.status === 429) {
-        const delay = baseDelay * Math.pow(2, attempt - 1);
-        console.log(`⏳ Rate limited (429), waiting ${delay}ms before retry ${attempt}/${maxRetries}`);
+      if (response.status === 429 || response.status === 504) {
+        // Backoff exponencial + jitter
+        const jitter = Math.random() * 1000;
+        const delay = (baseDelay * Math.pow(2, attempt - 1)) + jitter;
+        console.log(`⏳ Rate limited or timeout (${response.status}), waiting ${delay.toFixed(0)}ms before retry ${attempt}/${maxRetries}`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -50,8 +68,9 @@ export async function queryOverpassAPI(query: string, purpose: string, timeout: 
         return null;
       }
       
-      // Wait before retry
-      const delay = baseDelay * Math.pow(2, attempt - 1);
+      // Wait before retry with jitter
+      const jitter = Math.random() * 1000;
+      const delay = (baseDelay * Math.pow(2, attempt - 1)) + jitter;
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }

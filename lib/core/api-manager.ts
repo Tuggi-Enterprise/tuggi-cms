@@ -323,9 +323,28 @@ export class APIManager {
       
       // Make request with retry logic
       let lastError: Error | null = null
+      
+      // Lista de mirrors do Overpass API para resiliência
+      const overpassMirrors = apiType === 'openstreetmap-overpass' ? [
+        'https://overpass-api.de/api/interpreter',
+        'https://lz4.overpass-api.de/api/interpreter',
+        'https://z.overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+        'https://overpass.osm.ch/api/interpreter',
+        'https://overpass.be/api/interpreter'
+      ] : null
+      
       for (let attempt = 1; attempt <= config.retry.attempts; attempt++) {
         try {
-          const response = await fetch(url.toString(), requestOptions)
+          let requestUrl = url.toString()
+          
+          // Se for Overpass, rotacionar mirror
+          if (overpassMirrors) {
+            const mirror = overpassMirrors[(attempt - 1) % overpassMirrors.length]
+            requestUrl = mirror
+          }
+          
+          const response = await fetch(requestUrl, requestOptions)
           
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`)
@@ -355,8 +374,9 @@ export class APIManager {
           lastError = error as Error
           
           if (attempt < config.retry.attempts) {
+            // Adicionar jitter opcional aqui se necessário
             await new Promise(resolve => 
-              setTimeout(resolve, config.retry.delay * attempt)
+              setTimeout(resolve, (config.retry.delay * attempt) + (Math.random() * 500))
             )
           }
         }

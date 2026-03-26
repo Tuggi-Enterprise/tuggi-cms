@@ -291,9 +291,15 @@ class POIService {
           created_by: row.created_by,
           business_status: row.business_status,
           formatted_phone_number: row.formatted_phone_number,
-          coordinates: row.latitude && row.longitude ? {
-            latitude: row.latitude,
-            longitude: row.longitude
+          coordinates: (row.latitude && row.longitude) ? {
+            latitude: Number(row.latitude),
+            longitude: Number(row.longitude)
+          } : (row.coordinates && row.coordinates[0]) ? {
+            latitude: Number(row.coordinates[0].latitude),
+            longitude: Number(row.coordinates[0].longitude)
+          } : (row.coordinates && typeof row.coordinates === 'object') ? {
+            latitude: Number(row.coordinates.latitude),
+            longitude: Number(row.coordinates.longitude)
           } : undefined,
           descriptions: row.descriptions || [],
           trigger_points: row.trigger_points || [],
@@ -776,7 +782,7 @@ class POIService {
       rating: 0,
       created_at: data.created_at,
       updated_at: data.updated_at,
-      formatted_address: data.address,
+      formatted_address: data.formatted_address || data.address || null,
       vicinity: data.vicinity,
       website: data.website,
       formatted_phone_number: data.formatted_phone_number,
@@ -784,9 +790,15 @@ class POIService {
       user_id: data.user_id,
       owner_id: data.owner_id,
       created_by: data.created_by,
-      coordinates: data.latitude && data.longitude ? {
-        latitude: data.latitude,
-        longitude: data.longitude
+      coordinates: (data.latitude && data.longitude) ? {
+        latitude: Number(data.latitude),
+        longitude: Number(data.longitude)
+      } : (data.coordinates && data.coordinates[0]) ? {
+        latitude: Number(data.coordinates[0].latitude),
+        longitude: Number(data.coordinates[0].longitude)
+      } : (data.coordinates && typeof data.coordinates === 'object' && !Array.isArray(data.coordinates)) ? {
+        latitude: Number(data.coordinates.latitude),
+        longitude: Number(data.coordinates.longitude)
       } : undefined,
       has_description: (data.descriptions?.length || 0) > 0,
       has_audio: (data.descriptions?.filter((d: any) => d.audio_url)?.length || 0) > 0,

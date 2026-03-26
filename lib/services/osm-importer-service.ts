@@ -27,7 +27,8 @@ export class OSMImporterService {
         city: null,
         state: null,
         country: null,
-        address: null
+        address: null,
+        website: null
       }
     }
     
@@ -39,7 +40,8 @@ export class OSMImporterService {
       city: tags['addr:city'] || tags['is_in:city'] || tags['addr:suburb'] || null,
       state: tags['addr:state'] || tags['is_in:state'] || tags['addr:province'] || null,
       country: tags['addr:country'] || tags['is_in:country'] || null,
-      address: tags['addr:full'] || tags['addr:street'] || null
+      address: tags['addr:full'] || tags['addr:street'] || null,
+      website: tags.website || tags['contact:website'] || null
     }
     
     // Debug log for troubleshooting (only for first few items to avoid spam)
@@ -278,11 +280,12 @@ export class OSMImporterService {
           .schema('core')
           .from('attractions')
           .insert({
-            name: location.name,
-            city: location.city,
-            state: location.state,
-            country: location.country,
-            formatted_address: 'address' in location ? location.address : null,
+        name: location.name,
+        city: location.city,
+        state: location.state,
+        country: location.country,
+        formatted_address: 'address' in location ? location.address : null,
+        website: location.website || null,
         
         // OSM-specific fields
         osm_id: osmId,
@@ -292,7 +295,6 @@ export class OSMImporterService {
         // NO Google fields - these remain NULL for OSM imports
         google_place_id: null,
         google_types: null,
-        user_ratings_total: null,
         rating: null,
         price_level: null,
         business_status: null,
@@ -300,7 +302,8 @@ export class OSMImporterService {
         // Import tracking
         import_batch_id: batchId,
         import_source: 'osm-importer',
-        approved: false
+        approved: false,
+        processing_status: 'pending'
       })
       .select('id')
       .single()
@@ -345,6 +348,7 @@ export class OSMImporterService {
         state: location.state,
         country: location.country,
         formatted_address: 'address' in location ? location.address : null,
+        website: location.website || null,
         osm_id: osmId,
         osm_type: poi.properties.type,
         osm_tags: poi.properties,

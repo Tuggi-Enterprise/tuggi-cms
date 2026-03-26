@@ -222,26 +222,24 @@ export class POIImportService {
       const state = addressParts.length > 2 ? addressParts[addressParts.length - 2] : ''
       const city = addressParts.length > 3 ? addressParts[addressParts.length - 3] : addressParts[0]
 
-      // Prepare attraction data
+      // Prepare attraction data matching new schema
       const attractionData = {
         name: placeDetails.name,
         description: null,
-        address: placeDetails.formatted_address,
+        formatted_address: placeDetails.formatted_address,
         city,
         state,
         country,
-        latitude: placeDetails.geometry.location.lat,
-        longitude: placeDetails.geometry.location.lng,
         google_place_id: placeDetails.place_id,
-        google_rating: (placeDetails as any).rating || null,
-        google_user_ratings_total: (placeDetails as any).user_ratings_total || null,
+        rating: (placeDetails as any).rating || null,
         price_level: (placeDetails as any).price_level || null,
-        place_types: placeDetails.types || [],
+        google_types: placeDetails.types || [],
         opening_hours: (placeDetails as any).opening_hours?.weekday_text || null,
-        phone_number: null,
-        website: null,
+        formatted_phone_number: (placeDetails as any).formatted_phone_number || null,
+        international_phone_number: (placeDetails as any).international_phone_number || null,
+        website: (placeDetails as any).website || null,
         import_batch_id: batchId,
-        import_status: 'pending',
+        processing_status: 'pending',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }
@@ -251,12 +249,28 @@ export class POIImportService {
         .schema('core')
         .from('attractions')
         .insert([attractionData])
-        .select()
+        .select('id')
         .single()
 
       if (attractionError) {
         console.error('Error inserting attraction:', attractionError)
         return { success: false, error: attractionError.message }
+      }
+
+      // Insert coordinates into attraction_coordinate table
+      const { error: coordError } = await this.supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .insert({
+          attraction_id: attraction.id,
+          latitude: placeDetails.geometry.location.lat,
+          longitude: placeDetails.geometry.location.lng,
+          show_in_map: true
+        })
+
+      if (coordError) {
+        console.error('Error inserting coordinates:', coordError)
+        // We don't fail the whole import if coordinates fail, but we log it
       }
 
       // Store photo reference if available (primary image only)

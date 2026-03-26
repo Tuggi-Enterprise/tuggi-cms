@@ -88,7 +88,7 @@ export interface EnrichedPOIData {
   building_material?: string
   
       // OSM Links and references
-    osm_description?: string // NEW: Description from OSM
+    description?: string // Description from OSM
     osm_wikidata_id?: string
     osm_wikipedia_url?: string
     contact_phone?: string
@@ -417,7 +417,7 @@ export class OSMEnrichmentService {
       urban_density: this.determineUrbanDensity(nominatim, reverse),
 
       // OSM Links and references
-      osm_description: this.extractOSMDescription(nominatim, reverse),
+      description: this.extractOSMDescription(nominatim, reverse),
       osm_wikidata_id: this.extractWikidataId(nominatim, reverse),
       osm_wikipedia_url: this.extractWikipediaUrl(nominatim, reverse),
       
