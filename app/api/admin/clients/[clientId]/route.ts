@@ -106,8 +106,12 @@ export async function PATCH(
       return NextResponse.json({ error: 'Client not found' }, { status: 404 })
     }
 
-    // Allowed fields to update
-    const allowedFields = ['name', 'email', 'phone', 'company_name', 'address', 'city', 'state', 'country', 'postal_code', 'industry', 'website', 'status', 'rejection_reason', 'notes']
+    const allowedFields = [
+      'name', 'email', 'phone', 'company_name', 'address', 'city', 'state', 'country', 'postal_code', 'industry', 'website', 'status', 'rejection_reason', 'notes',
+      'tax_id', 'tax_id_type', 'legal_representative_name', 'legal_representative_role',
+      'billing_email', 'iban', 'bic_swift', 'bank_account_number', 'bank_routing_number', 'bank_name',
+      'commission_rate', 'is_platform_owner'
+    ]
     const updateData: any = {}
 
     for (const field of allowedFields) {

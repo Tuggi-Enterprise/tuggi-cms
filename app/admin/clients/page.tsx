@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 import { ClientsListAdmin } from '@/components/admin/ClientsListAdmin'
 import { ClientDrawer } from '@/components/admin/ClientDrawer'
+import { ClientCreateDrawer } from '@/components/admin/ClientCreateDrawer'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { Container } from '@/components/ui/Container'
 
@@ -15,8 +16,12 @@ export default function AdminClientsPage() {
   const { session, isLoading: sessionLoading } = useSessionContext()
   const supabase = useSupabaseClient()
   const clientId = searchParams.get('clientId')
+  const isCreateNew = searchParams.get('new') === 'true'
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+
+  // Reload key to trigger refresh on list
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -66,24 +71,40 @@ export default function AdminClientsPage() {
     return null
   }
 
+  const closeDrawers = () => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('clientId')
+    params.delete('new')
+    const query = params.toString()
+    router.push(`/admin/clients${query ? `?${query}` : ''}`, { scroll: false })
+  }
+
   return (
     <div className="min-h-screen bg-gray-50/50">
       <Container className="py-8">
         <ClientsListAdmin 
+          key={reloadKey}
           onCreateNew={() => {
-            // This would navigate to /admin/clients/new
+            const params = new URLSearchParams(searchParams.toString())
+            params.set('new', 'true')
+            router.push(`/admin/clients?${params.toString()}`, { scroll: false })
           }}
         />
       </Container>
 
+      {/* View Drawer */}
       <ClientDrawer 
         clientId={clientId}
         isOpen={!!clientId}
-        onClose={() => {
-          const params = new URLSearchParams(searchParams.toString())
-          params.delete('clientId')
-          const query = params.toString()
-          router.push(`/admin/clients${query ? `?${query}` : ''}`, { scroll: false })
+        onClose={closeDrawers}
+      />
+
+      {/* Create Drawer */}
+      <ClientCreateDrawer 
+        isOpen={isCreateNew}
+        onClose={closeDrawers}
+        onSuccess={() => {
+          setReloadKey(prev => prev + 1)
         }}
       />
     </div>

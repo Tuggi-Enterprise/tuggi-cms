@@ -30,7 +30,24 @@ export interface Client {
   approved_at?: string
   metadata?: Record<string, any>
   notes?: string
+  // Legal & Fiscal
+  tax_id?: string
+  tax_id_type?: TaxIdType
+  legal_representative_name?: string
+  legal_representative_role?: string
+  // Banking
+  billing_email?: string
+  iban?: string
+  bic_swift?: string
+  bank_account_number?: string
+  bank_routing_number?: string
+  bank_name?: string
+  // Commission
+  commission_rate?: number
+  is_platform_owner?: boolean
 }
+
+export type TaxIdType = 'cnpj' | 'nipc' | 'nif' | 'vat' | 'ein' | 'other'
 
 /**
  * Link between a Client and a CMS User

@@ -140,7 +140,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, email, phone, company_name, address, city, state, country, postal_code, industry, website, status } = body
+    const { 
+      name, email, phone, company_name, address, city, state, country, postal_code, industry, website, status,
+      tax_id, tax_id_type, legal_representative_name, legal_representative_role,
+      billing_email, iban, bic_swift, bank_account_number, bank_routing_number, bank_name,
+      commission_rate, is_platform_owner
+    } = body
 
     // Validation
     if (!name || !email) {
@@ -164,7 +169,19 @@ export async function POST(request: NextRequest) {
         postal_code: postal_code || null,
         industry: industry || null,
         website: website || null,
-        status: status || 'pending'
+        status: status || 'pending',
+        tax_id: tax_id || null,
+        tax_id_type: tax_id_type || null,
+        legal_representative_name: legal_representative_name || null,
+        legal_representative_role: legal_representative_role || null,
+        billing_email: billing_email || null,
+        iban: iban || null,
+        bic_swift: bic_swift || null,
+        bank_account_number: bank_account_number || null,
+        bank_routing_number: bank_routing_number || null,
+        bank_name: bank_name || null,
+        commission_rate: commission_rate ?? 0.200,
+        is_platform_owner: is_platform_owner ?? false
       }])
       .select()
       .single()
