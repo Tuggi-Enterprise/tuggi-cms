@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     let query = supabaseService
       .schema('core')
       .from('clients')
-      .select('id, name, email, phone, status, cms_user_id, created_at, updated_at', { count: 'exact' })
+      .select('id, name, email, phone, company_name, status, cms_user_id, created_at, updated_at', { count: 'exact' })
 
     // Filter by status
     if (status !== 'all') {
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 
     // Filter by search (name or email)
     if (search) {
-      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`)
+      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,company_name.ilike.%${search}%`)
     }
 
     // Apply sorting, pagination
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
       name, email, phone, company_name, address, city, state, country, postal_code, industry, website, status,
       tax_id, tax_id_type, legal_representative_name, legal_representative_role,
       billing_email, iban, bic_swift, bank_account_number, bank_routing_number, bank_name,
-      commission_rate, is_platform_owner
+      commission_rate, is_platform_owner, welcome_poi_id
     } = body
 
     // Validation
@@ -181,7 +181,8 @@ export async function POST(request: NextRequest) {
         bank_routing_number: bank_routing_number || null,
         bank_name: bank_name || null,
         commission_rate: commission_rate ?? 0.200,
-        is_platform_owner: is_platform_owner ?? false
+        is_platform_owner: is_platform_owner ?? false,
+        welcome_poi_id: welcome_poi_id || null
       }])
       .select()
       .single()

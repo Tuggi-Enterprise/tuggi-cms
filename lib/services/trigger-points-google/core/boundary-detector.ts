@@ -3073,6 +3073,12 @@ out geom tags;
       return coordinates;
     }
     
+    // 🛡️ PROTEÇÃO: Evitar NaN ou distâncias negativas/zero
+    if (isNaN(distanceMeters) || distanceMeters <= 0) {
+      console.warn(`⚠️ Invalid expansion distance: ${distanceMeters}m - skipping expansion`);
+      return coordinates;
+    }
+    
     console.log(`🎯 Expanding boundary by ${distanceMeters}m outward (${coordinates.length} points)`);
     
     const expandedCoordinates: Array<{lat: number, lng: number}> = [];

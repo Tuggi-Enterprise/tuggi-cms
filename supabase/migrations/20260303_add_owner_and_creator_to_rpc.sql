@@ -126,11 +126,8 @@ BEGIN
     where_conditions := array_append(where_conditions, format('a.category = %L', category_filter));
   END IF;
 
-  -- Security Restriction: If restricted, only show POIs for the caller's client
-  IF is_client_restrict AND p_owner_id IS NOT NULL THEN
-    where_conditions := array_append(where_conditions, format('a.owner_id = %L', p_owner_id));
-  ELSIF NOT is_platform_admin AND p_owner_id IS NOT NULL THEN
-    -- If manually passed p_owner_id by an admin (can see other clients)
+  -- Security Restriction: Scope by owner_id if provided or required
+  IF p_owner_id IS NOT NULL THEN
     where_conditions := array_append(where_conditions, format('a.owner_id = %L', p_owner_id));
   END IF;
 

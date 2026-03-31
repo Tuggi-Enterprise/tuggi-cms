@@ -68,7 +68,9 @@ export class POIClassifierService {
         (await this.calculateElevationDiff(poiData, poiElevation, context)) : 200; // Default 200m diff
       
       const config = GROUP_CONFIGS[POIGroup.HIGH];
-      const theoreticalRange = Math.sqrt(effectiveElevationDiff) * 200;
+      // 🛡️ PROTEÇÃO: elevationDiff pode ser negativo se baseElevation > center (evitar NaN no sqrt)
+      const safeElevationDiff = Math.max(0, effectiveElevationDiff);
+      const theoreticalRange = Math.sqrt(safeElevationDiff) * 200;
       const calculatedRange = Math.max(theoreticalRange, config.searchRadius.min!);
       const finalRadius = Math.min(calculatedRange, config.searchRadius.max!);
       
@@ -157,7 +159,10 @@ export class POIClassifierService {
       // Usar elevationDiff se disponível, senão usar elevação absoluta como proxy
       const effectiveElevationDiff = isHighElevation ? elevationDiff : Math.max((poiElevation?.center || 0) - 500, 200);
       const config = GROUP_CONFIGS[POIGroup.HIGH];
-      const theoreticalRange = Math.sqrt(effectiveElevationDiff) * 200;
+      
+      // 🛡️ PROTEÇÃO: elevationDiff pode ser negativo se baseElevation > center (evitar NaN no sqrt)
+      const safeElevationDiff = Math.max(0, effectiveElevationDiff);
+      const theoreticalRange = Math.sqrt(safeElevationDiff) * 200;
       const calculatedRange = Math.max(theoreticalRange, config.searchRadius.min!);
       const finalRadius = Math.min(calculatedRange, config.searchRadius.max!);
       

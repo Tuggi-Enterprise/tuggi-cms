@@ -60,8 +60,9 @@ export function ClientFormAdmin({ client, onSubmit, onCancel, isLoading = false 
     bank_account_number: client?.bank_account_number || '',
     bank_routing_number: client?.bank_routing_number || '',
     bank_name: client?.bank_name || '',
-    commission_rate: client?.commission_rate ?? 0.20,
-    is_platform_owner: client?.is_platform_owner ?? false
+    commission_rate: client?.commission_rate || 0.200,
+    is_platform_owner: client?.is_platform_owner || false,
+    welcome_poi_id: client?.welcome_poi_id || ''
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -74,7 +75,8 @@ export function ClientFormAdmin({ client, onSubmit, onCancel, isLoading = false 
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
 
-    if (!formData.name.trim()) newErrors.name = 'Name is required'
+    if (!formData.company_name.trim()) newErrors.company_name = 'Trade name is required'
+    if (!formData.name.trim()) newErrors.name = 'Legal name is required'
     if (!formData.email.trim()) newErrors.email = 'Email is required'
     if (formData.email && !formData.email.includes('@')) newErrors.email = 'Invalid email format'
 
@@ -157,10 +159,11 @@ export function ClientFormAdmin({ client, onSubmit, onCancel, isLoading = false 
       <div className="bg-white rounded-3xl border border-gray-200 p-8 shadow-sm">
         <SectionHeader icon={<Building2 className="w-4 h-4 text-tuggi-blue" />} title="Company Profile" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <FormField label="Client Name *" name="name" value={formData.name} onChange={handleChange} error={errors.name} disabled={isSaving} required />
+          <FormField label="Company Trade Name *" name="company_name" value={formData.company_name} onChange={handleChange} error={errors.company_name} disabled={isSaving} required />
+          <FormField label="Legal Name / Razão Social *" name="name" value={formData.name} onChange={handleChange} error={errors.name} disabled={isSaving} required />
           <FormField label="Contact Email *" name="email" value={formData.email} onChange={handleChange} error={errors.email} disabled={isSaving || !!client} required type="email" />
           <FormField label="Phone" name="phone" value={formData.phone} onChange={handleChange} disabled={isSaving} type="tel" />
-          <FormField label="Company Trade Name" name="company_name" value={formData.company_name} onChange={handleChange} disabled={isSaving} />
+          <FormField label="Welcome POI ID (UUID)" name="welcome_poi_id" value={formData.welcome_poi_id} onChange={handleChange} disabled={isSaving} placeholder="Enter POI ID for welcome audio..." />
           
           <div className="md:col-span-2">
             <FormField label="Address" name="address" value={formData.address} onChange={handleChange} disabled={isSaving} />

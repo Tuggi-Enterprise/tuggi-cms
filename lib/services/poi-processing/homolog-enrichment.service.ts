@@ -261,9 +261,9 @@ export class HomologEnrichmentService {
     const extratags = osmData.extratags || {}
     const updates: any = {}
 
-    // Location Hierarchy
-    if (address.city || address.town || address.village || address.municipality) {
-      updates.city = address.city || address.town || address.village || address.municipality
+    // Location Hierarchy (with province/county fallbacks for natural/rural areas)
+    if (address.city || address.town || address.village || address.municipality || address.province || address.county) {
+      updates.city = address.city || address.town || address.village || address.municipality || address.province || address.county
     }
     
     if (address.state || address.province || address.region) {

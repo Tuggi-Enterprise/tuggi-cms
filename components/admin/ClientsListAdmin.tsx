@@ -311,7 +311,7 @@ export function ClientsListAdmin({ onCreateNew }: ClientsListAdminProps) {
                       <div className={cn(viewMode === 'list' && "col-span-2")}>
                         <div className="h-[3rem] flex items-center mb-1">
                           <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 line-clamp-2 group-hover:text-tuggi-blue transition-colors leading-tight w-full">
-                            {client.name}
+                            {client.company_name || client.name}
                           </h3>
                         </div>
                         <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 font-medium">
