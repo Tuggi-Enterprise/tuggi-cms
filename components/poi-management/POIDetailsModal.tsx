@@ -118,6 +118,25 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [images, setImages] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState<'create' | 'details' | 'boundary' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois' | 'review'>(isCreateMode ? 'create' : 'details')
 
+  // Smooth unmounting state
+  const [shouldRender, setShouldRender] = useState(isOpen)
+  const [animateClosing, setAnimateClosing] = useState(false)
+
+  // Sync with prop
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true)
+      setAnimateClosing(false)
+    } else if (shouldRender) { // Only animate out if we are currently rendered
+      setAnimateClosing(true)
+      const timer = setTimeout(() => {
+        setShouldRender(false)
+        setAnimateClosing(false)
+      }, 300) // Match the 300ms tailwind duration
+      return () => clearTimeout(timer)
+    }
+  }, [isOpen, shouldRender])
+
   // Create mode state
   const [createName, setCreateName] = useState('')
   const [createCoordinates, setCreateCoordinates] = useState<{ lat: number; lng: number } | null>(null)
@@ -2364,11 +2383,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }
 
-  if (!isOpen) return null
+  if (!shouldRender) return null
 
   return (
-    <div className="fixed inset-0 z-[100] flex justify-end bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-[85vw] bg-white dark:bg-gray-900 h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-300" onClick={(e) => e.stopPropagation()}>
+    <div className={`fixed inset-0 z-[100] flex justify-end bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${animateClosing ? 'opacity-0' : 'opacity-100'}`} onClick={onClose}>
+      <div className={`w-[85vw] bg-white dark:bg-gray-900 h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-300 ${animateClosing ? 'animate-out slide-out-to-right ease-in' : ''}`} onClick={(e) => e.stopPropagation()}>
           {/* Feedback Messages */}
           {showSuccessMessage && (
             <div className="bg-green-50 dark:bg-green-900/20 border-l-4 border-green-400 p-4">

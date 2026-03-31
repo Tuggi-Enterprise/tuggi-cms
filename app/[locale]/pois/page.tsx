@@ -70,59 +70,7 @@ function POIListWithSearchParams() {
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
 
-  // Listen for ?poiId= and ?new= in URL
-  useEffect(() => {
-    const poiIdParam = searchParams.get('poiId')
-    const isNewParam = searchParams.get('new') === 'true'
 
-    if (isNewParam && !isModalOpen) {
-      setSelectedPoi(null)
-      setIsModalOpen(true)
-    } else if (poiIdParam && (!selectedPoi || selectedPoi.id !== poiIdParam)) {
-      // Don't have it? We MUST query it if not found yet. But practically `pois/page.tsx`
-      // will fetch the list, but not guarantee it's in the list.
-      const fetchDeepLinkedPoi = async () => {
-        try {
-          const { data, error } = await supabase
-            .schema('core')
-            .from('attractions')
-            .select(`
-              *,
-              attraction_descriptions (id, language),
-              attraction_groups (id, name, status)
-            `)
-            .eq('id', poiIdParam)
-            .single()
-
-          if (data && !error) {
-            const transformedPoi: POIType = {
-              ...data,
-              coordinates: data.latitude && data.longitude ? { latitude: data.latitude, longitude: data.longitude } : undefined,
-              descriptions: data.attraction_descriptions || [],
-              group_status: data.attraction_groups?.[0] ? {
-                is_in_group: true,
-                group_id: data.attraction_groups[0].id,
-                group_name: data.attraction_groups[0].name
-              } : undefined
-            }
-            setSelectedPoi(transformedPoi)
-            setIsModalOpen(true)
-          }
-        } catch (e) {
-          console.error("Error loading deep linked POI", e)
-        }
-      }
-      
-      fetchDeepLinkedPoi()
-    } else if (!isNewParam && !poiIdParam && isModalOpen) {
-      if (typeof window !== 'undefined' && (window.location.search.includes('poiId=') || window.location.search.includes('new='))) {
-        // Next.js router is still transitioning, wait for it
-        return
-      }
-      setIsModalOpen(false)
-      setSelectedPoi(null)
-    }
-  }, [searchParams, isModalOpen, selectedPoi?.id])
 
   // View state
   const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
@@ -194,8 +142,18 @@ function POIListWithSearchParams() {
     }
 
     // Preserve modal parameters
-    const existingPoiId = searchParams.get('poiId')
-    const existingNew = searchParams.get('new')
+    // We STRICTLY use window.location.search to prevent Next router transition lag from blowing away the poiId
+    let existingPoiId: string | null = null
+    let existingNew: string | null = null
+    if (typeof window !== 'undefined') {
+      const currentURLParams = new URLSearchParams(window.location.search)
+      existingPoiId = currentURLParams.get('poiId')
+      existingNew = currentURLParams.get('new')
+    } else {
+      existingPoiId = searchParams.get('poiId')
+      existingNew = searchParams.get('new')
+    }
+
     if (existingPoiId) params.set('poiId', existingPoiId)
     if (existingNew) params.set('new', existingNew)
 
@@ -323,6 +281,76 @@ function POIListWithSearchParams() {
     page: currentPage,
     limit: itemsPerPage
   })
+
+  // Listen for ?poiId= and ?new= in URL
+  useEffect(() => {
+    // SINGLE SOURCE OF TRUTH: Window location search 
+    // This prevents React/NextJS batching delays from resurrecting obsolete pointer states
+    let currentPoiId: string | null = null
+    let currentNew: string | null = null
+    
+    if (typeof window !== 'undefined') {
+      const windowParams = new URLSearchParams(window.location.search)
+      currentPoiId = windowParams.get('poiId')
+      currentNew = windowParams.get('new')
+    } else {
+      currentPoiId = searchParams.get('poiId')
+      currentNew = searchParams.get('new')
+    }
+
+    const isNewParam = currentNew === 'true'
+
+    if (isNewParam && !isModalOpen) {
+      setSelectedPoi(null)
+      setIsModalOpen(true)
+    } else if (currentPoiId && (!selectedPoi || selectedPoi.id !== currentPoiId)) {
+      // Optimiziation: Did we just load this POI in our main list?
+      const existingInList = searchResult?.data?.find(p => p.id === currentPoiId)
+      
+      if (existingInList) {
+        setSelectedPoi(existingInList)
+        setIsModalOpen(true)
+      } else {
+        // Not in current page list, fetch specifically
+        const fetchDeepLinkedPoi = async () => {
+          try {
+            const { data, error } = await supabase
+              .schema('core')
+              .from('attractions')
+              .select(`
+                *,
+                attraction_descriptions (id, language),
+                attraction_groups (id, name, status)
+              `)
+              .eq('id', currentPoiId)
+              .single()
+
+            if (data && !error) {
+              const transformedPoi: POIType = {
+                ...data,
+                coordinates: data.latitude && data.longitude ? { latitude: data.latitude, longitude: data.longitude } : undefined,
+                descriptions: data.attraction_descriptions || [],
+                group_status: data.attraction_groups?.[0] ? {
+                  is_in_group: true,
+                  group_id: data.attraction_groups[0].id,
+                  group_name: data.attraction_groups[0].name
+                } : undefined
+              }
+              setSelectedPoi(transformedPoi)
+              setIsModalOpen(true)
+            }
+          } catch (e) {
+            console.error("Error loading deep linked POI", e)
+          }
+        }
+        
+        fetchDeepLinkedPoi()
+      }
+    } else if (!isNewParam && !currentPoiId && isModalOpen) {
+      setIsModalOpen(false)
+      setSelectedPoi(null)
+    }
+  }, [searchParams, isModalOpen, selectedPoi?.id, searchResult?.data])
 
   // Derived data
   const pois = useMemo(() => searchResult?.data || [], [searchResult])
@@ -472,9 +500,13 @@ function POIListWithSearchParams() {
 
   // Handle POI selection
   const handleSelectPoi = (poi: POIType) => {
+    // Optimiziation: we already have the object, set it instantly
     setSelectedPoi(poi)
     setIsModalOpen(true)
-    const params = new URLSearchParams(searchParams.toString())
+    
+    // Always use window.location.search for appending to avoid dropping concurrently updating state
+    const currentParamsStr = typeof window !== 'undefined' ? window.location.search : searchParams.toString()
+    const params = new URLSearchParams(currentParamsStr)
     params.set('poiId', poi.id)
     router.push(`?${params.toString()}`, { scroll: false })
   }
@@ -507,9 +539,12 @@ function POIListWithSearchParams() {
       group_status: poi.group_status || undefined,
       verification_score: poi.verification_score || undefined
     }
+    // Optimisticly set instantly
     setSelectedPoi(transformedPoi)
     setIsModalOpen(true)
-    const params = new URLSearchParams(searchParams.toString())
+    
+    const currentParamsStr = typeof window !== 'undefined' ? window.location.search : searchParams.toString()
+    const params = new URLSearchParams(currentParamsStr)
     params.set('poiId', transformedPoi.id)
     router.push(`?${params.toString()}`, { scroll: false })
   }
@@ -922,7 +957,8 @@ function POIListWithSearchParams() {
                         onClick={() => {
                           setSelectedPoi(null)
                           setIsModalOpen(true)
-                          const params = new URLSearchParams(searchParams.toString())
+                          const currentParamsStr = typeof window !== 'undefined' ? window.location.search : searchParams.toString()
+                          const params = new URLSearchParams(currentParamsStr)
                           params.set('new', 'true')
                           router.push(`?${params.toString()}`, { scroll: false })
                         }}
@@ -1274,13 +1310,12 @@ function POIListWithSearchParams() {
       </div>
 
       {/* POI Details Modal */}
-      {isModalOpen && (
-        <POIDetailsModal
-          mode={selectedPoi ? 'view' : 'create'}
-          poi={memoizedPoiForModal}
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false)
+      <POIDetailsModal
+        mode={selectedPoi ? 'view' : 'create'}
+        poi={memoizedPoiForModal}
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false)
             setSelectedPoi(null)
             const params = new URLSearchParams(searchParams.toString())
             params.delete('poiId')
@@ -1332,7 +1367,6 @@ function POIListWithSearchParams() {
           }}
 
         />
-      )}
     </div>
   )
 }
