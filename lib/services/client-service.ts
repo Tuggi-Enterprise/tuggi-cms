@@ -128,7 +128,7 @@ export class ClientService {
       throw new Error(`Failed to fetch linked client records: ${linkError.message}`);
     }
 
-    const linkedClientIds = linkedUserRecords?.map(r => r.client_id) || [];
+    const linkedClientIds = linkedUserRecords?.map((r: { client_id: string }) => r.client_id) || [];
 
     if (linkedClientIds.length === 0) {
       return (directClients || []) as Client[];
