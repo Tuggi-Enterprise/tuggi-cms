@@ -45,6 +45,7 @@ export interface POI {
   photos_references: string[] | null
   google_place_id: string | null
   user_id: string | null
+  owner_id?: string | null
   coordinates?: {
     latitude: number
     longitude: number
@@ -115,7 +116,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [isSaving, setIsSaving] = useState(false)
   const [descriptions, setDescriptions] = useState<any[]>([])
   const [images, setImages] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'create' | 'details' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois' | 'review'>(isCreateMode ? 'create' : 'details')
+  const [activeTab, setActiveTab] = useState<'create' | 'details' | 'boundary' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois' | 'review'>(isCreateMode ? 'create' : 'details')
 
   // Create mode state
   const [createName, setCreateName] = useState('')
@@ -126,6 +127,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [createError, setCreateError] = useState<string | null>(null)
   const [createBoundary, setCreateBoundary] = useState<Array<{ lat: number; lng: number }> | null>(null)
   const [isEnrichingOSM, setIsEnrichingOSM] = useState(false)
+  const [createCategory, setCreateCategory] = useState<string>('standard')
+  const [createOwnerId, setCreateOwnerId] = useState<string>('')
+  const [createBusinessStatus, setCreateBusinessStatus] = useState<string>('ENTER_ONLY')
+  const [clients, setClients] = useState<any[]>([])
 
   // compute CMS role / editing permissions for UI
   const { role: cmsUserRole, isViewer, isAdmin, canEdit } = useCmsUser()
@@ -135,6 +140,41 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [isSavingBoundary, setIsSavingBoundary] = useState(false)
   const [existingBoundary, setExistingBoundary] = useState<Array<{ lat: number; lng: number }> | null>(null)
   const [isDrawingEnabled, setIsDrawingEnabled] = useState(false) // Drawing mode OFF by default
+
+  // Fetch clients for Geofence owner selection
+  const fetchClients = useCallback(async () => {
+    try {
+      const res = await fetch('/api/clients/my-clients')
+      if (res.ok) {
+        const { clients: data } = await res.json()
+        if (data) {
+          console.log('🏢 [fetchClients] Loaded clients:', data.map((c: any) => ({ id: c.id, name: c.name })));
+          setClients(data)
+          // Default selection if not set
+          if (!createOwnerId && data.length > 0) {
+            const defaultClient = isAdmin 
+              ? (data.find((c: any) => c.name.toLowerCase().includes('tuggi')) || data[0]) 
+              : data[0];
+            
+            console.log('🎯 [fetchClients] Auto-selecting client:', { 
+              name: defaultClient.name, 
+              id: defaultClient.id, 
+              isAdmin 
+            });
+            setCreateOwnerId(defaultClient.id)
+          }
+        }
+      }
+    } catch(err) {
+      console.error('Failed to fetch clients', err)
+    }
+  }, [createOwnerId, isAdmin])
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchClients();
+    }
+  }, [isOpen, fetchClients]);
 
   // Update state when poi changes
   useEffect(() => {
@@ -271,9 +311,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           name: createName.trim(),
           lat: createCoordinates.lat,
           lng: createCoordinates.lng,
-          boundary: createBoundary // Enviar boundary se foi desenhado
+          boundary: createBoundary, // Enviar boundary se foi desenhado
+          category: createCategory === 'geofence' ? 'geofence' : undefined,
+          owner_id: createOwnerId || undefined,
+          business_status: createBusinessStatus || undefined
         })
       })
+
+      console.log('📤 [handleCreatePOI] Payload sent:', {
+        name: createName.trim(),
+        category: createCategory,
+        owner_id: createOwnerId,
+        business_status: createBusinessStatus
+      });
 
       const result = await response.json()
 
@@ -330,6 +380,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setCreateName('')
       setCreateCoordinates(null)
       setCreateLocation(null)
+      setCreateCategory('standard')
+      setCreateOwnerId('')
+      setCreateBusinessStatus('ENTER_ONLY')
     } catch (error) {
       console.error('Error creating POI:', error)
       setCreateError(error instanceof Error ? error.message : t('validation.error_create'))
@@ -1149,7 +1202,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
             city: editedPoi.city,
             country: editedPoi.country,
             updated_at: new Date().toISOString(),
-            reference_links: referenceLinks.filter(link => !!link.trim()) // Save only non-empty links
+            reference_links: referenceLinks.filter(link => !!link.trim()), // Save only non-empty links
+            owner_id: editedPoi.owner_id || undefined,
+            business_status: editedPoi.business_status || undefined
           })
           .eq('id', getPoi()?.id)
 
@@ -2467,6 +2522,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </button>
                     
                     <button
+                      onClick={() => setActiveTab('boundary')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'boundary' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <MapPin className={cn("h-5 w-5", activeTab === 'boundary' && "animate-pulse")} />
+                      {t('labels.geographic_boundaries')}
+                    </button>
+                    
+                    <button
                       onClick={() => setActiveTab('description')}
                       className={cn(
                         'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
@@ -2557,17 +2625,64 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </h3>
 
                     <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          {t('labels.name')} *
-                        </label>
-                        <input
-                          type="text"
-                          value={createName}
-                          onChange={(e) => setCreateName(e.target.value)}
-                          placeholder={t('placeholders.name')}
-                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                        />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            {t('labels.name')} *
+                          </label>
+                          <input
+                            type="text"
+                            value={createName}
+                            onChange={(e) => setCreateName(e.target.value)}
+                            placeholder={t('placeholders.name')}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            {t('labels.record_type')} *
+                          </label>
+                          <select
+                            value={createCategory}
+                            onChange={(e) => setCreateCategory(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                          >
+                            <option value="standard">{t('labels.poi_local')}</option>
+                            <option value="geofence">{t('labels.geofence_restricted')}</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-800 rounded-lg">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            {t('labels.client_owner')} *
+                          </label>
+                          <select
+                            value={createOwnerId}
+                            onChange={e => setCreateOwnerId(e.target.value)}
+                            disabled={!isAdmin}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md disabled:bg-gray-100 disabled:text-gray-500 dark:bg-gray-700 dark:text-white"
+                          >
+                            <option value="" disabled>{t('labels.select_client')}</option>
+                            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                          {!isAdmin && <p className="text-xs text-gray-500 mt-1">{t('labels.linked_to_current_client')}</p>}
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            {t('labels.trigger_behavior')}
+                          </label>
+                          <select 
+                            value={createBusinessStatus}
+                            onChange={e => setCreateBusinessStatus(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                          >
+                            <option value="ENTER_ONLY">{t('labels.enter_only')}</option>
+                            <option value="INSIDE_ONLY">{t('labels.inside_only')}</option>
+                            <option value="BOTH">{t('labels.both_enter_inside')}</option>
+                          </select>
+                        </div>
                       </div>
 
                       <div>
@@ -2770,12 +2885,46 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                             >
                               <option value="">{t('placeholders.select_category')}</option>
-                              {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
-                                <option key={category.value} value={category.value}>
-                                  {category.label}
-                                </option>
-                              ))}
+                              <option value="geofence" className="font-bold text-orange-600">{t('labels.geofence_restricted')}</option>
+                              <optgroup label={t('labels.poi_categories')}>
+                                {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
+                                  <option key={category.value} value={category.value}>
+                                    {category.label}
+                                  </option>
+                                ))}
+                              </optgroup>
                             </select>
+                          </div>
+
+                          <div className="md:col-span-1 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 mt-2 bg-orange-50/50 border border-orange-100 rounded-lg dark:bg-orange-900/10 dark:border-orange-800">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                {t('labels.client_owner')}
+                              </label>
+                              <select
+                                value={editedPoi?.owner_id || ''}
+                                onChange={e => setEditedPoi(prev => prev ? ({ ...prev, owner_id: e.target.value }) : null)}
+                                disabled={!isAdmin}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md disabled:bg-gray-100 disabled:text-gray-500 dark:bg-gray-700 dark:text-white"
+                              >
+                                <option value="" disabled>{t('labels.select_client')}</option>
+                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                {t('labels.trigger_behavior')}
+                              </label>
+                              <select 
+                                value={editedPoi?.business_status || 'ENTER_ONLY'}
+                                onChange={e => setEditedPoi(prev => prev ? ({ ...prev, business_status: e.target.value }) : null)}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                              >
+                                <option value="ENTER_ONLY">{t('labels.enter_only')}</option>
+                                <option value="INSIDE_ONLY">{t('labels.inside_only')}</option>
+                                <option value="BOTH">{t('labels.both_enter_inside')}</option>
+                              </select>
+                            </div>
                           </div>
 
                           <div className="grid grid-cols-3 gap-4">
@@ -3557,6 +3706,98 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </div>
                   </div>
                 )}
+              </div>
+            ) : activeTab === 'boundary' ? (
+              <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
+                <div className="space-y-6">
+                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                        <MapPin className="h-5 w-5 mr-2 text-tuggi-blue" />
+                        {t('labels.geographic_boundaries')}
+                      </h3>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
+                          className={cn(
+                            "px-3 py-1.5 text-xs font-medium rounded-md flex items-center transition-colors",
+                            isDrawingEnabled
+                              ? "bg-orange-500 text-white hover:bg-orange-600"
+                              : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                          )}
+                        >
+                          <MapPin className="h-3 w-3 mr-1" />
+                          {isDrawingEnabled ? t('actions.disable_drawing') : t('actions.drawing_mode')}
+                        </button>
+                      )}
+                    </div>
+                    
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                      {isDrawingEnabled 
+                        ? t('labels.drawing_instruction')
+                        : t('labels.drawing_disabled_instruction')}
+                    </p>
+
+                    <div className="h-96 w-full rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600 relative">
+                     {getPoi()?.coordinates ? (
+                      <GoogleMapComponent
+                        componentId="edit-boundary-map"
+                        center={getPoi()?.coordinates ? { lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude } : undefined}
+                        zoom={18}
+                        height="100%"
+                        markers={getPoi()?.coordinates ? [{
+                          id: 'poi-location',
+                          position: { lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude },
+                          title: getPoi()?.name || '',
+                          color: '#FF6B35'
+                        }] : []}
+                        polygon={boundaryPolygon || existingBoundary || undefined}
+                        enableDrawing={isDrawingEnabled && canEdit}
+                        onMapClick={() => {}}
+                        onPolygonComplete={handleBoundaryPolygonComplete}
+                        polygonOptions={{
+                          strokeColor: '#FF6B35',
+                          strokeOpacity: 0.8,
+                          strokeWeight: 3,
+                          fillColor: '#FF6B35',
+                          fillOpacity: 0.2
+                        }}
+                      />
+                     ) : (
+                       <div className="flex items-center justify-center h-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                         {t('validation.location_required')}
+                       </div>
+                     )}
+                    </div>
+
+                    {canEdit && boundaryPolygon && boundaryPolygon.length >= 3 && (
+                      <div className="mt-4 flex items-center justify-between">
+                        <div className="text-sm text-green-600 dark:text-green-400 font-medium flex items-center">
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          {t('labels.valid_polygon_ready')}
+                        </div>
+                        <button
+                          onClick={handleSaveBoundary}
+                          disabled={isSavingBoundary}
+                          className="px-4 py-2 bg-tuggi-blue text-white rounded-md font-medium text-sm hover:bg-blue-600 disabled:opacity-50 flex items-center"
+                        >
+                          {isSavingBoundary ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              {t('labels.saving_boundary')}
+                            </>
+                          ) : (
+                            <>
+                              <Save className="h-4 w-4 mr-2" />
+                              {t('actions.save_boundary')}
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             ) : activeTab === 'description' ? (
               <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">

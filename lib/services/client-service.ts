@@ -108,7 +108,7 @@ export class ClientService {
       .schema('core')
       .from('clients')
       .select('*')
-      .or(`cms_user_id.eq.${userId},id.in(select client_id from client_cms_users where cms_user_id=${userId})`)
+      .or(`cms_user_id.eq.${userId},id.in(select client_id from client_cms_users where cms_user_id='${userId}')`)
 
     if (error) {
       throw new Error(`Failed to fetch clients: ${error.message}`)

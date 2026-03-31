@@ -14,7 +14,7 @@ import { useTranslations } from 'next-intl'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { useLocationData } from '@/lib/hooks/use-location-data'
 
-import { GeofenceModal } from '@/components/geofences/GeofenceModal'
+import { POIDetailsModal } from '@/components/poi-management/POIDetailsModal'
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value)
@@ -505,10 +505,10 @@ export default function GeofencesPage() {
       </div>
       
       {isModalOpen && (
-        <GeofenceModal
-          poi={selectedPoi}
+        <POIDetailsModal
+          poi={selectedPoi as any}
           isOpen={isModalOpen}
-          mode={isCreateMode ? 'create' : 'edit'}
+          mode={isCreateMode ? 'create' : 'view'}
           onClose={() => setIsModalOpen(false)}
           onUpdate={fetchPois}
         />

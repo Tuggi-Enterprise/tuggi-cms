@@ -3,7 +3,6 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { ReverseGeocodingService } from '@/lib/services/reverse-geocoding.service'
-import { OSMEnrichmentService } from '@/lib/services/poi-processing/osm-enrichment.service'
 import { POICreationService } from '@/lib/services/poi-creation.service'
 import { logAuditEvent } from '@/lib/services/audit-service'
 
@@ -34,12 +33,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized - Insufficient privileges' }, { status: 403 })
     }
     const body = await request.json()
-    const { name, lat, lng, boundary } = body
+    const { name, lat, lng, boundary, category, owner_id, business_status } = body
 
     console.log('📍 [create-manual] Received request:', {
       name,
       lat,
       lng,
+      category,
       hasBoundary: !!boundary,
       boundaryLength: boundary?.length
     })
@@ -102,7 +102,27 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2: Create POI using centralized service (atomic operation)
-    // Include created_by so owner is recorded (cms_users.id)
+    // Setup additional fields based on category
+    const additionalFields: any = {
+      created_by: cmsUser.id
+    }
+    
+    if (category) {
+      additionalFields.category = category
+      if (category === 'geofence') {
+        additionalFields.primary_category = 'geofence'
+        additionalFields.approved = true // Auto-approve geofences
+      }
+    }
+    
+    if (owner_id) {
+      additionalFields.owner_id = owner_id
+    }
+    
+    if (business_status) {
+      additionalFields.business_status = business_status
+    }
+
     const createResult = await POICreationService.createPOIWithCoordinates({
       name: name.trim(),
       city: city,
@@ -113,9 +133,7 @@ export async function POST(request: NextRequest) {
       longitude: lng,
       import_source: 'manual',
       source_type: 'manual',
-      additionalFields: {
-        created_by: cmsUser.id
-      }
+      additionalFields
     })
 
     if (!createResult.success || !createResult.attraction_id) {
@@ -131,29 +149,7 @@ export async function POST(request: NextRequest) {
     const attractionId = createResult.attraction_id
     console.log(`✅ POI created successfully with ID: ${attractionId}`)
 
-    // Step 3: Attempt OSM enrichment automatically (non-blocking)
-    let enrichmentResult = null
-    try {
-      console.log(`🔄 Attempting OSM enrichment for POI: ${attractionId}`)
-      
-      enrichmentResult = await OSMEnrichmentService.enrichPOI({
-        poi_id: attractionId,
-        name: name.trim(),
-        city: city,
-        country: country,
-        lat: lat,
-        lng: lng
-      })
-
-      if (enrichmentResult.success) {
-        console.log(`✅ OSM enrichment completed (Quality: ${enrichmentResult.data_quality_score}%)`)
-      } else {
-        console.log(`⚠️ OSM enrichment failed: ${enrichmentResult.message}`)
-      }
-    } catch (enrichmentError) {
-      console.error('❌ Error during OSM enrichment (non-blocking):', enrichmentError)
-      // Don't fail the request if enrichment fails
-    }
+    // Removed OSM enrichment logic as requested by user
 
     // Step 4: Save boundary if provided
     if (boundary && Array.isArray(boundary) && boundary.length >= 3) {
@@ -261,8 +257,7 @@ export async function POST(request: NextRequest) {
           boundary_area_m2: completePOI.attraction_coordinate[0].boundary_area_m2,
           boundary_centroid_lat: completePOI.attraction_coordinate[0].boundary_centroid_lat,
           boundary_centroid_lng: completePOI.attraction_coordinate[0].boundary_centroid_lng
-        } : { latitude: lat, longitude: lng },
-        enrichment_result: enrichmentResult
+        } : { latitude: lat, longitude: lng }
       },
       message: `POI criado com sucesso${boundary ? ' com boundary' : ''}`
     })

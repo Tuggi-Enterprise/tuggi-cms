@@ -39,9 +39,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Admins can see all clients, clients can only see their own
-    let clients
-    if (cmsUser.role === 'admin') {
+    // Get clients linked to this user
+    let clients = await ClientService.getClientsByUser(cmsUser.id)
+
+    // Fallback: If no clients are linked and user is admin, show all (original behavior)
+    if (clients.length === 0 && cmsUser.role === 'admin') {
       const supabaseService = getSupabaseService()
       const { data, error } = await supabaseService
         .schema('core')
@@ -50,12 +52,8 @@ export async function GET(request: NextRequest) {
         .eq('status', 'approved')
         .order('created_at', { ascending: false })
 
-      console.log('Admin client fetch result from core.clients:', { data, error })
-
       if (error) throw error
       clients = data || []
-    } else if (cmsUser.role === 'client') {
-      clients = await ClientService.getClientsByUser(cmsUser.id)
     } else {
       return NextResponse.json(
         { error: 'Access denied - client role required' },
