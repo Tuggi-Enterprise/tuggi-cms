@@ -117,48 +117,50 @@ export function TripExplorationMap({ exploration, bufferMeters, onBufferChange, 
 
   return (
     <div className="bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl rounded-[40px] border border-gray-200 dark:border-gray-800 shadow-3xl shadow-black/10 flex flex-col h-full animate-in fade-in duration-700">
-      {/* Header with buffer controls */}
-      <div className="p-8 border-b border-gray-100 dark:border-gray-800">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-tuggi-blue/10 rounded-2xl">
-              <Navigation className="h-6 w-6 text-tuggi-blue" />
+      {/* Header with buffer controls - Compacted */}
+      <div className="py-4 px-6 border-b border-gray-100 dark:border-gray-800">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-tuggi-blue/10 rounded-xl">
+              <Navigation className="h-5 w-5 text-tuggi-blue" />
             </div>
             <div>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white leading-tight tracking-tight">Trip Exploration</h3>
-              <p className="text-xs text-gray-400 font-bold uppercase tracking-widest leading-none mt-1">FOMO Analysis & Radius Tracking</p>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white leading-tight tracking-tight">Trip Exploration</h3>
+              <p className="text-[9px] text-gray-400 font-bold uppercase tracking-widest leading-none mt-0.5">FOMO Analysis & Radius Tracking</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-8 bg-gray-50/50 dark:bg-gray-800/50 p-4 rounded-3xl border border-gray-200 dark:border-gray-700">
-            <div className="flex flex-col gap-2 min-w-[200px]">
-              <div className="flex justify-between items-center px-1">
-                <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Buffer Radius</span>
-                <span className="text-xs font-bold text-tuggi-blue">{(bufferMeters / 1000).toFixed(1)} km</span>
+          <div className="flex items-center gap-6 bg-gray-50/50 dark:bg-gray-800/50 py-2 px-4 rounded-2xl border border-gray-100 dark:border-gray-700">
+            <div className="flex items-center gap-4 min-w-[180px]">
+              <div className="flex flex-col flex-1">
+                <div className="flex justify-between items-center px-1 mb-1">
+                  <span className="text-[8px] font-bold text-gray-500 uppercase tracking-widest">Buffer</span>
+                  <span className="text-[10px] font-black text-tuggi-blue">{(bufferMeters / 1000).toFixed(1)} km</span>
+                </div>
+                <input
+                  type="range"
+                  min="100"
+                  max="5000"
+                  step="100"
+                  value={bufferMeters}
+                  onChange={(e) => onBufferChange(parseInt(e.target.value))}
+                  className="w-full h-1.5 accent-tuggi-blue"
+                />
               </div>
-              <input
-                type="range"
-                min="100"
-                max="5000"
-                step="100"
-                value={bufferMeters}
-                onChange={(e) => onBufferChange(parseInt(e.target.value))}
-                className="w-full accent-tuggi-blue"
-              />
             </div>
             
-            <div className="h-10 w-px bg-gray-200 dark:bg-gray-700" />
+            <div className="h-6 w-px bg-gray-200 dark:bg-gray-700" />
             
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-orange-600 shadow-lg shadow-orange-500/20" />
-                <span className="text-[10px] font-bold text-gray-900 dark:text-white uppercase tracking-widest">Heard</span>
-                <span className="text-xs font-bold text-orange-600 ml-1">{exploration?.heard_count || 0}</span>
+                <div className="w-2.5 h-2.5 rounded-full bg-orange-600" />
+                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Heard</span>
+                <span className="text-[11px] font-black text-orange-600">{exploration?.heard_count || 0}</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-gray-400 shadow-lg shadow-gray-400/20" />
-                <span className="text-[10px] font-bold text-gray-900 dark:text-white uppercase tracking-widest">Missed</span>
-                <span className="text-xs font-bold text-gray-400 ml-1">{exploration?.missed_count || 0}</span>
+                <div className="w-2.5 h-2.5 rounded-full bg-gray-400" />
+                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Missed</span>
+                <span className="text-[11px] font-black text-gray-500">{exploration?.missed_count || 0}</span>
               </div>
             </div>
           </div>
