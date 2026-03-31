@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import {
   MapPin, CheckCircle, FileText, Search, Filter, Plus, Grid, List, Map,
   Trash2, Eye, ChevronLeft, ChevronRight, RotateCcw, Target, Volume2, Clock, Edit, XCircle, Calendar, Users, X
@@ -58,20 +59,75 @@ function POIListWithSearchParams() {
   const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [countryFilter, setCountryFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
+  
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const supabase = useSupabaseClient()
+  const queryClient = useQueryClient()
+  const t = useTranslations('POIManagement')
+  const { role: cmsUserRole, isAdmin, canEdit } = useCmsUser()
+
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const { role: cmsUserRole, isViewer, isAdmin, canEdit } = useCmsUser()
+
+  // Listen for ?poiId= and ?new= in URL
+  useEffect(() => {
+    const poiIdParam = searchParams.get('poiId')
+    const isNewParam = searchParams.get('new') === 'true'
+
+    if (isNewParam && !isModalOpen) {
+      setSelectedPoi(null)
+      setIsModalOpen(true)
+    } else if (poiIdParam && (!selectedPoi || selectedPoi.id !== poiIdParam)) {
+      // Don't have it? We MUST query it if not found yet. But practically `pois/page.tsx`
+      // will fetch the list, but not guarantee it's in the list.
+      const fetchDeepLinkedPoi = async () => {
+        try {
+          const { data, error } = await supabase
+            .schema('core')
+            .from('attractions')
+            .select(`
+              *,
+              attraction_descriptions (id, language),
+              attraction_groups (id, name, status)
+            `)
+            .eq('id', poiIdParam)
+            .single()
+
+          if (data && !error) {
+            const transformedPoi: POIType = {
+              ...data,
+              coordinates: data.latitude && data.longitude ? { latitude: data.latitude, longitude: data.longitude } : undefined,
+              descriptions: data.attraction_descriptions || [],
+              group_status: data.attraction_groups?.[0] ? {
+                is_in_group: true,
+                group_id: data.attraction_groups[0].id,
+                group_name: data.attraction_groups[0].name
+              } : undefined
+            }
+            setSelectedPoi(transformedPoi)
+            setIsModalOpen(true)
+          }
+        } catch (e) {
+          console.error("Error loading deep linked POI", e)
+        }
+      }
+      
+      fetchDeepLinkedPoi()
+    } else if (!isNewParam && !poiIdParam && isModalOpen) {
+      if (typeof window !== 'undefined' && (window.location.search.includes('poiId=') || window.location.search.includes('new='))) {
+        // Next.js router is still transitioning, wait for it
+        return
+      }
+      setIsModalOpen(false)
+      setSelectedPoi(null)
+    }
+  }, [searchParams, isModalOpen, selectedPoi?.id])
 
   // View state
   const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
 
-  const t = useTranslations('POIManagement')
-
   // Pagination
-
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const queryClient = useQueryClient()
 
   // Use centralized location data
   const locationData = useLocationData({ autoLoadCountries: true })
@@ -85,18 +141,17 @@ function POIListWithSearchParams() {
   // Function to update URL with current filter states and view mode
   const updateURL = useCallback((filters: {
     search?: string
-    status?: string
-    city?: string
+    status?: 'all' | 'approved' | 'pending'
     country?: string
     state?: string
-
-    contentStatus?: string
-    groupStatus?: string
-    scoreFilter?: string
-    triggerPointsFilter?: string
-    isActiveFilter?: string
+    city?: string
+    contentStatus?: 'all' | 'missing_description' | 'missing_audio' | 'complete'
+    groupStatus?: 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'
+    scoreFilter?: 'all' | 'no_score' | 'rejected' | 'pending' | 'approved'
+    triggerPointsFilter?: 'all' | 'with_trigger_points' | 'without_trigger_points'
+    isActiveFilter?: 'all' | 'active' | 'inactive'
     page?: number
-    view?: string
+    view?: 'list' | 'cards' | 'map'
   }) => {
     const params = new URLSearchParams()
 
@@ -116,8 +171,6 @@ function POIListWithSearchParams() {
     if (filters.city && filters.city.trim()) {
       params.set('city', filters.city)
     }
-
-
     if (filters.contentStatus && filters.contentStatus !== 'all') {
       params.set('contentStatus', filters.contentStatus)
     }
@@ -140,9 +193,21 @@ function POIListWithSearchParams() {
       params.set('view', filters.view)
     }
 
+    // Preserve modal parameters
+    const existingPoiId = searchParams.get('poiId')
+    const existingNew = searchParams.get('new')
+    if (existingPoiId) params.set('poiId', existingPoiId)
+    if (existingNew) params.set('new', existingNew)
+
     const newURL = params.toString() ? `?${params.toString()}` : ''
-    router.replace(`/pois${newURL}`, { scroll: false })
-  }, [router])
+    // Prevent infinite loop by only replacing if the URL actually changed
+    // Use window.location.search to get the precise raw string
+    if (typeof window !== 'undefined' && newURL !== window.location.search) {
+      if (!(newURL === '' && window.location.search === '?')) {
+        router.replace(`/pois${newURL}`, { scroll: false })
+      }
+    }
+  }, [router, searchParams])
 
   // Read filters from URL on mount
   const readFiltersFromURL = useCallback(() => {
@@ -409,6 +474,9 @@ function POIListWithSearchParams() {
   const handleSelectPoi = (poi: POIType) => {
     setSelectedPoi(poi)
     setIsModalOpen(true)
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('poiId', poi.id)
+    router.push(`?${params.toString()}`, { scroll: false })
   }
 
   // Handle POI selection for map (with transformation)
@@ -441,6 +509,9 @@ function POIListWithSearchParams() {
     }
     setSelectedPoi(transformedPoi)
     setIsModalOpen(true)
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('poiId', transformedPoi.id)
+    router.push(`?${params.toString()}`, { scroll: false })
   }
 
   // Handle POI deletion
@@ -601,6 +672,11 @@ function POIListWithSearchParams() {
            triggerPointsFilter !== 'all' ||
            isActiveFilter !== 'all'
   }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter])
+
+  // Memoize the transformed POI to prevent infinite loops in POIDetailsModal's useEffect
+  const memoizedPoiForModal = useMemo(() => {
+    return selectedPoi ? transformPOIForModal(selectedPoi) : null
+  }, [selectedPoi])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
@@ -846,6 +922,9 @@ function POIListWithSearchParams() {
                         onClick={() => {
                           setSelectedPoi(null)
                           setIsModalOpen(true)
+                          const params = new URLSearchParams(searchParams.toString())
+                          params.set('new', 'true')
+                          router.push(`?${params.toString()}`, { scroll: false })
                         }}
                         className="flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-xs bg-tuggi-blue text-white hover:bg-tuggi-blue/90 shadow-lg shadow-tuggi-blue/20 transition-all duration-300"
                       >
@@ -1198,11 +1277,15 @@ function POIListWithSearchParams() {
       {isModalOpen && (
         <POIDetailsModal
           mode={selectedPoi ? 'view' : 'create'}
-          poi={selectedPoi ? transformPOIForModal(selectedPoi) : null}
+          poi={memoizedPoiForModal}
           isOpen={isModalOpen}
           onClose={() => {
             setIsModalOpen(false)
             setSelectedPoi(null)
+            const params = new URLSearchParams(searchParams.toString())
+            params.delete('poiId')
+            params.delete('new')
+            router.push(`?${params.toString()}`, { scroll: false })
           }}
           onUpdate={() => {
             // React Query handles refetch via invalidation in the modal
@@ -1220,6 +1303,13 @@ function POIListWithSearchParams() {
             
             // Also invalidate to fetch fresh data from server eventually
             queryClient.invalidateQueries({ queryKey: ['pois'] })
+            
+            // Auto switch to edit mode by updating selectedPoi
+            setSelectedPoi(updatedPOI as any)
+            const params = new URLSearchParams(searchParams.toString())
+            params.delete('new')
+            params.set('poiId', updatedPOI.id)
+            router.push(`?${params.toString()}`, { scroll: false })
           }}
           onPOIDeleted={(deletedId) => {
             // Force remove from cache immediately
@@ -1236,6 +1326,9 @@ function POIListWithSearchParams() {
             })
              
             setSelectedPoi(null)
+            const params = new URLSearchParams(searchParams.toString())
+            params.delete('poiId')
+            router.push(`?${params.toString()}`, { scroll: false })
           }}
 
         />

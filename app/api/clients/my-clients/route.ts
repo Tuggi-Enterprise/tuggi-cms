@@ -54,9 +54,13 @@ export async function GET(request: NextRequest) {
 
       if (error) throw error
       clients = data || []
-    } else {
+    }
+
+    // Double check: if still no clients and user is not admin, it's just an empty list, not necessarily a 403
+    // but the role must be allowed (admin, client, or editor)
+    if (!['admin', 'client', 'editor'].includes(cmsUser.role)) {
       return NextResponse.json(
-        { error: 'Access denied - client role required' },
+        { error: 'Access denied - insufficient permissions' },
         { status: 403 }
       )
     }

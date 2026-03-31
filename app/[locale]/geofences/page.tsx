@@ -511,6 +511,11 @@ export default function GeofencesPage() {
           mode={isCreateMode ? 'create' : 'view'}
           onClose={() => setIsModalOpen(false)}
           onUpdate={fetchPois}
+          onPOIUpdated={(updatedPOI) => {
+            setSelectedPoi(updatedPOI as any)
+            setIsCreateMode(false)
+            fetchPois()
+          }}
         />
       )}
     </div>

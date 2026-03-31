@@ -104,17 +104,52 @@ export class ClientService {
    * Get all clients for a CMS user (client role)
    */
   static async getClientsByUser(userId: string): Promise<Client[]> {
-    const { data, error } = await getSupabase()
+    const supabase = getSupabase();
+
+    // 1. Get clients where user is the direct owner/creator
+    const { data: directClients, error: directError } = await supabase
       .schema('core')
       .from('clients')
       .select('*')
-      .or(`cms_user_id.eq.${userId},id.in(select client_id from client_cms_users where cms_user_id='${userId}')`)
+      .eq('cms_user_id', userId);
 
-    if (error) {
-      throw new Error(`Failed to fetch clients: ${error.message}`)
+    if (directError) {
+      throw new Error(`Failed to fetch direct clients: ${directError.message}`);
     }
 
-    return (data || []) as Client[]
+    // 2. Get client IDs where user is linked via client_cms_users
+    const { data: linkedUserRecords, error: linkError } = await supabase
+      .schema('core')
+      .from('client_cms_users')
+      .select('client_id')
+      .eq('cms_user_id', userId);
+
+    if (linkError) {
+      throw new Error(`Failed to fetch linked client records: ${linkError.message}`);
+    }
+
+    const linkedClientIds = linkedUserRecords?.map(r => r.client_id) || [];
+
+    if (linkedClientIds.length === 0) {
+      return (directClients || []) as Client[];
+    }
+
+    // 3. Get the actual client records for the linked IDs
+    const { data: linkedClients, error: linkedClientsError } = await supabase
+      .schema('core')
+      .from('clients')
+      .select('*')
+      .in('id', linkedClientIds);
+
+    if (linkedClientsError) {
+      throw new Error(`Failed to fetch linked clients: ${linkedClientsError.message}`);
+    }
+
+    // 4. Merge and deduplicate
+    const allClients = [...(directClients || []), ...(linkedClients || [])];
+    const uniqueClients = Array.from(new Map(allClients.map(c => [c.id, c])).values());
+
+    return uniqueClients as Client[];
   }
 
   /**

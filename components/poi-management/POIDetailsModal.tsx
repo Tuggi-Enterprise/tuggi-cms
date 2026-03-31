@@ -2654,7 +2654,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-800 rounded-lg">
-                        <div>
+                        <div className={createCategory === 'geofence' ? '' : 'md:col-span-2'}>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             {t('labels.client_owner')} *
                           </label>
@@ -2669,20 +2669,23 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           </select>
                           {!isAdmin && <p className="text-xs text-gray-500 mt-1">{t('labels.linked_to_current_client')}</p>}
                         </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                            {t('labels.trigger_behavior')}
-                          </label>
-                          <select 
-                            value={createBusinessStatus}
-                            onChange={e => setCreateBusinessStatus(e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
-                          >
-                            <option value="ENTER_ONLY">{t('labels.enter_only')}</option>
-                            <option value="INSIDE_ONLY">{t('labels.inside_only')}</option>
-                            <option value="BOTH">{t('labels.both_enter_inside')}</option>
-                          </select>
-                        </div>
+                        
+                        {createCategory === 'geofence' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                              {t('labels.trigger_behavior')}
+                            </label>
+                            <select 
+                              value={createBusinessStatus}
+                              onChange={e => setCreateBusinessStatus(e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                            >
+                              <option value="ENTER_ONLY">{t('labels.enter_only')}</option>
+                              <option value="INSIDE_ONLY">{t('labels.inside_only')}</option>
+                              <option value="BOTH">{t('labels.both_enter_inside')}</option>
+                            </select>
+                          </div>
+                        )}
                       </div>
 
                       <div>
@@ -2897,7 +2900,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           </div>
 
                           <div className="md:col-span-1 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 mt-2 bg-orange-50/50 border border-orange-100 rounded-lg dark:bg-orange-900/10 dark:border-orange-800">
-                            <div>
+                            <div className={editedPoi?.category === 'geofence' ? '' : 'md:col-span-2'}>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 {t('labels.client_owner')}
                               </label>
@@ -2911,20 +2914,23 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                               </select>
                             </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                {t('labels.trigger_behavior')}
-                              </label>
-                              <select 
-                                value={editedPoi?.business_status || 'ENTER_ONLY'}
-                                onChange={e => setEditedPoi(prev => prev ? ({ ...prev, business_status: e.target.value }) : null)}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
-                              >
-                                <option value="ENTER_ONLY">{t('labels.enter_only')}</option>
-                                <option value="INSIDE_ONLY">{t('labels.inside_only')}</option>
-                                <option value="BOTH">{t('labels.both_enter_inside')}</option>
-                              </select>
-                            </div>
+
+                            {editedPoi?.category === 'geofence' && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                  {t('labels.trigger_behavior')}
+                                </label>
+                                <select 
+                                  value={editedPoi?.business_status || 'ENTER_ONLY'}
+                                  onChange={e => setEditedPoi(prev => prev ? ({ ...prev, business_status: e.target.value }) : null)}
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                                >
+                                  <option value="ENTER_ONLY">{t('labels.enter_only')}</option>
+                                  <option value="INSIDE_ONLY">{t('labels.inside_only')}</option>
+                                  <option value="BOTH">{t('labels.both_enter_inside')}</option>
+                                </select>
+                              </div>
+                            )}
                           </div>
 
                           <div className="grid grid-cols-3 gap-4">
