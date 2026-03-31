@@ -924,6 +924,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // This prevents overwriting locally created POI state when poi prop is null
       if (poi) {
         setEditedPoi(poi)
+        const isGeo = poi.primary_category === 'geofence' || poi.category === 'geofence';
+        setActiveTab(prev => (isGeo && prev === 'trigger-points') ? 'details' : prev)
       }
       
       fetchAdditionalData()
@@ -2355,19 +2357,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </button>
                     
                     <button
-                      onClick={() => setActiveTab('boundary')}
-                      className={cn(
-                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
-                        activeTab === 'boundary' 
-                          ? 'bg-tuggi-blue text-white' 
-                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
-                      )}
-                    >
-                      <MapPin className={cn("h-5 w-5", activeTab === 'boundary' && "animate-pulse")} />
-                      {t('labels.geographic_boundaries')}
-                    </button>
-                    
-                    <button
                       onClick={() => setActiveTab('description')}
                       className={cn(
                         'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
@@ -2405,19 +2394,34 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       <Layers className={cn("h-5 w-5", activeTab === 'group-pois' && "animate-pulse")} />
                       {t('tabs.group_pois')}
                     </button>
-                    
+
                     <button
-                      onClick={() => setActiveTab('trigger-points')}
+                      onClick={() => setActiveTab('boundary')}
                       className={cn(
                         'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
-                        activeTab === 'trigger-points' 
+                        activeTab === 'boundary' 
                           ? 'bg-tuggi-blue text-white' 
                           : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
                       )}
                     >
-                      <Target className={cn("h-5 w-5", activeTab === 'trigger-points' && "animate-pulse")} />
-                      {t('tabs.trigger_points')}
+                      <MapPin className={cn("h-5 w-5", activeTab === 'boundary' && "animate-pulse")} />
+                      {t('labels.geographic_boundaries')}
                     </button>
+                    
+                    {!(editedPoi?.primary_category === 'geofence' || editedPoi?.category === 'geofence') && (
+                      <button
+                        onClick={() => setActiveTab('trigger-points')}
+                        className={cn(
+                          'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                          activeTab === 'trigger-points' 
+                            ? 'bg-tuggi-blue text-white' 
+                            : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                        )}
+                      >
+                        <Target className={cn("h-5 w-5", activeTab === 'trigger-points' && "animate-pulse")} />
+                        {t('tabs.trigger_points')}
+                      </button>
+                    )}
                     
                     <div className="my-4 border-t border-gray-100 dark:border-gray-800" />
                     
