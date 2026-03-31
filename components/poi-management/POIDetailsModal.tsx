@@ -223,10 +223,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     if (poi) {
       setCurrentPoi(poi)
       setEditedPoi(poi)
+      // Reset boundary-related states when switching POIs
+      setBoundaryPolygon(null)
+      setExistingBoundary(null)
+      setDrawnPolygon(null)
     } else if (!currentPoi?.id) {
       // Only reset if we don't have a locally created POI
       setCurrentPoi(null)
       setEditedPoi(null)
+      setBoundaryPolygon(null)
+      setExistingBoundary(null)
+      setDrawnPolygon(null)
     }
     // We intentionally exclude currentPoi from dependencies to avoid resetting
     // when local state changes - we only want to sync when the prop changes
@@ -748,11 +755,61 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }, [getPoi, groupInfo?.id, supabase, generationLanguage])
 
-  const fetchNearbyPOIs = useCallback(async () => {
-    // Only fetch nearby POIs when a polygon is drawn
-    // The initial load will be empty until user draws a polygon
-    setNearbyPOIs([])
-  }, [])
+  const fetchNearbyPOIsWithPolygon = useCallback(async (polygonCoords: Array<{ lat: number; lng: number }>) => {
+    setGroupLoading(true)
+    try {
+      const currentId = getPoi()?.id
+      const res = await fetch('/api/attraction-groups/nearby', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          polygon: polygonCoords,
+          poiId: currentId
+        })
+      })
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('❌ MODAL: API error response:', errorText);
+        throw new Error(`API error ${res.status}: ${errorText}`);
+      }
+
+      const data = await res.json()
+      
+      // Filter out the current POI with aggressive check on multiple potential ID fields
+      const filteredNearby = (data.nearby || []).filter((p: any) => {
+        const pId = String(p.id || '').toLowerCase();
+        const pAttractionId = String(p.attraction_id || '').toLowerCase();
+        const currentTargetId = String(currentId || '').toLowerCase();
+        
+        return pId !== currentTargetId && pAttractionId !== currentTargetId;
+      })
+      
+      console.log('🔍 Group Search Result:', { 
+        originalCount: data.nearby?.length, 
+        filteredCount: filteredNearby.length,
+        excludedId: currentId 
+      });
+
+      setNearbyPOIs(filteredNearby)
+    } catch (error) {
+      console.error('❌ MODAL: Error in fetchNearbyPOIsWithPolygon:', error);
+      alert(`${t('validation.nearby_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`);
+    } finally {
+      setGroupLoading(false)
+    }
+  }, [t, tCommon, getPoi])
+
+  const fetchNearbyPOIs = useCallback(async (customPolygon?: any[]) => {
+    // Use provided polygon, or fallback to drawnPolygon, or technical boundary
+    const poly = customPolygon || drawnPolygon || boundaryPolygon || createBoundary
+    
+    if (poly && poly.length >= 3) {
+      await fetchNearbyPOIsWithPolygon(poly)
+    } else {
+      setNearbyPOIs([])
+    }
+  }, [boundaryPolygon, createBoundary, drawnPolygon, fetchNearbyPOIsWithPolygon])
 
   const fetchGroupInfo = useCallback(async () => {
     const currentPoi = getPoi()
@@ -973,27 +1030,147 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }, [getPoi]);
 
-  // Fetch nearby POIs and group info on open
+  const handleSaveBoundary = async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi || !boundaryPolygon || boundaryPolygon.length < 3) {
+      alert('Por favor, desenhe um polígono válido (mínimo 3 pontos)')
+      return
+    }
+
+    // Validate coordinates before sending
+    const validCoords = boundaryPolygon.filter(coord =>
+      typeof coord.lat === 'number' &&
+      typeof coord.lng === 'number' &&
+      !isNaN(coord.lat) &&
+      !isNaN(coord.lng) &&
+      coord.lat >= -90 && coord.lat <= 90 &&
+      coord.lng >= -180 && coord.lng <= 180
+    )
+
+    if (validCoords.length < 3) {
+      alert(`Polígono inválido: apenas ${validCoords.length} pontos válidos (mínimo 3)`)
+      return
+    }
+
+
+    setIsSavingBoundary(true)
+    try {
+      const requestBody = {
+        attractionId: currentPoi.id,
+        coordinates: validCoords // Use validated coordinates
+      }
+
+
+
+      const response = await fetch('/api/pois/update-boundary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      })
+
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ Error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        })
+        let error
+        try {
+          error = JSON.parse(errorText)
+        } catch {
+          error = { error: errorText }
+        }
+        throw new Error(error.error || error.message || 'Failed to save boundary')
+      }
+
+      const result = await response.json()
+
+      // Refresh POI data to show updated boundary
+      if (onPOIUpdated && result.data) {
+        // Update local POI state with boundary info
+        const updatedPoi = {
+          ...currentPoi,
+          boundary_area_m2: result.data.boundary_area_m2,
+          boundary_centroid: result.data.boundary_centroid
+        }
+        onPOIUpdated(updatedPoi as POI)
+      }
+
+      alert(t('validation.boundary_success'))
+    } catch (error) {
+      console.error('Error saving boundary:', error)
+      alert(`${t('validation.boundary_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`)
+    } finally {
+      setIsSavingBoundary(false)
+    }
+  }
+
+  const handleDeleteBoundary = async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi) return
+    
+    if (!confirm('Deseja realmente remover o polígono deste POI? Todos os dados geográficos deste local serão apagados.')) {
+      return
+    }
+
+    setIsSavingBoundary(true)
+    try {
+      const response = await fetch('/api/pois/update-boundary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          poi_id: currentPoi.id,
+          boundary: null
+        })
+      })
+
+      if (response.ok) {
+        setBoundaryPolygon(null)
+        setExistingBoundary(null)
+        setDrawnPolygon(null)
+        alert('Boundary removido com sucesso!')
+        setIsDrawingEnabled(false)
+        if (onUpdate) onUpdate()
+      } else {
+        throw new Error('Falha ao remover boundary')
+      }
+    } catch (error) {
+      console.error('Error deleting boundary:', error)
+      alert('Erro ao remover boundary')
+    } finally {
+      setIsSavingBoundary(false)
+    }
+  }
+
+  // Consolidate initialization: Fetch existing boundary and basic group info on open
   useEffect(() => {
     if (isOpen && poi?.id) {
       if (poi?.coordinates) {
-        fetchNearbyPOIs()
+        // We only fetch group info to check if it belongs to a group.
+        // nearby POIs will be fetched only when the tab is actually opened.
         fetchGroupInfo()
       }
       fetchBoundary()
     }
-  }, [isOpen, poi?.id, poi?.coordinates, fetchNearbyPOIs, fetchGroupInfo, fetchBoundary])
+  }, [isOpen, poi?.id]) // Only trigger when modal opens or POI identity changes
 
-  // Debug effect for Group POIs tab
+  // Tab-specific effect for Group POIs: Handle auto-fill and fetch
   useEffect(() => {
     if (activeTab === 'group-pois') {
-      const currentPoi = getPoi()
-      if (currentPoi) {
-        fetchNearbyPOIs()
-        fetchGroupInfo()
+      // Auto-fill drawnPolygon once if it's empty
+      if (!drawnPolygon) {
+        const boundaryToUse = boundaryPolygon || createBoundary
+        if (boundaryToUse && boundaryToUse.length >= 3) {
+          setDrawnPolygon(boundaryToUse)
+        }
       }
+      
+      // Always fetch nearby POIs when tab is active
+      fetchNearbyPOIs()
     }
-  }, [activeTab, getPoi, fetchNearbyPOIs, fetchGroupInfo])
+  }, [activeTab, fetchNearbyPOIs]) 
 
 
 
@@ -2092,112 +2269,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   useEffect(() => {
   }, [handleBoundaryPolygonComplete])
 
-  // Save boundary to database
-  const handleSaveBoundary = async () => {
-    const currentPoi = getPoi()
-    if (!currentPoi || !boundaryPolygon || boundaryPolygon.length < 3) {
-      alert('Por favor, desenhe um polígono válido (mínimo 3 pontos)')
-      return
-    }
-
-    // Validate coordinates before sending
-    const validCoords = boundaryPolygon.filter(coord =>
-      typeof coord.lat === 'number' &&
-      typeof coord.lng === 'number' &&
-      !isNaN(coord.lat) &&
-      !isNaN(coord.lng) &&
-      coord.lat >= -90 && coord.lat <= 90 &&
-      coord.lng >= -180 && coord.lng <= 180
-    )
-
-    if (validCoords.length < 3) {
-      alert(`Polígono inválido: apenas ${validCoords.length} pontos válidos (mínimo 3)`)
-      return
-    }
-
-
-    setIsSavingBoundary(true)
-    try {
-      const requestBody = {
-        attractionId: currentPoi.id,
-        coordinates: validCoords // Use validated coordinates
-      }
-
-
-
-      const response = await fetch('/api/pois/update-boundary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      })
-
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('❌ Error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
-        })
-        let error
-        try {
-          error = JSON.parse(errorText)
-        } catch {
-          error = { error: errorText }
-        }
-        throw new Error(error.error || error.message || 'Failed to save boundary')
-      }
-
-      const result = await response.json()
-
-      // Refresh POI data to show updated boundary
-      if (onPOIUpdated && result.data) {
-        // Update local POI state with boundary info
-        const updatedPoi = {
-          ...currentPoi,
-          boundary_area_m2: result.data.boundary_area_m2,
-          boundary_centroid: result.data.boundary_centroid
-        }
-        onPOIUpdated(updatedPoi as POI)
-      }
-
-      alert(t('validation.boundary_success'))
-    } catch (error) {
-      console.error('Error saving boundary:', error)
-      alert(`${t('validation.boundary_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`)
-    } finally {
-      setIsSavingBoundary(false)
-    }
-  }
-
-  const fetchNearbyPOIsWithPolygon = async (polygonCoords: Array<{ lat: number; lng: number }>) => {
-    setGroupLoading(true)
-    try {
-      // Use the correct port (3001) instead of 3000
-      const res = await fetch('/api/attraction-groups/nearby', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ polygon: polygonCoords })
-      })
-
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error('❌ MODAL: API error response:', errorText);
-        throw new Error(`API error ${res.status}: ${errorText}`);
-      }
-
-      const data = await res.json()
-
-      setNearbyPOIs(data.nearby || [])
-    } catch (error) {
-      console.error('❌ MODAL: Error in fetchNearbyPOIsWithPolygon:', error);
-      // Show user-friendly error message
-      alert(`${t('validation.nearby_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`);
-    } finally {
-      setGroupLoading(false)
-    }
-  }
 
   if (!shouldRender) return null
 
@@ -2357,45 +2428,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </button>
                     
                     <button
-                      onClick={() => setActiveTab('description')}
-                      className={cn(
-                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
-                        activeTab === 'description' 
-                          ? 'bg-tuggi-blue text-white' 
-                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
-                      )}
-                    >
-                      <FileText className={cn("h-5 w-5", activeTab === 'description' && "animate-pulse")} />
-                      {t('tabs.description')}
-                    </button>
-                    
-                    <button
-                      onClick={() => setActiveTab('narration-audio')}
-                      className={cn(
-                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
-                        activeTab === 'narration-audio' 
-                          ? 'bg-tuggi-blue text-white' 
-                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
-                      )}
-                    >
-                      <Volume2 className={cn("h-5 w-5", activeTab === 'narration-audio' && "animate-pulse")} />
-                      {t('tabs.audio')}
-                    </button>
-                    
-                    <button
-                      onClick={() => setActiveTab('group-pois')}
-                      className={cn(
-                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
-                        activeTab === 'group-pois' 
-                          ? 'bg-tuggi-blue text-white' 
-                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
-                      )}
-                    >
-                      <Layers className={cn("h-5 w-5", activeTab === 'group-pois' && "animate-pulse")} />
-                      {t('tabs.group_pois')}
-                    </button>
-
-                    <button
                       onClick={() => setActiveTab('boundary')}
                       className={cn(
                         'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
@@ -2422,6 +2454,45 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         {t('tabs.trigger_points')}
                       </button>
                     )}
+
+                    <button
+                      onClick={() => setActiveTab('group-pois')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'group-pois' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <Layers className={cn("h-5 w-5", activeTab === 'group-pois' && "animate-pulse")} />
+                      {t('tabs.group_pois')}
+                    </button>
+
+                    <button
+                      onClick={() => setActiveTab('description')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'description' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <FileText className={cn("h-5 w-5", activeTab === 'description' && "animate-pulse")} />
+                      {t('tabs.description')}
+                    </button>
+                    
+                    <button
+                      onClick={() => setActiveTab('narration-audio')}
+                      className={cn(
+                        'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
+                        activeTab === 'narration-audio' 
+                          ? 'bg-tuggi-blue text-white' 
+                          : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+                      )}
+                    >
+                      <Volume2 className={cn("h-5 w-5", activeTab === 'narration-audio' && "animate-pulse")} />
+                      {t('tabs.audio')}
+                    </button>
                     
                     <div className="my-4 border-t border-gray-100 dark:border-gray-800" />
                     
@@ -2544,19 +2615,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                             {t('labels.location_boundary')} *
                           </label>
-                          <button
-                            type="button"
-                            onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
-                            className={cn(
-                              "px-3 py-1.5 text-xs font-medium rounded-md flex items-center transition-colors",
-                              isDrawingEnabled
-                                ? "bg-orange-500 text-white hover:bg-orange-600"
-                                : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-                            )}
-                          >
-                            <MapPin className="h-3 w-3 mr-1" />
-                            {isDrawingEnabled ? t('actions.disable_drawing') : t('actions.drawing_mode')}
-                          </button>
                         </div>
 
                         <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
@@ -2577,6 +2635,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             }] : []}
                             polygon={createBoundary || undefined}
                             enableDrawing={isDrawingEnabled}
+                            showDrawingButton={false}
                             onMapClick={(lat: number, lng: number) => {
                               setCreateCoordinates({ lat, lng })
                             }}
@@ -3470,21 +3529,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         <MapPin className="h-5 w-5 mr-2 text-tuggi-blue" />
                         {t('labels.geographic_boundaries')}
                       </h3>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
-                          className={cn(
-                            "px-3 py-1.5 text-xs font-medium rounded-md flex items-center transition-colors",
-                            isDrawingEnabled
-                              ? "bg-orange-500 text-white hover:bg-orange-600"
-                              : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
-                          )}
-                        >
-                          <MapPin className="h-3 w-3 mr-1" />
-                          {isDrawingEnabled ? t('actions.disable_drawing') : t('actions.drawing_mode')}
-                        </button>
-                      )}
                     </div>
                     
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
@@ -3508,6 +3552,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         }] : []}
                         polygon={boundaryPolygon || existingBoundary || undefined}
                         enableDrawing={isDrawingEnabled && canEdit}
+                        showDrawingButton={false}
                         onMapClick={() => {}}
                         onPolygonComplete={handleBoundaryPolygonComplete}
                         onPolygonChange={(polygon) => {
@@ -3529,29 +3574,78 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                      )}
                     </div>
 
-                    {canEdit && boundaryPolygon && boundaryPolygon.length >= 3 && (
-                      <div className="mt-4 flex items-center justify-between">
-                        <div className="text-sm text-green-600 dark:text-green-400 font-medium flex items-center">
-                          <CheckCircle className="h-4 w-4 mr-1" />
-                          {t('labels.valid_polygon_ready')}
+                    {canEdit && (
+                      <div className="mt-6 flex flex-col gap-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                             <div className={cn(
+                               "px-2 py-1 rounded text-xs font-bold uppercase",
+                               boundaryPolygon && boundaryPolygon.length >= 3 
+                                 ? "bg-green-100 text-green-700" 
+                                 : "bg-amber-100 text-amber-700"
+                             )}>
+                               {boundaryPolygon && boundaryPolygon.length >= 3 
+                                 ? t('labels.boundary_defined') 
+                                 : t('labels.boundary_missing')}
+                             </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2">
+                             <button
+                               onClick={() => {
+                                 setBoundaryPolygon(existingBoundary)
+                                 setIsDrawingEnabled(false)
+                               }}
+                               className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center gap-1"
+                             >
+                               <RotateCcw className="h-3.5 w-3.5" />
+                               {tCommon('actions.reset')}
+                             </button>
+                             
+                             {(boundaryPolygon || existingBoundary) && (
+                               <button
+                                 onClick={handleDeleteBoundary}
+                                 className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 flex items-center gap-1"
+                               >
+                                 <Trash2 className="h-3.5 w-3.5" />
+                                 {tCommon('actions.delete')}
+                               </button>
+                             )}
+                          </div>
                         </div>
-                        <button
-                          onClick={handleSaveBoundary}
-                          disabled={isSavingBoundary}
-                          className="px-4 py-2 bg-tuggi-blue text-white rounded-md font-medium text-sm hover:bg-blue-600 disabled:opacity-50 flex items-center"
-                        >
-                          {isSavingBoundary ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              {t('labels.saving_boundary')}
-                            </>
-                          ) : (
-                            <>
-                              <Save className="h-4 w-4 mr-2" />
-                              {t('actions.save_boundary')}
-                            </>
-                          )}
-                        </button>
+
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={handleSaveBoundary}
+                            disabled={isSavingBoundary || !boundaryPolygon || boundaryPolygon.length < 3}
+                            className="flex-1 px-4 py-3 bg-tuggi-blue text-white rounded-xl font-bold text-sm hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center transition-all shadow-lg shadow-blue-500/20"
+                          >
+                            {isSavingBoundary ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                {t('labels.saving_boundary')}
+                              </>
+                            ) : (
+                              <>
+                                <Save className="h-4 w-4 mr-2" />
+                                {t('labels.save_boundary')}
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
+                            className={cn(
+                              "px-4 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2",
+                              isDrawingEnabled 
+                                ? "bg-amber-500 text-white hover:bg-amber-600" 
+                                : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                            )}
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            {isDrawingEnabled ? t('labels.stop_drawing') : t('labels.start_drawing')}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -4300,6 +4394,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 color: selectedPOIs.includes(p.id) ? '#FF6F00' : '#888'
                               }))
                             ]}
+                            polygon={drawnPolygon || undefined}
+                            showDrawingButton={false}
                             onMarkerClick={handleTogglePOI}
                             onPolygonComplete={handlePolygonComplete}
                           />
