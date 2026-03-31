@@ -120,6 +120,17 @@ export async function validateAuthHeader(
       };
     }
 
+    // 3.1 Check if token is the service role key (Internal Bypass)
+    if (token === supabaseServiceKey) {
+      console.log("✅ [Auth] Validated via SERVICE_ROLE_KEY (Internal Bypass)");
+      return {
+        valid: true,
+        userId: "00000000-0000-0000-0000-000000000000",
+        email: "system@supabase.internal",
+        role: "service_role",
+      };
+    }
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // 4. Verify token with Supabase

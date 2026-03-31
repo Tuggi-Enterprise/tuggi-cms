@@ -36,7 +36,8 @@ export const generateMasterPack = async (
     language: string,
     apiKey: string,
     poiData: any = {},
-    audioDuration: number = 25 // Default 25s (from App requests)
+    audioDuration: number = 25, // Default 25s (from App requests)
+    memberPois: any[] = [] // Highlights of the complex
 ): Promise<MasterPackResult> => {
 
     const audioTarget = `${audioDuration}s`;
@@ -45,6 +46,11 @@ export const generateMasterPack = async (
     const minChars = Math.floor(audioDuration * 14);
     const maxChars = Math.floor(audioDuration * 18);
     const langName = getLanguageName(language);
+
+    const isComplex = memberPois && memberPois.length > 0;
+    const membersSummary = isComplex 
+        ? memberPois.map(p => `- ${p.name} (${p.category || p.type || 'highlight'})`).join('\n')
+        : '';
 
     const prompt = `
 ROLE: Expert Historian and Professional Travel Writer.
@@ -58,11 +64,16 @@ CONTENT RULES:
 4. TARGET LENGTH: Between ${minChars} and ${maxChars} characters (including spaces) for a ${audioTarget} audio narration.
 5. Use Google Search to find: Exact foundation date, mission/founders, and one unique historical milestone.
 
+${isComplex ? `COMPLEX STRUCTURE INFO:
+This POI is a group/complex/park that contains several important internal points:
+${membersSummary}
+ADAPTATION: Treat "${poiName}" as a parent container. Ensure you mention its most significant internal items (highlights) as part of the narrative features.` : ''}
+
 NARRATIVE STRUCTURE:
 - Sentence 1: Name and foundation/historical origin.
 - Sentence 2: Founding figures or original purpose.
-- Sentence 3: Architectural detail or a specific historical milestone (e.g. "Clube dos Escravos").
-- Sentence 4/5: Modern identity or cultural legacy (e.g. "Capital da Linguiça").
+- Sentence 3: Architectural detail or a specific historical milestone.
+- Sentence 4/5: Modern identity, cultural legacy, or major highlights ${isComplex ? '(incorporate member POIs here)' : ''}.
 
 OUTPUT FORMAT (XML TAGS):
 <master_description>

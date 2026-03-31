@@ -226,6 +226,35 @@ async function processPOIItem(
         // 3.2 Full Generation
         if (!result) {
             console.log(`${LOG_PREFIX} Generating FRESH Master (Gemini)...`);
+            
+            // Check for group membership (Parent/Main POI)
+            let memberPois = [];
+            const { data: groupMembership } = await supabaseAdmin.schema("core")
+                .from("attraction_group_members")
+                .select("group_id")
+                .eq("attraction_id", poi_id)
+                .eq("group_role", "main")
+                .maybeSingle();
+            
+            if (groupMembership) {
+                console.log(`${LOG_PREFIX} Recognized as Group Parent (Group: ${groupMembership.group_id}). Fetching members...`);
+                const { data: siblings } = await supabaseAdmin.schema("core")
+                    .from("attraction_group_members")
+                    .select("attraction_id")
+                    .eq("group_id", groupMembership.group_id)
+                    .neq("attraction_id", poi_id);
+                
+                if (siblings && siblings.length > 0) {
+                    const siblingIds = siblings.map(s => s.attraction_id);
+                    const { data: memberInfos } = await supabaseAdmin.schema("core")
+                        .from("attractions")
+                        .select("name, category, type")
+                        .in("id", siblingIds);
+                    memberPois = memberInfos || [];
+                    console.log(`${LOG_PREFIX} Found ${memberPois.length} member POIs for context.`);
+                }
+            }
+
             result = await generateMasterPack(
                 poiName,
                 cityName,
@@ -234,6 +263,7 @@ async function processPOIItem(
                 GEMINI_API_KEY,
                 undefined, // poiData
                 audioDuration,
+                memberPois, // Pass member POIs as new argument
             );
         }
 
