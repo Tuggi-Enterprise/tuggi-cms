@@ -59,6 +59,7 @@ function POIListWithSearchParams() {
   const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [countryFilter, setCountryFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<string>('all')
   
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -93,6 +94,7 @@ function POIListWithSearchParams() {
     country?: string
     state?: string
     city?: string
+    category?: string
     contentStatus?: 'all' | 'missing_description' | 'missing_audio' | 'complete'
     groupStatus?: 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'
     scoreFilter?: 'all' | 'no_score' | 'rejected' | 'pending' | 'approved'
@@ -118,6 +120,9 @@ function POIListWithSearchParams() {
     }
     if (filters.city && filters.city.trim()) {
       params.set('city', filters.city)
+    }
+    if (filters.category && filters.category !== 'all') {
+      params.set('category', filters.category)
     }
     if (filters.contentStatus && filters.contentStatus !== 'all') {
       params.set('contentStatus', filters.contentStatus)
@@ -174,6 +179,7 @@ function POIListWithSearchParams() {
     const city = searchParams.get('city') || ''
     const country = searchParams.get('country') || ''
     const state = searchParams.get('state') || ''
+    const category = searchParams.get('category') || 'all'
 
     const contentStatus = (searchParams.get('contentStatus') as 'all' | 'missing_description' | 'missing_audio' | 'complete') || 'all'
     const groupStatus = (searchParams.get('groupStatus') as 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member') || 'all'
@@ -188,6 +194,7 @@ function POIListWithSearchParams() {
     setCityFilter(city)
     setCountryFilter(country)
     setStateFilter(state)
+    setCategoryFilter(category)
 
     setContentStatusFilter(contentStatus)
     setGroupStatusFilter(groupStatus)
@@ -262,6 +269,7 @@ function POIListWithSearchParams() {
         country: countryFilter,
         state: stateFilter,
         city: cityFilter,
+        category: categoryFilter === 'all' ? undefined : categoryFilter,
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
@@ -273,6 +281,7 @@ function POIListWithSearchParams() {
     country: countryFilter,
     state: stateFilter,
     city: cityFilter,
+    category: categoryFilter === 'all' ? undefined : categoryFilter,
     contentStatus: contentStatusFilter,
     groupStatus: groupStatusFilter,
     scoreFilter: scoreFilter,
@@ -432,7 +441,7 @@ function POIListWithSearchParams() {
         city: cityFilter,
         country: countryFilter,
         state: stateFilter,
-
+        category: categoryFilter,
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
@@ -442,7 +451,7 @@ function POIListWithSearchParams() {
         view: viewMode
       })
     }
-  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, currentPage, viewMode, isInitializing, updateURL])
+  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, categoryFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, currentPage, viewMode, isInitializing, updateURL])
 
   // Transform POI from service to modal format
   const transformPOIForModal = (poi: POIType): POI => ({
@@ -631,6 +640,7 @@ function POIListWithSearchParams() {
     setCityFilter('')
     setCountryFilter('')
     setStateFilter('')
+    setCategoryFilter('all')
 
     setContentStatusFilter('all')
     setGroupStatusFilter('all')
@@ -695,9 +705,16 @@ function POIListWithSearchParams() {
       { value: 'inactive', label: t('status_options.inactive') }
     ]
   }), [locationData.countries, locationData.states, locationData.cities, countryFilter, stateFilter, t])
+
+  const recordTypes = useMemo(() => [
+    { value: 'all', label: t('status_options.all_types') },
+    { value: 'point_of_interest', label: t('status_options.poi_standard') },
+    { value: 'geofence', label: t('status_options.geofence') }
+  ], [t])
   const hasActiveFilters = useMemo(() => {
     return searchTerm !== '' || 
            statusFilter !== 'all' || 
+           categoryFilter !== 'all' ||
            cityFilter !== '' || 
            countryFilter !== '' || 
            stateFilter !== '' || 
@@ -758,6 +775,22 @@ function POIListWithSearchParams() {
 
               {/* Filters List */}
               <div className="space-y-5">
+                {/* Record Type Section */}
+                <div>
+                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">{t('filters.record_type')}</h3>
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                  >
+                    {recordTypes.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Location Section */}
                 <div>
                   <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Localização</h3>
@@ -899,7 +932,7 @@ function POIListWithSearchParams() {
             <div className="p-4 flex items-center justify-between">
               <div className="flex items-center gap-8 pl-2">
                 <div className="flex flex-col">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total POIs</span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">Total de Registros</span>
                   <div className="flex items-center gap-2">
                     <span className="text-2xl font-bold text-gray-900 dark:text-white leading-none">{totalCount}</span>
                     <div className="w-1.5 h-1.5 rounded-full bg-tuggi-blue animate-pulse" />

@@ -1081,6 +1081,7 @@
     "import_pois": "Importar POIs",
     "filters": {
       "title": "Filtros",
+      "record_type": "Tipo de Registro",
       "clear_all": "Limpar Tudo",
       "search_placeholder": "Buscar POIs...",
       "country": "País",
@@ -1100,6 +1101,9 @@
     },
     "status_options": {
       "all": "Todos os Status",
+      "all_types": "Todos os Tipos",
+      "geofence": "Geofences",
+      "poi_standard": "Pontos de Interesse",
       "approved": "Aprovado",
       "pending": "Pendente",
       "all_content": "Todo Conteúdo",

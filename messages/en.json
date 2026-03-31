@@ -1080,6 +1080,7 @@
     "import_pois": "Import POIs",
     "filters": {
       "title": "Filters",
+      "record_type": "Record Type",
       "clear_all": "Clear All",
       "search_placeholder": "Search POIs...",
       "country": "Country",
@@ -1099,6 +1100,9 @@
     },
     "status_options": {
       "all": "All Status",
+      "all_types": "All Types",
+      "geofence": "Geofences",
+      "poi_standard": "Points of Interest",
       "approved": "Approved",
       "pending": "Pending",
       "all_content": "All Content",

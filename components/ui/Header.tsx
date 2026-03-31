@@ -51,7 +51,6 @@ export function Header({ className }: { className?: string }) {
     { name: t('realtime'), href: '/dashboard/realtime', icon: Activity, category: 'main' },
     { name: t('pois'), href: '/pois', icon: MapPin, category: 'pois' },
     { name: t('custom_routes'), href: '/routes', icon: Route, category: 'pois' },
-    { name: t('geofences'), href: '/geofences', icon: MapPin, category: 'pois' },
     { name: t('inventory'), href: '/dashboard/reports/inventory', icon: Database, category: 'reports' },
     { name: t('territorial'), href: '/dashboard/reports/territorial', icon: Globe, category: 'reports' },
     { name: t('heatmap'), href: '/dashboard/reports/heatmap', icon: Map, category: 'reports' },
