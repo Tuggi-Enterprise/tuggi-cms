@@ -498,6 +498,25 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   // Grouping state
   const [nearbyPOIs, setNearbyPOIs] = useState<any[]>([])
   const [selectedPOIs, setSelectedPOIs] = useState<string[]>([])
+
+  // Enhanced categories to ensure current POI category is always visible
+  // even if it's not in the static constants list
+  const enhancedCategories = useMemo(() => {
+    const baseCategories = POI_CATEGORIES.filter(c => c.value !== 'all')
+    const poiCategory = currentPoi?.osm_category || currentPoi?.category
+    
+    // If the POI has a category not in our list, add it dynamically
+    if (poiCategory && !baseCategories.some(c => c.value === poiCategory)) {
+        // Use the value itself as label if not found, with a special prefix or indicator
+        const label = poiCategory.charAt(0).toUpperCase() + poiCategory.slice(1).replace(/_/g, ' ')
+        
+        return [
+            ...baseCategories,
+            { value: poiCategory, label: `${label} (Dynamic)`, icon: Info, color: 'bg-slate-500' }
+        ]
+    }
+    return baseCategories
+  }, [currentPoi?.osm_category, currentPoi?.category])
   const [groupInfo, setGroupInfo] = useState<any>(null)
   const [groupLoading, setGroupLoading] = useState(false)
   const [groupName, setGroupName] = useState(poi?.name || '') // Default to main POI name
@@ -2575,7 +2594,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             onChange={(e) => setCreateCategory(e.target.value)}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                           >
-                            {POI_CATEGORIES.filter(c => c.value !== 'all').map(cat => (
+                            {enhancedCategories.map(cat => (
                               <option key={cat.value} value={cat.value}>{cat.label}</option>
                             ))}
                           </select>
@@ -2958,7 +2977,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, category: e.target.value }) : null)}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                               >
-                                {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
+                                {enhancedCategories.map(category => (
                                   <option key={category.value} value={category.value}>
                                     {category.label}
                                   </option>
