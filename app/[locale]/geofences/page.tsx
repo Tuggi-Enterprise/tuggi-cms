@@ -6,6 +6,8 @@ import {
   MapPin, Search, Filter, Plus, List, Trash2, Edit, RotateCcw, Grid, Eye, FileText, Volume2, Map
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useSupabaseClient } from '@supabase/auth-helpers-react'
+import { POI } from '@/components/poi-management/POIDetailsModal'
 
 import { cn } from '@/lib/utils'
 import { poiService, POI as POIType } from '@/lib/core/poi-service'
@@ -48,6 +50,9 @@ export default function GeofencesPage() {
   const [viewMode, setViewMode] = useState<'list' | 'cards' | 'map'>('cards')
   
   const { role: cmsUserRole, isViewer, isAdmin, canEdit } = useCmsUser()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const supabase = useSupabaseClient()
 
   const t = useTranslations('Geofences')
   const tPOI = useTranslations('POIManagement')
@@ -72,12 +77,22 @@ export default function GeofencesPage() {
     setSelectedPoi(poi)
     setIsCreateMode(false)
     setIsModalOpen(true)
+    
+    // URL sync
+    const params = new URLSearchParams(window.location.search)
+    params.set('poiId', poi.id)
+    router.push(`?${params.toString()}`, { scroll: false })
   }
 
   const handleCreateNew = () => {
     setSelectedPoi(null)
     setIsCreateMode(true)
     setIsModalOpen(true)
+    
+    // URL sync
+    const params = new URLSearchParams(window.location.search)
+    params.set('new', 'true')
+    router.push(`?${params.toString()}`, { scroll: false })
   }
 
   const handleDeletePoi = async (poiId: string) => {
@@ -153,6 +168,78 @@ export default function GeofencesPage() {
   useEffect(() => {
     locationData.loadCountries('geofence')
   }, [])
+
+  // Listen for ?poiId= and ?new= in URL
+  useEffect(() => {
+    // SINGLE SOURCE OF TRUTH: Window location search 
+    let currentPoiId: string | null = null
+    let currentNew: string | null = null
+    
+    if (typeof window !== 'undefined') {
+      const windowParams = new URLSearchParams(window.location.search)
+      currentPoiId = windowParams.get('poiId')
+      currentNew = windowParams.get('new')
+    } else {
+      currentPoiId = searchParams.get('poiId')
+      currentNew = searchParams.get('new')
+    }
+
+    const isNewParam = currentNew === 'true'
+
+    if (isNewParam && !isModalOpen) {
+      setSelectedPoi(null)
+      setIsCreateMode(true)
+      setIsModalOpen(true)
+    } else if (currentPoiId && (!selectedPoi || selectedPoi.id !== currentPoiId)) {
+      // Optimization: Is it in list?
+      const existingInList = searchResult?.data?.find(p => p.id === currentPoiId)
+      
+      if (existingInList) {
+        setSelectedPoi(existingInList)
+        setIsCreateMode(false)
+        setIsModalOpen(true)
+      } else {
+        // Not in list, fetch specifically
+        const fetchDeepLinkedPoi = async () => {
+          try {
+            const { data, error } = await supabase
+              .schema('core')
+              .from('attractions')
+              .select(`
+                *,
+                attraction_descriptions (id, language),
+                attraction_groups (id, name, status)
+              `)
+              .eq('id', currentPoiId)
+              .single()
+
+            if (data && !error) {
+              const transformedPoi: POIType = {
+                ...data,
+                coordinates: data.latitude && data.longitude ? { latitude: data.latitude, longitude: data.longitude } : undefined,
+                descriptions: data.attraction_descriptions || [],
+                group_status: data.attraction_groups?.[0] ? {
+                  is_in_group: true,
+                  group_id: data.attraction_groups[0].id,
+                  group_name: data.attraction_groups[0].name
+                } : undefined
+              }
+              setSelectedPoi(transformedPoi)
+              setIsCreateMode(false)
+              setIsModalOpen(true)
+            }
+          } catch (e) {
+            console.error("Error loading deep linked geofence", e)
+          }
+        }
+        
+        fetchDeepLinkedPoi()
+      }
+    } else if (!isNewParam && !currentPoiId && isModalOpen) {
+      setIsModalOpen(false)
+      setSelectedPoi(null)
+    }
+  }, [searchParams, isModalOpen, selectedPoi?.id, searchResult?.data, supabase])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
@@ -504,20 +591,32 @@ export default function GeofencesPage() {
         </div>
       </div>
       
-      {isModalOpen && (
-        <POIDetailsModal
-          poi={selectedPoi as any}
-          isOpen={isModalOpen}
-          mode={isCreateMode ? 'create' : 'view'}
-          onClose={() => setIsModalOpen(false)}
-          onUpdate={fetchPois}
-          onPOIUpdated={(updatedPOI) => {
-            setSelectedPoi(updatedPOI as any)
-            setIsCreateMode(false)
-            fetchPois()
-          }}
-        />
-      )}
+      {/* POI Details Modal */}
+      <POIDetailsModal
+        poi={selectedPoi as any}
+        isOpen={isModalOpen}
+        mode={isCreateMode ? 'create' : 'view'}
+        onClose={() => {
+          setIsModalOpen(false)
+          setSelectedPoi(null)
+          const params = new URLSearchParams(searchParams.toString())
+          params.delete('poiId')
+          params.delete('new')
+          router.push(`?${params.toString()}`, { scroll: false })
+        }}
+        onUpdate={fetchPois}
+        onPOIUpdated={(updatedPOI) => {
+          setSelectedPoi(updatedPOI as any)
+          setIsCreateMode(false)
+          fetchPois()
+          
+          // Auto switch to edit mode URL
+          const params = new URLSearchParams(searchParams.toString())
+          params.delete('new')
+          params.set('poiId', updatedPOI.id)
+          router.push(`?${params.toString()}`, { scroll: false })
+        }}
+      />
     </div>
   )
 }

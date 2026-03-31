@@ -33,15 +33,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized - Insufficient privileges' }, { status: 403 })
     }
     const body = await request.json()
-    const { name, lat, lng, boundary, category, owner_id, business_status } = body
+    const { name, lat, lng, boundary, category, primary_category, owner_id, business_status } = body
 
     console.log('📍 [create-manual] Received request:', {
       name,
       lat,
       lng,
       category,
+      primary_category,
       hasBoundary: !!boundary,
-      boundaryLength: boundary?.length
+      owner_id
     })
 
     // Validate required fields
@@ -109,10 +110,16 @@ export async function POST(request: NextRequest) {
     
     if (category) {
       additionalFields.category = category
-      if (category === 'geofence') {
-        additionalFields.primary_category = 'geofence'
+    }
+    
+    if (primary_category) {
+      additionalFields.primary_category = primary_category
+      if (primary_category === 'geofence') {
         additionalFields.approved = true // Auto-approve geofences
       }
+    } else if (category === 'geofence') {
+      additionalFields.primary_category = 'geofence'
+      additionalFields.approved = true
     }
     
     if (owner_id) {

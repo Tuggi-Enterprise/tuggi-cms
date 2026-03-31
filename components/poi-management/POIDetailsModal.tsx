@@ -26,6 +26,7 @@ export interface POI {
   country: string
   state: string | null
   category: string
+  primary_category?: string | null
   approved: boolean
   approved_by: string | null
   approved_at: string | null
@@ -146,7 +147,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [createError, setCreateError] = useState<string | null>(null)
   const [createBoundary, setCreateBoundary] = useState<Array<{ lat: number; lng: number }> | null>(null)
   const [isEnrichingOSM, setIsEnrichingOSM] = useState(false)
-  const [createCategory, setCreateCategory] = useState<string>('standard')
+  const [createCategory, setCreateCategory] = useState<string>('tourist_attraction')
+  const [createType, setCreateType] = useState<'standard' | 'geofence'>('standard')
   const [createOwnerId, setCreateOwnerId] = useState<string>('')
   const [createBusinessStatus, setCreateBusinessStatus] = useState<string>('ENTER_ONLY')
   const [clients, setClients] = useState<any[]>([])
@@ -167,19 +169,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       if (res.ok) {
         const { clients: data } = await res.json()
         if (data) {
-          console.log('🏢 [fetchClients] Loaded clients:', data.map((c: any) => ({ id: c.id, name: c.name })));
           setClients(data)
           // Default selection if not set
           if (!createOwnerId && data.length > 0) {
             const defaultClient = isAdmin 
               ? (data.find((c: any) => c.name.toLowerCase().includes('tuggi')) || data[0]) 
               : data[0];
-            
-            console.log('🎯 [fetchClients] Auto-selecting client:', { 
-              name: defaultClient.name, 
-              id: defaultClient.id, 
-              isAdmin 
-            });
             setCreateOwnerId(defaultClient.id)
           }
         }
@@ -187,27 +182,37 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     } catch(err) {
       console.error('Failed to fetch clients', err)
     }
-  }, [createOwnerId, isAdmin])
+  }, [isAdmin])
 
+  // Sync activeTab and reset fields when modal opens/mode changes
   useEffect(() => {
     if (isOpen) {
-      fetchClients();
+      
+      fetchClients()
+      
+      if (isCreateMode) {
+        setActiveTab('create')
+        // Clear creation form fields
+        setCreateName('')
+        setCreateCoordinates(null)
+        setCreateLocation(null)
+        setCreateBoundary(null)
+        setCreateError(null)
+        setIsDrawingEnabled(false)
+      } else {
+        // Default to details tab for existing POIs
+        setActiveTab('details')
+      }
     }
-  }, [isOpen, fetchClients]);
+  }, [isOpen, isCreateMode, fetchClients, poi?.id])
 
   // Update state when poi changes
   useEffect(() => {
-    console.log('🔄 [POI useEffect] Running with:', {
-      poiProp: poi ? { id: poi.id, name: poi.name } : null,
-      currentPoiState: currentPoi ? { id: currentPoi.id, name: currentPoi.name } : null
-    })
-    
     // Check if we have a recent local update that should be preserved
     if (localUpdateRef.current && poi?.id === localUpdateRef.current.poiId) {
       const timeSinceUpdate = Date.now() - localUpdateRef.current.timestamp
       // Ignore prop updates for 3 seconds after a local update
       if (timeSinceUpdate < 3000) {
-        console.log('🔄 [POI useEffect] Ignoring prop update - recent local update detected')
         return
       } else {
         // Clear the ref after timeout
@@ -216,18 +221,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
     
     if (poi) {
-      console.log('🔄 [POI useEffect] Setting state from poi prop')
       setCurrentPoi(poi)
       setEditedPoi(poi)
     } else if (!currentPoi?.id) {
       // Only reset if we don't have a locally created POI
-      // This prevents the modal from going blank when a new POI is created
-      // but the parent component hasn't propagated the new POI prop yet
-      console.log('🔄 [POI useEffect] Resetting to null (no currentPoi.id)')
       setCurrentPoi(null)
       setEditedPoi(null)
-    } else {
-      console.log('🔄 [POI useEffect] Keeping existing currentPoi (has id:', currentPoi?.id, ')')
     }
     // We intentionally exclude currentPoi from dependencies to avoid resetting
     // when local state changes - we only want to sync when the prop changes
@@ -331,29 +330,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           lat: createCoordinates.lat,
           lng: createCoordinates.lng,
           boundary: createBoundary, // Enviar boundary se foi desenhado
-          category: createCategory === 'geofence' ? 'geofence' : undefined,
+          category: createCategory,
+          primary_category: createType === 'geofence' ? 'geofence' : (createCategory || 'standard'),
           owner_id: createOwnerId || undefined,
           business_status: createBusinessStatus || undefined
         })
       })
-
-      console.log('📤 [handleCreatePOI] Payload sent:', {
-        name: createName.trim(),
-        category: createCategory,
-        owner_id: createOwnerId,
-        business_status: createBusinessStatus
-      });
-
       const result = await response.json()
-
-      console.log('📥 [handleCreatePOI] API response:', {
-        success: result.success,
-        dataKeys: result.data ? Object.keys(result.data) : null,
-        dataId: result.data?.id,
-        dataName: result.data?.name,
-        dataCity: result.data?.city
-      })
-
       if (!response.ok || !result.success) {
         throw new Error(result.error || t('validation.error_create'))
       }
@@ -372,21 +355,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         trigger_points_count: 0,
         active_trigger_points_count: 0
       }
-
-      console.log('🏗️ [handleCreatePOI] Created POI object:', {
-        id: createdPOI.id,
-        name: createdPOI.name,
-        city: createdPOI.city,
-        country: createdPOI.country
-      })
-
-      console.log('📝 [handleCreatePOI] Before setState - currentPoi:', currentPoi?.id, 'editedPoi:', editedPoi?.id)
-      
       setCurrentPoi(createdPOI)
       setEditedPoi(createdPOI)
       setActiveTab('details')
 
-      console.log('📝 [handleCreatePOI] After setState calls (queued)')
 
       // Invalidate queries to refresh the list and map
       invalidateAllPOICaches()
@@ -399,7 +371,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setCreateName('')
       setCreateCoordinates(null)
       setCreateLocation(null)
-      setCreateCategory('standard')
+      setCreateCategory('tourist_attraction')
+      setCreateType('standard')
       setCreateOwnerId('')
       setCreateBusinessStatus('ENTER_ONLY')
     } catch (error) {
@@ -671,14 +644,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setTranslatedDescriptions(allAudiosAvailable)
 
       // Debug: Log the fetched descriptions
-      console.log('🔍 Fetched descriptions for POI:', currentPoi.id, descriptionsData?.length || 0)
       descriptionsData?.forEach((desc, index) => {
-        console.log(`  ${index + 1}. ID: ${desc.id}, Language: ${desc.language}, Attraction: ${desc.attraction_id}, Updated: ${desc.updated_at}`)
       })
-      console.log('🔍 Portuguese descriptions:', portugueseDescriptions?.length || 0)
-      console.log('🔍 Translations:', translations?.length || 0)
 
-      console.log('🔍 Selected description search lang:', generationLanguage)
 
       // 1. Try to find description in the selected language
       let currentDesc = descriptionsData?.find(desc => 
@@ -696,23 +664,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         currentDesc = descriptionsData[0]
       }
 
-      console.log('🔍 Selected description record:', currentDesc?.id || 'none')
 
-      console.log('🔍 Selected description:', currentDesc)
 
       if (currentDesc && currentDesc.description) {
-        console.log('✅ Loading description from DB:', currentDesc.description.substring(0, 100) + '...')
         
         // Robust check: Only overwrite if editor is truly empty or we didn't just generate something
         const isRecentlyGenerated = (Date.now() - lastGenerationTimeRef.current) < 8000
         const isEditorEmpty = !currentDescriptionRef.current.trim()
 
         if (isEditorEmpty && !isRecentlyGenerated) {
-          console.log('📝 Setting description state from fetch')
           setCurrentDescription(currentDesc.description || '')
           setOriginalDescription(currentDesc.description || '')
         } else {
-          console.log('⏭️ Skipping description set (editor not empty or recently generated)')
         }
         
         setDescriptionStats({
@@ -736,7 +699,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         }
       } else if (currentDesc && !currentDesc.description) {
         // Found a description record but description field is empty
-        console.log('⚠️ Found description record but description field is empty:', currentDesc)
         setCurrentDescription('')
         setOriginalDescription('')
         setDescriptionStats({
@@ -759,7 +721,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         }
       } else {
         // No description record found at all
-        console.log('❌ No description record found for POI:', currentPoi?.id, 'Lang:', generationLanguage)
         
         const isRecentlyGenerated = (Date.now() - lastGenerationTimeRef.current) < 8000
         if (!currentDescriptionRef.current.trim() && !isRecentlyGenerated) {
@@ -788,24 +749,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }, [getPoi, groupInfo?.id, supabase, generationLanguage])
 
   const fetchNearbyPOIs = useCallback(async () => {
-    console.log('🔍 MODAL: fetchNearbyPOIs called');
     // Only fetch nearby POIs when a polygon is drawn
     // The initial load will be empty until user draws a polygon
     setNearbyPOIs([])
-    console.log('🔍 MODAL: Set nearbyPOIs to empty array');
   }, [])
 
   const fetchGroupInfo = useCallback(async () => {
     const currentPoi = getPoi()
     if (!currentPoi) return // Skip if no POI (creation mode)
 
-    console.log('🔍 MODAL: fetchGroupInfo called for POI:', currentPoi.id);
     setGroupLoading(true)
     try {
       const res = await fetch(`/api/attraction-groups/of-poi?poiId=${currentPoi.id}`)
       const data = await res.json()
 
-      console.log('🔍 MODAL: API response:', data);
 
       setGroupInfo(data.group)
       setGroupName(data.group?.name || currentPoi.name) // Use main POI name as default
@@ -814,7 +771,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       const members = data.members || []
       const selectedPOIsList = members.includes(currentPoi.id) ? members : [currentPoi.id, ...members]
 
-      console.log('🔍 MODAL: Setting selectedPOIs to:', selectedPOIsList);
       setSelectedPOIs(selectedPOIsList)
     } catch (error) {
       console.error('❌ MODAL: Error in fetchGroupInfo:', error);
@@ -831,7 +787,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     if (!currentPoi) return // Skip if no POI (creation mode)
 
     try {
-      console.log('🔍 Buscando dados de verificação para POI:', currentPoi.id);
 
       // Usar a linguagem atual ou preferir pt-br para verificação
       const verificationLang = (generationLanguage === 'pt-br' || generationLanguage === 'pt-BR') ? 'pt-br' : generationLanguage
@@ -844,7 +799,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .select('*')
         .eq('attraction_id', getPoi()?.id || '')
         .ilike('language', verificationLang) // Case-insensitive search
-        .eq('is_original', true)
+        .order('updated_at', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (descError) {
@@ -853,11 +809,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
       if (!descData) {
-        console.log('ℹ️ Nenhuma descrição encontrada para este POI');
         return;
       }
 
-      console.log('✅ Descrição encontrada:', descData.id);
 
       // Agora buscar o score mais recente para esta descrição
       const { data: scoresData, error: scoresError } = await supabase
@@ -874,13 +828,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           created_at,
           description_claims (
             id,
-            claim_text,
+            value,
             claim_type,
             status,
-            confidence
+            weight
           )
         `)
-        .eq('description_id', descData.id)
+        .eq('description_id', descData.description_id)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -891,7 +845,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
       if (scoresData) {
-        console.log('✅ Score encontrado na tabela description_scores:', scoresData);
 
         // Score já está em escala de 0-100
         const score = scoresData.score_overall || 0;
@@ -902,12 +855,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         // Extrair fatos verificáveis das claims
         const verifiableFacts = scoresData.description_claims
           ?.filter(claim => claim.status === 'supported')
-          .map(claim => claim.claim_text) || [];
+          .map(claim => claim.value) || [];
 
         // Extrair datas das claims
         const detectedDates = scoresData.description_claims
           ?.filter(claim => claim.claim_type === 'year')
-          .map(claim => claim.claim_text) || [];
+          .map(claim => claim.value) || [];
 
         // Classificar datas como confiáveis ou moderadas
         const reliableDates = detectedDates.filter(date => /^\d{4}$/.test(date)); // Anos completos são confiáveis
@@ -925,31 +878,22 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           improvement_applied: false
         });
 
-        // Definir datas detectadas para exibição
         if (detectedDates.length > 0) {
+          const dateClassification = classifyDateReliability(detectedDates)
           setDetectedDates({
             dates: detectedDates,
-            reliable: reliableDates,
-            moderate: moderateDates,
-            total: detectedDates.length
+            reliable: dateClassification.reliable,
+            moderate: dateClassification.moderate,
+            total: dateClassification.total
           });
         }
-
-        console.log('✅ Dados de verificação carregados:', {
-          score,
-          approved: isApproved,
-          facts: verifiableFacts.length,
-          dates: detectedDates.length
-        });
       } else {
-        console.log('ℹ️ Nenhum score encontrado na tabela description_scores');
-
         // Usar o score da própria descrição que já buscamos
         const score = descData?.last_score_overall || (descData?.verification_score ? Math.round(descData.verification_score * 100) : 0);
         
         if (score > 0) {
           // Se tiver score na tabela attraction_descriptions, usar esse valor
-          const isApproved = descData.verification_status === 'verified' || score >= 75;
+          const isApproved = descData.verification_status === 'verified' || descData.verification_status === 'approved' || score >= 75;
 
           setVerificationResult({
             applied: true,
@@ -962,9 +906,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
             improvement_applied: false
           });
 
-          console.log('✅ Usando score da tabela attraction_descriptions:', score, 'Status:', descData.verification_status, 'Aprovado:', isApproved);
         } else {
-          console.log('ℹ️ Nenhum dado de verificação encontrado');
           // Limpar o resultado de verificação para não mostrar dados antigos
           setVerificationResult(null);
         }
@@ -977,7 +919,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   // useEffect hooks after function declarations
   useEffect(() => {
     if (isOpen) {
-      console.log('🔄 Modal aberto: carregando dados...', { poi: poi?.id, currentPoi: currentPoi?.id, editedPoi: editedPoi?.id });
       
       // Only reset editedPoi from prop if poi prop exists
       // This prevents overwriting locally created POI state when poi prop is null
@@ -989,7 +930,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       // Garantir que os dados de verificação sejam buscados após os dados da descrição
       setTimeout(() => {
-        console.log('🔄 Buscando dados de verificação após carregar descrição...');
         fetchVerificationData()
       }, 500)
     } else {
@@ -1001,76 +941,30 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
   // Fetch existing boundary from database
   const fetchBoundary = useCallback(async () => {
-    const currentPoi = getPoi();
-    if (!currentPoi?.id) return;
+    const currentId = getPoi()?.id;
+    if (!currentId) return;
 
     try {
-      // Use RPC or raw query to convert GEOGRAPHY to GeoJSON
-      // Since Supabase client doesn't directly support ST_AsGeoJSON, we'll use a workaround
-      const { data: coordData, error } = await supabase
-        .schema('core')
-        .from('attraction_coordinate')
-        .select('boundary_type, boundary_area_m2, boundary_centroid_lat, boundary_centroid_lng')
-        .eq('attraction_id', getPoi()?.id || '')
-        .single();
+      const response = await fetch('/api/pois/update-boundary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          poi_id: currentId,
+          get_only: true
+        })
+      });
 
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error fetching boundary metadata:', error);
-        return;
-      }
-
-      // If boundary exists, fetch the geometry using a custom query
-      if (coordData?.boundary_type) {
-        try {
-          // Use RPC function to get boundary as GeoJSON (function is in core schema)
-          const { data: geoJsonData, error: geoJsonError } = await supabase
-            .schema('core')
-            .rpc('get_boundary_geometry', { p_attraction_id: currentPoi.id });
-
-          if (!geoJsonError && geoJsonData) {
-            const geoJson = typeof geoJsonData === 'string' ? JSON.parse(geoJsonData) : geoJsonData;
-
-            // Extract coordinates from GeoJSON Polygon
-            if (geoJson?.type === 'Polygon' && geoJson.coordinates?.[0]) {
-              const coords = geoJson.coordinates[0].map(([lng, lat]: [number, number]) => ({
-                lat,
-                lng
-              }));
-              setExistingBoundary(coords);
-              setBoundaryPolygon(coords);
-              console.log('✅ Loaded existing boundary:', coords.length, 'points');
-            }
-          } else {
-            // Fallback: Try direct query (may not work if boundary_geometry is GEOGRAPHY)
-            const { data: directData } = await supabase
-              .schema('core')
-              .from('attraction_coordinate')
-              .select('boundary_geometry')
-              .eq('attraction_id', getPoi()?.id || '')
-              .single();
-
-            if (directData?.boundary_geometry) {
-              let geoJson: any;
-              if (typeof directData.boundary_geometry === 'string') {
-                geoJson = JSON.parse(directData.boundary_geometry);
-              } else {
-                geoJson = directData.boundary_geometry;
-              }
-
-              if (geoJson?.type === 'Polygon' && geoJson.coordinates?.[0]) {
-                const coords = geoJson.coordinates[0].map(([lng, lat]: [number, number]) => ({
-                  lat,
-                  lng
-                }));
-                setExistingBoundary(coords);
-                setBoundaryPolygon(coords);
-                console.log('✅ Loaded existing boundary (fallback):', coords.length, 'points');
-              }
-            }
-          }
-        } catch (parseError) {
-          console.error('Error parsing boundary geometry:', parseError);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.boundary && Array.isArray(data.boundary)) {
+          setExistingBoundary(data.boundary);
+          setBoundaryPolygon(data.boundary);
+        } else {
+          setExistingBoundary(null);
+          setBoundaryPolygon(null);
         }
+      } else {
+         console.error('Failed to fetch boundary via API:', await response.text());
       }
     } catch (error) {
       console.error('Error fetching boundary:', error);
@@ -1079,26 +973,25 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
   // Fetch nearby POIs and group info on open
   useEffect(() => {
-    if (isOpen && poi?.id && poi?.coordinates) {
-      fetchNearbyPOIs()
-      fetchGroupInfo()
+    if (isOpen && poi?.id) {
+      if (poi?.coordinates) {
+        fetchNearbyPOIs()
+        fetchGroupInfo()
+      }
       fetchBoundary()
     }
-  }, [isOpen, poi?.id, fetchNearbyPOIs, fetchGroupInfo, fetchBoundary])
+  }, [isOpen, poi?.id, poi?.coordinates, fetchNearbyPOIs, fetchGroupInfo, fetchBoundary])
 
   // Debug effect for Group POIs tab
   useEffect(() => {
     if (activeTab === 'group-pois') {
       const currentPoi = getPoi()
-      console.log('🔍 MODAL: Group POIs tab active');
-      console.log('🔍 MODAL: POI coordinates:', currentPoi?.coordinates);
-      console.log('🔍 MODAL: Current state:', {
-        nearbyPOIs: nearbyPOIs.length,
-        selectedPOIs,
-        groupInfo
-      });
+      if (currentPoi) {
+        fetchNearbyPOIs()
+        fetchGroupInfo()
+      }
     }
-  }, [activeTab, getPoi, nearbyPOIs, selectedPOIs, groupInfo, groupName])
+  }, [activeTab, getPoi, fetchNearbyPOIs, fetchGroupInfo])
 
 
 
@@ -1118,17 +1011,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       return
     }
 
-    console.log('🔍 MODAL: handleSaveGroup called');
-    console.log('🔍 MODAL: Current state:', { groupInfo, groupName, selectedPOIs, poiId: currentPoi.id });
 
     setGroupLoading(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      console.log('🔍 MODAL: Current user:', user?.id);
 
       // Always include the main POI in the group
       const poiIds = [currentPoi.id, ...selectedPOIs.filter(id => id !== currentPoi.id)]
-      console.log('🔍 MODAL: POI IDs to save:', poiIds);
 
       const requestBody = {
         groupId: groupInfo?.id,
@@ -1136,7 +1025,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         poiIds: poiIds,
         userId: user?.id
       }
-      console.log('🔍 MODAL: Request body:', requestBody);
 
       const res = await fetch('/api/attraction-groups/group', {
         method: 'POST',
@@ -1144,7 +1032,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         body: JSON.stringify(requestBody)
       })
 
-      console.log('🔍 MODAL: API response status:', res.status);
 
       if (!res.ok) {
         const errorText = await res.text();
@@ -1153,7 +1040,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
       const responseData = await res.json();
-      console.log('🔍 MODAL: API response data:', responseData);
 
       await fetchGroupInfo()
       await onUpdate()
@@ -1218,12 +1104,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           .update({
             name: editedPoi.name,
             category: editedPoi.category,
+            primary_category: editedPoi.primary_category,
             city: editedPoi.city,
+            state: editedPoi.state,
             country: editedPoi.country,
             updated_at: new Date().toISOString(),
             reference_links: referenceLinks.filter(link => !!link.trim()), // Save only non-empty links
-            owner_id: editedPoi.owner_id || undefined,
-            business_status: editedPoi.business_status || undefined
+            owner_id: editedPoi.owner_id || null,
+            business_status: editedPoi.business_status || null
           })
           .eq('id', getPoi()?.id)
 
@@ -1281,15 +1169,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     try {
       const { data: { user } } = await supabase.auth.getUser()
 
-      console.log('🔍 Approving POI:', {
-        poiId: currentPoi.id,
-        poiName: currentPoi.name,
-        currentUserId: user?.id,
-        poiUserId: currentPoi.user_id,
-        isApproved: currentPoi.approved
-      })
-
-      // Check if this is a homolog POI (from homolog.pois table)
       const isHomologPOI = !!poi?._homologData
 
       if (isHomologPOI) {
@@ -1327,7 +1206,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         }
       }
 
-      console.log('✅ POI approved successfully')
 
       // Update local state instead of reloading all data
       if (!editedPoi || !editedPoi.id) {
@@ -1491,7 +1369,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       return
     }
 
-    console.log('🚀 POI MODAL: Starting description generation with new Gemini Description Service...')
     setIsGenerating(true)
     try {
       // Buscar ID da descrição existente para persistir verificação
@@ -1506,7 +1383,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .maybeSingle();
 
       if (existingDesc) {
-        console.log(`🔍 Encontrado ID de descrição existente em ${generationLanguage}:`, existingDesc.id);
         existingDescriptionId = existingDesc.id;
       }
 
@@ -1546,7 +1422,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
 
-      console.log('📡 POI MODAL: Making request to generate-description Edge Function')
       
       // Use generate-description (Master Mode) com autenticação
       const { data: result, error: invokeError } = await callFunction('generate-description', {
@@ -1571,7 +1446,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       const generatedDescription = generatedData.description || ''
       const generatedAudioUrl = generatedData.audio_url || ''
 
-      console.log('✅ POI MODAL: Description generated successfully:', generatedDescription.substring(0, 50) + '...')
 
       showFeedback('✅ Native Narration Script generated successfully.', 'success')
 
@@ -1663,7 +1537,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         return
       }
 
-      console.log('💾 Saving reference links:', validLinks)
       const { error: refLinksError } = await supabase
         .schema('core')
         .from('attractions')
@@ -1676,7 +1549,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         console.error('⚠️ Error saving reference links:', refLinksError)
         showFeedback('Failed to save reference links. Please try again.', 'error')
       } else {
-        console.log('✅ Reference links saved successfully')
         showFeedback(`${validLinks.length} reference link(s) saved successfully!`, 'success')
       }
     } catch (error) {
@@ -1704,20 +1576,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .eq('language', 'pt-br')
         .maybeSingle()
 
-      console.log('🔍 Existing description found:', !!existingDescs)
       if (existingDescs) {
-        console.log('📝 Existing description:', existingDescs.description?.substring(0, 100) + '...')
-        console.log('📝 Current description:', currentDescription.substring(0, 100) + '...')
       }
 
       // Check if description has changed
       const descriptionChanged = existingDescs && existingDescs.description !== currentDescription
-      console.log('🔄 Description changed:', descriptionChanged)
 
       if (existingDescs) {
-        console.log('🔄 Updating existing description for POI:', getPoi()?.id)
-        console.log('📝 New description:', currentDescription.substring(0, 100) + '...')
-        console.log('🔍 Updating description ID:', existingDescs.id)
 
         // Update existing Portuguese description
         const { data: updateResult, error } = await supabase
@@ -1735,7 +1600,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           throw error
         }
 
-        console.log('✅ Description updated successfully:', updateResult)
 
         // Verify the update by fetching the record again
         const { data: verifyData, error: verifyError } = await supabase
@@ -1748,13 +1612,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         if (verifyError) {
           console.error('❌ Error verifying update:', verifyError)
         } else {
-          console.log('🔍 Verification - Updated description:', verifyData?.description?.substring(0, 100) + '...')
         }
       } else {
         const currentPoiForDesc = getPoi()
         if (!currentPoiForDesc) return
-        console.log('🆕 Creating new description for POI:', currentPoiForDesc.id)
-        console.log('📝 New description:', currentDescription.substring(0, 100) + '...')
         // Create new Portuguese description
         const { error } = await supabase
           .schema('core')
@@ -1767,7 +1628,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           })
 
         if (error) throw error
-        console.log('✅ New description created successfully')
       }
 
       // Update original description to match current
@@ -2190,27 +2050,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }
 
   const handlePolygonComplete = (polygon: any) => {
-    console.log('🔍 MODAL: handlePolygonComplete called with polygon:', polygon);
     const coords = extractPolygonCoordinates(polygon)
-    console.log('🔍 MODAL: Extracted coordinates:', coords);
     setDrawnPolygon(coords)
     fetchNearbyPOIsWithPolygon(coords)
   }
 
   // Handle boundary polygon completion (for POI boundary drawing)
   const handleBoundaryPolygonComplete = useCallback((polygon: any) => {
-    console.log('🗺️ [POIDetailsModal] handleBoundaryPolygonComplete called!', polygon);
     const coords = extractPolygonCoordinates(polygon)
-    console.log('🗺️ Boundary coordinates extracted:', {
-      count: coords.length,
-      first: coords[0],
-      last: coords[coords.length - 1],
-      is_closed: coords.length > 0 &&
-        coords[0].lat === coords[coords.length - 1].lat &&
-        coords[0].lng === coords[coords.length - 1].lng,
-      all_coords: coords,
-      sample_values: coords.slice(0, 3).map(c => ({ lat: typeof c.lat, lng: typeof c.lng, lat_val: c.lat, lng_val: c.lng }))
-    });
 
     // Validate coordinates
     const validCoords = coords.filter(coord =>
@@ -2236,17 +2083,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       return
     }
 
-    console.log('✅ Valid coordinates:', validCoords.length)
     setBoundaryPolygon(validCoords)
   }, [])
 
   // Debug: Log when handleBoundaryPolygonComplete is created
   useEffect(() => {
-    console.log('🔄 [POIDetailsModal] handleBoundaryPolygonComplete created/updated:', {
-      hasFunction: !!handleBoundaryPolygonComplete,
-      type: typeof handleBoundaryPolygonComplete,
-      isFunction: typeof handleBoundaryPolygonComplete === 'function'
-    })
   }, [handleBoundaryPolygonComplete])
 
   // Save boundary to database
@@ -2272,19 +2113,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       return
     }
 
-    console.log('💾 Saving boundary:', {
-      attractionId: currentPoi.id,
-      coordinates_count: boundaryPolygon.length,
-      valid_coordinates_count: validCoords.length,
-      coordinates: boundaryPolygon,
-      first_coord: boundaryPolygon[0],
-      last_coord: boundaryPolygon[boundaryPolygon.length - 1],
-      is_closed: boundaryPolygon.length > 0 &&
-        boundaryPolygon[0].lat === boundaryPolygon[boundaryPolygon.length - 1].lat &&
-        boundaryPolygon[0].lng === boundaryPolygon[boundaryPolygon.length - 1].lng,
-      coordinate_types: boundaryPolygon.map(c => ({ lat: typeof c.lat, lng: typeof c.lng })),
-      coordinate_values_sample: boundaryPolygon.slice(0, 3)
-    })
 
     setIsSavingBoundary(true)
     try {
@@ -2293,13 +2121,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         coordinates: validCoords // Use validated coordinates
       }
 
-      console.log('📤 Sending request:', {
-        url: '/api/pois/update-boundary',
-        method: 'POST',
-        body: requestBody,
-        body_stringified: JSON.stringify(requestBody),
-        body_stringified_length: JSON.stringify(requestBody).length
-      })
+
 
       const response = await fetch('/api/pois/update-boundary', {
         method: 'POST',
@@ -2307,7 +2129,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         body: JSON.stringify(requestBody)
       })
 
-      console.log('📥 Response status:', response.status, response.statusText)
 
       if (!response.ok) {
         const errorText = await response.text()
@@ -2326,8 +2147,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
       const result = await response.json()
-      console.log('✅ Boundary saved:', result)
-      console.log('✅ Full response:', JSON.stringify(result, null, 2))
 
       // Refresh POI data to show updated boundary
       if (onPOIUpdated && result.data) {
@@ -2350,7 +2169,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   }
 
   const fetchNearbyPOIsWithPolygon = async (polygonCoords: Array<{ lat: number; lng: number }>) => {
-    console.log('🔍 MODAL: fetchNearbyPOIsWithPolygon called with coords:', polygonCoords);
     setGroupLoading(true)
     try {
       // Use the correct port (3001) instead of 3000
@@ -2360,8 +2178,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         body: JSON.stringify({ polygon: polygonCoords })
       })
 
-      console.log('🔍 MODAL: Nearby API response status:', res.status);
-      console.log('🔍 MODAL: Nearby API response headers:', Object.fromEntries(res.headers.entries()));
 
       if (!res.ok) {
         const errorText = await res.text();
@@ -2370,10 +2186,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       }
 
       const data = await res.json()
-      console.log('🔍 MODAL: Nearby API response data:', data);
 
       setNearbyPOIs(data.nearby || [])
-      console.log('🔍 MODAL: Set nearbyPOIs to:', data.nearby?.length || 0, 'POIs');
     } catch (error) {
       console.error('❌ MODAL: Error in fetchNearbyPOIsWithPolygon:', error);
       // Show user-friendly error message
@@ -2662,18 +2476,32 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             {t('labels.record_type')} *
                           </label>
                           <select
-                            value={createCategory}
-                            onChange={(e) => setCreateCategory(e.target.value)}
+                            value={createType}
+                            onChange={(e) => setCreateType(e.target.value as 'standard' | 'geofence')}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
                           >
                             <option value="standard">{t('labels.poi_local')}</option>
                             <option value="geofence">{t('labels.geofence_restricted')}</option>
                           </select>
                         </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            {t('labels.category')} *
+                          </label>
+                          <select
+                            value={createCategory}
+                            onChange={(e) => setCreateCategory(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                          >
+                            {POI_CATEGORIES.filter(c => c.value !== 'all').map(cat => (
+                              <option key={cat.value} value={cat.value}>{cat.label}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-800 rounded-lg">
-                        <div className={createCategory === 'geofence' ? '' : 'md:col-span-2'}>
+                        <div className={createType === 'geofence' ? '' : 'md:col-span-2'}>
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             {t('labels.client_owner')} *
                           </label>
@@ -2689,7 +2517,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           {!isAdmin && <p className="text-xs text-gray-500 mt-1">{t('labels.linked_to_current_client')}</p>}
                         </div>
                         
-                        {createCategory === 'geofence' && (
+                        {createType === 'geofence' && (
                           <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                               {t('labels.trigger_behavior')}
@@ -2750,7 +2578,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             }}
                             onPolygonComplete={(polygon: any) => {
                               const coords = extractPolygonCoordinates(polygon)
-                              console.log('🗺️ [Create POI] Boundary drawn:', coords.length, 'points')
                               setCreateBoundary(coords)
                               setIsDrawingEnabled(false) // Disable drawing after polygon is complete
                             }}
@@ -2794,7 +2621,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                       {createLocation && !isGeocoding && (
                         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                          <h4 className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-2">
+                          <h4 className="text-sm font-medium text-blue-900 dark:bg-blue-200 mb-2">
                             {t('labels.location_detected')}
                           </h4>
                           <div className="space-y-1 text-sm text-blue-800 dark:text-blue-300">
@@ -2853,28 +2680,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               </div>
             ) : activeTab === 'details' ? (
               <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
-                {(() => {
-                  console.log('🔍 [POIDetailsModal] Details tab rendering:', {
-                    activeTab,
-                    isLoading,
-                    hasPoi: !!poi,
-                    hasCurrentPoi: !!currentPoi,
-                    hasEditedPoi: !!editedPoi,
-                    poiId: poi?.id,
-                    currentPoiId: currentPoi?.id
-                  })
-                  return null
-                })()}
-                {isLoading ? (
-                  <div className="animate-pulse space-y-4">
-                    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
-                    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
-                    <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    {/* SECTION 1: Basic Information & Categories - PRIORITY */}
-                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                {/* SECTION 1: Unified POI Details Block */}
+                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 w-full mb-6">
                       <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
                           <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
@@ -2882,9 +2689,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         </h3>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Left Column: Editable Fields */}
-                        <div className="space-y-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {/* LEFT COLUMN */}
+                        <div className="space-y-6">
+                          {/* POI Name */}
                           <div>
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                               {t('labels.name')} *
@@ -2897,61 +2705,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             />
                           </div>
 
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              {t('labels.category')}
-                            </label>
-                            <select
-                              value={editedPoi?.category || ''}
-                              onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, category: e.target.value }) : null)}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                            >
-                              <option value="">{t('placeholders.select_category')}</option>
-                              <option value="geofence" className="font-bold text-orange-600">{t('labels.geofence_restricted')}</option>
-                              <optgroup label={t('labels.poi_categories')}>
-                                {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
-                                  <option key={category.value} value={category.value}>
-                                    {category.label}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            </select>
-                          </div>
-
-                          <div className="md:col-span-1 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 mt-2 bg-orange-50/50 border border-orange-100 rounded-lg dark:bg-orange-900/10 dark:border-orange-800">
-                            <div className={editedPoi?.category === 'geofence' ? '' : 'md:col-span-2'}>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                {t('labels.client_owner')}
-                              </label>
-                              <select
-                                value={editedPoi?.owner_id || ''}
-                                onChange={e => setEditedPoi(prev => prev ? ({ ...prev, owner_id: e.target.value }) : null)}
-                                disabled={!isAdmin}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md disabled:bg-gray-100 disabled:text-gray-500 dark:bg-gray-700 dark:text-white"
-                              >
-                                <option value="" disabled>{t('labels.select_client')}</option>
-                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                              </select>
-                            </div>
-
-                            {editedPoi?.category === 'geofence' && (
-                              <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                  {t('labels.trigger_behavior')}
-                                </label>
-                                <select 
-                                  value={editedPoi?.business_status || 'ENTER_ONLY'}
-                                  onChange={e => setEditedPoi(prev => prev ? ({ ...prev, business_status: e.target.value }) : null)}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
-                                >
-                                  <option value="ENTER_ONLY">{t('labels.enter_only')}</option>
-                                  <option value="INSIDE_ONLY">{t('labels.inside_only')}</option>
-                                  <option value="BOTH">{t('labels.both_enter_inside')}</option>
-                                </select>
-                              </div>
-                            )}
-                          </div>
-
+                          {/* City | State | Country */}
                           <div className="grid grid-cols-3 gap-4">
                             <div>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -2987,30 +2741,63 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               />
                             </div>
                           </div>
+
+                          {/* Location details */}
+                          <div className="space-y-4 pt-2">
+                            <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-3 flex items-center">
+                              {t('labels.location_details')}
+                            </h4>
+                            
+                            {getPoi()?.formatted_address && (
+                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                <div className="flex items-start space-x-3">
+                                  <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                  <div className="flex-1">
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.full_address')}</div>
+                                    <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.formatted_address}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {getPoi()?.vicinity && (
+                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                <div className="flex items-start space-x-3">
+                                  <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                  <div className="flex-1">
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.vicinity')}</div>
+                                    <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.vicinity}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {getPoi()?.coordinates && (
+                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
+                                <div className="flex items-start space-x-3">
+                                  <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
+                                  <div className="flex-1">
+                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.coordinates')}</div>
+                                    <div className="text-sm text-gray-900 dark:text-white font-mono">
+                                      {getPoi()!.coordinates!.latitude.toFixed(6)}, {getPoi()!.coordinates!.longitude.toFixed(6)}
+                                    </div>
+                                    <button
+                                      onClick={openInGoogleMaps}
+                                      className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline inline-flex items-center mt-2"
+                                    >
+                                      <ExternalLink className="h-3 w-3 mr-1" />
+                                      {t('actions.view_on_google_maps')}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Right Column: Categories Display */}
-                        <div className="space-y-4">
-                          {/* Google Types */}
-                          {getPoi()?.google_types && getPoi()!.google_types!.length > 0 && (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {t('labels.google_types', { count: getPoi()!.google_types!.length })}
-                              </label>
-                              <div className="flex flex-wrap gap-2 p-3 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
-                                {getPoi()?.google_types?.map((type, index) => (
-                                  <span
-                                    key={index}
-                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20"
-                                  >
-                                    {type.replace(/_/g, ' ')}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Content Status Summary */}
+                        {/* RIGHT COLUMN */}
+                        <div className="space-y-6">
+                          {/* Content Status Summary Card */}
                           <div className="bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 p-4">
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                               {t('labels.content_status_title')}
@@ -3046,179 +2833,119 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               </div>
                             </div>
                           </div>
+
+                          {/* Google Types */}
+                          {getPoi()?.google_types && getPoi()!.google_types!.length > 0 && (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                {t('labels.google_types', { count: getPoi()!.google_types!.length })}
+                              </label>
+                              <div className="flex flex-wrap gap-2 p-3 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
+                                {getPoi()?.google_types?.map((type, index) => (
+                                  <span
+                                    key={index}
+                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20"
+                                  >
+                                    {type.replace(/_/g, ' ')}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* POI Type and Category - Standardized */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                {t('labels.record_type')}
+                              </label>
+                              <select
+                                value={editedPoi?.primary_category === 'geofence' || editedPoi?.category === 'geofence' ? 'geofence' : 'standard'}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setEditedPoi(prev => {
+                                    if (!prev) return null;
+                                    const isGeofence = val === 'geofence';
+                                    return {
+                                      ...prev,
+                                      primary_category: isGeofence ? 'geofence' : 'standard',
+                                      category: (!isGeofence && prev.category === 'geofence') ? 'tourist_attraction' : prev.category
+                                    };
+                                  });
+                                }}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                              >
+                                <option value="standard">{t('labels.poi_local')}</option>
+                                <option value="geofence">{t('labels.geofence_restricted')}</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                {t('labels.category')}
+                              </label>
+                              <select
+                                value={editedPoi?.category || ''}
+                                onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, category: e.target.value }) : null)}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                              >
+                                {POI_CATEGORIES.filter(cat => cat.value !== 'all').map(category => (
+                                  <option key={category.value} value={category.value}>
+                                    {category.label}
+                                  </option>
+                                ))}
+                                {editedPoi?.category === 'geofence' && (
+                                  <option value="geofence">{t('labels.geofence_restricted')}</option>
+                                )}
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Client Owner & Behavior Section */}
+                          <div className={cn(
+                            "grid grid-cols-1 gap-4 p-4 bg-orange-50/50 border border-orange-100 rounded-2xl dark:bg-orange-900/10 dark:border-orange-800",
+                            (editedPoi?.primary_category === 'geofence') ? 'md:grid-cols-2' : ''
+                          )}>
+                            <div className={(editedPoi?.primary_category === 'geofence') ? '' : 'col-span-full'}>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                {t('labels.client_owner')}
+                              </label>
+                              <select
+                                value={editedPoi?.owner_id || ''}
+                                onChange={e => setEditedPoi(prev => prev ? ({ ...prev, owner_id: e.target.value }) : null)}
+                                disabled={!isAdmin}
+                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md disabled:bg-gray-100 disabled:text-gray-500 dark:bg-gray-700 dark:text-white"
+                              >
+                                <option value="" disabled>{t('labels.select_client')}</option>
+                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                              </select>
+                            </div>
+
+                            {(editedPoi?.primary_category === 'geofence') && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                  {t('labels.trigger_behavior')}
+                                </label>
+                                <select 
+                                  value={editedPoi?.business_status || 'ENTER_ONLY'}
+                                  onChange={e => setEditedPoi(prev => prev ? ({ ...prev, business_status: e.target.value }) : null)}
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                                >
+                                  <option value="ENTER_ONLY">{t('labels.enter_only')}</option>
+                                  <option value="INSIDE_ONLY">{t('labels.inside_only')}</option>
+                                  <option value="BOTH">{t('labels.both_enter_inside')}</option>
+                                </select>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
 
-
-                    {/* SECTION 3: Location Details & Image - Two Column Layout */}
+                    {/* Boundary Drawing & Image Preview Row */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Left Column: Location Details */}
-                      {/* Left Column: Location Details */}
-                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-100 dark:border-gray-800">
-                        <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
-                          {t('labels.location_details')}
-                        </h3>
-
-                        <div className="space-y-4">
-                          {getPoi()?.formatted_address && (
-                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="flex items-start space-x-3">
-                                <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.full_address')}</div>
-                                  <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.formatted_address}</div>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {getPoi()?.vicinity && (
-                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="flex items-start space-x-3">
-                                <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.vicinity')}</div>
-                                  <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.vicinity}</div>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {getPoi()?.coordinates && (
-                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                              <div className="flex items-start space-x-3">
-                                <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.coordinates')}</div>
-                                  <div className="text-sm text-gray-900 dark:text-white font-mono">
-                                    {getPoi()!.coordinates!.latitude.toFixed(6)}, {getPoi()!.coordinates!.longitude.toFixed(6)}
-                                  </div>
-                                  <button
-                                    onClick={openInGoogleMaps}
-                                    className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline inline-flex items-center mt-2"
-                                  >
-                                    <ExternalLink className="h-3 w-3 mr-1" />
-                                    {t('actions.view_on_google_maps')}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                      <div className="hidden">
+                        {/* Boundary Drawing Section -> removed for brevity but we keep the structure so compiler doesn't complain */}
                       </div>
-
-                      {/* Boundary Drawing Section - COMMENTED OUT AS PER USER REQUEST */}
-                      {/* {(() => {
-                        const currentPoi = getPoi()
-                        return null
-                      })()}
-                      <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-100 dark:border-gray-800 mt-6 col-span-full">
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center">
-                            {t('labels.poi_boundary')}
-                          </h3>
-                          {boundaryPolygon && boundaryPolygon.length >= 3 && (
-                            <button
-                              onClick={handleSaveBoundary}
-                              disabled={isSavingBoundary}
-                              className="px-4 py-2 text-sm font-medium text-white bg-tuggi-blue rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                            >
-                              {isSavingBoundary ? (
-                                <>
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                  {tCommon('actions.saving')}...
-                                </>
-                              ) : (
-                                <>
-                                  <Save className="h-4 w-4 mr-2" />
-                                  {t('actions.save_boundary')}
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </div>
-
-                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                          {t('messages.draw_poi_boundary_instruction')}
-                        </p>
-
-                        {existingBoundary && (
-                          <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
-                            <div className="flex items-center text-sm text-blue-800 dark:text-blue-300">
-                              <CheckCircle className="h-4 w-4 mr-2" />
-                              {t('messages.existing_boundary_loaded', { count: existingBoundary.length })}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="w-full h-96 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
-                          {(() => {
-                            const currentPoi = getPoi()
-                            if (!currentPoi || !currentPoi.coordinates) {
-                              return (
-                                <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
-                                  {t('messages.poi_coordinates_not_available')}
-                                </div>
-                              )
-                            }
-
-                            if (typeof handleBoundaryPolygonComplete !== 'function') {
-                              console.error('❌ CRITICAL: handleBoundaryPolygonComplete is NOT a function!', {
-                                type: typeof handleBoundaryPolygonComplete,
-                                value: handleBoundaryPolygonComplete
-                              })
-                            }
-
-                            return (
-                              <GoogleMapComponent
-                                componentId="boundary-drawing"
-                                center={{ lat: currentPoi.coordinates.latitude, lng: currentPoi.coordinates.longitude }}
-                                zoom={18}
-                                height="100%"
-                                markers={[
-                                  {
-                                    id: currentPoi.id,
-                                    position: { lat: currentPoi.coordinates.latitude, lng: currentPoi.coordinates.longitude },
-                                    title: currentPoi.name,
-                                    color: '#10B981'
-                                  }
-                                ]}
-                                polygon={boundaryPolygon || existingBoundary || undefined}
-                                onPolygonComplete={handleBoundaryPolygonComplete}
-                                enableDrawing={true}
-                                polygonOptions={{
-                                  strokeColor: '#3B82F6',
-                                  strokeOpacity: 0.8,
-                                  strokeWeight: 3,
-                                  fillColor: '#3B82F6',
-                                  fillOpacity: 0.2
-                                }}
-                              />
-                            )
-                          })()}
-                        </div>
-
-                        {boundaryPolygon && boundaryPolygon.length >= 3 && (
-                          <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-md border border-green-200 dark:border-green-800">
-                            <div className="flex items-center justify-between text-sm">
-                              <div className="text-green-800 dark:text-green-300">
-                                <CheckCircle className="h-4 w-4 inline mr-2" />
-                                {t('messages.polygon_drawn', { count: boundaryPolygon.length })}
-                              </div>
-                              <button
-                                onClick={() => {
-                                  setBoundaryPolygon(null);
-                                  setExistingBoundary(null);
-                                }}
-                                className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                              >
-                                {t('actions.clear')}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div> */}
 
                       {/* Right Column: Image Preview */}
                       <div>
@@ -3227,11 +2954,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                           if (!currentPoiForImage) return null
                           const fullSizeImageUrl = getFullSizeImageUrl(currentPoiForImage)
                           return (fullSizeImageUrl || images.length > 0) && (
-                            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 h-full">
+                            <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 h-full flex flex-col justify-between">
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 {t('labels.images')}
                               </label>
-                              <div className="space-y-2">
+                              <div className="space-y-2 flex-grow">
                                 {fullSizeImageUrl && (
                                   <img
                                     src={fullSizeImageUrl}
@@ -3730,8 +3457,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       )}
                     </div>
                   </div>
-                )}
-              </div>
             ) : activeTab === 'boundary' ? (
               <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
                 <div className="space-y-6">
@@ -3781,6 +3506,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                         enableDrawing={isDrawingEnabled && canEdit}
                         onMapClick={() => {}}
                         onPolygonComplete={handleBoundaryPolygonComplete}
+                        onPolygonChange={(polygon) => {
+                          const coords = extractPolygonCoordinates(polygon);
+                          setBoundaryPolygon(coords);
+                        }}
                         polygonOptions={{
                           strokeColor: '#FF6B35',
                           strokeOpacity: 0.8,
@@ -4120,7 +3849,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       <div className="flex items-center space-x-2">
                         <button
                           onClick={() => {
-                            console.log('🔄 Refreshing descriptions data...')
                             fetchAdditionalData()
                           }}
                           className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue"

@@ -13,6 +13,7 @@ interface GoogleMapComponentProps {
   height?: string
   className?: string
   onPolygonComplete?: (polygon: google.maps.Polygon) => void
+  onPolygonChange?: (polygon: google.maps.Polygon) => void
   onMarkerClick?: (markerId: string) => void
   onMapClick?: (lat: number, lng: number) => void
   markers?: Array<{
@@ -78,6 +79,7 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   center: centerProp,
   zoom = 13,
   onPolygonComplete,
+  onPolygonChange,
   onMarkerClick,
   onMapClick,
   markers = [],
@@ -421,10 +423,32 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   }, [center, zoom])
 
   const updatePolygon = useCallback(() => {
-    if (!mapInstanceRef.current || !polygon || polygon.length === 0) return
+    if (!mapInstanceRef.current || !polygon || polygon.length === 0) {
+      if (currentPolygonRef.current) {
+        currentPolygonRef.current.setMap(null)
+        currentPolygonRef.current = null
+      }
+      return
+    }
 
-    // Clear existing polygon
+    // If a polygon already exists, check if paths are exactly the same (to avoid dragging interruption)
     if (currentPolygonRef.current) {
+      const existingPath = currentPolygonRef.current.getPath()
+      if (existingPath && existingPath.getLength() === polygon.length) {
+        let isSame = true
+        for (let i = 0; i < polygon.length; i++) {
+          const latLng = existingPath.getAt(i)
+          if (!latLng || Math.abs(latLng.lat() - polygon[i].lat) > 0.000001 || Math.abs(latLng.lng() - polygon[i].lng) > 0.000001) {
+            isSame = false
+            break
+          }
+        }
+        if (isSame) {
+          // Polygon exactly matches what's on screen, nothing to update
+          return
+        }
+      }
+      // If we reach here, shape changed externally, so we recreate
       currentPolygonRef.current.setMap(null)
     }
 
@@ -443,11 +467,25 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     polygonShape.setMap(mapInstanceRef.current)
     currentPolygonRef.current = polygonShape
 
+    // Add event listeners for editing polygon
+    if (onPolygonChange) {
+      const path = polygonShape.getPath()
+      
+      const handleChange = () => {
+        onPolygonChange(polygonShape)
+      }
+
+      google.maps.event.addListener(path, 'set_at', handleChange)
+      google.maps.event.addListener(path, 'insert_at', handleChange)
+      google.maps.event.addListener(path, 'remove_at', handleChange)
+      google.maps.event.addListener(polygonShape, 'dragend', handleChange)
+    }
+
     // Fit map to polygon bounds
     const bounds = new google.maps.LatLngBounds()
     polygon.forEach(point => bounds.extend(point))
     mapInstanceRef.current.fitBounds(bounds)
-  }, [polygon])
+  }, [polygon, onPolygonChange, polygonOptions])
 
   const updateSavedPolygons = useCallback(() => {
     if (!mapInstanceRef.current) return

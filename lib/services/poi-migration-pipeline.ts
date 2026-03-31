@@ -845,6 +845,46 @@ export class PoiMigrationPipeline {
 
       console.log(`   ✅ Saved ${savedCount} trigger points to database`)
 
+      // Save boundary geometry if it was found and not yet saved
+      if (predictionResult.boundary?.coordinates && predictionResult.boundary.coordinates.length >= 3) {
+        console.log(`   💾 Saving boundary geometry from source: ${predictionResult.boundary.source}...`)
+        
+        try {
+          const coords = predictionResult.boundary.coordinates
+          // Ensure polygon is closed for GeoJSON
+          const closedCoords = [...coords];
+          if (
+            closedCoords[0].lat !== closedCoords[closedCoords.length - 1].lat ||
+            closedCoords[0].lng !== closedCoords[closedCoords.length - 1].lng
+          ) {
+            closedCoords.push({ ...closedCoords[0] });
+          }
+          
+          const geoJsonCoords = closedCoords.map(c => [c.lng, c.lat]);
+          const geoJson = {
+            type: 'Polygon',
+            coordinates: [geoJsonCoords]
+          };
+          const geoJsonString = JSON.stringify(geoJson);
+          
+          const { error: boundaryError } = await supabase.schema('core').rpc('update_boundary_geometry', {
+            p_attraction_id: attraction_id,
+            p_geojson: geoJsonString,
+            p_boundary_type: 'polygon',
+            p_boundary_source: predictionResult.boundary.source,
+            p_confidence: predictionResult.boundary.source.includes('osm') ? 0.9 : 0.5
+          });
+          
+          if (boundaryError) {
+             console.warn(`   ⚠️ Failed to save boundary geometry: ${boundaryError.message}`)
+          } else {
+             console.log(`   ✅ Boundary geometry saved successfully`)
+          }
+        } catch (e) {
+          console.warn(`   ⚠️ Exception while saving boundary geometry:`, e)
+        }
+      }
+
       // Calculate max confidence from saved trigger points
       const maxConfidence = predictionResult.triggerPoints.length > 0
         ? Math.max(...predictionResult.triggerPoints.map(tp => tp.confidence || 0))
