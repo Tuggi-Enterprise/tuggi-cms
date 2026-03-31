@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ArrowRightLeft,
   Route,
+  Plane,
   Users,
   UserCog,
   Smartphone,

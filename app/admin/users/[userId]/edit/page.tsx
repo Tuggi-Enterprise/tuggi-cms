@@ -96,7 +96,11 @@ export default function AdminEditUserPage({
               Users
             </Link>
             <ChevronRight className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-900 font-medium">{user.email}</span>
+            <Link href={`/admin/users/${params.userId}`} className="text-blue-600 hover:text-blue-700">
+              Passport
+            </Link>
+            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-900 font-medium">Edit: {user.email}</span>
           </nav>
         </div>
       </div>

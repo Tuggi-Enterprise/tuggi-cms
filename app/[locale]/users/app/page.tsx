@@ -5,7 +5,7 @@ import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { 
   Smartphone, Search, RefreshCw, Filter, Crown, 
   CreditCard, TrendingUp, AlertCircle, ChevronDown,
-  Apple, Zap, User, Activity, Mail, Play, ArrowUpDown, ArrowUp, ArrowDown
+  Apple, Zap, User, Activity, Mail, Play, Plane, ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { StatCard, StatCardRow } from '@/components/ui/StatCard'
@@ -867,6 +867,7 @@ export default function AppUsersPage() {
                     <SortIcon column="last_sign_in_at" />
                   </div>
                 </th>
+                <th className="px-6 py-4 text-center text-xs font-bold text-gray-500 uppercase tracking-wider">Passaporte</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -962,6 +963,18 @@ export default function AppUsersPage() {
                         ? new Date(user.last_sign_in_at).toLocaleDateString()
                         : t('modal.never')
                       }
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.location.href = `/admin/users/${user.user_id}`;
+                        }}
+                        className="p-2 bg-orange-100 hover:bg-orange-200 text-orange-600 rounded-xl transition-all duration-300 hover:scale-110 shadow-sm"
+                        title="Ver Passaporte"
+                      >
+                        <Plane className="h-4 w-4" />
+                      </button>
                     </td>
                   </tr>
                 ))
