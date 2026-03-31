@@ -52,7 +52,18 @@ BEGIN
   INTO v_unique_pois_per_trip
   FROM unique_per_session;
 
-  -- 3. Top categories (breakdown by osm_category)
+  -- 3. Total distance (accumulated length of all trips)
+  WITH trip_geoms AS (
+    SELECT trip_session_id, ST_MakeLine(ST_SetSRID(ST_MakePoint(longitude, latitude), 4326) ORDER BY timestamp) as trip_line
+    FROM drive.route_trail
+    WHERE user_id = p_user_id
+    GROUP BY trip_session_id
+  )
+  SELECT COALESCE(SUM(ST_Length(trip_line::geography)) / 1000.0, 0)
+  INTO v_total_distance_km
+  FROM trip_geoms;
+
+  -- 4. Top categories (breakdown by osm_category)
   SELECT COALESCE(jsonb_agg(sub.cat_row), '[]'::jsonb)
   INTO v_top_categories
   FROM (
@@ -72,7 +83,7 @@ BEGIN
     'total_trips', v_total_trips,
     'total_passed_lifetime', v_unique_pois_per_trip,
     'top_categories', v_top_categories,
-    'total_distance_km', 0
+    'total_distance_km', ROUND(v_total_distance_km::numeric, 1)
   );
 END;
 $$;
@@ -92,7 +103,7 @@ DECLARE
   v_caller_email TEXT := (auth.jwt() ->> 'email');
   v_is_admin BOOLEAN;
   v_user_id UUID;
-  v_route_line GEOMETRY;
+  v_trail GEOMETRY;
   v_heard_pois JSONB;
   v_missed_pois JSONB;
 BEGIN
@@ -108,16 +119,17 @@ BEGIN
 
   -- Create route geometry
   SELECT ST_Simplify(ST_MakeLine(ST_SetSRID(ST_MakePoint(longitude, latitude), 4326) ORDER BY timestamp), 0.0001)
-  INTO v_route_line
+  INTO v_trail
   FROM drive.route_trail
   WHERE trip_session_id = p_trip_session_id;
 
-  IF v_route_line IS NULL THEN
+  IF v_trail IS NULL THEN
     RETURN jsonb_build_object(
       'heard_count', 0,
       'missed_count', 0,
       'heard_pois', '[]'::jsonb,
-      'missed_pois', '[]'::jsonb
+      'missed_pois', '[]'::jsonb,
+      'trail', null
     );
   END IF;
 
@@ -160,7 +172,7 @@ BEGIN
     JOIN core.attraction_coordinate ac ON ac.attraction_id = a.id
     WHERE 
       ST_DWithin(
-        v_route_line::geography, 
+        v_trail::geography, 
         ST_SetSRID(ST_MakePoint(ac.longitude, ac.latitude), 4326)::geography, 
         p_buffer_meters
       )
@@ -178,13 +190,44 @@ BEGIN
     'missed_count', jsonb_array_length(v_missed_pois),
     'heard_pois', v_heard_pois,
     'missed_pois', v_missed_pois,
+    'trail', ST_AsGeoJSON(v_trail)::jsonb,
     'buffer_meters', p_buffer_meters
   );
 END;
 $$;
+
+-- ============================================
+-- 3. drive.get_user_trips_with_stats
+-- ============================================
+-- Get trip history with actual POI visit counts
+CREATE OR REPLACE FUNCTION drive.get_user_trips_with_stats(p_user_id UUID)
+RETURNS TABLE (
+    trip_session_id UUID,
+    trip_start TIMESTAMPTZ,
+    trip_end TIMESTAMPTZ,
+    duration_minutes FLOAT,
+    avg_speed FLOAT,
+    heard_count BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        t.trip_session_id,
+        t.trip_start,
+        t.trip_end,
+        t.duration_minutes::FLOAT,
+        t.avg_speed::FLOAT,
+        (SELECT COUNT(DISTINCT poi_id) FROM drive.poi_visits pv WHERE pv.trip_session_id = t.trip_session_id) as heard_count
+    FROM drive.trail_trips_unified t
+    WHERE t.user_id = p_user_id
+    ORDER BY t.trip_start DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Permissions
 GRANT EXECUTE ON FUNCTION drive.get_user_passport_stats(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION drive.get_user_passport_stats(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION drive.get_trip_exploration_stats(UUID, FLOAT) TO authenticated;
 GRANT EXECUTE ON FUNCTION drive.get_trip_exploration_stats(UUID, FLOAT) TO service_role;
+GRANT EXECUTE ON FUNCTION drive.get_user_trips_with_stats(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION drive.get_user_trips_with_stats(UUID) TO service_role;

@@ -56,7 +56,8 @@ export default function AdminUserPassportPage({
         }
 
         // Fetch target user 
-        const { data: targetUser } = await supabase
+        const { data: targetUser, error: userError } = await supabase
+          .schema('drive')
           .from('profiles')
           .select('*')
           .eq('id', userId)
@@ -119,11 +120,11 @@ export default function AdminUserPassportPage({
   return (
     <div className="min-h-screen bg-gray-50/30 flex flex-col">
       {/* Premium Header */}
-      <div className="bg-white/80 backdrop-blur-xl border-b border-gray-100 sticky top-0 z-50">
+      <div className="bg-white/80 backdrop-blur-xl border-b border-gray-100 flex-shrink-0 sticky top-0 z-30">
         <Container className="py-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <nav className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest">
-              <Link href="/admin/users" className="text-gray-400 hover:text-tuggi-blue transition-colors">Users</Link>
+              <Link href="/users/app" className="text-gray-400 hover:text-tuggi-blue transition-colors">App Users</Link>
               <ChevronRight className="w-3 h-3 text-gray-300" />
               <span className="text-gray-900">User Passport</span>
             </nav>
@@ -131,9 +132,11 @@ export default function AdminUserPassportPage({
             <div className="flex items-center gap-4">
               <div className="text-right hidden md:block">
                 <h2 className="text-sm font-bold text-gray-900 leading-none mb-1">
-                  {userData?.nickname || userData?.full_name || 'Individual Contributor'}
+                  {userData?.nickname || userData?.full_name || userData?.displayName || 'User Profile'}
                 </h2>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{userData?.email || userId}</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-none">
+                  {userData?.email || userId}
+                </p>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-tuggi-blue/10 flex items-center justify-center border border-tuggi-blue/20">
                 <User className="h-5 w-5 text-tuggi-blue" />
@@ -143,42 +146,46 @@ export default function AdminUserPassportPage({
         </Container>
       </div>
 
-      <Container className="py-8 flex-1 flex flex-col">
-        {/* Title Section */}
-        <div className="flex items-center gap-4 mb-8">
-           <div className="p-4 bg-orange-600 shadow-xl shadow-orange-600/20 rounded-[28px]">
-              <Plane className="h-8 w-8 text-white" />
+      <Container className="py-6 flex-1 flex flex-col min-h-0">
+        {/* Title Section - Reduced margin */}
+        <div className="flex items-center gap-4 mb-6 flex-shrink-0">
+           <div className="p-3 bg-orange-600 shadow-xl shadow-orange-600/20 rounded-[24px]">
+              <Plane className="h-6 w-6 text-white" />
            </div>
            <div>
-             <h1 className="text-4xl font-extrabold text-gray-900 tracking-tighter leading-tight">User Passport</h1>
-             <p className="text-gray-400 font-bold text-xs uppercase tracking-widest mt-1">Gamification Analytics & Exploration History</p>
+             <h1 className="text-3xl font-extrabold text-gray-900 tracking-tighter leading-tight">User Passport</h1>
+             <p className="text-gray-400 font-bold text-[10px] uppercase tracking-widest mt-0.5">Gamification Analytics & Exploration History</p>
            </div>
         </div>
 
-        {/* Global Stats Row */}
-        <UserPassportStats stats={stats} />
+        {/* Global Stats Row - Flex shrink 0 to keep size */}
+        <div className="flex-shrink-0">
+          <UserPassportStats stats={stats} />
+        </div>
 
-        {/* Exploration Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 min-h-0 mt-4">
+        {/* Exploration Section - Height increased and overflow managed */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mt-6 mb-12 h-[800px]">
           {/* Left: Trip List */}
-          <div className="lg:col-span-4 flex flex-col h-full min-h-0">
-            <div className="flex items-center justify-between mb-4 px-2">
+          <div className="lg:col-span-4 flex flex-col h-full overflow-hidden bg-white/40 backdrop-blur-sm p-4 rounded-[40px] border border-gray-100 shadow-sm">
+            <div className="flex items-center justify-between mb-4 px-4 flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-gray-400" />
                 <h3 className="font-bold text-gray-900 uppercase tracking-widest text-[10px]">Trip History</h3>
               </div>
               <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{trips.length} Trips</span>
             </div>
-            <TripList 
-              trips={trips} 
-              selectedTripId={selectedTripId} 
-              onSelectTrip={(id) => setSelectedTripId(id)}
-              isLoading={isLoading}
-            />
+            <div className="flex-1 min-h-0">
+              <TripList 
+                trips={trips} 
+                selectedTripId={selectedTripId} 
+                onSelectTrip={(id) => setSelectedTripId(id)}
+                isLoading={isLoading}
+              />
+            </div>
           </div>
 
           {/* Right: Exploration Map */}
-          <div className="lg:col-span-8 flex flex-col h-full min-h-[600px]">
+          <div className="lg:col-span-8 flex flex-col h-full min-h-0">
             <TripExplorationMap 
               exploration={exploration}
               bufferMeters={bufferMeters}

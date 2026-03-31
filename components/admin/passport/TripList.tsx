@@ -1,6 +1,6 @@
 'use client'
 
-import { Clock, Navigation, MapPin, ChevronRight, Activity } from 'lucide-react'
+import { Clock, MapPin, ChevronRight, Activity, Plane } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface Trip {
@@ -9,6 +9,7 @@ interface Trip {
   trip_end: string
   duration_minutes: number
   point_count: number
+  heard_count: number
   avg_speed: number
   start_latitude?: number
   start_longitude?: number
@@ -22,11 +23,24 @@ interface TripListProps {
 }
 
 export function TripList({ trips, selectedTripId, onSelectTrip, isLoading }: TripListProps) {
+  // Group trips by date
+  const groupedTrips = trips.reduce((groups: Record<string, Trip[]>, trip) => {
+    const date = new Date(trip.trip_start).toLocaleDateString('pt-BR', { 
+      weekday: 'long', 
+      day: 'numeric', 
+      month: 'long', 
+      year: 'numeric' 
+    })
+    if (!groups[date]) groups[date] = []
+    groups[date].push(trip)
+    return groups
+  }, {})
+
   if (isLoading) {
     return (
       <div className="flex flex-col gap-4">
         {[1, 2, 3].map((i) => (
-          <div key={i} className="h-32 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-3xl" />
+          <div key={i} className="h-32 bg-gray-100 dark:bg-gray-800 animate-pulse rounded-[28px]" />
         ))}
       </div>
     )
@@ -34,83 +48,97 @@ export function TripList({ trips, selectedTripId, onSelectTrip, isLoading }: Tri
 
   if (trips.length === 0) {
     return (
-      <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl p-12 border border-gray-200 dark:border-gray-800 text-center shadow-2xl">
-        <MapPin className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-        <p className="text-gray-500 font-medium tracking-tight">No trips recorded for this user yet.</p>
+      <div className="bg-white/40 dark:bg-gray-900/40 rounded-[28px] p-12 border border-gray-100 dark:border-gray-800 text-center">
+        <Plane className="h-12 w-12 text-gray-200 mx-auto mb-4" />
+        <p className="text-gray-400 font-bold text-xs uppercase tracking-widest">No trips recorded</p>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col gap-4 pb-8 overflow-y-auto max-h-[1000px] pr-2 custom-scrollbar">
-      {trips.map((trip) => {
-        const isSelected = selectedTripId === trip.trip_session_id
-        return (
-          <button
-            key={trip.trip_session_id}
-            onClick={() => onSelectTrip(trip.trip_session_id)}
-            className={cn(
-              "text-left bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl p-6 border transition-all duration-300 group shadow-xl hover:shadow-2xl shadow-black/5 relative overflow-hidden",
-              isSelected 
-                ? "border-tuggi-blue ring-2 ring-tuggi-blue ring-offset-2 dark:ring-offset-gray-950 scale-[1.02]" 
-                : "border-gray-200 dark:border-gray-800 hover:border-tuggi-blue/50"
-            )}
-          >
-            {isSelected && (
-              <div className="absolute top-0 right-0 p-3">
-                <div className="h-2 w-2 rounded-full bg-tuggi-blue animate-pulse" />
-              </div>
-            )}
-            
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h4 className="text-lg font-bold text-gray-900 dark:text-white leading-tight mb-1 tracking-tight">
-                  {new Date(trip.trip_start).toLocaleDateString('pt-BR', { dateStyle: 'full' })}
-                </h4>
-                <p className="text-xs text-gray-500 font-semibold uppercase tracking-widest leading-none">
-                  Início: {new Date(trip.trip_start).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} • Fim: {new Date(trip.trip_end).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              </div>
-              <ChevronRight className={cn(
-                "h-5 w-5 transition-all duration-300",
-                isSelected ? "text-tuggi-blue translate-x-1" : "text-gray-300 group-hover:text-tuggi-blue/50"
-              )} />
-            </div>
+    <div className="flex-1 overflow-y-auto pr-2 space-y-8 custom-scrollbar h-full pb-10">
+      {Object.entries(groupedTrips).map(([date, dayTrips]) => (
+        <div key={date} className="space-y-3">
+          {/* Date Header */}
+          <div className="flex items-center gap-3 px-2">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-100 to-transparent"></div>
+            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] whitespace-nowrap">
+              {date}
+            </h4>
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-gray-200 to-transparent"></div>
+          </div>
 
-            <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-              <div className="flex flex-col">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Clock className="h-3 w-3 text-gray-400" />
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">Duration</span>
-                </div>
-                <span className="text-sm font-bold text-gray-900 dark:text-white leading-none tracking-tight">
-                  {Math.round(trip.duration_minutes)} min
-                </span>
-              </div>
+          <div className="grid gap-3">
+            {dayTrips.map((trip) => (
+              <button
+                key={trip.trip_session_id}
+                onClick={() => onSelectTrip(trip.trip_session_id)}
+                className={cn(
+                  "w-full text-left p-5 rounded-[24px] transition-all duration-500 border group relative",
+                  selectedTripId === trip.trip_session_id
+                    ? "bg-white shadow-xl shadow-tuggi-blue/10 border-tuggi-blue/30 scale-[1.02] z-10"
+                    : "bg-white/40 hover:bg-white/80 border-transparent hover:border-gray-200"
+                )}
+              >
+                {/* Highlight Dot for selection */}
+                {selectedTripId === trip.trip_session_id && (
+                  <div className="absolute top-5 right-5 w-2 h-2 bg-tuggi-blue rounded-full animate-pulse shadow-[0_0_12px_rgba(0,168,232,0.6)]" />
+                )}
 
-              <div className="flex flex-col">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Activity className="h-3 w-3 text-gray-400" />
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">Avg Speed</span>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-black text-tuggi-blue/50 uppercase tracking-widest mb-1 italic">
+                      Trip ID #{trip.trip_session_id.slice(0, 4)}
+                    </span>
+                    <div className="flex items-center gap-2 text-xs font-bold text-gray-400">
+                      <span className="text-gray-900">{new Date(trip.trip_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <ChevronRight className="w-3 h-3 text-gray-300" />
+                      <span className="text-gray-900">{new Date(trip.trip_end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  </div>
+                  <ChevronRight className={cn(
+                    "w-4 h-4 text-gray-200 transition-transform duration-500",
+                    selectedTripId === trip.trip_session_id ? "translate-x-1 text-tuggi-blue" : "group-hover:translate-x-1"
+                  )} />
                 </div>
-                <span className="text-sm font-bold text-gray-900 dark:text-white leading-none tracking-tight">
-                  {(trip.avg_speed || 0).toFixed(1)} km/h
-                </span>
-              </div>
 
-              <div className="flex flex-col">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <MapPin className="h-3 w-3 text-gray-400" />
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none">Points</span>
+                {/* Performance Stats */}
+                <div className="flex items-center justify-between mt-auto pt-3 border-t border-gray-50 dark:border-gray-800">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter mb-0.5">Tempo</span>
+                    <div className="flex items-center gap-1">
+                      <Clock className="h-2.5 w-2.5 text-tuggi-blue" />
+                      <span className="text-xs font-bold text-gray-900 dark:text-white">
+                        {Math.round(trip.duration_minutes)}m
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-center">
+                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter mb-0.5">Velocidade</span>
+                    <div className="flex items-center gap-1">
+                      <Activity className="h-2.5 w-2.5 text-green-600" />
+                      <span className="text-xs font-bold text-gray-900 dark:text-white">
+                        {(trip.avg_speed || 0).toFixed(1)}<span className="text-[10px] font-medium text-gray-400 ml-0.5">km/h</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end">
+                    <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter mb-0.5">Visitados</span>
+                    <div className="flex items-center gap-1">
+                      <MapPin className="h-2.5 w-2.5 text-orange-600" />
+                      <span className="text-xs font-bold text-orange-600">
+                        {trip.heard_count || 0}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <span className="text-sm font-bold text-gray-900 dark:text-white leading-none tracking-tight">
-                  {trip.point_count}
-                </span>
-              </div>
-            </div>
-          </button>
-        )
-      })}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

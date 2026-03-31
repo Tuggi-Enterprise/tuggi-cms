@@ -46,14 +46,28 @@ function TripMapContent({ exploration, bufferMeters }: { exploration: TripExplor
     markersRef.current.forEach(m => m.setMap(null))
     markersRef.current = []
 
-    // 1. Draw Route
-    // Note: In a real scenario, we'd fetch the actual trail points. 
-    // For exploration view, we use the points from heard/missed as bounds for now unless we have the full trail.
-    // Assuming exploration doesn't contain the full trail, we'll center on markers.
-    
-    // 2. Markers
     const bounds = new google.maps.LatLngBounds()
 
+    // 1. Draw Route Trail
+    if (exploration.trail && exploration.trail.coordinates) {
+      const path = exploration.trail.coordinates.map((coord: [number, number]) => ({
+        lat: coord[1],
+        lng: coord[0]
+      }))
+
+      polylineRef.current = new google.maps.Polyline({
+        path,
+        geodesic: true,
+        strokeColor: '#00A8E8',
+        strokeOpacity: 0.8,
+        strokeWeight: 4,
+        map
+      })
+
+      path.forEach((p: any) => bounds.extend(p))
+    }
+    
+    // 2. Markers
     const createMarker = (poi: POIExp, isHeard: boolean) => {
       const marker = new google.maps.Marker({
         position: { lat: poi.latitude, lng: poi.longitude },
@@ -61,23 +75,23 @@ function TripMapContent({ exploration, bufferMeters }: { exploration: TripExplor
         title: poi.name,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
-          scale: 8,
-          fillColor: isHeard ? '#FF6F00' : '#9CA3AF', // Orange vs Gray
-          fillOpacity: 0.9,
-          strokeWeight: 2,
+          scale: 6,
+          fillColor: isHeard ? '#FF6F00' : '#E5E7EB', // Vivid Orange vs Light Gray
+          fillOpacity: 1,
+          strokeWeight: 1,
           strokeColor: '#FFFFFF'
-        }
+        },
+        zIndex: isHeard ? 100 : 50
       })
 
       marker.addListener('click', () => {
         infoWindowRef.current?.setContent(`
-          <div style="padding: 10px; min-width: 200px;">
-            <p style="font-weight: bold; margin-bottom: 4px;">${poi.name}</p>
-            <p style="font-size: 11px; color: #666;">${poi.city}</p>
-            <p style="font-size: 10px; color: ${isHeard ? '#FF6F00' : '#4B5563'}; font-weight: bold; margin-top: 8px; text-transform: uppercase;">
-              ${isHeard ? '✓ Heard during trip' : '✗ Missed / Hidden'}
-            </p>
-            <p style="font-size: 10px; margin-top: 4px;">Category: ${poi.osm_category || poi.category || 'N/A'}</p>
+          <div style="padding: 12px; min-width: 200px; font-family: sans-serif;">
+            <p style="font-weight: bold; margin-bottom: 4px; color: #111;">${poi.name}</p>
+            <p style="font-size: 11px; color: #666; margin-bottom: 8px;">${poi.city}</p>
+            <div style="font-size: 10px; padding: 4px 8px; border-radius: 4px; background: ${isHeard ? '#FFF7ED' : '#F3F4F6'}; color: ${isHeard ? '#FF6F00' : '#6B7280'}; font-weight: bold; border: 1px solid ${isHeard ? '#FFEDD5' : '#E5E7EB'};">
+              ${isHeard ? '✓ Visitado nesta viagem' : '✗ Deixou de visitar'}
+            </div>
           </div>
         `)
         infoWindowRef.current?.open(map, marker)
@@ -91,7 +105,7 @@ function TripMapContent({ exploration, bufferMeters }: { exploration: TripExplor
     exploration.missed_pois.forEach(p => createMarker(p, false))
 
     if (!bounds.isEmpty()) {
-      map.fitBounds(bounds)
+      map.fitBounds(bounds, { top: 50, bottom: 50, left: 50, right: 50 })
     }
   }, [exploration])
 

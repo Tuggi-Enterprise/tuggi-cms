@@ -32,6 +32,7 @@ export interface TripExploration {
   missed_count: number
   heard_pois: POIExp[]
   missed_pois: POIExp[]
+  trail?: any
   buffer_meters: number
 }
 
@@ -70,16 +71,13 @@ export class PassportService {
   }
 
   /**
-   * List unique trips for a user (simplified)
+   * List unique trips for a user (with POI counts)
    */
   static async getUserTrips(supabase: any, userId: string) {
     try {
       const { data, error } = await supabase
         .schema('drive')
-        .from('trail_trips_unified')
-        .select('*')
-        .eq('user_id', userId)
-        .order('trip_start', { ascending: false })
+        .rpc('get_user_trips_with_stats', { p_user_id: userId })
       
       if (error) throw error
       return data
