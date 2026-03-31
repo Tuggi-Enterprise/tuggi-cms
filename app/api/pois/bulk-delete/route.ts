@@ -106,3 +106,7 @@ export async function DELETE(request: NextRequest) {
     )
   }
 }
+
+export async function POST(request: NextRequest) {
+  return DELETE(request)
+}

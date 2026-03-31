@@ -22,6 +22,8 @@ export interface POI {
   country: string
   state?: string
   category: string
+  osm_category?: string | null
+  record_type?: string
   approved: boolean
   approved_by?: string
   approved_at?: string
@@ -95,6 +97,7 @@ export interface POISearchFilters {
   city?: string
   googleTypes?: string
   category?: string
+  osmCategory?: string
   contentStatus?: 'all' | 'missing_description' | 'missing_audio' | 'complete'
   groupStatus?: 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'
   scoreFilter?: 'all' | 'no_score' | 'rejected' | 'pending' | 'approved'
@@ -196,6 +199,7 @@ class POIService {
         city_filter: filters.city || null,
         google_types_filter: filters.googleTypes || null,
         category_filter: filters.category || null,
+        osm_category_filter: filters.osmCategory || null,
         content_status_filter: filters.contentStatus || null,
         group_status_filter: filters.groupStatus || 'all',
         score_filter: filters.scoreFilter || 'all',
@@ -281,7 +285,9 @@ class POIService {
             city: row.city,
             state: row.state,
             country: row.country,
-            category: row.category,
+            category: row.osm_category || row.category || 'point_of_interest',
+            osm_category: row.osm_category,
+            record_type: row.category,
             approved: row.approved,
             is_active: row.is_active ?? true,
             created_at: row.created_at,
@@ -774,7 +780,9 @@ class POIService {
       city: data.city,
       country: data.country,
       state: data.state,
-      category: data.category || 'point_of_interest',
+      category: data.osm_category || data.category || 'point_of_interest',
+      osm_category: data.osm_category,
+      record_type: data.category,
       approved: data.approved,
       is_active: data.is_active ?? true,
       approved_by: data.approved_by,

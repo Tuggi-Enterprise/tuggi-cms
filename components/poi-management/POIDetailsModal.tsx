@@ -26,6 +26,8 @@ export interface POI {
   country: string
   state: string | null
   category: string
+  osm_category?: string | null
+  record_type?: string
   primary_category?: string | null
   approved: boolean
   approved_by: string | null
@@ -337,8 +339,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           lat: createCoordinates.lat,
           lng: createCoordinates.lng,
           boundary: createBoundary, // Enviar boundary se foi desenhado
-          category: createCategory,
-          primary_category: createType === 'geofence' ? 'geofence' : (createCategory || 'standard'),
+          category: createType === 'geofence' ? 'geofence' : 'point_of_interest',
+          osm_category: createCategory,
+          primary_category: createType === 'geofence' ? 'geofence' : 'point_of_interest',
           owner_id: createOwnerId || undefined,
           business_status: createBusinessStatus || undefined
         })
@@ -981,7 +984,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // This prevents overwriting locally created POI state when poi prop is null
       if (poi) {
         setEditedPoi(poi)
-        const isGeo = poi.primary_category === 'geofence' || poi.category === 'geofence';
+        const isGeo = poi.record_type === 'geofence' || poi.category === 'geofence';
         setActiveTab(prev => (isGeo && prev === 'trigger-points') ? 'details' : prev)
       }
       
@@ -1282,8 +1285,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           .from('attractions')
           .update({
             name: editedPoi.name,
-            category: editedPoi.category,
-            primary_category: editedPoi.primary_category,
+            // Consistent mapping: category is the 'record type' (point_of_interest/geofence)
+            category: editedPoi.record_type === 'geofence' ? 'geofence' : 'point_of_interest',
+            // osm_category is the specific category (museum, restaurant, or 'geofence' for geofences)
+            osm_category: editedPoi.category,
+            // primary_category kept for backward compatibility with search filters
+            primary_category: editedPoi.record_type === 'geofence' ? 'geofence' : (editedPoi.category || 'point_of_interest'),
             city: editedPoi.city,
             state: editedPoi.state,
             country: editedPoi.country,
@@ -2440,7 +2447,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       {t('labels.geographic_boundaries')}
                     </button>
                     
-                    {!(editedPoi?.primary_category === 'geofence' || editedPoi?.category === 'geofence') && (
+                    {!(editedPoi?.record_type === 'geofence' || editedPoi?.category === 'geofence') && (
                       <button
                         onClick={() => setActiveTab('trigger-points')}
                         className={cn(
@@ -2923,7 +2930,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                 {t('labels.record_type')}
                               </label>
                               <select
-                                value={editedPoi?.primary_category === 'geofence' || editedPoi?.category === 'geofence' ? 'geofence' : 'standard'}
+                                value={editedPoi?.record_type === 'geofence' || editedPoi?.category === 'geofence' ? 'geofence' : 'standard'}
                                 onChange={(e) => {
                                   const val = e.target.value;
                                   setEditedPoi(prev => {
@@ -2931,7 +2938,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                     const isGeofence = val === 'geofence';
                                     return {
                                       ...prev,
-                                      primary_category: isGeofence ? 'geofence' : 'standard',
+                                      record_type: isGeofence ? 'geofence' : 'point_of_interest',
                                       category: (!isGeofence && prev.category === 'geofence') ? 'tourist_attraction' : prev.category
                                     };
                                   });
@@ -2956,7 +2963,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                     {category.label}
                                   </option>
                                 ))}
-                                {editedPoi?.category === 'geofence' && (
+                                {/* Ensure geofence is always an option if it's the current value or if record type is geofence */}
+                                {(editedPoi?.record_type === 'geofence' || editedPoi?.category === 'geofence') && (
                                   <option value="geofence">{t('labels.geofence_restricted')}</option>
                                 )}
                               </select>

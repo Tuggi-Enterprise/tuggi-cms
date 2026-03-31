@@ -60,6 +60,7 @@ function POIListWithSearchParams() {
   const [countryFilter, setCountryFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
+  const [osmCategoryFilter, setOsmCategoryFilter] = useState<string>('all')
   
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -90,11 +91,12 @@ function POIListWithSearchParams() {
   // Function to update URL with current filter states and view mode
   const updateURL = useCallback((filters: {
     search?: string
-    status?: 'all' | 'approved' | 'pending'
+    status?: string
     country?: string
     state?: string
     city?: string
     category?: string
+    osmCategory?: string
     contentStatus?: 'all' | 'missing_description' | 'missing_audio' | 'complete'
     groupStatus?: 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member'
     scoreFilter?: 'all' | 'no_score' | 'rejected' | 'pending' | 'approved'
@@ -123,6 +125,9 @@ function POIListWithSearchParams() {
     }
     if (filters.category && filters.category !== 'all') {
       params.set('category', filters.category)
+    }
+    if (filters.osmCategory && filters.osmCategory !== 'all') {
+      params.set('osmCategory', filters.osmCategory)
     }
     if (filters.contentStatus && filters.contentStatus !== 'all') {
       params.set('contentStatus', filters.contentStatus)
@@ -175,11 +180,12 @@ function POIListWithSearchParams() {
   // Read filters from URL on mount
   const readFiltersFromURL = useCallback(() => {
     const search = searchParams.get('search') || ''
-    const status = (searchParams.get('status') as 'all' | 'approved' | 'pending') || 'all'
+    const status = searchParams.get('status') || 'all'
     const city = searchParams.get('city') || ''
     const country = searchParams.get('country') || ''
     const state = searchParams.get('state') || ''
     const category = searchParams.get('category') || 'all'
+    const osmCategory = searchParams.get('osmCategory') || 'all'
 
     const contentStatus = (searchParams.get('contentStatus') as 'all' | 'missing_description' | 'missing_audio' | 'complete') || 'all'
     const groupStatus = (searchParams.get('groupStatus') as 'all' | 'grouped' | 'ungrouped' | 'group_main' | 'group_member') || 'all'
@@ -195,6 +201,7 @@ function POIListWithSearchParams() {
     setCountryFilter(country)
     setStateFilter(state)
     setCategoryFilter(category)
+    setOsmCategoryFilter(osmCategory)
 
     setContentStatusFilter(contentStatus)
     setGroupStatusFilter(groupStatus)
@@ -270,6 +277,7 @@ function POIListWithSearchParams() {
         state: stateFilter,
         city: cityFilter,
         category: categoryFilter === 'all' ? undefined : categoryFilter,
+        osmCategory: osmCategoryFilter === 'all' ? undefined : osmCategoryFilter,
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
@@ -282,6 +290,7 @@ function POIListWithSearchParams() {
     state: stateFilter,
     city: cityFilter,
     category: categoryFilter === 'all' ? undefined : categoryFilter,
+    osmCategory: osmCategoryFilter === 'all' ? undefined : osmCategoryFilter,
     contentStatus: contentStatusFilter,
     groupStatus: groupStatusFilter,
     scoreFilter: scoreFilter,
@@ -442,6 +451,7 @@ function POIListWithSearchParams() {
         country: countryFilter,
         state: stateFilter,
         category: categoryFilter,
+        osmCategory: osmCategoryFilter,
         contentStatus: contentStatusFilter,
         groupStatus: groupStatusFilter,
         scoreFilter: scoreFilter,
@@ -451,11 +461,17 @@ function POIListWithSearchParams() {
         view: viewMode
       })
     }
-  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, categoryFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, currentPage, viewMode, isInitializing, updateURL])
+  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, categoryFilter, osmCategoryFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, currentPage, viewMode, isInitializing, updateURL])
 
   // Transform POI from service to modal format
-  const transformPOIForModal = (poi: POIType): POI => ({
-    ...poi,
+  const transformPOIForModal = (poi: POIType): POI => {
+    return {
+      ...poi,
+      // For the modal, keep category and record_type exactly as they come from the service/database
+      record_type: (poi.record_type === 'geofence' || poi.record_type === 'point_of_interest') 
+        ? poi.record_type 
+        : (poi.category === 'geofence' ? 'geofence' : 'point_of_interest'),
+      category: poi.category || 'point_of_interest',
     state: poi.state || null,
     approved_by: poi.approved_by || null,
     approved_at: poi.approved_at || null,
@@ -478,7 +494,8 @@ function POIListWithSearchParams() {
     descriptions: poi.descriptions || [],
     group_status: poi.group_status || undefined,
     verification_score: poi.verification_score || null
-  })
+    }
+  }
 
   // Transform POI from service to map format
   const transformPOIForMap = (poi: POIType) => ({
@@ -641,6 +658,7 @@ function POIListWithSearchParams() {
     setCountryFilter('')
     setStateFilter('')
     setCategoryFilter('all')
+    setOsmCategoryFilter('all')
 
     setContentStatusFilter('all')
     setGroupStatusFilter('all')
@@ -715,6 +733,7 @@ function POIListWithSearchParams() {
     return searchTerm !== '' || 
            statusFilter !== 'all' || 
            categoryFilter !== 'all' ||
+           osmCategoryFilter !== 'all' ||
            cityFilter !== '' || 
            countryFilter !== '' || 
            stateFilter !== '' || 
@@ -723,7 +742,7 @@ function POIListWithSearchParams() {
            scoreFilter !== 'all' || 
            triggerPointsFilter !== 'all' ||
            isActiveFilter !== 'all'
-  }, [searchTerm, statusFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter])
+  }, [searchTerm, statusFilter, categoryFilter, osmCategoryFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter])
 
   // Memoize the transformed POI to prevent infinite loops in POIDetailsModal's useEffect
   const memoizedPoiForModal = useMemo(() => {
@@ -780,14 +799,15 @@ function POIListWithSearchParams() {
                   <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">{t('filters.record_type')}</h3>
                   <select
                     value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
+                    onChange={(e) => {
+                      setCategoryFilter(e.target.value)
+                      setCurrentPage(1)
+                    }}
                     className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
                   >
-                    {recordTypes.map((type) => (
-                      <option key={type.value} value={type.value}>
-                        {type.label}
-                      </option>
-                    ))}
+                    <option value="all">{t('status_options.all_types')}</option>
+                    <option value="point_of_interest">{t('status_options.poi_standard')}</option>
+                    <option value="geofence">{t('status_options.geofence')}</option>
                   </select>
                 </div>
 
@@ -1163,12 +1183,15 @@ function POIListWithSearchParams() {
                                   }}
                                   className="h-3.5 w-3.5 text-tuggi-blue rounded border-gray-200 dark:bg-gray-800 focus:ring-0"
                                 />
-                                <div className={cn(
-                                  "p-1.5 rounded-lg",
-                                  poi.approved ? "bg-green-500/10 text-green-500" : "bg-orange-500/10 text-orange-500"
-                                )}>
-                                  <MapPin className="h-4 w-4" />
-                                </div>
+                                  <div className={cn(
+                                    "p-1.5 rounded-lg flex items-center gap-1.5",
+                                    poi.approved ? "bg-green-500/10 text-green-500" : "bg-orange-500/10 text-orange-500"
+                                  )}>
+                                    <MapPin className="h-4 w-4" />
+                                    <span className="text-[10px] font-bold uppercase tracking-wider hidden lg:inline-block">
+                                      {poi.category}
+                                    </span>
+                                  </div>
                               </div>
                             )}
 

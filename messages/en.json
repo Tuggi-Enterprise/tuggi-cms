@@ -1081,8 +1081,10 @@
     "filters": {
       "title": "Filters",
       "record_type": "Record Type",
+      "category": "Attraction Category",
       "clear_all": "Clear All",
       "search_placeholder": "Search POIs...",
+      "search_category": "Ex: museum, park...",
       "country": "Country",
       "state": "State",
       "city": "City",
