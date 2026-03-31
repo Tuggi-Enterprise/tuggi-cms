@@ -180,7 +180,7 @@ function POIListWithSearchParams() {
   // Read filters from URL on mount
   const readFiltersFromURL = useCallback(() => {
     const search = searchParams.get('search') || ''
-    const status = searchParams.get('status') || 'all'
+    const status = (searchParams.get('status') as 'all' | 'approved' | 'pending') || 'all'
     const city = searchParams.get('city') || ''
     const country = searchParams.get('country') || ''
     const state = searchParams.get('state') || ''
@@ -1379,11 +1379,21 @@ function POIListWithSearchParams() {
             router.push(`?${params.toString()}`, { scroll: false })
           }}
           onUpdate={() => {
-            // React Query handles refetch via invalidation in the modal
-            console.log('📝 [PAGE] onUpdate called - data will be refreshed by React Query')
+            console.log('📝 [PAGE] onUpdate called - Force refetching...')
+            fetchPois()
+            queryClient.invalidateQueries({ queryKey: ['pois'] })
+            queryClient.refetchQueries({ queryKey: ['pois'] })
           }}
-          onPOIUpdated={(updatedPOI) => {
-            // Force update the cache immediately with the data we received
+          onPOIUpdated={(updatedPOI: any) => {
+            console.log('📝 [PAGE] onPOIUpdated called - Syncing list and cache...')
+            
+            // 1. Force state update for the active POI
+            setSelectedPoi(updatedPOI)
+            
+            // 2. Invalidate cache globally for POIs
+            queryClient.invalidateQueries({ queryKey: ['pois'] })
+            
+            // 3. Update the specific record in any active queries to be optimistic
             queryClient.setQueriesData({ queryKey: ['pois'], exact: false }, (oldData: any) => {
               if (!oldData || !oldData.data) return oldData
               return {
@@ -1392,18 +1402,21 @@ function POIListWithSearchParams() {
               }
             })
             
-            // Also invalidate to fetch fresh data from server eventually
-            queryClient.invalidateQueries({ queryKey: ['pois'] })
-            
-            // Auto switch to edit mode by updating selectedPoi
-            setSelectedPoi(updatedPOI as any)
-            const params = new URLSearchParams(searchParams.toString())
-            params.delete('new')
-            params.set('poiId', updatedPOI.id)
-            router.push(`?${params.toString()}`, { scroll: false })
+            // 4. Force a hard refetch after a small delay to catch backend changes
+            setTimeout(() => {
+              fetchPois()
+              queryClient.refetchQueries({ queryKey: ['pois'] })
+            }, 300)
           }}
           onPOIDeleted={(deletedId) => {
-            // Force remove from cache immediately
+            console.log('📝 [PAGE] onPOIDeleted called - Removing from list...')
+            
+            // 1. Clear state
+            setSelectedPoi(null)
+            setIsModalOpen(false)
+            setSelectedPois(prev => prev.filter(id => id !== deletedId))
+            
+            // 2. Remove from cache immediately
             queryClient.setQueriesData({ queryKey: ['pois'], exact: false }, (oldData: any) => {
               if (!oldData || !oldData.data) return oldData
               return {
@@ -1416,10 +1429,16 @@ function POIListWithSearchParams() {
               }
             })
              
-            setSelectedPoi(null)
+            // 3. Invalidate and Refetch
+            queryClient.invalidateQueries({ queryKey: ['pois'] })
+            
+            // 4. Update URL
             const params = new URLSearchParams(searchParams.toString())
             params.delete('poiId')
             router.push(`?${params.toString()}`, { scroll: false })
+            
+            // 5. Final refetch
+            setTimeout(() => fetchPois(), 100)
           }}
 
         />
