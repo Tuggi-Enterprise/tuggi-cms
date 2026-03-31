@@ -11,27 +11,37 @@ const TRANSLATIONS: Record<string, any> = {
   'pt-br': {
     title: 'Sua jornada de ontem',
     body: (name: string, heard: number, missed: number) => 
-      `Ei ${name}! Sua jornada de ontem revelou ${heard} historias, mas ${missed} segredos ficaram pelo caminho. Que tal ligar o som e descobrir novos misterios hoje?`
+      `Ei ${name}! Sua jornada de ontem revelou ${heard} historias, mas ${missed} segredos ficaram pelo caminho. Que tal ligar o som e descobrir novos misterios hoje?`,
+    body_zero_heard: (name: string, missed: number) => 
+      `Viagem silenciosa, ${name}? Vimos que voce iniciou sua jornada, mas ${missed} historias ainda esperam para serem ouvidas por ai. Que tal ativar o guia hoje?`
   },
   'pt-pt': {
     title: 'A sua jornada de ontem',
     body: (name: string, heard: number, missed: number) => 
-      `Olá ${name}! A sua jornada de ontem revelou ${heard} historias, mas ${missed} segredos ficaram pelo caminho. Que tal ligar o som e descobrir novos misterios hoje?`
+      `Olá ${name}! A sua jornada de ontem revelou ${heard} historias, mas ${missed} segredos ficaram pelo caminho. Que tal ligar o som e descobrir novos misterios hoje?`,
+    body_zero_heard: (name: string, missed: number) => 
+      `Viagem silenciosa, ${name}? Vimos que iniciou a sua jornada, mas ${missed} historias ainda esperam para serem ouvidas por ai. Que tal ativar o guia hoje?`
   },
   'en': {
     title: 'Your journey yesterday',
     body: (name: string, heard: number, missed: number) => 
-      `Hey ${name}! Yesterdays journey uncovered ${heard} stories, but ${missed} secrets were left behind. Ready to tune in and discover new mysteries today?`
+      `Hey ${name}! Yesterdays journey uncovered ${heard} stories, but ${missed} secrets were left behind. Ready to tune in and discover new mysteries today?`,
+    body_zero_heard: (name: string, missed: number) => 
+      `A quiet trip, ${name}? We noticed you started your journey, but ${missed} stories are still waiting to be heard. How about turning on the guide today?`
   },
   'es': {
     title: 'Tu jornada de ayer',
     body: (name: string, heard: number, missed: number) => 
-      `¡Hola ${name}! Tu jornada de ayer revelo ${heard} historias, pero ${missed} secretos quedaron por el camino. ¿Que tal encender el sonido y descubrir nuevos misterios hoy?`
+      `¡Hola ${name}! Tu jornada de ayer revelo ${heard} historias, pero ${missed} secretos quedaron por el camino. ¿Que tal encender el sonido y descubrir nuevos misterios hoje?`,
+    body_zero_heard: (name: string, missed: number) => 
+      `¿Viaje silencioso, ${name}? Vimos que iniciaste tu jornada, pero ${missed} historias aun esperan para ser escuchadas. ¿Que tal activar el guia hoy?`
   },
   'it': {
     title: 'Il tuo viaggio di ieri',
     body: (name: string, heard: number, missed: number) => 
-      `Ehi ${name}! Il tuo viaggio di ieri ha svelato ${heard} storie, ma ${missed} segreti sono rimasti lungo a strada. Che ne dici di accendere il suono e scoprire nuovi misteri oggi?`
+      `Ehi ${name}! Il tuo viaggio di ieri ha svelato ${heard} storie, ma ${missed} segreti sono rimasti lungo a strada. Che ne dici di accendere il suono e scoprire nuovi misteri oggi?`,
+    body_zero_heard: (name: string, missed: number) => 
+      `Viaggio silenzioso, ${name}? Abbiamo notato que hai iniziato il tuo viaggio, ma ${missed} storie aspettano ancora di essere ascoltate. Che ne dici di attivare la guida oggi?`
   }
 };
 
@@ -75,7 +85,11 @@ Deno.serve(async (req) => {
     // 2. Prepare Notifications
     for (const user of candidates) {
       const i18n = getTranslation(user.language);
-      const messageBody = i18n.body(user.nickname || 'Viajante', user.heard_count, user.missed_count);
+      
+      // Select body based on engagement
+      const messageBody = user.heard_count > 0 
+        ? i18n.body(user.nickname || 'Viajante', user.heard_count, user.missed_count)
+        : i18n.body_zero_heard(user.nickname || 'Viajante', user.missed_count);
 
       notificationsToSchedule.push({
         type: 'user',

@@ -78,8 +78,8 @@ BEGIN
             -- Find attractive points within 1km of the daily trail that were NOT visited
             SELECT dt.user_id, COUNT(DISTINCT a.id) as cnt
             FROM daily_trail dt
-            JOIN core.attractions a ON ST_DWithin(dt.trail_line::geography, ST_SetSRID(ST_MakePoint(ac.longitude, ac.latitude), 4326)::geography, 1000)
-            JOIN core.attraction_coordinate ac ON ac.attraction_id = a.id
+            JOIN core.attraction_coordinate ac ON ST_DWithin(dt.trail_line::geography, ST_SetSRID(ST_MakePoint(ac.longitude, ac.latitude), 4326)::geography, 1000)
+            JOIN core.attractions a ON a.id = ac.attraction_id
             LEFT JOIN drive.poi_visits pv ON pv.poi_id = a.id AND pv.user_id = dt.user_id AND pv.visit_timestamp::date = p_target_date
             WHERE pv.poi_id IS NULL
             GROUP BY dt.user_id
@@ -143,10 +143,12 @@ $$;
 ALTER TABLE drive.daily_user_fomo_stats ENABLE ROW LEVEL SECURITY;
 
 -- Policy: service_role has full access (for Edge Functions and Cron Jobs)
+DROP POLICY IF EXISTS "service_role_full_access" ON drive.daily_user_fomo_stats;
 CREATE POLICY "service_role_full_access" ON drive.daily_user_fomo_stats
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
 -- Policy: Admin in core.cms_users can view all stats
+DROP POLICY IF EXISTS "admin_view_all_stats" ON drive.daily_user_fomo_stats;
 CREATE POLICY "admin_view_all_stats" ON drive.daily_user_fomo_stats
     FOR SELECT TO authenticated
     USING (
@@ -157,6 +159,7 @@ CREATE POLICY "admin_view_all_stats" ON drive.daily_user_fomo_stats
     );
 
 -- Policy: Users can view their own daily stats
+DROP POLICY IF EXISTS "users_view_own_stats" ON drive.daily_user_fomo_stats;
 CREATE POLICY "users_view_own_stats" ON drive.daily_user_fomo_stats
     FOR SELECT TO authenticated
     USING (auth.uid() = user_id);
