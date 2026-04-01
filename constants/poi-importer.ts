@@ -26,7 +26,6 @@ export const POI_CATEGORIES: POICategory[] = [
   { value: 'lodging', label: 'Hotels & Lodging', icon: Bed, color: 'bg-teal-500' },
   { value: 'hospital', label: 'Healthcare', icon: Cross, color: 'bg-red-600' },
   { value: 'university', label: 'Universities', icon: GraduationCap, color: 'bg-blue-600' },
-  { value: 'geofence', label: 'Restrict Area (Geofence)', icon: Target, color: 'bg-red-700' },
 ]
 
 export const COUNTRIES: Country[] = [

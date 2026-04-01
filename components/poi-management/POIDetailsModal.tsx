@@ -503,7 +503,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   // Enhanced categories to ensure current POI category is always visible
   // even if it's not in the static constants list
   const enhancedCategories = useMemo(() => {
-    const baseCategories = POI_CATEGORIES.filter(c => c.value !== 'all')
+    const baseCategories = POI_CATEGORIES.filter(c => c.value !== 'all' && c.value !== 'geofence')
     const poiCategory = currentPoi?.osm_category || currentPoi?.category
     
     // If the POI has a category not in our list, add it dynamically
@@ -3004,20 +3004,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                                     {category.label}
                                   </option>
                                 ))}
-                                {/* Ensure geofence is always an option if it's the current value or if record type is geofence */}
-                                {(editedPoi?.record_type === 'geofence' || editedPoi?.category === 'geofence') && (
-                                  <option value="geofence">{t('labels.geofence_restricted')}</option>
-                                )}
                               </select>
                             </div>
                           </div>
 
                           {/* Client Owner & Behavior Section */}
                           <div className={cn(
-                            "grid grid-cols-1 gap-4 p-4 bg-orange-50/50 border border-orange-100 rounded-2xl dark:bg-orange-900/10 dark:border-orange-800",
-                            (editedPoi?.primary_category === 'geofence') ? 'md:grid-cols-2' : ''
+                            "grid grid-cols-1 gap-4 p-4 bg-orange-50/50 border border-orange-100 rounded-2xl dark:bg-orange-900/10 dark:border-orange-800 transition-all",
+                            (editedPoi?.record_type === 'geofence') ? 'md:grid-cols-2' : ''
                           )}>
-                            <div className={(editedPoi?.primary_category === 'geofence') ? '' : 'col-span-full'}>
+                            <div className={(editedPoi?.record_type === 'geofence') ? '' : 'col-span-full'}>
                               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                 {t('labels.client_owner')}
                               </label>
@@ -3032,19 +3028,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                               </select>
                             </div>
 
-                            {(editedPoi?.primary_category === 'geofence') && (
-                              <div>
+                            {(editedPoi?.record_type === 'geofence') && (
+                              <div className="animate-in fade-in duration-300">
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                   {t('labels.trigger_behavior')}
                                 </label>
                                 <select 
-                                  value={editedPoi?.business_status || 'ENTER_ONLY'}
+                                  value={editedPoi?.business_status || 'BOTH'}
                                   onChange={e => setEditedPoi(prev => prev ? ({ ...prev, business_status: e.target.value }) : null)}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white"
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white font-bold"
                                 >
-                                  <option value="ENTER_ONLY">{t('labels.enter_only')}</option>
-                                  <option value="INSIDE_ONLY">{t('labels.inside_only')}</option>
-                                  <option value="BOTH">{t('labels.both_enter_inside')}</option>
+                                  <option value="BOTH">{t('labels.both')}</option>
+                                  <option value="INSIDE">{t('labels.inside')}</option>
+                                  <option value="OUTSIDE">{t('labels.outside')}</option>
                                 </select>
                               </div>
                             )}
