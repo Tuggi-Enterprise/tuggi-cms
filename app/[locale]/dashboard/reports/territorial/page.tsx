@@ -8,7 +8,7 @@ import {
   MapPin, Globe, Navigation, Play, Eye, Headphones, Download
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
-import { dashboardService, DashboardStats } from '@/lib/services/dashboard-service'
+import { dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS } from '@/lib/services/dashboard-service'
 import { StatCard } from '@/components/ui/StatCard'
 
 const TUGGI_COLORS = {
@@ -19,38 +19,8 @@ const TUGGI_COLORS = {
   red: '#EF4444'
 }
 
-const EMPTY_STATS: DashboardStats = {
-  totalPOIs: 0,
-  approvedPOIs: 0,
-  pendingPOIs: 0,
-  homologPOIs: 0,
-  totalInventory: 0,
-  approvalRate: 0,
-  languagesBreakdown: [],
-  withAudio: 0,
-  contentCoverage: 0,
-  citiesCovered: 0,
-  totalUsers: 0,
-  activeUsers30d: 0,
-  totalTrips: 0,
-  totalKmDriven: 0,
-  totalPOIVisits: 0,
-  totalAudioPlays: 0,
-  avgTripDuration: '0 min',
-  tripsByPlatform: [],
-  mauHistory: [],
-  userGrowth: [],
-  cityDistribution: [],
-  mostVisitedCities: [],
-  topVisitedPOIs: [],
-  recentVisitedPOIs: [],
-  visitsByLanguage: [],
-  lastUpdated: new Date(),
-  source: 'database'
-}
-
 export default function TerritorialReportPage() {
-  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS)
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_DASHBOARD_STATS)
   const [isLoading, setIsLoading] = useState(true)
   const t = useTranslations('Pages.Dashboard')
   const locale = useLocale()

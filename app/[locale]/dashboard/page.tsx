@@ -13,7 +13,7 @@ import { useTranslations, useLocale } from 'next-intl';
 import { cn } from '@/lib/utils'
 import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { StatCard } from '@/components/ui/StatCard'
-import { dashboardService, DashboardStats } from '@/lib/services/dashboard-service'
+import { dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS } from '@/lib/services/dashboard-service'
 import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
 import { UpcomingExpirationsCard } from '@/components/dashboard/UpcomingExpirationsCard'
 
@@ -38,46 +38,12 @@ const FUNNEL_COLORS = {
   homolog: TUGGI_COLORS.purple
 }
 
-const EMPTY_STATS: DashboardStats = {
-  totalPOIs: 0,
-  approvedPOIs: 0,
-  pendingPOIs: 0,
-  homologPOIs: 0,
-  totalInventory: 0,
-  approvalRate: 0,
-  languagesBreakdown: [],
-  withAudio: 0,
-  contentCoverage: 0,
-  citiesCovered: 0,
-  totalUsers: 0,
-  activeUsers30d: 0,
-  totalTrips: 0,
-  totalKmDriven: 0,
-  totalPOIVisits: 0,
-  totalAudioPlays: 0,
-  avgTripDuration: '0 min',
-  tripsByPlatform: [],
-  mauHistory: [],
-  userGrowth: [],
-  cityDistribution: [],
-  countryDistribution: [],
-  mostVisitedCities: [],
-  topVisitedPOIs: [],
-  recentVisitedPOIs: [],
-  visitsByLanguage: [],
-  totalPremiumUsers: 0,
-  recentActiveUsers: [],
-  upcomingExpirations: [],
-  lastUpdated: new Date(),
-  source: 'database'
-}
-
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS)
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_DASHBOARD_STATS)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   

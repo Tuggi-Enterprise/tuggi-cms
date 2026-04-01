@@ -107,6 +107,40 @@ export interface DashboardStats {
   source: 'cache' | 'database'
 }
 
+export const EMPTY_DASHBOARD_STATS: DashboardStats = {
+  totalPOIs: 0,
+  approvedPOIs: 0,
+  pendingPOIs: 0,
+  homologPOIs: 0,
+  totalInventory: 0,
+  approvalRate: 0,
+  languagesBreakdown: [],
+  withAudio: 0,
+  contentCoverage: 0,
+  citiesCovered: 0,
+  totalUsers: 0,
+  activeUsers30d: 0,
+  totalTrips: 0,
+  totalKmDriven: 0,
+  totalPOIVisits: 0,
+  totalAudioPlays: 0,
+  avgTripDuration: '0 min',
+  tripsByPlatform: [],
+  totalPremiumUsers: 0,
+  upcomingExpirations: [],
+  mauHistory: [],
+  userGrowth: [],
+  cityDistribution: [],
+  countryDistribution: [],
+  mostVisitedCities: [],
+  topVisitedPOIs: [],
+  recentVisitedPOIs: [],
+  recentActiveUsers: [],
+  visitsByLanguage: [],
+  lastUpdated: new Date(),
+  source: 'database'
+}
+
 export interface InventoryDetails {
   // Core stats
   coreTotal: number
