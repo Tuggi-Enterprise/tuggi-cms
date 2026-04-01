@@ -149,19 +149,19 @@ export default function DashboardPage() {
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-blue-500" />
-              <h3 className="text-xs font-black uppercase tracking-tight text-gray-700 dark:text-gray-300">{t('labels.active_base')}</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300">{t('labels.active_base')}</h3>
             </div>
-            <span className="text-[9px] font-black text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">{t('labels.history')}</span>
+            <span className="text-[10px] font-black text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">{t('labels.history')}</span>
           </div>
           <div className="flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={stats.userGrowth}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
-                <XAxis dataKey="month" tick={{ fill: '#9ca3af', fontSize: 10, fontWeight: 700 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#9ca3af', fontSize: 10, fontWeight: 700 }} axisLine={false} tickLine={false} width={30} />
+                <XAxis dataKey="month" tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={30} />
                 <Tooltip cursor={{ fill: 'rgba(0,168,232,0.03)' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
                 <Bar dataKey="count" fill={TUGGI_COLORS.blue} radius={[8, 8, 0, 0]} barSize={28}>
-                  <LabelList dataKey="count" position="top" style={{ fill: TUGGI_COLORS.blue, fontSize: 9, fontWeight: '900' }} offset={8} />
+                  <LabelList dataKey="count" position="top" style={{ fill: TUGGI_COLORS.blue, fontSize: 10, fontWeight: '900' }} offset={8} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -170,7 +170,7 @@ export default function DashboardPage() {
 
         {/* BLOCK 2: EXPIRATIONS (3 COLS) */}
         <div className="lg:col-span-3 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm flex flex-col h-[380px]">
-           <h3 className="text-xs font-black uppercase tracking-tight text-gray-700 dark:text-gray-300 mb-4 flex items-center justify-between">
+           <h3 className="text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300 mb-4 flex items-center justify-between">
               <span>{t('labels.expirations_30d')}</span>
               <Clock className="h-4 w-4 text-orange-400" />
            </h3>
@@ -182,11 +182,11 @@ export default function DashboardPage() {
              ) : (
                <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
                  <ShieldCheck className="h-10 w-10 mb-2" />
-                 <p className="text-[9px] font-black uppercase">{t('labels.no_expirations')}</p>
+                 <p className="text-[10px] font-black uppercase">{t('labels.no_expirations')}</p>
                </div>
              )}
            </div>
-           <button className="mt-3 w-full py-2 text-[9px] font-black uppercase tracking-widest text-gray-400 border border-gray-100 dark:border-gray-800 rounded-lg hover:bg-gray-50 transition-colors">
+           <button className="mt-3 w-full py-2.5 text-[10px] font-black uppercase tracking-widest text-gray-400 border border-gray-100 dark:border-gray-800 rounded-lg hover:bg-gray-50 transition-all active:scale-[0.98]">
              {t('labels.subscriber_management')}
            </button>
         </div>
@@ -194,10 +194,10 @@ export default function DashboardPage() {
         {/* BLOCK 3: LIVE RECENT ACTIVITY (4 COLS) */}
         <div className="lg:col-span-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm flex flex-col h-[380px]">
            <div className="flex items-center justify-between mb-4 border-b border-gray-50 dark:border-gray-800 pb-2">
-             <h3 className="text-xs font-black uppercase tracking-tight text-gray-700 dark:text-gray-300">{t('labels.live_feed')}</h3>
+             <h3 className="text-xs font-black uppercase tracking-widest text-gray-700 dark:text-gray-300">{t('labels.live_feed')}</h3>
              <div className="flex items-center gap-1.5">
                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-[9px] font-black text-green-500 uppercase tracking-widest">{t('labels.realtime')}</span>
+                <span className="text-[10px] font-black text-green-500 uppercase tracking-widest">{t('labels.realtime')}</span>
              </div>
            </div>
            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
@@ -224,19 +224,19 @@ export default function DashboardPage() {
             {/* LANGUAGES BREAKDOWN */}
             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400">{t('labels.catalog_languages')}</h3>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">{t('labels.catalog_languages')}</h3>
                   <Globe className="h-4 w-4 text-tuggi-blue" />
                </div>
                <div className="space-y-3">
                   {stats.languagesBreakdown.slice(0, 4).map((lang, idx) => (
-                    <div key={idx} className="space-y-1">
-                       <div className="flex justify-between items-center text-[10px] font-bold">
-                          <span className="uppercase">{lang.language === 'pt' ? 'Português' : lang.language === 'en' ? 'English' : lang.language === 'es' ? 'Español' : lang.language}</span>
-                          <span className="text-gray-400">{lang.count} {t('labels.core_homolog')}</span>
+                    <div key={idx} className="space-y-1.5">
+                       <div className="flex justify-between items-center text-xs font-black">
+                          <span className="uppercase tracking-tight">{lang.language === 'pt' ? 'Português' : lang.language === 'en' ? 'English' : lang.language === 'es' ? 'Español' : lang.language}</span>
+                          <span className="text-gray-400 text-[11px] font-bold">{lang.count} {t('labels.core_homolog')}</span>
                        </div>
-                       <div className="h-1.5 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
+                       <div className="h-2 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
                           <div 
-                            className="h-full bg-blue-500 rounded-full" 
+                            className="h-full bg-blue-500 rounded-full shadow-sm shadow-blue-500/20" 
                             style={{ width: `${(lang.count / (stats.totalPOIs || 1)) * 100}%` }} 
                           />
                        </div>
@@ -248,33 +248,33 @@ export default function DashboardPage() {
             {/* CONTENT QUALITY METRICS */}
             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm grid grid-cols-2 gap-4">
                <div className="flex flex-col justify-center border-r border-gray-50 dark:border-gray-800 pr-2">
-                  <p className="text-[9px] font-black text-gray-400 uppercase mb-2">{t('labels.pois_with_audio')}</p>
-                  <p className="text-xl font-black text-tuggi-green leading-tight">{stats.withAudio}</p>
-                  <p className="text-[9px] font-bold text-gray-400 uppercase leading-none">{t('labels.cataloged')}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">{t('labels.pois_with_audio')}</p>
+                  <p className="text-2xl font-black text-tuggi-green leading-tight">{stats.withAudio}</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase leading-none tracking-tight">{t('labels.cataloged')}</p>
                </div>
                <div className="flex flex-col justify-center">
-                  <p className="text-[9px] font-black text-gray-400 uppercase mb-2">{t('labels.avg_quality')}</p>
-                  <p className="text-xl font-black text-blue-500 leading-tight">{(stats.contentCoverage * 10).toFixed(1)}%</p>
-                  <p className="text-[9px] font-bold text-gray-400 uppercase leading-none">{t('labels.completeness')}</p>
+                  <p className="text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">{t('labels.avg_quality')}</p>
+                  <p className="text-2xl font-black text-blue-500 leading-tight">{(stats.contentCoverage * 10).toFixed(1)}%</p>
+                  <p className="text-[10px] font-bold text-gray-400 uppercase leading-none tracking-tight">{t('labels.completeness')}</p>
                </div>
             </div>
 
             {/* DEVICE ACCESS METRICS */}
             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-[10px] font-black uppercase text-gray-400 tracking-widest">{t('labels.device_access')}</h3>
+                  <h3 className="text-xs font-black uppercase text-gray-400 tracking-widest">{t('labels.device_access')}</h3>
                   <Smartphone className="h-4 w-4 text-gray-400" />
                </div>
                <div className="space-y-4">
                   {consolidatedPlatforms.map(p => (
                     <div key={p.platform}>
-                       <div className="flex justify-between items-end mb-1">
-                          <span className="text-[9px] font-black text-gray-500 uppercase">{p.platform === 'ios' ? 'Apple iOS' : 'Android OS'}</span>
-                          <span className="text-xs font-black text-gray-900 dark:text-white">{((p.count / (stats.totalTrips || 1)) * 100).toFixed(0)}%</span>
+                       <div className="flex justify-between items-end mb-1.5">
+                          <span className="text-[10px] font-black text-gray-500 uppercase tracking-tight">{p.platform === 'ios' ? 'Apple iOS' : 'Android OS'}</span>
+                          <span className="text-sm font-black text-gray-900 dark:text-white">{((p.count / (stats.totalTrips || 1)) * 100).toFixed(0)}%</span>
                        </div>
-                       <div className="h-1.5 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
+                       <div className="h-2 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
                           <div 
-                            className={cn("h-full rounded-full animate-in slide-in-from-left duration-1000", p.platform === 'ios' ? 'bg-blue-500' : 'bg-green-500')} 
+                            className={cn("h-full rounded-full animate-in slide-in-from-left duration-1000 shadow-sm", p.platform === 'ios' ? 'bg-blue-500 shadow-blue-500/20' : 'bg-green-500 shadow-green-500/20')} 
                             style={{ width: `${(p.count / (stats.totalTrips || 1)) * 100}%` }} 
                           />
                        </div>
@@ -286,38 +286,82 @@ export default function DashboardPage() {
 
           {/* DENSITY & POPULARITY GRID (CITIES, COUNTRIES & TOP POIS) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1">
-             {/* CITIES DENSITY */}
-             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm flex flex-col">
-                <div className="px-5 py-3 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
-                   <h3 className="text-[10px] font-black uppercase tracking-tight text-gray-500">{t('labels.geo_density')}</h3>
+             {/* COUNTRIES DENSITY */}
+             <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-2xl shadow-black/5 flex flex-col h-[440px]">
+                <div className="px-5 py-4 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
+                   <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">{t('labels.country_footprint')}</h3>
                    <div className="flex items-center gap-2">
-                      <MapPin className="h-3 w-3 text-blue-500" />
-                      <span className="text-[9px] font-black text-gray-400 uppercase">{t('labels.urban_capillarity')}</span>
+                      <Flag className="h-4 w-4 text-tuggi-green opacity-50" />
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('labels.national_presence')}</span>
                    </div>
                 </div>
-                <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
                    <table className="w-full text-left border-collapse">
-                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10">
+                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10 transition-colors">
                        <tr>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase">{t('labels.location')}</th>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-center">{t('labels.volume')}</th>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right">{t('labels.approval_rate')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase tracking-tighter">{t('labels.country')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-center tracking-tighter">{t('labels.cities')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right tracking-tighter">{t('labels.total_pois')}</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                       {stats.countryDistribution.map((c, idx) => (
+                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors group">
+                           <td className="px-5 py-3">
+                             <div className="flex items-center gap-2">
+                               <Globe className="h-3.5 w-3.5 text-tuggi-blue opacity-50 group-hover:opacity-100 transition-opacity" />
+                               <span className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-tight">{c.country}</span>
+                             </div>
+                           </td>
+                           <td className="px-5 py-3 text-center">
+                             <span className="text-[11px] font-bold text-gray-500">{c.city_count}</span>
+                           </td>
+                           <td className="px-5 py-3 text-right">
+                             <span className="text-[11px] font-black bg-tuggi-green/10 text-tuggi-green border border-tuggi-green/20 px-3 py-1 rounded-full shadow-sm">
+                               {c.poi_count}
+                             </span>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+                </div>
+             </div>
+
+             {/* CITIES DENSITY */}
+             <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-2xl shadow-black/5 flex flex-col h-[440px]">
+                <div className="px-5 py-4 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
+                   <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">{t('labels.geo_density')}</h3>
+                   <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-blue-500 opacity-50" />
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('labels.urban_capillarity')}</span>
+                   </div>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                   <table className="w-full text-left border-collapse">
+                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10 transition-colors">
+                       <tr>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase tracking-tighter">{t('labels.location')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-center tracking-tighter">{t('labels.volume')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right tracking-tighter">{t('labels.approval_rate')}</th>
                        </tr>
                      </thead>
                      <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                        {stats.cityDistribution.slice(0, 8).map((city, idx) => (
-                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
-                           <td className="px-5 py-2.5">
-                             <span className="text-xs font-bold text-gray-700 dark:text-gray-200">{city.city}</span>
+                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors group">
+                           <td className="px-5 py-3">
+                             <span className="text-xs font-black text-gray-900 dark:text-gray-200 group-hover:text-tuggi-blue transition-colors">{city.city}</span>
                              <span className="text-[9px] text-gray-400 font-bold ml-2 uppercase opacity-40">{city.country}</span>
                            </td>
-                           <td className="px-5 py-2.5 text-center">
-                             <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-2 py-0.5 rounded-full">{city.poi_count}</span>
+                           <td className="px-5 py-3 text-center">
+                             <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/20 text-blue-600 border border-blue-100 dark:border-blue-800/30 px-2 py-0.5 rounded-full shadow-sm">
+                               {city.poi_count}
+                             </span>
                            </td>
-                           <td className="px-5 py-2.5 text-right">
+                           <td className="px-5 py-3 text-right">
                              <div className="flex items-center justify-end gap-2">
-                                <div className="w-12 h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                                  <div className="h-full bg-green-500" style={{ width: `${(city.approved_count / city.poi_count) * 100}%` }} />
+                                <div className="w-12 h-1 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden shadow-inner">
+                                  <div className="h-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]" style={{ width: `${(city.approved_count / city.poi_count) * 100}%` }} />
                                 </div>
                                 <span className="text-[10px] font-black text-gray-900 dark:text-white w-6">{((city.approved_count / city.poi_count) * 100).toFixed(0)}%</span>
                              </div>
@@ -329,49 +373,9 @@ export default function DashboardPage() {
                 </div>
              </div>
 
-             {/* COUNTRIES DENSITY */}
-             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm flex flex-col">
-                <div className="px-5 py-3 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
-                   <h3 className="text-[10px] font-black uppercase tracking-tight text-gray-500">{t('labels.country_footprint')}</h3>
-                   <div className="flex items-center gap-2">
-                      <Flag className="h-3 w-3 text-tuggi-green" />
-                      <span className="text-[9px] font-black text-gray-400 uppercase">{t('labels.national_presence')}</span>
-                   </div>
-                </div>
-                <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
-                   <table className="w-full text-left border-collapse">
-                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10">
-                       <tr>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase">{t('labels.country')}</th>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-center">{t('labels.cities')}</th>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right">{t('labels.total_pois')}</th>
-                       </tr>
-                     </thead>
-                     <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                       {stats.countryDistribution.map((c, idx) => (
-                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
-                           <td className="px-5 py-2.5">
-                             <div className="flex items-center gap-2">
-                               <Globe className="h-3 w-3 text-gray-400 opacity-40" />
-                               <span className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-tight">{c.country}</span>
-                             </div>
-                           </td>
-                           <td className="px-5 py-2.5 text-center">
-                             <span className="text-[10px] font-bold text-gray-500">{c.city_count}</span>
-                           </td>
-                           <td className="px-5 py-2.5 text-right">
-                             <span className="text-[10px] font-black bg-tuggi-green/10 text-tuggi-green px-3 py-1 rounded-full">{c.poi_count}</span>
-                           </td>
-                         </tr>
-                       ))}
-                     </tbody>
-                   </table>
-                </div>
-             </div>
-
              {/* TOP PERFORMING POIS - PREMIUM LIST STYLE */}
-             <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col min-h-[350px]">
-                <h3 className="text-[10px] font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
+             <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-[440px]">
+                <h3 className="text-xs font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
                    <span>{t('labels.top_visited_pois')}</span>
                    <Camera className="h-4 w-4 text-orange-500 opacity-50" />
                 </h3>
@@ -390,27 +394,20 @@ export default function DashboardPage() {
                            #{idx + 1}
                         </div>
                         <div className="flex-1 min-w-0">
-                           <div className="flex items-center justify-between mb-1">
-                             <span className="text-[11px] font-black text-gray-900 dark:text-white truncate group-hover:text-tuggi-blue transition-colors">
-                               {poi.poi_name}
-                             </span>
-                           </div>
-                           <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-1">
-                                 <span className="text-[10px] font-black text-tuggi-blue">{poi.total_visits}</span>
-                                 <span className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter">{t('table.visits')}</span>
+                            <div className="flex items-start justify-between gap-4">
+                              <span className="text-xs font-black text-gray-900 dark:text-white line-clamp-2 group-hover:text-tuggi-blue transition-colors flex-1">
+                                {poi.poi_name}
+                              </span>
+                              <div className="flex flex-col items-end shrink-0 ml-auto leading-none">
+                                 <span className="text-sm font-black text-tuggi-blue leading-none">{poi.total_visits}</span>
+                                 <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter mt-1">{t('table.visits')}</span>
                               </div>
-                              <div className="w-1 h-1 rounded-full bg-gray-200 dark:bg-gray-700" />
-                              <div className="flex items-center gap-1">
-                                 <span className="text-[10px] font-black text-tuggi-orange">{poi.audio_plays}</span>
-                                 <span className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter">{t('labels.audios')}</span>
-                              </div>
-                           </div>
-                        </div>
-                     </div>
-                   )) : (
-                     <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase tracking-widest">{t('labels.waiting_interactions')}</div>
-                   )}
+                            </div>
+                         </div>
+                       </div>
+                    )) : (
+                      <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase tracking-widest">{t('labels.waiting_interactions')}</div>
+                    )}
                 </div>
              </div>
           </div>
@@ -419,8 +416,8 @@ export default function DashboardPage() {
         {/* RIGHT HUB: POPULARITY & PLATFORMS (4 COLS) */}
         <div className="lg:col-span-4 flex flex-col gap-4">
           {/* RECENT APP ACTIVITY - MISSION CONTROL LOG STYLE */}
-          <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col min-h-[350px]">
-             <h3 className="text-[10px] font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
+          <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-full">
+             <h3 className="text-[11px] font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
                 <span className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-tuggi-blue animate-pulse" />
                   {t('labels.recent_app_activity')}
@@ -442,21 +439,21 @@ export default function DashboardPage() {
                       )}
                     >
                       {/* USER HEADER */}
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-between mb-3 gap-4">
+                        <div className="flex items-center gap-3 min-w-0">
                            <div className={cn(
-                             "w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shadow-sm",
+                             "w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shadow-sm shrink-0",
                              isRecent ? "bg-tuggi-blue text-white" : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-100 dark:border-gray-700"
                            )}>
                               {activity.name.charAt(0).toUpperCase()}
                            </div>
-                           <div className="flex flex-col">
-                              <span className="text-[11px] font-black text-gray-900 dark:text-white truncate max-w-[120px] leading-tight">
+                           <div className="flex flex-col min-w-0">
+                              <span className="text-xs font-black text-gray-900 dark:text-white truncate lg:max-w-[150px] leading-tight">
                                 {activity.name}
                               </span>
                               <div className="flex items-center gap-1.5">
                                 <span className={cn(
-                                  "text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider border",
+                                  "text-[9px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider border",
                                   activity.platform.toLowerCase() === 'ios'
                                     ? "bg-gray-900 text-white border-transparent"
                                     : "bg-green-500 text-white border-transparent"
@@ -466,16 +463,16 @@ export default function DashboardPage() {
                               </div>
                            </div>
                         </div>
-                        <div className="text-right flex flex-col items-end gap-0.5">
+                        <div className="text-right flex flex-col items-end gap-0.5 shrink-0 ml-auto">
                            <span className={cn(
-                             "text-[11px] font-black font-mono leading-none",
+                             "text-[12px] font-black font-mono leading-none",
                              isRecent ? "text-tuggi-blue animate-pulse" : "text-gray-400"
                            )}>
                               {new Date(activity.last_activity).toLocaleString(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: true })}
                            </span>
                            <div className="flex items-center gap-1 opacity-60">
                               <Clock className="h-2.5 w-2.5 text-gray-400" />
-                              <span className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">
+                              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
                                 {Math.round(activity.duration_minutes)}m {t('labels.duration')}
                               </span>
                            </div>
@@ -490,17 +487,7 @@ export default function DashboardPage() {
           </div>
 
 
-          {/* SYSTEM UPTIME BENTO */}
-          <div className="bg-gray-900 rounded-xl p-4 text-white flex items-center justify-between border border-gray-800 shadow-xl">
-             <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 italic">Cloud Core v4.3.0 stable</span>
-             </div>
-             <div className="flex items-center gap-2">
-                <span className="text-[9px] font-bold opacity-40">{t('labels.uptime')}</span>
-                <span className="text-[10px] font-black text-green-400">99.98%</span>
-             </div>
-          </div>
+          
         </div>
       </div>
 

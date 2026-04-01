@@ -234,7 +234,8 @@ class DashboardService {
         inventoryFunnelResult,
         contentQualityResult,
         visitsByLanguageResult,
-        recentAppActivityResult
+        recentAppActivityResult,
+        countryStatsResult
       ] = await Promise.all([
         // parameter renamed to p_owner_id to avoid naming conflict
         supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId || null }),
@@ -245,7 +246,8 @@ class DashboardService {
         supabase.schema('core').rpc('dashboard_inventory_funnel'),
         supabase.schema('core').rpc('dashboard_content_quality'),
         supabase.schema('core').rpc('dashboard_visits_by_language'),
-        supabase.schema('core').rpc('dashboard_recent_app_users', { limit_count: 5 })
+        supabase.schema('core').rpc('dashboard_recent_app_users', { limit_count: 7 }),
+        supabase.schema('core').rpc('dashboard_country_stats', { p_owner_id: ownerId || null })
       ])
       
       // Log de erros individuais (não fatal)
@@ -309,16 +311,13 @@ class DashboardService {
           approved_count: Number(c.approved_count)
         })),
 
-        // Geographic - POIs por país (agregado a partir de cityStats)
-        countryDistribution: Object.values(cityStats.reduce((acc: any, c: any) => {
-          const country = c.country || 'Unknown';
-          if (!acc[country]) {
-            acc[country] = { country, poi_count: 0, city_count: 0 };
-          }
-          acc[country].poi_count += Number(c.poi_count);
-          acc[country].city_count += 1;
-          return acc;
-        }, {}) as Record<string, any>).sort((a: any, b: any) => b.poi_count - a.poi_count),
+        // Geographic - POIs por país (agregado diretamente da RPC corrigida)
+        countryDistribution: (countryStatsResult?.data || []).map((c: any) => ({
+          country: c.country,
+          poi_count: Number(c.poi_count),
+          city_count: Number(c.city_count),
+          approved_count: Number(c.approved_count)
+        })),
         
         // Geographic - Cidades mais visitadas
         mostVisitedCities: mostVisitedCities.map((c: any) => ({

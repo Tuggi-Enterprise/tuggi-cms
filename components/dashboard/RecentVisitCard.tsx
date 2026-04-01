@@ -34,24 +34,24 @@ export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale:
     {/* CONTENT */}
     <div className="flex-1 min-w-0">
       <div className="flex items-center gap-2 mb-0.5">
-        <span className="text-[11px] font-black text-gray-900 dark:text-white truncate max-w-[140px] group-hover:text-tuggi-blue transition-colors">
+        <span className="text-xs font-black text-gray-900 dark:text-white truncate max-w-[140px] group-hover:text-tuggi-blue transition-colors">
           {visit.poi_name}
         </span>
         {visit.platform && (
-          <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded-sm bg-gray-200/50 dark:bg-gray-700/50 text-gray-500 tracking-tighter">
+          <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-sm bg-gray-200/50 dark:bg-gray-700/50 text-gray-500 tracking-tighter">
             {visit.platform}
           </span>
         )}
       </div>
-      <p className="text-[9px] font-bold text-gray-400 uppercase truncate tracking-tight">{visit.poi_city}</p>
+      <p className="text-[10px] font-bold text-gray-400 uppercase truncate tracking-widest">{visit.poi_city}</p>
     </div>
 
     {/* METADATA */}
-    <div className="text-right shrink-0 ml-2">
-      <p className="text-[9px] font-black text-tuggi-blue mb-0.5">@{visit.user_nickname}</p>
+    <div className="text-right shrink-0 ml-2 border-l border-gray-100 dark:border-gray-800 pl-3">
+      <p className="text-[11px] font-black text-tuggi-blue mb-0.5 tracking-tight">@{visit.user_nickname}</p>
       <div className="flex items-center justify-end gap-1 text-gray-400">
-        <Clock size={8} />
-        <span className="text-[9px] font-bold font-mono">
+        <Clock size={10} />
+        <span className="text-[11px] font-bold font-mono">
           {new Date(visit.visit_timestamp).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>

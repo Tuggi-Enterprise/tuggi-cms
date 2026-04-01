@@ -79,19 +79,19 @@ export const StatCard = ({
           </div>
         </div>
         <p className={cn(
-          "font-bold text-gray-500 uppercase tracking-wider",
-          isCompact ? "text-[10px]" : "text-xs"
+          "font-bold text-gray-500 uppercase tracking-widest",
+          isCompact ? "text-[11px]" : "text-sm"
         )}>
           {displayLabel}
         </p>
         <p className={cn(
-          "font-bold text-gray-900 dark:text-white",
-          isCompact ? "text-xl" : "text-2xl"
+          "font-black text-gray-900 dark:text-white leading-none",
+          isCompact ? "text-2xl" : "text-3xl"
         )}>
           {typeof value === 'number' ? value.toLocaleString() : value}
         </p>
         {subtitle && (
-          <p className="text-xs text-gray-400 mt-1">{subtitle}</p>
+          <p className="text-sm text-gray-400 mt-1 font-bold">{subtitle}</p>
         )}
       </div>
     </div>

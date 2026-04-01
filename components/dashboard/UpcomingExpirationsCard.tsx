@@ -40,12 +40,12 @@ export const UpcomingExpirationsCard = ({ expiration, locale }: { expiration: Up
 
       {/* USER INFO */}
       <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-black text-gray-900 dark:text-white truncate">
+        <p className="text-xs font-black text-gray-900 dark:text-white truncate">
           {expiration.full_name || expiration.email.split('@')[0]}
         </p>
         <div className="flex items-center gap-1.5 mt-0.5">
            <span className={cn(
-             "text-[7px] font-black uppercase px-1.5 py-0.5 rounded-sm tracking-wider",
+             "text-[9px] font-black uppercase px-2 py-0.5 rounded-sm tracking-wider",
              expiration.tier_name.toLowerCase() === 'premium' ? "bg-tuggi-orange text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-500"
            )}>
              {expiration.tier_name}
@@ -54,18 +54,18 @@ export const UpcomingExpirationsCard = ({ expiration, locale }: { expiration: Up
       </div>
 
       {/* EXPIRATION DATA */}
-      <div className="text-right shrink-0 ml-2">
+      <div className="text-right shrink-0 ml-2 border-l border-gray-100 dark:border-gray-800 pl-3">
         <div className="flex items-center justify-end gap-1 mb-0.5">
-          <Clock size={8} className={isExpiringSoon ? 'text-red-500' : 'text-gray-400'} />
+          <Clock size={10} className={isExpiringSoon ? 'text-red-500' : 'text-gray-400'} />
           <span className={cn(
-            "text-[9px] font-black font-mono",
+            "text-[11px] font-black font-mono",
             isExpiringSoon ? "text-red-600" : "text-gray-500"
           )}>
             {new Date(expiration.end_date).toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })}
           </span>
         </div>
         <p className={cn(
-          "text-[8px] font-black uppercase tracking-tight",
+          "text-[10px] font-black uppercase tracking-tight",
           isExpired ? "text-red-400 italic" : isExpiringSoon ? "text-red-500 animate-pulse" : "text-gray-400"
         )}>
           {isExpired ? t('expired') : t('days_remaining', { count: diffDays })}
