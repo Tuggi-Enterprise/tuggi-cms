@@ -98,6 +98,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   
   // Ref to track when we have a local update that should not be overwritten by props
   const localUpdateRef = useRef<{ poiId: string; timestamp: number } | null>(null)
+  const lastLoadedPoiId = useRef<string | null>(null)
   
   // Hook para chamar edge functions com autenticação
   const { callFunction } = useAuthenticatedFunctionCall()
@@ -642,9 +643,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     echo: 'pt-BR-Wavenet-E',
   }
 
-  const fetchAdditionalData = useCallback(async () => {
-    const currentPoi = getPoi()
-    if (!currentPoi) return // Skip if no POI (creation mode)
+  const fetchAdditionalData = useCallback(async (forcePoiId?: string, forceUpdate = false) => {
+    // Determine which POI ID to use: explicitly passed, or from state/props
+    const activePoiId = forcePoiId || getPoi()?.id
+    if (!activePoiId) return // Skip if no POI ID (creation mode)
 
     setIsLoading(true)
     try {
@@ -653,7 +655,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_descriptions')
         .select('*')
-        .or(`attraction_id.eq.${currentPoi.id},group_id.in.(${groupInfo?.id || ''})`)
+        .or(`attraction_id.eq.${activePoiId},group_id.in.(${groupInfo?.id || ''})`)
         .order('updated_at', { ascending: false })
         .order('created_at', { ascending: false })
 
@@ -664,18 +666,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         desc.language === 'pt-br' || desc.language === 'pt' || desc.language?.toLowerCase().includes('pt')
       ) || []
 
-      const translations = descriptionsData?.filter(desc =>
-        desc.language !== 'pt-br' && desc.language !== 'pt' && !desc.language?.toLowerCase().includes('pt')
-      ) || []
-
       // Include ALL descriptions with audio_url in the available audios list
       const allAudiosAvailable = descriptionsData?.filter(desc => desc.audio_url) || []
       setTranslatedDescriptions(allAudiosAvailable)
-
-      // Debug: Log the fetched descriptions
-      descriptionsData?.forEach((desc, index) => {
-      })
-
 
       // 1. Try to find description in the selected language
       let currentDesc = descriptionsData?.find(desc => 
@@ -693,18 +686,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         currentDesc = descriptionsData[0]
       }
 
-
+      // Track if this is a new POI being loaded to force update
+      const isNewPoi = lastLoadedPoiId.current !== activePoiId
+      lastLoadedPoiId.current = activePoiId
 
       if (currentDesc && currentDesc.description) {
-        
-        // Robust check: Only overwrite if editor is truly empty or we didn't just generate something
+        // Force update if it's a new POI, or if it's explicitly requested, or if editor is empty
         const isRecentlyGenerated = (Date.now() - lastGenerationTimeRef.current) < 8000
         const isEditorEmpty = !currentDescriptionRef.current.trim()
 
-        if (isEditorEmpty && !isRecentlyGenerated) {
+        if (forceUpdate || isNewPoi || (isEditorEmpty && !isRecentlyGenerated)) {
           setCurrentDescription(currentDesc.description || '')
           setOriginalDescription(currentDesc.description || '')
-        } else {
         }
         
         setDescriptionStats({
@@ -715,7 +708,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         // Load audio information
         if (currentDesc.audio_url) {
           setCurrentAudioUrl(currentDesc.audio_url)
-          // Extract metadata from URL/path
           const urlParts = currentDesc.audio_url.split('/')
           const fileName = urlParts[urlParts.length - 1]
           setAudioMetadata({
@@ -727,15 +719,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           setAudioMetadata(null)
         }
       } else if (currentDesc && !currentDesc.description) {
-        // Found a description record but description field is empty
-        setCurrentDescription('')
-        setOriginalDescription('')
+        // Record exists but description is empty
+        if (forceUpdate || isNewPoi) {
+          setCurrentDescription('')
+          setOriginalDescription('')
+        }
         setDescriptionStats({
           play_count: currentDesc.play_count || 0,
           last_played_at: currentDesc.last_played_at
         })
 
-        // Still load audio information if it exists
         if (currentDesc.audio_url) {
           setCurrentAudioUrl(currentDesc.audio_url)
           const urlParts = currentDesc.audio_url.split('/')
@@ -749,10 +742,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           setAudioMetadata(null)
         }
       } else {
-        // No description record found at all
-        
+        // No record found at all
         const isRecentlyGenerated = (Date.now() - lastGenerationTimeRef.current) < 8000
-        if (!currentDescriptionRef.current.trim() && !isRecentlyGenerated) {
+        if (forceUpdate || isNewPoi || (!currentDescriptionRef.current.trim() && !isRecentlyGenerated)) {
           setCurrentDescription('')
           setOriginalDescription('')
         }
@@ -766,7 +758,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         .schema('core')
         .from('attraction_image')
         .select('*')
-        .eq('attraction_id', getPoi()?.id || '')
+        .eq('attraction_id', activePoiId)
         .order('created_at', { ascending: false })
 
       setImages(imagesData || [])
@@ -999,24 +991,54 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   useEffect(() => {
     if (isOpen) {
       
+      // Reset content-related states whenever opening a new POI
+      setCurrentDescription('')
+      setOriginalDescription('')
+      setCurrentAudioUrl(null)
+      setAudioMetadata(null)
+      setDescriptions([])
+      setImages([])
+      setTranslatedDescriptions([])
+      setNearbyPOIs([])
+      setSelectedPOIs([])
+      setLastGenerationSources([])
+      setDetectedDates(null)
+      setVerificationResult(null)
+      setAudioPreviewUrl(null)
+      
       // Only reset editedPoi from prop if poi prop exists
       // This prevents overwriting locally created POI state when poi prop is null
       if (poi) {
         setEditedPoi(poi)
         const isGeo = poi.record_type === 'geofence' || poi.category === 'geofence';
         setActiveTab(prev => (isGeo && prev === 'trigger-points') ? 'details' : prev)
+        
+        // Use explicit POI ID to bypass race conditions with currentPoi state
+        fetchAdditionalData(poi.id, true)
+      } else {
+        fetchAdditionalData()
       }
-      
-      fetchAdditionalData()
 
       // Garantir que os dados de verificação sejam buscados após os dados da descrição
       setTimeout(() => {
         fetchVerificationData()
       }, 500)
     } else {
-      // Limpar dados de verificação quando o modal for fechado
-      setVerificationResult(null);
-      setDetectedDates(null);
+      // Limpar todos os estados quando o modal for fechado para evitar vazamento de dados de um POI para outro
+      setCurrentDescription('')
+      setOriginalDescription('')
+      setDescriptions([])
+      setImages([])
+      setCurrentAudioUrl(null)
+      setAudioMetadata(null)
+      setTranslatedDescriptions([])
+      setVerificationResult(null)
+      setDetectedDates(null)
+      setNearbyPOIs([])
+      setSelectedPOIs([])
+      setLastGenerationSources([])
+      setAudioPreviewUrl(null)
+      setGroupInfo(null)
     }
   }, [poi, isOpen, fetchAdditionalData, fetchVerificationData])
 
