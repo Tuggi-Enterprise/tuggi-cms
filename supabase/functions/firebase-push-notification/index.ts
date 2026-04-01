@@ -300,6 +300,81 @@ Deno.serve(async (req) => {
       });
     }
 
+    if (path === '/process-scheduled') {
+      console.log(`[${requestId}] ⏳ Processing scheduled notifications...`);
+      
+      // 1. Fetch pending notifications scheduled for NOW or earlier
+      const { data: pending, error: fetchError } = await supabase
+        .schema('core')
+        .from('scheduled_notifications')
+        .select('*')
+        .eq('status', 'pending')
+        .lte('scheduled_for', new Date().toISOString())
+        .limit(10); // Batch process
+
+      if (fetchError) throw fetchError;
+      if (!pending || pending.length === 0) {
+        return new Response(JSON.stringify({ success: true, message: 'No pending notifications' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`[${requestId}] 🎯 Found ${pending.length} pending notifications.`);
+      const results = [];
+
+      for (const item of pending) {
+        let tokens = [];
+        let stats;
+
+        // Mark as processing to avoid double-spend
+        await supabase.schema('core').from('scheduled_notifications')
+            .update({ status: 'processing', updated_at: new Date().toISOString() })
+            .eq('id', item.id);
+
+        try {
+            if (item.type === 'user') {
+                const [fcmResult, profileResult] = await Promise.all([
+                   supabase.schema('drive').from('fcm_tokens').select('fcm_token').in('user_id', item.user_ids).eq('is_active', true),
+                   supabase.schema('drive').from('profiles').select('push_token').in('id', item.user_ids)
+                ]);
+                const fcmTokens = fcmResult.data?.map(t => t.fcm_token) || [];
+                const profileTokens = profileResult.data?.map(p => p.push_token).filter(Boolean) || [];
+                tokens = Array.from(new Set([...fcmTokens, ...profileTokens]));
+            } else if (item.type === 'topic') {
+                // Topic send (direct call to FCM in sendNotification helper if topic is provided)
+                // For simplicity, we handle it as topic in sendNotification logic if type is topic
+                // But current sendNotification needs tokens. Let's adapt if needed or use logic from /send
+            }
+
+            // Note: priority and ttl come from scheduled_notifications columns if they exist
+            stats = await sendNotification(tokens, { title: item.title, body: item.body, data: item.data }, item.priority || 'normal', item.ttl || 3600);
+            
+            // Mark as sent
+            await supabase.schema('core').from('scheduled_notifications')
+                .update({ 
+                    status: stats.success > 0 ? 'sent' : 'failed', 
+                    processed_at: new Date().toISOString(),
+                    error_details: stats.failure > 0 ? stats.errors.join(', ') : null
+                })
+                .eq('id', item.id);
+
+            // Log the result
+            await logResult(item.type, { title: item.title, body: item.body, data: item.data }, item.user_ids, item.topic, stats.success > 0 ? 'sent' : 'failed', stats);
+            results.push({ id: item.id, status: stats.success > 0 ? 'sent' : 'failed' });
+
+        } catch (e) {
+            console.error(`[${requestId}] ⚠️ Failed processing notification ${item.id}:`, e.message);
+            await supabase.schema('core').from('scheduled_notifications')
+                .update({ status: 'failed', error_details: e.message })
+                .eq('id', item.id);
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true, processed: results.length, results }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     if (path === '/health') {
       return new Response(JSON.stringify({ status: 'ok' }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }

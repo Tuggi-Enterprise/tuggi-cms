@@ -139,6 +139,8 @@ BEGIN
 END;
 $$;
 
+GRANT EXECUTE ON FUNCTION drive.get_morning_push_candidates() TO service_role;
+
 -- 4. Security (RLS)
 ALTER TABLE drive.daily_user_fomo_stats ENABLE ROW LEVEL SECURITY;
 

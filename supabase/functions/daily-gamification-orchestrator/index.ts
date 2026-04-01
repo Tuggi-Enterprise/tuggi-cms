@@ -10,6 +10,7 @@ const corsHeaders = {
 const TRANSLATIONS: Record<string, any> = {
   'pt-br': {
     title: 'Sua jornada de ontem',
+    fallback: 'Viajante',
     body: (name: string, heard: number, missed: number) => 
       `Ei ${name}! Sua jornada de ontem revelou ${heard} historias, mas ${missed} segredos ficaram pelo caminho. Que tal ligar o som e descobrir novos misterios hoje?`,
     body_zero_heard: (name: string, missed: number) => 
@@ -17,13 +18,15 @@ const TRANSLATIONS: Record<string, any> = {
   },
   'pt-pt': {
     title: 'A sua jornada de ontem',
+    fallback: 'Viajante',
     body: (name: string, heard: number, missed: number) => 
       `Olá ${name}! A sua jornada de ontem revelou ${heard} historias, mas ${missed} segredos ficaram pelo caminho. Que tal ligar o som e descobrir novos misterios hoje?`,
     body_zero_heard: (name: string, missed: number) => 
-      `Viagem silenciosa, ${name}? Vimos que iniciou a sua jornada, mas ${missed} historias ainda esperam para serem ouvidas por ai. Que tal ativar o guia hoje?`
+      `Viagem silenciosa, ${name}? Vimos que iniciou a sua jornada, mas ${missed} historias ainda esperam para ouvidas por ai. Que tal ativar o guia hoje?`
   },
   'en': {
     title: 'Your journey yesterday',
+    fallback: 'Traveler',
     body: (name: string, heard: number, missed: number) => 
       `Hey ${name}! Yesterdays journey uncovered ${heard} stories, but ${missed} secrets were left behind. Ready to tune in and discover new mysteries today?`,
     body_zero_heard: (name: string, missed: number) => 
@@ -31,6 +34,7 @@ const TRANSLATIONS: Record<string, any> = {
   },
   'es': {
     title: 'Tu jornada de ayer',
+    fallback: 'Viajero',
     body: (name: string, heard: number, missed: number) => 
       `¡Hola ${name}! Tu jornada de ayer revelo ${heard} historias, pero ${missed} secretos quedaron por el camino. ¿Que tal encender el sonido y descubrir nuevos misterios hoje?`,
     body_zero_heard: (name: string, missed: number) => 
@@ -38,6 +42,7 @@ const TRANSLATIONS: Record<string, any> = {
   },
   'it': {
     title: 'Il tuo viaggio di ieri',
+    fallback: 'Viaggiatore',
     body: (name: string, heard: number, missed: number) => 
       `Ehi ${name}! Il tuo viaggio di ieri ha svelato ${heard} storie, ma ${missed} segreti sono rimasti lungo a strada. Che ne dici di accendere il suono e scoprire nuovi misteri oggi?`,
     body_zero_heard: (name: string, missed: number) => 
@@ -64,10 +69,14 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const driveClient = createClient(supabaseUrl, supabaseKey, {
+      db: { schema: 'drive' }
+    });
 
     // 1. Get Candidates (those at 07:00 AM local time)
-    const { data: candidates, error: candidateError } = await supabase
+    const { data: candidates, error: candidateError } = await driveClient
       .rpc('get_morning_push_candidates');
 
     if (candidateError) throw candidateError;
@@ -77,55 +86,70 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log(`[${requestId}] Found ${candidates.length} candidates to notify.`);
+    console.log(`[${requestId}] 🎯 Found ${candidates.length} candidates to notify.`);
 
-    const notificationsToSchedule = [];
     const userIdsNotified = [];
+    const results = [];
 
-    // 2. Prepare Notifications
+    // 2. Send Push directly via firebase-push-notification/send (EF-to-EF)
+    const pushUrl = `${supabaseUrl}/functions/v1/firebase-push-notification/send`;
+
     for (const user of candidates) {
       const i18n = getTranslation(user.language);
       
-      // Select body based on engagement
       const messageBody = user.heard_count > 0 
-        ? i18n.body(user.nickname || 'Viajante', user.heard_count, user.missed_count)
-        : i18n.body_zero_heard(user.nickname || 'Viajante', user.missed_count);
+        ? i18n.body(user.nickname || i18n.fallback, user.heard_count, user.missed_count)
+        : i18n.body_zero_heard(user.nickname || i18n.fallback, user.missed_count);
 
-      notificationsToSchedule.push({
-        type: 'user',
-        title: i18n.title,
-        body: messageBody,
-        user_ids: [user.user_id],
-        status: 'pending',
-        scheduled_for: new Date().toISOString(), // Send as soon as possible
-        priority: 'high',
-        ttl: 86400 // Valid for 24h
-      });
+      try {
+        const pushResponse = await fetch(pushUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            type: 'user',
+            userIds: [user.user_id],
+            notification: {
+              title: i18n.title,
+              body: messageBody,
+              data: { source: 'daily-fomo', date: new Date().toISOString().split('T')[0] }
+            },
+            priority: 'high',
+            ttl: 86400
+          })
+        });
 
-      userIdsNotified.push(user.user_id);
+        const pushResult = await pushResponse.json();
+        console.log(`[${requestId}] 📲 Push to ${user.nickname}: ${pushResponse.status}`, JSON.stringify(pushResult));
+        
+        results.push({ user_id: user.user_id, status: pushResponse.ok ? 'sent' : 'failed' });
+        if (pushResponse.ok) userIdsNotified.push(user.user_id);
+
+      } catch (pushErr) {
+        console.error(`[${requestId}] ⚠️ Push failed for ${user.user_id}:`, pushErr.message);
+        results.push({ user_id: user.user_id, status: 'error', error: pushErr.message });
+      }
     }
 
-    // 3. Batch Insert into core.scheduled_notifications
-    if (notificationsToSchedule.length > 0) {
-      const { error: insertError } = await supabase
-        .schema('core')
-        .from('scheduled_notifications')
-        .insert(notificationsToSchedule);
-
-      if (insertError) throw insertError;
-
-      // 4. Mark cache as notified to avoid double-send
-      await supabase
-        .schema('drive')
+    // 3. Mark cache as notified to avoid double-send
+    if (userIdsNotified.length > 0) {
+      await driveClient
         .from('daily_user_fomo_stats')
         .update({ notified_at: new Date().toISOString() })
         .in('user_id', userIdsNotified)
-        .eq('summary_date', new Date(Date.now() - 86400000).toISOString().split('T')[0]); // "Yesterday" ISO string
-
-      console.log(`[${requestId}] ✅ Successfully scheduled ${notificationsToSchedule.length} notifications.`);
+        .eq('summary_date', new Date(Date.now() - 86400000).toISOString().split('T')[0]);
     }
 
-    return new Response(JSON.stringify({ success: true, processed: candidates.length }), {
+    console.log(`[${requestId}] ✅ Done. Sent: ${userIdsNotified.length}/${candidates.length}`);
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      sent: userIdsNotified.length,
+      total: candidates.length,
+      results 
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 

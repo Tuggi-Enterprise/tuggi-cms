@@ -153,45 +153,60 @@ GRANT EXECUTE ON FUNCTION public.estimate_notification_audience(JSONB) TO authen
 GRANT EXECUTE ON FUNCTION public.estimate_notification_audience(JSONB) TO service_role;
 
 -- ==============================================================================
--- CRON JOB CONFIGURATION (Secure)
+-- SECURE CONFIGURATION TABLE
 -- ==============================================================================
+CREATE TABLE IF NOT EXISTS core.project_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    description TEXT,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
--- Enable extensions
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-CREATE EXTENSION IF NOT EXISTS http;
+-- Note: User should manually insert the service_role_key and supabase_url here in the Dashboard
+-- INSERT INTO core.project_settings (key, value) VALUES ('supabase_url', '...'), ('service_role_key', '...');
+
+-- ==============================================================================
+-- CRON JOB CONFIGURATION (Secure via Settings Table)
+-- ==============================================================================
 
 -- Create a secure function to call the Edge Function
 CREATE OR REPLACE FUNCTION core.trigger_process_scheduled_notifications()
 RETURNS void
 LANGUAGE plpgsql
-SECURITY DEFINER -- Run as owner to access secrets
+SECURITY DEFINER -- Run as owner to access core schema and secrets
 AS $$
 DECLARE
-  url text;
-  key text;
+  v_url text;
+  v_key text;
   response_status integer;
   response_content text;
 BEGIN
-  -- Construct URL dynamically from system settings
-  url := current_setting('app.settings.supabase_url') || '/functions/v1/firebase-push-notification/process-scheduled';
+  -- Get URL and Key from the project_settings table
+  SELECT value INTO v_url FROM core.project_settings WHERE key = 'supabase_url';
+  SELECT value INTO v_key FROM core.project_settings WHERE key = 'service_role_key';
   
-  -- Use Service Role Key for privileged access (needed to write to logs/update status)
-  key := current_setting('app.settings.service_role_key');
+  -- Validation: If missing, log but don't crash
+  IF v_url IS NULL OR v_key IS NULL THEN
+    RAISE NOTICE 'Skipping push trigger: core.project_settings (supabase_url or service_role_key) is missing.';
+    RETURN;
+  END IF;
+
+  -- Construction: Ensure URL is fully formed
+  v_url := rtrim(v_url, '/') || '/functions/v1/firebase-push-notification/process-scheduled';
 
   -- Call the Edge Function
   SELECT status, content INTO response_status, response_content
   FROM http((
     'POST',
-    url,
+    v_url,
     ARRAY[
-      http_header('Authorization', 'Bearer ' || key),
+      http_header('Authorization', 'Bearer ' || v_key),
       http_header('Content-Type', 'application/json')
     ],
     'application/json',
     '{}'
   ));
   
-  -- Optional: Log errors if request fails (you can check logs in Supabase)
   IF response_status >= 400 THEN
     RAISE WARNING 'Scheduled Notification Job Failed. Status: %, Content: %', response_status, response_content;
   END IF;
