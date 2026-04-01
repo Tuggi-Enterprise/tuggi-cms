@@ -216,9 +216,8 @@
         "country": "País",
         "cities": "Ciudades",
         "total_pois": "Total de POIs",
-        "recent_active_users": "Últimos Usuarios Activos",
-        "session_activity": "Actividad en Ruta",
-        "distance": "Distancia",
+        "recent_app_activity": "Últimos Usuarios del App",
+        "last_use": "Último Uso",
         "duration": "Duración"
       },
       "charts": {

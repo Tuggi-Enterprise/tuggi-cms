@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import { 
   MapPin, CheckCircle, TrendingUp, AlertCircle, RefreshCw, 
-  Database, Zap, Clock, Play, Eye, Headphones, Users, ShieldCheck, Globe, Smartphone, Camera, Flag
+  Database, Zap, Clock, Play, Eye, Headphones, Users, ShieldCheck, Globe, Smartphone, Camera, Flag, QrCode
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl';
 import { cn } from '@/lib/utils'
@@ -284,8 +284,8 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* DENSITY GRID (CITIES & COUNTRIES) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
+          {/* DENSITY & POPULARITY GRID (CITIES, COUNTRIES & TOP POIS) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1">
              {/* CITIES DENSITY */}
              <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm flex flex-col">
                 <div className="px-5 py-3 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
@@ -368,74 +368,123 @@ export default function DashboardPage() {
                    </table>
                 </div>
              </div>
+
+             {/* TOP PERFORMING POIS - PREMIUM LIST STYLE */}
+             <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col min-h-[350px]">
+                <h3 className="text-[10px] font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
+                   <span>{t('labels.top_visited_pois')}</span>
+                   <Camera className="h-4 w-4 text-orange-500 opacity-50" />
+                </h3>
+                <div className="space-y-2.5 flex-1 overflow-y-auto custom-scrollbar pr-1">
+                   {stats.topVisitedPOIs.length > 0 ? Array.from(new Map(stats.topVisitedPOIs.map(item => [item.poi_id || '', item])).values()).slice(0, 5).map((poi, idx) => (
+                     <div 
+                       key={poi.poi_id || idx} 
+                       className="flex items-center gap-4 p-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent hover:border-gray-100 dark:hover:border-gray-800 rounded-xl transition-all duration-300 group"
+                     >
+                        <div className={cn(
+                          "w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm shrink-0 shadow-sm",
+                          idx === 0 ? "bg-orange-500 text-white" : 
+                          idx === 1 ? "bg-orange-100 dark:bg-orange-900/30 text-orange-600 font-black" :
+                          "bg-white dark:bg-gray-800 text-gray-400 border border-gray-100 dark:border-gray-700"
+                        )}>
+                           #{idx + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                           <div className="flex items-center justify-between mb-1">
+                             <span className="text-[11px] font-black text-gray-900 dark:text-white truncate group-hover:text-tuggi-blue transition-colors">
+                               {poi.poi_name}
+                             </span>
+                           </div>
+                           <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-1">
+                                 <span className="text-[10px] font-black text-tuggi-blue">{poi.total_visits}</span>
+                                 <span className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter">{t('table.visits')}</span>
+                              </div>
+                              <div className="w-1 h-1 rounded-full bg-gray-200 dark:bg-gray-700" />
+                              <div className="flex items-center gap-1">
+                                 <span className="text-[10px] font-black text-tuggi-orange">{poi.audio_plays}</span>
+                                 <span className="text-[8px] font-bold text-gray-400 uppercase tracking-tighter">{t('labels.audios')}</span>
+                              </div>
+                           </div>
+                        </div>
+                     </div>
+                   )) : (
+                     <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase tracking-widest">{t('labels.waiting_interactions')}</div>
+                   )}
+                </div>
+             </div>
           </div>
         </div>
 
         {/* RIGHT HUB: POPULARITY & PLATFORMS (4 COLS) */}
         <div className="lg:col-span-4 flex flex-col gap-4">
-          {/* RECENT ACTIVE USERS (TRIPS) */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm flex flex-col min-h-[250px]">
-             <h3 className="text-[10px] font-black uppercase text-gray-400 mb-4 tracking-widest border-b border-gray-50 dark:border-gray-800 pb-2 flex items-center justify-between">
-                <span>{t('labels.recent_active_users')}</span>
-                <Users className="h-4 w-4 text-tuggi-blue" />
+          {/* RECENT APP ACTIVITY - MISSION CONTROL LOG STYLE */}
+          <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col min-h-[350px]">
+             <h3 className="text-[10px] font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-tuggi-blue animate-pulse" />
+                  {t('labels.recent_app_activity')}
+                </span>
+                <Smartphone className="h-4 w-4 text-tuggi-blue opacity-50" />
              </h3>
-             <div className="space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-1">
-                {stats.recentActiveUsers.length > 0 ? stats.recentActiveUsers.map((user, idx) => (
-                  <div key={user.user_id || idx} className="space-y-2 border-b border-gray-50 dark:border-gray-800 pb-3 last:border-0 last:pb-0">
-                     <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                           <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 font-bold text-[10px]">
-                              {user.full_name.charAt(0)}
-                           </div>
-                           <span className="text-xs font-black text-gray-900 dark:text-white truncate max-w-[120px]">{user.full_name}</span>
-                        </div>
-                        <span className="text-[8px] font-black uppercase bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-500">
-                           {user.platform}
-                        </span>
-                     </div>
-                     <div className="flex items-center justify-between px-1">
-                        <div className="flex flex-col">
-                           <span className="text-[8px] font-bold text-gray-400 uppercase leading-none mb-1">{t('labels.session_activity')}</span>
-                           <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-300">
-                             <TrendingUp className="h-2.5 w-2.5 text-tuggi-green" />
-                             <span className="text-[10px] font-black">{user.last_km}km / {user.last_duration}</span>
-                           </div>
-                        </div>
-                        <div className="text-right flex flex-col items-end">
-                           <span className="text-[8px] font-bold text-gray-400 uppercase leading-none mb-1">{new Date(user.last_activity).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
-                           <span className="text-[10px] font-black text-tuggi-blue">{new Date(user.last_activity).toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })}</span>
-                        </div>
-                     </div>
-                  </div>
-                )) : (
-                  <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase">{t('labels.waiting_interactions')}</div>
-                )}
-             </div>
-          </div>
-
-          {/* TOP PERFORMING POIS */}
-          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm flex-1 flex flex-col min-h-[300px]">
-             <h3 className="text-[10px] font-black uppercase text-gray-400 mb-4 tracking-widest border-b border-gray-50 dark:border-gray-800 pb-2 flex items-center justify-between">
-                <span>{t('labels.top_visited_pois')}</span>
-                <Camera className="h-4 w-4 text-orange-500" />
-             </h3>
+             
              <div className="space-y-3 flex-1 overflow-y-auto custom-scrollbar pr-1">
-                {stats.topVisitedPOIs.length > 0 ? Array.from(new Map(stats.topVisitedPOIs.map(item => [item.poi_id, item])).values()).slice(0, 6).map((poi, idx) => (
-                  <div key={poi.poi_id || idx} className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg transition-colors group">
-                     <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-600 font-black text-xs shrink-0">
-                        #{idx + 1}
-                     </div>
-                     <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-gray-900 dark:text-white truncate group-hover:text-tuggi-blue transition-colors">{poi.poi_name}</p>
-                        <p className="text-[9px] font-bold text-gray-400 uppercase truncate">{poi.city}</p>
-                     </div>
-                     <div className="text-right shrink-0">
-                        <p className="text-xs font-black text-gray-900 dark:text-white">{poi.total_visits}</p>
-                        <p className="text-[8px] font-black text-gray-400 uppercase leading-none">{t('labels.interactions')}</p>
-                     </div>
-                  </div>
-                )) : (
-                  <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase">{t('labels.waiting_interactions')}</div>
+                {stats.recentAppActivity.length > 0 ? stats.recentAppActivity.map((activity, idx) => {
+                  const isRecent = idx === 0;
+                  return (
+                    <div 
+                      key={activity.user_id + idx} 
+                      className={cn(
+                        "group relative p-3 rounded-xl border transition-all duration-300",
+                        isRecent 
+                          ? "bg-blue-50/50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-800/50" 
+                          : "bg-gray-50 dark:bg-gray-900 border-transparent hover:border-gray-100 dark:hover:border-gray-800"
+                      )}
+                    >
+                      {/* USER HEADER */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                           <div className={cn(
+                             "w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shadow-sm",
+                             isRecent ? "bg-tuggi-blue text-white" : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-100 dark:border-gray-700"
+                           )}>
+                              {activity.name.charAt(0).toUpperCase()}
+                           </div>
+                           <div className="flex flex-col">
+                              <span className="text-[11px] font-black text-gray-900 dark:text-white truncate max-w-[120px] leading-tight">
+                                {activity.name}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn(
+                                  "text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider border",
+                                  activity.platform.toLowerCase() === 'ios'
+                                    ? "bg-gray-900 text-white border-transparent"
+                                    : "bg-green-500 text-white border-transparent"
+                                )}>
+                                  {activity.platform}
+                                </span>
+                              </div>
+                           </div>
+                        </div>
+                        <div className="text-right flex flex-col items-end gap-0.5">
+                           <span className={cn(
+                             "text-[11px] font-black font-mono leading-none",
+                             isRecent ? "text-tuggi-blue animate-pulse" : "text-gray-400"
+                           )}>
+                              {new Date(activity.last_activity).toLocaleString(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: true })}
+                           </span>
+                           <div className="flex items-center gap-1 opacity-60">
+                              <Clock className="h-2.5 w-2.5 text-gray-400" />
+                              <span className="text-[9px] font-bold text-gray-500 uppercase tracking-tighter">
+                                {Math.round(activity.duration_minutes)}m {t('labels.duration')}
+                              </span>
+                           </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }) : (
+                  <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase tracking-widest">{t('labels.waiting_interactions')}</div>
                 )}
              </div>
           </div>

@@ -1,7 +1,8 @@
 'use client'
 
 import { Clock, ShieldCheck } from 'lucide-react'
-import { useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl'
+import { cn } from '@/lib/utils'
 
 export interface UpcomingExpiration {
   user_id: string
@@ -14,29 +15,60 @@ export interface UpcomingExpiration {
 export const UpcomingExpirationsCard = ({ expiration, locale }: { expiration: UpcomingExpiration, locale: string }) => {
   const diffDays = Math.ceil((new Date(expiration.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
   const isExpiringSoon = diffDays <= 7;
+  const isExpired = diffDays <= 0;
 
   const t = useTranslations('Pages.Dashboard.labels');
 
   return (
-    <div className="flex items-center p-4 bg-white dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-orange-500/30 transition-all group shadow-sm mb-3 last:mb-0">
-      <div className="flex-shrink-0 mr-4">
-        <div className={`flex items-center justify-center w-10 h-10 rounded-full ${isExpiringSoon ? 'bg-red-100 dark:bg-red-900/30' : 'bg-orange-100 dark:bg-orange-900/30'}`}>
-          <ShieldCheck className={`h-5 w-5 ${isExpiringSoon ? 'text-red-500' : 'text-orange-500'}`} />
+    <div 
+      className={cn(
+        "group relative flex items-center p-3 mb-2 rounded-xl border transition-all duration-300",
+        isExpiringSoon 
+          ? "bg-red-50/50 dark:bg-red-900/10 border-red-100 dark:border-red-800/50" 
+          : "bg-gray-50/50 dark:bg-gray-800/30 border-transparent hover:border-gray-100 dark:hover:border-gray-800"
+      )}
+    >
+      {/* SHIELD ICON */}
+      <div className="flex-shrink-0 mr-3">
+        <div className={cn(
+          "flex items-center justify-center w-9 h-9 rounded-lg shadow-sm border",
+          isExpiringSoon ? "bg-red-100 dark:bg-red-900/40 border-red-200 dark:border-red-800" : "bg-orange-100 dark:bg-orange-900/40 border-orange-200 dark:border-orange-800"
+        )}>
+          <ShieldCheck className={cn("h-4 w-4", isExpiringSoon ? "text-red-600 dark:text-red-400" : "text-orange-600 dark:text-orange-400")} />
         </div>
       </div>
+
+      {/* USER INFO */}
       <div className="flex-1 min-w-0">
-        <p className="font-bold text-gray-900 dark:text-white truncate">{expiration.full_name || expiration.email.split('@')[0]}</p>
-        <p className="text-xs text-gray-500">{expiration.tier_name}</p>
-      </div>
-      <div className="text-right ml-4">
-        <div className="flex items-center justify-end gap-1 mb-1">
-          <Clock size={10} className={isExpiringSoon ? 'text-red-500 font-bold' : 'text-gray-400'} />
-          <p className={`text-[10px] font-bold uppercase tracking-wider ${isExpiringSoon ? 'text-red-600' : 'text-orange-600 dark:text-orange-400'}`}>
-            {new Date(expiration.end_date).toLocaleDateString(locale)}
-          </p>
+        <p className="text-[11px] font-black text-gray-900 dark:text-white truncate">
+          {expiration.full_name || expiration.email.split('@')[0]}
+        </p>
+        <div className="flex items-center gap-1.5 mt-0.5">
+           <span className={cn(
+             "text-[7px] font-black uppercase px-1.5 py-0.5 rounded-sm tracking-wider",
+             expiration.tier_name.toLowerCase() === 'premium' ? "bg-tuggi-orange text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-500"
+           )}>
+             {expiration.tier_name}
+           </span>
         </div>
-        <p className={`text-[10px] font-medium italic ${isExpiringSoon ? 'text-red-400' : 'text-gray-400'}`}>
-          {diffDays <= 0 ? t('expired') : t('days_remaining', { count: diffDays })}
+      </div>
+
+      {/* EXPIRATION DATA */}
+      <div className="text-right shrink-0 ml-2">
+        <div className="flex items-center justify-end gap-1 mb-0.5">
+          <Clock size={8} className={isExpiringSoon ? 'text-red-500' : 'text-gray-400'} />
+          <span className={cn(
+            "text-[9px] font-black font-mono",
+            isExpiringSoon ? "text-red-600" : "text-gray-500"
+          )}>
+            {new Date(expiration.end_date).toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })}
+          </span>
+        </div>
+        <p className={cn(
+          "text-[8px] font-black uppercase tracking-tight",
+          isExpired ? "text-red-400 italic" : isExpiringSoon ? "text-red-500 animate-pulse" : "text-gray-400"
+        )}>
+          {isExpired ? t('expired') : t('days_remaining', { count: diffDays })}
         </p>
       </div>
     </div>

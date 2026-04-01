@@ -56,12 +56,11 @@ export interface DashboardStats {
   // Temporal Data (últimos 30 dias - rolling window)
   mauHistory: Array<{ date: string; count: number }>
   userGrowth: Array<{ month: string; count: number }>
-  recentActiveUsers: Array<{
+  recentAppActivity: Array<{
     user_id: string
-    full_name: string
+    name: string
     last_activity: string
-    last_km: number
-    last_duration: string
+    duration_minutes: number
     platform: string
   }>
   
@@ -135,7 +134,7 @@ export const EMPTY_DASHBOARD_STATS: DashboardStats = {
   mostVisitedCities: [],
   topVisitedPOIs: [],
   recentVisitedPOIs: [],
-  recentActiveUsers: [],
+  recentAppActivity: [],
   visitsByLanguage: [],
   lastUpdated: new Date(),
   source: 'database'
@@ -235,7 +234,7 @@ class DashboardService {
         inventoryFunnelResult,
         contentQualityResult,
         visitsByLanguageResult,
-        recentActiveUsersResult
+        recentAppActivityResult
       ] = await Promise.all([
         // parameter renamed to p_owner_id to avoid naming conflict
         supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId || null }),
@@ -246,7 +245,7 @@ class DashboardService {
         supabase.schema('core').rpc('dashboard_inventory_funnel'),
         supabase.schema('core').rpc('dashboard_content_quality'),
         supabase.schema('core').rpc('dashboard_visits_by_language'),
-        supabase.schema('core').rpc('dashboard_recent_active_users', { limit_count: 5 })
+        supabase.schema('core').rpc('dashboard_recent_app_users', { limit_count: 5 })
       ])
       
       // Log de erros individuais (não fatal)
@@ -300,7 +299,7 @@ class DashboardService {
         // Temporal Data (já vem em ordem ASC do SQL)
         mauHistory: userAnalytics.mau_history || [],
         userGrowth: userAnalytics.user_growth || [],
-        recentActiveUsers: recentActiveUsersResult?.data || [],
+        recentAppActivity: recentAppActivityResult?.data || [],
         
         // Geographic - POIs por cidade
         cityDistribution: cityStats.map((c: any) => ({

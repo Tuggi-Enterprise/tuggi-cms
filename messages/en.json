@@ -244,9 +244,8 @@
         "country": "Country",
         "cities": "Cities",
         "total_pois": "Total POIs",
-        "recent_active_users": "Last Active Users",
-        "session_activity": "Trip Activity",
-        "distance": "Distance",
+        "recent_app_activity": "Last App Users",
+        "last_use": "Last Use",
         "duration": "Duration"
       },
       "footer": {
