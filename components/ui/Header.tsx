@@ -32,7 +32,8 @@ import {
   Map,
   LayoutList,
   Globe,
-  Bell
+  Bell,
+  Crown
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -58,6 +59,7 @@ export function Header({ className }: { className?: string }) {
     { name: t('users'), href: '/dashboard/reports/users', icon: Users, category: 'reports' },
     { name: t('engagement'), href: '/dashboard/reports/engagement', icon: Activity, category: 'reports' },
     { name: t('content_coverage'), href: '/dashboard/reports/content-coverage', icon: FileText, category: 'reports' },
+    { name: t('premium'), href: '/dashboard/reports/premium', icon: Crown, category: 'reports' },
     { name: t('poi_migration'), href: '/poi-processing', icon: ArrowRightLeft, category: 'poi_management' },
     { name: t('osm_importer'), href: '/osm-importer', icon: Database, category: 'poi_management' },
     { name: t('poi_fetching'), href: '/poi-importer', icon: Upload, category: 'poi_management' },

@@ -90,7 +90,8 @@
     "toggle_theme": "Toggle theme",
     "notifications": "Push Notifications",
     "admin": "Admin",
-    "geofences": "Geofences"
+    "geofences": "Geofences",
+    "premium": "Premium Plans"
   },
   "Pages": {
     "Login": {
@@ -144,6 +145,7 @@
         "audio_plays": "Audio Plays",
         "avg_duration": "Avg Duration",
         "cities_covered": "Cities Covered",
+        "premium_users": "Premium Users",
         "engagement_score": "Engagement Score",
         "content_score": "Content Score",
         "total_users": "Total Users",
@@ -177,7 +179,8 @@
         "top_pois_visited": "Top Visited POIs",
         "visits_by_lang": "Visits by Language",
         "user_growth": "User Growth (Cumulative Monthly)",
-        "heatmap": "User Trails Heatmap"
+        "heatmap": "User Trails Heatmap",
+        "upcoming_expirations": "Upcoming Expirations"
       },
       "table": {
         "user": "User",
@@ -203,7 +206,48 @@
         "action_items": "Action Items",
         "generate_missing_audios": "Generate Missing Audios",
         "complete_translations": "Complete Translations",
-        "missing_content": "Missing Content"
+        "missing_content": "Missing Content",
+        "catalog": "Catalog",
+        "approved": "Approved POIs",
+        "users": "Users",
+        "premium": "Premium",
+        "active_30d": "Active 30d",
+        "total_trips": "Total Trips",
+        "active_base": "Active Base (MAU)",
+        "history": "History",
+        "expirations_30d": "Expirations (30d)",
+        "realtime": "Realtime",
+        "live_feed": "Live Feed",
+        "no_expirations": "No expiration alerts",
+        "subscriber_management": "Subscriber Management",
+        "geo_density": "Geo Density (Cities)",
+        "urban_capillarity": "Urban Capillarity",
+        "catalog_languages": "Language Support",
+        "pois_with_audio": "POIs with Audio",
+        "cataloged": "Cataloged",
+        "avg_quality": "Average Quality",
+        "completeness": "Completeness",
+        "top_visited_pois": "Top Visited POIs",
+        "device_access": "Device Access",
+        "system_status": "System Status",
+        "interactions": "Interactions",
+        "average_duration": "Avg Duration",
+        "conversion": "Conversion",
+        "waiting_interactions": "Waiting for interactions...",
+        "uptime": "Uptime",
+        "location": "Location",
+        "volume": "Volume",
+        "expired": "Expired",
+        "days_remaining": "{count} days remaining",
+        "country_footprint": "Country Footprint",
+        "national_presence": "National Presence",
+        "country": "Country",
+        "cities": "Cities",
+        "total_pois": "Total POIs",
+        "recent_active_users": "Last Active Users",
+        "session_activity": "Trip Activity",
+        "distance": "Distance",
+        "duration": "Duration"
       },
       "footer": {
         "copyright": "© 2026 Tuggi - Territorial Intelligence"
@@ -232,6 +276,10 @@
         "content_coverage": {
           "title": "Content Coverage",
           "subtitle": "Language and media availability status"
+        },
+        "premium": {
+          "title": "Premium Users",
+          "subtitle": "License management and expirations"
         }
       }
     },

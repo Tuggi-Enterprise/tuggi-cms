@@ -90,7 +90,8 @@
     "toggle_theme": "Alternar tema",
     "notifications": "Push Notifications",
     "admin": "Admin",
-    "geofences": "Geofences"
+    "geofences": "Geofences",
+    "premium": "Planos Premium"
   },
   "Pages": {
     "Login": {
@@ -144,6 +145,7 @@
         "audio_plays": "Reproduções de Áudio",
         "avg_duration": "Duração Média",
         "cities_covered": "Cidades Cobertas",
+        "premium_users": "Usuários Premium",
         "engagement_score": "Score de Engajamento",
         "content_score": "Score de Conteúdo",
         "total_users": "Total de Usuários",
@@ -177,7 +179,8 @@
         "top_pois_visited": "POIs Mais Visitados",
         "visits_by_lang": "Visitação por Idioma",
         "user_growth": "Crescimento de Usuários (Mensal Cumulativo)",
-        "heatmap": "Mapa de Calor das Trilhas"
+        "heatmap": "Mapa de Calor das Trilhas",
+        "upcoming_expirations": "Próximas Expirações"
       },
       "table": {
         "user": "Usuário",
@@ -203,10 +206,48 @@
         "action_items": "Itens de Ação",
         "generate_missing_audios": "Gerar Áudios Faltantes",
         "complete_translations": "Completar Traduções",
-        "missing_content": "com conteúdo faltando"
-      },
-      "footer": {
-        "copyright": "© 2026 Tuggi - Inteligência Territorial"
+        "missing_content": "com conteúdo faltando",
+        "catalog": "Catálogo",
+        "approved": "Aprovados",
+        "users": "Usuários",
+        "premium": "Premium",
+        "active_30d": "Ativos 30d",
+        "total_trips": "Trips Totais",
+        "active_base": "Base Ativa (MAU)",
+        "history": "Histórico",
+        "expirations_30d": "Expirações (30d)",
+        "realtime": "Realtime",
+        "live_feed": "Live Feed",
+        "no_expirations": "Sem alertas de vencimento",
+        "subscriber_management": "Gestão de Assinantes",
+        "geo_density": "Distribuição por Cidades",
+        "urban_capillarity": "Capilaridade Urbana",
+        "catalog_languages": "Distribuição por Idioma",
+        "pois_with_audio": "POIs com Áudio",
+        "cataloged": "Catalogados",
+        "avg_quality": "Qualidade Média",
+        "completeness": "Preenchimento",
+        "top_visited_pois": "Top POIs Visitados",
+        "device_access": "Acesso por Dispositivo",
+        "system_status": "Status do Ecossistema",
+        "interactions": "Interações",
+        "average_duration": "Duração Média",
+        "conversion": "Conversão",
+        "waiting_interactions": "Aguardando interações...",
+        "uptime": "Uptime",
+        "location": "Localização",
+        "volume": "Volume",
+        "expired": "Expirado",
+        "days_remaining": "{count} dias restantes",
+        "country_footprint": "Pegada por País",
+        "national_presence": "Presença Nacional",
+        "country": "País",
+        "cities": "Cidades",
+        "total_pois": "Total de POIs",
+        "recent_active_users": "Últimos Usuários Ativos",
+        "session_activity": "Atividade em Trilha",
+        "distance": "Distância",
+        "duration": "Duração"
       },
       "reports": {
         "inventory": {
@@ -232,6 +273,10 @@
         "content_coverage": {
           "title": "Cobertura de Conteúdo",
           "subtitle": "Status de disponibilidade de idiomas e mídia"
+        },
+        "premium": {
+          "title": "Usuários Premium",
+          "subtitle": "Gestão de licenças e expirações"
         }
       }
     },

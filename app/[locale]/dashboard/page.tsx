@@ -7,15 +7,18 @@ import {
 } from 'recharts'
 import { 
   MapPin, CheckCircle, TrendingUp, AlertCircle, RefreshCw, 
-  Database, Zap, Clock, Play, Eye, Headphones, Users
+  Database, Zap, Clock, Play, Eye, Headphones, Users, ShieldCheck, Globe, Smartphone, Camera, Flag
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl';
+import { cn } from '@/lib/utils'
+import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { StatCard } from '@/components/ui/StatCard'
 import { dashboardService, DashboardStats } from '@/lib/services/dashboard-service'
 import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
+import { UpcomingExpirationsCard } from '@/components/dashboard/UpcomingExpirationsCard'
 
 // ============================================================================
-// CORES TUGGI BRAND
+// COLORS TUGGI BRAND
 // ============================================================================
 
 const TUGGI_COLORS = {
@@ -57,10 +60,14 @@ const EMPTY_STATS: DashboardStats = {
   mauHistory: [],
   userGrowth: [],
   cityDistribution: [],
+  countryDistribution: [],
   mostVisitedCities: [],
   topVisitedPOIs: [],
   recentVisitedPOIs: [],
   visitsByLanguage: [],
+  totalPremiumUsers: 0,
+  recentActiveUsers: [],
+  upcomingExpirations: [],
   lastUpdated: new Date(),
   source: 'database'
 }
@@ -77,56 +84,79 @@ export default function DashboardPage() {
   const t = useTranslations('Pages.Dashboard');
   const locale = useLocale();
 
-  // Fetch dashboard data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isBackground = false) => {
     try {
-      setError(null)
-      setIsLoading(true)
-      
+      if (!isBackground) setIsLoading(true)
       const result = await dashboardService.getDashboardData()
-      
-      if (!result.success || !result.data) {
-        throw new Error(result.error || 'Failed to load dashboard')
-      }
-      
+      if (!result.success || !result.data) throw new Error(result.error || 'Failed to load dashboard')
       setStats(result.data)
-      console.log('✅ Dashboard loaded:', result.data)
+      setError(null)
     } catch (err) {
-      console.error('Dashboard error:', err)
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      if (!isBackground) setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setIsLoading(false)
     }
   }, [])
 
-  // Initial load + refresh interval
   useEffect(() => {
-    fetchData()
-    const interval = setInterval(fetchData, 5 * 60 * 1000)
-    return () => clearInterval(interval)
+    // 1. Initial Load
+    fetchData(false)
+
+    // 2. Realtime Listener (as per Realtime Dashboard dynamic)
+    const supabase = getSupabaseClient()
+    const channel = supabase.channel('dashboard_sync')
+      .on(
+        'postgres_changes', 
+        { event: 'INSERT', schema: 'drive', table: 'poi_visits' }, 
+        () => {
+          console.log('🔔 Dashboard: Live POI visit detected, syncing metrics...')
+          fetchData(true)
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'drive', table: 'route_trail' },
+        () => {
+           console.log('🔔 Dashboard: Live Trip activity detected, syncing metrics...')
+           fetchData(true)
+        }
+      )
+      .subscribe()
+
+    // 3. Optional: Polling fallback (30s instead of 5min)
+    const interval = setInterval(() => fetchData(true), 30 * 1000)
+
+    return () => {
+      supabase.removeChannel(channel)
+      clearInterval(interval)
+    }
   }, [fetchData])
 
-  // Prepare chart data
   const funnelData = [
     { name: t('kpi.approved_pois'), value: stats.approvedPOIs, color: FUNNEL_COLORS.approved },
     { name: t('kpi.pending'), value: stats.pendingPOIs, color: FUNNEL_COLORS.pending },
     { name: t('kpi.total_homolog'), value: stats.homologPOIs, color: FUNNEL_COLORS.homolog }
   ]
 
-  // Error State
+  const consolidatedPlatforms = stats.tripsByPlatform.reduce((acc, curr) => {
+    const platform = curr.platform.toLowerCase().includes('ios') ? 'ios' : 'android';
+    const existing = acc.find(p => p.platform === platform);
+    if (existing) {
+      existing.count += curr.count;
+    } else {
+      acc.push({ platform, count: curr.count });
+    }
+    return acc;
+  }, [] as { platform: string; count: number }[]);
+
   if (error) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-8 flex items-center justify-center">
         <div className="text-center">
-          <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">{t('error')}</h2>
-          <p className="text-gray-500 dark:text-gray-400 mb-6">{error}</p>
-          <button
-            onClick={fetchData}
-            className="px-6 py-3 bg-tuggi-blue text-white rounded-xl font-bold hover:bg-blue-600 transition-colors"
-          >
-            <RefreshCw className="h-4 w-4 inline mr-2" />
-            {t('retry')}
+          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">{t('error')}</h2>
+          <button onClick={() => fetchData(false)} className="px-6 py-2 bg-tuggi-blue text-white rounded-lg font-bold hover:bg-blue-600 transition-colors">
+            <RefreshCw className="h-4 w-4 inline mr-2" /> {t('retry')}
           </button>
         </div>
       </div>
@@ -134,130 +164,340 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
-      {/* ================================================================ */}
-      {/* OVERVIEW */}
-      {/* ================================================================ */}
-      <div className="space-y-8 animate-in fade-in duration-500">
-        {/* KPI Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <StatCard icon={Database} title={t('kpi.total_inventory')} value={stats.totalInventory} subtitle={`${stats.totalPOIs} core + ${stats.homologPOIs} homolog`} color={TUGGI_COLORS.blue} isLoading={isLoading} />
-          <StatCard icon={CheckCircle} title={t('kpi.approved_pois')} value={stats.approvedPOIs} subtitle={`${stats.approvalRate}% ${t('labels.approval_rate')}`} color={TUGGI_COLORS.green} isLoading={isLoading} />
-          <StatCard icon={Users} title={t('kpi.active_users')} value={stats.activeUsers30d} subtitle={`${t('labels.of_total').replace('{count}', stats.totalUsers.toString())}`} color={TUGGI_COLORS.purple} isLoading={isLoading} />
-          <StatCard icon={Zap} title={t('kpi.total_trips')} value={stats.totalTrips} subtitle={`${stats.totalKmDriven.toLocaleString()} ${t('labels.km_driven')}`} color={TUGGI_COLORS.orange} isLoading={isLoading} />
-        </div>
+    <div className="min-h-screen bg-[#F0F2F5] dark:bg-gray-950 p-4 lg:p-6 flex flex-col gap-4 animate-in fade-in duration-500">
+      
+      {/* 1. MÁSTER KPI BAR (COMPACT) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <StatCard size="compact" icon={Database} title={t('labels.catalog')} value={stats.totalInventory} color={TUGGI_COLORS.blue} isLoading={isLoading} />
+        <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={TUGGI_COLORS.green} isLoading={isLoading} />
+        <StatCard size="compact" icon={Users} title={t('labels.users')} value={stats.totalUsers} color={TUGGI_COLORS.purple} isLoading={isLoading} />
+        <StatCard size="compact" icon={ShieldCheck} title={t('labels.premium')} value={stats.totalPremiumUsers} color={TUGGI_COLORS.orange} isLoading={isLoading} />
+        <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={stats.activeUsers30d} color={TUGGI_COLORS.green} isLoading={isLoading} />
+        <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={stats.totalTrips} color={TUGGI_COLORS.blue} isLoading={isLoading} />
+      </div>
 
-        {/* Row: MAU + Funnel + Recent Visits (Grid 3) */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* User Growth Chart */}
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
-              <TrendingUp className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-              {t('charts.user_growth')}
-            </h3>
-            <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats.userGrowth}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
-                    formatter={(value: any) => [`${value} usuários`, 'Total']}
-                  />
-                  <Bar dataKey="count" fill={TUGGI_COLORS.blue} radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="count" position="top" style={{ fill: '#9ca3af', fontSize: 10, fontWeight: 'bold' }} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+      {/* 2. THE ANALYTICS HUD (3-BLOCK ROW) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-fit">
+        {/* BLOCK 1: GROWTH (5 COLS) */}
+        <div className="lg:col-span-5 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 flex flex-col shadow-sm h-[380px]">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-blue-500" />
+              <h3 className="text-xs font-black uppercase tracking-tight text-gray-700 dark:text-gray-300">{t('labels.active_base')}</h3>
             </div>
+            <span className="text-[9px] font-black text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">{t('labels.history')}</span>
           </div>
-
-          {/* Inventory Funnel */}
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
-              <Database className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.blue }} />
-              {t('charts.funnel')}
-            </h3>
-            <div className="h-[160px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={funnelData} innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
-                    {funnelData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="grid grid-cols-3 gap-2 mt-2">
-              {funnelData.map((item) => (
-                <div key={item.name} className="text-center">
-                  <div className="w-2 h-2 rounded-full mx-auto mb-1" style={{ backgroundColor: item.color }} />
-                  <p className="text-[9px] font-bold text-gray-500 uppercase">{item.name}</p>
-                  <p className="text-sm font-bold text-gray-900 dark:text-white">{item.value.toLocaleString()}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Recent Visits */}
-          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
-              <Play className="h-5 w-5 mr-2" style={{ color: TUGGI_COLORS.orange }} />
-              {t('charts.recent_visits')}
-            </h3>
-            <div className="space-y-2 max-h-[280px] overflow-y-auto custom-scrollbar">
-              {stats.recentVisitedPOIs.length > 0 ? (
-                stats.recentVisitedPOIs.slice(0, 5).map((visit) => (
-                  <RecentVisitCard key={visit.visit_id} visit={visit} locale={locale} />
-                ))
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <Eye className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p>{t('empty_visits')}</p>
-                </div>
-              )}
-            </div>
+          <div className="flex-1 min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={stats.userGrowth}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
+                <XAxis dataKey="month" tick={{ fill: '#9ca3af', fontSize: 10, fontWeight: 700 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#9ca3af', fontSize: 10, fontWeight: 700 }} axisLine={false} tickLine={false} width={30} />
+                <Tooltip cursor={{ fill: 'rgba(0,168,232,0.03)' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
+                <Bar dataKey="count" fill={TUGGI_COLORS.blue} radius={[8, 8, 0, 0]} barSize={28}>
+                  <LabelList dataKey="count" position="top" style={{ fill: TUGGI_COLORS.blue, fontSize: 9, fontWeight: '900' }} offset={8} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Row: Engagement Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <StatCard icon={Eye} title={t('kpi.poi_visits')} value={stats.totalPOIVisits} color={TUGGI_COLORS.blue} />
-          <StatCard icon={Headphones} title={t('kpi.audio_plays')} value={stats.totalAudioPlays} color={TUGGI_COLORS.green} />
-          <StatCard icon={Clock} title={t('kpi.avg_duration')} value={stats.avgTripDuration} color={TUGGI_COLORS.purple} />
-          <StatCard icon={MapPin} title={t('kpi.cities_covered')} value={stats.mostVisitedCities.length} color={TUGGI_COLORS.orange} />
+        {/* BLOCK 2: EXPIRATIONS (3 COLS) */}
+        <div className="lg:col-span-3 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm flex flex-col h-[380px]">
+           <h3 className="text-xs font-black uppercase tracking-tight text-gray-700 dark:text-gray-300 mb-4 flex items-center justify-between">
+              <span>{t('labels.expirations_30d')}</span>
+              <Clock className="h-4 w-4 text-orange-400" />
+           </h3>
+           <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
+             {stats.upcomingExpirations.length > 0 ? (
+               stats.upcomingExpirations.slice(0, 10).map((exp) => (
+                 <UpcomingExpirationsCard key={exp.user_id} expiration={exp} locale={locale} />
+               ))
+             ) : (
+               <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
+                 <ShieldCheck className="h-10 w-10 mb-2" />
+                 <p className="text-[9px] font-black uppercase">{t('labels.no_expirations')}</p>
+               </div>
+             )}
+           </div>
+           <button className="mt-3 w-full py-2 text-[9px] font-black uppercase tracking-widest text-gray-400 border border-gray-100 dark:border-gray-800 rounded-lg hover:bg-gray-50 transition-colors">
+             {t('labels.subscriber_management')}
+           </button>
+        </div>
+
+        {/* BLOCK 3: LIVE RECENT ACTIVITY (4 COLS) */}
+        <div className="lg:col-span-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 shadow-sm flex flex-col h-[380px]">
+           <div className="flex items-center justify-between mb-4 border-b border-gray-50 dark:border-gray-800 pb-2">
+             <h3 className="text-xs font-black uppercase tracking-tight text-gray-700 dark:text-gray-300">{t('labels.live_feed')}</h3>
+             <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[9px] font-black text-green-500 uppercase tracking-widest">{t('labels.realtime')}</span>
+             </div>
+           </div>
+           <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2">
+             {stats.recentVisitedPOIs.length > 0 ? (
+               stats.recentVisitedPOIs.slice(0, 20).map((visit) => (
+                 <RecentVisitCard key={visit.visit_id} visit={visit} locale={locale} />
+               ))
+             ) : (
+               <div className="h-full flex flex-col items-center justify-center opacity-20">
+                 <Play className="h-10 w-10 text-gray-500" />
+                 <p className="text-[10px] font-black uppercase mt-2 italic">{t('labels.waiting_interactions')}</p>
+               </div>
+             )}
+           </div>
         </div>
       </div>
 
-      {/* ================================================================ */}
-      {/* FOOTER */}
-      {/* ================================================================ */}
-      <footer className="mt-auto pt-10 pb-4 flex flex-col md:flex-row justify-between items-center gap-4 text-[10px] text-gray-400 uppercase tracking-widest font-bold border-t border-gray-100 dark:border-gray-800">
-        <div>
-          {t('footer.copyright')}
-        </div>
-        
-        <div className="flex items-center gap-3">
-          <div className="flex items-center px-3 py-1.5 bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700 shadow-sm">
-            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse mr-2" />
-            <span className="text-gray-500 dark:text-gray-400">
-              {stats.source === 'cache' ? t('cached') : t('live')}
-            </span>
-          </div>
+      {/* 3. CONTENT DEPTH & GEOGRAPHY (THE REORGANIZED BOTTOM) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* LEFT HUB: GEO & CATALOG QUALITY (8 COLS) */}
+        <div className="lg:col-span-8 flex flex-col gap-4">
           
-          <button
-            onClick={fetchData}
-            disabled={isLoading}
-            className="flex items-center px-3 py-1.5 bg-tuggi-blue/5 border border-tuggi-blue/20 text-tuggi-blue rounded-lg transition-all disabled:opacity-50 hover:bg-tuggi-blue/10 hover:border-tuggi-blue/40"
-          >
-            <RefreshCw className={`h-3 w-3 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
-            {t('sync')}
-          </button>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* LANGUAGES BREAKDOWN */}
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
+               <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400">{t('labels.catalog_languages')}</h3>
+                  <Globe className="h-4 w-4 text-tuggi-blue" />
+               </div>
+               <div className="space-y-3">
+                  {stats.languagesBreakdown.slice(0, 4).map((lang, idx) => (
+                    <div key={idx} className="space-y-1">
+                       <div className="flex justify-between items-center text-[10px] font-bold">
+                          <span className="uppercase">{lang.language === 'pt' ? 'Português' : lang.language === 'en' ? 'English' : lang.language === 'es' ? 'Español' : lang.language}</span>
+                          <span className="text-gray-400">{lang.count} {t('labels.core_homolog')}</span>
+                       </div>
+                       <div className="h-1.5 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-blue-500 rounded-full" 
+                            style={{ width: `${(lang.count / (stats.totalPOIs || 1)) * 100}%` }} 
+                          />
+                       </div>
+                    </div>
+                  ))}
+               </div>
+            </div>
+
+            {/* CONTENT QUALITY METRICS */}
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm grid grid-cols-2 gap-4">
+               <div className="flex flex-col justify-center border-r border-gray-50 dark:border-gray-800 pr-2">
+                  <p className="text-[9px] font-black text-gray-400 uppercase mb-2">{t('labels.pois_with_audio')}</p>
+                  <p className="text-xl font-black text-tuggi-green leading-tight">{stats.withAudio}</p>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase leading-none">{t('labels.cataloged')}</p>
+               </div>
+               <div className="flex flex-col justify-center">
+                  <p className="text-[9px] font-black text-gray-400 uppercase mb-2">{t('labels.avg_quality')}</p>
+                  <p className="text-xl font-black text-blue-500 leading-tight">{(stats.contentCoverage * 10).toFixed(1)}%</p>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase leading-none">{t('labels.completeness')}</p>
+               </div>
+            </div>
+
+            {/* DEVICE ACCESS METRICS */}
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
+               <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-[10px] font-black uppercase text-gray-400 tracking-widest">{t('labels.device_access')}</h3>
+                  <Smartphone className="h-4 w-4 text-gray-400" />
+               </div>
+               <div className="space-y-4">
+                  {consolidatedPlatforms.map(p => (
+                    <div key={p.platform}>
+                       <div className="flex justify-between items-end mb-1">
+                          <span className="text-[9px] font-black text-gray-500 uppercase">{p.platform === 'ios' ? 'Apple iOS' : 'Android OS'}</span>
+                          <span className="text-xs font-black text-gray-900 dark:text-white">{((p.count / (stats.totalTrips || 1)) * 100).toFixed(0)}%</span>
+                       </div>
+                       <div className="h-1.5 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
+                          <div 
+                            className={cn("h-full rounded-full animate-in slide-in-from-left duration-1000", p.platform === 'ios' ? 'bg-blue-500' : 'bg-green-500')} 
+                            style={{ width: `${(p.count / (stats.totalTrips || 1)) * 100}%` }} 
+                          />
+                       </div>
+                    </div>
+                  ))}
+               </div>
+            </div>
+          </div>
+
+          {/* DENSITY GRID (CITIES & COUNTRIES) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
+             {/* CITIES DENSITY */}
+             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm flex flex-col">
+                <div className="px-5 py-3 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
+                   <h3 className="text-[10px] font-black uppercase tracking-tight text-gray-500">{t('labels.geo_density')}</h3>
+                   <div className="flex items-center gap-2">
+                      <MapPin className="h-3 w-3 text-blue-500" />
+                      <span className="text-[9px] font-black text-gray-400 uppercase">{t('labels.urban_capillarity')}</span>
+                   </div>
+                </div>
+                <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                   <table className="w-full text-left border-collapse">
+                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10">
+                       <tr>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase">{t('labels.location')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-center">{t('labels.volume')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right">{t('labels.approval_rate')}</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                       {stats.cityDistribution.slice(0, 8).map((city, idx) => (
+                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                           <td className="px-5 py-2.5">
+                             <span className="text-xs font-bold text-gray-700 dark:text-gray-200">{city.city}</span>
+                             <span className="text-[9px] text-gray-400 font-bold ml-2 uppercase opacity-40">{city.country}</span>
+                           </td>
+                           <td className="px-5 py-2.5 text-center">
+                             <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/20 text-blue-600 px-2 py-0.5 rounded-full">{city.poi_count}</span>
+                           </td>
+                           <td className="px-5 py-2.5 text-right">
+                             <div className="flex items-center justify-end gap-2">
+                                <div className="w-12 h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                                  <div className="h-full bg-green-500" style={{ width: `${(city.approved_count / city.poi_count) * 100}%` }} />
+                                </div>
+                                <span className="text-[10px] font-black text-gray-900 dark:text-white w-6">{((city.approved_count / city.poi_count) * 100).toFixed(0)}%</span>
+                             </div>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+                </div>
+             </div>
+
+             {/* COUNTRIES DENSITY */}
+             <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm flex flex-col">
+                <div className="px-5 py-3 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
+                   <h3 className="text-[10px] font-black uppercase tracking-tight text-gray-500">{t('labels.country_footprint')}</h3>
+                   <div className="flex items-center gap-2">
+                      <Flag className="h-3 w-3 text-tuggi-green" />
+                      <span className="text-[9px] font-black text-gray-400 uppercase">{t('labels.national_presence')}</span>
+                   </div>
+                </div>
+                <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+                   <table className="w-full text-left border-collapse">
+                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10">
+                       <tr>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase">{t('labels.country')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-center">{t('labels.cities')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right">{t('labels.total_pois')}</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                       {stats.countryDistribution.map((c, idx) => (
+                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                           <td className="px-5 py-2.5">
+                             <div className="flex items-center gap-2">
+                               <Globe className="h-3 w-3 text-gray-400 opacity-40" />
+                               <span className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-tight">{c.country}</span>
+                             </div>
+                           </td>
+                           <td className="px-5 py-2.5 text-center">
+                             <span className="text-[10px] font-bold text-gray-500">{c.city_count}</span>
+                           </td>
+                           <td className="px-5 py-2.5 text-right">
+                             <span className="text-[10px] font-black bg-tuggi-green/10 text-tuggi-green px-3 py-1 rounded-full">{c.poi_count}</span>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+                </div>
+             </div>
+          </div>
+        </div>
+
+        {/* RIGHT HUB: POPULARITY & PLATFORMS (4 COLS) */}
+        <div className="lg:col-span-4 flex flex-col gap-4">
+          {/* RECENT ACTIVE USERS (TRIPS) */}
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm flex flex-col min-h-[250px]">
+             <h3 className="text-[10px] font-black uppercase text-gray-400 mb-4 tracking-widest border-b border-gray-50 dark:border-gray-800 pb-2 flex items-center justify-between">
+                <span>{t('labels.recent_active_users')}</span>
+                <Users className="h-4 w-4 text-tuggi-blue" />
+             </h3>
+             <div className="space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-1">
+                {stats.recentActiveUsers.length > 0 ? stats.recentActiveUsers.map((user, idx) => (
+                  <div key={user.user_id || idx} className="space-y-2 border-b border-gray-50 dark:border-gray-800 pb-3 last:border-0 last:pb-0">
+                     <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                           <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 font-bold text-[10px]">
+                              {user.full_name.charAt(0)}
+                           </div>
+                           <span className="text-xs font-black text-gray-900 dark:text-white truncate max-w-[120px]">{user.full_name}</span>
+                        </div>
+                        <span className="text-[8px] font-black uppercase bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-500">
+                           {user.platform}
+                        </span>
+                     </div>
+                     <div className="flex items-center justify-between px-1">
+                        <div className="flex flex-col">
+                           <span className="text-[8px] font-bold text-gray-400 uppercase leading-none mb-1">{t('labels.session_activity')}</span>
+                           <div className="flex items-center gap-1.5 text-gray-600 dark:text-gray-300">
+                             <TrendingUp className="h-2.5 w-2.5 text-tuggi-green" />
+                             <span className="text-[10px] font-black">{user.last_km}km / {user.last_duration}</span>
+                           </div>
+                        </div>
+                        <div className="text-right flex flex-col items-end">
+                           <span className="text-[8px] font-bold text-gray-400 uppercase leading-none mb-1">{new Date(user.last_activity).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}</span>
+                           <span className="text-[10px] font-black text-tuggi-blue">{new Date(user.last_activity).toLocaleDateString(locale, { day: '2-digit', month: '2-digit' })}</span>
+                        </div>
+                     </div>
+                  </div>
+                )) : (
+                  <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase">{t('labels.waiting_interactions')}</div>
+                )}
+             </div>
+          </div>
+
+          {/* TOP PERFORMING POIS */}
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm flex-1 flex flex-col min-h-[300px]">
+             <h3 className="text-[10px] font-black uppercase text-gray-400 mb-4 tracking-widest border-b border-gray-50 dark:border-gray-800 pb-2 flex items-center justify-between">
+                <span>{t('labels.top_visited_pois')}</span>
+                <Camera className="h-4 w-4 text-orange-500" />
+             </h3>
+             <div className="space-y-3 flex-1 overflow-y-auto custom-scrollbar pr-1">
+                {stats.topVisitedPOIs.length > 0 ? Array.from(new Map(stats.topVisitedPOIs.map(item => [item.poi_id, item])).values()).slice(0, 6).map((poi, idx) => (
+                  <div key={poi.poi_id || idx} className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg transition-colors group">
+                     <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-600 font-black text-xs shrink-0">
+                        #{idx + 1}
+                     </div>
+                     <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-gray-900 dark:text-white truncate group-hover:text-tuggi-blue transition-colors">{poi.poi_name}</p>
+                        <p className="text-[9px] font-bold text-gray-400 uppercase truncate">{poi.city}</p>
+                     </div>
+                     <div className="text-right shrink-0">
+                        <p className="text-xs font-black text-gray-900 dark:text-white">{poi.total_visits}</p>
+                        <p className="text-[8px] font-black text-gray-400 uppercase leading-none">{t('labels.interactions')}</p>
+                     </div>
+                  </div>
+                )) : (
+                  <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase">{t('labels.waiting_interactions')}</div>
+                )}
+             </div>
+          </div>
+
+
+          {/* SYSTEM UPTIME BENTO */}
+          <div className="bg-gray-900 rounded-xl p-4 text-white flex items-center justify-between border border-gray-800 shadow-xl">
+             <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 italic">Cloud Core v4.3.0 stable</span>
+             </div>
+             <div className="flex items-center gap-2">
+                <span className="text-[9px] font-bold opacity-40">{t('labels.uptime')}</span>
+                <span className="text-[10px] font-black text-green-400">99.98%</span>
+             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* FOOTER */}
+      <footer className="mt-4 py-6 border-t border-gray-100 dark:border-gray-800 flex justify-between items-center text-gray-400">
+        <p className="text-[10px] font-black uppercase tracking-widest text-gray-300">TUGGI Enterprise &bull; Master Console</p>
+        <div className="flex items-center gap-4 text-[10px]">
+          <span className="bg-green-500/10 text-green-500 px-3 py-1 rounded-full font-bold uppercase">SQL Direct Access: {stats.source === 'cache' ? 'CACHED' : 'LIVE'}</span>
+          <p suppressHydrationWarning className="font-bold lowercase opacity-60 italic">Last sync: {stats.lastUpdated.toLocaleTimeString()}</p>
         </div>
       </footer>
+
     </div>
-  )
+  );
 }

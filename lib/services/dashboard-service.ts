@@ -44,13 +44,30 @@ export interface DashboardStats {
   totalAudioPlays: number
   avgTripDuration: string
   tripsByPlatform: Array<{ platform: string; count: number }>
+  totalPremiumUsers: number
+  upcomingExpirations: Array<{
+    user_id: string
+    full_name: string
+    email: string
+    tier_name: string
+    end_date: string
+  }>
   
   // Temporal Data (últimos 30 dias - rolling window)
   mauHistory: Array<{ date: string; count: number }>
   userGrowth: Array<{ month: string; count: number }>
+  recentActiveUsers: Array<{
+    user_id: string
+    full_name: string
+    last_activity: string
+    last_km: number
+    last_duration: string
+    platform: string
+  }>
   
   // Geographic - POIs por cidade
   cityDistribution: Array<{ city: string; country: string; poi_count: number; approved_count: number }>
+  countryDistribution: Array<{ country: string; poi_count: number; city_count: number }>
   
   // Geographic - Cidades mais visitadas
   mostVisitedCities: Array<{ city: string; country: string; visit_count: number; audio_plays: number; unique_visitors: number }>
@@ -183,7 +200,8 @@ class DashboardService {
         recentPOIsResult,
         inventoryFunnelResult,
         contentQualityResult,
-        visitsByLanguageResult
+        visitsByLanguageResult,
+        recentActiveUsersResult
       ] = await Promise.all([
         // parameter renamed to p_owner_id to avoid naming conflict
         supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId || null }),
@@ -193,7 +211,8 @@ class DashboardService {
         supabase.schema('core').rpc('dashboard_recent_visited_pois', { limit_count: 10 }),
         supabase.schema('core').rpc('dashboard_inventory_funnel'),
         supabase.schema('core').rpc('dashboard_content_quality'),
-        supabase.schema('core').rpc('dashboard_visits_by_language')
+        supabase.schema('core').rpc('dashboard_visits_by_language'),
+        supabase.schema('core').rpc('dashboard_recent_active_users', { limit_count: 5 })
       ])
       
       // Log de erros individuais (não fatal)
@@ -241,10 +260,13 @@ class DashboardService {
         totalAudioPlays: Number(userAnalytics.total_audio_plays || 0),
         avgTripDuration: userAnalytics.avg_trip_duration || '0 min',
         tripsByPlatform: userAnalytics.trips_by_platform || [],
+        totalPremiumUsers: Number(userAnalytics.total_premium_users || 0),
+        upcomingExpirations: userAnalytics.upcoming_expirations || [],
         
         // Temporal Data (já vem em ordem ASC do SQL)
         mauHistory: userAnalytics.mau_history || [],
         userGrowth: userAnalytics.user_growth || [],
+        recentActiveUsers: recentActiveUsersResult?.data || [],
         
         // Geographic - POIs por cidade
         cityDistribution: cityStats.map((c: any) => ({
@@ -253,6 +275,17 @@ class DashboardService {
           poi_count: Number(c.poi_count),
           approved_count: Number(c.approved_count)
         })),
+
+        // Geographic - POIs por país (agregado a partir de cityStats)
+        countryDistribution: Object.values(cityStats.reduce((acc: any, c: any) => {
+          const country = c.country || 'Unknown';
+          if (!acc[country]) {
+            acc[country] = { country, poi_count: 0, city_count: 0 };
+          }
+          acc[country].poi_count += Number(c.poi_count);
+          acc[country].city_count += 1;
+          return acc;
+        }, {}) as Record<string, any>).sort((a: any, b: any) => b.poi_count - a.poi_count),
         
         // Geographic - Cidades mais visitadas
         mostVisitedCities: mostVisitedCities.map((c: any) => ({

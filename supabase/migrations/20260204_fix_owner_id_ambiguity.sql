@@ -318,12 +318,10 @@ GRANT EXECUTE ON FUNCTION core.cms_search_pois_internal(
 -- ================================
 -- 2) cms_search_pois_map
 -- ================================
-DROP FUNCTION IF EXISTS core.cms_search_pois_map(
-  float8, float8, float8, float8, int, text, text, text, text, text, uuid
-);
-DROP FUNCTION IF EXISTS core.cms_search_pois_map(
-  float8, float8, float8, float8, int, text, text, text, text, text
-);
+-- Drop all possible overloaded versions to avoid "function is not unique" errors
+DROP FUNCTION IF EXISTS core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text, uuid, text);
+DROP FUNCTION IF EXISTS core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text, uuid);
+DROP FUNCTION IF EXISTS core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text);
 
 CREATE OR REPLACE FUNCTION core.cms_search_pois_map(
   min_lat double precision, 
@@ -336,7 +334,8 @@ CREATE OR REPLACE FUNCTION core.cms_search_pois_map(
   country_filter text DEFAULT NULL, 
   state_filter text DEFAULT NULL, 
   city_filter text DEFAULT NULL, 
-  p_owner_id uuid DEFAULT NULL
+  p_owner_id uuid DEFAULT NULL,
+  is_active_filter text DEFAULT 'all'
 )
 RETURNS TABLE(
   id uuid, 
@@ -369,7 +368,7 @@ BEGIN
       WHERE cu.email = current_setting('request.jwt.claims.email', true) AND cu.role IN ('admin','super_admin')
     );
   EXCEPTION WHEN OTHERS THEN
-    is_admin := TRUE;
+    is_admin := TRUE; -- Fallback for non-JWT context
   END;
   
   IF NOT is_admin AND caller_cms_id IS NOT NULL THEN
@@ -392,6 +391,7 @@ BEGIN
       a.state,
       a.country,
       a.approved,
+      a.is_active,
       EXISTS (
         SELECT 1 FROM core.attraction_descriptions ad 
         WHERE ad.attraction_id = a.id AND ad.description IS NOT NULL AND ad.description <> ''
@@ -414,10 +414,15 @@ BEGIN
       AND (state_filter IS NULL OR a.state = state_filter)
       AND (city_filter IS NULL OR a.city = city_filter)
       AND (effective_owner_id IS NULL OR a.created_by = effective_owner_id)
+      AND (
+        is_active_filter = 'all' 
+        OR (is_active_filter = 'active' AND COALESCE(a.is_active, true) = true)
+        OR (is_active_filter = 'inactive' AND COALESCE(a.is_active, true) = false)
+      )
   ),
   clustered AS (
     SELECT
-      fp.poi_id, fp.poi_name, fp.city, fp.state, fp.country, fp.approved, 
+      fp.poi_id, fp.poi_name, fp.city, fp.state, fp.country, fp.approved, fp.is_active,
       fp.has_description, fp.has_audio, fp.poi_lat, fp.poi_lng,
       CASE WHEN eps > 0 THEN
         ST_ClusterDBSCAN(fp.geom, eps, min_points) OVER ()
@@ -452,6 +457,7 @@ BEGIN
         'state', cl.state,
         'country', cl.country,
         'approved', cl.approved,
+        'is_active', cl.is_active,
         'has_description', cl.has_description,
         'has_audio', cl.has_audio
       ) as metadata
@@ -464,10 +470,10 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text, uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text, uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text, uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION core.cms_search_pois_map(float8, float8, float8, float8, int, text, text, text, text, text, uuid, text) TO service_role;
 
--- Compatibility wrapper (keeps name consistency)
+-- Compatibility wrapper (keeps name consistency and handles 10 params)
 CREATE OR REPLACE FUNCTION core.cms_search_pois_map(
   min_lat float8,
   min_lng float8,
@@ -503,7 +509,8 @@ AS $$
     country_filter := country_filter,
     state_filter := state_filter,
     city_filter := city_filter,
-    p_owner_id := NULL
+    p_owner_id := NULL::uuid,
+    is_active_filter := 'all'
   );
 $$;
 
@@ -517,7 +524,7 @@ DROP FUNCTION IF EXISTS core.dashboard_city_stats();
 DROP FUNCTION IF EXISTS core.dashboard_city_stats(uuid);
 
 CREATE OR REPLACE FUNCTION core.dashboard_city_stats(
-  owner_id uuid DEFAULT NULL
+  p_owner_id uuid DEFAULT NULL
 )
 RETURNS TABLE (
   city text,
@@ -528,15 +535,13 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET statement_timeout = '120s'
 AS $$
 DECLARE
   caller_cms_id uuid;
   is_admin boolean := false;
-  effective_owner_id uuid;
+  target_owner_id uuid;
 BEGIN
-  effective_owner_id := owner_id;
-  
+  -- Resolve identity
   BEGIN
     caller_cms_id := (SELECT cu.id FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true));
     is_admin := EXISTS (
@@ -548,8 +553,11 @@ BEGIN
     is_admin := TRUE;
   END;
 
+  -- Default target scoping
   IF NOT is_admin AND caller_cms_id IS NOT NULL THEN
-    effective_owner_id := caller_cms_id;
+    target_owner_id := COALESCE(p_owner_id, caller_cms_id);
+  ELSE
+    target_owner_id := p_owner_id;
   END IF;
 
   RETURN QUERY
@@ -560,7 +568,7 @@ BEGIN
     COUNT(*) FILTER (WHERE a.approved = true)::bigint AS approved_count,
     COUNT(*) FILTER (WHERE a.approved = false)::bigint AS pending_count
   FROM core.attractions a
-  WHERE (effective_owner_id IS NULL OR a.created_by = effective_owner_id)
+  WHERE (target_owner_id IS NULL OR a.owner_id = target_owner_id OR a.created_by = target_owner_id)
     AND a.city IS NOT NULL AND TRIM(a.city) <> ''
   GROUP BY INITCAP(TRIM(LOWER(a.city)))
   ORDER BY poi_count DESC
@@ -578,7 +586,7 @@ DROP FUNCTION IF EXISTS core.dashboard_user_analytics();
 DROP FUNCTION IF EXISTS core.dashboard_user_analytics(uuid);
 
 CREATE OR REPLACE FUNCTION core.dashboard_user_analytics(
-  owner_id uuid DEFAULT NULL
+  p_owner_id uuid DEFAULT NULL
 )
 RETURNS TABLE (
   total_users bigint,
@@ -590,83 +598,205 @@ RETURNS TABLE (
   avg_trip_duration text,
   trips_by_platform jsonb,
   mau_history jsonb,
-  user_growth jsonb
+  user_growth jsonb,
+  total_premium_users bigint,
+  upcoming_expirations jsonb
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET statement_timeout = '120s'
 AS $$
 DECLARE
   caller_cms_id uuid;
   is_admin boolean := false;
-  effective_owner_id uuid;
+  target_owner_id uuid;
 BEGIN
-  effective_owner_id := owner_id;
-  
+  -- Security Resolution
   BEGIN
     caller_cms_id := (SELECT cu.id FROM core.cms_users cu WHERE cu.email = current_setting('request.jwt.claims.email', true));
     is_admin := EXISTS (
-      SELECT 1 FROM core.cms_users cu 
-      WHERE cu.email = current_setting('request.jwt.claims.email', true) 
-      AND cu.role IN ('admin','super_admin')
+      SELECT 1 FROM core.cms_users cu
+      WHERE cu.email = current_setting('request.jwt.claims.email', true)
+        AND cu.role IN ('admin','super_admin')
     );
   EXCEPTION WHEN OTHERS THEN
     is_admin := TRUE;
   END;
 
+  -- Default target scoping
   IF NOT is_admin AND caller_cms_id IS NOT NULL THEN
-    effective_owner_id := caller_cms_id;
+    target_owner_id := COALESCE(p_owner_id, caller_cms_id);
+  ELSE
+    target_owner_id := p_owner_id;
   END IF;
 
   RETURN QUERY SELECT
-    (SELECT COUNT(*)::bigint FROM drive.profiles) AS total_users,
-    
+    -- total_users 
     (SELECT COUNT(DISTINCT u.id)::bigint FROM (
-      SELECT user_id as id FROM drive.trail_trips_unified WHERE trip_start > NOW() - INTERVAL '30 days'
+        SELECT id FROM drive.profiles WHERE target_owner_id IS NULL
+        UNION ALL
+        SELECT v.user_id FROM drive.poi_visits v 
+        JOIN core.attractions a ON v.poi_id = a.id 
+        WHERE target_owner_id IS NOT NULL 
+          AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+    ) u) AS total_users,
+
+    -- active_users_30d
+    (SELECT COUNT(DISTINCT u.id)::bigint FROM (
+      -- Trips (Global or via POI visit bridge)
+      SELECT t.user_id as id FROM drive.trail_trips_unified t 
+      WHERE t.trip_start > NOW() - INTERVAL '30 days'
+        AND (target_owner_id IS NULL OR EXISTS (
+          SELECT 1 FROM drive.poi_visits v 
+          JOIN core.attractions a ON v.poi_id = a.id
+          WHERE v.trip_session_id = t.trip_session_id 
+            AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+        ))
       UNION
-      SELECT user_id as id FROM drive.poi_visits WHERE visit_timestamp > NOW() - INTERVAL '30 days'
+      -- POI Visits
+      SELECT v.user_id as id FROM drive.poi_visits v 
+      WHERE v.visit_timestamp > NOW() - INTERVAL '30 days'
+        AND (target_owner_id IS NULL OR EXISTS (
+          SELECT 1 FROM core.attractions a 
+          WHERE a.id = v.poi_id AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+        ))
       UNION
+      -- Profile-based activity (only for global dashboard)
       SELECT id FROM drive.profiles 
-      WHERE created_at > NOW() - INTERVAL '30 days' 
-         OR updated_at > NOW() - INTERVAL '30 days'
+      WHERE target_owner_id IS NULL 
+        AND (created_at > NOW() - INTERVAL '30 days' OR updated_at > NOW() - INTERVAL '30 days')
     ) u) AS active_users_30d,
-    
-    (SELECT COUNT(*)::bigint FROM drive.trail_trips_unified) AS total_trips,
-    (SELECT COALESCE(SUM(distance_km), 0)::numeric FROM drive.trail_trips_unified) AS total_km_driven,
-    (SELECT COUNT(*)::bigint FROM drive.poi_visits) AS total_poi_visits,
-    (SELECT COUNT(*)::bigint FROM drive.poi_visits WHERE audio_played = true) AS total_audio_plays,
-    
-    (SELECT COALESCE(ROUND(AVG(duration_minutes))::text, '0') || ' min' 
-     FROM drive.trail_trips_unified WHERE duration_minutes > 0) AS avg_trip_duration,
-    
+
+    -- total_trips
+    (SELECT COUNT(DISTINCT trip_id)::bigint FROM (
+       SELECT t.trip_session_id as trip_id FROM drive.trail_trips_unified t WHERE target_owner_id IS NULL
+       UNION ALL
+       SELECT v.trip_session_id as trip_id FROM drive.poi_visits v 
+       JOIN core.attractions a ON v.poi_id = a.id
+       WHERE target_owner_id IS NOT NULL 
+         AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+    ) trips) AS total_trips,
+
+    -- total_km_driven
+    (SELECT COALESCE(SUM(km), 0)::numeric FROM (
+       SELECT t.distance_km as km FROM drive.trail_trips_unified t WHERE target_owner_id IS NULL
+       UNION ALL
+       SELECT t.distance_km as km FROM drive.trail_trips_unified t
+       WHERE target_owner_id IS NOT NULL 
+         AND EXISTS (
+           SELECT 1 FROM drive.poi_visits v 
+           JOIN core.attractions a ON v.poi_id = a.id
+           WHERE v.trip_session_id = t.trip_session_id 
+             AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+         )
+    ) kms) AS total_km_driven,
+
+    -- total_poi_visits
+    (SELECT COUNT(*)::bigint FROM drive.poi_visits v
+     WHERE (target_owner_id IS NULL OR EXISTS (
+       SELECT 1 FROM core.attractions a 
+       WHERE a.id = v.poi_id AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+     ))) AS total_poi_visits,
+
+    -- total_audio_plays
+    (SELECT COUNT(*)::bigint FROM drive.poi_visits v
+     WHERE v.audio_played = true 
+       AND (target_owner_id IS NULL OR EXISTS (
+         SELECT 1 FROM core.attractions a 
+         WHERE a.id = v.poi_id AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+       ))) AS total_audio_plays,
+
+    -- avg_trip_duration
+    (SELECT (COALESCE(ROUND(AVG(duration)), 0)::text || ' min')
+     FROM (
+       SELECT t.duration_minutes as duration FROM drive.trail_trips_unified t 
+       WHERE target_owner_id IS NULL AND t.duration_minutes > 0.1 AND t.duration_minutes < 1440
+       UNION ALL
+       SELECT t.duration_minutes as duration FROM drive.trail_trips_unified t 
+       WHERE target_owner_id IS NOT NULL 
+         AND EXISTS (
+           SELECT 1 FROM drive.poi_visits v 
+           JOIN core.attractions a ON v.poi_id = a.id
+           WHERE v.trip_session_id = t.trip_session_id 
+             AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+         ) AND t.duration_minutes > 0.1 AND t.duration_minutes < 1440
+     ) durations) AS avg_trip_duration,
+
+    -- trips_by_platform
     (SELECT COALESCE(jsonb_agg(jsonb_build_object('platform', platform, 'count', cnt)), '[]'::jsonb) 
      FROM (
-       SELECT COALESCE(p.last_platform, 'unknown') as platform, COUNT(t.trip_session_id) as cnt
+       SELECT COALESCE(p.last_platform, 'unknown') as platform, COUNT(DISTINCT t.trip_session_id) as cnt
        FROM drive.trail_trips_unified t
        LEFT JOIN drive.profiles p ON t.user_id = p.id
+       WHERE (target_owner_id IS NULL OR EXISTS (
+         SELECT 1 FROM drive.poi_visits v 
+         JOIN core.attractions a ON v.poi_id = a.id
+         WHERE v.trip_session_id = t.trip_session_id 
+           AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+       ))
        GROUP BY p.last_platform
        ORDER BY cnt DESC
      ) sub) AS trips_by_platform,
-    
+
+    -- mau_history
     (SELECT COALESCE(jsonb_agg(jsonb_build_object('date', day, 'count', active_users)), '[]'::jsonb)
      FROM (
-       SELECT to_char(date_trunc('day', visit_timestamp), 'DD/MM') as day,
-              COUNT(DISTINCT user_id)::int as active_users
-       FROM drive.poi_visits
-       WHERE visit_timestamp > NOW() - INTERVAL '30 days'
-       GROUP BY date_trunc('day', visit_timestamp)
-       ORDER BY date_trunc('day', visit_timestamp) ASC
+       SELECT to_char(date_trunc('day', v.visit_timestamp), 'DD/MM') as day,
+              COUNT(DISTINCT v.user_id)::int as active_users
+       FROM drive.poi_visits v
+       WHERE v.visit_timestamp > NOW() - INTERVAL '30 days'
+         AND (target_owner_id IS NULL OR EXISTS (
+           SELECT 1 FROM core.attractions a 
+           WHERE a.id = v.poi_id AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+         ))
+       GROUP BY date_trunc('day', v.visit_timestamp)
+       ORDER BY date_trunc('day', v.visit_timestamp) ASC
      ) dau) AS mau_history,
 
-    -- User Growth (Month-over-Month) - Cumulative from the beginning
+    -- user_growth
     (SELECT COALESCE(jsonb_agg(jsonb_build_object('month', m, 'count', c)), '[]'::jsonb)
      FROM (
        SELECT to_char(date_trunc('month', created_at), 'MM/YY') as m,
               SUM(COUNT(*)) OVER (ORDER BY date_trunc('month', created_at))::int as c
        FROM drive.profiles
+       WHERE target_owner_id IS NULL
        GROUP BY date_trunc('month', created_at)
        ORDER BY date_trunc('month', created_at) ASC
-     ) sub) AS user_growth;
+     ) sub) AS user_growth,
+
+    -- Premium Metrics
+    (SELECT COUNT(*)::bigint FROM drive.profiles p 
+     WHERE p.subscription_tier_id IS NOT NULL 
+     AND p.subscription_tier_id != '984a7cd3-c937-4218-842a-9c5fdf824f25'
+     AND (target_owner_id IS NULL OR EXISTS (
+        SELECT 1 FROM drive.poi_visits v 
+        JOIN core.attractions a ON v.poi_id = a.id 
+        WHERE v.user_id = p.id AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+     ))) AS total_premium_users,
+
+    -- Upcoming Expirations (Next 5)
+    (SELECT COALESCE(jsonb_agg(exp), '[]'::jsonb)
+     FROM (
+       SELECT 
+         p.id as user_id,
+         p.full_name,
+         u.email::text,
+         st.display_name as tier_name,
+         p.subscription_end_date as end_date
+       FROM drive.profiles p
+       LEFT JOIN auth.users u ON u.id = p.id
+       LEFT JOIN drive.subscription_tiers st ON st.id = p.subscription_tier_id
+       WHERE p.subscription_tier_id IS NOT NULL 
+         AND p.subscription_tier_id != '984a7cd3-c937-4218-842a-9c5fdf824f25'
+         AND p.subscription_end_date IS NOT NULL
+         AND p.subscription_end_date >= NOW()
+         AND (target_owner_id IS NULL OR EXISTS (
+            SELECT 1 FROM drive.poi_visits v 
+            JOIN core.attractions a ON v.poi_id = a.id 
+            WHERE v.user_id = p.id AND (a.owner_id = target_owner_id OR a.created_by = target_owner_id)
+         ))
+       ORDER BY p.subscription_end_date ASC
+       LIMIT 5
+     ) exp) AS upcoming_expirations;
 END;
 $$;
 
