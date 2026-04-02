@@ -1,0 +1,330 @@
+{
+  "timestamp": "2026-04-02T05:00:19.748Z",
+  "options": {
+    "country": "España",
+    "batch_size": 50000,
+    "mode": "enrichment_migration_triggers",
+    "auto_generate_audio": false,
+    "auto_approve_if_satisfactory": true
+  },
+  "stats": {
+    "total": 813,
+    "successful": 782,
+    "failed": 31,
+    "skipped": 0,
+    "errors": [
+      {
+        "uuid_id": "a4e0dc47-ad6a-5b13-a25e-33ba1bd19a9f",
+        "name": "El Huquillo",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "4db2c2f0-7d9a-54fe-a0ec-fb478d9268d0",
+        "name": "Patio de Armas",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "ff0cc131-e594-5532-a18c-7de53a8d96c0",
+        "name": "Centro Joaquín Roncal",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "3a7b89b5-2064-5d46-aa42-ed65c25c6db6",
+        "name": "Mirador del Migdia",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "9a299f37-1b53-52ba-9194-b4b97e985aa2",
+        "name": "Refugio de Estós",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "e62f9d68-506d-5922-b2c6-51cb6eecf8b3",
+        "name": "La Sierra",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "e0d20f68-1000-5a71-a2d9-6922f7e31b41",
+        "name": "Parcela Isla",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "a45e36d5-e154-508e-982f-0724813fd73c",
+        "name": "Museu de la Mina",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "353db6a5-0215-5d78-8dce-0985c6b9da8f",
+        "name": "Casa García Herranz",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "15914ea6-2508-5bc2-8f4f-baf4a07703c5",
+        "name": "Plaza de la Raza",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "4efc4452-8e15-5250-8c55-77237afd1675",
+        "name": "Castillo de Valderrobres",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "3e0f6aa1-40a2-590d-8ad5-777e1a2d0323",
+        "name": "Portal de Cabra",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "7a7ae3a5-20ce-59b5-9fb7-4f44ccfb8762",
+        "name": "Museo Diocesano",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "355dd0af-dade-5cf4-b162-8cdae66abeee",
+        "name": "Estación del Trenecito del Parque Grande",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "bce62a53-a687-5e6a-b17e-036c792f672d",
+        "name": "Cambrils",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "58578cd2-393c-537e-b70e-64b05eca503c",
+        "name": "Puig de la Força",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "de75cbf6-0cc7-5601-8591-a40e151824f0",
+        "name": "Casa Castellarnau",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "f1899504-e30c-579c-ab07-bfdf656e8d0f",
+        "name": "Casa Navàs",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "c0ebbc5e-501d-5ea5-9ad9-ec9b55ea5985",
+        "name": "cotxeres",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "7348cd2d-1dc0-5590-9fd3-f33c924cbd7d",
+        "name": "Passatge de Permanyer",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "7c93dac5-0b5a-5275-b8b4-26929a30fb44",
+        "name": "Antic Hotel Peninsular",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "9d95fa9e-7143-5cb1-86dd-01d7c3903449",
+        "name": "Casa Codina",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "339c6d06-6f19-512a-bed0-01823a5534d5",
+        "name": "Casa Querol",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "bed38619-b6b2-55b7-b93c-d5625719c119",
+        "name": "Casa Bartolí",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "17c4242a-a555-5a1f-89e4-975be89cadcc",
+        "name": "Casa Laguna",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "2ba452c2-8439-52d6-bf6b-48b3277fc3e9",
+        "name": "Casa Llorens",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "cc03b3f4-8cd3-51f3-b997-3dc8eacef0f8",
+        "name": "Casa Tomàs Jordi",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "feb72492-f51e-54ed-93e8-19aa2de45fbb",
+        "name": "Casa Iglesias",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "21d5acdd-f8a1-5a9d-a1df-7804ccb3512b",
+        "name": "Casa Gebillí",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "f0dccb43-af0f-5b8b-9dbe-64e0dfe98e8e",
+        "name": "Casa Munné",
+        "error": "Trigger points generation failed: No trigger points generated"
+      },
+      {
+        "uuid_id": "db35aac0-ec76-53b0-bf86-bd43a35824f9",
+        "name": "Lluneta de terra",
+        "error": "Trigger points generation failed: No trigger points generated"
+      }
+    ]
+  },
+  "errors": [
+    {
+      "uuid_id": "a4e0dc47-ad6a-5b13-a25e-33ba1bd19a9f",
+      "name": "El Huquillo",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "4db2c2f0-7d9a-54fe-a0ec-fb478d9268d0",
+      "name": "Patio de Armas",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "ff0cc131-e594-5532-a18c-7de53a8d96c0",
+      "name": "Centro Joaquín Roncal",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "3a7b89b5-2064-5d46-aa42-ed65c25c6db6",
+      "name": "Mirador del Migdia",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "9a299f37-1b53-52ba-9194-b4b97e985aa2",
+      "name": "Refugio de Estós",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "e62f9d68-506d-5922-b2c6-51cb6eecf8b3",
+      "name": "La Sierra",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "e0d20f68-1000-5a71-a2d9-6922f7e31b41",
+      "name": "Parcela Isla",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "a45e36d5-e154-508e-982f-0724813fd73c",
+      "name": "Museu de la Mina",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "353db6a5-0215-5d78-8dce-0985c6b9da8f",
+      "name": "Casa García Herranz",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "15914ea6-2508-5bc2-8f4f-baf4a07703c5",
+      "name": "Plaza de la Raza",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "4efc4452-8e15-5250-8c55-77237afd1675",
+      "name": "Castillo de Valderrobres",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "3e0f6aa1-40a2-590d-8ad5-777e1a2d0323",
+      "name": "Portal de Cabra",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "7a7ae3a5-20ce-59b5-9fb7-4f44ccfb8762",
+      "name": "Museo Diocesano",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "355dd0af-dade-5cf4-b162-8cdae66abeee",
+      "name": "Estación del Trenecito del Parque Grande",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "bce62a53-a687-5e6a-b17e-036c792f672d",
+      "name": "Cambrils",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "58578cd2-393c-537e-b70e-64b05eca503c",
+      "name": "Puig de la Força",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "de75cbf6-0cc7-5601-8591-a40e151824f0",
+      "name": "Casa Castellarnau",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "f1899504-e30c-579c-ab07-bfdf656e8d0f",
+      "name": "Casa Navàs",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "c0ebbc5e-501d-5ea5-9ad9-ec9b55ea5985",
+      "name": "cotxeres",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "7348cd2d-1dc0-5590-9fd3-f33c924cbd7d",
+      "name": "Passatge de Permanyer",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "7c93dac5-0b5a-5275-b8b4-26929a30fb44",
+      "name": "Antic Hotel Peninsular",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "9d95fa9e-7143-5cb1-86dd-01d7c3903449",
+      "name": "Casa Codina",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "339c6d06-6f19-512a-bed0-01823a5534d5",
+      "name": "Casa Querol",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "bed38619-b6b2-55b7-b93c-d5625719c119",
+      "name": "Casa Bartolí",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "17c4242a-a555-5a1f-89e4-975be89cadcc",
+      "name": "Casa Laguna",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "2ba452c2-8439-52d6-bf6b-48b3277fc3e9",
+      "name": "Casa Llorens",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "cc03b3f4-8cd3-51f3-b997-3dc8eacef0f8",
+      "name": "Casa Tomàs Jordi",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "feb72492-f51e-54ed-93e8-19aa2de45fbb",
+      "name": "Casa Iglesias",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "21d5acdd-f8a1-5a9d-a1df-7804ccb3512b",
+      "name": "Casa Gebillí",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "f0dccb43-af0f-5b8b-9dbe-64e0dfe98e8e",
+      "name": "Casa Munné",
+      "error": "Trigger points generation failed: No trigger points generated"
+    },
+    {
+      "uuid_id": "db35aac0-ec76-53b0-bf86-bd43a35824f9",
+      "name": "Lluneta de terra",
+      "error": "Trigger points generation failed: No trigger points generated"
+    }
+  ]
+}
