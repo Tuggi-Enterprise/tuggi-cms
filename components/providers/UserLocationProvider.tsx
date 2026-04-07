@@ -41,46 +41,56 @@ export function UserLocationProvider({ children }: { children: React.ReactNode }
         return
       }
 
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const location = {
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            timestamp: position.timestamp,
+      const getPosition = (highAccuracy: boolean) => {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const location = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              timestamp: position.timestamp,
+            }
+            setUserLocation(location)
+            setIsLoading(false)
+            setError(null)
+            console.log(`✅ [Location] Success (${highAccuracy ? 'High Accuracy' : 'Low Accuracy'}):`, location)
+            localStorage.setItem('user_location', JSON.stringify(location))
+            resolve(location)
+          },
+          (err) => {
+            // Error Code 2: POSITION_UNAVAILABLE - often happens with highAccuracy: true in some environments
+            if (err.code === err.POSITION_UNAVAILABLE && highAccuracy) {
+              console.warn('⚠️ [Location] High accuracy unavailable, retrying with low accuracy...')
+              getPosition(false)
+              return
+            }
+
+            console.error('❌ [Location] Error code:', err.code, 'Message:', err.message)
+            let message = 'Failed to get location'
+            switch (err.code) {
+              case err.PERMISSION_DENIED:
+                message = 'Location permission denied'
+                break
+              case err.POSITION_UNAVAILABLE:
+                message = 'Location information is unavailable'
+                break
+              case err.TIMEOUT:
+                message = 'Location request timed out'
+                break
+            }
+            setError(message)
+            setIsLoading(false)
+            resolve(null)
+          },
+          {
+            enableHighAccuracy: highAccuracy,
+            timeout: highAccuracy ? 10000 : 5000,
+            maximumAge: 300000, // 5 minutes cache
           }
-          setUserLocation(location)
-          setIsLoading(false)
-          setError(null)
-          console.log('✅ [Location] Success:', location)
-          // Store in localStorage for persistence across sessions
-          localStorage.setItem('user_location', JSON.stringify(location))
-          resolve(location)
-        },
-        (err) => {
-          console.error('❌ [Location] Error code:', err.code, 'Message:', err.message)
-          let message = 'Failed to get location'
-          switch (err.code) {
-            case err.PERMISSION_DENIED:
-              message = 'Location permission denied'
-              break
-            case err.POSITION_UNAVAILABLE:
-              message = 'Location information is unavailable'
-              break
-            case err.TIMEOUT:
-              message = 'Location request timed out'
-              break
-          }
-          setError(message)
-          setIsLoading(false)
-          resolve(null)
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 300000, // 5 minutes cache
-        }
-      )
+        )
+      }
+
+      getPosition(true)
     })
   }
 

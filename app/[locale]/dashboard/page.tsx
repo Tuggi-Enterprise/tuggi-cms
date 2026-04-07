@@ -95,8 +95,8 @@ export default function DashboardPage() {
       )
       .subscribe()
 
-    // 3. Optional: Polling fallback (30s instead of 5min)
-    const interval = setInterval(() => fetchData(true), 30 * 1000)
+    // 3. Optional: Polling fallback (60s as requested)
+    const interval = setInterval(() => fetchData(true), 60 * 1000)
 
     return () => {
       supabase.removeChannel(channel)
