@@ -1,7 +1,12 @@
--- Migration: Fix FOMO Timezone Awareness
+-- Migration: FOMO System Upgrade (Consolidated V2)
 -- Date: 2026-04-07
--- Purpose: Ensure daily summaries are calculated using the user's local date based on their timezone, and not UTC.
+-- Purpose: Ensure timezone awareness in daily stats calculation and implement push notification retry logic with expanded delivery window.
 
+-- 1. ESTRUTURA: Coluna de tentativas
+ALTER TABLE drive.daily_user_fomo_stats 
+ADD COLUMN IF NOT EXISTS attempt_count INTEGER DEFAULT 0;
+
+-- 2. REFRESH STATS: Cálculo diário respeitando o Timezone do usuário
 CREATE OR REPLACE FUNCTION drive.refresh_daily_fomo_stats(p_target_date DATE DEFAULT (CURRENT_DATE - 1))
 RETURNS VOID
 LANGUAGE plpgsql
@@ -23,13 +28,11 @@ BEGIN
     FROM drive.profiles p
     JOIN (
         WITH daily_trail AS (
-            -- Calculate trail line and confirm local date for each user
             SELECT 
                 rt.user_id, 
                 ST_Simplify(ST_MakeLine(ST_SetSRID(ST_MakePoint(rt.longitude, rt.latitude), 4326) ORDER BY rt.timestamp), 0.001) as trail_line
             FROM drive.route_trail rt
             JOIN drive.profiles pr ON pr.id = rt.user_id
-            -- CRITICAL FIX: Cast UTC timestamp to User's Local Date
             WHERE (rt.timestamp AT TIME ZONE COALESCE(pr.timezone, 'UTC'))::date = p_target_date
             GROUP BY rt.user_id
         ),
@@ -43,7 +46,6 @@ BEGIN
             GROUP BY pv.user_id
         ),
         missed_per_user AS (
-            -- Find attractive points within 1km of the daily trail that were NOT visited
             SELECT dt.user_id, COUNT(DISTINCT a.id) as cnt
             FROM daily_trail dt
             JOIN drive.profiles pr ON pr.id = dt.user_id
@@ -73,4 +75,54 @@ BEGIN
 END;
 $$;
 
+-- 3. CANDIDATES: Janela de envio expandida (07:00-22:00) e limite de 5 tentativas
+CREATE OR REPLACE FUNCTION drive.get_morning_push_candidates()
+RETURNS TABLE (
+    user_id UUID,
+    nickname TEXT,
+    language TEXT,
+    heard_count INTEGER,
+    missed_count INTEGER
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        s.user_id,
+        s.nickname,
+        s.language,
+        s.heard_count,
+        s.missed_count
+    FROM drive.daily_user_fomo_stats s
+    JOIN drive.profiles p ON p.id = s.user_id
+    WHERE 
+        s.summary_date = (CURRENT_DATE - 1)
+        AND s.notified_at IS NULL
+        AND s.attempt_count < 5
+        AND (s.missed_count > 0 OR s.heard_count > 0)
+        AND p.push_denied = false
+        AND EXTRACT(HOUR FROM (NOW() AT TIME ZONE COALESCE(p.timezone, 'UTC'))) >= 7
+        AND EXTRACT(HOUR FROM (NOW() AT TIME ZONE COALESCE(p.timezone, 'UTC'))) <= 22;
+END;
+$$;
+
+-- 4. UTILS: Incrementar contador de tentativas
+CREATE OR REPLACE FUNCTION drive.increment_fomo_attempt(p_user_id UUID, p_date DATE)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    UPDATE drive.daily_user_fomo_stats
+    SET attempt_count = attempt_count + 1,
+        updated_at = NOW()
+    WHERE user_id = p_user_id AND summary_date = p_date;
+END;
+$$;
+
+-- Permissions
 GRANT EXECUTE ON FUNCTION drive.refresh_daily_fomo_stats(DATE) TO service_role;
+GRANT EXECUTE ON FUNCTION drive.get_morning_push_candidates() TO service_role;
+GRANT EXECUTE ON FUNCTION drive.increment_fomo_attempt(UUID, DATE) TO service_role;
