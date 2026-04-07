@@ -500,7 +500,7 @@ class DashboardService {
     success: boolean; 
     data?: {
       active_users: Array<{ user_id: string; lat: number; lng: number; timestamp: string }>;
-      active_pois: Array<{ visit_id: string; poi_id: string; poi_name: string; poi_city: string; poi_country: string; poi_category: string; user_nickname: string; visit_timestamp: string; audio_played: boolean; platform: string }>;
+      active_pois: Array<{ visit_id: string; poi_id: string; poi_name: string; poi_city: string; poi_country: string; poi_category: string; user_nickname: string; visit_timestamp: string; audio_played: boolean; platform: string; audio_language: string }>;
       interval_minutes: number;
       generated_at: string;
     }; 
