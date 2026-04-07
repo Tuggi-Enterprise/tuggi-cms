@@ -96,6 +96,7 @@ export interface DashboardStats {
     audio_played: boolean
     visit_source: string
     platform: string
+    audio_language: string
   }>
 
   // Visits by Language
@@ -352,7 +353,8 @@ class DashboardService {
           visit_timestamp: p.visit_timestamp,
           audio_played: p.audio_played,
           visit_source: p.visit_source,
-          platform: p.platform
+          platform: p.platform,
+          audio_language: p.audio_language
         })),
         
         // Visits by Language

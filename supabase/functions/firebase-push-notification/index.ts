@@ -21,11 +21,11 @@ Deno.serve(async (req) => {
     console.log(`[${requestId}] 📍 Path: ${path}`);
 
     // Get environment variables inside handler to be safe
-    const FIREBASE_PROJECT_ID = Deno.env.get('FIREBASE_PROJECT_ID');
-    const FIREBASE_PRIVATE_KEY = Deno.env.get('FIREBASE_PRIVATE_KEY');
-    const FIREBASE_CLIENT_EMAIL = Deno.env.get('FIREBASE_CLIENT_EMAIL');
-    const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const FIREBASE_PROJECT_ID = (Deno.env.get('FIREBASE_PROJECT_ID') ?? '').trim();
+    const FIREBASE_PRIVATE_KEY = (Deno.env.get('FIREBASE_PRIVATE_KEY') ?? '').trim();
+    const FIREBASE_CLIENT_EMAIL = (Deno.env.get('FIREBASE_CLIENT_EMAIL') ?? '').trim();
+    const SUPABASE_URL = (Deno.env.get('SUPABASE_URL') ?? '').trim();
+    const SUPABASE_SERVICE_ROLE_KEY = (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '').trim();
 
     // Diagnostics
     if (!FIREBASE_PRIVATE_KEY) console.error(`[${requestId}] ❌ FIREBASE_PRIVATE_KEY is missing`);
@@ -52,9 +52,9 @@ Deno.serve(async (req) => {
       let pemContents = FIREBASE_PRIVATE_KEY
         .replace(/-----BEGIN PRIVATE KEY-----/g, '')
         .replace(/-----END PRIVATE KEY-----/g, '')
-        .replace(/\\n/g, '')
-        .replace(/[\s\n\r]/g, '')
-        .replace(/[^A-Za-z0-9+/=]/g, '');
+        .replace(/\\n/g, '\n') // Maintain internal newlines if escaped
+        .replace(/[\s]/g, '') // Remove all whitespaces (important for Base64)
+        .trim();
 
       // 2. Fix padding if necessary
       while (pemContents.length % 4 !== 0) {
@@ -125,8 +125,12 @@ Deno.serve(async (req) => {
       });
 
       const data = await response.json();
-      if (!response.ok) throw new Error(`Firebase Auth Failed: ${JSON.stringify(data)}`);
+      if (!response.ok) {
+        console.error(`[${requestId}] ⚠️ Google Auth token exchange failed:`, JSON.stringify(data));
+        throw new Error(`Firebase Auth Failed: ${JSON.stringify(data)}`);
+      }
       
+      console.log(`[${requestId}] 🔑 Google Access Token generated successfully.`);
       return data.access_token;
     };
 
@@ -144,6 +148,7 @@ Deno.serve(async (req) => {
           ttl: `${ttl}s`,
           notification: {
             sound: 'default',
+            ...(notification.badge !== undefined && { notificationCount: notification.badge }),
           },
         },
         apns: {
@@ -159,7 +164,7 @@ Deno.serve(async (req) => {
               },
               'mutable-content': 1,
               sound: 'default',
-              ...(notification.badge !== undefined && { badge: notification.badge }),
+              // REMOVIDO: badge no iOS retirado para evitar "Sticky Number" 
             },
           },
         },

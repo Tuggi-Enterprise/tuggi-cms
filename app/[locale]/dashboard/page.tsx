@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  PieChart, Pie, Cell, LabelList
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
+  PieChart, Pie, Cell
 } from 'recharts'
+
 import { 
   MapPin, CheckCircle, TrendingUp, AlertCircle, RefreshCw, 
   Database, Zap, Clock, Play, Eye, Headphones, Users, ShieldCheck, Globe, Smartphone, Camera, Flag, QrCode
@@ -46,9 +47,14 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats>(EMPTY_DASHBOARD_STATS)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isMounted, setIsMounted] = useState(false)
   
   const t = useTranslations('Pages.Dashboard');
   const locale = useLocale();
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const fetchData = useCallback(async (isBackground = false) => {
     try {
@@ -114,6 +120,8 @@ export default function DashboardPage() {
     }
     return acc;
   }, [] as { platform: string; count: number }[]);
+
+  if (!isMounted) return null;
 
   if (error) {
     return (
@@ -221,65 +229,192 @@ export default function DashboardPage() {
         <div className="lg:col-span-8 flex flex-col gap-4">
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* LANGUAGES BREAKDOWN */}
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
-               <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xs font-black uppercase tracking-widest text-gray-400">{t('labels.catalog_languages')}</h3>
-                  <Globe className="h-4 w-4 text-tuggi-blue" />
+            {/* LANGUAGE INVENTORY RANKING */}
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm flex flex-col h-full">
+               <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xs font-black uppercase text-gray-400 tracking-widest leading-none">{t('labels.catalog_languages')}</h3>
+                  <Database className="h-4 w-4 text-gray-400" />
                </div>
-               <div className="space-y-3">
-                  {stats.languagesBreakdown.slice(0, 4).map((lang, idx) => (
-                    <div key={idx} className="space-y-1.5">
-                       <div className="flex justify-between items-center text-xs font-black">
-                          <span className="uppercase tracking-tight">{lang.language === 'pt' ? 'Português' : lang.language === 'en' ? 'English' : lang.language === 'es' ? 'Español' : lang.language}</span>
-                          <span className="text-gray-400 text-[11px] font-bold">{lang.count} {t('labels.core_homolog')}</span>
-                       </div>
-                       <div className="h-2 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-blue-500 rounded-full shadow-sm shadow-blue-500/20" 
-                            style={{ width: `${(lang.count / (stats.totalPOIs || 1)) * 100}%` }} 
-                          />
-                       </div>
-                    </div>
-                  ))}
+               <div className="space-y-5 flex-1">
+                  {stats.languagesBreakdown.slice(0, 4).map((lang, idx) => {
+                    const maxCount = stats.languagesBreakdown[0]?.count || 1;
+                    const ratio = (lang.count / maxCount) * 100;
+                    
+                    const getLangName = (code: string) => {
+                      const c = code.toLowerCase();
+                      if (c === 'pt-br') return 'Português (BR)';
+                      if (c === 'pt-pt') return 'Português (PT)';
+                      if (c === 'pt') return 'Português';
+                      if (c === 'en-us') return 'English (US)';
+                      if (c === 'en-gb') return 'English (UK)';
+                      if (c === 'en') return 'English';
+                      if (c === 'es-es') return 'Español (ES)';
+                      if (c === 'es') return 'Español';
+                      if (c === 'it') return 'Italiano';
+                      if (c === 'fr') return 'Français';
+                      if (c === 'de') return 'Deutsch';
+                      return code.toUpperCase();
+                    };
+
+                    const langName = getLangName(lang.language);
+                    const langCount = lang.count;
+
+                    return (
+                      <div key={idx} className="space-y-1.5">
+                         <div className="flex justify-between items-center text-xs font-black">
+                            <span className="uppercase tracking-tight text-gray-900 dark:text-gray-100">{langName}</span>
+                            <span className="text-tuggi-blue">{lang.count.toLocaleString()}</span>
+                         </div>
+                         <div className="h-1.5 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-tuggi-blue rounded-full transition-all duration-1000 opacity-60" 
+                              style={{ width: `${ratio}%` }} 
+                            />
+                         </div>
+                      </div>
+                    );
+                  })}
                </div>
             </div>
 
-            {/* CONTENT QUALITY METRICS */}
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm grid grid-cols-2 gap-4">
-               <div className="flex flex-col justify-center border-r border-gray-50 dark:border-gray-800 pr-2">
-                  <p className="text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">{t('labels.pois_with_audio')}</p>
-                  <p className="text-2xl font-black text-tuggi-green leading-tight">{stats.withAudio}</p>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase leading-none tracking-tight">{t('labels.cataloged')}</p>
+            {/* INVENTORY DISTRIBUTION (PREMIUM DONUT) */}
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm flex flex-col h-full">
+               <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xs font-black uppercase text-gray-400 tracking-widest leading-none">{t('labels.catalog')}</h3>
+                  <Database className="h-4 w-4 text-gray-400" />
                </div>
-               <div className="flex flex-col justify-center">
-                  <p className="text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">{t('labels.avg_quality')}</p>
-                  <p className="text-2xl font-black text-blue-500 leading-tight">{(stats.contentCoverage * 10).toFixed(1)}%</p>
-                  <p className="text-[10px] font-bold text-gray-400 uppercase leading-none tracking-tight">{t('labels.completeness')}</p>
+               
+               <div className="flex-1 min-h-[110px] relative">
+                  {isMounted && (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Core', value: stats.approvedPOIs },
+                            { name: 'Homolog', value: stats.homologPOIs }
+                          ]}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={36}
+                          outerRadius={50}
+                          paddingAngle={5}
+                          cornerRadius={4}
+                          dataKey="value"
+                          stroke="none"
+                        >
+                          <Cell key="cell-0" fill={TUGGI_COLORS.green} />
+                          <Cell key="cell-1" fill={TUGGI_COLORS.purple} />
+                        </Pie>
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '11px', fontWeight: '900' }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+
+                  {/* CENTER TYPOGRAPHY - TOTAL */}
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none mt-1">
+                     <span suppressHydrationWarning className="text-base font-black text-gray-900 dark:text-white leading-none">
+                       {((stats.approvedPOIs + stats.homologPOIs) / 1000).toFixed(0)}k
+                     </span>
+                     <span className="text-[7px] font-black text-gray-400 uppercase tracking-widest">Total</span>
+                  </div>
+               </div>
+
+               <div className="mt-4 flex justify-between gap-2 border-t border-gray-50 dark:border-gray-800 pt-3">
+                  <div className="flex flex-col">
+                     <div className="flex items-center gap-1.5 mb-0.5">
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: TUGGI_COLORS.green }} />
+                        <span className="text-[9px] font-black uppercase text-gray-400">Core</span>
+                     </div>
+                     <div className="flex items-baseline gap-1">
+                        <span suppressHydrationWarning className="text-sm font-black text-gray-900 dark:text-white">
+                          {stats.approvedPOIs.toLocaleString()}
+                        </span>
+                        <span className="text-[9px] font-bold text-tuggi-green">
+                          {((stats.approvedPOIs / (stats.approvedPOIs + stats.homologPOIs || 1)) * 100).toFixed(0)}%
+                        </span>
+                     </div>
+                  </div>
+                  <div className="flex flex-col text-right">
+                     <div className="flex items-center gap-1.5 mb-0.5 justify-end">
+                        <span className="text-[9px] font-black uppercase text-gray-400">Homolog</span>
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: TUGGI_COLORS.purple }} />
+                     </div>
+                     <div className="flex items-baseline justify-end gap-1">
+                        <span className="text-[9px] font-bold text-tuggi-purple">
+                          {((stats.homologPOIs / (stats.approvedPOIs + stats.homologPOIs || 1)) * 100).toFixed(0)}%
+                        </span>
+                        <span suppressHydrationWarning className="text-sm font-black text-gray-900 dark:text-white">
+                          {stats.homologPOIs.toLocaleString()}
+                        </span>
+                     </div>
+                  </div>
                </div>
             </div>
 
             {/* DEVICE ACCESS METRICS */}
-            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm">
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5 shadow-sm flex flex-col h-full">
                <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xs font-black uppercase text-gray-400 tracking-widest">{t('labels.device_access')}</h3>
                   <Smartphone className="h-4 w-4 text-gray-400" />
                </div>
-               <div className="space-y-4">
-                  {consolidatedPlatforms.map(p => (
-                    <div key={p.platform}>
-                       <div className="flex justify-between items-end mb-1.5">
-                          <span className="text-[10px] font-black text-gray-500 uppercase tracking-tight">{p.platform === 'ios' ? 'Apple iOS' : 'Android OS'}</span>
-                          <span className="text-sm font-black text-gray-900 dark:text-white">{((p.count / (stats.totalTrips || 1)) * 100).toFixed(0)}%</span>
-                       </div>
-                       <div className="h-2 w-full bg-gray-50 dark:bg-gray-800 rounded-full overflow-hidden">
-                          <div 
-                            className={cn("h-full rounded-full animate-in slide-in-from-left duration-1000 shadow-sm", p.platform === 'ios' ? 'bg-blue-500 shadow-blue-500/20' : 'bg-green-500 shadow-green-500/20')} 
-                            style={{ width: `${(p.count / (stats.totalTrips || 1)) * 100}%` }} 
+               <div className="flex flex-row items-center flex-1 min-h-[120px] gap-6">
+                  {/* CHART SIDE */}
+                  <div className="w-1/2 h-full">
+                    {isMounted && (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={consolidatedPlatforms.map(p => ({
+                              name: p.platform === 'ios' ? 'iOS' : 'Android',
+                              value: p.count
+                            }))}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={28}
+                            outerRadius={45}
+                            paddingAngle={5}
+                            dataKey="value"
+                            stroke="none"
+                          >
+                            {consolidatedPlatforms.map((p, index) => (
+                              <Cell 
+                                key={`cell-${index}`} 
+                                fill={p.platform === 'ios' ? TUGGI_COLORS.blue : TUGGI_COLORS.green} 
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip 
+                            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '11px', fontWeight: '900' }}
                           />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+
+                  {/* LEGEND SIDE */}
+                  <div className="w-1/2 flex flex-col gap-5 border-l border-gray-50 dark:border-gray-800 pl-6">
+                     {consolidatedPlatforms.map(p => (
+                       <div key={p.platform} className="flex flex-col">
+                          <div className="flex items-center gap-1.5 mb-1">
+                             <div 
+                               className="w-2 h-2 rounded-full" 
+                               style={{ backgroundColor: p.platform === 'ios' ? TUGGI_COLORS.blue : TUGGI_COLORS.green }} 
+                             />
+                             <span className="text-[10px] font-black uppercase text-gray-400 tracking-tight">
+                               {p.platform === 'ios' ? 'Apple iOS' : 'Android OS'}
+                             </span>
+                          </div>
+                          <span className="text-lg font-black text-gray-900 dark:text-white leading-none">
+                            {((p.count / (stats.totalTrips || 1)) * 100).toFixed(0)}%
+                          </span>
+                          <span className="text-[10px] font-bold text-gray-400 uppercase opacity-40">
+                             {p.count.toLocaleString()} sessions
+                          </span>
                        </div>
-                    </div>
-                  ))}
+                     ))}
+                  </div>
                </div>
             </div>
           </div>
@@ -342,8 +477,7 @@ export default function DashboardPage() {
                      <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10 transition-colors">
                        <tr>
                          <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase tracking-tighter">{t('labels.location')}</th>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-center tracking-tighter">{t('labels.volume')}</th>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right tracking-tighter">{t('labels.approval_rate')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right tracking-tighter">{t('labels.volume')}</th>
                        </tr>
                      </thead>
                      <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
@@ -353,18 +487,10 @@ export default function DashboardPage() {
                              <span className="text-xs font-black text-gray-900 dark:text-gray-200 group-hover:text-tuggi-blue transition-colors">{city.city}</span>
                              <span className="text-[9px] text-gray-400 font-bold ml-2 uppercase opacity-40">{city.country}</span>
                            </td>
-                           <td className="px-5 py-3 text-center">
+                           <td className="px-5 py-3 text-right">
                              <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/20 text-blue-600 border border-blue-100 dark:border-blue-800/30 px-2 py-0.5 rounded-full shadow-sm">
                                {city.poi_count}
                              </span>
-                           </td>
-                           <td className="px-5 py-3 text-right">
-                             <div className="flex items-center justify-end gap-2">
-                                <div className="w-12 h-1 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden shadow-inner">
-                                  <div className="h-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]" style={{ width: `${(city.approved_count / city.poi_count) * 100}%` }} />
-                                </div>
-                                <span className="text-[10px] font-black text-gray-900 dark:text-white w-6">{((city.approved_count / city.poi_count) * 100).toFixed(0)}%</span>
-                             </div>
                            </td>
                          </tr>
                        ))}
@@ -473,7 +599,13 @@ export default function DashboardPage() {
                            <div className="flex items-center gap-1 opacity-60">
                               <Clock className="h-2.5 w-2.5 text-gray-400" />
                               <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">
-                                {Math.round(activity.duration_minutes)}m {t('labels.duration')}
+                                {(() => {
+                                  const mins = Math.round(activity.duration_minutes);
+                                  if (mins < 60) return `${mins}m`;
+                                  const h = Math.floor(mins / 60);
+                                  const m = mins % 60;
+                                  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+                                })()} {t('labels.duration')}
                               </span>
                            </div>
                         </div>

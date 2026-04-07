@@ -16,15 +16,15 @@ BEGIN
   SELECT COUNT(*) INTO total_approved FROM core.attractions WHERE approved = true;
   
   RETURN QUERY
-  WITH lang_stats AS (
-    -- Agrupamento dinâmico por idioma (normalizando para 2 letras, ex: pt-BR -> PT)
-    SELECT 
-      UPPER(LEFT(ad.language, 2)) as lang,
-      COUNT(DISTINCT a.id) as count
-    FROM core.attractions a
-    JOIN core.attraction_descriptions ad ON a.id = ad.attraction_id
-    WHERE a.approved = true
-    GROUP BY UPPER(LEFT(ad.language, 2))
+    WITH lang_stats AS (
+      -- Agrupamento por idioma completo (preservando variações regionais)
+      SELECT 
+        UPPER(ad.language) as lang,
+        COUNT(DISTINCT a.id) as count
+      FROM core.attractions a
+      JOIN core.attraction_descriptions ad ON a.id = ad.attraction_id
+      WHERE a.approved = true
+      GROUP BY UPPER(ad.language)
     ORDER BY count DESC
   )
   SELECT 

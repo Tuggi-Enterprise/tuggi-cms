@@ -64,11 +64,12 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   const requestId = crypto.randomUUID();
-  console.log(`[${requestId}] 🚀 Daily Gamification Orchestrator started`);
+  const startTime = Date.now();
+  console.log(`[${requestId}] 🚀 Daily Gamification Orchestrator session started`);
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
+    const supabaseKey = (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '').trim();
     
     const supabase = createClient(supabaseUrl, supabaseKey);
     const driveClient = createClient(supabaseUrl, supabaseKey, {
@@ -81,6 +82,7 @@ Deno.serve(async (req) => {
 
     if (candidateError) throw candidateError;
     if (!candidates || candidates.length === 0) {
+      console.log(`[${requestId}] ℹ️ No candidates found for the current hour (7:00 AM local time check).`);
       return new Response(JSON.stringify({ success: true, message: 'No candidates for current hour' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -88,6 +90,8 @@ Deno.serve(async (req) => {
 
     console.log(`[${requestId}] 🎯 Found ${candidates.length} candidates to notify.`);
 
+    // Calculate 'yesterday' to match the summary_date logic (CURRENT_DATE - 1)
+    const yesterdayDate = new Date(Date.now() - 86400000).toISOString().split('T')[0];
     const userIdsNotified = [];
     const results = [];
 
@@ -102,47 +106,55 @@ Deno.serve(async (req) => {
         : i18n.body_zero_heard(user.nickname || i18n.fallback, user.missed_count);
 
       try {
-        const pushResponse = await fetch(pushUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
+        const { data: pushResult, error: pushInvokeError } = await supabase.functions.invoke('firebase-push-notification/send', {
+          body: {
             type: 'user',
             userIds: [user.user_id],
             notification: {
               title: i18n.title,
               body: messageBody,
+              badge: 1, // Habilita o "1" no ícone do app
               data: { source: 'daily-fomo', date: new Date().toISOString().split('T')[0] }
             },
             priority: 'high',
             ttl: 86400
-          })
+          }
         });
 
-        const pushResult = await pushResponse.json();
-        console.log(`[${requestId}] 📲 Push to ${user.nickname}: ${pushResponse.status}`, JSON.stringify(pushResult));
-        
-        results.push({ user_id: user.user_id, status: pushResponse.ok ? 'sent' : 'failed' });
-        if (pushResponse.ok) userIdsNotified.push(user.user_id);
+        if (pushInvokeError) {
+          console.error(`[${requestId}] ⚠️ Push failed for ${user.user_id}:`, pushInvokeError.message);
+          results.push({ user_id: user.user_id, status: 'error', error: pushInvokeError.message });
+          await driveClient.rpc('increment_fomo_attempt', { p_user_id: user.user_id, p_date: yesterdayDate });
+        } else {
+          console.log(`[${requestId}] 📲 Push to ${user.nickname}: Success`, JSON.stringify(pushResult));
+          results.push({ user_id: user.user_id, status: 'sent' });
+          userIdsNotified.push(user.user_id);
+        }
 
-      } catch (pushErr) {
-        console.error(`[${requestId}] ⚠️ Push failed for ${user.user_id}:`, pushErr.message);
+      } catch (pushErr: any) {
+        console.error(`[${requestId}] 💥 Unexpected error for ${user.user_id}:`, pushErr.message);
         results.push({ user_id: user.user_id, status: 'error', error: pushErr.message });
+        await driveClient.rpc('increment_fomo_attempt', { p_user_id: user.user_id, p_date: yesterdayDate });
       }
     }
 
     // 3. Mark cache as notified to avoid double-send
     if (userIdsNotified.length > 0) {
-      await driveClient
+      console.log(`[${requestId}] 📝 Marking ${userIdsNotified.length} users notified for ${yesterdayDate}`);
+      
+      const { error: updateError } = await driveClient
         .from('daily_user_fomo_stats')
         .update({ notified_at: new Date().toISOString() })
         .in('user_id', userIdsNotified)
-        .eq('summary_date', new Date(Date.now() - 86400000).toISOString().split('T')[0]);
+        .eq('summary_date', yesterdayDate);
+      
+      if (updateError) {
+        console.error(`[${requestId}] ❌ Error marking notified candidates:`, updateError.message);
+      }
     }
 
-    console.log(`[${requestId}] ✅ Done. Sent: ${userIdsNotified.length}/${candidates.length}`);
+    const duration = Date.now() - startTime;
+    console.log(`[${requestId}] ✅ Orchestration finished in ${duration}ms. Sent: ${userIdsNotified.length}/${candidates.length}`);
 
     return new Response(JSON.stringify({ 
       success: true, 

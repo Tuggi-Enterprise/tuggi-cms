@@ -27,6 +27,9 @@ DECLARE
   v_unique_pois_per_trip BIGINT;
   v_total_distance_km FLOAT;
   v_top_categories JSONB;
+  v_total_cities BIGINT;
+  v_total_time_minutes FLOAT;
+  v_member_since TIMESTAMPTZ;
 BEGIN
   -- SECURITY: Check if caller is Admin in core.cms_users or the actual user
   SELECT (role = 'admin') INTO v_is_admin FROM core.cms_users WHERE email = v_caller_email AND is_active = true;
@@ -35,33 +38,52 @@ BEGIN
     RAISE EXCEPTION 'Access Denied: You can only view your own passport data.';
   END IF;
 
-  -- 1. Total trips
+  -- 1. Total trips (only sessions with discoveries, ignoring Epoch 0 noise)
   SELECT COUNT(DISTINCT trip_session_id) 
   INTO v_total_trips 
-  FROM drive.route_trail 
-  WHERE user_id = p_user_id;
+  FROM drive.poi_visits 
+  WHERE user_id = p_user_id
+    AND visit_timestamp > '2000-01-01';
 
-  -- 2. Total unique POIs across all trips (sum of unique per trip)
+  -- 2. Total unique POIs across all trips (matching sane dates)
   WITH unique_per_session AS (
     SELECT trip_session_id, COUNT(DISTINCT poi_id) as unique_count
     FROM drive.poi_visits
     WHERE user_id = p_user_id
+        AND visit_timestamp > '2000-01-01'
     GROUP BY trip_session_id
   )
   SELECT COALESCE(SUM(unique_count), 0)
   INTO v_unique_pois_per_trip
   FROM unique_per_session;
 
-  -- 3. Total distance (accumulated length of all trips)
-  WITH trip_geoms AS (
-    SELECT trip_session_id, ST_MakeLine(ST_SetSRID(ST_MakePoint(longitude, latitude), 4326) ORDER BY timestamp) as trip_line
-    FROM drive.route_trail
-    WHERE user_id = p_user_id
-    GROUP BY trip_session_id
+  -- 3. Total distance (Calculated segment-by-segment for sanity, skipping 1970 data)
+  WITH point_deltas AS (
+    SELECT 
+      rt.trip_session_id,
+      ST_SetSRID(ST_MakePoint(rt.longitude, rt.latitude), 4326)::geography as current_geom,
+      LAG(ST_SetSRID(ST_MakePoint(rt.longitude, rt.latitude), 4326)::geography) OVER (PARTITION BY rt.trip_session_id ORDER BY rt.timestamp) as prev_geom,
+      rt.timestamp as current_ts,
+      LAG(rt.timestamp) OVER (PARTITION BY rt.trip_session_id ORDER BY rt.timestamp) as prev_ts
+    FROM drive.route_trail rt
+    JOIN drive.poi_visits pv ON pv.trip_session_id = rt.trip_session_id -- Only trips with discoveries
+    WHERE rt.user_id = p_user_id
+      AND rt.latitude != 0 AND rt.longitude != 0
+      AND rt.timestamp > '2000-01-01'
+  ),
+  segments AS (
+    SELECT 
+      ST_Distance(current_geom, prev_geom) as dist_meters,
+      EXTRACT(EPOCH FROM (current_ts - prev_ts)) as time_diff
+    FROM point_deltas
+    WHERE prev_geom IS NOT NULL AND prev_ts IS NOT NULL
+      AND current_ts > prev_ts
   )
-  SELECT COALESCE(SUM(ST_Length(trip_line::geography)) / 1000.0, 0)
+  SELECT COALESCE(SUM(dist_meters) FILTER (
+    WHERE (dist_meters / NULLIF(time_diff, 0)) < 150 -- Safety: speed below 150m/s (540km/h) to ignore "teleportation"
+  ), 0) / 1000.0
   INTO v_total_distance_km
-  FROM trip_geoms;
+  FROM segments;
 
   -- 4. Top categories (breakdown by osm_category)
   SELECT COALESCE(jsonb_agg(sub.cat_row), '[]'::jsonb)
@@ -79,11 +101,44 @@ BEGIN
     LIMIT 5
   ) sub;
 
+  -- 5. Total cities explored (post-2025/sanity)
+  SELECT COUNT(DISTINCT a.city)
+  INTO v_total_cities
+  FROM drive.poi_visits pv
+  JOIN core.attractions a ON a.id = pv.poi_id
+  WHERE pv.user_id = p_user_id
+    AND pv.visit_timestamp > '2000-01-01'
+    AND a.city IS NOT NULL AND a.city <> '';
+
+  -- 6. Total duration of guided trips (only sessions with discoveries)
+  SELECT COALESCE(SUM(duration_minutes), 0)
+  INTO v_total_time_minutes
+  FROM drive.trail_trips_unified
+  WHERE user_id = p_user_id
+    AND trip_start > '2000-01-01'
+    AND trip_session_id IN (
+      SELECT DISTINCT trip_session_id 
+      FROM drive.poi_visits 
+      WHERE user_id = p_user_id
+    );
+
+  -- 7. Start date of the journey (Safe check across schemas)
+  SELECT created_at INTO v_member_since 
+  FROM drive.profiles 
+  WHERE id = p_user_id;
+
+  IF v_member_since IS NULL THEN
+    SELECT created_at INTO v_member_since FROM public.profiles WHERE id = p_user_id;
+  END IF;
+
   RETURN jsonb_build_object(
-    'total_trips', v_total_trips,
-    'total_passed_lifetime', v_unique_pois_per_trip,
-    'top_categories', v_top_categories,
-    'total_distance_km', ROUND(v_total_distance_km::numeric, 1)
+    'total_trips', COALESCE(v_total_trips, 0),
+    'total_passed_lifetime', COALESCE(v_unique_pois_per_trip, 0),
+    'top_categories', COALESCE(v_top_categories, '[]'::jsonb),
+    'total_distance_km', ROUND(COALESCE(v_total_distance_km, 0)::numeric, 1),
+    'total_cities_count', COALESCE(v_total_cities, 0),
+    'total_time_minutes', ROUND(COALESCE(v_total_time_minutes, 0)::numeric, 0),
+    'member_since', v_member_since
   );
 END;
 $$;
@@ -217,9 +272,17 @@ BEGIN
         t.trip_end,
         t.duration_minutes::FLOAT,
         t.avg_speed::FLOAT,
-        (SELECT COUNT(DISTINCT poi_id) FROM drive.poi_visits pv WHERE pv.trip_session_id = t.trip_session_id) as heard_count
+        sub.heard_count
     FROM drive.trail_trips_unified t
+    JOIN (
+        SELECT pv.trip_session_id, COUNT(DISTINCT pv.poi_id) as heard_count
+        FROM drive.poi_visits pv
+        WHERE pv.user_id = p_user_id
+        GROUP BY pv.trip_session_id
+        HAVING COUNT(DISTINCT pv.poi_id) > 0
+    ) sub ON sub.trip_session_id = t.trip_session_id
     WHERE t.user_id = p_user_id
+      AND t.trip_start > '2000-01-01' -- Ignore Epoch 0 noise
     ORDER BY t.trip_start DESC;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

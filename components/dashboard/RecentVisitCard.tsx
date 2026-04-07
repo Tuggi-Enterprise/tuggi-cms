@@ -11,6 +11,7 @@ export interface RecentVisit {
   visit_timestamp: string
   audio_played: boolean
   platform: string
+  audio_language: string
 }
 
 export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale: string }) => (
@@ -32,18 +33,27 @@ export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale:
     </div>
 
     {/* CONTENT */}
-    <div className="flex-1 min-w-0">
-      <div className="flex items-center gap-2 mb-0.5">
-        <span className="text-xs font-black text-gray-900 dark:text-white truncate max-w-[140px] group-hover:text-tuggi-blue transition-colors">
-          {visit.poi_name}
-        </span>
-        {visit.platform && (
-          <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-sm bg-gray-200/50 dark:bg-gray-700/50 text-gray-500 tracking-tighter">
-            {visit.platform}
+    <div className="flex-1 min-w-0 pr-2">
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] font-black text-gray-900 dark:text-white truncate group-hover:text-tuggi-blue transition-colors max-w-[200px]">
+            {visit.poi_name}
           </span>
-        )}
+          <div className="flex items-center gap-1">
+            {visit.audio_language && visit.audio_language !== 'unknown' && (
+              <span className="text-[7px] font-black uppercase px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 border border-blue-200/50 tracking-tighter">
+                {visit.audio_language}
+              </span>
+            )}
+            {visit.platform && (
+              <span className="text-[7px] font-black uppercase px-1 py-0.5 rounded bg-gray-200/50 dark:bg-gray-700/50 text-gray-500 tracking-tighter">
+                {visit.platform}
+              </span>
+            )}
+          </div>
+        </div>
+        <p className="text-[9px] font-bold text-gray-400 uppercase truncate tracking-widest">{visit.poi_city}</p>
       </div>
-      <p className="text-[10px] font-bold text-gray-400 uppercase truncate tracking-widest">{visit.poi_city}</p>
     </div>
 
     {/* METADATA */}
