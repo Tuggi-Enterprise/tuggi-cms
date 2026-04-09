@@ -373,13 +373,14 @@ function POIMapInner({
           position,
           title: `${poi.name}`,
           icon: createMarkerIcon(status, isSelected),
-          label: zoomLevel >= 16 ? {
+          label: zoomLevel >= 17 ? {
             text: poi.name,
             color: '#1F2937',
-            fontSize: '11px',
-            fontWeight: '700',
+            fontSize: '10px',
+            fontWeight: '600',
             className: 'poi-map-label'
           } : null,
+          optimized: true,
           map: mapInstanceRef.current!,
           cursor: 'pointer'
         })

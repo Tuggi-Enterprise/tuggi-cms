@@ -259,13 +259,14 @@ function POITriggerMapInner({
         position: poiPos,
         title: poi.name,
         icon: createPOIMarkerIcon(poi.approved),
-        label: zoomLevel >= 16 ? {
+        label: zoomLevel >= 17 ? {
           text: poi.name,
           color: '#1F2937',
-          fontSize: '11px',
-          fontWeight: '700',
+          fontSize: '10px',
+          fontWeight: '600',
           className: 'poi-map-label'
         } : null,
+        optimized: true,
         map: mapInstanceRef.current!,
         zIndex: 100
       })
