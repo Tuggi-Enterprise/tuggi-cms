@@ -59,6 +59,7 @@ export interface POI {
   available_languages: string[]
   trigger_points_count: number
   active_trigger_points_count: number
+  trigger_points?: any[]
   is_active: boolean
   reference_links?: string[]
   descriptions?: any[]
@@ -167,6 +168,27 @@ class POIService {
   private static readonly CACHE_TTL = 2 * 60 * 1000 // 2 minutes
   private static cache: Map<string, { data: any; timestamp: number }> = new Map()
   
+  /**
+   * Search POIs with Trigger Point coordinates (Optimized for Map Visualization)
+   */
+  static async getWithTriggers(filters: { city: string; state?: string; country?: string }): Promise<POI[]> {
+    const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server');
+    const { data, error } = await supabase
+      .schema('core')
+      .rpc('get_pois_with_trigger_coords', {
+        p_city_filter: filters.city,
+        p_state_filter: filters.state || null,
+        p_country_filter: filters.country || null
+      })
+
+    if (error) {
+      console.error('Error fetching POIs with triggers:', error)
+      throw error
+    }
+
+    return (data || []).map((row: any) => this.transformToPOI(row))
+  }
+
   /**
    * Search POIs with filters using RPC
    */
@@ -815,6 +837,7 @@ class POIService {
       available_languages: data.descriptions?.map((d: any) => d.language) || [],
       trigger_points_count: data.trigger_points?.length || 0,
       active_trigger_points_count: data.trigger_points?.filter((tp: any) => tp.is_active)?.length || 0,
+      trigger_points: data.trigger_points || [],
       descriptions: data.descriptions,
       group_status: data.group_membership?.[0] ? {
         is_in_group: true,
@@ -868,6 +891,8 @@ class POIService {
  * Convenience functions for common use cases
  */
 export const poiService = {
+  getWithTriggers: (filters: { city: string; state?: string; country?: string }) => 
+    POIService.getWithTriggers(filters),
   search: (filters: POISearchFilters) => POIService.search(filters),
   getForProcessing: (type: 'trigger_points' | 'descriptions' | 'osm_enrichment', filters: any) => 
     POIService.getForProcessing(type, filters),

@@ -257,7 +257,9 @@ BEGIN
           jsonb_build_object(
             ''id'', atp.id,
             ''is_active'', atp.is_active,
-            ''type'', atp.type
+            ''type'', atp.type,
+            ''latitude'', ST_Y(atp.location::geometry),
+            ''longitude'', ST_X(atp.location::geometry)
           )
         ) FROM core.attraction_trigger_points atp WHERE atp.attraction_id = a.id), 
         ''[]''::jsonb

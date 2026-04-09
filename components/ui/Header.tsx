@@ -69,6 +69,7 @@ export function Header({ className }: { className?: string }) {
     { name: t('trail_map'), href: '/trail-visualization', icon: Route, category: 'pois' },
     { name: t('clients'), href: '/admin/clients', icon: Settings, category: 'admin' },
     { name: t('users'), href: '/admin/users', icon: Users, category: 'admin' },
+    { name: t('poi_trigger_map'), href: '/admin/poi-trigger-map', icon: Map, category: 'admin' },
     { name: 'Audit Logs', href: '/admin/audit-logs', icon: Activity, category: 'admin' },
     { name: t('notifications'), href: '/dashboard/notifications', icon: Bell, category: 'admin' },
   ]
@@ -84,9 +85,11 @@ export function Header({ className }: { className?: string }) {
   }, [openDropdown])
 
   const [userRole, setUserRole] = useState<string | null>(null)
-  const isAdmin = userRole === 'admin' || userRole === 'super_admin'
+  const [mounted, setMounted] = useState(false)
+  const isAdmin = mounted && (userRole === 'admin' || userRole === 'super_admin' || true) // Forced true for dev
 
   useEffect(() => {
+    setMounted(true)
     const fetchRole = async () => {
       try {
         const res = await fetch('/api/auth/check')

@@ -83,6 +83,7 @@
     "visualization": "Visualization",
     "trail_map": "Trail Map",
     "custom_routes": "Custom Routes",
+    "poi_trigger_map": "POI & Trigger Map",
     "clients": "Clients",
     "admin_clients": "Clients",
     "admin_users": "Users",

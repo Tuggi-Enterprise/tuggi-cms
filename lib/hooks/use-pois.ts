@@ -17,4 +17,11 @@ export function usePOIs(filters: POISearchFilters) {
     gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes (formerly cacheTime)
   })
 }
-
+export function usePOIsWithTriggers(filters: { city: string; state?: string; country?: string }, enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['pois-with-triggers', filters],
+    queryFn: () => poiService.getWithTriggers(filters),
+    enabled: !!filters.city && enabled,
+    staleTime: 60 * 1000 // 1 minute
+  })
+}
