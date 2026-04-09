@@ -263,8 +263,10 @@ async function processPOIItem(
                 GEMINI_API_KEY,
                 undefined, // poiData
                 audioDuration,
-                memberPois, // Pass member POIs as new argument
+                memberPois,
+                poiDataFromDB?.reference_links || [], // Links de referência do CMS
             );
+
         }
 
         // 4. Save & Audio
@@ -428,7 +430,8 @@ serve(async (req) => {
             );
             const { data: poiInfos } = await supabaseAdmin.schema("core")
                 .from("attractions")
-                .select("id, name, city, state, osm_tags")
+                .select("id, name, city, state, osm_tags, website, reference_links")
+
                 .in("id", poiIds);
 
             // 3. Process Sequentially (or chunked)
@@ -499,7 +502,8 @@ serve(async (req) => {
             // Fetch POI Data
             const { data: poiData } = await supabaseAdmin.schema("core")
                 .from("attractions")
-                .select("name, city, state, osm_tags")
+                .select("name, city, state, osm_tags, website, reference_links")
+
                 .eq("id", manual.poi_id)
                 .single();
 

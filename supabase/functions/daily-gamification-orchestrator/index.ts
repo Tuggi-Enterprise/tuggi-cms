@@ -113,7 +113,6 @@ Deno.serve(async (req) => {
             notification: {
               title: i18n.title,
               body: messageBody,
-              badge: 1, // Habilita o "1" no ícone do app
               data: { source: 'daily-fomo', date: new Date().toISOString().split('T')[0] }
             },
             priority: 'high',

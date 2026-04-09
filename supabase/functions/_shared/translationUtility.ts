@@ -60,7 +60,8 @@ Translated text only (no labels, no explanations, no tags).`;
     // Try Flash-Lite first, then Flash as fallback
     const models = [
         'gemini-2.5-flash-lite',
-        'gemini-2.0-flash'
+        'gemini-2.5-flash',
+        'gemini-1.5-flash'
     ];
 
     let lastError: Error | null = null;

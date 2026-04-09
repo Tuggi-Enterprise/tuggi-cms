@@ -164,7 +164,7 @@ Deno.serve(async (req) => {
               },
               'mutable-content': 1,
               sound: 'default',
-              // REMOVIDO: badge no iOS retirado para evitar "Sticky Number" 
+              ...(notification.badge !== undefined && { badge: notification.badge }),
             },
           },
         },
