@@ -59,6 +59,7 @@ function POIListWithSearchParams() {
   const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [countryFilter, setCountryFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
+  const [showTriggers, setShowTriggers] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
   const [osmCategoryFilter, setOsmCategoryFilter] = useState<string>('all')
   
@@ -938,6 +939,28 @@ function POIListWithSearchParams() {
                         </option>
                       ))}
                     </select>
+
+                    {/* Trigger Points Toggle */}
+                    <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+                      <label className="flex items-center justify-between cursor-pointer group p-1">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('filters.show_triggers')}</span>
+                          <span className="text-[9px] text-gray-400 group-hover:text-tuggi-blue transition-colors">Visualizar no Mapa</span>
+                        </div>
+                        <div 
+                          onClick={() => setShowTriggers(!showTriggers)}
+                          className={cn(
+                            "w-10 h-5 rounded-full transition-all duration-300 relative border",
+                            showTriggers ? "bg-tuggi-blue border-tuggi-blue" : "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+                          )}
+                        >
+                          <div className={cn(
+                            "absolute top-1 w-3 h-3 rounded-full bg-white transition-all duration-300 shadow-sm",
+                            showTriggers ? "left-6" : "left-1"
+                          )} />
+                        </div>
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1081,6 +1104,7 @@ function POIListWithSearchParams() {
                   contentStatusFilter={contentStatusFilter}
                   groupStatusFilter={groupStatusFilter}
                   triggerPointsFilter={triggerPointsFilter}
+                  showTriggers={showTriggers}
                   onPOIClick={handleSelectPoiForMap}
                   height="70vh"
                   className="w-full"

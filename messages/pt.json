@@ -1130,6 +1130,7 @@
       "record_type": "Tipo de Registro",
       "category": "Categoria da Atração",
       "clear_all": "Limpar Tudo",
+      "show_triggers": "Ver Gatilhos",
       "search_placeholder": "Buscar POIs...",
       "search_category": "Ex: museu, parque...",
       "country": "País",

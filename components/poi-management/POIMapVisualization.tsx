@@ -54,6 +54,15 @@ export interface POI {
   available_languages: string[]
   trigger_points_count: number
   active_trigger_points_count: number
+  // Expanded trigger points for detailed visualization
+  trigger_points?: Array<{
+    id: string
+    is_active: boolean
+    type: string
+    latitude: number
+    longitude: number
+    bearing: number | null
+  }>
   // Server-side clustering support
   type?: 'cluster' | 'poi'
   count?: number
@@ -90,6 +99,7 @@ export interface POIMapVisualizationProps {
   contentStatusFilter: string
   groupStatusFilter?: string
   triggerPointsFilter?: string
+  showTriggers?: boolean
   
   // Callbacks
   onPOIClick: (poi: POI) => void
@@ -148,6 +158,31 @@ function createMarkerIcon(status: POIStatus, isSelected: boolean = false): googl
       </svg>
     `),
     scaledSize: new google.maps.Size(size, size),
+    anchor: new google.maps.Point(size / 2, size / 2),
+    labelOrigin: new google.maps.Point(size / 2, size + 10)
+  }
+}
+
+function createTriggerMarkerIcon(is_active: boolean, bearing: number | null): google.maps.Icon {
+  const color = '#F97316'
+  const size = 18
+  const opacity = is_active ? 1 : 0.5
+  const hasBearing = bearing !== null && bearing !== undefined
+  
+  const svg = `
+    <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="6" fill="${color}" fill-opacity="${opacity}" stroke="white" stroke-width="2"/>
+      ${hasBearing ? `
+        <g transform="rotate(${bearing}, 12, 12)">
+          <path d="M12 2L16 8H8L12 2Z" fill="${color}" fill-opacity="${opacity}" stroke="white" stroke-width="1"/>
+        </g>
+      ` : ''}
+    </svg>
+  `
+  
+  return {
+    url: 'data:image/svg+xml;base64,' + btoa(svg),
+    scaledSize: new google.maps.Size(size, size),
     anchor: new google.maps.Point(size / 2, size / 2)
   }
 }
@@ -166,6 +201,7 @@ function POIMapInner({
   onBoundsChanged,
   onPOIUpdated,
   onPOIDeleted,
+  showTriggers = false,
   height,
   className,
   initialCenter = { lat: 39.8283, lng: -98.5795 }, // Center of USA
@@ -174,6 +210,8 @@ function POIMapInner({
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const markersRef = useRef<Map<string, google.maps.Marker>>(new Map())
+  const triggerMarkersRef = useRef<google.maps.Marker[]>([])
+  const polylinesRef = useRef<google.maps.Polyline[]>([])
   const boundariesRef = useRef<google.maps.Polygon[]>([])
   const boundsChangedTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   
@@ -189,6 +227,7 @@ function POIMapInner({
     center: initialCenter,
     zoom: initialZoom
   })
+  const [zoomLevel, setZoomLevel] = useState(initialZoom)
 
   // 1. Initialize Map
   const initializeMap = useCallback(() => {
@@ -229,6 +268,7 @@ function POIMapInner({
         ...prev,
         zoom: zoom
       }))
+      setZoomLevel(zoom)
     })
 
     // Bounds change listener (debounced) - This triggers server fetch
@@ -276,6 +316,10 @@ function POIMapInner({
     // Clear existing
     markersRef.current.forEach(marker => marker.setMap(null))
     markersRef.current.clear()
+    triggerMarkersRef.current.forEach(m => m.setMap(null))
+    triggerMarkersRef.current = []
+    polylinesRef.current.forEach(p => p.setMap(null))
+    polylinesRef.current = []
 
     console.log(`🗺️ [POIMapVisualization] Rendering ${pois.length} items`)
 
@@ -324,13 +368,54 @@ function POIMapInner({
       } else {
         // Individual POI
         const status = getPOIStatus(poi)
+        
         marker = new google.maps.Marker({
           position,
           title: `${poi.name}`,
           icon: createMarkerIcon(status, isSelected),
+          label: zoomLevel >= 16 ? {
+            text: poi.name,
+            color: '#1F2937',
+            fontSize: '11px',
+            fontWeight: '700',
+            className: 'poi-map-label'
+          } : null,
           map: mapInstanceRef.current!,
           cursor: 'pointer'
         })
+
+        // ... event listeners ...
+
+        // NEW: Draw Triggers if requested
+        if (showTriggers && poi.trigger_points) {
+          poi.trigger_points.forEach(tp => {
+            if (!tp.latitude || !tp.longitude) return
+            const tpPos = new google.maps.LatLng(tp.latitude, tp.longitude)
+            
+            const tpMarker = new google.maps.Marker({
+              position: tpPos,
+              icon: createTriggerMarkerIcon(tp.is_active, tp.bearing),
+              map: mapInstanceRef.current!,
+              zIndex: 50
+            })
+            triggerMarkersRef.current.push(tpMarker)
+
+            const polyline = new google.maps.Polyline({
+              path: [position, tpPos],
+              geodesic: true,
+              strokeColor: '#F97316',
+              strokeOpacity: 0.6,
+              strokeWeight: 2,
+              icons: [{
+                icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, scale: 2 },
+                offset: '0',
+                repeat: '10px'
+              }],
+              map: mapInstanceRef.current!
+            })
+            polylinesRef.current.push(polyline)
+          })
+        }
 
         const infoContent = `
         <div class="p-3 max-w-xs">
@@ -370,7 +455,7 @@ function POIMapInner({
 
       markersRef.current.set(poi.id, marker)
     })
-  }, [pois, onPOIClick, selectedPOI])
+  }, [pois, onPOIClick, selectedPOI, zoomLevel, showTriggers])
 
   useEffect(() => {
     if (mapInstanceRef.current && pois.length > 0) {
@@ -425,15 +510,23 @@ function POIMapInner({
       const polygon = new google.maps.Polygon({
         paths: paths,
         fillColor: '#3B82F6',
-        fillOpacity: 0.1,
-        strokeColor: '#1E40AF',
+        fillOpacity: 0.05,
+        strokeColor: '#3B82F6',
         strokeWeight: 2,
+        strokeOpacity: 0.3,
         clickable: true,
         map: mapInstanceRef.current
       })
       boundariesRef.current.push(polygon)
+
+      // Auto-focus on city boundary
+      if (paths.length > 0 && mapInstanceRef.current && cityFilter) {
+        const bounds = new google.maps.LatLngBounds()
+        paths.forEach(p => bounds.extend(p))
+        mapInstanceRef.current.fitBounds(bounds)
+      }
     })
-  }, [cityBoundaries])
+  }, [cityBoundaries, cityFilter])
 
   useEffect(() => {
     fetchCityBoundaries()

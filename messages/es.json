@@ -1054,6 +1054,7 @@
     "filters": {
       "title": "Filtros",
       "clear_all": "Limpiar Todo",
+      "show_triggers": "Ver Disparadores",
       "search_placeholder": "Buscar POIs...",
       "country": "País",
       "state": "Estado",

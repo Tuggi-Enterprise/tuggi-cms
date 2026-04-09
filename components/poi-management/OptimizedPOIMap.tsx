@@ -5,6 +5,7 @@ import { Loader2, Map as MapIcon } from 'lucide-react'
 import { fetchPOIsForMap, MapPOI, MapSearchFilters } from '@/lib/services/poi-map-service'
 import { POIMapVisualization } from './POIMapVisualization'
 import { useQuery } from '@tanstack/react-query'
+import { usePOIsWithTriggers } from '@/lib/hooks/use-pois'
 
 interface OptimizedPOIMapProps {
   searchTerm: string
@@ -16,6 +17,7 @@ interface OptimizedPOIMapProps {
   contentStatusFilter: string
   groupStatusFilter?: string
   triggerPointsFilter?: string
+  showTriggers?: boolean
   onPOIClick: (poi: any) => void
   height?: string
   className?: string
@@ -40,6 +42,7 @@ export function OptimizedPOIMap({
   contentStatusFilter,
   groupStatusFilter,
   triggerPointsFilter,
+  showTriggers = false,
   onPOIClick,
   height = '600px',
   className
@@ -63,10 +66,17 @@ export function OptimizedPOIMap({
       if (!bounds) return { data: [], duration: 0 }
       return fetchPOIsForMap(filters, bounds, zoom)
     },
-    enabled: !!bounds,
     placeholderData: (previousData) => previousData, // Keep previous data while fetching new to avoid flickering
     staleTime: 60000, // 1 minute stale time
+    enabled: !!bounds && !showTriggers, // Only fetch standard map POIs if triggers mode is NOT active
   })
+
+  // NEW: Fetch detailed POIs with Triggers when mode is active
+  const { data: detailedPois, isLoading: isLoadingDetailed } = usePOIsWithTriggers({
+    city: cityFilter,
+    state: stateFilter,
+    country: countryFilter
+  }, showTriggers && !!cityFilter)
 
   const pois = searchResult?.data || []
   const loadingTime = searchResult?.duration || null
@@ -116,8 +126,23 @@ export function OptimizedPOIMap({
   }
 
   const transformedPois = useMemo(() => {
+    // If showTriggers is active, use the detailed data
+    if (showTriggers && detailedPois) {
+      return detailedPois.map(poi => ({
+        ...poi,
+        has_description: (poi.descriptions?.length || 0) > 0,
+        has_audio: (poi.descriptions?.some((d: any) => d.audio_url) || false),
+        description_count: poi.descriptions?.length || 0,
+        audio_count: 0,
+        available_languages: [],
+        trigger_points_count: poi.trigger_points?.length || 0,
+        active_trigger_points_count: poi.trigger_points?.filter((tp: any) => tp.is_active).length || 0
+      }))
+    }
     return transformMapPOIsForVisualization(pois)
-  }, [pois])
+  }, [pois, detailedPois, showTriggers])
+
+  const isAnyLoading = isLoading || isFetching || (showTriggers && isLoadingDetailed)
 
   return (
     <div className="relative">
@@ -158,6 +183,7 @@ export function OptimizedPOIMap({
         contentStatusFilter={contentStatusFilter as any}
         groupStatusFilter={groupStatusFilter as any}
         triggerPointsFilter={triggerPointsFilter as any}
+        showTriggers={showTriggers}
         onPOIClick={onPOIClick}
         height={height}
         className={className}

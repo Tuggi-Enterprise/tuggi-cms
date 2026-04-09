@@ -1131,6 +1131,7 @@
       "record_type": "Record Type",
       "category": "Attraction Category",
       "clear_all": "Clear All",
+      "show_triggers": "Show Trigger Points",
       "search_placeholder": "Search POIs...",
       "search_category": "Ex: museum, park...",
       "country": "Country",
