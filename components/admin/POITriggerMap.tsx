@@ -436,7 +436,7 @@ export function POITriggerMap(props: POITriggerMapProps) {
             )
           }
           if (status === Status.SUCCESS) return <POITriggerMapInner {...props} />
-          return null
+          return <></>
         }}
       />
     </div>
