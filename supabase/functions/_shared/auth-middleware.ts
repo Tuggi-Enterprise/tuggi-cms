@@ -133,11 +133,12 @@ export async function validateAuthHeader(
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // 4. Verify token with Supabase
-    const { data: { user }, error } = await supabase.auth.admin.getUserById(
-      // Extract user ID from JWT without validation first
-      decodeJWT(token).sub || "",
-    );
+    // 4. Verify token with Supabase using getUser() — the standard API
+    // ✅ FIX: Replaced decodeJWT + getUserById with getUser(token)
+    // Reason: @supabase/auth-js@2.102.1+ throws on non-UUID input to getUserById().
+    // getUser() validates the JWT cryptographically and works for ALL auth providers
+    // (Google OAuth, Apple, email/password) without needing to manually extract sub.
+    const { data: { user }, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
       console.warn(

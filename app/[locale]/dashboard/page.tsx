@@ -571,11 +571,11 @@ export default function DashboardPage() {
                              "w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shadow-sm shrink-0",
                              isRecent ? "bg-tuggi-blue text-white" : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-100 dark:border-gray-700"
                            )}>
-                              {activity.name.charAt(0).toUpperCase()}
+                              {activity.name?.charAt(0).toUpperCase() || '?'}
                            </div>
                            <div className="flex flex-col min-w-0">
                               <span className="text-xs font-black text-gray-900 dark:text-white truncate lg:max-w-[150px] leading-tight">
-                                {activity.name}
+                                {activity.name || 'Anonymous'}
                               </span>
                               <div className="flex items-center gap-1.5">
                                 <span className={cn(

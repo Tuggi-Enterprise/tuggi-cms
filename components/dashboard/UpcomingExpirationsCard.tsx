@@ -41,14 +41,14 @@ export const UpcomingExpirationsCard = ({ expiration, locale }: { expiration: Up
       {/* USER INFO */}
       <div className="flex-1 min-w-0">
         <p className="text-xs font-black text-gray-900 dark:text-white truncate">
-          {expiration.full_name || expiration.email.split('@')[0]}
+          {expiration.full_name || expiration.email?.split('@')[0] || 'Unknown User'}
         </p>
         <div className="flex items-center gap-1.5 mt-0.5">
            <span className={cn(
              "text-[9px] font-black uppercase px-2 py-0.5 rounded-sm tracking-wider",
-             expiration.tier_name.toLowerCase() === 'premium' ? "bg-tuggi-orange text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-500"
+             expiration.tier_name?.toLowerCase() === 'premium' ? "bg-tuggi-orange text-white" : "bg-gray-200 dark:bg-gray-700 text-gray-500"
            )}>
-             {expiration.tier_name}
+             {expiration.tier_name || '---'}
            </span>
         </div>
       </div>

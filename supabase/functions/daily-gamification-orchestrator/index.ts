@@ -106,32 +106,41 @@ Deno.serve(async (req) => {
         : i18n.body_zero_heard(user.nickname || i18n.fallback, user.missed_count);
 
       try {
-        const { data: pushResult, error: pushInvokeError } = await supabase.functions.invoke('firebase-push-notification/send', {
-          body: {
-            type: 'user',
-            userIds: [user.user_id],
-            notification: {
-              title: i18n.title,
-              body: messageBody,
-              data: { source: 'daily-fomo', date: new Date().toISOString().split('T')[0] }
-            },
-            priority: 'high',
-            ttl: 86400
-          }
+        const payload = {
+          type: 'user',
+          userIds: [user.user_id],
+          notification: {
+            title: i18n.title,
+            body: messageBody,
+            data: { source: 'daily-fomo', date: new Date().toISOString().split('T')[0] }
+          },
+          priority: 'high',
+          ttl: 86400
+        };
+
+        const pushResponse = await fetch(pushUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseKey}`,
+            'apikey': supabaseKey
+          },
+          body: JSON.stringify(payload)
         });
 
-        if (pushInvokeError) {
-          console.error(`[${requestId}] ⚠️ Push failed for ${user.user_id}:`, pushInvokeError.message);
-          results.push({ user_id: user.user_id, status: 'error', error: pushInvokeError.message });
-          await driveClient.rpc('increment_fomo_attempt', { p_user_id: user.user_id, p_date: yesterdayDate });
-        } else {
-          console.log(`[${requestId}] 📲 Push to ${user.nickname}: Success`, JSON.stringify(pushResult));
-          results.push({ user_id: user.user_id, status: 'sent' });
-          userIdsNotified.push(user.user_id);
+        if (!pushResponse.ok) {
+          const errText = await pushResponse.text();
+          throw new Error(`Edge Function returned a non-2xx status code: ${pushResponse.status} ${pushResponse.statusText} - ${errText}`);
         }
 
+        const pushResult = await pushResponse.json();
+
+        console.log(`[${requestId}] 📲 Push to ${user.nickname}: Success`, JSON.stringify(pushResult));
+        results.push({ user_id: user.user_id, status: 'sent' });
+        userIdsNotified.push(user.user_id);
+
       } catch (pushErr: any) {
-        console.error(`[${requestId}] 💥 Unexpected error for ${user.user_id}:`, pushErr.message);
+        console.error(`[${requestId}] ⚠️ Push failed for ${user.user_id}:`, pushErr.message);
         results.push({ user_id: user.user_id, status: 'error', error: pushErr.message });
         await driveClient.rpc('increment_fomo_attempt', { p_user_id: user.user_id, p_date: yesterdayDate });
       }
