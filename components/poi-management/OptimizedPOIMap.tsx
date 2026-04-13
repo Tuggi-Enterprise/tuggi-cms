@@ -32,6 +32,8 @@ interface OptimizedPOIMapProps {
  * - Lightweight data transfer
  * - Real-time progress updates
  */
+const TP_ZOOM_THRESHOLD = 14
+
 export function OptimizedPOIMap({
   searchTerm,
   statusFilter,
@@ -60,29 +62,29 @@ export function OptimizedPOIMap({
   }
 
   // Fetch POIs using React Query
+  // Standard map POIs (clusters) are shown if triggers are off OR if triggers are on but we are zoomed out
   const { data: searchResult, isLoading, isFetching } = useQuery({
     queryKey: ['map-pois', bounds, zoom, filters],
     queryFn: async () => {
       if (!bounds) return { data: [], duration: 0 }
       return fetchPOIsForMap(filters, bounds, zoom)
     },
-    placeholderData: (previousData) => previousData, // Keep previous data while fetching new to avoid flickering
-    staleTime: 60000, // 1 minute stale time
-    enabled: !!bounds && !showTriggers, // Only fetch standard map POIs if triggers mode is NOT active
+    placeholderData: (previousData) => previousData,
+    staleTime: 60000,
+    enabled: !!bounds && (!showTriggers || zoom < TP_ZOOM_THRESHOLD),
   })
 
-  // NEW: Fetch detailed POIs with Triggers when mode is active
+  // Detailed POIs with Triggers are only fetched when showTriggers is ON AND zoom is high enough
   const { data: detailedPois, isLoading: isLoadingDetailed } = usePOIsWithTriggers({
     city: cityFilter,
     state: stateFilter,
     country: countryFilter
-  }, showTriggers && !!cityFilter)
+  }, showTriggers && !!cityFilter && zoom >= TP_ZOOM_THRESHOLD)
 
   const pois = searchResult?.data || []
   const loadingTime = searchResult?.duration || null
 
   // Transform MapPOI to POI interface expected by POIMapVisualization
-  // TODO: Update POIMapVisualization to handle MapPOI directly and clusters
   function transformMapPOIsForVisualization(mapPois: MapPOI[]): any[] {
     return mapPois.map(poi => ({
       id: poi.id,
@@ -95,10 +97,8 @@ export function OptimizedPOIMap({
         latitude: poi.latitude,
         longitude: poi.longitude
       },
-      // Pass through new fields
       type: poi.type,
       count: poi.count,
-      // Default values to satisfy interface (for fields not returned by map RPC yet)
       category: '',
       approved_by: null,
       approved_at: null,
@@ -113,8 +113,6 @@ export function OptimizedPOIMap({
       photos_references: null,
       google_place_id: null,
       user_id: null,
-      
-      // Use extended fields
       has_description: poi.has_description !== undefined ? poi.has_description : false,
       has_audio: poi.has_audio !== undefined ? poi.has_audio : false,
       description_count: 0,
@@ -126,21 +124,35 @@ export function OptimizedPOIMap({
   }
 
   const transformedPois = useMemo(() => {
-    // If showTriggers is active, use the detailed data
-    if (showTriggers && detailedPois) {
-      return detailedPois.map(poi => ({
-        ...poi,
-        has_description: (poi.descriptions?.length || 0) > 0,
-        has_audio: (poi.descriptions?.some((d: any) => d.audio_url) || false),
-        description_count: poi.descriptions?.length || 0,
-        audio_count: 0,
-        available_languages: [],
-        trigger_points_count: poi.trigger_points?.length || 0,
-        active_trigger_points_count: poi.trigger_points?.filter((tp: any) => tp.is_active).length || 0
-      }))
+    // If showTriggers is active and zoom is sufficient, use the detailed data
+    if (showTriggers && detailedPois && zoom >= TP_ZOOM_THRESHOLD) {
+      // PERFORM VIEWPORT CLIPPING: Only render POIs within the current bounds
+      // This is crucial for performance when using detailed POI objects
+      return detailedPois
+        .filter(poi => {
+          if (!bounds || !poi.coordinates) return true
+          const { latitude, longitude } = poi.coordinates
+          return (
+            latitude >= bounds.minLat && 
+            latitude <= bounds.maxLat && 
+            longitude >= bounds.minLng && 
+            longitude <= bounds.maxLng
+          )
+        })
+        .map(poi => ({
+          ...poi,
+          has_description: (poi.descriptions?.length || 0) > 0,
+          has_audio: (poi.descriptions?.some((d: any) => d.audio_url) || false),
+          description_count: poi.descriptions?.length || 0,
+          audio_count: 0,
+          available_languages: [],
+          trigger_points_count: poi.trigger_points?.length || 0,
+          active_trigger_points_count: poi.trigger_points?.filter((tp: any) => tp.is_active).length || 0
+        }))
     }
     return transformMapPOIsForVisualization(pois)
-  }, [pois, detailedPois, showTriggers])
+  }, [pois, detailedPois, showTriggers, zoom, bounds])
+
 
   const isAnyLoading = isLoading || isFetching || (showTriggers && isLoadingDetailed)
 
@@ -158,13 +170,24 @@ export function OptimizedPOIMap({
         </div>
       )}
 
+      {/* Zoom Warning for Triggers */}
+      {showTriggers && zoom < TP_ZOOM_THRESHOLD && (
+        <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-10 bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800 rounded-full shadow-lg px-4 py-2">
+          <div className="flex items-center space-x-2">
+            <span className="text-xs font-semibold text-orange-700 dark:text-orange-400">
+              Zoom in to see Trigger Points 🔍
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Performance Stats */}
       {loadingTime !== null && (
         <div className="absolute top-4 right-4 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-sm px-3 py-2 text-xs">
           <div className="flex items-center space-x-2 text-gray-600 dark:text-gray-400">
             <MapIcon className="w-4 h-4" />
             <span>
-              {pois.length.toLocaleString()} items in {(loadingTime / 1000).toFixed(2)}s
+              {transformedPois.length.toLocaleString()} items in {(loadingTime / 1000).toFixed(2)}s
             </span>
           </div>
         </div>
@@ -173,7 +196,7 @@ export function OptimizedPOIMap({
       {/* Map Component */}
       <POIMapVisualization
         pois={transformedPois}
-        totalCount={pois.length} // This is just visible count now
+        totalCount={transformedPois.length} // Show visible count
         searchTerm={searchTerm}
         statusFilter={statusFilter}
         countryFilter={countryFilter}
@@ -183,7 +206,7 @@ export function OptimizedPOIMap({
         contentStatusFilter={contentStatusFilter as any}
         groupStatusFilter={groupStatusFilter as any}
         triggerPointsFilter={triggerPointsFilter as any}
-        showTriggers={showTriggers}
+        showTriggers={showTriggers && zoom >= TP_ZOOM_THRESHOLD}
         onPOIClick={onPOIClick}
         height={height}
         className={className}
@@ -193,6 +216,7 @@ export function OptimizedPOIMap({
           setZoom(newZoom)
         }}
       />
+
     </div>
   )
 }
