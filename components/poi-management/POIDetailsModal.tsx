@@ -18,6 +18,8 @@ import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getFullSizeImageUrl } from '@/lib/imageUtils'
 import { useAuthenticatedFunctionCall } from '@/lib/hooks/useAuthenticatedFunctionCall'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
+import { poiService } from '@/lib/core/poi-service'
+import { locationService } from '@/lib/core/location-service'
 
 export interface POI {
   id: string
@@ -537,12 +539,18 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
   // Helper to invalidate all POI-related caches for instant updates across all views
   const invalidateAllPOICaches = useCallback(async () => {
+    // Clear internal service caches first
+    poiService.clearCache()
+    locationService.clearCache()
+
     // Use refetchQueries with exact: false to match all queries starting with these keys
     await Promise.all([
       queryClient.refetchQueries({ queryKey: ['pois'], exact: false, type: 'active' }),
       queryClient.refetchQueries({ queryKey: ['map-pois'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['pois-with-triggers'], exact: false, type: 'active' }),
       queryClient.refetchQueries({ queryKey: ['osm-pois'], exact: false, type: 'active' }),
       queryClient.refetchQueries({ queryKey: ['osm-map-pois'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['osm-filter-options'], exact: false, type: 'active' }),
     ])
   }, [queryClient])
 
@@ -3968,6 +3976,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                   attractionName={getPoi()?.name || ''}
                   attractionCoordinates={getPoi()?.coordinates ? { lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude } : { lat: 0, lng: 0 }}
                   attractionTypes={getPoi()?.google_types || []}
+                  onUpdate={invalidateAllPOICaches}
                 />
               </div>
             ) : activeTab === 'narration-audio' ? (

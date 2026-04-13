@@ -147,6 +147,7 @@ export interface TriggerPointsManagerProps {
   attractionCoordinates: { lat: number; lng: number }
   attractionTypes?: string[]
   onClose?: () => void
+  onUpdate?: () => void
 }
 
 // Helper function types

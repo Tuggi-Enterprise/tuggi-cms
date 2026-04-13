@@ -29,7 +29,8 @@ export function TriggerPointsManager({
   attractionName,
   attractionCoordinates,
   attractionTypes = [],
-  onClose
+  onClose,
+  onUpdate
 }: TriggerPointsManagerProps) {
   const supabase = useSupabaseClient()
   const user = useUser()
@@ -190,6 +191,7 @@ export function TriggerPointsManager({
 
       // Show success notification
       setPoiUpdateSuccess(true)
+      if (onUpdate) onUpdate()
       setTimeout(() => setPoiUpdateSuccess(false), 3000) // Hide after 3 seconds
 
     } catch (error) {
@@ -325,9 +327,10 @@ export function TriggerPointsManager({
           throw new Error(errorMessage)
         }
 
-        console.log('✅ Trigger point created successfully:', result.data)
+      console.log('✅ Trigger point created successfully:', result.data)
       }
 
+      if (onUpdate) onUpdate()
       await loadTriggerPoints()
       handleCloseForm()
     } catch (err) {
@@ -368,6 +371,7 @@ export function TriggerPointsManager({
 
       console.log('✅ Trigger point deleted successfully:', result.data)
 
+      if (onUpdate) onUpdate()
       await loadTriggerPoints()
       if (selectedTriggerPoint?.id === triggerPointId) {
         handleCloseForm()
@@ -410,6 +414,7 @@ export function TriggerPointsManager({
       }
 
       console.log(`✅ Trigger point ${!currentStatus ? 'activated' : 'deactivated'} successfully:`, result.data)
+      if (onUpdate) onUpdate()
       await loadTriggerPoints()
 
     } catch (err) {

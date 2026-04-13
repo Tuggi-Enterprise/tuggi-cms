@@ -20,6 +20,7 @@ import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getThumbnailUrl } from '@/lib/imageUtils'
 import { useLocationData } from '@/lib/hooks/use-location-data'
 import { poiService, POI as POIType, POISearchFilters } from '@/lib/core/poi-service'
+import { locationService } from '@/lib/core/location-service'
 import { usePOIs } from '@/lib/hooks/use-pois'
 import { useTranslations } from 'next-intl'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
@@ -88,6 +89,23 @@ function POIListWithSearchParams() {
 
   // Debounce search term to avoid excessive filtering
   const debouncedSearchTerm = useDebounce(searchTerm, 300)
+
+  // Helper to invalidate all POI-related caches for instant updates across all views
+  const invalidateAllPOICaches = useCallback(async () => {
+    // Clear internal service caches first
+    poiService.clearCache()
+    locationService.clearCache()
+
+    // Use refetchQueries with exact: false to match all queries starting with these keys
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: ['pois'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['map-pois'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['pois-with-triggers'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['osm-pois'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['osm-map-pois'], exact: false, type: 'active' }),
+      queryClient.refetchQueries({ queryKey: ['osm-filter-options'], exact: false, type: 'active' }),
+    ])
+  }, [queryClient])
 
   // Function to update URL with current filter states and view mode
   const updateURL = useCallback((filters: {
@@ -1404,9 +1422,8 @@ function POIListWithSearchParams() {
           }}
           onUpdate={() => {
             console.log('📝 [PAGE] onUpdate called - Force refetching...')
+            invalidateAllPOICaches()
             fetchPois()
-            queryClient.invalidateQueries({ queryKey: ['pois'] })
-            queryClient.refetchQueries({ queryKey: ['pois'] })
           }}
           onPOIUpdated={(updatedPOI: any) => {
             console.log('📝 [PAGE] onPOIUpdated called - Syncing list and cache...')
@@ -1415,7 +1432,7 @@ function POIListWithSearchParams() {
             setSelectedPoi(updatedPOI)
             
             // 2. Invalidate cache globally for POIs
-            queryClient.invalidateQueries({ queryKey: ['pois'] })
+            invalidateAllPOICaches()
             
             // 3. Update the specific record in any active queries to be optimistic
             queryClient.setQueriesData({ queryKey: ['pois'], exact: false }, (oldData: any) => {
@@ -1429,7 +1446,6 @@ function POIListWithSearchParams() {
             // 4. Force a hard refetch after a small delay to catch backend changes
             setTimeout(() => {
               fetchPois()
-              queryClient.refetchQueries({ queryKey: ['pois'] })
             }, 300)
           }}
           onPOIDeleted={(deletedId) => {
@@ -1454,7 +1470,7 @@ function POIListWithSearchParams() {
             })
              
             // 3. Invalidate and Refetch
-            queryClient.invalidateQueries({ queryKey: ['pois'] })
+            invalidateAllPOICaches()
             
             // 4. Update URL
             const params = new URLSearchParams(searchParams.toString())
