@@ -108,6 +108,7 @@ const UserDetailModal = ({
   const [tiers, setTiers] = useState<any[]>([])
   const [selectedTierId, setSelectedTierId] = useState<string>('')
   const [selectedEndDate, setSelectedEndDate] = useState<string>('')
+  const [selectedDays, setSelectedDays] = useState<number | null>(null)
   const [isSavingSub, setIsSavingSub] = useState(false)
 
   useEffect(() => {
@@ -161,6 +162,7 @@ const UserDetailModal = ({
     } else {
       setSelectedEndDate('')
     }
+    setSelectedDays(null)
     
     setIsEditingSub(true)
   }
@@ -419,15 +421,37 @@ const UserDetailModal = ({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
-                        {t('exp_date')}
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+                        {t('duration')}
                       </label>
-                      <input 
-                        type="date" 
-                        value={selectedEndDate} 
-                        onChange={e => setSelectedEndDate(e.target.value)}
-                        className="w-full text-sm py-1.5 px-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-1 focus:ring-tuggi-blue"
-                      />
+                      <div className="flex gap-2">
+                        {[7, 15, 30].map(days => (
+                          <button
+                            key={days}
+                            type="button"
+                            onClick={() => {
+                              const date = new Date()
+                              date.setDate(date.getDate() + days)
+                              setSelectedEndDate(date.toISOString().split('T')[0])
+                              setSelectedDays(days)
+                            }}
+                            className={cn(
+                              "flex-1 py-2 text-xs font-black rounded-lg border transition-all",
+                              selectedDays === days 
+                                ? "bg-tuggi-blue text-white border-tuggi-blue shadow-md" 
+                                : "bg-white dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700 hover:border-tuggi-blue/50"
+                            )}
+                          >
+                            {days} {t('days_unit') || 'dias'}
+                          </button>
+                        ))}
+                      </div>
+                      
+                      {selectedEndDate && (
+                        <p className="mt-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-center">
+                          {t('expires_at')}: {new Date(selectedEndDate).toLocaleDateString()}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}

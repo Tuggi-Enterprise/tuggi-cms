@@ -76,7 +76,9 @@ export async function PATCH(
     // Build update payload
     const updatePayload: Record<string, any> = {
       subscription_provider: 'admin',
-      subscription_provider_id: 'admin',
+      subscription_provider_id: adminData.cmsUser.id,
+      subscription_start_date: new Date().toISOString(),
+      subscription_granted_by: adminData.cmsUser.id,
     }
 
     if (subscription_tier_id !== undefined) {

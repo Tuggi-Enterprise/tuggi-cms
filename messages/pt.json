@@ -660,7 +660,9 @@
         "app_version": "App Version",
         "logins": "Logins",
         "unnamed": "Sem nome",
-        "no_nickname": "sem-nickname"
+        "no_nickname": "sem-nickname",
+        "duration": "Duração",
+        "days_unit": "dias"
       }
     },
     "Notifications": {

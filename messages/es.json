@@ -650,7 +650,9 @@
         "app_version": "Versión de la App",
         "logins": "Inicios de sesión",
         "unnamed": "Sin nombre",
-        "no_nickname": "sin-nickname"
+        "no_nickname": "sin-nickname",
+        "duration": "Duración",
+        "days_unit": "días"
       }
     }
   },
