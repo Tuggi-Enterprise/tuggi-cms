@@ -403,6 +403,14 @@ function POIListWithSearchParams() {
 
 
 
+  // Track whether the current country has states in the database
+  const countryHasStates = useMemo(() => {
+    // If no country selected or still loading, assume it has states
+    if (!countryFilter || locationData.statesLoading) return true
+    // After loading, check if the states array is non-empty
+    return locationData.states.length > 0
+  }, [countryFilter, locationData.states, locationData.statesLoading])
+
   // Stable references to prevent infinite loops
   const loadStatesForCountry = useCallback((country: string) => {
     if (country) {
@@ -414,15 +422,13 @@ function POIListWithSearchParams() {
   }, [locationData.loadStates])
 
   const loadCitiesForLocation = useCallback((country: string, state?: string) => {
-    if (country && state) {
-      console.log('🔄 Loading cities for country:', country, 'state:', state)
+    if (country) {
+      console.log('🔄 Loading cities for country:', country, 'state:', state || '(all)')
       locationData.loadCities(country, state)
     }
   }, [locationData.loadCities])
 
   // Load states when country changes
-
-
   useEffect(() => {
     if (countryFilter) {
       const timeoutId = setTimeout(() => {
@@ -433,19 +439,25 @@ function POIListWithSearchParams() {
     }
   }, [countryFilter, loadStatesForCountry])
 
-  // Load cities only when both country and state are selected
+  // Load cities when country+state selected, OR when country has no states
   useEffect(() => {
     if (countryFilter && stateFilter) {
+      // Normal hierarchical flow: country + state selected → load cities for that state
       const timeoutId = setTimeout(() => {
         loadCitiesForLocation(countryFilter, stateFilter)
-      }, 100) // Reduced debounce for better UX
-
+      }, 100)
       return () => clearTimeout(timeoutId)
-    } else if (countryFilter && !stateFilter) {
-      // Clear cities when state is deselected
+    } else if (countryFilter && !stateFilter && !countryHasStates && !locationData.statesLoading) {
+      // Country has NO states (e.g. Portugal) → load all cities for the country directly
+      const timeoutId = setTimeout(() => {
+        loadCitiesForLocation(countryFilter)
+      }, 100)
+      return () => clearTimeout(timeoutId)
+    } else if (countryFilter && !stateFilter && countryHasStates) {
+      // Country HAS states but none selected → clear cities
       setCityFilter('')
     }
-  }, [countryFilter, stateFilter, loadCitiesForLocation])
+  }, [countryFilter, stateFilter, countryHasStates, locationData.statesLoading, loadCitiesForLocation])
 
   // Load POIs when filters change
   useEffect(() => {
@@ -848,19 +860,22 @@ function POIListWithSearchParams() {
                       ))}
                     </select>
 
-                    <select
-                      value={stateFilter}
-                      onChange={(e) => setStateFilter(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all disabled:opacity-50"
-                      disabled={!countryFilter || locationData.statesLoading}
-                    >
-                      <option value="">{t('filters.all_states')}</option>
-                      {filterOptions.states.map((state) => (
-                        <option key={state.value} value={state.value}>
-                          {state.label}
-                        </option>
-                      ))}
-                    </select>
+                    {/* State filter: hidden when country has no states */}
+                    {countryHasStates && (
+                      <select
+                        value={stateFilter}
+                        onChange={(e) => setStateFilter(e.target.value)}
+                        className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all disabled:opacity-50"
+                        disabled={!countryFilter || locationData.statesLoading}
+                      >
+                        <option value="">{t('filters.all_states')}</option>
+                        {filterOptions.states.map((state) => (
+                          <option key={state.value} value={state.value}>
+                            {state.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
 
                     <select
                       value={cityFilter}
