@@ -18,6 +18,12 @@ import { createSecureHeaders } from "../_shared/security-headers.ts";
 import { createAuditLogger } from "../_shared/audit-logger.ts";
 
 // --- Types ---
+interface GeneratedByInfo {
+    user_id: string;
+    email: string;
+    source: "app_user" | "cms_admin" | "system";
+}
+
 interface SingleRequest {
     poi_id: string;
     language: string;
@@ -98,6 +104,7 @@ async function processPOIItem(
     rawContextOverride?: string,
     force?: boolean,
     audioDuration?: number,
+    generatedBy?: GeneratedByInfo,
 ): Promise<any> {
     const LOG_PREFIX = `[Gen-Desc::${poi_id}]`;
     console.log(`${LOG_PREFIX} Processing for ${language} (${gender})...`);
@@ -321,6 +328,25 @@ async function processPOIItem(
             facts_version: 2,
         }, { onConflict: "attraction_id,language,gender" }).select().single();
 
+        // 5.1 Track who generated this description (non-blocking, defensive)
+        // Runs as a separate UPDATE so that if the generated_by columns don't exist
+        // yet (migration not applied), the main generation flow is NOT affected.
+        if (generatedBy && finalRows?.id) {
+            try {
+                await supabaseAdmin.schema("core")
+                    .from("attraction_descriptions")
+                    .update({
+                        generated_by_user_id: generatedBy.user_id,
+                        generated_by_email: generatedBy.email,
+                        generated_by_source: generatedBy.source,
+                    })
+                    .eq("id", finalRows.id);
+                console.log(`${LOG_PREFIX} ✅ Generated-by tracked: ${generatedBy.source} (${generatedBy.email})`);
+            } catch (trackingErr) {
+                console.warn(`${LOG_PREFIX} ⚠️ Generated-by tracking skipped (columns may not exist yet):`, trackingErr);
+            }
+        }
+
         console.log(`${LOG_PREFIX} Final Upsert Score:`, scoreResult.score_overall);
         return { ...finalRows, status: "generated", last_score_overall: scoreResult.score_overall };
     } catch (e) {
@@ -395,6 +421,20 @@ serve(async (req) => {
             `[Generate-Description] Received request. Batch Mode: ${isBatch}`,
         );
 
+        // --- Derive generatedBy from auth result ---
+        const generatedBy: GeneratedByInfo = {
+            user_id: authResult.userId!,
+            email: authResult.email!,
+            source: authResult.role === "service_role"
+                ? "system"
+                : (authResult.role === "admin" || authResult.role === "super_admin" || authResult.role === "editor")
+                    ? "cms_admin"
+                    : "app_user",
+        };
+        console.log(
+            `[Generate-Description] 📋 Generated-by: ${generatedBy.source} (${generatedBy.email})`,
+        );
+
         // --- BATCH PATH (APP) ---
         if (isBatch) {
             const batch = body as BatchRequest;
@@ -450,6 +490,7 @@ serve(async (req) => {
                         undefined, // context override
                         batch.force, // Use batch force if available
                         batch.audio_duration, // Pass audio_duration from batch request
+                        generatedBy, // Track who generated this description
                     );
                     results.push({
                         trigger_point_id: item.trigger_point_id,
@@ -516,6 +557,7 @@ serve(async (req) => {
                 manual.raw_context,
                 manual.force, // Pass force flag from CMS
                 manual.audio_duration,
+                generatedBy, // Track who generated this description
             );
 
             // 📋 LOG SINGLE SUCCESS
