@@ -121,7 +121,8 @@ export async function validateAuthHeader(
     }
 
     // 3.1 Check if token is the service role key (Internal Bypass)
-    if (token === supabaseServiceKey) {
+    // Trim to avoid issues with newlines/spaces from Vault or Env variables
+    if (token.trim() === supabaseServiceKey?.trim()) {
       console.log("✅ [Auth] Validated via SERVICE_ROLE_KEY (Internal Bypass)");
       return {
         valid: true,
