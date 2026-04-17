@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react'
 import { getSupabaseClient } from '@/lib/core/supabase-client'
-import type { AuthChangeEvent } from '@supabase/supabase-js'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { SessionContextProvider } from '@supabase/auth-helpers-react'
 import { QueryProvider } from '@/components/providers/QueryProvider'
 import { UserLocationProvider } from '@/components/providers/UserLocationProvider'
@@ -34,7 +34,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [theme])
 
   useEffect(() => {
-    const { data: subscription } = supabaseClient.auth.onAuthStateChange((event: AuthChangeEvent, session) => {
+    const { data: subscription } = supabaseClient.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (event === 'SIGNED_IN') {
         fetch('/api/audit/auth-event', {
           method: 'POST',
