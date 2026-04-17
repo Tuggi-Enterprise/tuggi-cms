@@ -141,7 +141,7 @@ export class SupabaseClientManager {
    */
   getRouteHandler(cookies: any): any {
     return createRouteHandlerClient(
-      { cookies },
+      { cookies: () => cookies },
       {
         supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
         supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -154,7 +154,7 @@ export class SupabaseClientManager {
    */
   getServerComponent(cookies: any): any {
     return createServerComponentClient(
-      { cookies },
+      { cookies: () => cookies },
       {
         supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
         supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
