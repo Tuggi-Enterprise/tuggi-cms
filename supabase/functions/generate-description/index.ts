@@ -130,9 +130,18 @@ async function processPOIItem(
                 const isStale = new Date().getTime() -
                         new Date(existing.updated_at).getTime() >
                     1000 * 60 * 60 * 24 * 30;
-                if (!force && !isStale && (existing.facts_pack_json?.length > 0)) {
+                // ✅ FIX: Cache hit is only valid if audio_url ALSO exists.
+                // A record with description but null audio_url means TTS synthesis
+                // never ran (or failed). We must continue to generate the audio.
+                // The description text will be reused (no LLM call needed).
+                const hasAudio = shouldGenerateAudio ? !!existing.audio_url : true;
+                if (!force && !isStale && (existing.facts_pack_json?.length > 0) && hasAudio) {
                     console.log(`${LOG_PREFIX} Cache Hit (Fresh). Returning.`);
                     return { ...existing, status: "hit" };
+                }
+                if (!force && !isStale && (existing.facts_pack_json?.length > 0) && !hasAudio) {
+                    console.log(`${LOG_PREFIX} Cache Hit (Description only, audio_url missing). Proceeding to TTS synthesis.`);
+                    // Fall through — description will be reused in step 3.1 (translation candidates)
                 }
                 // If Stale, fall through to regenerate
             } else if (existing.description === "[PROCESSING]") {
