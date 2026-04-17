@@ -2,11 +2,11 @@
 
 import { AlertCircle, ArrowLeft, LogOut } from 'lucide-react'
 import Link from 'next/link'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { useRouter } from 'next/navigation'
 
 export default function UnauthorizedPage() {
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
   const router = useRouter()
 
   const handleLogout = async () => {

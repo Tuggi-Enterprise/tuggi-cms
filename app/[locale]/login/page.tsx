@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Link, useRouter } from '@/navigation' // Updated imports
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { TuggiLogo } from '@/components/ui/TuggiLogo'
 import { useTranslations } from 'next-intl'
@@ -18,7 +18,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
   const router = useRouter()
 
   const logAuthEvent = async (action: 'LOGIN_SUCCESS' | 'LOGIN_FAILURE', description: string) => {

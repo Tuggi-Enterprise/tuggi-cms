@@ -2,7 +2,7 @@
  * Client Service - handles business logic for clients feature
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 import {
   Client,
   ClientStatus,
@@ -12,26 +12,7 @@ import {
   ClientCmsUser
 } from '@/types/clients'
 
-let supabaseInstance: any = null
-
-function getSupabase() {
-  if (supabaseInstance) return supabaseInstance
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-  if (!supabaseUrl || !supabaseKey) {
-    // eslint-disable-next-line no-console
-    console.error('Supabase environment variables missing or invalid', {
-      NEXT_PUBLIC_SUPABASE_URL: !!supabaseUrl,
-      SUPABASE_SERVICE_ROLE_KEY: !!supabaseKey
-    })
-    throw new Error('Missing environment variables: NEXT_PUBLIC_SUPABASE_URL and/or SUPABASE_SERVICE_ROLE_KEY')
-  }
-
-  supabaseInstance = createClient(supabaseUrl, supabaseKey)
-  return supabaseInstance
-}
+const getSupabase = () => getSupabaseService()
 
 export class ClientService {
   /**

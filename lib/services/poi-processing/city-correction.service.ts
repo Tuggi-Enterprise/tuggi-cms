@@ -13,20 +13,11 @@
  * - Manual review system for edge cases
  */
 
-import { getSupabase } from '../../core/supabase-client'
+import { getSupabase, getSupabaseService } from '../../core/supabase-client'
 import { ReverseGeocodingService } from '../reverse-geocoding.service'
 
-// Service role client for database operations
-const getSupabaseClient = () => {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY')
-  }
-  
-  return getSupabase('server')
-}
+// Service role client for database operations (centralized SSOT)
+const getSupabaseClient = () => getSupabaseService()
 
 // Lazy initialization
 let supabaseAdmin: any = null

@@ -12,8 +12,28 @@
  * - Error handling and validation
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { 
+  createClient, 
+  SupabaseClient 
+} from '@supabase/supabase-js'
+
+// --- SSOT BRIDGE ---
+// Ensure legacy environment variables exist for backward compatibility with 
+// third-party libraries (like @supabase/auth-helpers) that expect them.
+if (typeof process !== 'undefined' && process.env) {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.SUPABASE_SECRET_KEY) {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SECRET_KEY;
+  }
+}
+
+import { 
+  createClientComponentClient,
+  createRouteHandlerClient,
+  createServerComponentClient
+} from '@supabase/auth-helpers-nextjs'
 
 // Environment configuration
 interface SupabaseConfig {
@@ -110,7 +130,36 @@ export class SupabaseClientManager {
    * Get client component client (for React components)
    */
   getClientComponent(): any {
-    return createClientComponentClient()
+    return createClientComponentClient({
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    })
+  }
+
+  /**
+   * Get route handler client (for Next.js API Routes/Route Handlers)
+   */
+  getRouteHandler(cookies: any): any {
+    return createRouteHandlerClient(
+      { cookies },
+      {
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      }
+    )
+  }
+
+  /**
+   * Get server component client (for Next.js Server Components)
+   */
+  getServerComponent(cookies: any): any {
+    return createServerComponentClient(
+      { cookies },
+      {
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      }
+    )
   }
   
   /**
@@ -146,13 +195,25 @@ export class SupabaseClientManager {
       // Edge Functions environment
       const deno = (globalThis as any).Deno
       url = deno?.env.get('SUPABASE_URL') || deno?.env.get('NEXT_PUBLIC_SUPABASE_URL') || ''
-      anonKey = deno?.env.get('SUPABASE_ANON_KEY') || deno?.env.get('NEXT_PUBLIC_SUPABASE_ANON_KEY') || ''
-      serviceRoleKey = deno?.env.get('SUPABASE_SERVICE_ROLE_KEY')
+      anonKey = 
+        deno?.env.get('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY') || 
+        deno?.env.get('SUPABASE_PUBLISHABLE_KEY') || 
+        deno?.env.get('SUPABASE_ANON_KEY') || 
+        deno?.env.get('NEXT_PUBLIC_SUPABASE_ANON_KEY') || 
+        ''
+      serviceRoleKey = 
+        deno?.env.get('SUPABASE_SECRET_KEY') || 
+        deno?.env.get('SUPABASE_SERVICE_ROLE_KEY')
     } else {
       // Node.js/Next.js environment
       url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-      anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-      serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+      anonKey = 
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
+        ''
+      serviceRoleKey = 
+        process.env.SUPABASE_SECRET_KEY || 
+        process.env.SUPABASE_SERVICE_ROLE_KEY
     }
     
     if (!url || !anonKey) {
@@ -162,7 +223,7 @@ export class SupabaseClientManager {
       if (process.env.NODE_ENV === 'development') {
         console.warn(
           `⚠️ Supabase environment variables missing. ` +
-          `Requests will fail until NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set.`
+          `Requests will fail until NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or legacy keys) are set.`
         )
       }
     }
@@ -194,7 +255,7 @@ export class SupabaseClientManager {
     try {
       const config = this.getConfig('server')
       if (!config.url) errors.push('NEXT_PUBLIC_SUPABASE_URL is missing')
-      if (!config.anonKey) errors.push('NEXT_PUBLIC_SUPABASE_ANON_KEY is missing')
+      if (!config.anonKey) errors.push('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or legacy anon key) is missing')
     } catch (error) {
       errors.push(`Configuration error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
@@ -233,6 +294,14 @@ export const getSupabaseEdge = () => new Proxy({} as SupabaseClient, {
 
 // For React components (returns a new instance each call as per auth-helpers)
 export const getSupabaseClient = () => SupabaseClientManager.getInstance().getClientComponent()
+
+// For Route Handlers (API routes)
+export const getSupabaseRouteHandler = (cookies: any) => 
+  SupabaseClientManager.getInstance().getRouteHandler(cookies)
+
+// For Server Components
+export const getSupabaseServerComponent = (cookies: any) => 
+  SupabaseClientManager.getInstance().getServerComponent(cookies)
 
 // For scripts and utilities
 export const getSupabase = (type: SupabaseClientType = 'server') => 

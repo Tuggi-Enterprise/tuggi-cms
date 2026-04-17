@@ -21,7 +21,13 @@ export async function middleware(req: NextRequest) {
   // 2. Setup Supabase Auth
   // We need to pass the request and response to Supabase to manage cookies
   const res = intlResponse; // Use the response from intl middleware as base
-  const supabase = createMiddlewareClient({ req, res })
+  const supabase = createMiddlewareClient(
+    { req, res },
+    {
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    }
+  )
 
   // 3. Auth Logic
   const {

@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { SessionContextProvider } from '@supabase/auth-helpers-react'
 import { QueryProvider } from '@/components/providers/QueryProvider'
 import { UserLocationProvider } from '@/components/providers/UserLocationProvider'
@@ -17,7 +17,7 @@ const ThemeContext = createContext<{
 export const useTheme = () => useContext(ThemeContext)
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [supabaseClient] = useState(() => createClientComponentClient())
+  const [supabaseClient] = useState(() => getSupabaseClient())
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
 
   useEffect(() => {
