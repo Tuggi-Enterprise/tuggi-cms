@@ -168,6 +168,23 @@ serve(async (req: Request): Promise<Response> => {
         });
     }
 
+    // ✅ FEATURE FLAG (HARDCODED)
+    const isEnabled = false; // Desligado por enquanto
+
+    if (!isEnabled) {
+        return new Response(
+            JSON.stringify({
+                success: false,
+                code: "FEATURE_DISABLED",
+                message: "Áudio contextual desabilitado no momento.",
+            }),
+            {
+                status: 200,
+                headers: createSecureHeaders(corsHeaders),
+            },
+        );
+    }
+
     // ✅ VALIDAR AUTENTICAÇÃO
     const authResult = await validateAuthHeader(req);
     if (!authResult.valid) {
