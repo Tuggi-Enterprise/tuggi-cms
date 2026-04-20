@@ -6,14 +6,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { logAuditEvent } from '@/lib/services/audit-service'
 
 async function getAdminUser(request: NextRequest) {
   const cookieStore = await cookies()
-  const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+  const supabaseAuth = getSupabaseRouteHandler(cookieStore)
   
   const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
   if (authError || !session) {

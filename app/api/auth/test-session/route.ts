@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 
 export const dynamic = 'force-dynamic'
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     console.log('🧪 TEST SESSION: Testing session from API route...')
     
     const cookieStore = await cookies()
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabase = getSupabaseRouteHandler(cookieStore)
     
     console.log('🧪 TEST SESSION: Request URL:', request.url)
     console.log('🧪 TEST SESSION: Request method:', request.method)

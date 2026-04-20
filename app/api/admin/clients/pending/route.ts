@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { ClientService } from '@/lib/services/client-service'
 
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   try {
     // Require admin authentication
     const cookieStore = await cookies()
-    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
 
     if (authError || !session) {

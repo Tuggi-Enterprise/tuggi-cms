@@ -1,9 +1,10 @@
 // API route para processamento em lote de trigger points usando Google APIs
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { CoreTriggerPointPredictor } from '@/lib/services/trigger-points-google/core/trigger-point-predictor';
 import { POIData, TriggerPointGenerationOptions, BatchGenerationRequest, BatchGenerationResult } from '@/lib/services/trigger-points-google/types/interfaces';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+;
 import { cookies } from 'next/headers';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
   // Validate authentication and authorization
   try {
     const cookieStore = await cookies();
-    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any });
+    const supabaseAuth = getSupabaseRouteHandler(cookieStore);
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession();
 
     if (authError || !session) {

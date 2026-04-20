@@ -1,7 +1,7 @@
 // API route para geração de trigger points usando Google APIs
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { CoreTriggerPointPredictor } from '@/lib/services/trigger-points-google/core/trigger-point-predictor';
 import { POIData, TriggerPointGenerationOptions } from '@/lib/services/trigger-points-google/types/interfaces';
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
   try {
     // Restrict to admin users
     const cookieStore = await cookies()
-    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
     if (authError || !session) {
       return NextResponse.json({ success: false, error: 'Unauthorized - Authentication required' }, { status: 401 })

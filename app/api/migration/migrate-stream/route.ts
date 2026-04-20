@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { PoiMigrationPipeline, PipelineOptions } from '@/lib/services/poi-migration-pipeline'
@@ -18,7 +18,7 @@ export const maxDuration = 60 // Vercel Hobby plan limit (max 60s)
 export async function POST(request: NextRequest) {
   // Authentication check
   const cookieStore = await cookies()
-  const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+  const supabaseAuth = getSupabaseRouteHandler(cookieStore)
   const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
 
   if (authError || !session) {

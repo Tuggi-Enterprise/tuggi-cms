@@ -1,4 +1,5 @@
 import { api, apiManager } from '../_shared/api-manager.ts'
+import { getSecretKey } from '../_shared/supabase-client.ts';
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { validateAuthHeader } from '../_shared/auth-middleware.ts'
@@ -4220,7 +4221,7 @@ serve(async (req)=>{
     }
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const supabaseKey = getSecretKey();
     const supabase = createClient(supabaseUrl, supabaseKey);
     // Parse request body
     const { poi_id, lat, lng, name, test_mode = false } = await req.json();

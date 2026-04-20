@@ -6,6 +6,7 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey } from './supabase-client.ts';
 
 // ============================================
 // TYPES
@@ -58,8 +59,8 @@ export class AuditLogger {
 
   constructor(functionName: string) {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 
-                          Deno.env.get('SERVICE_ROLE_KEY') || '';
+    const serviceRoleKey = getSecretKey() || 
+                          getSecretKey() || '';
 
     this.supabase = createClient(supabaseUrl, serviceRoleKey);
     this.functionName = functionName;

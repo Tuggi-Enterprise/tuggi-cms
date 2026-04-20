@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
+;
 import { cookies } from 'next/headers';
 // import { withAuth, withRateLimit } from '@/lib/auth-middleware';
 
@@ -23,7 +24,7 @@ export const GET = async function(req: NextRequest) {
   console.log('🔍 API: /api/attraction-groups/nearby GET called (no auth)');
   
   const cookieStore = await cookies();
-  const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any });
+  const supabase = getSupabaseRouteHandler(cookieStore);
   const { searchParams } = new URL(req.url);
   const poiId = searchParams.get('poiId');
   const radius = Number(searchParams.get('radius') || 50);
@@ -80,7 +81,7 @@ export const POST = async function(req: NextRequest) {
   console.log('🔍 API: /api/attraction-groups/nearby POST called (no auth)');
   
   const cookieStore = await cookies();
-  const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any });
+  const supabase = getSupabaseRouteHandler(cookieStore);
   const body = await req.json();
   const { polygon, poiId, radius = 50 } = body;
 
@@ -131,7 +132,7 @@ export const POST = async function(req: NextRequest) {
         console.error('❌ API: Error fetching POI details:', poisError);
       }
       // Transform the data to match expected format
-      details = pois?.map(poi => ({
+      details = pois?.map((poi: any) => ({
         ...poi,
         coordinates: poi.coordinates?.[0] || null
       })) || [];
@@ -204,7 +205,7 @@ export const POST = async function(req: NextRequest) {
       console.log('🔍 API: POI details for radius search:', { pois: pois?.length });
       
       // Transform the data to match expected format
-      details = pois?.map(poi => ({
+      details = pois?.map((poi: any) => ({
         ...poi,
         coordinates: poi.coordinates?.[0] || null
       })) || [];

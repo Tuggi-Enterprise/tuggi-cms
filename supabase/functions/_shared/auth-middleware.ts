@@ -27,6 +27,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getSecretKey } from './supabase-client.ts';
 
 // =====================================
 // TYPES
@@ -109,7 +110,7 @@ export async function validateAuthHeader(
 
     // 3. Initialize Supabase client
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const supabaseServiceKey = getSecretKey();
 
     if (!supabaseUrl || !supabaseServiceKey) {
       console.error("❌ Missing Supabase environment variables");

@@ -6,8 +6,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { RouteService } from '@/lib/services/route-service'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 
 /**
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   try {
     // Require authentication
     const cookieStore = await cookies()
-    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
 
     if (authError || !session) {

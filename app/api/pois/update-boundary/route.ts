@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { invalidatePOICache } from '@/lib/cache/poi-cache-invalidator'
 import { getSupabase } from '@/lib/core/supabase-client'
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
     if (!isServiceRoleRequest) {
       // Regular authentication check for frontend requests
       const cookieStore = await cookies()
-      const authSupabase = createRouteHandlerClient({ cookies: () => cookieStore as any })
+      const authSupabase = getSupabaseRouteHandler(cookieStore)
       const { data: { user }, error: authError } = await authSupabase.auth.getUser()
       if (authError || !user) {
         return NextResponse.json(

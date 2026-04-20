@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { TriggerPointSavingService } from '@/lib/services/trigger-point-saving'
 
@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
   try {
     // Only admins can delete trigger points
     const cookieStore = await cookies()
-    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
     if (authError || !session) {
       return NextResponse.json({ error: 'Unauthorized - Authentication required' }, { status: 401 })

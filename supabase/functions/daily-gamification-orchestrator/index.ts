@@ -1,5 +1,6 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey } from '../_shared/supabase-client.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -69,7 +70,7 @@ Deno.serve(async (req) => {
 
   try {
     const supabaseUrl = (Deno.env.get('SUPABASE_URL') ?? '').trim();
-    const supabaseKey = (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '').trim();
+    const supabaseKey = (getSecretKey() ?? '').trim();
     
     const supabase = createClient(supabaseUrl, supabaseKey);
     const driveClient = createClient(supabaseUrl, supabaseKey, {

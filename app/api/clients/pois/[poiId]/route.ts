@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { logAuditEvent } from '@/lib/services/audit-service'
@@ -10,7 +10,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { poiId
   try {
     const poiId = params.poiId
     const cookieStore = await cookies()
-    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
     if (authError || !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -82,7 +82,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { poiId:
     const body = await request.json()
 
     const cookieStore = await cookies()
-    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
     if (authError || !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 

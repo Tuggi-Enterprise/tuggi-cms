@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { generateAudioWithGoogleTTS } from '@/lib/providers/googleTTS'
 import { supabase } from '@/lib/supabase'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 
 // Text preprocessing function to optimize for TTS narration
@@ -65,7 +65,7 @@ export const POST = async function (request: NextRequest) {
     if (!isInternalCall) {
       // Regular authentication check for user requests
       const cookieStore = await cookies()
-      const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+      const supabaseAuth = getSupabaseRouteHandler(cookieStore)
       const { data: { session }, error } = await supabaseAuth.auth.getSession()
 
       if (error || !session) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { calculatePolygonArea, calculatePolygonCenter } from '@/lib/utils/geometry'
@@ -7,7 +7,7 @@ import { calculatePolygonArea, calculatePolygonCenter } from '@/lib/utils/geomet
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies()
-    const supabaseAuth = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
     
     if (authError || !session) {

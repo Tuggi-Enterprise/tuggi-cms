@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { TrailVisualizationService, HeatMapParams } from '@/lib/services/trail-visualization.service'
 
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     // Check authentication
     const cookieStore = await cookies()
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabase = getSupabaseRouteHandler(cookieStore)
     const { data: { session } } = await supabase.auth.getSession()
 
     if (!session) {

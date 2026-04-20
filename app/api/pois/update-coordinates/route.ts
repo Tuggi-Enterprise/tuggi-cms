@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { invalidatePOICache } from '@/lib/cache/poi-cache-invalidator'
 import { logAuditEvent } from '@/lib/services/audit-service'
@@ -7,7 +7,7 @@ import { logAuditEvent } from '@/lib/services/audit-service'
 export async function POST(request: NextRequest) {
   try {
     const cookieStore = await cookies()
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore as any })
+    const supabase = getSupabaseRouteHandler(cookieStore)
     
     // Check authentication
     const { data: { user }, error: authError } = await supabase.auth.getUser()
