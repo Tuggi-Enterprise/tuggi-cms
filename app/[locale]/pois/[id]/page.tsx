@@ -50,8 +50,7 @@ export default function POIPage() {
             ),
             attraction_groups (
               id,
-              name,
-              status
+              name
             )
           `)
           .eq('id', params.id)

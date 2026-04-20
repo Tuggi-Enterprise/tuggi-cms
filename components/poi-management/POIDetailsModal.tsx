@@ -228,6 +228,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     if (poi) {
       setCurrentPoi(poi)
       setEditedPoi(poi)
+      setReferenceLinks(poi.reference_links || [])
       // Reset boundary-related states when switching POIs
       setBoundaryPolygon(null)
       setExistingBoundary(null)
@@ -236,6 +237,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // Only reset if we don't have a locally created POI
       setCurrentPoi(null)
       setEditedPoi(null)
+      setReferenceLinks([])
       setBoundaryPolygon(null)
       setExistingBoundary(null)
       setDrawnPolygon(null)
@@ -1009,21 +1011,39 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setTranslatedDescriptions([])
       setNearbyPOIs([])
       setSelectedPOIs([])
-      setLastGenerationSources([])
-      setDetectedDates(null)
-      setVerificationResult(null)
-      setAudioPreviewUrl(null)
+      // UI state and detailed messages
+      setSuccessMessage('')
+      setErrorMessage('')
+      setGenerationLanguage('pt-br')
+      setGroupName(poi?.name || '')
+      setIsSaving(false)
+      setIsSavingBoundary(false)
+      setIsDrawingEnabled(false)
+      
+      // Reset UI processing and audio states
+      setAudioProgress({ current: 0, total: 0, currentTask: '' })
+      setAudioResults([])
+      setShowResults(false)
+      setShowSuccessMessage(false)
+      setShowErrorMessage(false)
+      setIsGenerating(false)
+      setIsGeneratingAudio(false)
+      setIsTranslating(false)
+      setIsSavingDescription(false)
+      setIsSavingReferenceLinks(false)
       
       // Only reset editedPoi from prop if poi prop exists
       // This prevents overwriting locally created POI state when poi prop is null
       if (poi) {
         setEditedPoi(poi)
-        const isGeo = poi.record_type === 'geofence' || poi.category === 'geofence';
-        setActiveTab(prev => (isGeo && prev === 'trigger-points') ? 'details' : prev)
+        setReferenceLinks(poi.reference_links || [])
+        // Always reset to details tab when opening a new existing POI
+        setActiveTab('details')
         
         // Use explicit POI ID to bypass race conditions with currentPoi state
         fetchAdditionalData(poi.id, true)
       } else {
+        setReferenceLinks([])
         fetchAdditionalData()
       }
 
@@ -1047,6 +1067,29 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setLastGenerationSources([])
       setAudioPreviewUrl(null)
       setGroupInfo(null)
+      setReferenceLinks([])
+      
+      // UI state and detailed messages
+      setSuccessMessage('')
+      setErrorMessage('')
+      setGenerationLanguage('pt-br')
+      setGroupName('')
+      setIsSaving(false)
+      setIsSavingBoundary(false)
+      setIsDrawingEnabled(false)
+      setActiveTab('details')
+      
+      // Reset UI processing and audio states
+      setAudioProgress({ current: 0, total: 0, currentTask: '' })
+      setAudioResults([])
+      setShowResults(false)
+      setShowSuccessMessage(false)
+      setShowErrorMessage(false)
+      setIsGenerating(false)
+      setIsGeneratingAudio(false)
+      setIsTranslating(false)
+      setIsSavingDescription(false)
+      setIsSavingReferenceLinks(false)
     }
   }, [poi, isOpen, fetchAdditionalData, fetchVerificationData])
 
@@ -1149,6 +1192,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         }
         onPOIUpdated(updatedPoi as POI)
       }
+
+      // Automatically re-fetch boundary from DB so map rendering AND group search run instantly
+      await fetchBoundary()
+      
+      // Stop drawing mode
+      setIsDrawingEnabled(false)
 
       alert(t('validation.boundary_success'))
     } catch (error) {

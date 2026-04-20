@@ -357,7 +357,7 @@ function POIListWithSearchParams() {
               .select(`
                 *,
                 attraction_descriptions (id, language),
-                attraction_groups (id, name, status)
+                attraction_groups (id, name)
               `)
               .eq('id', currentPoiId)
               .single()
