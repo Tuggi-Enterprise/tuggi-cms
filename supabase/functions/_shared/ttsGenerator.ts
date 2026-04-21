@@ -92,7 +92,18 @@ export const generateAudioWithTTS = async (
   console.log(`[TTS] Starting audio generation for language: ${language}, gender: ${gender}`);
 
   const voiceConfig = getVoiceConfig(language, gender);
-  const sanitizedText = escapeSsml(text);
+  let sanitizedText = escapeSsml(text);
+
+  // Dynamic Prosody: Inject a dramatic pause after the first phrase (POI Name)
+  // This looks for the first comma, period, or hyphen, provided it's within the first 80 characters.
+  const firstPunctuationMatch = sanitizedText.match(/^(.{5,80}?)([,.\-])/);
+  if (firstPunctuationMatch && firstPunctuationMatch.index === 0) {
+      const matchLength = firstPunctuationMatch[0].length;
+      // Reconstruct text with a 300ms break inserted right after the punctuation
+      sanitizedText = sanitizedText.substring(0, matchLength) + 
+                      `<break time="300ms"/>` + 
+                      sanitizedText.substring(matchLength);
+  }
 
   // Use SSML for better control over the narration
   // Adding a short 500ms break at the beginning helps with Bluetooth devices that might clip the start

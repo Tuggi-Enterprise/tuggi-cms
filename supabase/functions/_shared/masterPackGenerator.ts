@@ -62,8 +62,9 @@ export const generateMasterPack = async (
     const systemInstruction = [
         // Language is the FIRST instruction — model must not override after reading English sources
         `LANGUAGE RULE (mandatory): Write ALL output exclusively in ${langName}. Do not use English or any other language.`,
-        `You are an Expert Historian and Professional Travel Writer.`,
-        `Your descriptions are elegant, encyclopedic and culturally rich.`,
+        `You are a friendly, knowledgeable tour guide who must communicate with EVERYONE — from teenagers to senior citizens.`,
+        `Your style is warm, clear, and conversational. Avoid complex vocabulary, long subordinate clauses, or academic jargon.`,
+        `Imagine you are speaking to a curious 15-year-old who wants to learn and have fun.`,
         isComplex
             ? `When describing complexes or parks, mention the key internal highlights: ${membersSummary}`
             : ``,
@@ -73,7 +74,16 @@ export const generateMasterPack = async (
         ``,
         `OUTPUT FORMAT — use these exact XML tags. Do NOT use Markdown tables or headers inside the tags:`,
         `<master_description>`,
-        `[Narrative paragraph, ~${maxChars} characters, ~${audioTarget} audio. Do not mention standalone city or state names.]`,
+        `[Follow this EXACT narrative structure:]`,
+        `1. OPEN with the POI name as the very first words. The listener just heard a directional cue (e.g. "to your right"), so they need to immediately know WHAT it is.`,
+        `2. HISTORICAL CONTEXT: Include founding dates, key years, and historical milestones when available. Concrete dates make narration credible and memorable.`,
+        `3. CURIOSITY HOOK: Weave a surprising fact, unusual detail, or little-known curiosity into the ending naturally. NEVER use announcing phrases like "A fun fact is", "Uma curiosidade é que", or "Interestingly". It must flow seamlessly as part of the story.`,
+        ``,
+        `CONSTRAINTS:`,
+        `- Target: ~${maxChars} characters (~${audioTarget} of natural speech).`,
+        `- Do NOT mention standalone city or state names.`,
+        `- Use SHORT sentences. Prefer active voice. Avoid subordinate clause chains.`,
+        `- This text will be synthesized by TTS — avoid abbreviations, acronyms, or symbols.`,
         `</master_description>`,
         ``,
         `<master_facts>`,
@@ -88,8 +98,8 @@ export const generateMasterPack = async (
     const userPrompt = [
         `Research and write about: "${poiName}" located in ${city}.`,
         hasReferenceLinks
-            ? `Use the provided reference URLs as primary sources. Also use Google Search for any additional foundation date, founding figures, and historical milestones not covered by the references.`
-            : `Find using Google Search: foundation date, founding figures, and the most unique historical or architectural milestone.`,
+            ? `Use the provided reference URLs as primary sources. Also use Google Search for any additional foundation date, founding figures, key historical dates, and at least one surprising curiosity or little-known fact not covered by the references.`
+            : `Find using Google Search: foundation date, founding figures, key historical dates, and at least one surprising curiosity or little-known fact about this place.`,
         rawContext ? `Additional context: ${rawContext}` : ``,
     ].filter(Boolean).join('\n');
 

@@ -30,8 +30,11 @@ export function calculateHeuristicScore(
     
     // 2. Completeness (0-100)
     let completenessScore = 40;
-    if (description.toLowerCase().includes(poiName.toLowerCase().split(' ')[0])) completenessScore += 20;
-    if (description.includes(cityName)) completenessScore += 20;
+    const poiFirstWord = poiName.toLowerCase().split(' ')[0];
+    if (description.toLowerCase().includes(poiFirstWord)) completenessScore += 10;
+    // Bonus: POI name appears in the first 60 characters (aligns with "name first" rule)
+    if (description.substring(0, 60).toLowerCase().includes(poiFirstWord)) completenessScore += 15;
+    if (description.includes(cityName)) completenessScore += 15;
     if (description.match(/\b\d{4}\b/)) completenessScore += 20;
 
     // 3. Factuality (Base assumption for Master Gen, usually high but penalized if empty)

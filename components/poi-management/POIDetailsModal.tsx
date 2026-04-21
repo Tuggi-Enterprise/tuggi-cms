@@ -2244,11 +2244,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }
 
-  // Generate audio for a single language
-  // Generate audio for a single language
+  // Generate audio for a single language (SSOT: uses generate-description)
   const generateSingleLanguageAudio = async (language: string, gender: 'male' | 'female') => {
-    // Note: generate-native-narration handles translation implicitly from source
-    
     // Get the session to verify user is authenticated
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) {
@@ -2260,15 +2257,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
        throw new Error('POI not found')
     }
 
-    // Voice mapping
-    const voiceName = gender === 'female' ? 'Nova' : 'Puck';
-
-    // Use invoke for standardized handling
-    const { data: result, error: invokeError } = await callFunction('generate-native-narration', {
+    // SSOT: Use generate-description (masterPackGenerator) for all master description generation
+    const { data: result, error: invokeError } = await callFunction('generate-description', {
       poi_id: currentPoiForTranslation2.id,
       language: language,
+      gender: gender,
       force: true,
-      voice_name: voiceName
+      generate_audio: true
     })
 
     if (invokeError) {

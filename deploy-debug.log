@@ -1,0 +1,22 @@
+open /Users/leandroramos/.supabase/profile: no such file or directory
+Using access token for profile: supabase
+Loading project ref from flag: tysnkzmljlmmqpbotkxv
+Supabase CLI 2.84.4
+Using profile: supabase (supabase.co)
+WARNING: Docker is not running
+Using access token for profile: supabase
+2026/04/21 11:45:20 HTTP POST: https://api.supabase.com/v1/projects/tysnkzmljlmmqpbotkxv/functions/deploy?slug=generate-description
+Uploading asset (generate-description): supabase/functions/generate-description/index.ts
+Uploading asset (generate-description): supabase/functions/_shared/audit-logger.ts
+Uploading asset (generate-description): supabase/functions/_shared/supabase-client.ts
+Uploading asset (generate-description): supabase/functions/_shared/security-headers.ts
+Uploading asset (generate-description): supabase/functions/_shared/rate-limiter.ts
+Uploading asset (generate-description): supabase/functions/_shared/auth-middleware.ts
+Uploading asset (generate-description): supabase/functions/_shared/scoring.ts
+Uploading asset (generate-description): supabase/functions/_shared/ttsGenerator.ts
+Uploading asset (generate-description): supabase/functions/_shared/translationUtility.ts
+Uploading asset (generate-description): supabase/functions/_shared/masterPackGenerator.ts
+Deployed Functions on project tysnkzmljlmmqpbotkxv: generate-description
+You can inspect your deployment in the Dashboard: https://supabase.com/dashboard/project/tysnkzmljlmmqpbotkxv/functions
+A new version of Supabase CLI is available: v2.90.0 (currently installed v2.84.4)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
