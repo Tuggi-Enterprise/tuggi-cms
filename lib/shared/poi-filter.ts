@@ -29,7 +29,16 @@ export const CATEGORIES = [
   "man_made=tower",
   "man_made=water_tower",
   "aeroway=aerodrome",
-  "aerialway"
+  "aerialway",
+  "historic=city_gate",
+  "historic=fort",
+  "historic=castle",
+  "heritage",
+  "place=suburb",
+  "place=neighbourhood",
+  "place=town",
+  "place=village",
+  "place=square"
 ];
 
 export const FILTER_CONFIG = {
@@ -49,6 +58,7 @@ export const FILTER_CONFIG = {
     'information', 'waymark', 'guidepost', 'board', 'map', 'signpost', 'notice',
     'chalet', 'events_venue', 'theme_park', 'picnic_site', 'horse_riding',
     'school', 'university', 'college', 'kindergarten', 'childcare', 'language_school', 'driving_school',
+    'playground', 'pitch', 'fitness_station', 'sports_centre_legacy',
     'hospital', 'clinic', 'doctors', 'social_facility', 'community_centre', 'social_centre',
     'police', 'fire_station', 'post_office', 'government', 'office', 'courthouse', 'townhall_legacy', 
     'public_building', 'industrial', 'works', 'wastewater_plant', 'power_plant', 'pumping_station', 
@@ -58,8 +68,9 @@ export const FILTER_CONFIG = {
     'drinking_water', 'bureau_de_change', 'bbq', 'bandstand',
     'wayside_cross', 'wayside_shrine', 'flagpole', 'service', 'military', 'quarry',
     'studio', 'tunnel', 'mast', 'boundary_stone', 'crematorium', 'reservoir_covered',
-    'reservoir', 'water_tower', 'bridge',
+    'reservoir', 'water_tower', 'bridge', 'gate', 'fence', 'pole', 'post', 'wall', 'hedge',
     'brothel', 'nursing_home', 'animal_breeding', 'internet_cafe', 'recreation_ground', 'shelter',
+    'tree', 'tree_row', 'scrub', 'wood', 'peak', 'volcano', 'cave_entrance', 'rock', 'stone', 'islet',
     'music_school', 'charity', 'social_centre', 'dormitory', 'nursery', 'prep_school', 'animal_shelter',
     'caravan_site', 'bowling_alley', 'charging_station', 'antenna', 'stripclub', 'animal_boarding',
     'coworking_space', 'clock', 'shipping_company', 'waste_transfer_station', 'emergency_service',
@@ -168,7 +179,7 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
 
   const hasWikipedia = !!props.wikipedia;
   const hasHistoric = !!props.historic;
-  const hasHeritage = !!props.heritage || !!props.listed_status;
+  const hasHeritage = !!props.heritage || !!props.listed_status || !!props['ref:bic'] || !!props.unesco;
   const hasWikidata = !!props.wikidata;
   const hasDescription = !!(props.description && props.description.trim().length > 5);
   
@@ -189,14 +200,24 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
     props.amenity === "theatre" || 
     props.amenity === "arts_centre" ||
     props.tourism === "gallery" ||
-    props.tourism === "information" ||
+    (props.tourism === "information" && (props.information === "office" || props.information === "visitor_centre")) ||
+    props.historic === "city_gate" ||
+    props.historic === "castle" ||
+    props.historic === "fort" ||
     nameLower.includes("mercado municipal") ||
-    nameLower.includes("museu municipal")
+    nameLower.includes("mercat municipal") ||
+    nameLower.includes("museu municipal") ||
+    nameLower.includes("mercado central") ||
+    nameLower.includes("mercat central") ||
+    nameLower.includes("lonja de la seda") ||
+    nameLower.includes("llotja de la seda") ||
+    nameLower.includes("torres de serranos") ||
+    nameLower.includes("torres de quart")
   );
 
   const isGovernmentExemption = (
     (props.amenity === "townhall" || props.building === "public") &&
-    (nameLower.startsWith("prefeitura") || nameLower.includes("paço municipal") || nameLower.includes("paco municipal"))
+    (nameLower.startsWith("prefeitura") || nameLower.includes("paço municipal") || nameLower.includes("paco municipal") || nameLower.includes("ayuntamiento"))
   );
 
   const isTransportLandmark = (
@@ -206,26 +227,63 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
     (props.railway === "station" && (props.historic || hasWikipedia))
   );
 
-  const isMajorMarket = props.amenity === "marketplace" && ["municipal", "mercadão", "mercadao", "market hall", "público", "publico", "paco", "paço", "mercado de", "mercado da", "mercado do"].some(t => nameLower.includes(t));
+  const isMajorMarket = props.amenity === "marketplace" && ["municipal", "mercadão", "mercadao", "market hall", "público", "publico", "paco", "paço", "mercado de", "mercado da", "mercado do", "central"].some(t => nameLower.includes(t));
 
-  if (isCulturalExemption || isGovernmentExemption || isTransportLandmark || isMajorMarket) {
-    return { remove: false };
+  const isEliteSquare = (props.amenity === "plaza" || props.place === "square") && 
+    ["mayor", "real", "ayuntamiento", "virgen", "constitucion", "pau", "reina", "seu"].some(t => nameLower.includes(t));
+
+  if (isCulturalExemption || isGovernmentExemption || isTransportLandmark || isMajorMarket || isEliteSquare || hasHeritage) {
+    if (hasDescription && !props.description.includes('http')) {
+      isFamous = true;
+    }
+  }
+
+  // --- 2.5 NAME BLOCKLIST (Technical Noise) ---
+  const name_check = props.name || props['name:pt'] || props['name:en'] || props['name:es'];
+  if (name_check) {
+    const nameLower = name_check.toLowerCase();
+    const NAME_BLOCKLIST = ['mojón', 'pilón', 'vértice geodésico', 'hito quilométrico', 'hito de parada', 'poste informativo', 'cartel informativo'];
+    
+    // Check if name STARTS with any blocklist term (to be safe with things like 'Pilón de la Fuente' if it were important, though usually it's not)
+    // Or if it's an exact match for common noise
+    if (NAME_BLOCKLIST.some(term => nameLower.includes(term))) {
+       // Exceptions: keep if it has wikipedia/wikidata
+       if (!hasWikipedia && !hasWikidata && !hasHeritage) {
+         return { remove: true, reason: `NAME_BLOCKLIST: Nome técnico irrelevante ('${name_check}')` };
+       }
+    }
   }
 
   // --- 3. TAG_BLOCKLIST (CRITICAL) ---
-  const tagKeys = ['amenity', 'tourism', 'leisure', 'man_made', 'historic', 'highway', 'public_transport', 'place', 'office', 'shop', 'building', 'natural', 'landuse'];
+  const tagKeys = ['amenity', 'tourism', 'leisure', 'man_made', 'historic', 'highway', 'public_transport', 'place', 'office', 'shop', 'building', 'natural', 'landuse', 'type', 'class'];
   
   for (const key of tagKeys) {
     if (!props[key]) continue;
     const individualTags = String(props[key]).split(';');
     for (const t of individualTags) {
       const tagValue = t.trim();
+      
+      // Block ALL shops by default for Elite filter, unless it's a major landmark (handled by isCulturalExemption)
+      if (key === 'shop' && !isFamous) {
+        return { remove: true, reason: "SHOP: Comércio genérico" };
+      }
+
       if (FILTER_CONFIG.TAG_BLOCKLIST.includes(tagValue)) {
-        // Even if blocked, if it's famous, we might keep it (except for absolute noise)
-        const absoluteNoise = ['bench', 'waste_basket', 'trash_can', 'telephone', 'bicycle_parking', 'vending_machine', 'atm', 'surveillance', 'post_box'];
+        // Absolute noise is always removed
+        const absoluteNoise = ['bench', 'waste_basket', 'trash_can', 'telephone', 'bicycle_parking', 'vending_machine', 'atm', 'surveillance', 'post_box', 'playground', 'pitch', 'fitness_station'];
         if (absoluteNoise.includes(tagValue)) {
           return { remove: true, reason: `ABSOLUTE_NOISE: ${key}=${tagValue}` };
         }
+
+        // For natural features like peaks, trees, caves, etc., we require Wikipedia/Wikidata/Heritage.
+        // A simple description is not enough for these categories.
+        const naturalNoise = ['peak', 'volcano', 'tree', 'tree_row', 'scrub', 'wood', 'cave_entrance', 'rock', 'stone', 'islet'];
+        if (naturalNoise.includes(tagValue)) {
+           if (!hasWikipedia && !hasWikidata && !hasHeritage && !hasHistoric) {
+             return { remove: true, reason: `NATURAL_NOISE: ${key}=${tagValue} sem fama global` };
+           }
+        }
+
         if (!isFamous) {
           return { remove: true, reason: `TAG_BLOCKLIST: ${key}=${tagValue}` };
         }
@@ -269,7 +327,10 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
 
   if (FILTER_CONFIG.ACCOMMODATION_TYPES.includes(props.tourism)) {
     if (props.tourism === "apartment") return { remove: true, reason: "ACCOMMODATION: Apartamento" };
-    if (!isFamous) return { remove: true, reason: "ACCOMMODATION: Hotel comum sem fama" };
+    // For Elite, accommodation requires Wikipedia, Wikidata or Heritage. Description alone is not enough for hotels.
+    if (!hasWikipedia && !hasWikidata && !hasHeritage && !hasHistoric) {
+      return { remove: true, reason: "ACCOMMODATION: Hotel/Pousada sem relevância histórica ou fama global" };
+    }
   }
 
   // --- 7. BOUNDARIES AND INFRASTRUCTURE ---
@@ -282,6 +343,14 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
     if (!isFamous && props.tourism !== "museum") {
       return { remove: true, reason: "RESIDENTIAL: Residência privada sem fama" };
     }
+  }
+
+  // --- 8. ICONIC NEIGHBOURHOODS, TOWNS AND SQUARES ---
+  if (["suburb", "neighbourhood", "town", "village", "square"].includes(props.place)) {
+    // If it's a neighborhood/suburb/square, we keep it if it has a name and some importance 
+    // or if it's explicitly famous. We are more lenient here to keep urban context.
+    if (!name || name.length < 3) return { remove: true, reason: "PLACE: Nome muito curto" };
+    return { remove: false };
   }
 
   if (["tower", "water_tower"].includes(props.man_made) && !isFamous && !props.tourism && !props.historic && !hasReference) {
