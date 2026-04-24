@@ -14,13 +14,13 @@ const supabase = getSupabase('service')
 // Get Supabase URL and anon key for Edge Functions (same as frontend)
 const getSupabaseConfig = () => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
   
-  if (!supabaseUrl || !anonKey) {
-    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables')
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY environment variables')
   }
   
-  return { supabaseUrl, anonKey }
+  return { supabaseUrl, supabaseKey }
 }
 
 export interface PipelineOptions {

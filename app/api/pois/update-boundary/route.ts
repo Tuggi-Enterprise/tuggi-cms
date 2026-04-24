@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     // Check authentication first
     // Allow service role key in header for testing (same pattern as other endpoints)
     const serviceRoleKey = request.headers.get('x-service-role-key')
-    const isServiceRoleRequest = serviceRoleKey === process.env.SUPABASE_SERVICE_ROLE_KEY
+    const isServiceRoleRequest = serviceRoleKey === process.env.SUPABASE_SECRET_KEY
     
     if (!isServiceRoleRequest) {
       // Regular authentication check for frontend requests

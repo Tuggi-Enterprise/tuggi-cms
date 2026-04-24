@@ -71,7 +71,7 @@ serve(async (req) => {
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SECRET_KEY')!;
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     // Extract images from website
@@ -391,7 +391,7 @@ async function storeImageInBucket(
   mimeType?: string
 ): Promise<string> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SECRET_KEY')!;
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
   const storagePath = `${folderId}/${fileName}`;
@@ -419,7 +419,7 @@ async function saveImageReference(
   altText: string
 ): Promise<string> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SECRET_KEY')!;
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
   const { data, error } = await supabaseAdmin

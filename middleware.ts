@@ -25,7 +25,7 @@ export async function middleware(req: NextRequest) {
     { req, res },
     {
       supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
     }
   )
 

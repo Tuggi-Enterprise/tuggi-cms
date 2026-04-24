@@ -60,8 +60,8 @@ Before you begin, ensure you have:
    Create a `.env.local` file in the root directory:
    ```env
    NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_supabase_anon_key
+   SUPABASE_SECRET_KEY=your_supabase_service_role_key
    NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET=tuggi-cms-images
    GEMINI_API_KEY=your_google_gemini_api_key
    OPENAI_API_KEY=your_openai_api_key
@@ -266,8 +266,8 @@ tuggi-cms/
 The application requires several environment variables:
 
 - `NEXT_PUBLIC_SUPABASE_URL`: Your Supabase project URL
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Your Supabase anonymous key
-- `SUPABASE_SERVICE_ROLE_KEY`: Service role key for admin operations
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: Your Supabase anonymous key
+- `SUPABASE_SECRET_KEY`: Service role key for admin operations
 - `NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET`: Storage bucket name for images
 
 ## Development

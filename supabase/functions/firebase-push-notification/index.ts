@@ -26,14 +26,14 @@ Deno.serve(async (req) => {
     const FIREBASE_PRIVATE_KEY = (Deno.env.get('FIREBASE_PRIVATE_KEY') ?? '').trim();
     const FIREBASE_CLIENT_EMAIL = (Deno.env.get('FIREBASE_CLIENT_EMAIL') ?? '').trim();
     const SUPABASE_URL = (Deno.env.get('SUPABASE_URL') ?? '').trim();
-    const SUPABASE_SERVICE_ROLE_KEY = (getSecretKey() ?? '').trim();
+    const SUPABASE_SECRET_KEY = (getSecretKey() ?? '').trim();
 
     // Diagnostics
     if (!FIREBASE_PRIVATE_KEY) console.error(`[${requestId}] ❌ FIREBASE_PRIVATE_KEY is missing`);
     if (!FIREBASE_PROJECT_ID) console.error(`[${requestId}] ❌ FIREBASE_PROJECT_ID is missing`);
 
     // Initialize Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,

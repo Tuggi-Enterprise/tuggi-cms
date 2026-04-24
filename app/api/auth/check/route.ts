@@ -1,67 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
+import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   try {
     console.log('🔍 AUTH CHECK: Checking authentication status...')
-    console.log('🔍 AUTH CHECK: Request URL:', request.url)
-    console.log('🔍 AUTH CHECK: Request headers:', Object.fromEntries(request.headers.entries()))
     
     const cookieStore = await cookies()
+    const supabase = getSupabaseRouteHandler(cookieStore)
     
-    // Get auth token from cookies
-    const authToken = cookieStore.get('sb-tysnkzmljlmmqpbotkxv-auth-token')
-    
-    console.log('🔍 AUTH CHECK: Auth token present:', !!authToken)
-    
-    if (!authToken) {
-      console.log('❌ AUTH CHECK: No auth token found')
-      return NextResponse.json(
-        { 
-          authenticated: false, 
-          message: 'No auth token found' 
-        },
-        { status: 401 }
-      )
-    }
-    
-    // Parse the token (it's stored as a JSON array)
-    let parsedToken
-    try {
-      parsedToken = JSON.parse(authToken.value)
-    } catch (e) {
-      console.error('❌ AUTH CHECK: Failed to parse auth token:', e)
-      return NextResponse.json(
-        { 
-          authenticated: false, 
-          error: 'Invalid auth token format' 
-        },
-        { status: 401 }
-      )
-    }
-    
-    const accessToken = parsedToken[0]
-    
-    // Create Supabase client with the access token
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${accessToken}`
-          }
-        }
-      }
-    )
-    
-    console.log('🔍 AUTH CHECK: Supabase client created')
+    console.log('🔍 AUTH CHECK: Supabase client created using SSOT')
     
     const { data: { user }, error } = await supabase.auth.getUser()
-    
     
     console.log('🔍 AUTH CHECK: User check result:', {
       hasUser: !!user,
@@ -94,7 +46,6 @@ export async function GET(request: NextRequest) {
     }
 
     console.log('✅ User found:', user.email)
-    
     
     // Check CMS user status
     const { data: cmsUser, error: cmsError } = await supabase

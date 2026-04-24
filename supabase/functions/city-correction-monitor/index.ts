@@ -15,7 +15,7 @@ serve(async (req) => {
     console.log('🔍 City Correction Monitor - Starting system check...')
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!.trim()
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!.trim()
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SECRET_KEY')!.trim()
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     // 1. Check for orphaned/stuck jobs

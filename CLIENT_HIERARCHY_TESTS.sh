@@ -14,8 +14,8 @@ NC='\033[0m' # No Color
 
 # Configuration
 SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL}"
-ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY}"
-SERVICE_KEY="${SUPABASE_SERVICE_ROLE_KEY}"
+ANON_KEY="${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
+SERVICE_KEY="${SUPABASE_SECRET_KEY}"
 
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║  CLIENT HIERARCHY IMPLEMENTATION - TEST SUITE                  ║"
@@ -24,7 +24,7 @@ echo ""
 
 if [ -z "$SUPABASE_URL" ] || [ -z "$ANON_KEY" ]; then
   echo -e "${RED}ERROR: Environment variables not set${NC}"
-  echo "Required: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY"
+  echo "Required: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY"
   exit 1
 fi
 

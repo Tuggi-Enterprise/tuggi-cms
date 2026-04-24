@@ -30,7 +30,7 @@ GOOGLE_MAPS_API_KEY=your_production_google_maps_api_key
 # Supabase
 SUPABASE_URL=your_production_supabase_url
 SUPABASE_ANON_KEY=your_production_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_production_supabase_service_role_key
+SUPABASE_SECRET_KEY=your_production_supabase_service_role_key
 
 # Sistema
 NODE_ENV=production
@@ -182,7 +182,7 @@ vercel --prod
 # Configurar variáveis de ambiente
 vercel env add GOOGLE_MAPS_API_KEY
 vercel env add SUPABASE_URL
-vercel env add SUPABASE_SERVICE_ROLE_KEY
+vercel env add SUPABASE_SECRET_KEY
 ```
 
 ### 2. Configuração do Vercel
@@ -200,7 +200,7 @@ vercel env add SUPABASE_SERVICE_ROLE_KEY
   "env": {
     "GOOGLE_MAPS_API_KEY": "@google-maps-api-key",
     "SUPABASE_URL": "@supabase-url",
-    "SUPABASE_SERVICE_ROLE_KEY": "@supabase-service-role-key"
+    "SUPABASE_SECRET_KEY": "@supabase-service-role-key"
   },
   "functions": {
     "app/api/trigger-points/generate-google/route.ts": {
@@ -290,7 +290,7 @@ gh secret set ORG_ID --body "your_vercel_org_id"
 gh secret set PROJECT_ID --body "your_vercel_project_id"
 gh secret set GOOGLE_MAPS_API_KEY --body "your_google_maps_api_key"
 gh secret set SUPABASE_URL --body "your_supabase_url"
-gh secret set SUPABASE_SERVICE_ROLE_KEY --body "your_supabase_service_role_key"
+gh secret set SUPABASE_SECRET_KEY --body "your_supabase_service_role_key"
 ```
 
 ## 📊 Monitoramento
@@ -561,7 +561,7 @@ export class DatabaseConnectionPool {
     if (!this.clients.has(connectionString)) {
       const client = createClient(
         process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        process.env.SUPABASE_SECRET_KEY!,
         {
           db: {
             schema: 'core'
