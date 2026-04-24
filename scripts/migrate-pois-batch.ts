@@ -163,7 +163,7 @@ async function main() {
   // ── Cursor-based pagination loop ──────────────────────────────────────────────
   // Each page is fetched, processed concurrently, then released from memory
   // before the next page is fetched. Heap usage stays bounded to PAGE_SIZE.
-  let cursor = ''
+  let cursor: string | null = null
   let pageNumber = 0
   let globalIndex = 0
 
@@ -175,8 +175,11 @@ async function main() {
       .from('pois')
       .select('uuid_id, name, city, state, country, processing_status, approved, category')
       .order('uuid_id')
-      .gt('uuid_id', cursor)
       .limit(pageLimit)
+
+    if (cursor) {
+      q = q.gt('uuid_id', cursor)
+    }
 
     if (options.country && options.country !== 'all') q = q.eq('country', options.country)
     if (options.state && options.state !== 'all') q = q.eq('state', options.state)
