@@ -44,13 +44,24 @@ export class MigrationService {
     error?: string
   }> {
     try {
-      // Load POI
-      const { data: poi, error: poiError } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select('id, name, city, state, country, category, osm_id, osm_type, estimated_height_m, osm_tags')
-        .eq('id', attraction_id)
-        .maybeSingle()
+      // Load POI and coordinates in parallel — they are independent queries
+      const [
+        { data: poi, error: poiError },
+        { data: coordinate, error: coordError }
+      ] = await Promise.all([
+        supabase
+          .schema('core')
+          .from('attractions')
+          .select('id, name, city, state, country, category, osm_id, osm_type, estimated_height_m, osm_tags')
+          .eq('id', attraction_id)
+          .maybeSingle(),
+        supabase
+          .schema('core')
+          .from('attraction_coordinate')
+          .select('latitude, longitude')
+          .eq('attraction_id', attraction_id)
+          .maybeSingle()
+      ])
 
       if (poiError || !poi) {
         return {
@@ -58,14 +69,6 @@ export class MigrationService {
           error: poiError?.message || 'POI not found'
         }
       }
-
-      // Load coordinates
-      const { data: coordinate, error: coordError } = await supabase
-        .schema('core')
-        .from('attraction_coordinate')
-        .select('latitude, longitude')
-        .eq('attraction_id', attraction_id)
-        .maybeSingle()
 
       if (coordError || !coordinate) {
         return {
@@ -106,13 +109,28 @@ export class MigrationService {
     longitude: number
   ): Promise<DuplicateCheckResult> {
     try {
-      // Check by UUID (same UUID already exists in core)
-      const { data: existingByUuid } = await supabase
+      // Fire UUID and OSM duplicate checks in parallel — independent queries on the same table
+      const uuidPromise = supabase
         .schema('core')
         .from('attractions')
         .select('id')
         .eq('id', uuid_id)
-        .single()
+        .maybeSingle()
+
+      const osmPromise = osm_id && osm_type
+        ? supabase
+            .schema('core')
+            .from('attractions')
+            .select('id')
+            .eq('osm_id', osm_id.toString())
+            .eq('osm_type', osm_type)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null })
+
+      const [{ data: existingByUuid }, { data: existingByOsm }] = await Promise.all([
+        uuidPromise,
+        osmPromise
+      ])
 
       if (existingByUuid) {
         return {
@@ -123,32 +141,14 @@ export class MigrationService {
         }
       }
 
-      // Check by OSM ID + Type (same OSM POI)
-      if (osm_id && osm_type) {
-        const { data: existingByOsm } = await supabase
-          .schema('core')
-          .from('attractions')
-          .select('id')
-          .eq('osm_id', osm_id.toString())
-          .eq('osm_type', osm_type)
-          .single()
-
-        if (existingByOsm) {
-          return {
-            is_duplicate: true,
-            duplicate_type: 'osm',
-            existing_id: existingByOsm.id,
-            message: `POI with OSM ID ${osm_id} (${osm_type}) already exists in core.attractions`
-          }
+      if (existingByOsm) {
+        return {
+          is_duplicate: true,
+          duplicate_type: 'osm',
+          existing_id: existingByOsm.id,
+          message: `POI with OSM ID ${osm_id} (${osm_type}) already exists in core.attractions`
         }
       }
-
-      // Check by coordinates (within ~50m radius)
-      // NOTE: We no longer block migration for coordinate duplicates
-      // The user wants to import even if coordinates are similar, removing existing POIs
-      // We only check for UUID duplicates to prevent ID conflicts
-      // Coordinate duplicates are allowed and will replace existing POIs
-      // The removal of duplicate POIs happens at the end of the pipeline after approval
 
       return {
         is_duplicate: false
@@ -442,13 +442,14 @@ export class MigrationService {
     let wasCreated = false
 
     try {
-      // 1. Fetch POI from homolog
-      const { data: poi, error: poiError } = await supabase
-        .schema('homolog')
-        .from('pois')
-        .select('*')
-        .eq('uuid_id', uuid_id)
-        .single()
+      // 1+2. Fetch POI and coordinates from homolog in parallel (independent queries — saves 1 RTT)
+      const [
+        { data: poi, error: poiError },
+        { data: coord, error: coordError }
+      ] = await Promise.all([
+        supabase.schema('homolog').from('pois').select('*').eq('uuid_id', uuid_id).single(),
+        supabase.schema('homolog').from('coordinates').select('*').eq('poi_uuid_id', uuid_id).single()
+      ])
 
       if (poiError || !poi) {
         return {
@@ -456,14 +457,6 @@ export class MigrationService {
           error: `POI not found in homolog: ${poiError?.message || 'Unknown error'}`
         }
       }
-
-      // 2. Fetch coordinates from homolog
-      const { data: coord, error: coordError } = await supabase
-        .schema('homolog')
-        .from('coordinates')
-        .select('*')
-        .eq('poi_uuid_id', uuid_id)
-        .single()
 
       if (coordError || !coord) {
         return {
@@ -503,57 +496,65 @@ export class MigrationService {
         }
       }
 
-      // 4. Check for duplicates (only by UUID and OSM ID - coordinates are allowed to be similar)
-      const duplicateCheck = await this.checkDuplicates(
-        uuid_id,
-        poi.osm_id,
-        poi.osm_type,
-        coord.latitude,
-        coord.longitude
-      )
+      // 4+6 merged: single query covers UUID duplicate check AND lock check.
+      // Fire OSM dup check in parallel — eliminates 2 serial round-trips (was 3 queries, now 2 parallel).
+      const lockUserId = 'migration-service'
+      const lockTimestamp = new Date().toISOString()
 
-      // Only block if UUID or OSM ID duplicate (same POI)
-      // Coordinate duplicates are allowed - we'll remove the existing POI
-      if (duplicateCheck.is_duplicate && duplicateCheck.duplicate_type !== 'coordinates') {
-        // Self-healing: If exact duplicate exists in core, verify it matches our ID/OSM ID and clean up homolog
-        console.log(`♻️ Self-healing: POI ${uuid_id} already exists in core (${duplicateCheck.duplicate_type}). Removing from homolog...`)
-        
-        // Delete from homolog (coordinates first, then POI) to resolve the "ghost" duplicate
+      const [
+        { data: existingPOI },
+        { data: osmDup }
+      ] = await Promise.all([
+        supabase
+          .schema('core')
+          .from('attractions')
+          .select('id, processing_lock_by, processing_lock_at')
+          .eq('id', uuid_id)
+          .maybeSingle(),
+        poi.osm_id && poi.osm_type
+          ? supabase
+              .schema('core')
+              .from('attractions')
+              .select('id')
+              .eq('osm_id', poi.osm_id.toString())
+              .eq('osm_type', poi.osm_type)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null })
+      ])
+
+      // Handle UUID duplicate: found with no active lock = already migrated → self-heal
+      if (existingPOI && !existingPOI.processing_lock_by) {
+        console.log(`♻️ Self-healing: POI ${uuid_id} already exists in core (uuid). Removing from homolog...`)
         await supabase.schema('homolog').from('coordinates').delete().eq('poi_uuid_id', uuid_id)
         await supabase.schema('homolog').from('pois').delete().eq('uuid_id', uuid_id)
-
         return {
           success: true,
           migrated_fields: ['(Self-healed duplicate)'],
-          warnings: [`Duplicate resolved: POI already existed in core and was removed from homolog (Type: ${duplicateCheck.duplicate_type})`]
+          warnings: [`Duplicate resolved: POI already existed in core and was removed from homolog (Type: uuid)`]
         }
       }
 
-      // NOTE: We don't remove duplicate POIs during migration
-      // This will be done at the end of the pipeline after approval
-      // to ensure we only remove duplicates if the new POI is successfully processed
+      // Handle OSM duplicate (only when UUID is not in core): self-heal
+      if (!existingPOI && osmDup) {
+        console.log(`♻️ Self-healing: POI ${uuid_id} already exists in core (osm). Removing from homolog...`)
+        await supabase.schema('homolog').from('coordinates').delete().eq('poi_uuid_id', uuid_id)
+        await supabase.schema('homolog').from('pois').delete().eq('uuid_id', uuid_id)
+        return {
+          success: true,
+          migrated_fields: ['(Self-healed duplicate)'],
+          warnings: [`Duplicate resolved: POI already existed in core and was removed from homolog (Type: osm)`]
+        }
+      }
 
-      // 4.5. Try to acquire lock atomically (prevents race conditions)
-      // Use INSERT ... ON CONFLICT to handle both creation and lock acquisition atomically
-      const lockUserId = 'migration-service'
-      const lockTimestamp = new Date().toISOString()
-      
+      // NOTE: Coordinate duplicates are allowed — existing POIs are removed after approval.
+
       // 5. Map homolog data to core format
       const mappedPOI = this.mapHomologToCore(poi, coord)
       migrated_fields.push(...Object.keys(mappedPOI).filter(k => mappedPOI[k] !== null && mappedPOI[k] !== undefined))
-      
+
       // Set lock fields
       mappedPOI.processing_lock_by = lockUserId
       mappedPOI.processing_lock_at = lockTimestamp
-
-      // 6. Try to create POI atomically with lock
-      // If POI already exists, check if we can acquire lock
-      const { data: existingPOI } = await supabase
-        .schema('core')
-        .from('attractions')
-        .select('id, processing_lock_by, processing_lock_at')
-        .eq('id', uuid_id)
-        .maybeSingle()
 
       // finalPOI defined at top scope
 
@@ -649,15 +650,7 @@ export class MigrationService {
         }
       }
 
-      // 8. Create coordinate in core.attraction_coordinate
-      // First check if coordinate already exists (UNIQUE constraint on attraction_id)
-      const { data: existingCoord } = await supabase
-        .schema('core')
-        .from('attraction_coordinate')
-        .select('id')
-        .eq('attraction_id', finalPOI.id)
-        .maybeSingle()
-
+      // 8. Upsert coordinate — single round-trip replaces SELECT + conditional INSERT/UPDATE
       const mappedCoord: any = {
         attraction_id: finalPOI.id,
         latitude: coord.latitude,
@@ -675,33 +668,10 @@ export class MigrationService {
         updated_at: coord.updated_at || new Date().toISOString()
       }
 
-      let createdCoord
-      let coordCreateError
-
-      if (existingCoord) {
-        // Update existing coordinate
-        const { data: updatedCoord, error: updateError } = await supabase
-          .schema('core')
-          .from('attraction_coordinate')
-          .update(mappedCoord)
-          .eq('id', existingCoord.id)
-          .select('id')
-          .single()
-
-        createdCoord = updatedCoord
-        coordCreateError = updateError
-      } else {
-        // Insert new coordinate
-        const { data: insertedCoord, error: insertError } = await supabase
-          .schema('core')
-          .from('attraction_coordinate')
-          .insert(mappedCoord)
-          .select('id')
-          .single()
-
-        createdCoord = insertedCoord
-        coordCreateError = insertError
-      }
+      const { error: coordCreateError } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .upsert(mappedCoord, { onConflict: 'attraction_id' })
 
       if (coordCreateError) {
         // Rollback: delete the POI we just created

@@ -1,0 +1,1 @@
+export $(grep -v '^#' .env | xargs) && npx tsx scripts/migrate-pois-batch.ts --country "Spain" --batch-size 50000 --mode "enrichment_migration_triggers" --auto-generate-audio false --auto-approve true

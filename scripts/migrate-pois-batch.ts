@@ -5,6 +5,8 @@
  *   npx tsx scripts/migrate-pois-batch.ts --country "Brazil" --state "São Paulo" --city "São Paulo" --batch-size 25
  */
 
+import pLimit from 'p-limit'
+import fs from 'fs/promises'
 import { MigrationService } from '../lib/services/migration-service'
 import { PoiMigrationPipeline, PipelineOptions } from '../lib/services/poi-migration-pipeline'
 import { getSupabase } from '../lib/core/supabase-client'
@@ -101,66 +103,15 @@ async function main() {
     auto_approve: autoApprove
   })
 
-  // Build query to get POIs from homolog
-  let query = supabase
-    .schema('homolog')
-    .from('pois')
-    .select('uuid_id, name, city, state, country, processing_status, approved, category')
+  // ── Pagination & concurrency config ────────────────────────────────────────
+  // PAGE_SIZE: how many POIs fetched per page — heap is bounded to this window.
+  // Use --batch-size to override (default 500). --limit caps the grand total.
+  const PAGE_SIZE = batchSize
+  const CONCURRENCY = 15
+  const limiter = pLimit(CONCURRENCY)
+  const hardLimit = options.limit ?? Infinity
 
-  // Apply filters
-  if (options.country && options.country !== 'all') {
-    query = query.eq('country', options.country)
-  }
-  if (options.state && options.state !== 'all') {
-    query = query.eq('state', options.state)
-  }
-  if (options.city && options.city !== 'all') {
-    query = query.eq('city', options.city)
-  }
-  if (options.processing_status && options.processing_status !== 'all') {
-    query = query.eq('processing_status', options.processing_status)
-  } else {
-    // Default: only pending or processing
-    query = query.in('processing_status', ['pending', 'processing'])
-  }
-  if (options.approved !== undefined) {
-    query = query.eq('approved', options.approved)
-  }
-  if (options.category && options.category !== 'all') {
-    query = query.eq('category', options.category)
-  }
-
-  // Apply limit
-  if (options.limit) {
-    query = query.limit(options.limit)
-  } else {
-    query = query.limit(batchSize)
-  }
-
-  const { data: pois, error: poisError } = await query
-
-  if (poisError) {
-    console.error('❌ Error fetching POIs:', poisError)
-    process.exit(1)
-  }
-
-  if (!pois || pois.length === 0) {
-    console.log('ℹ️ No POIs found matching filters')
-    process.exit(0)
-  }
-
-  console.log(`📊 Found ${pois.length} POIs to migrate`)
-
-  // Statistics
-  const stats = {
-    total: pois.length,
-    successful: 0,
-    failed: 0,
-    skipped: 0,
-    errors: [] as Array<{ uuid_id: string; name: string; error: string }>
-  }
-
-  // Process each POI
+  // ── Pipeline options ─────────────────────────────────────────────────────────
   const pipelineOptions: PipelineOptions = {
     auto_generate_audio: autoGenerateAudio,
     auto_approve_if_satisfactory: autoApprove,
@@ -169,10 +120,20 @@ async function main() {
     mode
   }
 
-  for (let i = 0; i < pois.length; i++) {
-    const poi = pois[i]
-    const progress = `[${i + 1}/${pois.length}]`
+  // ── Statistics ────────────────────────────────────────────────────────────────
+  const stats = {
+    total: 0,
+    successful: 0,
+    failed: 0,
+    skipped: 0,
+    errors: [] as Array<{ uuid_id: string; name: string; error: string }>
+  }
 
+  type PoiRow = { uuid_id: string; name: string; city: string; state: string; country: string; processing_status: string; approved: boolean; category: string }
+
+  // ── Single-POI processor ──────────────────────────────────────────────────────
+  const processPoi = async (poi: PoiRow, globalIndex: number): Promise<void> => {
+    const progress = `[${globalIndex}]`
     console.log(`\n${progress} Processing: ${poi.name} (${poi.city}, ${poi.state})`)
 
     try {
@@ -181,39 +142,80 @@ async function main() {
       if (result.success) {
         stats.successful++
         console.log(`✅ ${progress} Success: ${poi.name}`)
-        
-        // Log steps
         result.steps.forEach(step => {
           const status = step.success ? '✅' : '❌'
           console.log(`   ${status} ${step.step}: ${step.processing_time}ms`)
-          if (step.error) {
-            console.log(`      Error: ${step.error}`)
-          }
+          if (step.error) console.log(`      Error: ${step.error}`)
         })
       } else {
         stats.failed++
-        stats.errors.push({
-          uuid_id: poi.uuid_id,
-          name: poi.name,
-          error: result.error || 'Unknown error'
-        })
+        stats.errors.push({ uuid_id: poi.uuid_id, name: poi.name, error: result.error || 'Unknown error' })
         console.log(`❌ ${progress} Failed: ${poi.name} - ${result.error}`)
       }
     } catch (error) {
       stats.failed++
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-      stats.errors.push({
-        uuid_id: poi.uuid_id,
-        name: poi.name,
-        error: errorMsg
-      })
+      stats.errors.push({ uuid_id: poi.uuid_id, name: poi.name, error: errorMsg })
       console.error(`❌ ${progress} Error: ${poi.name} - ${errorMsg}`)
     }
+  }
 
-    // Small delay between POIs to avoid rate limiting
-    if (i < pois.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000))
+  // ── Cursor-based pagination loop ──────────────────────────────────────────────
+  // Each page is fetched, processed concurrently, then released from memory
+  // before the next page is fetched. Heap usage stays bounded to PAGE_SIZE.
+  let cursor = ''
+  let pageNumber = 0
+  let globalIndex = 0
+
+  while (globalIndex < hardLimit) {
+    const pageLimit = Math.min(PAGE_SIZE, hardLimit - globalIndex)
+
+    let q = supabase
+      .schema('homolog')
+      .from('pois')
+      .select('uuid_id, name, city, state, country, processing_status, approved, category')
+      .order('uuid_id')
+      .gt('uuid_id', cursor)
+      .limit(pageLimit)
+
+    if (options.country && options.country !== 'all') q = q.eq('country', options.country)
+    if (options.state && options.state !== 'all') q = q.eq('state', options.state)
+    if (options.city && options.city !== 'all') q = q.eq('city', options.city)
+    if (options.processing_status && options.processing_status !== 'all') {
+      q = q.eq('processing_status', options.processing_status)
+    } else {
+      q = q.in('processing_status', ['pending', 'processing'])
     }
+    if (options.approved !== undefined) q = q.eq('approved', options.approved)
+    if (options.category && options.category !== 'all') q = q.eq('category', options.category)
+
+    const { data: page, error: pageError } = await q
+
+    if (pageError) {
+      console.error('❌ Error fetching page:', pageError)
+      break
+    }
+
+    if (!page || page.length === 0) break
+
+    pageNumber++
+    stats.total += page.length
+    console.log(`\n📦 Page ${pageNumber}: ${page.length} POIs (cumulative: ${stats.total})`)
+
+    // Process this page concurrently, then let it be GC'd before fetching next
+    await Promise.all(
+      page.map((poi, i) => limiter(() => processPoi(poi as PoiRow, globalIndex + i + 1)))
+    )
+
+    globalIndex += page.length
+    cursor = page[page.length - 1].uuid_id as string
+
+    if (page.length < pageLimit) break // last page reached
+  }
+
+  if (stats.total === 0) {
+    console.log('ℹ️ No POIs found matching filters')
+    process.exit(0)
   }
 
   // Print summary
@@ -236,7 +238,6 @@ async function main() {
   // Save results to file
   const timestamp = Date.now()
   const resultsFile = `migration-results-${timestamp}.json`
-  const fs = await import('fs/promises')
   await fs.writeFile(
     resultsFile,
     JSON.stringify({
