@@ -148,7 +148,7 @@ export default function DashboardPage() {
         <StatCard size="compact" icon={ShieldCheck} title={t('labels.premium')} value={stats.totalPremiumUsers} color={TUGGI_COLORS.orange} isLoading={isLoading} />
         <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={stats.activeUsers30d} color={TUGGI_COLORS.green} isLoading={isLoading} />
         <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={stats.totalTrips} color={TUGGI_COLORS.blue} isLoading={isLoading} />
-        <StatCard size="compact" icon={Clock} title="Speed (6h)" value={stats.migrationMetrics?.recentAvgSeconds ? `${stats.migrationMetrics.recentAvgSeconds}s` : '--'} color={TUGGI_COLORS.green} isLoading={isLoading} />
+        <StatCard size="compact" icon={Clock} title="Migration Speed" value={stats.migrationMetrics?.recentAvgSeconds ? `${stats.migrationMetrics.recentAvgSeconds}s` : '--'} color={TUGGI_COLORS.green} isLoading={isLoading} />
       </div>
 
       {/* 2. THE ANALYTICS HUD (3-BLOCK ROW) */}
