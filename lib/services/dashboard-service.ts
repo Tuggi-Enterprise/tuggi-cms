@@ -102,6 +102,14 @@ export interface DashboardStats {
   // Visits by Language
   visitsByLanguage: Array<{ language_code: string; visit_count: number; audio_played_count: number }>
   
+  // Migration Analytics
+  migrationMetrics: {
+    monthly: Array<{ month: string; volume: number; avg_seconds: number }>
+    overallAvgSeconds: number
+    recentAvgSeconds: number
+    recentVolume: number
+  }
+  
   // Metadata
   lastUpdated: Date
   source: 'cache' | 'database'
@@ -137,6 +145,7 @@ export const EMPTY_DASHBOARD_STATS: DashboardStats = {
   recentVisitedPOIs: [],
   recentAppActivity: [],
   visitsByLanguage: [],
+  migrationMetrics: { monthly: [], overallAvgSeconds: 0, recentAvgSeconds: 0, recentVolume: 0 },
   lastUpdated: new Date(),
   source: 'database'
 }
@@ -236,7 +245,8 @@ class DashboardService {
         contentQualityResult,
         visitsByLanguageResult,
         recentAppActivityResult,
-        countryStatsResult
+        countryStatsResult,
+        migrationMetricsResult
       ] = await Promise.all([
         // parameter renamed to p_owner_id to avoid naming conflict
         supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId || null }),
@@ -248,7 +258,8 @@ class DashboardService {
         supabase.schema('core').rpc('dashboard_content_quality'),
         supabase.schema('core').rpc('dashboard_visits_by_language'),
         supabase.schema('core').rpc('dashboard_recent_app_users', { limit_count: 7 }),
-        supabase.schema('core').rpc('dashboard_country_stats', { p_owner_id: ownerId || null })
+        supabase.schema('core').rpc('dashboard_country_stats', { p_owner_id: ownerId || null }),
+        supabase.schema('core').rpc('dashboard_migration_metrics')
       ])
       
       // Log de erros individuais (não fatal)
@@ -260,6 +271,7 @@ class DashboardService {
       if (inventoryFunnelResult.error) console.warn('⚠️ Inventory funnel error:', inventoryFunnelResult.error.message)
       if (contentQualityResult.error) console.warn('⚠️ Content quality error:', contentQualityResult.error.message)
       if (visitsByLanguageResult?.error) console.warn('⚠️ Visits by language error:', visitsByLanguageResult.error.message)
+      if (migrationMetricsResult?.error) console.warn('⚠️ Migration metrics error:', migrationMetricsResult.error.message)
       
       // Parse dos resultados (com fallbacks seguros)
       const userAnalytics = userAnalyticsResult.data?.[0] || {}
@@ -270,6 +282,7 @@ class DashboardService {
       const topPOIs = topPOIsResult.data || []
       const recentPOIs = recentPOIsResult.data || []
       const visitsByLanguage = visitsByLanguageResult?.data || []
+      const migrationMetricsRaw = migrationMetricsResult?.data || { monthly: [], overall_avg_seconds: 0, recent_avg_seconds: 0, recent_volume: 0 }
       
       // Construir objeto final
       const dashboardData: DashboardStats = {
@@ -363,6 +376,14 @@ class DashboardService {
           visit_count: Number(v.visit_count),
           audio_played_count: Number(v.audio_played_count)
         })),
+
+        // Migration Analytics
+        migrationMetrics: {
+          monthly: migrationMetricsRaw.monthly || [],
+          overallAvgSeconds: Number(migrationMetricsRaw.overall_avg_seconds || 0),
+          recentAvgSeconds: Number(migrationMetricsRaw.recent_avg_seconds || 0),
+          recentVolume: Number(migrationMetricsRaw.recent_volume || 0)
+        },
         
         // Metadata
         lastUpdated: new Date(),

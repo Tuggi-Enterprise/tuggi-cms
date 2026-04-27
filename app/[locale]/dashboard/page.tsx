@@ -141,13 +141,14 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-[#F0F2F5] dark:bg-gray-950 p-4 lg:p-6 flex flex-col gap-4 animate-in fade-in duration-500">
       
       {/* 1. MÁSTER KPI BAR (COMPACT) */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         <StatCard size="compact" icon={Database} title={t('labels.catalog')} value={stats.totalInventory} color={TUGGI_COLORS.blue} isLoading={isLoading} />
         <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={TUGGI_COLORS.green} isLoading={isLoading} />
         <StatCard size="compact" icon={Users} title={t('labels.users')} value={stats.totalUsers} color={TUGGI_COLORS.purple} isLoading={isLoading} />
         <StatCard size="compact" icon={ShieldCheck} title={t('labels.premium')} value={stats.totalPremiumUsers} color={TUGGI_COLORS.orange} isLoading={isLoading} />
         <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={stats.activeUsers30d} color={TUGGI_COLORS.green} isLoading={isLoading} />
         <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={stats.totalTrips} color={TUGGI_COLORS.blue} isLoading={isLoading} />
+        <StatCard size="compact" icon={Clock} title="Speed (6h)" value={stats.migrationMetrics?.recentAvgSeconds ? `${stats.migrationMetrics.recentAvgSeconds}s` : '--'} color={TUGGI_COLORS.green} isLoading={isLoading} />
       </div>
 
       {/* 2. THE ANALYTICS HUD (3-BLOCK ROW) */}
@@ -542,7 +543,7 @@ export default function DashboardPage() {
         {/* RIGHT HUB: POPULARITY & PLATFORMS (4 COLS) */}
         <div className="lg:col-span-4 flex flex-col gap-4">
           {/* RECENT APP ACTIVITY - MISSION CONTROL LOG STYLE */}
-          <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-full">
+          <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-[400px]">
              <h3 className="text-[11px] font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
                 <span className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-tuggi-blue animate-pulse" />
@@ -618,7 +619,53 @@ export default function DashboardPage() {
              </div>
           </div>
 
-
+          {/* MIGRATION PERFORMANCE */}
+          <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col flex-1 min-h-[240px]">
+             <h3 className="text-[11px] font-black uppercase text-gray-400 mb-4 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
+                <span>Migration Speed</span>
+                <Clock className="h-4 w-4 text-tuggi-green opacity-50" />
+             </h3>
+             <div className="flex items-center gap-3 mb-4">
+                <span suppressHydrationWarning className="text-3xl font-black text-tuggi-green leading-none">
+                  {(() => {
+                    const data2026 = (stats.migrationMetrics?.monthly || []).filter(item => item.month.startsWith('2026'));
+                    const totalVol = data2026.reduce((acc, curr) => acc + curr.volume, 0);
+                    return totalVol > 0 ? (data2026.reduce((acc, curr) => acc + (curr.avg_seconds * curr.volume), 0) / totalVol).toFixed(2) : '0.00';
+                  })()}s
+                </span>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-tight border-l border-gray-100 dark:border-gray-800 pl-3">Global<br/>Average (2026)</span>
+             </div>
+             <div className="flex-1 min-h-0 w-full mt-2">
+                {isMounted && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={(stats.migrationMetrics?.monthly || []).filter(item => item.month.startsWith('2026'))} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
+                      <XAxis 
+                        dataKey="month" 
+                        tick={{ fill: '#9ca3af', fontSize: 10, fontWeight: 700 }} 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tickFormatter={(val) => val ? `${val.split('-')[1]}/${val.split('-')[0].slice(2)}` : ''} 
+                      />
+                      <YAxis hide domain={[0, 'dataMax']} />
+                      <Tooltip 
+                        cursor={{ fill: 'rgba(16,185,129,0.05)' }} 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '11px', fontWeight: '900' }} 
+                      />
+                      <Bar dataKey="volume" fill={TUGGI_COLORS.green} radius={[4, 4, 0, 0]} barSize={24}>
+                         <LabelList 
+                           dataKey="avg_seconds" 
+                           position="top" 
+                           formatter={(val: any) => `${val}s`} 
+                           style={{ fill: '#9ca3af', fontSize: 10, fontWeight: '800' }} 
+                           offset={6} 
+                         />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+             </div>
+          </div>
           
         </div>
       </div>
