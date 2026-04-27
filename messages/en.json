@@ -247,7 +247,9 @@
         "total_pois": "Total POIs",
         "recent_app_activity": "Last App Users",
         "last_use": "Last Use",
-        "duration": "Duration"
+        "duration": "Duration",
+        "migration_speed": "Migration Speed",
+        "global_average": "Global Average"
       },
       "footer": {
         "copyright": "© 2026 Tuggi - Territorial Intelligence"

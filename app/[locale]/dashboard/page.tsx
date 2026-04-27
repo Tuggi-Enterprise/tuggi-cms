@@ -144,11 +144,11 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         <StatCard size="compact" icon={Database} title={t('labels.catalog')} value={stats.totalInventory} color={TUGGI_COLORS.blue} isLoading={isLoading} />
         <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={TUGGI_COLORS.green} isLoading={isLoading} />
+        <StatCard size="compact" icon={Clock} title={t('labels.migration_speed')} value={stats.migrationMetrics?.recentAvgSeconds ? `${stats.migrationMetrics.recentAvgSeconds}s` : '--'} color={TUGGI_COLORS.green} isLoading={isLoading} />
         <StatCard size="compact" icon={Users} title={t('labels.users')} value={stats.totalUsers} color={TUGGI_COLORS.purple} isLoading={isLoading} />
         <StatCard size="compact" icon={ShieldCheck} title={t('labels.premium')} value={stats.totalPremiumUsers} color={TUGGI_COLORS.orange} isLoading={isLoading} />
         <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={stats.activeUsers30d} color={TUGGI_COLORS.green} isLoading={isLoading} />
         <StatCard size="compact" icon={Play} title={t('labels.total_trips')} value={stats.totalTrips} color={TUGGI_COLORS.blue} isLoading={isLoading} />
-        <StatCard size="compact" icon={Clock} title="Migration Speed" value={stats.migrationMetrics?.recentAvgSeconds ? `${stats.migrationMetrics.recentAvgSeconds}s` : '--'} color={TUGGI_COLORS.green} isLoading={isLoading} />
       </div>
 
       {/* 2. THE ANALYTICS HUD (3-BLOCK ROW) */}
@@ -622,7 +622,7 @@ export default function DashboardPage() {
           {/* MIGRATION PERFORMANCE */}
           <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col flex-1 min-h-[240px]">
              <h3 className="text-[11px] font-black uppercase text-gray-400 mb-4 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
-                <span>Migration Speed</span>
+                <span>{t('labels.migration_speed')}</span>
                 <Clock className="h-4 w-4 text-tuggi-green opacity-50" />
              </h3>
              <div className="flex items-center gap-3 mb-4">
@@ -633,7 +633,7 @@ export default function DashboardPage() {
                     return totalVol > 0 ? (data2026.reduce((acc, curr) => acc + (curr.avg_seconds * curr.volume), 0) / totalVol).toFixed(2) : '0.00';
                   })()}s
                 </span>
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-tight border-l border-gray-100 dark:border-gray-800 pl-3">Global<br/>Average (2026)</span>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-tight border-l border-gray-100 dark:border-gray-800 pl-3">{t('labels.global_average')}<br/>(2026)</span>
              </div>
              <div className="flex-1 min-h-0 w-full mt-2">
                 {isMounted && (

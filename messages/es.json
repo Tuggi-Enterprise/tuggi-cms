@@ -219,7 +219,9 @@
         "total_pois": "Total de POIs",
         "recent_app_activity": "Últimos Usuarios del App",
         "last_use": "Último Uso",
-        "duration": "Duración"
+        "duration": "Duración",
+        "migration_speed": "Velocidad de Migración",
+        "global_average": "Promedio Global"
       },
       "charts": {
         "mau": "Usuarios Activos (Últimos 30 Días)",
