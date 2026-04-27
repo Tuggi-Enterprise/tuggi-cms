@@ -24,24 +24,18 @@ export async function POST(request: NextRequest) {
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
     if (authError || !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { data: cmsUser, error: cmsErr } = await supabaseAuth
+    // Use RPC to get user info
+    const { data: userData, error: userErr } = await supabaseAuth
       .schema('core')
-      .from('cms_users')
-      .select('id, role, is_active')
-      .eq('email', session.user.email as string)
-      .eq('is_active', true)
-      .single()
+      .rpc('get_cms_user_info', { p_email: session.user.email as string })
+    
+    const cmsUser = Array.isArray(userData) ? userData[0] : userData
 
-    if (cmsErr || !cmsUser) return NextResponse.json({ error: 'Unauthorized - CMS access denied' }, { status: 403 })
-
-    // Only admins can mark as garbage
-    const isAdmin = cmsUser.role === 'admin' || cmsUser.role === 'super_admin'
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Unauthorized - Admin only' }, { status: 403 })
-    }
+    if (userErr || !cmsUser) return NextResponse.json({ error: 'Unauthorized - CMS access denied' }, { status: 403 })
 
     // Call bulk RPC to delete as garbage
     const { error: rpcError } = await supabaseService
+      .schema('core')
       .rpc('bulk_delete_poi_as_garbage', {
         p_poi_ids: poiIds,
         p_admin_id: cmsUser.id

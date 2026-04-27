@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { 
   X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, 
   Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, 
-  Plus, AlertTriangle, AlertCircle, Layers, Zap, Navigation 
+  Plus, AlertTriangle, AlertCircle, Layers, Zap, Navigation, XCircle 
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getScoreDescription, getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute'

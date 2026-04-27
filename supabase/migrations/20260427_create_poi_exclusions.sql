@@ -37,10 +37,29 @@ CREATE TABLE IF NOT EXISTS core.poi_exclusions (
 );
 
 -- 2. Create indexes
-CREATE INDEX idx_poi_exclusions_osm ON core.poi_exclusions(osm_id, osm_type) WHERE osm_id IS NOT NULL;
-CREATE INDEX idx_poi_exclusions_name_city ON core.poi_exclusions(name, city);
-CREATE INDEX idx_poi_exclusions_status ON core.poi_exclusions(status);
-CREATE INDEX idx_poi_exclusions_original_id ON core.poi_exclusions(original_id);
+DROP INDEX IF EXISTS core.idx_poi_exclusions_osm;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_poi_exclusions_osm ON core.poi_exclusions(osm_id, osm_type) WHERE osm_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_poi_exclusions_name_city ON core.poi_exclusions(name, city);
+CREATE INDEX IF NOT EXISTS idx_poi_exclusions_status ON core.poi_exclusions(status);
+CREATE INDEX IF NOT EXISTS idx_poi_exclusions_original_id ON core.poi_exclusions(original_id);
+
+-- 2. Create RPC to get CMS user info by email (to avoid direct DB calls from app)
+CREATE OR REPLACE FUNCTION core.get_cms_user_info(p_email TEXT)
+RETURNS TABLE (
+    id UUID,
+    role TEXT,
+    is_active BOOLEAN,
+    client_id UUID
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT u.id, u.role, u.is_active, u.client_id
+    FROM core.cms_users u
+    WHERE LOWER(u.email) = LOWER(p_email)
+    AND u.is_active = true
+    LIMIT 1;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 3. Move data from homolog.pois_blacklist if it exists
 DO $$
@@ -75,7 +94,8 @@ BEGIN
             'blacklisted', -- Existing blacklist items are considered garbage
             excluded_at,
             created_at
-        FROM homolog.pois_blacklist;
+        FROM homolog.pois_blacklist
+        ON CONFLICT (osm_id, osm_type) WHERE osm_id IS NOT NULL DO NOTHING;
         
         -- Comment out or drop the old table after verification in a separate step if desired
         -- DROP TABLE homolog.pois_blacklist;
@@ -86,11 +106,23 @@ END $$;
 CREATE OR REPLACE FUNCTION core.delete_poi_as_garbage(
     p_poi_id UUID,
     p_admin_id UUID
-) RETURNS VOID AS $$
+) RETURNS TABLE (poi_name TEXT) AS $$
 DECLARE
     v_poi RECORD;
     v_coord RECORD;
+    v_role TEXT;
+    v_is_active BOOLEAN;
 BEGIN
+    -- Authorization Check
+    SELECT role, is_active INTO v_role, v_is_active FROM core.cms_users WHERE id = p_admin_id;
+    IF v_role NOT IN ('admin', 'super_admin') OR v_is_active IS NOT TRUE THEN
+        RAISE EXCEPTION 'Unauthorized: Only active admins can mark POIs as garbage';
+    END IF;
+
+    -- Set session variable to indicate this is a garbage deletion from CMS
+    PERFORM set_config('tuggi.is_garbage_action', 'true', true);
+    PERFORM set_config('tuggi.admin_id', p_admin_id::text, true);
+
     -- Get POI data
     SELECT * INTO v_poi FROM core.attractions WHERE id = p_poi_id;
     IF NOT FOUND THEN
@@ -119,7 +151,7 @@ BEGIN
     ) VALUES (
         v_poi.id,
         'core',
-        v_poi.osm_id,
+        v_poi.osm_id::BIGINT,
         v_poi.osm_type,
         v_poi.name,
         v_poi.city,
@@ -137,10 +169,15 @@ BEGIN
         reason = 'garbage',
         excluded_at = NOW();
 
+    -- Return name for logging
+    poi_name := v_poi.name;
+    
     -- Delete from core (Triggers will handle cascade)
     DELETE FROM core.attractions WHERE id = p_poi_id;
+
+    RETURN NEXT;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 4b. Bulk RPC to Delete as Garbage
 CREATE OR REPLACE FUNCTION core.bulk_delete_poi_as_garbage(
@@ -149,13 +186,25 @@ CREATE OR REPLACE FUNCTION core.bulk_delete_poi_as_garbage(
 ) RETURNS VOID AS $$
 DECLARE
     v_id UUID;
+    v_role TEXT;
+    v_is_active BOOLEAN;
 BEGIN
+    -- Authorization Check
+    SELECT role, is_active INTO v_role, v_is_active FROM core.cms_users WHERE id = p_admin_id;
+    IF v_role NOT IN ('admin', 'super_admin') OR v_is_active IS NOT TRUE THEN
+        RAISE EXCEPTION 'Unauthorized: Only active admins can mark POIs as garbage';
+    END IF;
+
+    -- Set session variable
+    PERFORM set_config('tuggi.is_garbage_action', 'true', true);
+    PERFORM set_config('tuggi.admin_id', p_admin_id::text, true);
+
     FOREACH v_id IN ARRAY p_poi_ids
     LOOP
         PERFORM core.delete_poi_as_garbage(v_id, p_admin_id);
     END LOOP;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 5. Trigger Function for Automatic Archiving
 CREATE OR REPLACE FUNCTION core.on_poi_delete_archive_func()
@@ -163,8 +212,42 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_coord RECORD;
     v_schema TEXT;
+    v_admin_id UUID;
+    v_is_garbage BOOLEAN;
+    v_reason TEXT;
+    v_status TEXT;
+    v_snapshot JSONB;
 BEGIN
     v_schema := TG_TABLE_SCHEMA;
+    
+    -- Get session context
+    BEGIN
+        v_admin_id := NULLIF(current_setting('tuggi.admin_id', true), '')::UUID;
+    EXCEPTION WHEN OTHERS THEN
+        v_admin_id := NULL;
+    END;
+
+    BEGIN
+        v_is_garbage := COALESCE(current_setting('tuggi.is_garbage_action', true) = 'true', false);
+    EXCEPTION WHEN OTHERS THEN
+        v_is_garbage := false;
+    END;
+
+    -- Logic for reason, status and snapshot
+    IF v_is_garbage THEN
+        v_reason := 'garbage';
+        v_status := 'blacklisted';
+        v_snapshot := NULL;
+    ELSIF v_admin_id IS NOT NULL THEN
+        v_reason := 'user_deleted';
+        v_status := 'trash';
+        v_snapshot := to_jsonb(OLD); -- Full snapshot for recovery
+    ELSE
+        -- Deletion directly from DB (no session admin set)
+        v_reason := 'direct_db_delete';
+        v_status := 'blacklisted';
+        v_snapshot := NULL;
+    END IF;
 
     -- Check if already in exclusions (to avoid double insert from delete_poi_as_garbage)
     IF EXISTS (SELECT 1 FROM core.poi_exclusions WHERE original_id = OLD.id) THEN
@@ -189,11 +272,12 @@ BEGIN
             longitude,
             reason,
             status,
+            excluded_by,
             data_snapshot
         ) VALUES (
             OLD.id,
             'core',
-            OLD.osm_id,
+            OLD.osm_id::BIGINT,
             OLD.osm_type,
             OLD.name,
             OLD.city,
@@ -202,12 +286,13 @@ BEGIN
             OLD.category,
             v_coord.latitude,
             v_coord.longitude,
-            'user_deleted',
-            'trash',
-            to_jsonb(OLD)
+            v_reason,
+            v_status,
+            v_admin_id,
+            v_snapshot
         );
     ELSE
-        -- Homolog or others: Default to blacklisted (no snapshot)
+        -- Homolog or others: Always blacklisted
         INSERT INTO core.poi_exclusions (
             original_id,
             original_schema,
@@ -221,11 +306,12 @@ BEGIN
             latitude,
             longitude,
             reason,
-            status
+            status,
+            excluded_by
         ) VALUES (
             OLD.id,
             'homolog',
-            OLD.osm_id,
+            OLD.osm_id::BIGINT,
             OLD.osm_type,
             OLD.name,
             OLD.city,
@@ -234,8 +320,9 @@ BEGIN
             OLD.category,
             OLD.lat,
             OLD.lon,
-            'user_deleted',
-            'blacklisted'
+            v_reason,
+            'blacklisted',
+            v_admin_id
         );
     END IF;
 

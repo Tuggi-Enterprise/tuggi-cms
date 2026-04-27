@@ -1214,7 +1214,7 @@ export class PoiMigrationPipeline {
 
       const languages = ['en-us', 'es-es']
       const results: string[] = []
-      const { supabaseUrl, anonKey } = getSupabaseConfig()
+      const { supabaseUrl, supabaseKey: anonKey } = getSupabaseConfig()
 
       for (const lang of languages) {
         try {

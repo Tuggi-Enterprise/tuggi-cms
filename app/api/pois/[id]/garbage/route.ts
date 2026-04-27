@@ -11,42 +11,26 @@ const supabaseService = getSupabase('service')
  * Marks a POI as garbage (blacklisted) and deletes it from core.attractions.
  * Only system admins can perform this action.
  */
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const poiId = params.id
+    const { id: poiId } = await params
     const cookieStore = await cookies()
     const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
     if (authError || !session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const { data: cmsUser, error: cmsErr } = await supabaseAuth
+    // Use RPC to get user info
+    const { data: userData, error: userErr } = await supabaseAuth
       .schema('core')
-      .from('cms_users')
-      .select('id, role, is_active')
-      .eq('email', session.user.email as string)
-      .eq('is_active', true)
-      .single()
+      .rpc('get_cms_user_info', { p_email: session.user.email as string })
+    
+    const cmsUser = Array.isArray(userData) ? userData[0] : userData
 
-    if (cmsErr || !cmsUser) return NextResponse.json({ error: 'Unauthorized - CMS access denied' }, { status: 403 })
+    if (userErr || !cmsUser) return NextResponse.json({ error: 'Unauthorized - CMS access denied' }, { status: 403 })
 
-    // Only admins can mark as garbage
-    const isAdmin = cmsUser.role === 'admin' || cmsUser.role === 'super_admin'
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Unauthorized - Admin only' }, { status: 403 })
-    }
-
-    // Fetch attraction info for logging
-    const { data: attraction, error: attrErr } = await supabaseService
+    // Call RPC to delete as garbage and get name in one go
+    const { data: deleteResult, error: rpcError } = await supabaseService
       .schema('core')
-      .from('attractions')
-      .select('id, name')
-      .eq('id', poiId)
-      .single()
-
-    if (attrErr || !attraction) return NextResponse.json({ error: 'POI not found' }, { status: 404 })
-
-    // Call RPC to delete as garbage
-    const { error: rpcError } = await supabaseService
       .rpc('delete_poi_as_garbage', {
         p_poi_id: poiId,
         p_admin_id: cmsUser.id
@@ -54,8 +38,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     if (rpcError) {
       console.error('Error calling delete_poi_as_garbage:', rpcError)
-      return NextResponse.json({ error: 'Failed to mark POI as garbage' }, { status: 500 })
+      return NextResponse.json({ error: rpcError.message || 'Failed to mark POI as garbage' }, { status: 500 })
     }
+
+    const attractionName = Array.isArray(deleteResult) ? deleteResult[0]?.poi_name : (deleteResult as any)?.poi_name || 'POI'
 
     await logAuditEvent({
       request,
@@ -64,7 +50,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       entityId: poiId,
       userId: cmsUser.id,
       userEmail: session.user.email || null,
-      description: `POI "${attraction.name}" marked as garbage and deleted.`
+      description: `POI "${attractionName}" marked as garbage and deleted.`
     })
 
     return NextResponse.json({ success: true, message: 'POI marked as garbage' })

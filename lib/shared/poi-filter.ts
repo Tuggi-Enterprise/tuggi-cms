@@ -183,7 +183,7 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   const hasWikidata = !!props.wikidata;
   const hasDescription = !!(props.description && props.description.trim().length > 5);
   
-  const isFamous = hasWikipedia || hasHeritage || hasHistoric || hasWikidata || hasDescription;
+  let isFamous = hasWikipedia || hasHeritage || hasHistoric || hasWikidata || hasDescription;
   const hasReference = hasWikipedia || hasWikidata;
 
   // --- 1. BASIC FILTERS ---
