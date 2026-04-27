@@ -611,7 +611,7 @@ function POIListWithSearchParams() {
     if (!confirm(t('alerts.confirm_delete_single'))) return
 
     try {
-      const response = await fetch(`/api/pois/${poiId}`, {
+      const response = await fetch(`/api/clients/pois/${poiId}`, {
         method: 'DELETE'
       })
 
@@ -624,6 +624,27 @@ function POIListWithSearchParams() {
     } catch (error) {
       console.error('Error deleting POI:', error)
       alert(t('alerts.delete_error'))
+    }
+  }
+
+  // Handle POI garbage (blacklist)
+  const handleGarbagePoi = async (poiId: string) => {
+    if (!confirm('Tem certeza que deseja marcar este POI como LIXO? Ele será excluído e não poderá ser re-importado.')) return
+
+    try {
+      const response = await fetch(`/api/pois/${poiId}/garbage`, {
+        method: 'POST'
+      })
+
+      if (response.ok) {
+        fetchPois()
+      } else {
+        const errorData = await response.json()
+        alert(errorData.error || 'Erro ao marcar como lixo')
+      }
+    } catch (error) {
+      console.error('Error marking POI as garbage:', error)
+      alert('Erro na requisição')
     }
   }
 
@@ -649,6 +670,32 @@ function POIListWithSearchParams() {
     } catch (error) {
       console.error('Error deleting POIs:', error)
       alert(t('alerts.delete_bulk_error'))
+    }
+  }
+
+  // Handle bulk garbage
+  const handleBulkGarbage = async () => {
+    if (selectedPois.length === 0) return
+
+    if (!confirm(`Deseja marcar ${selectedPois.length} itens como LIXO? Eles serão excluídos e bloqueados para re-importação.`)) return
+
+    try {
+      const response = await fetch('/api/pois/bulk-garbage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ poiIds: selectedPois })
+      })
+
+      if (response.ok) {
+        setSelectedPois([])
+        fetchPois()
+      } else {
+        const errorData = await response.json()
+        alert(errorData.error || 'Erro na operação em lote')
+      }
+    } catch (error) {
+      console.error('Error bulk marking as garbage:', error)
+      alert('Erro na requisição')
     }
   }
 
@@ -1100,13 +1147,24 @@ function POIListWithSearchParams() {
               
               <div className="flex items-center gap-3 pr-2">
                 {selectedPois.length > 0 && isAdmin && (
-                  <button
-                    onClick={handleBulkDelete}
-                    className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-xl font-bold text-xs hover:bg-red-500/20 transition-all border border-red-500/10"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Excluir
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleBulkDelete}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 rounded-xl font-bold text-xs hover:bg-red-500/20 transition-all border border-red-500/10"
+                      title="Excluir (Move para Lixeira)"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Excluir
+                    </button>
+                    <button
+                      onClick={handleBulkGarbage}
+                      className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 rounded-xl font-bold text-xs hover:opacity-80 transition-all border border-transparent"
+                      title="Marcar como Lixo (Blacklist)"
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      Lixo
+                    </button>
+                  </div>
                 )}
                 <button
                   onClick={handleSelectAll}
@@ -1325,16 +1383,29 @@ function POIListWithSearchParams() {
                                       >
                                         <Eye className="h-4 w-4" />
                                       </button>
-                                      {cmsUserRole === 'admin' && (
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            handleDeletePoi(poi.id)
-                                          }}
-                                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all border border-transparent hover:border-red-500/20"
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </button>
+                                      {isAdmin && (
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleDeletePoi(poi.id)
+                                            }}
+                                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-500/10 rounded-xl transition-all border border-transparent hover:border-red-500/20"
+                                            title="Excluir"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </button>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              handleGarbagePoi(poi.id)
+                                            }}
+                                            className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+                                            title="Marcar como Lixo"
+                                          >
+                                            <XCircle className="h-4 w-4" />
+                                          </button>
+                                        </div>
                                       )}
                                     </div>
                                   </div>

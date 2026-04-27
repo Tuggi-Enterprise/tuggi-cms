@@ -1630,6 +1630,43 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }
 
+  const handleGarbage = async () => {
+    const currentPoi = getPoi()
+    if (!currentPoi) return
+    if (!window.confirm('Tem certeza que deseja marcar este POI como LIXO? Ele será excluído e não poderá ser re-importado.')) return
+
+    setIsSaving(true)
+    try {
+      const isHomologPOI = !!(currentPoi as any)._homologData
+
+      if (isHomologPOI) {
+        const response = await fetch('/api/supabase/pois/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: [currentPoi.id] })
+        })
+        if (!response.ok) throw new Error('Failed to delete homolog POI')
+      } else {
+        const response = await fetch(`/api/pois/${currentPoi.id}/garbage`, {
+          method: 'POST'
+        })
+        if (!response.ok) throw new Error('Failed to mark core POI as garbage')
+      }
+
+      invalidateAllPOICaches()
+
+      if (onPOIDeleted) {
+        onPOIDeleted(currentPoi.id)
+      }
+      onClose()
+    } catch (error: any) {
+      console.error('Error marking POI as garbage:', error)
+      alert(error instanceof Error ? error.message : 'Falha ao marcar como lixo')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const openInGoogleMaps = () => {
     const currentPoi = getPoi()
     if (currentPoi?.coordinates) {
@@ -3590,14 +3627,26 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     {/* Action Buttons */}
                     <div className="flex items-center space-x-3 pt-4 border-t border-gray-200 dark:border-gray-600">
                       {isAdmin && (
-                        <button
-                          onClick={handleDelete}
-                          disabled={isSaving}
-                          className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          {t('actions.delete_poi')}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleDelete}
+                            disabled={isSaving}
+                            className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+                            title="Excluir (Move para Lixeira)"
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            {t('actions.delete_poi')}
+                          </button>
+                          <button
+                            onClick={handleGarbage}
+                            disabled={isSaving}
+                            className="inline-flex items-center px-4 py-2 border border-gray-900 text-sm font-medium rounded-md text-white bg-gray-900 hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50"
+                            title="Marcar como Lixo (Blacklist)"
+                          >
+                            <XCircle className="h-4 w-4 mr-2" />
+                            Lixo
+                          </button>
+                        </div>
                       )}
                       <button
                         onClick={onClose}
