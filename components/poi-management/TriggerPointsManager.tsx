@@ -7,7 +7,8 @@ import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react'
 import {
   Plus, MapPin, Target, Trash2, Edit3, Save, X,
   Navigation, Circle, Settings, AlertTriangle,
-  Check, RotateCcw, ZoomIn, Filter, ChevronDown, ChevronUp, Loader2, AlertCircle, CheckCircle
+  Check, RotateCcw, ZoomIn, Filter, ChevronDown, ChevronUp, Loader2, AlertCircle, CheckCircle,
+  Sparkles
 } from 'lucide-react'
 import { TriggerPointsMap } from './TriggerPointsMap'
 import { DirectionSelector } from './DirectionSelector'
@@ -53,6 +54,10 @@ export function TriggerPointsManager({
   const [isUpdatingPOILocation, setIsUpdatingPOILocation] = useState(false)
   const [poiUpdateSuccess, setPoiUpdateSuccess] = useState(false)
   const [poiUpdateError, setPoiUpdateError] = useState<string | null>(null)
+
+  // AI Suggestions state
+  const [suggestedTriggerPoints, setSuggestedTriggerPoints] = useState<any[]>([])
+  const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false)
 
 
   // Form state
@@ -114,12 +119,131 @@ export function TriggerPointsManager({
     loadTriggerPoints()
   }, [loadTriggerPoints])
 
-  // Auto-generate suggestions when there are no trigger points
+  // Handle AI Trigger Point Generation
+  const handleGenerateAISuggestions = useCallback(async () => {
+    if (!attractionCoordinates || !attractionCoordinates.lat || !attractionCoordinates.lng) {
+      setError(t('errors.missing_coordinates'))
+      return
+    }
 
+    try {
+      setIsGeneratingSuggestions(true)
+      setError(null)
+      
+      const response = await fetch('/api/trigger-points/google/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          poiData: {
+            id: attractionId,
+            name: attractionName,
+            location: attractionCoordinates,
+            type: attractionTypes?.[0] || 'tourist_attraction',
+            country: 'Portugal', // Default/fallback if not strictly available
+            city: 'Unknown'
+          },
+          options: {
+            maxTriggerPoints: 3
+          }
+        })
+      })
 
+      const result = await response.json()
 
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to generate suggestions')
+      }
 
-  // Handle map click for adding new trigger point
+      if (result.data && result.data.triggerPoints) {
+        // Map the backend TriggerPoint format to the UI suggestion format
+        const newSuggestions = result.data.triggerPoints.map((tp: any, index: number) => ({
+          ...tp,
+          id: `suggestion-${Date.now()}-${index}`,
+          lat: tp.location?.lat || tp.lat || 0,
+          lng: tp.location?.lng || tp.lng || 0,
+          bearing_deg: tp.expectedBearing !== undefined ? Math.round(tp.expectedBearing) : null,
+          confidence_score: tp.confidence ? tp.confidence * 100 : (tp.quality ? tp.quality * 100 : 85),
+          access_type: 'car', // Predictor generates driving triggers mostly
+          distance_m: tp.distance ? Math.round(tp.distance) : 0,
+          source: 'pattern_based' // Our AI engine
+        }))
+        setSuggestedTriggerPoints(newSuggestions)
+      } else {
+        setSuggestedTriggerPoints([])
+      }
+    } catch (err) {
+      console.error('Error generating suggestions:', err)
+      setError(err instanceof Error ? err.message : 'Failed to generate suggestions')
+    } finally {
+      setIsGeneratingSuggestions(false)
+    }
+  }, [attractionId, attractionName, attractionCoordinates, attractionTypes, t])
+
+  const handleSuggestionDrag = useCallback((suggestionId: string, newLat: number, newLng: number, newDistance: number, newBearing: number) => {
+    setSuggestedTriggerPoints(prev => prev.map(s => 
+      s.id === suggestionId 
+        ? { ...s, lat: newLat, lng: newLng, distance_m: newDistance, bearing_deg: newBearing } 
+        : s
+    ))
+  }, [])
+
+  const handleAcceptSuggestion = useCallback(async (suggestion: any) => {
+    try {
+      setIsLoading(true)
+      setError(null)
+
+      const headers: any = { 'Content-Type': 'application/json' }
+      if (user?.id) headers['x-user-id'] = user.id
+
+      // Calculate priority based on existing + 1
+      const maxPriority = triggerPoints.length > 0 
+        ? Math.max(...triggerPoints.map(tp => tp.priority || 0)) 
+        : 0
+
+      const response = await fetch('/api/trigger-points/create', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          attraction_id: attractionId,
+          lat: suggestion.lat,
+          lng: suggestion.lng,
+          radius_meters: 30, // Default for generated
+          expected_bearing: suggestion.bearing_deg !== null ? suggestion.bearing_deg : null,
+          bearing_threshold: 30, // Relaxed threshold for generated
+          type: 'primary',
+          priority: maxPriority + 1,
+          is_active: true,
+          direction: suggestion.access_type === 'walk' ? 'front' : 'right', // Educated guess based on driving vs walking
+          access: suggestion.access_type,
+          name: `AI Generated - ${suggestion.access_type}`,
+          description: `Generated by AI (${suggestion.source}). Confidence: ${Math.round(suggestion.confidence_score)}%`
+        })
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to save suggested trigger point')
+      }
+
+      // Remove from suggestions list
+      setSuggestedTriggerPoints(prev => prev.filter(s => s.id !== suggestion.id))
+      
+      // Refresh active list
+      await loadTriggerPoints()
+      if (onUpdate) onUpdate()
+
+    } catch (err) {
+      console.error('Error accepting suggestion:', err)
+      setError(err instanceof Error ? err.message : 'Failed to accept suggestion')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [attractionId, triggerPoints, user, loadTriggerPoints, onUpdate])
+
+  const handleRejectSuggestion = useCallback((suggestionId: string) => {
+    setSuggestedTriggerPoints(prev => prev.filter(s => s.id !== suggestionId))
+  }, [])  // Handle map click for adding new trigger point
   const handleMapClick = useCallback((lat: number, lng: number, bearing?: number) => {
     if (isAddingMode) {
       setFormData(prev => ({
@@ -494,8 +618,32 @@ export function TriggerPointsManager({
           </p>
         </div>
         <div className="flex items-center space-x-2">
+          {canEdit && !isViewer && (
+            <button
+              onClick={handleGenerateAISuggestions}
+              disabled={isGeneratingSuggestions || isLoading}
+              className={cn(
+                "flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                "bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700 shadow-sm border border-purple-400"
+              )}
+            >
+              {isGeneratingSuggestions ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Auto-Generate
+                </>
+              )}
+            </button>
+          )}
+
           <button
             onClick={() => setIsAddingMode(!isAddingMode)}
+            disabled={isGeneratingSuggestions}
             className={cn(
               "flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors",
               isAddingMode
@@ -558,6 +706,10 @@ export function TriggerPointsManager({
             attractionName={attractionName}
             triggerPoints={displayTriggerPoints}
             selectedTriggerPoint={showForm ? (previewTriggerPoint as TriggerPoint) : selectedTriggerPoint}
+            suggestions={suggestedTriggerPoints}
+            onSuggestionDrag={handleSuggestionDrag}
+            onSuggestionAccept={handleAcceptSuggestion}
+            onSuggestionReject={handleRejectSuggestion}
             onMapClick={handleMapClick}
             onTriggerPointClick={handleTriggerPointClick}
             onTriggerPointDrag={handleTriggerPointDrag}
@@ -789,8 +941,78 @@ export function TriggerPointsManager({
 
           {/* Trigger Points List */}
           <div className="flex-1 overflow-y-auto min-h-0">
+          
+            {/* AI Suggestions Section */}
+            {suggestedTriggerPoints.length > 0 && (
+              <div className="mb-4">
+                <div className="sticky top-0 z-10 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 p-2 text-xs font-semibold text-purple-700 dark:text-purple-300 border-b border-purple-100 dark:border-purple-800/30 flex items-center shadow-sm">
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  AI Suggestions ({suggestedTriggerPoints.length})
+                </div>
+                <div className="divide-y divide-purple-100 dark:divide-purple-800/20">
+                  {suggestedTriggerPoints.map(suggestion => (
+                    <div key={suggestion.id} className="p-4 bg-white dark:bg-gray-800 border-l-4 border-purple-500 hover:bg-purple-50/50 dark:hover:bg-purple-900/10 transition-colors">
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center">
+                          <div className="h-6 w-6 rounded-full bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center mr-2">
+                            <span className="text-sm">{suggestion.access_type === 'walk' ? '🚶' : suggestion.access_type === 'car' ? '🚗' : '🚶🚗'}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-gray-900 dark:text-white capitalize">
+                            {suggestion.access_type} Access
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleAcceptSuggestion(suggestion)}
+                            disabled={isLoading}
+                            className="p-1.5 rounded-md bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 transition-colors"
+                            title="Accept Suggestion"
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleRejectSuggestion(suggestion.id)}
+                            disabled={isLoading}
+                            className="p-1.5 rounded-md bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 transition-colors"
+                            title="Reject Suggestion"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-1.5 text-xs text-gray-600 dark:text-gray-400">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <Circle className="h-3 w-3 mr-1" />
+                            Radius: 30m
+                          </div>
+                          <div className="font-medium text-purple-600 dark:text-purple-400">
+                            {Math.round(suggestion.confidence_score)}% Confidence
+                          </div>
+                        </div>
+                        {suggestion.bearing_deg !== null && (
+                          <div className="flex items-center">
+                            <Navigation className="h-3 w-3 mr-1" />
+                            Bearing: {suggestion.bearing_deg}°
+                          </div>
+                        )}
+                        <div className="text-[10px] text-gray-500 truncate pt-1">
+                          {Number(suggestion.lat || 0).toFixed(6)}, {Number(suggestion.lng || 0).toFixed(6)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-            {isLoading ? (
+            {/* Existing Trigger Points */}
+            <div className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800/80 backdrop-blur-sm p-2 text-xs font-semibold text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 uppercase tracking-wider">
+              Active Triggers
+            </div>
+            
+            {isLoading && !isGeneratingSuggestions ? (
               <div className="flex items-center justify-center h-32">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-tuggi-blue"></div>
               </div>

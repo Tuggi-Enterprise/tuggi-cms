@@ -163,7 +163,10 @@ export class OSMDataFetcher {
       try {
         const response = await fetch(server, {
           method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
+          headers: { 
+            'Content-Type': 'text/plain',
+            'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+          },
           body: `data=${encodeURIComponent(query)}`
         });
 

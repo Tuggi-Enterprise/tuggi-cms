@@ -538,7 +538,10 @@ out geom tags;
       
       const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
+        headers: { 
+          'Content-Type': 'text/plain',
+          'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+        },
         body: obstructionsQuery,
         signal: controller.signal
       });
@@ -1282,7 +1285,10 @@ out geom meta;
     try {
       const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
+        headers: { 
+          'Content-Type': 'text/plain',
+          'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+        },
         body: buildingsQuery
       });
 
@@ -1380,7 +1386,10 @@ out geom meta;
 
       const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
+        headers: { 
+          'Content-Type': 'text/plain',
+          'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+        },
         body: buildingsQuery
       });
 
@@ -2583,7 +2592,10 @@ out geom meta;
     try {
       const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
+        headers: { 
+          'Content-Type': 'text/plain',
+          'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+        },
         body: buildingsQuery
       });
 

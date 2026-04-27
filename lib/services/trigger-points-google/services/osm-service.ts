@@ -119,7 +119,7 @@ export async function searchOSMByName(lat: number, lng: number, name: string, la
     
     const response = await fetch(nominatimUrl, {
       headers: {
-        'User-Agent': 'TuggiCMS/1.0 (boundary-detection)'
+        'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
       }
     });
 
@@ -171,7 +171,7 @@ export async function searchOSMByCoordinates(lat: number, lng: number): Promise<
 
     const response = await fetch(nominatimUrl, {
       headers: {
-        'User-Agent': 'TuggiCMS/1.0 (reverse-geocoding)'
+        'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
       }
     });
 

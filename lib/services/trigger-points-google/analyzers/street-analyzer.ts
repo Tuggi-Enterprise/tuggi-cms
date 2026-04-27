@@ -53,7 +53,10 @@ export class StreetAnalyzer {
         const response = await fetch(mirror, {
           method: 'POST',
           body: query,
-          headers: { 'Content-Type': 'text/plain' },
+          headers: { 
+            'Content-Type': 'text/plain',
+            'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+          },
           signal: AbortSignal.timeout(timeout)
         });
         

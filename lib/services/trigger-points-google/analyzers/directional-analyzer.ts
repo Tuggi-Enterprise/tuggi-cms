@@ -202,7 +202,8 @@ out geom tags;
       method: 'POST',
       body: query,
       headers: {
-        'Content-Type': 'text/plain'
+        'Content-Type': 'text/plain',
+        'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
       }
     });
     

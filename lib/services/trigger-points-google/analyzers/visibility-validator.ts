@@ -98,7 +98,10 @@ export class VisibilityValidator {
 
       const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: { 
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+        },
         body: `data=${encodeURIComponent(buildingsQuery)}`
       });
 

@@ -947,7 +947,10 @@ out geom tags;
       const response = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
         body: query,
-        headers: { 'Content-Type': 'text/plain' }
+        headers: { 
+          'Content-Type': 'text/plain',
+          'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+        }
       });
       
       if (response.ok) {

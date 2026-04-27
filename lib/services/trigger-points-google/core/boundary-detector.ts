@@ -44,7 +44,10 @@ export class BoundaryDetector {
         const response = await fetch(mirror, {
           method: 'POST',
           body: query,
-          headers: { 'Content-Type': 'text/plain' },
+          headers: { 
+            'Content-Type': 'text/plain',
+            'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+          },
           signal: AbortSignal.timeout(timeout)
         });
         
@@ -329,9 +332,9 @@ export class BoundaryDetector {
   private async detectOSMBoundaryByID(osmID: string, osmType: string, poiData: POIData): Promise<ProcessingResult<BoundaryData>> {
     try {
       
-      // 🚀 ESTRATÉGIA CONSOLIDADA: Query inicial com raio padrão seguro (500m)
-      // Isso cobre 95% dos casos (FLAT: 180m, CANYON: 75m, MEDIUM pequeno: <500m)
-      const INITIAL_RADIUS = 500; // Raio padrão seguro que cobre maioria dos casos
+      // 🚀 ESTRATÉGIA CONSOLIDADA: Query inicial com raio padrão reduzido (150m) para evitar timeout/406 no Overpass
+      // Isso cobre o contexto imediato e a query expandida cuida do resto se necessário.
+      const INITIAL_RADIUS = 150; // Raio reduzido para evitar timeouts em áreas urbanas densas
       
       // Query OSM diretamente pelo ID + dados consolidados com raio inicial
       const query = `
@@ -1564,7 +1567,7 @@ out geom tags;
         try {
           const response = await fetch(nominatimUrl, {
             headers: {
-              'User-Agent': 'TuggiCMS/1.0 (boundary-detection)'
+              'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
             }
           });
 
@@ -1676,9 +1679,9 @@ out geom tags;
                   // 🚀 ESTRATÉGIA CONSOLIDADA: 1 query inicial com raio padrão, expande se necessário
                   if (result.osm_id && result.osm_type) {
                     try {
-                      // 🚀 QUERY CONSOLIDADA INICIAL: Raio padrão seguro (500m)
-                      // Isso cobre 95% dos casos (FLAT: 180m, CANYON: 75m, MEDIUM pequeno: <500m)
-                      const INITIAL_RADIUS = 500;
+                      // 🚀 QUERY CONSOLIDADA INICIAL: Raio reduzido (150m) para evitar timeout/406 no Overpass
+                      // Isso cobre o contexto imediato e a query expandida da etapa 4 cuida do resto se necessário.
+                      const INITIAL_RADIUS = 150;
                       const expandedBoundaryInitial = this.expandBoundary(processed.coordinates, INITIAL_RADIUS);
                       const expandedPolygonInitial = expandedBoundaryInitial.map(coord => `${coord.lat} ${coord.lng}`).join(' ');
                       
