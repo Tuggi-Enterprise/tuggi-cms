@@ -117,7 +117,10 @@ async function main() {
   if (options.city && options.city !== 'all') {
     query = query.eq('city', options.city)
   }
-  if (options.processing_status && options.processing_status !== 'all') {
+  if (options.processing_status === 'all') {
+    // Do not filter by processing_status
+    console.log('ℹ️ Including all processing statuses')
+  } else if (options.processing_status) {
     query = query.eq('processing_status', options.processing_status)
   } else {
     // Default: only pending or processing

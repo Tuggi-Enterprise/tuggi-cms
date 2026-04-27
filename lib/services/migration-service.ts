@@ -518,9 +518,15 @@ export class MigrationService {
         // Self-healing: If exact duplicate exists in core, verify it matches our ID/OSM ID and clean up homolog
         console.log(`♻️ Self-healing: POI ${uuid_id} already exists in core (${duplicateCheck.duplicate_type}). Removing from homolog...`)
         
+        // Skip archiving for deduplication
+        await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
         // Delete from homolog (coordinates first, then POI) to resolve the "ghost" duplicate
         await supabase.schema('homolog').from('coordinates').delete().eq('poi_uuid_id', uuid_id)
         await supabase.schema('homolog').from('pois').delete().eq('uuid_id', uuid_id)
+
+        // Reset skip archiving
+        await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
         return {
           success: true,
@@ -705,11 +711,17 @@ export class MigrationService {
 
       if (coordCreateError) {
         // Rollback: delete the POI we just created
+        // Skip archiving for rollback
+        await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
         await supabase
           .schema('core')
           .from('attractions')
           .delete()
           .eq('id', finalPOI.id)
+
+        // Reset skip archiving
+        await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
         return {
           success: false,
@@ -718,6 +730,9 @@ export class MigrationService {
       }
 
       // 9. Delete from homolog after successful migration
+      // Skip archiving for successful migration (it now lives in core)
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
       // First delete coordinates (to avoid FK issues if cascade is missing)
       await supabase
         .schema('homolog')
@@ -731,6 +746,9 @@ export class MigrationService {
         .from('pois')
         .delete()
         .eq('uuid_id', uuid_id)
+
+      // Reset skip archiving
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
       // 9. Release lock
       await supabase
@@ -790,11 +808,17 @@ export class MigrationService {
     try {
       console.log(`🔄 Rolling back migration for attraction: ${attraction_id}`)
       
+      // Skip archiving for rollback
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
       const { error } = await supabase
         .schema('core')
         .from('attractions')
         .delete()
         .eq('id', attraction_id)
+      
+      // Reset skip archiving
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
       if (error) {
         console.error('❌ Rollback error:', error)
@@ -851,6 +875,10 @@ export class MigrationService {
       // Delete from homolog.coordinates (cascade will handle it, but we can be explicit)
       // Actually, coordinates has foreign key with CASCADE, so deleting pois will delete coordinates
       // But let's delete coordinates first to be safe
+      
+      // Skip archiving for safe delete
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
       const { error: coordError } = await supabase
         .schema('homolog')
         .from('coordinates')
@@ -868,6 +896,9 @@ export class MigrationService {
         .from('pois')
         .delete()
         .eq('uuid_id', uuid_id)
+
+      // Reset skip archiving
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
       if (poiError) {
         return {
@@ -1158,7 +1189,8 @@ export class MigrationService {
         return { removed_count: 0, removed_ids: [], errors: [] }
       }
 
-      console.log(`🗑️  Found ${duplicateIds.length} duplicate POI(s) to remove: ${duplicateIds.join(', ')}`)
+      // Skip archiving for duplicate removal in core
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
 
       // Remove each duplicate POI
       for (const duplicateId of duplicateIds) {
@@ -1183,6 +1215,9 @@ export class MigrationService {
           errors.push(errorMsg)
         }
       }
+
+      // Reset skip archiving
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
       console.log(`✅ Removed ${removed_ids.length} duplicate POI(s), ${errors.length} error(s)`)
       return {

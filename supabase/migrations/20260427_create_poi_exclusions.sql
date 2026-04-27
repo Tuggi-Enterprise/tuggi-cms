@@ -102,6 +102,14 @@ BEGIN
     END IF;
 END $$;
 
+-- 4. Utility RPC to set session settings (for scripts)
+CREATE OR REPLACE FUNCTION core.set_session_setting(p_name TEXT, p_value TEXT)
+RETURNS VOID AS $$
+BEGIN
+    PERFORM set_config(p_name, p_value, true);
+END;
+$$ LANGUAGE plpgsql;
+
 -- 4. RPC to Delete as Garbage (Admin only action)
 CREATE OR REPLACE FUNCTION core.delete_poi_as_garbage(
     p_poi_id UUID,
@@ -214,11 +222,31 @@ DECLARE
     v_schema TEXT;
     v_admin_id UUID;
     v_is_garbage BOOLEAN;
+    v_skip_archive BOOLEAN;
     v_reason TEXT;
     v_status TEXT;
     v_snapshot JSONB;
+    v_old_id UUID;
 BEGIN
     v_schema := TG_TABLE_SCHEMA;
+
+    -- Handle different ID column names
+    IF v_schema = 'core' THEN
+        v_old_id := OLD.id;
+    ELSE
+        v_old_id := OLD.uuid_id;
+    END IF;
+
+    -- Check if we should skip archiving (for deduplication)
+    BEGIN
+        v_skip_archive := COALESCE(current_setting('tuggi.skip_archive', true) = 'true', false);
+    EXCEPTION WHEN OTHERS THEN
+        v_skip_archive := false;
+    END;
+
+    IF v_skip_archive THEN
+        RETURN OLD;
+    END IF;
     
     -- Get session context
     BEGIN
@@ -250,13 +278,13 @@ BEGIN
     END IF;
 
     -- Check if already in exclusions (to avoid double insert from delete_poi_as_garbage)
-    IF EXISTS (SELECT 1 FROM core.poi_exclusions WHERE original_id = OLD.id) THEN
+    IF EXISTS (SELECT 1 FROM core.poi_exclusions WHERE original_id = v_old_id) THEN
         RETURN OLD;
     END IF;
 
     -- Get location from related table if in core
     IF v_schema = 'core' THEN
-        SELECT * INTO v_coord FROM core.attraction_coordinate WHERE attraction_id = OLD.id LIMIT 1;
+        SELECT * INTO v_coord FROM core.attraction_coordinate WHERE attraction_id = v_old_id LIMIT 1;
         
         INSERT INTO core.poi_exclusions (
             original_id,
@@ -275,7 +303,7 @@ BEGIN
             excluded_by,
             data_snapshot
         ) VALUES (
-            OLD.id,
+            v_old_id,
             'core',
             OLD.osm_id::BIGINT,
             OLD.osm_type,
@@ -309,7 +337,7 @@ BEGIN
             status,
             excluded_by
         ) VALUES (
-            OLD.id,
+            v_old_id,
             'homolog',
             OLD.osm_id::BIGINT,
             OLD.osm_type,
