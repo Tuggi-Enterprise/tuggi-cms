@@ -318,7 +318,8 @@ BEGIN
             v_status,
             v_admin_id,
             v_snapshot
-        );
+        )
+        ON CONFLICT (osm_id, osm_type) WHERE osm_id IS NOT NULL DO NOTHING;
     ELSE
         -- Homolog or others: Always blacklisted
         INSERT INTO core.poi_exclusions (
@@ -351,7 +352,8 @@ BEGIN
             v_reason,
             'blacklisted',
             v_admin_id
-        );
+        )
+        ON CONFLICT (osm_id, osm_type) WHERE osm_id IS NOT NULL DO NOTHING;
     END IF;
 
     RETURN OLD;
