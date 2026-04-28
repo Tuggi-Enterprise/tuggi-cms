@@ -420,7 +420,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* DENSITY & POPULARITY GRID (CITIES, COUNTRIES & TOP POIS) */}
+           {/* DENSITY & POPULARITY GRID (CITIES, COUNTRIES & TOP POIS) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1">
              {/* COUNTRIES DENSITY */}
              <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-2xl shadow-black/5 flex flex-col h-[440px]">
@@ -464,43 +464,43 @@ export default function DashboardPage() {
                 </div>
              </div>
 
-             {/* CITIES DENSITY */}
-             <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-2xl shadow-black/5 flex flex-col h-[440px]">
-                <div className="px-5 py-4 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
-                   <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">{t('labels.geo_density')}</h3>
-                   <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-blue-500 opacity-50" />
-                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('labels.urban_capillarity')}</span>
-                   </div>
-                </div>
-                <div className="flex-1 overflow-y-auto custom-scrollbar">
-                   <table className="w-full text-left border-collapse">
-                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10 transition-colors">
-                       <tr>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase tracking-tighter">{t('labels.location')}</th>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right tracking-tighter">{t('labels.volume')}</th>
-                       </tr>
-                     </thead>
-                     <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                       {stats.cityDistribution.slice(0, 8).map((city, idx) => (
-                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors group">
-                           <td className="px-5 py-3">
-                             <span className="text-xs font-black text-gray-900 dark:text-gray-200 group-hover:text-tuggi-blue transition-colors">{city.city}</span>
-                             <span className="text-[9px] text-gray-400 font-bold ml-2 uppercase opacity-40">{city.country}</span>
-                           </td>
-                           <td className="px-5 py-3 text-right">
-                             <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/20 text-blue-600 border border-blue-100 dark:border-blue-800/30 px-2 py-0.5 rounded-full shadow-sm">
-                               {city.poi_count}
-                             </span>
-                           </td>
-                         </tr>
-                       ))}
-                     </tbody>
-                   </table>
+             {/* TOP CONTENT GENERATORS (MOVED UP) */}
+             <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-[440px]">
+                <h3 className="text-xs font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
+                   <span>{t('labels.top_generators')}</span>
+                   <Users className="h-4 w-4 text-tuggi-blue opacity-50" />
+                </h3>
+                <div className="space-y-2.5 flex-1 overflow-y-auto custom-scrollbar pr-1">
+                   {stats.topGenerators.length > 0 ? stats.topGenerators.map((gen, idx) => (
+                     <div 
+                       key={gen.user_id} 
+                       className="flex items-center gap-4 p-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent hover:border-gray-100 dark:hover:border-gray-800 rounded-xl transition-all duration-300 group"
+                     >
+                        <div className={cn(
+                          "w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm shrink-0 shadow-sm",
+                          idx === 0 ? "bg-tuggi-blue text-white" : "bg-white dark:bg-gray-800 text-gray-400 border border-gray-100 dark:border-gray-700"
+                        )}>
+                           #{idx + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-4">
+                              <span className="text-xs font-black text-gray-900 dark:text-white line-clamp-1 group-hover:text-tuggi-blue transition-colors flex-1">
+                                {gen.nickname}
+                              </span>
+                              <div className="flex flex-col items-end shrink-0 ml-auto leading-none">
+                                 <span className="text-sm font-black text-tuggi-blue leading-none">{gen.content_count}</span>
+                                 <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter mt-1">{t('labels.content_generated')}</span>
+                              </div>
+                            </div>
+                         </div>
+                       </div>
+                    )) : (
+                      <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase tracking-widest">{t('labels.waiting_interactions')}</div>
+                    )}
                 </div>
              </div>
 
-             {/* TOP PERFORMING POIS - PREMIUM LIST STYLE */}
+              {/* TOP PERFORMING POIS - PREMIUM LIST STYLE */}
              <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-[440px]">
                 <h3 className="text-xs font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
                    <span>{t('labels.top_visited_pois')}</span>
@@ -535,6 +535,42 @@ export default function DashboardPage() {
                     )) : (
                       <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase tracking-widest">{t('labels.waiting_interactions')}</div>
                     )}
+                </div>
+             </div>
+
+             {/* CITIES DENSITY (HIDDEN BUT NOT REMOVED) */}
+             <div className="hidden bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-2xl shadow-black/5 flex flex-col h-[440px]">
+                <div className="px-5 py-4 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
+                   <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">{t('labels.geo_density')}</h3>
+                   <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-blue-500 opacity-50" />
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('labels.urban_capillarity')}</span>
+                   </div>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                   <table className="w-full text-left border-collapse">
+                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10 transition-colors">
+                       <tr>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase tracking-tighter">{t('labels.location')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right tracking-tighter">{t('labels.volume')}</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                       {stats.cityDistribution.slice(0, 8).map((city, idx) => (
+                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors group">
+                           <td className="px-5 py-3">
+                             <span className="text-xs font-black text-gray-900 dark:text-gray-200 group-hover:text-tuggi-blue transition-colors">{city.city}</span>
+                             <span className="text-[9px] text-gray-400 font-bold ml-2 uppercase opacity-40">{city.country}</span>
+                           </td>
+                           <td className="px-5 py-3 text-right">
+                             <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/20 text-blue-600 border border-blue-100 dark:border-blue-800/30 px-2 py-0.5 rounded-full shadow-sm">
+                               {city.poi_count}
+                             </span>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
                 </div>
              </div>
           </div>

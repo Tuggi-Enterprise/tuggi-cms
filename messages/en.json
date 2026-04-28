@@ -249,7 +249,9 @@
         "last_use": "Last Use",
         "duration": "Duration",
         "migration_speed": "Migration Speed",
-        "global_average": "Global Average"
+        "global_average": "Global Average",
+        "top_generators": "Top Content Generators",
+        "content_generated": "contents"
       },
       "footer": {
         "copyright": "© 2026 Tuggi - Territorial Intelligence"

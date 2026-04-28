@@ -250,7 +250,9 @@
         "duration": "Duração",
         "unknown": "Desconhecido",
         "migration_speed": "Velocidade de Migração",
-        "global_average": "Média Global"
+        "global_average": "Média Global",
+        "top_generators": "Top Geradores de Conteúdo",
+        "content_generated": "conteúdos"
       },
       "reports": {
         "inventory": {

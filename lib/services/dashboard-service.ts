@@ -110,6 +110,13 @@ export interface DashboardStats {
     recentVolume: number
   }
   
+  // Content Generators
+  topGenerators: Array<{
+    user_id: string
+    nickname: string
+    content_count: number
+  }>
+  
   // Metadata
   lastUpdated: Date
   source: 'cache' | 'database'
@@ -146,6 +153,7 @@ export const EMPTY_DASHBOARD_STATS: DashboardStats = {
   recentAppActivity: [],
   visitsByLanguage: [],
   migrationMetrics: { monthly: [], overallAvgSeconds: 0, recentAvgSeconds: 0, recentVolume: 0 },
+  topGenerators: [],
   lastUpdated: new Date(),
   source: 'database'
 }
@@ -246,7 +254,8 @@ class DashboardService {
         visitsByLanguageResult,
         recentAppActivityResult,
         countryStatsResult,
-        migrationMetricsResult
+        migrationMetricsResult,
+        topGeneratorsResult
       ] = await Promise.all([
         // parameter renamed to p_owner_id to avoid naming conflict
         supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId || null }),
@@ -259,7 +268,8 @@ class DashboardService {
         supabase.schema('core').rpc('dashboard_visits_by_language'),
         supabase.schema('core').rpc('dashboard_recent_app_users', { limit_count: 7 }),
         supabase.schema('core').rpc('dashboard_country_stats', { p_owner_id: ownerId || null }),
-        supabase.schema('core').rpc('dashboard_migration_metrics')
+        supabase.schema('core').rpc('dashboard_migration_metrics'),
+        supabase.schema('core').rpc('dashboard_top_generators', { limit_count: 5 })
       ])
       
       // Log de erros individuais (não fatal)
@@ -272,6 +282,7 @@ class DashboardService {
       if (contentQualityResult.error) console.warn('⚠️ Content quality error:', contentQualityResult.error.message)
       if (visitsByLanguageResult?.error) console.warn('⚠️ Visits by language error:', visitsByLanguageResult.error.message)
       if (migrationMetricsResult?.error) console.warn('⚠️ Migration metrics error:', migrationMetricsResult.error.message)
+      if (topGeneratorsResult?.error) console.warn('⚠️ Top generators error:', topGeneratorsResult.error.message)
       
       // Parse dos resultados (com fallbacks seguros)
       const userAnalytics = userAnalyticsResult.data?.[0] || {}
@@ -283,6 +294,7 @@ class DashboardService {
       const recentPOIs = recentPOIsResult.data || []
       const visitsByLanguage = visitsByLanguageResult?.data || []
       const migrationMetricsRaw = migrationMetricsResult?.data || { monthly: [], overall_avg_seconds: 0, recent_avg_seconds: 0, recent_volume: 0 }
+      const topGenerators = topGeneratorsResult?.data || []
       
       // Construir objeto final
       const dashboardData: DashboardStats = {
@@ -384,6 +396,13 @@ class DashboardService {
           recentAvgSeconds: Number(migrationMetricsRaw.recent_avg_seconds || 0),
           recentVolume: Number(migrationMetricsRaw.recent_volume || 0)
         },
+        
+        // Top Generators
+        topGenerators: topGenerators.map((g: any) => ({
+          user_id: g.user_id,
+          nickname: g.nickname || 'Unknown',
+          content_count: Number(g.content_count || 0)
+        })),
         
         // Metadata
         lastUpdated: new Date(),

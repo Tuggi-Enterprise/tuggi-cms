@@ -221,7 +221,9 @@
         "last_use": "Último Uso",
         "duration": "Duración",
         "migration_speed": "Velocidad de Migración",
-        "global_average": "Promedio Global"
+        "global_average": "Promedio Global",
+        "top_generators": "Top Generadores de Contenido",
+        "content_generated": "contenidos"
       },
       "charts": {
         "mau": "Usuarios Activos (Últimos 30 Días)",
