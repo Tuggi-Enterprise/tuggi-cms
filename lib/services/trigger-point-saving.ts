@@ -52,6 +52,7 @@ export interface SaveResult {
   saved: number
   skipped: number
   errors: string[]
+  savedIds?: string[]
 }
 
 export class TriggerPointSavingService {
@@ -363,6 +364,7 @@ export class TriggerPointSavingService {
 
       results.saved = data?.length || 0
       results.skipped = triggerPoints.length - results.saved
+      results.savedIds = data?.map((d: any) => d.id) || []
 
       // Only mark POI as processed if we successfully saved TPs
       if (results.saved > 0 && options.mode === 'replace_all') {
@@ -482,17 +484,19 @@ export class TriggerPointSavingService {
         }
       }
 
-      // Fetch the saved TP to return
+      // Fetch the saved TP by ID (lat/lng don't exist as columns — coordinates live in `location` geography)
+      const savedId = result.savedIds?.[0]
+      if (!savedId) {
+        console.warn('⚠️ Could not retrieve saved trigger point ID, but it was saved successfully')
+        return { success: true }
+      }
+
       const supabase = getSupabaseClient()
       const { data: savedTP, error: fetchError } = await supabase
         .schema('core')
         .from('attraction_trigger_points')
         .select()
-        .eq('attraction_id', triggerPointData.attraction_id)
-        .eq('lat', triggerPointData.lat)
-        .eq('lng', triggerPointData.lng)
-        .order('created_at', { ascending: false })
-        .limit(1)
+        .eq('id', savedId)
         .single()
 
       if (fetchError || !savedTP) {
