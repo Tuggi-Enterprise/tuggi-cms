@@ -25,6 +25,7 @@ export interface MapPOI {
   approved?: boolean
   has_description?: boolean
   has_audio?: boolean
+  trigger_points?: any[]
 }
 
 export interface MapSearchFilters {
