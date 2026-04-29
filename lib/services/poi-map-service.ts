@@ -116,7 +116,8 @@ export async function fetchPOIsForMap(
     country: row.metadata?.country,
     approved: row.metadata?.approved,
     has_description: row.metadata?.has_description,
-    has_audio: row.metadata?.has_audio
+    has_audio: row.metadata?.has_audio,
+    trigger_points: row.metadata?.trigger_points
   }))
 
   const duration = performance.now() - startTime
