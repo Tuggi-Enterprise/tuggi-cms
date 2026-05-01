@@ -530,6 +530,7 @@ export class MigrationService {
 
         return {
           success: true,
+          attraction_id: duplicateCheck.existing_id,
           migrated_fields: ['(Self-healed duplicate)'],
           warnings: [`Duplicate resolved: POI already existed in core and was removed from homolog (Type: ${duplicateCheck.duplicate_type})`]
         }
