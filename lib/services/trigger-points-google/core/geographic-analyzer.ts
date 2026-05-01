@@ -4,6 +4,7 @@
 import { POIData, GeographicContext, BoundaryData } from '../types/interfaces';
 import { calculateVariance, calculateBearing, calculateDistance } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
+import { safeFetchJSON } from '../utils/network';
 
 export class GeographicContextAnalyzer {
   constructor() {
@@ -200,9 +201,8 @@ export class GeographicContextAnalyzer {
       
       // Buscar elevação real do ponto (via Open Elevation, que é free)
       const url = `https://api.open-elevation.com/api/v1/lookup?locations=${location.lat},${location.lng}`;
-      const response = await fetch(url);
-      const data = await response.json();
-      const poiElevation = data.results?.[0]?.elevation || baseElevation;
+      const data = await safeFetchJSON<any>(url);
+      const poiElevation = data?.results?.[0]?.elevation || baseElevation;
       
       const elevationDiff = poiElevation - baseElevation;
       
@@ -255,7 +255,18 @@ out geom;
         return { type: 'mixed' as const, confidence: 0.5 };
       }
       
-      const data = await response.json();
+      let data: any;
+      try {
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          console.warn(`⚠️ Overpass API returned non-JSON content type: ${contentType}`);
+          return { type: 'mixed' as const, confidence: 0.5 };
+        }
+        data = await response.json();
+      } catch (parseError) {
+        console.warn('⚠️ Failed to parse Overpass API response:', parseError);
+        return { type: 'mixed' as const, confidence: 0.5 };
+      }
       const roads = data.elements || [];
       
       if (roads.length < 3) {

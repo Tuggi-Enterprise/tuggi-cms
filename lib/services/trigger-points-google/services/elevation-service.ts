@@ -1,4 +1,5 @@
 import { GeographicContext, POIData } from '../types/interfaces';
+import { safeFetchJSON } from '../utils/network';
 
 /**
  * Serviço centralizado para análise de elevação
@@ -121,10 +122,9 @@ export class ElevationAnalysisService {
       const geonamesUrl = `http://api.geonames.org/searchJSON?q=${cityQuery}&country=${countryCode}&maxRows=1&username=${geonamesUsername}`;
       
       console.log(`🌍 [ElevationService] Fetching city coordinates: ${city}, ${country}`);
-      const geonamesResponse = await fetch(geonamesUrl);
-      const geonamesData = await geonamesResponse.json();
+      const geonamesData = await safeFetchJSON<any>(geonamesUrl);
       
-      if (!geonamesData.geonames || geonamesData.geonames.length === 0) {
+      if (!geonamesData?.geonames || geonamesData.geonames.length === 0) {
         console.log(`❌ [ElevationService] City not found in GeoNames: ${city}, ${country}`);
         return null;
       }
@@ -137,10 +137,9 @@ export class ElevationAnalysisService {
       
       // 2️⃣ Buscar elevação das coordenadas da cidade via Open Elevation
       const elevationUrl = `https://api.open-elevation.com/api/v1/lookup?locations=${cityLat},${cityLng}`;
-      const elevationResponse = await fetch(elevationUrl);
-      const elevationData = await elevationResponse.json();
+      const elevationData = await safeFetchJSON<any>(elevationUrl);
       
-      if (elevationData.results && elevationData.results.length > 0) {
+      if (elevationData?.results && elevationData.results.length > 0) {
         const cityElevation = elevationData.results[0].elevation;
         console.log(`🏙️ [ElevationService] City elevation: ${cityElevation}m`);
         // 🚀 SALVAR NO CACHE
@@ -184,7 +183,7 @@ export class ElevationAnalysisService {
       
       console.log(`🎯 [ElevationService] Sampling regional elevation at ${(samplingRadius * 111).toFixed(1)}km radius (${samplePoints.length} points)`);
       
-      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
+      const data = await safeFetchJSON<any>('https://api.open-elevation.com/api/v1/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -192,12 +191,7 @@ export class ElevationAnalysisService {
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`Open Elevation API failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const validElevations = (data.results || []).map((r: any) => r.elevation).filter((e: any) => e !== null && !isNaN(e));
+      const validElevations = (data?.results || []).map((r: any) => r.elevation).filter((e: any) => e !== null && !isNaN(e));
       
       if (validElevations.length === 0) {
         console.log(`❌ [ElevationService] No valid elevation samples found`);
@@ -264,7 +258,7 @@ export class ElevationAnalysisService {
         { lat: location.lat, lng: location.lng - samplingRadius }  // Oeste
       ];
       
-      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
+      const data = await safeFetchJSON<any>('https://api.open-elevation.com/api/v1/lookup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -272,12 +266,7 @@ export class ElevationAnalysisService {
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`Open Elevation API failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const validElevations = (data.results || []).map((r: any) => r.elevation).filter((e: any) => e !== null && !isNaN(e));
+      const validElevations = (data?.results || []).map((r: any) => r.elevation).filter((e: any) => e !== null && !isNaN(e));
       
       if (validElevations.length >= 2) {
         const avgElevation = validElevations.reduce((a: number, b: number) => a + b, 0) / validElevations.length;
