@@ -40,6 +40,7 @@ export interface LocationFilters {
   state?: string
   city?: string
   category?: string
+  schema?: 'core' | 'homolog'
   limit?: number
 }
 
@@ -73,9 +74,9 @@ class LocationService {
   /**
    * Get all countries with POI counts
    */
-  static async getCountries(category?: string): Promise<LocationResult<Country>> {
+  static async getCountries(category?: string, schema: 'core' | 'homolog' = 'core'): Promise<LocationResult<Country>> {
     const startTime = Date.now()
-    const cacheKey = `countries_${category || 'all'}`
+    const cacheKey = `${schema}_countries_${category || 'all'}`
     
     try {
       // Check cache (using states/cities style for countries too now)
@@ -86,7 +87,7 @@ class LocationService {
           metadata: {
             source: 'cache',
             timestamp: startTime,
-            filters: { category }
+            filters: { category, schema }
           }
         }
       }
@@ -95,7 +96,7 @@ class LocationService {
       const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
       const { data, error } = await supabase
-        .schema('core')
+        .schema(schema)
         .rpc('cms_get_countries', { p_category: category || null })
       
       if (error) {
@@ -118,7 +119,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: { category }
+          filters: { category, schema }
         }
       }
       
@@ -129,7 +130,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: { category }
+          filters: { category, schema }
         }
       }
     }
@@ -138,9 +139,9 @@ class LocationService {
   /**
    * Get states for a specific country
    */
-  static async getStates(country: string, category?: string): Promise<LocationResult<State>> {
+  static async getStates(country: string, category?: string, schema: 'core' | 'homolog' = 'core'): Promise<LocationResult<State>> {
     const startTime = Date.now()
-    const cacheKey = `${country.toLowerCase()}_${category || 'all'}`
+    const cacheKey = `${schema}_${country.toLowerCase()}_${category || 'all'}`
     
     try {
       if (this.cache.states[cacheKey] && this.isCacheValid(this.cache.states[cacheKey])) {
@@ -150,7 +151,7 @@ class LocationService {
           metadata: {
             source: 'cache',
             timestamp: startTime,
-            filters: { country, category }
+            filters: { country, category, schema }
           }
         }
       }
@@ -159,7 +160,7 @@ class LocationService {
       const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
       const { data, error } = await supabase
-        .schema('core')
+        .schema(schema)
         .rpc('cms_get_states', { 
           country_name: country,
           p_category: category || null 
@@ -184,7 +185,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: { country, category }
+          filters: { country, category, schema }
         }
       }
       
@@ -195,7 +196,7 @@ class LocationService {
         metadata: {
           source: 'database',
           timestamp: startTime,
-          filters: { country, category }
+          filters: { country, category, schema }
         }
       }
     }
@@ -204,9 +205,9 @@ class LocationService {
   /**
    * Get cities for a specific country and optional state
    */
-  static async getCities(country: string, state?: string, category?: string): Promise<LocationResult<City>> {
+  static async getCities(country: string, state?: string, category?: string, schema: 'core' | 'homolog' = 'core'): Promise<LocationResult<City>> {
     const startTime = Date.now()
-    const cacheKey = `${country.toLowerCase()}_${state?.toLowerCase() || 'all'}_${category || 'all'}`
+    const cacheKey = `${schema}_${country.toLowerCase()}_${state?.toLowerCase() || 'all'}_${category || 'all'}`
     
     try {
       if (this.cache.cities[cacheKey] && this.isCacheValid(this.cache.cities[cacheKey])) {
@@ -225,7 +226,7 @@ class LocationService {
       const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
       const { data, error } = await supabase
-        .schema('core')
+        .schema(schema)
         .rpc('cms_get_cities', { 
           country_name: country, 
           state_name: state || null,
@@ -331,9 +332,9 @@ class LocationService {
  * Convenience functions for common use cases
  */
 export const locationService = {
-  countries: (category?: string) => LocationService.getCountries(category),
-  states: (country: string, category?: string) => LocationService.getStates(country, category),
-  cities: (country: string, state?: string, category?: string) => LocationService.getCities(country, state, category),
+  countries: (category?: string, schema: 'core' | 'homolog' = 'core') => LocationService.getCountries(category, schema),
+  states: (country: string, category?: string, schema: 'core' | 'homolog' = 'core') => LocationService.getStates(country, category, schema),
+  cities: (country: string, state?: string, category?: string, schema: 'core' | 'homolog' = 'core') => LocationService.getCities(country, state, category, schema),
   clearCache: (type?: 'countries' | 'states' | 'cities', key?: string) => 
     LocationService.clearCache(type, key),
   getCacheStats: () => LocationService.getCacheStats()
