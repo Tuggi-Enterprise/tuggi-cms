@@ -57,3 +57,5 @@ scripts/*.txt
 scripts/*.log
 tsconfig.tsbuildinfo
 data/geofabrik/
+.lock
+-lock.json

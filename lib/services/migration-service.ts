@@ -473,11 +473,19 @@ export class MigrationService {
         }
       }
 
+      // City: required for UX but many natural/rural POIs genuinely lack a city-level admin area.
+      // Fallback chain: city → state → country. Never hard-fail on missing city alone.
       if (!poi.city || poi.city.trim() === '') {
-        return {
-          success: false,
-          error: 'POI city is required and cannot be empty'
+        const cityFallback = poi.state?.trim() || poi.country?.trim() || null
+        if (!cityFallback) {
+          return {
+            success: false,
+            error: 'POI city, state and country are all empty — cannot determine location'
+          }
         }
+        console.warn(`⚠️  POI ${uuid_id} has no city — using "${cityFallback}" as fallback`)
+        warnings.push(`City not found, used fallback: ${cityFallback}`)
+        poi.city = cityFallback
       }
 
       if (!coord.latitude || !coord.longitude) {

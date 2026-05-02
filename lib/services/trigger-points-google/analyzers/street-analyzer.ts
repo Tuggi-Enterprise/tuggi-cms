@@ -5,6 +5,8 @@ import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/i
 import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing, calculateDistanceToLineSegment, calculateDistanceToPolygon, calculateDistanceToBoundary, findClosestPointOnBoundary } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
+import { createHash } from 'crypto';
+import { redisCache, RedisCache } from '../../../cache/redis-cache';
 
 export class StreetAnalyzer {
   private googleAPIs: GoogleAPIsService;
@@ -31,6 +33,13 @@ export class StreetAnalyzer {
     maxRetries: number = 7,
     initialDelay: number = 2000 // 2 segundos inicial
   ): Promise<Response> {
+    const queryHash = createHash('sha1').update(query).digest('hex');
+    const cacheKey = `overpass:raw:${queryHash}`;
+
+    const cachedPayload = await redisCache.getOrSet<string>(
+      cacheKey,
+      RedisCache.TTL.OVERPASS,
+      async () => {
     // Lista de mirrors do Overpass API para resiliência
     const mirrors = [
       'https://overpass-api.de/api/interpreter',
@@ -58,7 +67,7 @@ export class StreetAnalyzer {
         });
         
         if (response.ok) {
-          return response;
+          return await response.text();
         }
         
         console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} failed (mirror: ${new URL(mirror).hostname}): ${response.status}`);
@@ -88,6 +97,13 @@ export class StreetAnalyzer {
     // Se chegou aqui, todas as tentativas falharam
     console.error(`❌ [RETRY FAILED] ${description} failed after ${maxRetries} attempts across multiple mirrors`);
     throw lastError || new Error(`OSM query failed after ${maxRetries} attempts`);
+      }
+    );
+
+    return new Response(cachedPayload, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
   
   /**

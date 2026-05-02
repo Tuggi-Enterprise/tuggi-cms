@@ -17,6 +17,7 @@ import {
   calculatePolygonCenter, 
   calculateDistance 
 } from '../utils/calculations';
+import { redisCache, RedisCache } from '../../../cache/redis-cache';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TIPOS
@@ -55,29 +56,35 @@ export class OSMDataFetcher {
     poiData: POIData,
     streetSearchRadius: number = 250
   ): Promise<OSMDataBundle> {
-    
+    // Chave de cache baseada no OSM ID (preferencial) ou coordenada
+    const cacheKey = poiData.osm_id && poiData.osm_type
+      ? RedisCache.overpassBoundaryKey(poiData.osm_type, poiData.osm_id)
+      : `overpass:bundle:coord:${poiData.location.lat.toFixed(3)}:${poiData.location.lng.toFixed(3)}`
+
     const query = this.buildConsolidatedQuery(poiData, streetSearchRadius);
-    
-    for (let attempt = 0; attempt < OSMDataFetcher.MAX_RETRIES; attempt++) {
-      try {
-        console.log(`🌍 OSM Fetch attempt ${attempt + 1}/${OSMDataFetcher.MAX_RETRIES}...`);
-        const result = await this.executeQuery(query);
-        const bundle = this.parseOSMResponse(result, poiData, streetSearchRadius);
-        console.log(`✅ OSM Fetch successful: ${bundle.streets.length} streets, ${bundle.buildings.length} buildings`);
-        return bundle;
-      } catch (error) {
-        console.warn(`⚠️ OSM attempt ${attempt + 1} failed: ${error}`);
-        
-        if (attempt < OSMDataFetcher.MAX_RETRIES - 1) {
-          const delay = OSMDataFetcher.RETRY_DELAYS[attempt];
-          console.log(`⏳ Waiting ${delay/1000}s before retry...`);
-          await this.sleep(delay);
+
+    // Cacheia a resposta bruta do Overpass (JSON) — o parse sempre roda com dados frescos
+    const rawResult = await redisCache.getOrSet<any>(cacheKey, RedisCache.TTL.OVERPASS, async () => {
+      for (let attempt = 0; attempt < OSMDataFetcher.MAX_RETRIES; attempt++) {
+        try {
+          console.log(`🌍 OSM Fetch attempt ${attempt + 1}/${OSMDataFetcher.MAX_RETRIES}...`);
+          return await this.executeQuery(query);
+        } catch (error) {
+          console.warn(`⚠️ OSM attempt ${attempt + 1} failed: ${error}`);
+
+          if (attempt < OSMDataFetcher.MAX_RETRIES - 1) {
+            const delay = OSMDataFetcher.RETRY_DELAYS[attempt];
+            console.log(`⏳ Waiting ${delay/1000}s before retry...`);
+            await this.sleep(delay);
+          }
         }
       }
-    }
-    
-    // Todas as tentativas falharam
-    throw new Error('OSM_FETCH_FAILED: Unable to retrieve geographic data after all retries');
+      throw new Error('OSM_FETCH_FAILED: Unable to retrieve geographic data after all retries');
+    });
+
+    const bundle = this.parseOSMResponse(rawResult, poiData, streetSearchRadius);
+    console.log(`✅ OSM Fetch successful: ${bundle.streets.length} streets, ${bundle.buildings.length} buildings`);
+    return bundle;
   }
 
   /**

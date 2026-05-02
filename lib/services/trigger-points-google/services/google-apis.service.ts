@@ -1,6 +1,7 @@
 // Serviço para integração com Google APIs usando fetch requests
 
 import { GoogleAPIConfig } from '../types/interfaces';
+import { redisCache, RedisCache } from '../../../cache/redis-cache';
 
 export class GoogleAPIsService {
   private config: GoogleAPIConfig;
@@ -95,62 +96,70 @@ export class GoogleAPIsService {
     heading?: number;
     pitch?: number;
   }) {
-    try {
-      const url = new URL('https://maps.googleapis.com/maps/api/streetview/metadata');
-      url.searchParams.set('location', `${params.location.lat},${params.location.lng}`);
-      url.searchParams.set('key', this.apiKey);
-      
-      if (params.heading !== undefined) {
-        url.searchParams.set('heading', params.heading.toString());
+    const cacheKey = RedisCache.streetViewMetadataKey(params.location.lat, params.location.lng);
+
+    return redisCache.getOrSet(cacheKey, RedisCache.TTL.STREET_VIEW, async () => {
+      try {
+        const url = new URL('https://maps.googleapis.com/maps/api/streetview/metadata');
+        url.searchParams.set('location', `${params.location.lat},${params.location.lng}`);
+        url.searchParams.set('key', this.apiKey);
+
+        if (params.heading !== undefined) {
+          url.searchParams.set('heading', params.heading.toString());
+        }
+        if (params.pitch !== undefined) {
+          url.searchParams.set('pitch', params.pitch.toString());
+        }
+
+        const response = await fetch(url.toString());
+        const data = await response.json();
+
+        return {
+          success: data.status === 'OK',
+          data,
+          error: data.status !== 'OK' ? data.error_message : null
+        };
+      } catch (error) {
+        console.error('Google Street View API error:', error);
+        return {
+          success: false,
+          data: null,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        };
       }
-      if (params.pitch !== undefined) {
-        url.searchParams.set('pitch', params.pitch.toString());
-      }
-      
-      const response = await fetch(url.toString());
-      const data = await response.json();
-      
-      return {
-        success: data.status === 'OK',
-        data,
-        error: data.status !== 'OK' ? data.error_message : null
-      };
-    } catch (error) {
-      console.error('Google Street View API error:', error);
-      return {
-        success: false,
-        data: null,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
-    }
+    });
   }
   
   /**
    * Buscar elevação de pontos
    */
   async getElevation(locations: Array<{ lat: number; lng: number }>) {
-    try {
-      const url = new URL('https://maps.googleapis.com/maps/api/elevation/json');
-      const locationsStr = locations.map(l => `${l.lat},${l.lng}`).join('|');
-      url.searchParams.set('locations', locationsStr);
-      url.searchParams.set('key', this.apiKey);
-      
-      const response = await fetch(url.toString());
-      const data = await response.json();
-      
-      return {
-        success: data.status === 'OK',
-        data,
-        error: data.status !== 'OK' ? data.error_message : null
-      };
-    } catch (error) {
-      console.error('Google Elevation API error:', error);
-      return {
-        success: false,
-        data: null,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      };
-    }
+    const cacheKey = RedisCache.googleElevationKey(locations);
+
+    return redisCache.getOrSet(cacheKey, RedisCache.TTL.ELEVATION, async () => {
+      try {
+        const url = new URL('https://maps.googleapis.com/maps/api/elevation/json');
+        const locationsStr = locations.map(l => `${l.lat},${l.lng}`).join('|');
+        url.searchParams.set('locations', locationsStr);
+        url.searchParams.set('key', this.apiKey);
+
+        const response = await fetch(url.toString());
+        const data = await response.json();
+
+        return {
+          success: data.status === 'OK',
+          data,
+          error: data.status !== 'OK' ? data.error_message : null
+        };
+      } catch (error) {
+        console.error('Google Elevation API error:', error);
+        return {
+          success: false,
+          data: null,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        };
+      }
+    });
   }
   
   /**

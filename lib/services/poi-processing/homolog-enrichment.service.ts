@@ -9,6 +9,7 @@
  */
 
 import { getSupabase } from '../../core/supabase-client'
+import { redisCache, RedisCache } from '../../cache/redis-cache'
 
 // Service role client for database operations (must use 'service' for homolog schema access)
 const supabaseAdmin = getSupabase('service')
@@ -201,29 +202,32 @@ export class HomologEnrichmentService {
     osmId: string | number,
     osmType: 'node' | 'way' | 'relation'
   ): Promise<any | null> {
-    try {
-      // Format: N for node, W for way, R for relation
-      const typePrefix = osmType.charAt(0).toUpperCase()
-      const lookupUrl = `https://nominatim.openstreetmap.org/lookup?osm_ids=${typePrefix}${osmId}&format=json&extratags=1&namedetails=1&addressdetails=1`
-      
-      console.log(`   Nominatim lookup URL: ${lookupUrl}`)
-      
-      const response = await fetch(lookupUrl, {
-        headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
-      })
-      
-      if (response.ok) {
-        const results = await response.json()
-        if (Array.isArray(results) && results.length > 0) {
-          return results[0]
+    const cacheKey = RedisCache.nominatimLookupKey(osmType, osmId)
+
+    return redisCache.getOrSet(cacheKey, RedisCache.TTL.NOMINATIM, async () => {
+      try {
+        const typePrefix = osmType.charAt(0).toUpperCase()
+        const lookupUrl = `https://nominatim.openstreetmap.org/lookup?osm_ids=${typePrefix}${osmId}&format=json&extratags=1&namedetails=1&addressdetails=1`
+
+        console.log(`   Nominatim lookup URL: ${lookupUrl}`)
+
+        const response = await fetch(lookupUrl, {
+          headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
+        })
+
+        if (response.ok) {
+          const results = await response.json()
+          if (Array.isArray(results) && results.length > 0) {
+            return results[0]
+          }
         }
+
+        return null
+      } catch (error) {
+        console.error('❌ Error fetching OSM data by ID:', error)
+        return null
       }
-      
-      return null
-    } catch (error) {
-      console.error('❌ Error fetching OSM data by ID:', error)
-      return null
-    }
+    })
   }
 
   /**
@@ -231,25 +235,29 @@ export class HomologEnrichmentService {
    * Uses Nominatim /reverse endpoint
    */
   private static async fetchOSMDataByCoordinates(lat: number, lng: number): Promise<any | null> {
-    try {
-      const reverseUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&extratags=1&namedetails=1&addressdetails=1`
-      
-      const response = await fetch(reverseUrl, {
-        headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
-      })
-      
-      if (response.ok) {
-        const data = await response.json()
-        if (data && !data.error) {
-          return data
+    const cacheKey = RedisCache.nominatimReverseKey(lat, lng)
+
+    return redisCache.getOrSet(cacheKey, RedisCache.TTL.NOMINATIM, async () => {
+      try {
+        const reverseUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&extratags=1&namedetails=1&addressdetails=1`
+
+        const response = await fetch(reverseUrl, {
+          headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data && !data.error) {
+            return data
+          }
         }
+
+        return null
+      } catch (error) {
+        console.error('❌ Error fetching OSM data by coordinates:', error)
+        return null
       }
-      
-      return null
-    } catch (error) {
-      console.error('❌ Error fetching OSM data by coordinates:', error)
-      return null
-    }
+    })
   }
 
   // =====================================
@@ -261,9 +269,26 @@ export class HomologEnrichmentService {
     const extratags = osmData.extratags || {}
     const updates: any = {}
 
-    // Location Hierarchy (with province/county fallbacks for natural/rural areas)
-    if (address.city || address.town || address.village || address.municipality || address.province || address.county) {
-      updates.city = address.city || address.town || address.village || address.municipality || address.province || address.county
+    // Location Hierarchy — chain covers all Nominatim address variants:
+    // urban: city > town > village > municipality
+    // rural/natural: hamlet > locality > quarter > suburb > city_district > district > province > county
+    const addr = address
+    const cityValue =
+      addr.city ||
+      addr.town ||
+      addr.village ||
+      addr.municipality ||
+      addr.hamlet ||
+      addr.locality ||
+      addr.quarter ||
+      addr.suburb ||
+      addr.city_district ||
+      addr.district ||
+      addr.province ||
+      addr.county
+
+    if (cityValue) {
+      updates.city = cityValue
     }
     
     if (address.state || address.province || address.region) {

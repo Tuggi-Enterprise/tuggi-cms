@@ -10,6 +10,7 @@ import fs from 'fs/promises'
 import { MigrationService } from '../lib/services/migration-service'
 import { PoiMigrationPipeline, PipelineOptions } from '../lib/services/poi-migration-pipeline'
 import { getSupabase } from '../lib/core/supabase-client'
+import { redisCache } from '../lib/cache/redis-cache'
 
 const supabase = getSupabase('service')
 
@@ -252,6 +253,8 @@ async function main() {
   )
 
   console.log(`\n💾 Results saved to: ${resultsFile}`)
+
+  await redisCache.disconnect()
 }
 
 // Run script

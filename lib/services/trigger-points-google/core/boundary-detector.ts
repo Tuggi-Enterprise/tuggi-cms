@@ -6,6 +6,8 @@ import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../t
 import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { getSupabase } from '../../../core/supabase-client';
+import { createHash } from 'crypto';
+import { redisCache, RedisCache } from '../../../cache/redis-cache';
 
 export class BoundaryDetector {
   private googleAPIs: GoogleAPIsService;
@@ -22,6 +24,13 @@ export class BoundaryDetector {
     maxRetries: number = 7,
     initialDelay: number = 2000 // 2 segundos inicial
   ): Promise<Response> {
+    const queryHash = createHash('sha1').update(query).digest('hex');
+    const cacheKey = `overpass:raw:${queryHash}`;
+
+    const cachedPayload = await redisCache.getOrSet<string>(
+      cacheKey,
+      RedisCache.TTL.OVERPASS,
+      async () => {
     // Lista de mirrors do Overpass API para resiliência
     const mirrors = [
       'https://overpass-api.de/api/interpreter',
@@ -49,7 +58,7 @@ export class BoundaryDetector {
         });
         
         if (response.ok) {
-          return response;
+          return await response.text();
         }
         
         console.warn(`⚠️ [RETRY ${attempt}/${maxRetries}] ${description} failed (mirror: ${new URL(mirror).hostname}): ${response.status}`);
@@ -78,6 +87,13 @@ export class BoundaryDetector {
     // Se chegou aqui, todas as tentativas falharam
     console.error(`❌ [RETRY FAILED] ${description} failed after ${maxRetries} attempts across multiple mirrors`);
     throw lastError || new Error(`OSM query failed after ${maxRetries} attempts`);
+      }
+    );
+
+    return new Response(cachedPayload, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
   
   constructor() {
