@@ -7,10 +7,15 @@
 
 import pLimit from 'p-limit'
 import fs from 'fs/promises'
+import * as dotenv from 'dotenv'
 import { MigrationService } from '../lib/services/migration-service'
 import { PoiMigrationPipeline, PipelineOptions } from '../lib/services/poi-migration-pipeline'
 import { getSupabase } from '../lib/core/supabase-client'
 import { redisCache } from '../lib/cache/redis-cache'
+
+// Load env files when running from CLI without a wrapper.
+dotenv.config({ path: '.env.local' })
+dotenv.config({ path: '.env' })
 
 const supabase = getSupabase('service')
 
@@ -31,6 +36,16 @@ interface ScriptOptions {
 }
 
 async function main() {
+  const hasUrl = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL)
+  const hasServiceKey = Boolean(process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY)
+
+  if (!hasUrl || !hasServiceKey) {
+    console.error('❌ Missing Supabase environment variables for migration script')
+    console.error('   Required: NEXT_PUBLIC_SUPABASE_URL')
+    console.error('   Required: SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY')
+    process.exit(1)
+  }
+
   // Parse command line arguments
   const args = process.argv.slice(2)
   const options: ScriptOptions = {}
