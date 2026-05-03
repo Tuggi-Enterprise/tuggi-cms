@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { 
   X, Save, CheckCircle, Trash2, MapPin, ExternalLink, Star, Calendar, User, Globe, Phone, Clock, 
   Target, Info, FileText, Sparkles, RotateCcw, Play, Eye, Volume2, Download, Loader2, Users, 
-  Plus, AlertTriangle, AlertCircle, Layers, Zap, Navigation, XCircle 
+  Plus, AlertTriangle, AlertCircle, Layers, Zap, Navigation, XCircle, ArrowRight 
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getScoreDescription, getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute'
@@ -101,6 +101,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   // Ref to track when we have a local update that should not be overwritten by props
   const localUpdateRef = useRef<{ poiId: string; timestamp: number } | null>(null)
   const lastLoadedPoiId = useRef<string | null>(null)
+  const lastContentInitializedPoiIdRef = useRef<string | null>(null)
   
   // Hook para chamar edge functions com autenticação
   const { callFunction } = useAuthenticatedFunctionCall()
@@ -192,22 +193,26 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   // Sync activeTab and reset fields when modal opens/mode changes
   useEffect(() => {
     if (isOpen) {
-      
       fetchClients()
       
-      if (isCreateMode) {
-        setActiveTab('create')
-        // Clear creation form fields
-        setCreateName('')
-        setCreateCoordinates(null)
-        setCreateLocation(null)
-        setCreateBoundary(null)
-        setCreateError(null)
-        setIsDrawingEnabled(false)
-      } else {
-        // Default to details tab for existing POIs
-        setActiveTab('details')
+      // Only set initial tab if we haven't set one yet or if the POI ID changed
+      if (lastLoadedPoiId.current !== poi?.id) {
+        if (isCreateMode) {
+          setActiveTab('create')
+          // Clear creation form fields
+          setCreateName('')
+          setCreateCoordinates(null)
+          setCreateLocation(null)
+          setCreateBoundary(null)
+          setCreateError(null)
+          setIsDrawingEnabled(false)
+        } else {
+          setActiveTab('details')
+        }
+        lastLoadedPoiId.current = poi?.id || null
       }
+    } else {
+      lastLoadedPoiId.current = null
     }
   }, [isOpen, isCreateMode, fetchClients, poi?.id])
 
@@ -228,19 +233,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     if (poi) {
       setCurrentPoi(poi)
       setEditedPoi(poi)
-      setReferenceLinks(poi.reference_links || [])
-      // Reset boundary-related states when switching POIs
-      setBoundaryPolygon(null)
-      setExistingBoundary(null)
-      setDrawnPolygon(null)
+      // Note: We deliberately DO NOT reset boundaryPolygon, existingBoundary,
+      // drawnPolygon, referenceLinks, or activeTab here.
+      // Resetting these states is strictly the responsibility of the initialization 
+      // effect when a NEW poi.id is loaded or the modal is closed.
     } else if (!currentPoi?.id) {
       // Only reset if we don't have a locally created POI
       setCurrentPoi(null)
       setEditedPoi(null)
-      setReferenceLinks([])
-      setBoundaryPolygon(null)
-      setExistingBoundary(null)
-      setDrawnPolygon(null)
     }
     // We intentionally exclude currentPoi from dependencies to avoid resetting
     // when local state changes - we only want to sync when the prop changes
@@ -492,6 +492,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     score: number;
     detected_dates: string[];
     verifiable_facts: string[];
+    keywords?: string[];
     issues: string[];
     improvement_suggestion: string;
     improvement_applied: boolean;
@@ -999,60 +1000,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
   // useEffect hooks after function declarations
   useEffect(() => {
-    if (isOpen) {
-      
-      // Reset content-related states whenever opening a new POI
-      setCurrentDescription('')
-      setOriginalDescription('')
-      setCurrentAudioUrl(null)
-      setAudioMetadata(null)
-      setDescriptions([])
-      setImages([])
-      setTranslatedDescriptions([])
-      setNearbyPOIs([])
-      setSelectedPOIs([])
-      // UI state and detailed messages
-      setSuccessMessage('')
-      setErrorMessage('')
-      setGenerationLanguage('pt-br')
-      setGroupName(poi?.name || '')
-      setIsSaving(false)
-      setIsSavingBoundary(false)
-      setIsDrawingEnabled(false)
-      
-      // Reset UI processing and audio states
-      setAudioProgress({ current: 0, total: 0, currentTask: '' })
-      setAudioResults([])
-      setShowResults(false)
-      setShowSuccessMessage(false)
-      setShowErrorMessage(false)
-      setIsGenerating(false)
-      setIsGeneratingAudio(false)
-      setIsTranslating(false)
-      setIsSavingDescription(false)
-      setIsSavingReferenceLinks(false)
-      
-      // Only reset editedPoi from prop if poi prop exists
-      // This prevents overwriting locally created POI state when poi prop is null
-      if (poi) {
-        setEditedPoi(poi)
-        setReferenceLinks(poi.reference_links || [])
-        // Always reset to details tab when opening a new existing POI
-        setActiveTab('details')
-        
-        // Use explicit POI ID to bypass race conditions with currentPoi state
-        fetchAdditionalData(poi.id, true)
-      } else {
-        setReferenceLinks([])
-        fetchAdditionalData()
-      }
-
-      // Garantir que os dados de verificação sejam buscados após os dados da descrição
-      setTimeout(() => {
-        fetchVerificationData()
-      }, 500)
-    } else {
+    if (!isOpen) {
       // Limpar todos os estados quando o modal for fechado para evitar vazamento de dados de um POI para outro
+      lastContentInitializedPoiIdRef.current = null
       setCurrentDescription('')
       setOriginalDescription('')
       setDescriptions([])
@@ -1090,8 +1040,66 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       setIsTranslating(false)
       setIsSavingDescription(false)
       setIsSavingReferenceLinks(false)
+      return
     }
-  }, [poi, isOpen, fetchAdditionalData, fetchVerificationData])
+
+    // Modal is OPEN. Only initialize if it's a NEW poi.id
+    if (lastContentInitializedPoiIdRef.current !== poi?.id) {
+      lastContentInitializedPoiIdRef.current = poi?.id || null
+      
+      // Reset content-related states whenever opening a new POI
+      setCurrentDescription('')
+      setOriginalDescription('')
+      setCurrentAudioUrl(null)
+      setAudioMetadata(null)
+      setDescriptions([])
+      setImages([])
+      setTranslatedDescriptions([])
+      setNearbyPOIs([])
+      setSelectedPOIs([])
+      
+      // UI state and detailed messages
+      setSuccessMessage('')
+      setErrorMessage('')
+      setGenerationLanguage('pt-br')
+      setGroupName(poi?.name || '')
+      setIsSaving(false)
+      setIsSavingBoundary(false)
+      setIsDrawingEnabled(false)
+      
+      // Reset UI processing and audio states
+      setAudioProgress({ current: 0, total: 0, currentTask: '' })
+      setAudioResults([])
+      setShowResults(false)
+      setShowSuccessMessage(false)
+      setShowErrorMessage(false)
+      setIsGenerating(false)
+      setIsGeneratingAudio(false)
+      setIsTranslating(false)
+      setIsSavingDescription(false)
+      setIsSavingReferenceLinks(false)
+      
+      // Only set editedPoi from prop if poi prop exists
+      // This prevents overwriting locally created POI state when poi prop is null
+      if (poi) {
+        setEditedPoi(poi)
+        setReferenceLinks(poi.reference_links || [])
+        // Always reset to details tab when opening a new existing POI
+        setActiveTab('details')
+        
+        // Use explicit POI ID to bypass race conditions with currentPoi state
+        fetchAdditionalData(poi.id, true)
+      } else {
+        setReferenceLinks([])
+        fetchAdditionalData()
+      }
+
+      // Garantir que os dados de verificação sejam buscados após os dados da descrição
+      setTimeout(() => {
+        fetchVerificationData()
+      }, 500)
+    }
+  }, [poi?.id, isOpen, fetchAdditionalData, fetchVerificationData])
 
   // Fetch existing boundary from database
   const fetchBoundary = useCallback(async () => {
@@ -1784,6 +1792,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           approved: generatedData.verification_status === 'approved',
           verifiable_facts: generatedData.metadata?.verified_facts || [],
           detected_dates: generatedData.metadata?.historical_dates || [],
+          keywords: generatedData.metadata?.search_keywords || generatedData.metadata?.keywords || [],
           issues: generatedData.metadata?.issues || [],
           improvement_suggestion: generatedData.metadata?.improvement_suggestion || '',
           applied: true,
@@ -2879,265 +2888,234 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                 </div>
               </div>
             ) : activeTab === 'details' ? (
-              <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
-                {/* SECTION 1: Unified POI Details Block */}
-                    <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700 w-full mb-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-                          <Target className="h-5 w-5 mr-2 text-tuggi-blue" />
-                          {t('labels.content_status_title')}
-                        </h3>
-                      </div>
+              <div className="px-6 py-4 max-h-[80vh] overflow-y-auto space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* LEFT: Identification & Location (Col-Span 2) */}
+                  <div className="lg:col-span-2 space-y-6">
+                    {/* Primary Info Card */}
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-100 dark:border-gray-700 shadow-sm">
+                      <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <Target className="h-4 w-4 text-tuggi-blue" />
+                        POI Identification
+                      </h4>
+                      
+                      <div className="space-y-5">
+                        {/* POI Name */}
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1">
+                            {t('labels.name')} *
+                          </label>
+                          <input
+                            type="text"
+                            value={editedPoi?.name || ''}
+                            onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, name: e.target.value }) : null)}
+                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white font-medium"
+                            placeholder="Ex: Eiffel Tower"
+                          />
+                        </div>
 
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                        {/* LEFT COLUMN */}
-                        <div className="space-y-6">
-                          {/* POI Name */}
+                        {/* City | State | Country */}
+                        <div className="grid grid-cols-3 gap-4">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              {t('labels.name')} *
+                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1">
+                              {t('labels.city')} *
                             </label>
                             <input
                               type="text"
-                              value={editedPoi?.name || ''}
-                              onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, name: e.target.value }) : null)}
-                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                              value={editedPoi?.city || ''}
+                              onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, city: e.target.value }) : null)}
+                              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white text-sm"
                             />
                           </div>
-
-                          {/* City | State | Country */}
-                          <div className="grid grid-cols-3 gap-4">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {t('labels.city')} *
-                              </label>
-                              <input
-                                type="text"
-                                value={editedPoi?.city || ''}
-                                onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, city: e.target.value }) : null)}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {t('labels.state')}
-                              </label>
-                              <input
-                                type="text"
-                                value={editedPoi?.state || ''}
-                                onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, state: e.target.value || null }) : null)}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {t('labels.country')} *
-                              </label>
-                              <input
-                                type="text"
-                                value={editedPoi?.country || ''}
-                                onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, country: e.target.value }) : null)}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Location details */}
-                          <div className="space-y-4 pt-2">
-                            <h4 className="text-sm font-bold text-gray-900 dark:text-white mb-3 flex items-center">
-                              {t('labels.location_details')}
-                            </h4>
-                            
-                            {getPoi()?.formatted_address && (
-                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                <div className="flex items-start space-x-3">
-                                  <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                  <div className="flex-1">
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.full_address')}</div>
-                                    <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.formatted_address}</div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {getPoi()?.vicinity && (
-                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                <div className="flex items-start space-x-3">
-                                  <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                  <div className="flex-1">
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.vicinity')}</div>
-                                    <div className="text-sm text-gray-900 dark:text-white">{getPoi()!.vicinity}</div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {getPoi()?.coordinates && (
-                              <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-gray-200 dark:border-gray-700">
-                                <div className="flex items-start space-x-3">
-                                  <MapPin className="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" />
-                                  <div className="flex-1">
-                                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('labels.coordinates')}</div>
-                                    <div className="text-sm text-gray-900 dark:text-white font-mono">
-                                      {getPoi()!.coordinates!.latitude.toFixed(6)}, {getPoi()!.coordinates!.longitude.toFixed(6)}
-                                    </div>
-                                    <button
-                                      onClick={openInGoogleMaps}
-                                      className="text-sm text-tuggi-blue hover:text-tuggi-blue/80 underline inline-flex items-center mt-2"
-                                    >
-                                      <ExternalLink className="h-3 w-3 mr-1" />
-                                      {t('actions.view_on_google_maps')}
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* RIGHT COLUMN */}
-                        <div className="space-y-6">
-                          {/* Content Status Summary Card */}
-                          <div className="bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 p-4">
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                              {t('labels.content_status_title')}
+                          <div>
+                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1">
+                              {t('labels.state')}
                             </label>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="flex items-center space-x-2">
-                                <FileText className="h-4 w-4 text-gray-400" />
-                                <div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('labels.descriptions_count')}</div>
-                                  <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.description_count || 0}</div>
-                                </div>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <Volume2 className="h-4 w-4 text-gray-400" />
-                                <div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('labels.audio_count')}</div>
-                                  <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.audio_count || 0}</div>
-                                </div>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <Target className="h-4 w-4 text-gray-400" />
-                                <div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('labels.trigger_points_count')}</div>
-                                  <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.trigger_points_count || 0}</div>
-                                </div>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <CheckCircle className="h-4 w-4 text-gray-400" />
-                                <div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('labels.active_tps_count')}</div>
-                                  <div className="text-sm font-semibold text-gray-900 dark:text-white">{getPoi()?.active_trigger_points_count || 0}</div>
-                                </div>
-                              </div>
-                            </div>
+                            <input
+                              type="text"
+                              value={editedPoi?.state || ''}
+                              onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, state: e.target.value || null }) : null)}
+                              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white text-sm"
+                            />
                           </div>
-
-                          {/* Google Types */}
-                          {getPoi()?.google_types && getPoi()!.google_types!.length > 0 && (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {t('labels.google_types', { count: getPoi()!.google_types!.length })}
-                              </label>
-                              <div className="flex flex-wrap gap-2 p-3 bg-white dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
-                                {getPoi()?.google_types?.map((type, index) => (
-                                  <span
-                                    key={index}
-                                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-tuggi-blue/10 text-tuggi-blue border border-tuggi-blue/20"
-                                  >
-                                    {type.replace(/_/g, ' ')}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* POI Type and Category - Standardized */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {t('labels.record_type')}
-                              </label>
-                              <select
-                                value={editedPoi?.record_type === 'geofence' || editedPoi?.category === 'geofence' ? 'geofence' : 'standard'}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setEditedPoi(prev => {
-                                    if (!prev) return null;
-                                    const isGeofence = val === 'geofence';
-                                    return {
-                                      ...prev,
-                                      record_type: isGeofence ? 'geofence' : 'point_of_interest',
-                                      category: (!isGeofence && prev.category === 'geofence') ? 'tourist_attraction' : prev.category
-                                    };
-                                  });
-                                }}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                              >
-                                <option value="standard">{t('labels.poi_local')}</option>
-                                <option value="geofence">{t('labels.geofence_restricted')}</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {t('labels.category')}
-                              </label>
-                              <select
-                                value={editedPoi?.category || ''}
-                                onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, category: e.target.value }) : null)}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                              >
-                                {enhancedCategories.map(category => (
-                                  <option key={category.value} value={category.value}>
-                                    {category.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
-                          {/* Client Owner & Behavior Section */}
-                          <div className={cn(
-                            "grid grid-cols-1 gap-4 p-4 bg-orange-50/50 border border-orange-100 rounded-2xl dark:bg-orange-900/10 dark:border-orange-800 transition-all",
-                            (editedPoi?.record_type === 'geofence') ? 'md:grid-cols-2' : ''
-                          )}>
-                            <div className={(editedPoi?.record_type === 'geofence') ? '' : 'col-span-full'}>
-                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                {t('labels.client_owner')}
-                              </label>
-                              <select
-                                value={editedPoi?.owner_id || ''}
-                                onChange={e => setEditedPoi(prev => prev ? ({ ...prev, owner_id: e.target.value }) : null)}
-                                disabled={!isAdmin}
-                                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md disabled:bg-gray-100 disabled:text-gray-500 dark:bg-gray-700 dark:text-white"
-                              >
-                                <option value="" disabled>{t('labels.select_client')}</option>
-                                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                              </select>
-                            </div>
-
-                            {(editedPoi?.record_type === 'geofence') && (
-                              <div className="animate-in fade-in duration-300">
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                                  {t('labels.trigger_behavior')}
-                                </label>
-                                <select 
-                                  value={editedPoi?.business_status || 'BOTH'}
-                                  onChange={e => setEditedPoi(prev => prev ? ({ ...prev, business_status: e.target.value }) : null)}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700 dark:text-white font-bold"
-                                >
-                                  <option value="BOTH">{t('labels.both')}</option>
-                                  <option value="INSIDE">{t('labels.inside')}</option>
-                                  <option value="OUTSIDE">{t('labels.outside')}</option>
-                                </select>
-                              </div>
-                            )}
+                          <div>
+                            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1">
+                              {t('labels.country')} *
+                            </label>
+                            <input
+                              type="text"
+                              value={editedPoi?.country || ''}
+                              onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, country: e.target.value }) : null)}
+                              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white text-sm"
+                            />
                           </div>
                         </div>
                       </div>
                     </div>
 
+                    {/* Geography Card */}
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-100 dark:border-gray-700 shadow-sm">
+                      <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-tuggi-blue" />
+                        Geographic Data
+                      </h4>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Address Display */}
+                        {(getPoi()?.formatted_address || getPoi()?.vicinity) && (
+                          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4 flex gap-3">
+                            <MapPin className="h-5 w-5 text-gray-400 mt-1" />
+                            <div className="min-w-0">
+                              <span className="block text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-1">Formatted Address</span>
+                              <p className="text-xs text-gray-900 dark:text-white line-clamp-2 leading-relaxed">
+                                {getPoi()?.formatted_address || getPoi()?.vicinity}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Coordinates Display */}
+                        {getPoi()?.coordinates && (
+                          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-xl p-4 flex flex-col justify-between">
+                            <div className="flex gap-3">
+                              <Globe className="h-5 w-5 text-gray-400 mt-1" />
+                              <div className="min-w-0">
+                                <span className="block text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-1">{t('labels.coordinates')}</span>
+                                <p className="text-xs font-mono text-gray-900 dark:text-white font-bold tracking-tight">
+                                  {getPoi()!.coordinates!.latitude.toFixed(6)}, {getPoi()!.coordinates!.longitude.toFixed(6)}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={openInGoogleMaps}
+                              className="text-[10px] font-bold text-tuggi-blue hover:text-tuggi-blue/80 inline-flex items-center gap-1 mt-3 transition-colors uppercase tracking-tight"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              {t('actions.view_on_google_maps')}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RIGHT: Classification & Ownership */}
+                  <div className="space-y-6">
+                    {/* Settings Card */}
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-100 dark:border-gray-700 shadow-sm">
+                      <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-6">Classification</h4>
+                      
+                      <div className="space-y-5">
+                        {/* Record Type */}
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1">
+                            {t('labels.record_type')}
+                          </label>
+                          <select
+                            value={editedPoi?.record_type === 'geofence' || editedPoi?.category === 'geofence' ? 'geofence' : 'standard'}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditedPoi(prev => {
+                                if (!prev) return null;
+                                const isGeofence = val === 'geofence';
+                                return {
+                                  ...prev,
+                                  record_type: isGeofence ? 'geofence' : 'point_of_interest',
+                                  category: (!isGeofence && prev.category === 'geofence') ? 'tourist_attraction' : prev.category
+                                };
+                              });
+                            }}
+                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white text-sm font-bold"
+                          >
+                            <option value="standard">{t('labels.poi_local')}</option>
+                            <option value="geofence">{t('labels.geofence_restricted')}</option>
+                          </select>
+                        </div>
+
+                        {/* Category */}
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1">
+                            {t('labels.category')}
+                          </label>
+                          <select
+                            value={editedPoi?.category || ''}
+                            onChange={(e) => setEditedPoi(prev => prev ? ({ ...prev, category: e.target.value }) : null)}
+                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white text-sm"
+                          >
+                            {enhancedCategories.map(category => (
+                              <option key={category.value} value={category.value}>
+                                {category.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Google Types Badge Cloud */}
+                        {getPoi()?.google_types && getPoi()!.google_types!.length > 0 && (
+                          <div className="pt-2">
+                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-3 ml-1">
+                                {t('labels.google_types', { count: getPoi()!.google_types!.length })}
+                              </label>
+                            <div className="flex flex-wrap gap-1.5">
+                              {getPoi()?.google_types?.slice(0, 8).map((type, index) => (
+                                <span
+                                  key={index}
+                                  className="inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-black uppercase bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 tracking-tighter"
+                                >
+                                  {type.replace(/_/g, ' ')}
+                                </span>
+                              ))}
+                              {getPoi()!.google_types!.length > 8 && (
+                                <span className="text-[9px] font-bold text-gray-400 px-1">+{getPoi()!.google_types!.length - 8} more</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Management Card */}
+                    <div className="bg-orange-50/50 dark:bg-orange-900/10 rounded-2xl p-6 border border-orange-100 dark:border-orange-900/30">
+                      <h4 className="text-xs font-black text-orange-400 uppercase tracking-widest mb-6">Management</h4>
+                      
+                      <div className="space-y-5">
+                        {/* Client Owner */}
+                        <div>
+                          <label className="block text-[10px] font-black text-orange-500 uppercase tracking-tighter mb-1.5 ml-1">
+                            {t('labels.client_owner')}
+                          </label>
+                          <select
+                            value={editedPoi?.owner_id || ''}
+                            onChange={e => setEditedPoi(prev => prev ? ({ ...prev, owner_id: e.target.value }) : null)}
+                            disabled={!isAdmin}
+                            className="w-full px-4 py-3 bg-white/80 dark:bg-gray-800 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-400 transition-all dark:text-white text-sm font-bold disabled:opacity-50"
+                          >
+                            <option value="" disabled>{t('labels.select_client')}</option>
+                            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                        </div>
+
+                        {/* Behavior (Geofence only) */}
+                        {(editedPoi?.record_type === 'geofence' || editedPoi?.category === 'geofence') && (
+                          <div className="animate-in slide-in-from-top-2 duration-300">
+                            <label className="block text-[10px] font-black text-orange-500 uppercase tracking-tighter mb-1.5 ml-1">
+                              {t('labels.trigger_behavior')}
+                            </label>
+                            <select 
+                              value={editedPoi?.business_status || 'BOTH'}
+                              onChange={e => setEditedPoi(prev => prev ? ({ ...prev, business_status: e.target.value }) : null)}
+                              className="w-full px-4 py-3 bg-white/80 dark:bg-gray-800 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-400 transition-all dark:text-white text-sm font-black"
+                            >
+                              <option value="BOTH">{t('labels.both')}</option>
+                              <option value="INSIDE">{t('labels.inside')}</option>
+                              <option value="OUTSIDE">{t('labels.outside')}</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                  </div>
+                  </div>
+                </div>
                     {/* Boundary Drawing & Image Preview Row */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="hidden">
@@ -3798,262 +3776,306 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                 </div>
               </div>
             ) : activeTab === 'description' ? (
-              <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
+              <div className="px-6 py-6 max-h-[80vh] overflow-y-auto bg-gray-50/30 dark:bg-gray-900/10">
                 {isLoading ? (
-                  <div className="animate-pulse space-y-4">
-                    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
-                    <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                    <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
+                  <div className="animate-pulse space-y-6">
+                    <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded-xl w-1/3"></div>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="lg:col-span-2 h-64 bg-gray-200 dark:bg-gray-700 rounded-2xl"></div>
+                      <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded-2xl"></div>
+                    </div>
                   </div>
                 ) : (
-                  <div className="space-y-6">
-
-
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="text-lg font-medium text-gray-900 dark:text-white">
-                          {t('labels.description_editor')}
-                        </h4>
-                        {/* <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                      Editing Brazilian Portuguese (pt-br) • {descriptions.length} language{descriptions.length !== 1 ? 's' : ''} available
-                    </p>
-                    <p className="text-xs text-tuggi-blue mt-1">
-                      ✨ Enhanced AI with rich POI data: Google Types, location, ratings, business info
-                    </p> */}
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <select
-                          value={generationLanguage}
-                          onChange={(e) => setGenerationLanguage(e.target.value)}
-                          disabled={isGenerating || isSavingDescription || isGeneratingAudio}
-                          className="block w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-                        >
-                          <option value="pt-br">{t('languages.pt-br')}</option>
-                          <option value="en-us">{t('languages.en-us')}</option>
-                          <option value="es-es">{t('languages.es-es')}</option>
-                          <option value="fr-fr">{t('languages.fr-fr')}</option>
-                          <option value="de-de">{t('languages.de-de')}</option>
-                          <option value="it-it">{t('languages.it-it')}</option>
-                        </select>
-                        <select
-                          value={audioDuration}
-                          onChange={(e) => setAudioDuration(Number(e.target.value))}
-                          disabled={isGenerating || isSavingDescription || isGeneratingAudio}
-                          className="block w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white text-sm"
-                        >
-                          <option value={10}>{t('labels.duration_options.10')}</option>
-                          <option value={20}>{t('labels.duration_options.20')}</option>
-                          <option value={30}>{t('labels.duration_options.30')}</option>
-                          <option value={45}>{t('labels.duration_options.45')}</option>
-                          <option value={60}>{t('labels.duration_options.60')}</option>
-                        </select>
-                        <button
-                          onClick={generateDescription}
-                          disabled={isGenerating || isSavingDescription || isGeneratingAudio}
-                          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                        >
-                          <Sparkles className="h-4 w-4 mr-2" />
-                          {isGenerating ? tCommon('actions.generating') : `${t('actions.regenerate')} in ${generationLanguage.split('-')[0].toUpperCase()}`}
-                        </button>
-                        {currentDescription !== originalDescription && (
-                          <button
-                            onClick={resetDescription}
-                            disabled={isGenerating || isSavingDescription || isGeneratingAudio}
-                            className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                          >
-                            <RotateCcw className="h-4 w-4 mr-2" />
-                             {t('actions.reset')}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Reference Links Section */}
-                    <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        {t('labels.reference_links')} (URLs)
-                      </label>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                        {t('messages.reference_links_hint')}
-                      </p>
-                      <div className="space-y-2">
-                        {referenceLinks.map((link, idx) => (
-                          <div key={idx} className="flex items-center space-x-2">
-                            <input
-                              type="url"
-                              className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-800 dark:text-white"
-                              value={link}
-                              onChange={e => {
-                                const newLinks = [...referenceLinks];
-                                newLinks[idx] = e.target.value;
-                                setReferenceLinks(newLinks);
-                              }}
-                              placeholder="https://en.wikipedia.org/wiki/example or https://officialsite.com"
-                            />
+                  <div className="flex flex-col gap-6">
+                    {/* STUDIO HEADER: Language Tabs */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        {/* Language Tabs */}
+                        <div className="flex bg-white dark:bg-gray-800 p-1 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                          {[
+                            { code: 'pt-br', label: 'Portuguese (BR)' },
+                            { code: 'en-us', label: 'English (US)' },
+                            { code: 'es-es', label: 'Spanish (ES)' },
+                            { code: 'fr-fr', label: 'French (FR)' },
+                            { code: 'de-de', label: 'German (DE)' },
+                            { code: 'it-it', label: 'Italian (IT)' },
+                          ].map((lang) => (
                             <button
-                              type="button"
-                              className="px-3 py-2 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded-md hover:bg-red-50"
-                              onClick={() => setReferenceLinks(referenceLinks.filter((_, i) => i !== idx))}
+                              key={lang.code}
+                              onClick={() => setGenerationLanguage(lang.code)}
+                              className={cn(
+                                "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-tighter transition-all duration-300",
+                                generationLanguage === lang.code
+                                  ? "bg-tuggi-blue text-white shadow-md shadow-tuggi-blue/20"
+                                  : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                              )}
                             >
-                               {t('actions.remove')}
+                              {lang.code.split('-')[0]}
                             </button>
-                          </div>
-                        ))}
-                        <div className="flex items-center space-x-2">
-                          <button
-                            type="button"
-                            className="inline-flex items-center px-3 py-2 text-sm text-tuggi-blue hover:text-tuggi-blue/80 border border-tuggi-blue/30 rounded-md hover:bg-tuggi-blue/10"
-                            onClick={() => setReferenceLinks([...referenceLinks, ''])}
-                          >
-                            + {t('actions.add_link')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={saveReferenceLinks}
-                            disabled={isSavingReferenceLinks || !!poi?._homologData}
-                            className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <Save className="h-4 w-4 mr-2" />
-                             {isSavingReferenceLinks ? tCommon('actions.saving') : t('actions.save_links')}
-                          </button>
+                          ))}
                         </div>
-                        {poi?._homologData && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                            Note: Reference links can only be saved for core attractions, not homolog POIs.
-                          </p>
-                        )}
+
+                        {/* Duration Pills/Select in Header */}
+                        <div className="flex items-center gap-1.5 bg-white dark:bg-gray-800 p-1 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                          <span className="pl-2 text-[8px] font-black text-gray-400 uppercase tracking-widest">Target</span>
+                          <select
+                            value={audioDuration}
+                            onChange={(e) => setAudioDuration(Number(e.target.value))}
+                            className="bg-transparent border-none text-[10px] font-black px-2 py-1 focus:ring-0 cursor-pointer text-tuggi-blue"
+                          >
+                            <option value={10}>10s</option>
+                            <option value={20}>20s</option>
+                            <option value={30}>30s</option>
+                            <option value={45}>45s</option>
+                            <option value={60}>60s</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
+                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Studio Engine Active</span>
                       </div>
                     </div>
 
-                    {/* Description Editor */}
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between items-center mb-2">
-                          <div className="flex items-center">
-                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                               {t('labels.attraction_description')}
-                             </label>
-                            {/* Score badge - always visible */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                      {/* MAIN COLUMN: Editor */}
+                      <div className="lg:col-span-2 space-y-6">
+                        <div className="bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-xl shadow-gray-200/20 overflow-hidden">
+                          {/* Editor Header */}
+                          <div className="px-6 py-4 border-b border-gray-50 dark:border-gray-700 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/20">
+                            <div className="flex items-center gap-3">
+                              <div className="bg-tuggi-blue/10 p-2 rounded-xl">
+                                <FileText className="h-4 w-4 text-tuggi-blue" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-tight">
+                                  {generationLanguage.split('-')[0].toUpperCase()} Content Editor
+                                </h4>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Manual or AI refinement</p>
+                              </div>
+                            </div>
+                            
                             {verificationResult && (
-                              <div className="ml-3">
-                                <span className={cn(
-                                  "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                                  getScoreBackgroundColor(verificationResult.score / 100),
-                                  getScoreColor(verificationResult.score / 100)
-                                )}>
-                                  <span className="font-bold">{t('labels.score_label', { score: verificationResult.score })}</span>
-                                  {verificationResult.approved && <CheckCircle className="h-3 w-3 ml-1 text-green-600" />}
-                                </span>
+                              <div className={cn(
+                                "flex items-center gap-2 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-tighter",
+                                getScoreBackgroundColor(verificationResult.score / 100),
+                                getScoreColor(verificationResult.score / 100)
+                              )}>
+                                <span className="opacity-60">Score:</span>
+                                <span>{verificationResult.score}</span>
+                                {verificationResult.approved && <CheckCircle className="h-3 w-3" />}
                               </div>
                             )}
                           </div>
-                        </div>
-                        <textarea
-                          value={currentDescription}
-                          onChange={(e) => setCurrentDescription(e.target.value)}
-                          rows={6}
-                           className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white resize-none"
-                           placeholder={t('placeholders.description_placeholder')}
-                         />
-                         <div className="flex justify-between items-center mt-2">
-                           <div className="text-sm text-gray-500 dark:text-gray-400">
-                             {currentDescription.length} {t('labels.characters')}
-                           </div>
-                          {verificationResult && (
-                            <div className="flex items-center">
-                              {verificationResult.approved ? (
-                                <span className="text-xs text-green-600 dark:text-green-400 flex items-center">
-                                   <CheckCircle className="h-3 w-3 mr-1" />
-                                   {t('labels.verified_quality')}
-                                 </span>
-                              ) : (
-                                <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center">
-                                   <AlertCircle className="h-3 w-3 mr-1" />
-                                   {t('labels.review_suggested')}
-                                 </span>
-                              )}
+
+                          {/* Textarea Area */}
+                          <div className="p-1">
+                            <textarea
+                              value={currentDescription}
+                              onChange={(e) => setCurrentDescription(e.target.value)}
+                              rows={12}
+                              className="w-full px-6 py-6 bg-transparent border-none focus:ring-0 text-gray-700 dark:text-gray-200 text-sm leading-relaxed resize-none font-medium placeholder:italic placeholder:text-gray-300"
+                              placeholder="Write a compelling description or use the AI tools below..."
+                            />
+                          </div>
+
+                          {/* Editor Footer: AI Toolbar */}
+                          <div className="px-6 py-4 bg-gray-50/80 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                                {currentDescription.length} characters
+                              </div>
                             </div>
+
+                            <div className="flex items-center gap-2">
+                              {currentDescription !== originalDescription && (
+                                <button
+                                  onClick={resetDescription}
+                                  className="p-2 text-gray-400 hover:text-red-500 transition-all"
+                                  title="Reset Changes"
+                                >
+                                  <RotateCcw className="h-4 w-4" />
+                                </button>
+                              )}
+                              <button
+                                onClick={generateDescription}
+                                disabled={isGenerating || isSavingDescription || isGeneratingAudio}
+                                className="inline-flex items-center px-4 py-2 bg-tuggi-blue hover:bg-tuggi-blue/90 text-white text-[10px] font-black rounded-xl transition-all shadow-md shadow-tuggi-blue/10 disabled:opacity-50 uppercase tracking-widest"
+                              >
+                                {isGenerating ? <Loader2 className="h-3 w-3 mr-2 animate-spin" /> : <Sparkles className="h-3 w-3 mr-2" />}
+                                {t('actions.regenerate')}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Save Action Bar */}
+                        <div className="flex items-center justify-end gap-3 pt-2">
+                          {currentDescription !== originalDescription && (
+                            <span className="text-[10px] font-bold text-tuggi-orange uppercase animate-pulse">Unsaved Changes</span>
                           )}
-                        </div>
-                      </div>
-
-                      {/* Statistics */}
-                      {/* <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
-                    <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                      Description Statistics
-                    </h5>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="flex items-center space-x-2">
-                        <Play className="h-4 w-4 text-tuggi-orange" />
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                          Play Count: <span className="font-medium text-tuggi-orange">{descriptionStats.play_count}</span>
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Clock className="h-4 w-4 text-tuggi-orange" />
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                          Last Played: <span className="font-medium text-tuggi-orange">
-                            {descriptionStats.last_played_at
-                              ? formatDate(descriptionStats.last_played_at)
-                              : 'Never'
-                            }
-                          </span>
-                        </span>
-                      </div>
-                    </div>
-                  </div> */}
-
-                      {/* Save Actions */}
-                      <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
-                        <div className="text-sm text-gray-500 dark:text-gray-400">
-                           {currentDescription !== originalDescription && (
-                             <span className="text-tuggi-orange">• {t('labels.unsaved_changes')}</span>
-                           )}
-                        </div>
-                        <div className="flex items-center space-x-2">
                           <button
                             onClick={saveDescriptionAndNextStep}
                             disabled={isSavingDescription || isGeneratingAudio || isGenerating || currentDescription === originalDescription}
-                            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-tuggi-blue hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50"
-                            title="Save description and proceed to audio generation"
+                            className="inline-flex items-center px-8 py-3 bg-tuggi-blue hover:bg-tuggi-blue/90 text-white text-sm font-black rounded-2xl transition-all shadow-xl shadow-tuggi-blue/20 disabled:opacity-50 uppercase tracking-widest group"
                           >
-                             <CheckCircle className="h-4 w-4 mr-2" />
-                             {isSavingDescription ? tCommon('actions.saving') : t('actions.save_and_next')}
-                           </button>
+                            {isSavingDescription ? tCommon('actions.saving') : t('actions.save_and_next')}
+                            <ArrowRight className="h-4 w-4 ml-2 transition-transform group-hover:translate-x-1" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* SIDEBAR COLUMN: Research & Context */}
+                      <div className="space-y-6">
+                        {/* Reference Links Card */}
+                        <div className="bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-sm p-6">
+                          <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center gap-2">
+                              <div className="bg-blue-50 dark:bg-blue-900/20 p-1.5 rounded-lg">
+                                <Globe className="h-4 w-4 text-blue-500" />
+                              </div>
+                              <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                {t('labels.reference_links')}
+                              </h5>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setReferenceLinks([...referenceLinks, ''])}
+                              className="bg-gray-50 dark:bg-gray-900 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                            >
+                              <Plus className="h-3.5 w-3.5 text-tuggi-blue" />
+                            </button>
+                          </div>
+
+                          <div className="space-y-3">
+                            {referenceLinks.length === 0 && (
+                              <p className="text-[10px] text-gray-400 italic text-center py-4">No sources added yet</p>
+                            )}
+                            {referenceLinks.map((link, idx) => (
+                              <div key={idx} className="group relative">
+                                <input
+                                  type="url"
+                                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-1 focus:ring-tuggi-blue transition-all text-[10px] font-medium"
+                                  value={link}
+                                  onChange={e => {
+                                    const newLinks = [...referenceLinks];
+                                    newLinks[idx] = e.target.value;
+                                    setReferenceLinks(newLinks);
+                                  }}
+                                  placeholder="Wikipedia, Site, etc."
+                                />
+                                <button
+                                  type="button"
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 transition-all"
+                                  onClick={() => setReferenceLinks(referenceLinks.filter((_, i) => i !== idx))}
+                                >
+                                  <RotateCcw className="h-3 w-3 rotate-45" />
+                                </button>
+                              </div>
+                            ))}
+                            
+                            {referenceLinks.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={saveReferenceLinks}
+                                disabled={isSavingReferenceLinks || !!poi?._homologData}
+                                className="w-full mt-2 inline-flex items-center justify-center px-4 py-2 bg-gray-50 dark:bg-gray-900 text-gray-500 hover:text-tuggi-blue text-[10px] font-black rounded-xl transition-all uppercase tracking-widest disabled:opacity-50"
+                              >
+                                <Save className="h-3 w-3 mr-2" />
+                                {isSavingReferenceLinks ? tCommon('actions.saving') : t('actions.save_links')}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* POI Context Card (AI Fuel) */}
+                        <div className="bg-gray-50/50 dark:bg-gray-900/50 rounded-3xl border border-dashed border-gray-200 dark:border-gray-700 p-6">
+                           <div className="flex items-center gap-2 mb-4">
+                              <div className="bg-orange-50 dark:bg-orange-900/20 p-1.5 rounded-lg">
+                                <Sparkles className="h-4 w-4 text-orange-500" />
+                              </div>
+                              <h5 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                AI Content Insights
+                              </h5>
+                            </div>
+                            <div className="space-y-5">
+                              {/* Search Keywords */}
+                              <div>
+                                <span className="block text-[8px] font-black text-gray-400 uppercase mb-2 tracking-widest">Research Keywords</span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {(verificationResult?.keywords && verificationResult.keywords.length > 0) ? (
+                                    verificationResult.keywords.map((kw, i) => (
+                                      <span key={i} className="px-2 py-1 bg-white dark:bg-gray-800 rounded-lg text-[10px] font-bold text-tuggi-blue border border-tuggi-blue/10 shadow-sm">
+                                        {kw}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-[10px] text-gray-400 italic">Generate to see research context</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Verified Facts */}
+                              {verificationResult?.verifiable_facts && verificationResult.verifiable_facts.length > 0 && (
+                                <div>
+                                  <span className="block text-[8px] font-black text-gray-400 uppercase mb-2 tracking-widest">Verified Facts</span>
+                                  <ul className="space-y-1">
+                                    {verificationResult.verifiable_facts.slice(0, 3).map((fact, i) => (
+                                      <li key={i} className="text-[10px] text-gray-600 dark:text-gray-400 leading-tight flex items-start gap-1.5">
+                                        <div className="w-1 h-1 rounded-full bg-green-400 mt-1.5 shrink-0" />
+                                        {fact}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {/* Historical Dates */}
+                              {verificationResult?.detected_dates && verificationResult.detected_dates.length > 0 && (
+                                <div>
+                                  <span className="block text-[8px] font-black text-gray-400 uppercase mb-2 tracking-widest">Detected Dates</span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {verificationResult.detected_dates.map((date, i) => (
+                                      <span key={i} className="px-2 py-1 bg-amber-50 dark:bg-amber-900/20 rounded-lg text-[10px] font-bold text-amber-600 border border-amber-100 dark:border-amber-900/30">
+                                        {date}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Physical Context (Fallback if no AI data yet) */}
+                              {!verificationResult && (
+                                <div>
+                                  <span className="block text-[8px] font-black text-gray-400 uppercase mb-1">Primary Category</span>
+                                  <p className="text-xs font-bold text-gray-700 dark:text-gray-200 capitalize">{editedPoi?.category?.replace(/_/g, ' ') || 'N/A'}</p>
+                                </div>
+                              )}
+                            </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Descriptions */}
+                    {/* HISTORY: Other Languages */}
                     {descriptions.length > 0 && (
-                      <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
-                         <h4 className="text-lg font-medium text-gray-900 dark:text-white mb-4">
-                           {t('labels.description')}
-                         </h4>
-                        <div className="space-y-3">
-                          {descriptions.map((desc, index) => (
-                            <div key={desc.id} className="bg-gray-50 dark:bg-gray-700 p-4 rounded-md">
+                      <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-800">
+                        <div className="flex items-center gap-2 mb-4">
+                          <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Existing Descriptions</h4>
+                          <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-[9px] font-bold text-gray-500">
+                            {descriptions.length}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {descriptions.map((desc) => (
+                            <div key={desc.id} className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm group hover:border-tuggi-blue/30 transition-all">
                               <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    {desc.language === 'pt-br' ? '🇧🇷 Portuguese (BR)' :
-                                      desc.language === 'pt' ? '🇧🇷 Portuguese' :
-                                        desc.language === 'en' ? '🇺🇸 English' :
-                                          desc.language === 'es' ? '🇪🇸 Spanish' :
-                                            `${desc.language.toUpperCase()}`}
-                                  </span>
-                                  {desc.play_count > 0 && (
-                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-tuggi-orange/10 text-tuggi-orange">
-                                      <Play className="h-3 w-3 mr-1" />
-                                      {desc.play_count} plays
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-xs text-gray-500 dark:text-gray-400">
-                                  {formatDate(desc.created_at)}
+                                <span className="text-[10px] font-black text-tuggi-blue uppercase tracking-tighter bg-tuggi-blue/5 px-2 py-0.5 rounded-md">
+                                  {desc.language}
                                 </span>
+                                <span className="text-[8px] text-gray-400 font-bold">{formatDate(desc.created_at)}</span>
                               </div>
-                              <p className="text-sm text-gray-900 dark:text-white">{desc.description}</p>
+                              <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-3 italic leading-relaxed">"{desc.description}"</p>
                             </div>
                           ))}
                         </div>
@@ -4133,32 +4155,28 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700 space-y-4">
                       {/* Gender Selector */}
                       <div>
-                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                            {t('labels.voice_gender')}
                          </label>
-                        <div className="flex gap-4">
-                          <label className="flex items-center cursor-pointer">
-                            <input
-                              type="radio"
-                              name="gender"
-                              value="male"
-                              checked={selectedGender === 'male'}
-                              onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
-                              className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                            />
-                             <span className="text-sm text-gray-700 dark:text-gray-300">{t('labels.male')}</span>
-                          </label>
-                          <label className="flex items-center cursor-pointer">
-                            <input
-                              type="radio"
-                              name="gender"
-                              value="female"
-                              checked={selectedGender === 'female'}
-                              onChange={(e) => setSelectedGender(e.target.value as 'male' | 'female')}
-                              className="mr-2 text-tuggi-blue focus:ring-tuggi-blue"
-                            />
-                             <span className="text-sm text-gray-700 dark:text-gray-300">{t('labels.female')}</span>
-                          </label>
+                        <div className="flex p-1 bg-gray-100/50 dark:bg-gray-900/50 rounded-xl w-fit border border-gray-200 dark:border-gray-800">
+                          {[
+                            { value: 'male', label: t('labels.male') },
+                            { value: 'female', label: t('labels.female') }
+                          ].map((gender) => (
+                            <button
+                              key={gender.value}
+                              onClick={() => setSelectedGender(gender.value as 'male' | 'female')}
+                              className={cn(
+                                "flex items-center gap-2 px-6 py-1.5 rounded-lg text-sm font-bold transition-all duration-300",
+                                selectedGender === gender.value
+                                  ? "bg-white dark:bg-gray-800 text-tuggi-blue shadow-sm ring-1 ring-black/5"
+                                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                              )}
+                            >
+                              <User className={cn("h-3.5 w-3.5", selectedGender === gender.value ? "text-tuggi-blue" : "text-gray-400")} />
+                              {gender.label}
+                            </button>
+                          ))}
                         </div>
                       </div>
 
@@ -4167,49 +4185,60 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                            {t('labels.languages_to_generate')}
                          </label>
-                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
                           {[
-                            { code: 'pt-br', name: '🇧🇷 Português (Brasil)' },
-                            { code: 'pt-pt', name: '🇵🇹 Português (Portugal)' },
-                            { code: 'en-us', name: '🇺🇸 English (US)' },
-                            { code: 'en-gb', name: '🇬🇧 English (UK)' },
-                            { code: 'es-es', name: '🇪🇸 Spanish (Spain)' },
-                            { code: 'de-de', name: '🇩🇪 German' },
-                            { code: 'fr-fr', name: '🇫🇷 French' },
-                            { code: 'it-it', name: '🇮🇹 Italian' },
-                            { code: 'ja-jp', name: '🇯🇵 Japanese' },
-                            { code: 'cmn-cn', name: '🇨🇳 Mandarin' },
-                            { code: 'ko-kr', name: '🇰🇷 Korean' },
-                            { code: 'ru-ru', name: '🇷🇺 Russian' },
+                            { code: 'pt-br', name: 'Português', sub: 'Brasil', flag: '🇧🇷' },
+                            { code: 'pt-pt', name: 'Português', sub: 'Portugal', flag: '🇵🇹' },
+                            { code: 'en-us', name: 'English', sub: 'US', flag: '🇺🇸' },
+                            { code: 'en-gb', name: 'English', sub: 'UK', flag: '🇬🇧' },
+                            { code: 'es-es', name: 'Spanish', sub: 'Spain', flag: '🇪🇸' },
+                            { code: 'de-de', name: 'German', flag: '🇩🇪' },
+                            { code: 'fr-fr', name: 'French', flag: '🇫🇷' },
+                            { code: 'it-it', name: 'Italian', flag: '🇮🇹' },
+                            { code: 'ja-jp', name: 'Japanese', flag: '🇯🇵' },
+                            { code: 'cmn-cn', name: 'Mandarin', flag: '🇨🇳' },
+                            { code: 'ko-kr', name: 'Korean', flag: '🇰🇷' },
+                            { code: 'ru-ru', name: 'Russian', flag: '🇷🇺' },
                           ].map((lang) => (
                             <label
                               key={lang.code}
                               className={cn(
-                                "flex items-start p-2 rounded border cursor-pointer transition-colors min-h-[40px]",
+                                "relative flex flex-col items-center justify-center h-20 rounded-xl border cursor-pointer transition-all duration-300 text-center group",
                                 selectedLanguages.includes(lang.code)
-                                  ? "bg-tuggi-blue/10 border-tuggi-blue dark:bg-tuggi-blue/20"
-                                  : "bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-tuggi-blue/50"
+                                  ? "bg-tuggi-blue/10 border-tuggi-blue ring-1 ring-tuggi-blue/10 shadow-sm"
+                                  : "bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 hover:border-tuggi-blue/30"
                               )}
-                              title={lang.name}
                             >
-                              <div className="flex items-center h-5 mt-0.5">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedLanguages.includes(lang.code)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedLanguages([...selectedLanguages, lang.code])
-                                    } else {
-                                      setSelectedLanguages(selectedLanguages.filter(l => l !== lang.code))
-                                    }
-                                  }}
-                                  className="text-tuggi-blue focus:ring-tuggi-blue h-4 w-4"
-                                />
-                              </div>
-                              <div className="ml-2 overflow-hidden">
-                                <span className="block text-xs font-medium text-gray-900 dark:text-white leading-snug">
+                              <input
+                                type="checkbox"
+                                checked={selectedLanguages.includes(lang.code)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedLanguages([...selectedLanguages, lang.code])
+                                  } else {
+                                    setSelectedLanguages(selectedLanguages.filter(l => l !== lang.code))
+                                  }
+                                }}
+                                className="sr-only"
+                              />
+                              
+                              <span className="text-2xl mb-1 transition-transform group-hover:scale-110 duration-300">{lang.flag}</span>
+                              
+                              <div className="flex flex-col leading-none px-1">
+                                <span className={cn(
+                                  "text-[10px] font-black uppercase tracking-tight",
+                                  selectedLanguages.includes(lang.code) ? "text-tuggi-blue" : "text-gray-900 dark:text-white"
+                                )}>
                                   {lang.name}
                                 </span>
+                                {lang.sub && (
+                                  <span className={cn(
+                                    "text-[8px] font-bold uppercase tracking-tighter mt-1",
+                                    selectedLanguages.includes(lang.code) ? "text-tuggi-blue/70" : "text-gray-400"
+                                  )}>
+                                    {lang.sub}
+                                  </span>
+                                )}
                               </div>
                             </label>
                           ))}

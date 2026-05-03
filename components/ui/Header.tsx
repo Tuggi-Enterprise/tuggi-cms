@@ -199,7 +199,7 @@ export function Header({ className }: { className?: string }) {
             <TuggiLogo size="sm" showText={true} />
             <div className="flex items-center ml-2 pl-2 border-l border-gray-200 dark:border-gray-700">
               <span className="text-lg md:text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-                City OS
+                Studio
               </span>
             </div>
           </div>
