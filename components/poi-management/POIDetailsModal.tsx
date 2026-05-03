@@ -3814,22 +3814,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                             </button>
                           ))}
                         </div>
-
-                        {/* Duration Pills/Select in Header */}
-                        <div className="flex items-center gap-1.5 bg-white dark:bg-gray-800 p-1 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
-                          <span className="pl-2 text-[8px] font-black text-gray-400 uppercase tracking-widest">Target</span>
-                          <select
-                            value={audioDuration}
-                            onChange={(e) => setAudioDuration(Number(e.target.value))}
-                            className="bg-transparent border-none text-[10px] font-black px-2 py-1 focus:ring-0 cursor-pointer text-tuggi-blue"
-                          >
-                            <option value={10}>10s</option>
-                            <option value={20}>20s</option>
-                            <option value={30}>30s</option>
-                            <option value={45}>45s</option>
-                            <option value={60}>60s</option>
-                          </select>
-                        </div>
                       </div>
 
                       <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm">
@@ -3882,7 +3866,22 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
                           {/* Editor Footer: AI Toolbar */}
                           <div className="px-6 py-4 bg-gray-50/80 dark:bg-gray-900/40 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-4">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Duration</span>
+                                <select
+                                  value={audioDuration}
+                                  onChange={(e) => setAudioDuration(Number(e.target.value))}
+                                  className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 rounded-lg text-[10px] font-black px-2 py-1 focus:ring-1 focus:ring-tuggi-blue"
+                                >
+                                  <option value={10}>10s</option>
+                                  <option value={20}>20s</option>
+                                  <option value={30}>30s</option>
+                                  <option value={45}>45s</option>
+                                  <option value={60}>60s</option>
+                                </select>
+                              </div>
+                              <div className="h-4 w-px bg-gray-200 dark:bg-gray-700" />
                               <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                                 {currentDescription.length} characters
                               </div>
