@@ -182,6 +182,7 @@ async function main() {
   let cursor: string | null = null
   let pageNumber = 0
   let globalIndex = 0
+  let pageFetchError: { code?: string; message?: string } | null = null
 
   while (globalIndex < hardLimit) {
     const pageLimit = Math.min(PAGE_SIZE, hardLimit - globalIndex)
@@ -200,7 +201,9 @@ async function main() {
     if (options.country && options.country !== 'all') q = q.eq('country', options.country)
     if (options.state && options.state !== 'all') q = q.eq('state', options.state)
     if (options.city && options.city !== 'all') q = q.eq('city', options.city)
-    if (options.processing_status && options.processing_status !== 'all') {
+    if (options.processing_status === 'all') {
+      // No status filter
+    } else if (options.processing_status) {
       q = q.eq('processing_status', options.processing_status)
     } else {
       q = q.in('processing_status', ['pending', 'processing'])
@@ -212,6 +215,7 @@ async function main() {
 
     if (pageError) {
       console.error('❌ Error fetching page:', pageError)
+      pageFetchError = { code: pageError.code, message: pageError.message }
       break
     }
 
@@ -230,6 +234,17 @@ async function main() {
     cursor = page[page.length - 1].uuid_id as string
 
     if (page.length < pageLimit) break // last page reached
+  }
+
+  if (pageFetchError) {
+    const details = pageFetchError.code
+      ? `${pageFetchError.code}: ${pageFetchError.message || 'Unknown error'}`
+      : (pageFetchError.message || 'Unknown error')
+    console.error(`❌ Migration aborted due to page fetch failure: ${details}`)
+    if (pageFetchError.code === '57014') {
+      console.error('💡 Try a smaller --batch-size (ex: 50) for this filter')
+    }
+    process.exit(1)
   }
 
   if (stats.total === 0) {
