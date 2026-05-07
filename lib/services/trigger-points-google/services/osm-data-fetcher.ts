@@ -12,6 +12,7 @@
  */
 
 import { POIData, BoundaryData, StreetData } from '../types/interfaces';
+import { LocalOSMFetcher } from './local-osm-fetcher';
 import { 
   calculatePolygonArea, 
   calculatePolygonCenter, 
@@ -56,6 +57,17 @@ export class OSMDataFetcher {
     streetSearchRadius: number = 250
   ): Promise<OSMDataBundle> {
     
+    // 🌍 ESTRATÉGIA 1: BUSCAR LOCALMENTE NO BANCO DE DADOS (0ms, 100% Offline)
+    const localData = LocalOSMFetcher.getInstance().fetchLocalData(poiData, streetSearchRadius);
+    
+    if (localData && localData.streets.length > 0) {
+      console.log(`🚀 [OSMDataFetcher] Using Local OSM Data (Strategy 1)`);
+      return localData;
+    }
+    
+    console.log(`🔄 [OSMDataFetcher] Local data insufficient or missing. Falling back to Overpass API (Strategy 2)`);
+
+    // 🌐 ESTRATÉGIA 2: OVERPASS API (Fallback)
     const query = this.buildConsolidatedQuery(poiData, streetSearchRadius);
     
     for (let attempt = 0; attempt < OSMDataFetcher.MAX_RETRIES; attempt++) {
@@ -87,6 +99,17 @@ export class OSMDataFetcher {
     center: { lat: number; lng: number },
     radius: number
   ): Promise<StreetData[]> {
+    
+    // 🌍 ESTRATÉGIA 1: LOCAL DB
+    const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(center, radius);
+    
+    if (localStreets && localStreets.length > 0) {
+       console.log(`🚀 [OSMDataFetcher] Using Local OSM Data for extended streets (Strategy 1)`);
+       return localStreets;
+    }
+    
+    console.log(`🔄 [OSMDataFetcher] Local extended streets missing. Falling back to Overpass API (Strategy 2)`);
+
     const query = `
       [out:json][timeout:150];
       (

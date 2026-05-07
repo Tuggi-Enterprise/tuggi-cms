@@ -7,6 +7,7 @@ import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { DirectionalAnalyzer } from './directional-analyzer';
+import { SRTMLocalService } from '../../srtm-local-service';
 
 export class TriggerPointValidator {
   private visibilityValidator: VisibilityValidator;
@@ -2533,31 +2534,14 @@ out geom meta;
     points: Array<{ lat: number; lng: number }>
   ): Promise<number[]> {
     try {
-      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'TuggiCMS/1.0 (terrain-elevation-check)'
-        },
-        body: JSON.stringify({
-          locations: points.map(p => ({ latitude: p.lat, longitude: p.lng }))
-        })
-      });
-
-      if (!response.ok) {
-        console.warn(`Open Elevation API failed: ${response.status}`);
-        return [];
-      }
-
-      const data = await response.json();
-      if (!data.results || data.results.length === 0) {
-        return [];
-      }
-
-      return data.results.map((r: any) => r.elevation || 0);
+      const srtm = SRTMLocalService.getInstance();
+      const results = await Promise.all(
+        points.map(p => srtm.getElevation(p.lat, p.lng))
+      );
+      return results.map(e => e ?? 0);
       
     } catch (error) {
-      console.warn('Failed to get elevations from Open Elevation API:', error);
+      console.warn('Failed to get elevations from SRTM Local Service:', error);
       return [];
     }
   }

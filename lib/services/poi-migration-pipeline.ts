@@ -872,7 +872,7 @@ export class PoiMigrationPipeline {
             p_geojson: geoJsonString,
             p_boundary_type: 'polygon',
             p_boundary_source: predictionResult.boundary.source,
-            p_confidence: predictionResult.boundary.source.includes('osm') ? 0.9 : 0.5
+            p_boundary_confidence: predictionResult.boundary.source.includes('osm') ? 0.9 : 0.5
           });
           
           if (boundaryError) {

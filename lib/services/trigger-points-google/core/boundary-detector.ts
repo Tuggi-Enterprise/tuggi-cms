@@ -582,15 +582,25 @@ out geom tags;
 `;
         
         try {
-          // 🔄 RETRY COM BACKOFF: Query expandida é importante para POIs grandes
-          // ✅ QUALIDADE > VELOCIDADE: Aumentar tentativas para garantir dados
-          console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry up to 5 times if timeout`);
-          const expandedStreetsResponse = await this.retryOSMQuery(
-            expandedStreetsQuery,
-            `Expanded streets query (${requiredRadius}m radius)`,
-            7, // 7 tentativas (crítico para POIs grandes)
-            3000 // 3s delay inicial (backoff exponencial: 3s, 6s, 12s, 24s, 48s, 96s, 192s)
+          // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+          const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+          const localData = LocalOSMFetcher.getInstance().fetchAsOverpassData(
+            coordinates[0], requiredRadius, { includeBuildings: false }
           );
+          
+          let expandedStreetsResponse: any;
+          if (localData && localData.elements.length > 0) {
+             expandedStreetsResponse = { ok: true, json: async () => localData };
+          } else {
+            // 🔄 RETRY COM BACKOFF: Query expandida é importante para POIs grandes
+            console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry up to 5 times if timeout`);
+            expandedStreetsResponse = await this.retryOSMQuery(
+              expandedStreetsQuery,
+              `Expanded streets query (${requiredRadius}m radius)`,
+              7,
+              3000
+            );
+          }
           
           if (expandedStreetsResponse.ok) {
             const expandedData = await expandedStreetsResponse.json();
@@ -1703,13 +1713,24 @@ out geom tags;
 out geom tags;
 `;
                       
-                      // 🔄 RETRY COM BACKOFF: Query consolidada é CRÍTICA - não continuar sem ela
-                      const osmTagsResponseInitial = await this.retryOSMQuery(
-                        consolidatedQueryInitial,
-                        'Consolidated OSM query (POI + streets + buildings)',
-                        7, // 7 tentativas
-                        2000 // 2s delay inicial
+                      // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+                      const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+                      const localData = LocalOSMFetcher.getInstance().fetchAsOverpassData(
+                        center, INITIAL_RADIUS,
+                        { includeBuildings: true, targetOsmId: String(result.osm_id), targetOsmType: result.osm_type }
                       );
+                      
+                      let osmTagsResponseInitial: any;
+                      if (localData && localData.elements.length > 0) {
+                        osmTagsResponseInitial = { ok: true, json: async () => localData };
+                      } else {
+                        // 🔄 RETRY COM BACKOFF: Query consolidada é CRÍTICA
+                        osmTagsResponseInitial = await this.retryOSMQuery(
+                          consolidatedQueryInitial,
+                          'Consolidated OSM query (POI + streets + buildings)',
+                          7, 2000
+                        );
+                      }
                       
                       let poiTags: any = {};
                       let poiElementFromQuery: any = null;
@@ -1933,15 +1954,23 @@ out geom tags;
 `;
                         
                         try {
-                          // 🔄 RETRY COM BACKOFF: Query expandida é importante para POIs grandes
-                          // ✅ QUALIDADE > VELOCIDADE: Aumentar tentativas para garantir dados
-                          console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry up to 7 times using mirror rotation`);
-                          const expandedStreetsResponse = await this.retryOSMQuery(
-                            expandedStreetsQuery,
-                            `Expanded streets query (${requiredRadius}m radius)`,
-                            7, // 7 tentativas (crítico para POIs grandes)
-                            3000 // 3s delay inicial (backoff exponencial: 3s, 6s, 12s, 24s, 48s)
+                          // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+                          const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+                          const localData = LocalOSMFetcher.getInstance().fetchAsOverpassData(
+                            center, requiredRadius, { includeBuildings: false }
                           );
+                          
+                          let expandedStreetsResponse: any;
+                          if (localData && localData.elements.length > 0) {
+                             expandedStreetsResponse = { ok: true, json: async () => localData };
+                          } else {
+                            console.log(`🔄 [IMPORTANT] Fetching expanded streets (radius: ${requiredRadius}m) - will retry up to 7 times using mirror rotation`);
+                            expandedStreetsResponse = await this.retryOSMQuery(
+                              expandedStreetsQuery,
+                              `Expanded streets query (${requiredRadius}m radius)`,
+                              7, 3000
+                            );
+                          }
                           
                           if (expandedStreetsResponse.ok) {
                             const expandedData = await expandedStreetsResponse.json();
