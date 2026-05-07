@@ -315,4 +315,33 @@ export class LocalOSMFetcher {
       return null;
     }
   }
+
+  /**
+   * Busca um elemento OSM específico por tipo e ID no banco local.
+   * Retorna no formato Overpass API para integração transparente.
+   * Retorna null se não encontrado (= fallback para Overpass online).
+   */
+  public fetchElementById(
+    osmType: string,
+    osmId: string
+  ): { elements: any[] } | null {
+    if (!this.db) return null;
+
+    try {
+      const stmt = this.db.prepare(`
+        SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
+        WHERE osm_type = ? AND osm_id = ? LIMIT 1
+      `);
+      const row = stmt.get(osmType, osmId) as any;
+
+      if (!row) return null;
+
+      const element = this.toOverpassElement(row, osmType);
+      console.log(`🚀 [LocalOSMFetcher] Found ${osmType}(${osmId}) in local DB`);
+      return { elements: [element] };
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching element by ID:`, error);
+      return null;
+    }
+  }
 }

@@ -9,7 +9,9 @@ async function test() {
     id: 'test-boston',
     name: 'Faneuil Hall',
     location: { lat: 42.3601, lng: -71.0562 },
-    type: 'tourist_attraction'
+    type: 'tourist_attraction',
+    country: 'USA',
+    city: 'Boston'
   };
 
   console.log('🚀 Testing OSM Fetch for Boston (should use LOCAL DATA)...');

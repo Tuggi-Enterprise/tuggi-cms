@@ -336,27 +336,36 @@ export class BoundaryDetector {
       // Isso cobre o contexto imediato e a query expandida cuida do resto se necessário.
       const INITIAL_RADIUS = 150; // Raio reduzido para evitar timeouts em áreas urbanas densas
       
-      // Query OSM diretamente pelo ID + dados consolidados com raio inicial
-      const query = `
+      // 🌍 ESTRATÉGIA 1: LOCAL OSM DB (busca por ID direto)
+      const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+      const localData = LocalOSMFetcher.getInstance().fetchElementById(osmType, osmID);
+      
+      let elements: any[] = [];
+      
+      if (localData && localData.elements.length > 0) {
+        elements = localData.elements;
+      } else {
+        // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
+        const query = `
 [out:json][timeout:30];
 ${osmType}(${osmID});
 out geom tags;
 `;
-      
-      const response = await this.retryOSMQuery(
-        query,
-        `OSM ID query: ${osmType}(${osmID})`,
-        7,
-        2000
-      );
-      
-      if (!response.ok) {
-        console.warn(`⚠️ OSM query failed for ${osmType}(${osmID}): ${response.status}`);
-        return { success: false, error: `OSM query failed: ${response.status}`, processingTime: 0 };
+        const response = await this.retryOSMQuery(
+          query,
+          `OSM ID query: ${osmType}(${osmID})`,
+          7,
+          2000
+        );
+        
+        if (!response.ok) {
+          console.warn(`⚠️ OSM query failed for ${osmType}(${osmID}): ${response.status}`);
+          return { success: false, error: `OSM query failed: ${response.status}`, processingTime: 0 };
+        }
+        
+        const data = await response.json();
+        elements = data.elements || [];
       }
-      
-      const data = await response.json();
-      const elements = data.elements || [];
       
       if (elements.length === 0) {
         console.warn(`⚠️ No OSM element found for ${osmType}(${osmID})`);
@@ -466,13 +475,24 @@ out geom tags;
       let consolidatedBarriers: any[] = [];
       let consolidatedPeaks: any[] = [];
       
-      // 🔄 RETRY COM BACKOFF: Query consolidada é CRÍTICA
-      const consolidatedResponseInitial = await this.retryOSMQuery(
-        consolidatedQueryInitial,
-        'Consolidated OSM query (POI + streets + buildings)',
-        7, // 7 tentativas
-        2000 // 2s delay inicial
+      // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+      const localConsolidated = LocalOSMFetcher.getInstance().fetchAsOverpassData(
+        center, INITIAL_RADIUS,
+        { includeBuildings: true, targetOsmId: osmID, targetOsmType: osmType }
       );
+      
+      let consolidatedResponseInitial: any;
+      if (localConsolidated && localConsolidated.elements.length > 0) {
+        consolidatedResponseInitial = { ok: true, json: async () => localConsolidated };
+      } else {
+        // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
+        consolidatedResponseInitial = await this.retryOSMQuery(
+          consolidatedQueryInitial,
+          'Consolidated OSM query (POI + streets + buildings)',
+          7,
+          2000
+        );
+      }
       
       if (consolidatedResponseInitial.ok) {
         const consolidatedData = await consolidatedResponseInitial.json();
@@ -1790,30 +1810,41 @@ out geom tags;
                             // Fallback: tentar buscar altura diretamente usando OSM ID
                             console.log(`🔍 Attempting direct height query for ${result.osm_type}(${targetOSMID})...`);
                             try {
-                              const heightQuery = `
+                              // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+                              const localElement = LocalOSMFetcher.getInstance().fetchElementById(result.osm_type, targetOSMID);
+                              
+                              let heightElement: any = null;
+                              if (localElement && localElement.elements.length > 0) {
+                                heightElement = localElement.elements.find((el: any) => 
+                                  String(el.id) === targetOSMID && el.type === result.osm_type
+                                );
+                              } else {
+                                // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
+                                const heightQuery = `
 [out:json][timeout:30];
 ${result.osm_type}(${targetOSMID});
 out tags;
 `;
-                              const heightResponse = await this.retryOSMQuery(
-                                heightQuery,
-                                `Direct height query for ${result.osm_type}(${targetOSMID})`,
-                                7,
-                                2000
-                              );
-                              
-                              if (heightResponse.ok) {
-                                const heightData = await heightResponse.json();
-                                const heightElement = heightData.elements?.find((el: any) => 
-                                  String(el.id) === targetOSMID && el.type === result.osm_type
+                                const heightResponse = await this.retryOSMQuery(
+                                  heightQuery,
+                                  `Direct height query for ${result.osm_type}(${targetOSMID})`,
+                                  7, 2000
                                 );
-                                if (heightElement) {
+                                
+                                if (heightResponse.ok) {
+                                  const heightData = await heightResponse.json();
+                                  heightElement = heightData.elements?.find((el: any) => 
+                                    String(el.id) === targetOSMID && el.type === result.osm_type
+                                  );
+                                }
+                              }
+                              
+                              if (heightElement) {
                                   poiHeight = this.extractOSMHeight(heightElement);
                                   if (poiHeight) {
                                     console.log(`📏 POI height from direct query: ${poiHeight}m`);
                                   }
                                 }
-                              }
                             } catch (error) {
                               console.warn(`⚠️ Direct height query failed: ${error}`);
                             }
@@ -2036,18 +2067,35 @@ out tags;
 `;
                       
                       try {
-                        // 🔄 RETRY COM BACKOFF: Query de altura é importante - tentar até conseguir
-                        console.log(`🔄 [IMPORTANT] Fetching architectural elements for height - will retry if timeout`);
-                        const response = await this.retryOSMQuery(
-                          architecturalQuery,
-                          'Architectural elements query (for POI height)',
-                          7, // 7 tentativas
-                          3000 // 3s delay inicial
+                        // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+                        console.log(`🔄 [IMPORTANT] Fetching architectural elements for height`);
+                        const { LocalOSMFetcher: ArchFetcher } = await import('../services/local-osm-fetcher');
+                        const localArch = ArchFetcher.getInstance().fetchAsOverpassData(
+                          center, Math.sqrt(area) / 2, { includeBuildings: true }
                         );
                         
-                        if (response.ok) {
-                          const data = await response.json();
-                          if (data.elements && data.elements.length > 0) {
+                        let archElements: any[] = [];
+                        if (localArch && localArch.elements.length > 0) {
+                          archElements = localArch.elements.filter((el: any) => 
+                            el.tags?.height || el.tags?.['building:height'] || el.tags?.['building:part'] || el.tags?.man_made
+                          );
+                        }
+                        
+                        if (archElements.length === 0) {
+                          // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
+                          const response = await this.retryOSMQuery(
+                            architecturalQuery,
+                            'Architectural elements query (for POI height)',
+                            7, 3000
+                          );
+                          
+                          if (response.ok) {
+                            const data = await response.json();
+                            archElements = data.elements || [];
+                          }
+                        }
+                        
+                        if (archElements.length > 0) {
                             // Criar boundary temporário para verificação
                             const tempBoundary: BoundaryData = {
                               type: 'polygon',
@@ -2058,14 +2106,13 @@ out tags;
                               confidence: 0.8,
                               source: 'osm'
                             };
-                            poiHeight = this.extractHeightFromMultipleElements(data.elements, center, tempBoundary);
+                            poiHeight = this.extractHeightFromMultipleElements(archElements, center, tempBoundary);
                             if (poiHeight) {
                               console.log(`✅ Found POI height from architectural elements: ${poiHeight}m`);
                             }
                           } else {
                             console.log(`⚠️ No architectural elements found around Nominatim result`);
                           }
-                        }
                       } catch (error) {
                         // Se retry falhou, logar mas não bloquear (altura não é crítica para continuar)
                         console.warn(`⚠️ Architectural elements search failed after retries (non-blocking):`, error instanceof Error ? error.message : error);
@@ -2211,19 +2258,35 @@ out geom tags;
    */
   private async executeOSMQuery(query: string, searchType: string, poiData?: POIData): Promise<ProcessingResult<BoundaryData>> {
     try {
-      const response = await this.retryOSMQuery(
-        query,
-        `OSM query: ${searchType}`,
-        7, // 7 retries to use all mirrors
-        2000
-      );
+      let data: any;
       
-      // retryOSMQuery already throws if !response.ok, but we'll be safe
-      if (!response.ok) {
-        return { success: false, error: `OSM API error: ${response.status}`, processingTime: 0 };
+      // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+      if (poiData) {
+        const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+        const localData = LocalOSMFetcher.getInstance().fetchAsOverpassData(
+          poiData.location, 200, { includeBuildings: true }
+        );
+        if (localData && localData.elements.length > 0) {
+          data = localData;
+        }
       }
       
-      const data = await response.json();
+      // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
+      if (!data) {
+        const response = await this.retryOSMQuery(
+          query,
+          `OSM query: ${searchType}`,
+          7,
+          2000
+        );
+        
+        // retryOSMQuery already throws if !response.ok, but we'll be safe
+        if (!response.ok) {
+          return { success: false, error: `OSM API error: ${response.status}`, processingTime: 0 };
+        }
+        
+        data = await response.json();
+      }
       
       
       if (!data.elements || data.elements.length === 0) {
