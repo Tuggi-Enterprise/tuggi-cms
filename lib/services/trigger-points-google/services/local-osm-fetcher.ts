@@ -68,10 +68,15 @@ export class LocalOSMFetcher {
    */
   private toOverpassElement(row: any, elementType: string, defaultTags: Record<string, string> = {}) {
     const points = JSON.parse(row.geometry_json);
+    const tags = row.tags_json ? JSON.parse(row.tags_json) : defaultTags;
+    // O @id real do OSM está dentro do tags_json (ex: {"@id": 30417583, ...})
+    // O row.id interno do SQLite é um hash (ex: "osm_way_feafng585") que parseInt converte para NaN
+    const osmNumericId = tags['@id'] ?? parseInt(row.osm_id || row.id, 10);
+    const osmElementType = tags['@type'] ?? elementType;
     return {
-      type: elementType,
-      id: parseInt(row.id, 10),
-      tags: row.tags_json ? JSON.parse(row.tags_json) : defaultTags,
+      type: osmElementType,
+      id: osmNumericId,
+      tags,
       geometry: points.map((p: any) => ({ lat: p.lat, lon: p.lng })) // Overpass usa 'lon'
     };
   }
@@ -318,7 +323,9 @@ export class LocalOSMFetcher {
 
   /**
    * Busca um elemento OSM específico por tipo e ID no banco local.
-   * Retorna no formato Overpass API para integração transparente.
+   * Os IDs reais do OSM estão em tags_json como @id e @type,
+   * pois as colunas osm_type/osm_id contêm hashes internos.
+   * Busca em todas as tabelas (pois, streets, buildings).
    * Retorna null se não encontrado (= fallback para Overpass online).
    */
   public fetchElementById(
@@ -328,11 +335,34 @@ export class LocalOSMFetcher {
     if (!this.db) return null;
 
     try {
-      const stmt = this.db.prepare(`
+      // O @id numérico e @type estão dentro do tags_json
+      // Ex: {"@type":"way","@id":40666277,"name":"Mugar Property"}
+      const searchPattern = `%"@id":${osmId}%`;
+
+      // 1. Buscar na tabela pois
+      const poiStmt = this.db.prepare(`
         SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
-        WHERE osm_type = ? AND osm_id = ? LIMIT 1
+        WHERE tags_json LIKE ? LIMIT 1
       `);
-      const row = stmt.get(osmType, osmId) as any;
+      let row = poiStmt.get(searchPattern) as any;
+
+      // 2. Buscar na tabela streets
+      if (!row) {
+        const streetStmt = this.db.prepare(`
+          SELECT id, geometry_json, tags_json FROM streets
+          WHERE tags_json LIKE ? LIMIT 1
+        `);
+        row = streetStmt.get(searchPattern) as any;
+      }
+
+      // 3. Buscar na tabela buildings
+      if (!row) {
+        const buildingStmt = this.db.prepare(`
+          SELECT id, geometry_json, tags_json FROM buildings
+          WHERE tags_json LIKE ? LIMIT 1
+        `);
+        row = buildingStmt.get(searchPattern) as any;
+      }
 
       if (!row) return null;
 
