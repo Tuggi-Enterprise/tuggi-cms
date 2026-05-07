@@ -1,3 +1,5 @@
+import { OSMCacheService } from '../../osm-cache-service';
+
 // Analisador de contexto geográfico automático
 // REMOVIDO: Dependência do Google Places API - usando apenas OSM e valores padrão
 
@@ -199,10 +201,40 @@ export class GeographicContextAnalyzer {
         poiData
       );
       
-      // Buscar elevação real do ponto (via Open Elevation, que é free)
-      const url = `https://api.open-elevation.com/api/v1/lookup?locations=${location.lat},${location.lng}`;
-      const data = await safeFetchJSON<any>(url);
-      const poiElevation = data?.results?.[0]?.elevation || baseElevation;
+      let poiElevation = baseElevation;
+      
+      const cacheService = OSMCacheService.getInstance();
+      const cacheKey = `open-elevation-${location.lat.toFixed(5)}-${location.lng.toFixed(5)}`;
+      const cachedElevation = cacheService.get(cacheKey, 365);
+      
+      if (cachedElevation !== null && cachedElevation !== undefined) {
+        poiElevation = cachedElevation;
+      } else {
+        // Buscar elevação real do ponto (via Open Elevation, que é free) com timeout de 2 segundos
+        const url = `https://api.open-elevation.com/api/v1/lookup?locations=${location.lat},${location.lng}`;
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        
+        try {
+          const response = await fetch(url, { signal: controller.signal });
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              const data = await response.json();
+              poiElevation = data.results?.[0]?.elevation || baseElevation;
+              if (poiElevation !== baseElevation) {
+                cacheService.set(cacheKey, poiElevation);
+              }
+            }
+          }
+        } catch (error) {
+          console.warn('⚠️ Open Elevation API fast-failed in GeographicContextAnalyzer');
+          // fallback to baseElevation handled by default initialization
+        }
+      }
       
       const elevationDiff = poiElevation - baseElevation;
       

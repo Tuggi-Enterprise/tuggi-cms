@@ -9,6 +9,8 @@
  */
 
 import { getSupabase } from '../../core/supabase-client'
+import { OSMCacheService } from '../osm-cache-service'
+
 
 // Service role client for database operations (must use 'service' for homolog schema access)
 const supabaseAdmin = getSupabase('service')
@@ -208,6 +210,15 @@ export class HomologEnrichmentService {
       
       console.log(`   Nominatim lookup URL: ${lookupUrl}`)
       
+      // 🚀 CACHE CHECK
+      const cacheService = OSMCacheService.getInstance()
+      const cachedData = cacheService.get(lookupUrl, 30) // Cache Nominatim for 30 days (it rarely changes)
+      
+      if (cachedData) {
+        console.log(`   ✅ Using cached Nominatim data for OSM ID: ${osmType}${osmId}`)
+        return cachedData
+      }
+      
       const response = await fetch(lookupUrl, {
         headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
       })
@@ -215,6 +226,8 @@ export class HomologEnrichmentService {
       if (response.ok) {
         const results = await response.json()
         if (Array.isArray(results) && results.length > 0) {
+          // 🚀 SAVE TO CACHE
+          cacheService.set(lookupUrl, results[0])
           return results[0]
         }
       }
@@ -234,6 +247,15 @@ export class HomologEnrichmentService {
     try {
       const reverseUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&extratags=1&namedetails=1&addressdetails=1`
       
+      // 🚀 CACHE CHECK
+      const cacheService = OSMCacheService.getInstance()
+      const cachedData = cacheService.get(reverseUrl, 30)
+      
+      if (cachedData) {
+        console.log(`   ✅ Using cached Nominatim reverse data for coords`)
+        return cachedData
+      }
+      
       const response = await fetch(reverseUrl, {
         headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
       })
@@ -241,6 +263,8 @@ export class HomologEnrichmentService {
       if (response.ok) {
         const data = await response.json()
         if (data && !data.error) {
+          // 🚀 SAVE TO CACHE
+          cacheService.set(reverseUrl, data)
           return data
         }
       }

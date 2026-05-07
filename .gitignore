@@ -57,3 +57,10 @@ scripts/*.txt
 scripts/*.log
 tsconfig.tsbuildinfo
 data/geofabrik/
+
+data/*.db
+data/*.db-journal
+data/*.pbf
+data/*.geojson
+data/*.geojsonseq
+

@@ -6,6 +6,8 @@ import { BoundaryData, GeographicContext, POIData } from '../types/interfaces';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { ElevationAnalysisService } from './elevation-service';
 
+import { OSMCacheService } from '../../osm-cache-service';
+
 export interface ElevationData {
   ground: number; // elevação do solo (metros acima do nível do mar)
   structure?: number; // altura da estrutura (metros) 
@@ -158,28 +160,48 @@ export class ElevationService {
     console.log(`🌍 Using Open Elevation API (free, like legacy system)...`);
     
     try {
-      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'TuggiCMS/1.0 (trigger-points-elevation)'
-        },
-        body: JSON.stringify({
-          locations: [{ latitude: location.lat, longitude: location.lng }]
-        })
+      const url = `https://api.open-elevation.com/api/v1/lookup`;
+      const bodyPayload = JSON.stringify({
+        locations: [{ latitude: location.lat, longitude: location.lng }]
       });
-
-      if (!response.ok) {
-        throw new Error(`Open Elevation API failed: ${response.status}`);
-      }
-
-      const data = await response.json();
       
-      if (!data.results || data.results.length === 0) {
-        throw new Error('No elevation data from Open Elevation API');
-      }
+      const cacheService = OSMCacheService.getInstance();
+      const cacheKey = `open-elevation-${location.lat.toFixed(5)}-${location.lng.toFixed(5)}`;
+      const cachedElevation = cacheService.get(cacheKey, 365);
+      
+      let elevation: number;
+      
+      if (cachedElevation !== null && cachedElevation !== undefined) {
+        console.log(`✅ Using cached Open Elevation: ${cachedElevation}m`);
+        elevation = cachedElevation;
+      } else {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'TuggiCMS/1.0 (trigger-points-elevation)'
+          },
+          body: bodyPayload,
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
 
-      const elevation = data.results[0].elevation;
+        if (!response.ok) {
+          throw new Error(`Open Elevation API failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (!data.results || data.results.length === 0) {
+          throw new Error('No elevation data from Open Elevation API');
+        }
+
+        elevation = data.results[0].elevation;
+        cacheService.set(cacheKey, elevation);
+      }
       console.log(`✅ Open Elevation API: ${elevation}m (SRTM data)`);
 
       return {

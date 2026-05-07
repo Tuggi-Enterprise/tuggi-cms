@@ -17,6 +17,8 @@ import {
   calculatePolygonCenter, 
   calculateDistance 
 } from '../utils/calculations';
+import { OSMCacheService } from '../../osm-cache-service';
+import { OSMLocalDataService } from '../../osm-local-data-service';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TIPOS
@@ -47,6 +49,13 @@ export class OSMDataFetcher {
   private static RETRY_DELAYS = [2000, 5000, 15000]; // ms - PODE ESPERAR
   private static OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
   private static QUERY_TIMEOUT = 60; // segundos - aumentado para resiliência
+  private cache: OSMCacheService;
+  private localData: OSMLocalDataService;
+
+  constructor() {
+    this.cache = OSMCacheService.getInstance();
+    this.localData = OSMLocalDataService.getInstance();
+  }
 
   /**
    * Busca TODOS os dados necessários em UMA chamada Overpass
@@ -56,12 +65,55 @@ export class OSMDataFetcher {
     streetSearchRadius: number = 250
   ): Promise<OSMDataBundle> {
     
+    // 1. Verificar se temos dados locais (de PBF importado)
+    if (this.localData.hasData()) {
+      const { lat, lng } = poiData.location;
+      const radius = Math.max(streetSearchRadius, 400);
+      
+      const localStreets = this.localData.findStreetsAround(lat, lng, radius);
+      const localBuildings = this.localData.findBuildingsAround(lat, lng, radius);
+      
+      if (localStreets.length > 0) {
+        console.log(`🏠 [LOCAL DATA] Found ${localStreets.length} streets and ${localBuildings.length} buildings locally for POI: ${poiData.name}`);
+        
+        const mockResult = {
+          elements: [
+            ...localStreets.map(s => ({
+              type: 'way',
+              id: s.id.replace('osm_way_', ''),
+              geometry: JSON.parse(s.geometry_json).map((p: any) => ({ lat: p.lat, lon: p.lng })),
+              tags: JSON.parse(s.tags_json)
+            })),
+            ...localBuildings.map(b => ({
+              type: 'way',
+              id: b.id.replace('osm_building_', ''),
+              geometry: JSON.parse(b.geometry_json).map((p: any) => ({ lat: p.lat, lon: p.lng })),
+              tags: JSON.parse(b.tags_json)
+            }))
+          ]
+        };
+        
+        return this.parseOSMResponse(mockResult, poiData, streetSearchRadius);
+      }
+    }
+
     const query = this.buildConsolidatedQuery(poiData, streetSearchRadius);
+    
+    // 1. Tentar Cache Local primeiro
+    const cachedResponse = this.cache.get(query);
+    if (cachedResponse) {
+      console.log(`📦 [CACHE HIT] Using cached OSM data for POI: ${poiData.name}`);
+      return this.parseOSMResponse(cachedResponse, poiData, streetSearchRadius);
+    }
     
     for (let attempt = 0; attempt < OSMDataFetcher.MAX_RETRIES; attempt++) {
       try {
-        console.log(`🌍 OSM Fetch attempt ${attempt + 1}/${OSMDataFetcher.MAX_RETRIES}...`);
+        console.log(`🌍 [NETWORK] OSM Fetch attempt ${attempt + 1}/${OSMDataFetcher.MAX_RETRIES}...`);
         const result = await this.executeQuery(query);
+        
+        // 2. Salvar no Cache se sucesso
+        this.cache.set(query, result);
+        
         const bundle = this.parseOSMResponse(result, poiData, streetSearchRadius);
         console.log(`✅ OSM Fetch successful: ${bundle.streets.length} streets, ${bundle.buildings.length} buildings`);
         return bundle;
@@ -613,7 +665,7 @@ export class OSMDataFetcher {
       variations.push(words.slice(0, 2).join(' '));
     }
 
-    return [...new Set(variations)].filter(v => v.length > 3);
+    return Array.from(new Set(variations)).filter(v => v.length > 3);
   }
 
   /**
@@ -629,7 +681,7 @@ export class OSMDataFetcher {
     // Jaro-Winkler ou similaridade simples de palavras
     const words1 = new Set(n1.split(/\s+/));
     const words2 = new Set(n2.split(/\s+/));
-    const intersection = new Set([...words1].filter(x => words2.has(x)));
+    const intersection = new Set(Array.from(words1).filter(x => words2.has(x)));
     
     return intersection.size / Math.max(words1.size, words2.size);
   }
