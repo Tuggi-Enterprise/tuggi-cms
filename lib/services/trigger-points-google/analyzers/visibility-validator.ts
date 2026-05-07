@@ -5,6 +5,7 @@ import { BoundaryData, TriggerPointCandidate, GeographicContext } from '../types
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { calculateDistance, calculateBearing } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
+import { SRTMLocalService } from '../../srtm-local-service';
 
 export interface VisibilityResult {
   hasLineOfSight: boolean;
@@ -161,25 +162,18 @@ export class VisibilityValidator {
         Math.max(TRIGGER_POINTS_CONSTANTS.limits.minSamplePoints, Math.floor(distance / TRIGGER_POINTS_CONSTANTS.distances.lineOfSightSampleDistance)) // Pontos configuráveis
       );
 
-      // Obter elevações via Open Elevation API (Gratuita) para economizar Google Elevation API
+      // Obter elevações via SRTM Local (100% Offline)
       let elevations: number[] = [];
       try {
         const points = [candidate.location, ...intermediatePoints, nearestBoundaryPoint];
-        const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            locations: points.map(p => ({ latitude: p.lat, longitude: p.lng }))
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error(`Open Elevation API failed: ${response.status}`);
-        }
-
-        const data = await response.json();
-        elevations = data.results.map((r: any) => r.elevation);
-        console.log(`✅ Topographic analysis using Open Elevation API (${elevations.length} points)`);
+        const srtm = SRTMLocalService.getInstance();
+        
+        const results = await Promise.all(
+          points.map(p => srtm.getElevation(p.lat, p.lng))
+        );
+        
+        elevations = results.map(e => e ?? 0); // fallback to 0 if null
+        console.log(`✅ Topographic analysis using SRTM Local (${elevations.length} points)`);
       } catch (error) {
         console.warn('⚠️ Open Elevation API failed for visibility, falling back to Google as last resort');
         const elevationResponse = await this.googleAPIs.getElevation([

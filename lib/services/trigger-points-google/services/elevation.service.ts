@@ -5,8 +5,7 @@ import { GoogleAPIsService } from './google-apis.service';
 import { BoundaryData, GeographicContext, POIData } from '../types/interfaces';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { ElevationAnalysisService } from './elevation-service';
-
-import { OSMCacheService } from '../../osm-cache-service';
+import { SRTMLocalService } from '../../srtm-local-service';
 
 export interface ElevationData {
   ground: number; // elevação do solo (metros acima do nível do mar)
@@ -74,17 +73,16 @@ export class ElevationService {
         confidence = osmElevation.confidence;
       }
 
-      // Estratégia 2: Open Elevation API (gratuita) para o Ground
-      // Sempre tentamos o Open Elevation pois ele é o que o usuário quer como primário
+      // Estratégia 2: SRTM Local (100% Offline)
       try {
-        const openElevationResult = await this.getElevationFromOpenElevationAPI(location);
-        if (openElevationResult.confidence > 0.5) {
-          groundElevation = openElevationResult.ground;
-          groundSource = 'open_elevation';
+        const srtmResult = await this.getElevationFromLocalSRTM(location);
+        if (srtmResult.confidence > 0.5) {
+          groundElevation = srtmResult.ground;
+          groundSource = 'local_srtm';
           confidence = Math.max(confidence, 0.8);
         }
       } catch (error) {
-        console.warn('⚠️ Open Elevation API failed, using OSM or fallback ground');
+        console.warn('⚠️ Local SRTM failed, using OSM or fallback ground');
       }
 
       // Se groundElevation ainda for 0, usar regionalBase como ground
@@ -152,57 +150,22 @@ export class ElevationService {
   }
 
   /**
-   * Estratégia 2: Open Elevation API (gratuita, SRTM data, igual ao sistema legado)
+   * Estratégia 2: SRTM Local (100% Offline, dados NASA 30m)
    */
-  private async getElevationFromOpenElevationAPI(
+  private async getElevationFromLocalSRTM(
     location: { lat: number; lng: number }
   ): Promise<ElevationData> {
-    console.log(`🌍 Using Open Elevation API (free, like legacy system)...`);
+    console.log(`🌍 Using Local SRTM Elevation (100% Offline, 0ms latency)...`);
     
     try {
-      const url = `https://api.open-elevation.com/api/v1/lookup`;
-      const bodyPayload = JSON.stringify({
-        locations: [{ latitude: location.lat, longitude: location.lng }]
-      });
+      const srtm = SRTMLocalService.getInstance();
+      const elevation = await srtm.getElevation(location.lat, location.lng);
       
-      const cacheService = OSMCacheService.getInstance();
-      const cacheKey = `open-elevation-${location.lat.toFixed(5)}-${location.lng.toFixed(5)}`;
-      const cachedElevation = cacheService.get(cacheKey, 365);
-      
-      let elevation: number;
-      
-      if (cachedElevation !== null && cachedElevation !== undefined) {
-        console.log(`✅ Using cached Open Elevation: ${cachedElevation}m`);
-        elevation = cachedElevation;
-      } else {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
-        
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'TuggiCMS/1.0 (trigger-points-elevation)'
-          },
-          body: bodyPayload,
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          throw new Error(`Open Elevation API failed: ${response.status}`);
-        }
-
-        const data = await response.json();
-        
-        if (!data.results || data.results.length === 0) {
-          throw new Error('No elevation data from Open Elevation API');
-        }
-
-        elevation = data.results[0].elevation;
-        cacheService.set(cacheKey, elevation);
+      if (elevation === null) {
+        throw new Error('No elevation data from Local SRTM');
       }
-      console.log(`✅ Open Elevation API: ${elevation}m (SRTM data)`);
+
+      console.log(`✅ Local SRTM: ${elevation}m (NASA data)`);
 
       return {
         ground: elevation,
@@ -213,16 +176,16 @@ export class ElevationService {
           prominence: 0.5,
           isElevated: elevation > 500
         },
-        confidence: 0.9, // High confidence for Open Elevation
-        source: 'open_elevation' as any,
+        confidence: 0.9, // High confidence for SRTM
+        source: 'estimated', // Keeping legacy type, but we know it's SRTM
         details: {
-          groundSource: 'open_elevation_api',
+          groundSource: 'local_srtm',
           method: 'srtm_data'
         }
       };
 
     } catch (error) {
-      console.error('Open Elevation API error:', error);
+      console.error('Local SRTM error:', error);
       throw error;
     }
   }

@@ -1,12 +1,10 @@
-import { OSMCacheService } from '../../osm-cache-service';
-
 // Analisador de contexto geográfico automático
 // REMOVIDO: Dependência do Google Places API - usando apenas OSM e valores padrão
 
 import { POIData, GeographicContext, BoundaryData } from '../types/interfaces';
 import { calculateVariance, calculateBearing, calculateDistance } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
-import { safeFetchJSON } from '../utils/network';
+import { SRTMLocalService } from '../../srtm-local-service';
 
 export class GeographicContextAnalyzer {
   constructor() {
@@ -201,40 +199,9 @@ export class GeographicContextAnalyzer {
         poiData
       );
       
-      let poiElevation = baseElevation;
-      
-      const cacheService = OSMCacheService.getInstance();
-      const cacheKey = `open-elevation-${location.lat.toFixed(5)}-${location.lng.toFixed(5)}`;
-      const cachedElevation = cacheService.get(cacheKey, 365);
-      
-      if (cachedElevation !== null && cachedElevation !== undefined) {
-        poiElevation = cachedElevation;
-      } else {
-        // Buscar elevação real do ponto (via Open Elevation, que é free) com timeout de 2 segundos
-        const url = `https://api.open-elevation.com/api/v1/lookup?locations=${location.lat},${location.lng}`;
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
-        
-        try {
-          const response = await fetch(url, { signal: controller.signal });
-          clearTimeout(timeoutId);
-          
-          if (response.ok) {
-            const contentType = response.headers.get('content-type');
-            if (contentType && contentType.includes('application/json')) {
-              const data = await response.json();
-              poiElevation = data.results?.[0]?.elevation || baseElevation;
-              if (poiElevation !== baseElevation) {
-                cacheService.set(cacheKey, poiElevation);
-              }
-            }
-          }
-        } catch (error) {
-          console.warn('⚠️ Open Elevation API fast-failed in GeographicContextAnalyzer');
-          // fallback to baseElevation handled by default initialization
-        }
-      }
+      // Buscar elevação real do ponto via SRTM Local (100% offline)
+      const srtm = SRTMLocalService.getInstance();
+      const poiElevation = await srtm.getElevation(location.lat, location.lng) ?? baseElevation;
       
       const elevationDiff = poiElevation - baseElevation;
       
@@ -262,44 +229,41 @@ export class GeographicContextAnalyzer {
    */
   private async analyzeStreetPattern(location: { lat: number; lng: number }) {
     try {
-      // 🔴 REMOVED: Google Roads API usage (M0 - economia)
-      // Usar análise OSM para determinar padrão de ruas
+      // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+      const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+      const localData = LocalOSMFetcher.getInstance().fetchAsOverpassData(
+        location, 2000, { includeBuildings: false }
+      );
       
-      // Query OSM para buscar ruas na área
-      const query = `
+      let roads: any[] = [];
+      
+      if (localData && localData.elements.length > 0) {
+        roads = localData.elements;
+      } else {
+        // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
+        const query = `
 [out:json][timeout:15];
 (
   way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:2000,${location.lat},${location.lng});
 );
 out geom;
 `;
-      
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: { 
-          'Content-Type': 'text/plain',
-          'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
-        }
-      });
-      
-      if (!response.ok) {
-        return { type: 'mixed' as const, confidence: 0.5 };
-      }
-      
-      let data: any;
-      try {
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          console.warn(`⚠️ Overpass API returned non-JSON content type: ${contentType}`);
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: query,
+          headers: { 
+            'Content-Type': 'text/plain',
+            'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+          }
+        });
+        
+        if (!response.ok) {
           return { type: 'mixed' as const, confidence: 0.5 };
         }
-        data = await response.json();
-      } catch (parseError) {
-        console.warn('⚠️ Failed to parse Overpass API response:', parseError);
-        return { type: 'mixed' as const, confidence: 0.5 };
+        
+        const data = await response.json();
+        roads = data.elements || [];
       }
-      const roads = data.elements || [];
       
       if (roads.length < 3) {
         return { type: 'mixed' as const, confidence: 0.3 };

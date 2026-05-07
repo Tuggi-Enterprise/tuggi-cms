@@ -507,67 +507,7 @@ export class CoreTriggerPointPredictor {
     
     return bestStreet;
   }
-  
-  /**
-   * 🔴 REMOVED: createGoogleRoadsFallback() - M0
-   * Manter código comentado para possível re-ativação manual futura
-   */
-  // private async createGoogleRoadsFallback(poiData: POIData, context: GeographicContext, boundary?: BoundaryData): Promise<TriggerPoint[]> {
-  //   console.log('🔍 Finding nearest street using Google Roads API (fallback approach)...');
-  //   
-  //   const centerPoint = boundary?.center || poiData.location;
-  //   
-  //   try {
-  //     const roadsResponse = await this.googleAPIs.getNearestRoads([centerPoint]);
-  //     
-  //     if (roadsResponse.success && roadsResponse.data?.snappedPoints && roadsResponse.data.snappedPoints.length > 0) {
-  //       const snappedPoint = roadsResponse.data.snappedPoints[0];
-  //       const streetLocation = {
-  //         lat: snappedPoint.location.latitude,
-  //         lng: snappedPoint.location.longitude
-  //       };
-  //       
-  //       const distance = calculateDistance(centerPoint, streetLocation);
-  //       console.log(`✅ Found nearest street at ${distance.toFixed(0)}m from POI (using ${boundary ? 'boundary.center' : 'poiData.location'})`);
-  //       
-  //       // Criar APENAS 1 TP simples
-  //       const triggerPoint: TriggerPoint = {
-  //         id: 'google_fallback_1',
-  //         location: streetLocation,
-  //         radius: 30, // Raio generoso para compensar imprecisão
-  //         expectedBearing: calculateBearing(streetLocation, centerPoint),
-  //         bearingThreshold: 90, // Muito tolerante
-  //         type: 'primary',
-  //         priority: 1,
-  //         confidence: 0.7, // Boa confiança - Google Roads é preciso
-  //         quality: 0.7,
-  //         street: {
-  //           id: snappedPoint.placeId || 'google_road',
-  //           type: 'primary',
-  //           coordinates: [streetLocation],
-  //           accessibility: 'public',
-  //           confidence: 0.8
-  //         },
-  //         distance,
-  //         generationMethod: 'google_apis',
-  //         contextData: context,
-  //         createdAt: new Date().toISOString(),
-  //         updatedAt: new Date().toISOString()
-  //       };
-  //       
-  //       console.log(`✅ Created 1 GOOGLE FALLBACK TP at ${streetLocation.lat.toFixed(6)}, ${streetLocation.lng.toFixed(6)} (${distance.toFixed(0)}m from POI)`);
-  //       return [triggerPoint];
-  //       
-  //     } else {
-  //       console.warn('⚠️ Google Roads failed, creating minimal directional TP');
-  //       return this.createMinimalDirectionalTP(poiData, context, boundary);
-  //     }
-  //     
-  //   } catch (error) {
-  //     console.warn('Google Roads fallback failed:', error);
-  //     return this.createMinimalDirectionalTP(poiData, context, boundary);
-  //   }
-  // }
+
 
   /**
    * Cria 1 TP mínimo quando nem Google Roads funciona
@@ -935,47 +875,58 @@ export class CoreTriggerPointPredictor {
     try {
       console.log('🔍 Searching for nearest street using OSM...');
       
-      // Query OSM para buscar ruas próximas ao POI
-      const query = `
+      // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+      const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+      const localData = LocalOSMFetcher.getInstance().fetchAsOverpassData(
+        poiLocation, 200, { includeBuildings: false }
+      );
+      
+      let roads: any[] = [];
+      
+      if (localData && localData.elements.length > 0) {
+        roads = localData.elements;
+      } else {
+        // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
+        const query = `
 [out:json][timeout:15];
 (
   way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:200,${poiLocation.lat},${poiLocation.lng});
 );
 out geom tags;
 `;
-      
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: { 
-          'Content-Type': 'text/plain',
-          'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        const roads = data.elements || [];
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: query,
+          headers: { 
+            'Content-Type': 'text/plain',
+            'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+          }
+        });
         
-        if (roads.length > 0) {
-          // Pegar a rua mais próxima
-          const nearestRoad = roads[0];
-          
-          // Converter geometria OSM para formato esperado
-          const coordinates = nearestRoad.geometry ? nearestRoad.geometry.map((point: any) => ({
-            lat: point.lat,
-            lng: point.lon
-          })) : [];
-          
-          
-          return {
-            id: nearestRoad.id.toString(),
-            type: nearestRoad.tags?.highway || 'road',
-            coordinates,
-            accessibility: 'public',
-            confidence: 0.8
-          };
+        if (response.ok) {
+          const data = await response.json();
+          roads = data.elements || [];
         }
+      }
+      
+      if (roads.length > 0) {
+        // Pegar a rua mais próxima
+        const nearestRoad = roads[0];
+        
+        // Converter geometria OSM para formato esperado
+        const coordinates = nearestRoad.geometry ? nearestRoad.geometry.map((point: any) => ({
+          lat: point.lat,
+          lng: point.lon
+        })) : [];
+        
+        
+        return {
+          id: nearestRoad.id.toString(),
+          type: nearestRoad.tags?.highway || 'road',
+          coordinates,
+          accessibility: 'public',
+          confidence: 0.8
+        };
       }
       
       console.warn('No roads found near POI via OSM');
@@ -1261,21 +1212,7 @@ out geom tags;
     console.log(`📊 Dynamic TP limit: ${minTPs}-${maxTPs} (coverage: ${(coverageArea / 1000000).toFixed(2)}km²)`);
     return Math.max(minTPs, Math.min(maxTPs, 200)); // Limitar máximo a 200
   }
-  
-  private calculateDynamicTPLimitOld(boundary: BoundaryData, context: GeographicContext): number {
-    console.log(`🎯 Calculating dynamic TP limit for POI...`);
-    
-    // Esta função será chamada ANTES de ter os candidatos, então usamos estimativa baseada em área
-    // A lógica real será aplicada no validator quando tivermos os candidatos reais
-    
-    // Estimativa baseada em área (fallback para quando não temos candidatos ainda)
-    const areaBasedEstimate = Math.min(Math.max(Math.floor(boundary.area_m2 / 5000), 10), 100);
-    
-    console.log(`📐 Area-based estimate: ${boundary.area_m2.toFixed(0)}m² → ${areaBasedEstimate} TPs`);
-    console.log(`🎯 Dynamic TP limit calculated: ${areaBasedEstimate} (area-based estimate)`);
-    
-    return Math.max(3, areaBasedEstimate); // Mínimo garantido de 3 TPs
-  }
+
   
   /**
    * Calcula distância mínima entre TPs baseado no contexto e tamanho do POI
