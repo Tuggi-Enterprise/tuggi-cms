@@ -1,3 +1,5 @@
+'use client'
+
 import { RouteEditor } from '@/components/routes/RouteEditor'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
