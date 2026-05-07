@@ -1828,7 +1828,7 @@ out tags;
                                 const heightResponse = await this.retryOSMQuery(
                                   heightQuery,
                                   `Direct height query for ${result.osm_type}(${targetOSMID})`,
-                                  7, 2000
+                                  2, 1000
                                 );
                                 
                                 if (heightResponse.ok) {
@@ -2081,7 +2081,8 @@ out tags;
                           );
                         }
                         
-                        if (archElements.length === 0) {
+                        // Se localArch existe (mesmo vazio), não bater no Overpass para queries secundárias (altura é opcional)
+                        if (archElements.length === 0 && (!localArch || localArch.elements.length === 0)) {
                           // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
                           const response = await this.retryOSMQuery(
                             architecturalQuery,

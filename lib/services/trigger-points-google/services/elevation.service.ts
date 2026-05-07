@@ -265,9 +265,9 @@ export class ElevationService {
       };
     }
 
-    // Se não temos dados OSM, usar Google como fallback
-    console.log(`⚠️ No elevation data in OSM tags, falling back to Google API`);
-    return this.getElevationFromGoogle(location);
+    // Se não temos dados OSM, usar SRTM Local como fallback (100% offline)
+    console.log(`⚠️ No elevation data in OSM tags, falling back to Local SRTM`);
+    return this.getElevationFromLocalSRTM(location);
   }
 
   /**
