@@ -674,7 +674,13 @@ export default function DashboardPage() {
              <div className="flex-1 min-h-0 w-full mt-2">
                 {isMounted && (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={(stats.migrationMetrics?.monthly || []).filter(item => item.month.startsWith('2026'))} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
+                    <BarChart 
+                      data={(stats.migrationMetrics?.monthly || [])
+                        .filter(item => item.month.startsWith('2026'))
+                        .sort((a, b) => a.month.localeCompare(b.month))
+                      } 
+                      margin={{ top: 20, right: 0, left: 0, bottom: 0 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
                       <XAxis 
                         dataKey="month" 

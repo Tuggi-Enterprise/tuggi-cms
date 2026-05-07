@@ -251,7 +251,44 @@ async function main() {
   )
 
   console.log(`\n💾 Results saved to: ${resultsFile}`)
+
+  // Refresh migration metrics materialized view to keep dashboard updated
+  if (stats.successful > 0) {
+    console.log('\n📊 Refreshing migration metrics dashboard...')
+    // Refresh migration metrics
+    const { error: refreshError } = await supabase.schema('core').rpc('refresh_migration_metrics')
+    if (refreshError) {
+      console.warn('⚠️  Failed to refresh migration metrics:', refreshError.message)
+    } else {
+      console.log('✅ Migration metrics refreshed successfully')
+    }
+
+    // Refresh geographic stats (Country/City Footprint)
+    const { error: geoRefreshError } = await supabase.schema('core').rpc('refresh_geographic_stats')
+    if (geoRefreshError) {
+      console.warn('⚠️  Failed to refresh geographic stats:', geoRefreshError.message)
+    } else {
+      console.log('✅ Geographic stats refreshed successfully')
+    }
+
+    // Refresh user analytics (MAU/Growth)
+    const { error: userRefreshError } = await supabase.schema('drive').rpc('refresh_user_stats')
+    if (userRefreshError) {
+      console.warn('⚠️  Failed to refresh user stats:', userRefreshError.message)
+    } else {
+      console.log('✅ User analytics refreshed successfully')
+    }
+
+    // Refresh inventory and rankings (Catalog/Top POIs/Generators)
+    const { error: rankingRefreshError } = await supabase.schema('core').rpc('refresh_inventory_rankings')
+    if (rankingRefreshError) {
+      console.warn('⚠️  Failed to refresh inventory rankings:', rankingRefreshError.message)
+    } else {
+      console.log('✅ Inventory and rankings refreshed successfully')
+    }
+  }
 }
+
 
 // Run script
 main().catch((error) => {
