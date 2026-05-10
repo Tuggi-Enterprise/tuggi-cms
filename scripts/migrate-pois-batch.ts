@@ -101,51 +101,72 @@ async function main() {
     auto_approve: autoApprove
   })
 
-  // Build query to get POIs from homolog
-  let query = supabase
-    .schema('homolog')
-    .from('pois')
-    .select('uuid_id, name, city, state, country, processing_status, approved, category')
-
-  // Apply filters
-  if (options.country && options.country !== 'all') {
-    query = query.eq('country', options.country)
-  }
-  if (options.state && options.state !== 'all') {
-    query = query.eq('state', options.state)
-  }
-  if (options.city && options.city !== 'all') {
-    query = query.eq('city', options.city)
-  }
   if (options.processing_status === 'all') {
-    // Do not filter by processing_status
     console.log('ℹ️ Including all processing statuses')
-  } else if (options.processing_status) {
-    query = query.eq('processing_status', options.processing_status)
-  } else {
-    // Default: only pending or processing
-    query = query.in('processing_status', ['pending', 'processing'])
-  }
-  if (options.approved !== undefined) {
-    query = query.eq('approved', options.approved)
-  }
-  if (options.category && options.category !== 'all') {
-    query = query.eq('category', options.category)
   }
 
-  // Apply limit
-  if (options.limit) {
-    query = query.limit(options.limit)
-  } else {
-    query = query.limit(batchSize)
+  // Build base query function for pagination
+  const buildQuery = () => {
+    let query = supabase
+      .schema('homolog')
+      .from('pois')
+      .select('uuid_id, name, city, state, country, processing_status, approved, category')
+
+    if (options.country && options.country !== 'all') query = query.eq('country', options.country)
+    if (options.state && options.state !== 'all') query = query.eq('state', options.state)
+    if (options.city && options.city !== 'all') query = query.eq('city', options.city)
+    
+    if (options.processing_status !== 'all') {
+      if (options.processing_status) {
+        query = query.eq('processing_status', options.processing_status)
+      } else {
+        // Default: only pending or processing
+        query = query.in('processing_status', ['pending', 'processing'])
+      }
+    }
+    
+    if (options.approved !== undefined) query = query.eq('approved', options.approved)
+    if (options.category && options.category !== 'all') query = query.eq('category', options.category)
+    
+    return query
   }
 
-  const { data: pois, error: poisError } = await query
+  const targetLimit = options.limit || batchSize
+  let allPois: any[] = []
+  let hasMore = true
+  let offset = 0
+  const fetchSize = 1000 // Stay safely under Supabase 2000-row limit per request
 
-  if (poisError) {
-    console.error('❌ Error fetching POIs:', poisError)
-    process.exit(1)
+  console.log(`📥 Fetching up to ${targetLimit} POIs via pagination...`)
+  
+  while (hasMore) {
+    let query = buildQuery()
+    // Using range for pagination: range is inclusive, e.g., range(0, 999) gets 1000 items
+    query = query.range(offset, offset + fetchSize - 1)
+
+    const { data: poisChunk, error: poisError } = await query
+
+    if (poisError) {
+      console.error('❌ Error fetching POIs:', poisError)
+      process.exit(1)
+    }
+
+    if (!poisChunk || poisChunk.length === 0) {
+      hasMore = false
+    } else {
+      allPois = allPois.concat(poisChunk)
+      offset += fetchSize
+      
+      console.log(`   Fetched ${allPois.length} POIs so far...`)
+      
+      if (allPois.length >= targetLimit) {
+        allPois = allPois.slice(0, targetLimit)
+        hasMore = false
+      }
+    }
   }
+
+  const pois = allPois
 
   if (!pois || pois.length === 0) {
     console.log('ℹ️ No POIs found matching filters')

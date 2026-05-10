@@ -459,7 +459,7 @@ out geom tags;
 [out:json][timeout:90];
 (
   ${osmType}(${osmID});
-  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"]["access"!~"^(no)$"](poly:"${expandedPolygonInitial}");
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|track|service)$"]["access"!~"^(no)$"](poly:"${expandedPolygonInitial}");
   way["building"](poly:"${expandedPolygonInitial}");
   way["natural"~"^(tree|wood|forest)$"](poly:"${expandedPolygonInitial}");
   way["barrier"~"^(wall|fence|hedge)$"](poly:"${expandedPolygonInitial}");

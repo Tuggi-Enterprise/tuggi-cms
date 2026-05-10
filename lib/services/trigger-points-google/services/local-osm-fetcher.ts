@@ -65,19 +65,48 @@ export class LocalOSMFetcher {
   /**
    * Converte uma row do SQLite para o formato Overpass API element.
    * DRY: Elimina o mapeamento duplicado em fetchOverpassMock.
+   * 
+   * IMPORTANTE: O formato Overpass API difere por tipo:
+   * - node: { type: "node", id, lat, lon, tags }
+   * - way:  { type: "way", id, tags, geometry: [{lat, lon}, ...] }
    */
   private toOverpassElement(row: any, elementType: string, defaultTags: Record<string, string> = {}) {
     const points = JSON.parse(row.geometry_json);
-    const tags = row.tags_json ? JSON.parse(row.tags_json) : defaultTags;
-    // O @id real do OSM está dentro do tags_json (ex: {"@id": 30417583, ...})
-    // O row.id interno do SQLite é um hash (ex: "osm_way_feafng585") que parseInt converte para NaN
-    const osmNumericId = tags['@id'] ?? parseInt(row.osm_id || row.id, 10);
+    const tags = row.tags_json ? JSON.parse(row.tags_json) : { ...defaultTags };
+    
+    // Se for uma rua e não tiver tag highway, garantir uma padrão para o detector não descartar
+    if (elementType === 'way' && !tags.highway && row.type) {
+      tags.highway = row.type;
+    }
+
+    // Extrair ID numérico real. Se falhar, tenta extrair do ID de texto (ex: osm_way_123 -> 123)
+    let osmNumericId = tags['@id'];
+    if (!osmNumericId) {
+      const idStr = String(row.osm_id || row.id || '');
+      const match = idStr.match(/\d+/);
+      osmNumericId = match ? parseInt(match[0], 10) : Math.floor(Math.random() * 1000000);
+    }
+    
     const osmElementType = tags['@type'] ?? elementType;
+    
+    // Nodes: Overpass retorna lat/lon no nível raiz (sem geometry array)
+    if (osmElementType === 'node' || (Array.isArray(points) && points.length === 1 && elementType === 'node')) {
+      const p = Array.isArray(points) ? points[0] : points;
+      return {
+        type: 'node',
+        id: osmNumericId,
+        lat: p.lat,
+        lon: p.lng ?? p.lon,
+        tags
+      };
+    }
+    
+    // Ways/Relations: Overpass retorna geometry como array de {lat, lon}
     return {
       type: osmElementType,
       id: osmNumericId,
       tags,
-      geometry: points.map((p: any) => ({ lat: p.lat, lon: p.lng })) // Overpass usa 'lon'
+      geometry: (points || []).map((p: any) => ({ lat: p.lat, lon: p.lng ?? p.lon }))
     };
   }
 
@@ -323,9 +352,10 @@ export class LocalOSMFetcher {
 
   /**
    * Busca um elemento OSM específico por tipo e ID no banco local.
-   * Os IDs reais do OSM estão em tags_json como @id e @type,
-   * pois as colunas osm_type/osm_id contêm hashes internos.
-   * Busca em todas as tabelas (pois, streets, buildings).
+   * Estratégia de busca (em ordem de prioridade):
+   *   1. Coluna osm_id na tabela pois (mais rápido, dados importados com pbf2json)
+   *   2. Campo @id dentro de tags_json (fallback para dados importados com osmium)
+   *   3. Busca em streets e buildings por tags_json @id
    * Retorna null se não encontrado (= fallback para Overpass online).
    */
   public fetchElementById(
@@ -335,36 +365,69 @@ export class LocalOSMFetcher {
     if (!this.db) return null;
 
     try {
-      // O @id numérico e @type estão dentro do tags_json
-      // Ex: {"@type":"way","@id":40666277,"name":"Mugar Property"}
-      const searchPattern = `%"@id":${osmId}%`;
+      let row: any = null;
 
-      // 1. Buscar na tabela pois
-      const poiStmt = this.db.prepare(`
+      // ═══════════════════════════════════════════════════════════════
+      // ESTRATÉGIA 1: Buscar pela coluna osm_id (dados importados via pbf2json)
+      // A coluna osm_id contém o ID numérico real do OSM diretamente
+      // ═══════════════════════════════════════════════════════════════
+      
+      // 1a. Buscar na tabela pois por osm_id + osm_type
+      const poiByColStmt = this.db.prepare(`
         SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
-        WHERE tags_json LIKE ? LIMIT 1
+        WHERE osm_id = ? AND osm_type = ? LIMIT 1
       `);
-      let row = poiStmt.get(searchPattern) as any;
-
-      // 2. Buscar na tabela streets
-      if (!row) {
-        const streetStmt = this.db.prepare(`
-          SELECT id, geometry_json, tags_json FROM streets
-          WHERE tags_json LIKE ? LIMIT 1
-        `);
-        row = streetStmt.get(searchPattern) as any;
+      row = poiByColStmt.get(osmId, osmType) as any;
+      if (row) {
+        console.log(`🚀 [LocalOSMFetcher] Found element ${osmType}(${osmId}) by ID column in 'pois'`);
       }
 
-      // 3. Buscar na tabela buildings
+      // 1b. Buscar na tabela pois por osm_id apenas (sem filtro de tipo)
       if (!row) {
-        const buildingStmt = this.db.prepare(`
-          SELECT id, geometry_json, tags_json FROM buildings
-          WHERE tags_json LIKE ? LIMIT 1
+        const poiByIdStmt = this.db.prepare(`
+          SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
+          WHERE osm_id = ? LIMIT 1
         `);
-        row = buildingStmt.get(searchPattern) as any;
+        row = poiByIdStmt.get(osmId) as any;
       }
 
-      if (!row) return null;
+      // ═══════════════════════════════════════════════════════════════
+      // ESTRATÉGIA 2: Buscar pelo campo @id dentro de tags_json (osmium format)
+      // Ex: {"@type":"way","@id":40666277,"name":"Mugar Property"}
+      // ═══════════════════════════════════════════════════════════════
+      if (!row) {
+        const searchPattern = `%"@id":${osmId}%`;
+        
+        // 2a. Buscar na tabela pois
+        const poiStmt = this.db.prepare(`
+          SELECT id, osm_id, osm_type, geometry_json, tags_json FROM pois
+          WHERE tags_json LIKE ? LIMIT 1
+        `);
+        row = poiStmt.get(searchPattern) as any;
+
+        // 2b. Buscar na tabela streets
+        if (!row) {
+          const streetStmt = this.db.prepare(`
+            SELECT id, geometry_json, tags_json FROM streets
+            WHERE tags_json LIKE ? LIMIT 1
+          `);
+          row = streetStmt.get(searchPattern) as any;
+        }
+
+        // 2c. Buscar na tabela buildings
+        if (!row) {
+          const buildingStmt = this.db.prepare(`
+            SELECT id, geometry_json, tags_json FROM buildings
+            WHERE tags_json LIKE ? LIMIT 1
+          `);
+          row = buildingStmt.get(searchPattern) as any;
+        }
+      }
+
+      if (!row) {
+        console.log(`⚠️ [LocalOSMFetcher] Element ${osmType}(${osmId}) NOT found in local database.`);
+        return null;
+      }
 
       const element = this.toOverpassElement(row, osmType);
       console.log(`🚀 [LocalOSMFetcher] Found ${osmType}(${osmId}) in local DB`);

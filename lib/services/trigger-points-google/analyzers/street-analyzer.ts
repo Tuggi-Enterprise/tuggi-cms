@@ -967,13 +967,31 @@ export class StreetAnalyzer {
     try {
       console.log(`🚀 Optimized OSM query for streets around boundary...`);
       
+      // ═══════════════════════════════════════════════════════════════
+      // ESTRATÉGIA 1: LOCAL OSM DB (primário - sem rede)
+      // ═══════════════════════════════════════════════════════════════
+      try {
+        const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+        const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(boundary.center, searchRadius);
+        if (localStreets && localStreets.length > 0) {
+          console.log(`🚀 [LocalOSMFetcher] Found ${localStreets.length} streets locally around boundary`);
+          return localStreets;
+        }
+      } catch (localError) {
+        console.warn(`⚠️ [LocalOSMFetcher] Local DB query failed, falling back to Overpass:`, localError);
+      }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // ESTRATÉGIA 2: OVERPASS API (fallback - rede)
+      // ═══════════════════════════════════════════════════════════════
+      
       // Selecionar pontos estratégicos do boundary com cobertura 360° (AUMENTADO para melhor cobertura)
       const strategicPoints = this.selectStrategicBoundaryPoints(boundary.coordinates, 16);
       
       // Criar query OSM combinada e otimizada (MELHORADA para incluir avenidas)
       // RELAXADO: Remover 'private' da exclusão para incluir ruas ao redor de igrejas/monumentos
       const pointQueries = strategicPoints.map(point => 
-        `way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"]["access"!~"^(no)$"](around:${searchRadius},${point.lat},${point.lng})`
+        `way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|track|service)$"]["access"!~"^(no)$"](around:${searchRadius},${point.lat},${point.lng})`
       ).join(';\n  ');
       
       // Query simplificada para evitar erro 400 (validação será feita no código)
@@ -1195,6 +1213,31 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       return virtualStreets;
     }
     
+    // ═══════════════════════════════════════════════════════════════
+    // ESTRATÉGIA 1: LOCAL OSM DB (primário - uma query única em vez de N)
+    // ═══════════════════════════════════════════════════════════════
+    try {
+      const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+      const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(boundary.center, 50);
+      if (localStreets && localStreets.length > 0) {
+        console.log(`🚀 [LocalOSMFetcher] Found ${localStreets.length} streets locally for boundary points`);
+        for (const street of localStreets) {
+          if (!processedRoads.has(street.id)) {
+            processedRoads.add(street.id);
+            streets.push({ ...street, confidence: 0.9 });
+          }
+        }
+        console.log(`📍 Found ${streets.length} roads from boundary points (local)`);
+        return streets;
+      }
+    } catch (localError) {
+      console.warn(`⚠️ [LocalOSMFetcher] Local DB failed for boundary points, falling back to Overpass`);
+    }
+    
+    // ═══════════════════════════════════════════════════════════════
+    // ESTRATÉGIA 2: OVERPASS API (fallback - per-point queries)
+    // ═══════════════════════════════════════════════════════════════
+    
     // Para boundaries menores, usar pontos estratégicos
     const strategicPoints = this.selectStrategicBoundaryPoints(boundary.coordinates);
     console.log(`📍 Using ${strategicPoints.length} strategic points from boundary`);
@@ -1205,7 +1248,7 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
         const query = `
 [out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
 (
-  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:50,${point.lat},${point.lng});
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|track|service)$"](around:50,${point.lat},${point.lng});
 );
 out geom tags;
 `;
@@ -1337,12 +1380,34 @@ out geom tags;
     const expandedPoints = this.generateSearchPath(boundary.center, searchRadius);
     
     try {
-      // 🔴 REMOVED: Google Roads API usage (M0 - economia)
-      // Usar query OSM para buscar ruas na área expandida
+      // ═══════════════════════════════════════════════════════════════
+      // ESTRATÉGIA 1: LOCAL OSM DB (primário - sem rede)
+      // ═══════════════════════════════════════════════════════════════
+      try {
+        const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+        const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(boundary.center, searchRadius);
+        if (localStreets && localStreets.length > 0) {
+          console.log(`🚀 [LocalOSMFetcher] Found ${localStreets.length} streets locally for expanded area`);
+          for (const street of localStreets) {
+            if (!processedRoads.has(street.id)) {
+              processedRoads.add(street.id);
+              streets.push({ ...street, confidence: 0.7 });
+            }
+          }
+          console.log(`🔄 Found ${streets.length} roads from expanded area (local)`);
+          return streets;
+        }
+      } catch (localError) {
+        console.warn(`⚠️ [LocalOSMFetcher] Local DB failed for expanded area, falling back to Overpass`);
+      }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // ESTRATÉGIA 2: OVERPASS API (fallback - rede)
+      // ═══════════════════════════════════════════════════════════════
       const query = `
 [out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
 (
-  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:${searchRadius},${boundary.center.lat},${boundary.center.lng});
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|track|service)$"](around:${searchRadius},${boundary.center.lat},${boundary.center.lng});
 );
 out geom tags;
 `;
@@ -1847,11 +1912,29 @@ out tags;
         return boundary.streets;
       }
       
+      // ═══════════════════════════════════════════════════════════════
+      // ESTRATÉGIA 1: LOCAL OSM DB (primário - sem rede)
+      // ═══════════════════════════════════════════════════════════════
+      try {
+        const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+        const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(location, radius);
+        if (localStreets && localStreets.length > 0) {
+          console.log(`🚀 [LocalOSMFetcher] Found ${localStreets.length} streets locally around point`);
+          return localStreets;
+        }
+      } catch (localError) {
+        console.warn(`⚠️ [LocalOSMFetcher] Local DB query failed, falling back to Overpass:`, localError);
+      }
+      
+      // ═══════════════════════════════════════════════════════════════
+      // ESTRATÉGIA 2: OVERPASS API (fallback - rede)
+      // ═══════════════════════════════════════════════════════════════
+      
       // Query OSM para buscar ruas ao redor do ponto
       const query = `
 [out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryVeryLong}];
 (
-  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"]["access"!~"^(no)$"](around:${radius},${location.lat},${location.lng});
+  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|track|service)$"]["access"!~"^(no)$"](around:${radius},${location.lat},${location.lng});
 );
 out geom tags;
 `;

@@ -186,7 +186,8 @@ export class OSMLocalDataService {
         
         // Anything that has POI-related tags goes to POI table
         const isPOI = tags.amenity || tags.leisure || tags.tourism || tags.historic || 
-                      tags.natural === 'water' || tags.water || tags.waterway || tags.shop;
+                      tags.natural || tags.water || tags.waterway || tags.shop ||
+                      tags.aeroway || tags.railway || tags.man_made || tags.place || tags.landuse;
                       
         if (isPOI || !insertedAsMain) {
           insertPOI.run(
