@@ -60,11 +60,11 @@ export class HomologEnrichmentService {
       // Step 2: Try OSM ID lookup first (more accurate)
       let osmData: any = null
       let enrichmentMethod: 'osm_lookup' | 'reverse_geocoding' = 'reverse_geocoding'
-      
+
       if (poiData.osm_id && poiData.osm_type) {
         console.log(`🔍 Trying OSM ID lookup: ${poiData.osm_type}${poiData.osm_id}`)
         osmData = await this.fetchOSMDataByID(poiData.osm_id, poiData.osm_type)
-        
+
         if (osmData) {
           enrichmentMethod = 'osm_lookup'
           console.log(`✅ OSM ID lookup successful`)
@@ -73,12 +73,33 @@ export class HomologEnrichmentService {
         }
       }
 
-      // Step 3: Fallback to reverse geocoding
-      if (!osmData && poiData.lat && poiData.lng) {
-        console.log(`📍 Using reverse geocoding for: ${poiData.lat}, ${poiData.lng}`)
-        osmData = await this.fetchOSMDataByCoordinates(poiData.lat, poiData.lng)
+      // Step 3: Fallback to reverse geocoding when /lookup is missing OR has no usable city.
+      // Natural features (ridges, peaks, wetlands, parks) often come from USGS topo and
+      // return only state/country from /lookup, so we MUST query /reverse to learn the
+      // administrative city/township via point-in-polygon at the centroid.
+      const lookupCityFound = this.hasUsableCity(osmData?.address)
+      if ((!osmData || !lookupCityFound) && poiData.lat && poiData.lng) {
+        const reason = !osmData ? 'no /lookup result' : 'no city in /lookup address'
+        console.log(`📍 Using reverse geocoding (${reason}) for: ${poiData.lat}, ${poiData.lng}`)
+        const reverseData = await this.fetchOSMDataByCoordinates(poiData.lat, poiData.lng)
+        if (reverseData) {
+          if (osmData) {
+            // Keep the original /lookup result (name, class, type, extratags) but merge
+            // the /reverse address on top so the city/town cascade in extractUpdates sees it.
+            osmData = {
+              ...osmData,
+              address: { ...(osmData.address ?? {}), ...(reverseData.address ?? {}) },
+              extratags: { ...(osmData.extratags ?? {}), ...(reverseData.extratags ?? {}) }
+            }
+            // Mark this as a hybrid result for telemetry — still lookup-anchored but city
+            // came from /reverse.
+            enrichmentMethod = 'reverse_geocoding'
+          } else {
+            osmData = reverseData
+          }
+        }
       }
-      
+
       if (!osmData) {
         return {
           success: false,
@@ -132,6 +153,20 @@ export class HomologEnrichmentService {
         error: error.message
       }
     }
+  }
+
+  // Mirrors the city cascade in extractUpdates(): returns true when Nominatim's
+  // address payload has any field we would accept as `city`.
+  private static hasUsableCity(address: any): boolean {
+    if (!address) return false
+    return Boolean(
+      address.city ||
+      address.town ||
+      address.village ||
+      address.municipality ||
+      address.province ||
+      address.county
+    )
   }
 
   // =====================================
