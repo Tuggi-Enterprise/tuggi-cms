@@ -100,16 +100,29 @@ export class HomologEnrichmentService {
         }
       }
 
+      // Step 4: Fallback to Photon (Komoot) when Nominatim fails completely.
+      // Photon is a mirror of Nominatim that often has better coverage for edge cases
+      // and is not affected by the same rate-limiting. Used as last resort when both
+      // /lookup and /reverse fail but coordinates are available.
+      if (!osmData && poiData.lat && poiData.lng) {
+        console.log(`📡 Using Photon (Komoot) as final fallback for: ${poiData.lat}, ${poiData.lng}`)
+        const photonData = await this.fetchViaPhoton(poiData.lat, poiData.lng)
+        if (photonData) {
+          osmData = photonData
+          enrichmentMethod = 'reverse_geocoding'
+        }
+      }
+
       if (!osmData) {
         return {
           success: false,
           uuid_id,
-          message: 'No OSM data found via OSM ID or reverse geocoding',
+          message: 'No OSM data found via OSM ID, Nominatim reverse, or Photon geocoding',
           error: 'OSM data not found'
         }
       }
 
-      // Step 4: Extract relevant information
+      // Step 5: Extract relevant information
       const updates = this.extractUpdates(osmData)
       
       if (Object.keys(updates).length === 0) {
@@ -122,7 +135,7 @@ export class HomologEnrichmentService {
         }
       }
 
-      // Step 5: Update homolog.pois
+      // Step 6: Update homolog.pois
       const updateResult = await this.updateHomologPOI(uuid_id, updates)
 
       if (!updateResult.success) {
@@ -281,20 +294,20 @@ export class HomologEnrichmentService {
   private static async fetchOSMDataByCoordinates(lat: number, lng: number): Promise<any | null> {
     try {
       const reverseUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&extratags=1&namedetails=1&addressdetails=1`
-      
+
       // 🚀 CACHE CHECK
       const cacheService = OSMCacheService.getInstance()
       const cachedData = cacheService.get(reverseUrl, 30)
-      
+
       if (cachedData) {
         console.log(`   ✅ Using cached Nominatim reverse data for coords`)
         return cachedData
       }
-      
+
       const response = await fetch(reverseUrl, {
         headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
       })
-      
+
       if (response.ok) {
         const data = await response.json()
         if (data && !data.error) {
@@ -303,10 +316,69 @@ export class HomologEnrichmentService {
           return data
         }
       }
-      
+
       return null
     } catch (error) {
       console.error('❌ Error fetching OSM data by coordinates:', error)
+      return null
+    }
+  }
+
+  /**
+   * Fetch OSM data via Photon (Komoot's Nominatim mirror)
+   * Used as last resort when Nominatim fails. Photon often has better coverage
+   * for edge cases and is independent of Nominatim's rate-limiting.
+   */
+  private static async fetchViaPhoton(lat: number, lng: number): Promise<any | null> {
+    try {
+      const photonUrl = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&limit=1`
+
+      // 🚀 CACHE CHECK
+      const cacheService = OSMCacheService.getInstance()
+      const cachedData = cacheService.get(photonUrl, 30)
+
+      if (cachedData) {
+        console.log(`   ✅ Using cached Photon data for coords`)
+        return cachedData
+      }
+
+      const response = await fetch(photonUrl, {
+        headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data?.features && data.features.length > 0) {
+          const feature = data.features[0]
+          // Transform Photon response to Nominatim-like format for compatibility
+          const transformed = {
+            name: feature.properties?.name,
+            type: feature.properties?.osm_value,
+            class: feature.properties?.osm_key,
+            display_name: `${feature.properties?.name || ''} ${feature.geometry?.coordinates?.[1] || ''}, ${feature.geometry?.coordinates?.[0] || ''}`,
+            address: {
+              city: feature.properties?.city,
+              town: feature.properties?.town,
+              village: feature.properties?.village,
+              county: feature.properties?.county,
+              state: feature.properties?.state,
+              country: feature.properties?.country,
+              postcode: feature.properties?.postcode,
+              road: feature.properties?.street
+            },
+            extratags: {},
+            osm_id: feature.properties?.osm_id,
+            osm_type: feature.properties?.osm_type
+          }
+          // 🚀 SAVE TO CACHE
+          cacheService.set(photonUrl, transformed)
+          return transformed
+        }
+      }
+
+      return null
+    } catch (error) {
+      console.error('❌ Error fetching data via Photon:', error)
       return null
     }
   }
