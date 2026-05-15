@@ -62,7 +62,11 @@ export class CoreTriggerPointPredictor {
         throw new Error(`Boundary detection failed: ${boundaryResult.error}`);
       }
       const boundary = boundaryResult.data;
-      
+
+      // Enriquecer boundary com pontos de entrada OSM (entrance=main/yes) do banco local.
+      // Usado como bearing target prioritário em point-calculator.ts.
+      this.attachEntrancesFromLocalOSM(boundary);
+
       // ✅ REGRA: Se boundary é manual (ou manual_drawing), ignorar e não processar
       // POIs manuais não devem ter TPs recalculados automaticamente
       if (boundary.source === 'manual' || boundary.source === 'manual_drawing') {
@@ -97,7 +101,7 @@ export class CoreTriggerPointPredictor {
       // NOVA LÓGICA: Se boundary é estimado (POI não encontrado), usar fallback SUPER SIMPLES
       if (boundary.source === 'estimated') {
         
-        const simpleFallbackPoints = await this.generateSuperSimpleFallbackTriggerPoints(poiData, context, boundary);
+        const simpleFallbackPoints = await this.generateRecoveryFallbackTriggerPoints(poiData, context, boundary);
         const processingTime = Date.now() - startTime;
         
         return {
@@ -131,9 +135,16 @@ export class CoreTriggerPointPredictor {
         console.error(`   → searchRadius: ${streetAnalysisResult.searchRadius}m`);
         console.error('❌ ========================================');
         // ✅ Use the robust fallback strategy that guarantees at least one point
-        const fallbackPoints = await this.generateSuperSimpleFallbackTriggerPoints(poiData, context, boundary);
+        const fallbackPoints = await this.generateRecoveryFallbackTriggerPoints(poiData, context, boundary);
+
+        // Issue 2.4 — Mesmo sem ruas acessíveis, se temos boundary válido,
+        // emite o geofence TP (cobre o caso do usuário caminhando que entra
+        // pelo polígono sem passar por nenhum TP arrival na rua).
+        const geofenceTP = this.buildGeofenceTriggerPoint(poiData, boundary, context);
+        if (geofenceTP) fallbackPoints.unshift(geofenceTP);
+
         const processingTime = Date.now() - startTime;
-        
+
         return {
           triggerPoints: fallbackPoints,
           boundary,
@@ -262,20 +273,34 @@ export class CoreTriggerPointPredictor {
       }
       
       const validatedPoints = await this.validator.validateAndRankPoints(
-        streetValidatedCandidates, 
-        poiData, 
+        streetValidatedCandidates,
+        poiData,
         context,
         boundary,
         maxTPs,
-        minDistance
+        minDistance,
+        [],
+        {
+          simulateApproach: options.simulateApproach,
+          validateCorridor: options.validateCorridor,
+        }
       );
       
       // 7. Aplicar opções de filtro adicionais (se houver)
       const filteredPoints = this.applyOptions(validatedPoints, options);
       
       // 8. Otimização já foi feita em selectTriggerPointsWithMinDistance
+      // 9. Geofence TP (issue 2.4): se o POI tem boundary válido, gera 1 TP
+      //    de cobertura por polígono. Usuários andando que entram pela porta
+      //    do museu / lateral do parque disparam por aqui, sem depender de
+      //    passar por um TP arrival na rua.
+      const geofenceTP = this.buildGeofenceTriggerPoint(poiData, boundary, context);
+      if (geofenceTP) {
+        filteredPoints.unshift(geofenceTP); // prioridade 1 (cobertura primária)
+      }
+
       const processingTime = Date.now() - startTime;
-      
+
       // NOVO: Documentar motivo quando 0 TPs são gerados
       const metadata: any = {
         boundarySource: boundary.source,
@@ -340,7 +365,7 @@ export class CoreTriggerPointPredictor {
   /**
    * NOVO: Gera trigger points de fallback INTELIGENTE - usa dados reais do OSM
    */
-  private async generateSuperSimpleFallbackTriggerPoints(
+  private async generateRecoveryFallbackTriggerPoints(
     poiData: POIData,
     context: GeographicContext,
     boundary?: BoundaryData
@@ -450,7 +475,7 @@ export class CoreTriggerPointPredictor {
       location: streetPoint,
       radius: 20, // Range fixo de 20m
       expectedBearing: calculateBearing(streetPoint, { lat: closestBoundaryPoint.lat, lng: closestBoundaryPoint.lng }),
-      bearingThreshold: 60,
+      bearingThreshold: TRIGGER_POINTS_CONSTANTS.triggerPoint.fallbackBearingThreshold,
       type: 'primary',
       priority: 1,
       confidence: 0.8,
@@ -463,7 +488,7 @@ export class CoreTriggerPointPredictor {
         confidence: street.confidence
       },
       distance,
-      generationMethod: 'google_apis',
+      generationMethod: 'fallback_recovery',
       contextData: context,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -526,7 +551,7 @@ export class CoreTriggerPointPredictor {
       location: point,
       radius: 35,
       expectedBearing: 0, // Norte (olhando para o POI)
-      bearingThreshold: 120, // Muito tolerante
+      bearingThreshold: TRIGGER_POINTS_CONSTANTS.triggerPoint.fallbackBearingThreshold,
       type: 'fallback',
       priority: 1,
       confidence: 0.5,
@@ -539,7 +564,7 @@ export class CoreTriggerPointPredictor {
         confidence: 0.4
       },
       distance,
-      generationMethod: 'google_apis',
+      generationMethod: 'fallback_recovery',
       contextData: context,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -741,7 +766,7 @@ export class CoreTriggerPointPredictor {
       location: point,
       radius: 30,
       expectedBearing: direction,
-      bearingThreshold: 90,
+      bearingThreshold: TRIGGER_POINTS_CONSTANTS.triggerPoint.fallbackBearingThreshold,
       type: 'primary',
       priority: 1,
       confidence: 0.5,
@@ -754,7 +779,7 @@ export class CoreTriggerPointPredictor {
         confidence: 0.3
       },
       distance: distance,
-      generationMethod: 'google_apis',
+      generationMethod: 'fallback_recovery',
       contextData: context,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -962,7 +987,7 @@ out geom tags;
       location: streetPoint,
       radius: 25, // Raio pequeno para POI pequeno
       expectedBearing: calculateBearing(streetPoint, centerPoint),
-      bearingThreshold: 60, // Mais tolerante
+      bearingThreshold: TRIGGER_POINTS_CONSTANTS.triggerPoint.fallbackBearingThreshold,
       type: 'primary',
       priority: 1,
       confidence: 0.6, // Melhor confiança que fallback básico
@@ -975,7 +1000,7 @@ out geom tags;
         confidence: street.confidence
       },
       distance: distanceToPOI,
-        generationMethod: 'google_apis',
+        generationMethod: 'fallback_recovery',
       contextData: context,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -1088,6 +1113,101 @@ out geom tags;
   }
   
   /**
+   * Issue 2.4 — Geofence TP para qualquer POI com boundary válido.
+   *
+   * O app `tuggi-drive-v2` suporta TPs do tipo `geofence` que disparam quando o
+   * usuário entra no polígono — sem checagem de bearing. Geramos um por POI
+   * com boundary válido (qualquer tamanho) para cobrir o caso do usuário
+   * andando que entra pela porta sem passar próximo aos TPs arrival na rua.
+   */
+  private buildGeofenceTriggerPoint(
+    poiData: POIData,
+    boundary: BoundaryData,
+    context: GeographicContext
+  ): TriggerPoint | null {
+    // Não emitir para boundaries estimados/manuais (não representam o polígono real)
+    if (!boundary || !boundary.coordinates || boundary.coordinates.length < 3) return null;
+    if (boundary.source === 'estimated' || boundary.source === 'manual' || boundary.source === 'manual_drawing') return null;
+
+    // GeoJSON Polygon: anel de coordenadas [lng, lat] (fechado).
+    const ring = boundary.coordinates.map(c => [c.lng, c.lat]);
+    if (ring.length > 0) {
+      const first = ring[0];
+      const last = ring[ring.length - 1];
+      if (first[0] !== last[0] || first[1] !== last[1]) {
+        ring.push([first[0], first[1]]); // fechar o polígono
+      }
+    }
+    const geojson = JSON.stringify({ type: 'Polygon', coordinates: [ring] });
+
+    // O app calcula um pre-filter radius baseado na área; o radius_meters no DB
+    // serve apenas como cota de proximidade. Usamos sqrt(area)*2 com piso 500m.
+    const safetyRadius = Math.max(500, Math.round(Math.sqrt(boundary.area_m2 || 250000) * 2));
+
+    return {
+      id: `geofence_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      location: { lat: boundary.center.lat, lng: boundary.center.lng },
+      radius: safetyRadius,
+      expectedBearing: 0,
+      bearingThreshold: 180, // não usado para geofence; valor neutro
+      type: 'geofence',
+      priority: 1,
+      confidence: boundary.confidence ?? 0.9,
+      quality: 1.0,
+      street: {
+        id: 'geofence_boundary',
+        type: 'boundary',
+        coordinates: boundary.coordinates,
+        accessibility: 'public',
+        confidence: 0.9,
+      } as StreetData,
+      distance: 0,
+      generationMethod: 'local_osm',
+      contextData: context,
+      geometryGeoJson: geojson,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Anexa entradas OSM (entrance=main / yes) ao boundary usando o banco local.
+   * Filtra apenas os nós que caem dentro do polígono do boundary.
+   */
+  private attachEntrancesFromLocalOSM(boundary: BoundaryData): void {
+    if (!boundary || !boundary.coordinates || boundary.coordinates.length < 3) return;
+    try {
+      // import local — evita ciclo de import no topo do arquivo
+      const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
+      const { isPointInPolygon } = require('../utils/calculations');
+
+      const fetcher = LocalOSMFetcher.getInstance();
+      // bbox do próprio boundary
+      let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+      for (const c of boundary.coordinates) {
+        if (c.lat < minLat) minLat = c.lat;
+        if (c.lat > maxLat) maxLat = c.lat;
+        if (c.lng < minLng) minLng = c.lng;
+        if (c.lng > maxLng) maxLng = c.lng;
+      }
+
+      const candidates = fetcher.fetchEntrances({ minLat, maxLat, minLng, maxLng });
+      if (!candidates || candidates.length === 0) return;
+
+      const inside = candidates.filter((p: any) =>
+        isPointInPolygon({ lat: p.lat, lng: p.lng }, boundary.coordinates)
+      );
+      if (inside.length > 0) {
+        boundary.entrances = inside;
+        console.log(`🚪 Found ${inside.length} OSM entrance(s) inside boundary (main=${inside.filter((e: any) => e.kind === 'main').length})`);
+      }
+    } catch (err) {
+      // não falhamos a pipeline — só não enriquecemos com entradas
+      console.warn(`⚠️ attachEntrancesFromLocalOSM failed:`, err);
+    }
+  }
+
+  /**
    * Valida dados de entrada do POI
    */
   private validatePOIData(poiData: POIData): { valid: boolean; errors: string[] } {
@@ -1188,29 +1308,20 @@ out geom tags;
    * Calcula limite dinâmico de TPs baseado em características matemáticas do POI
    * Substitui o limite fixo de 50 por cálculo baseado em área, elevação e altura
    */
+  /**
+   * Issue 2.4b — Cobertura completa.
+   *
+   * Premissa: não perder usuário vindo de qualquer lado. O controle real de
+   * sobreposição é `minDistanceBetweenTPs`. O limite por grupo no config é
+   * apenas um teto de segurança (200-500); aqui apenas o respeitamos.
+   *
+   * Antes: a função impunha um segundo teto por "área de cobertura" (1 TP
+   * por 0.1km²) que entrava em conflito com a meta de 1 TP por rua perimetral.
+   */
   private calculateDynamicTPLimit(boundary: BoundaryData, context: GeographicContext, searchRadius?: number): number {
-    // NOVO: Calcular baseado em área de cobertura real
-    const radius = searchRadius || boundary.classification?.searchRadius || 300;
-    const coverageArea = Math.PI * radius * radius; // Área em m²
-    
-    // Calcular limites dinâmicos baseados em área
-    // 1 TP por 0.5km² (mínimo) a 1 TP por 0.1km² (máximo)
-    const minTPs = Math.max(3, Math.floor(coverageArea / 500000)); // 1 TP por 0.5km²
-    const maxTPs = Math.min(200, Math.floor(coverageArea / 100000)); // 1 TP por 0.1km²
-    
-    // Usar configuração do grupo se disponível, senão usar cálculo dinâmico
-    if (boundary.classification?.maxTriggerPoints) {
-      const groupMax = boundary.classification.maxTriggerPoints;
-      // Combinar: usar o menor entre grupo e cálculo dinâmico
-      const finalMax = Math.min(groupMax, maxTPs);
-      const finalMin = Math.min(3, minTPs);
-      
-      console.log(`📊 Dynamic TP limit: ${finalMin}-${finalMax} (coverage: ${(coverageArea / 1000000).toFixed(2)}km², group max: ${groupMax})`);
-      return Math.max(finalMin, Math.min(finalMax, groupMax));
-    }
-    
-    console.log(`📊 Dynamic TP limit: ${minTPs}-${maxTPs} (coverage: ${(coverageArea / 1000000).toFixed(2)}km²)`);
-    return Math.max(minTPs, Math.min(maxTPs, 200)); // Limitar máximo a 200
+    const groupMax = boundary.classification?.maxTriggerPoints ?? 200;
+    console.log(`📊 TP limit: ${groupMax} (group ceiling — real control is minDistanceBetweenTPs)`);
+    return groupMax;
   }
 
   

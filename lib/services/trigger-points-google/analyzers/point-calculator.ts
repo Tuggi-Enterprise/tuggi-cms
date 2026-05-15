@@ -123,6 +123,58 @@ export class OptimalPointCalculator {
    * 
    * IMPORTANTE: Usa distância ao BOUNDARY (perímetro), não ao centro
    */
+  /**
+   * Segmenta uma rua de acordo com sua relação com o polígono do boundary.
+   *
+   * Quando o boundary do POI invade levemente a rua perimetral (caso comum em
+   * parques: a calçada/faixa fica "dentro" do polígono OSM), o caminho antigo
+   * rejeitava o candidato. Aqui dividimos a rua em trechos dentro/fora e
+   * geramos sub-ruas externas para o gerador de candidatos.
+   *
+   * Regras:
+   *  - `internal` (≥80% dentro): rua dentro do POI (trilhas), sem TPs
+   *  - `border`/`partial`: usar apenas trechos externos contíguos
+   *  - `external` (0% dentro): rua intacta
+   *
+   * Trechos externos com comprimento < 15m são ignorados (resíduo de ruído OSM).
+   */
+  private segmentStreetByBoundary(
+    originalStreet: StreetData,
+    pointsToUse: Array<{ lat: number; lng: number }>,
+    boundary: BoundaryData
+  ): StreetData[] {
+    if (!boundary.coordinates || boundary.coordinates.length < 3) {
+      return [{ ...originalStreet, coordinates: pointsToUse }];
+    }
+
+    const { classifyStreetVsBoundary } = require('../../../geometry');
+    const result = classifyStreetVsBoundary(pointsToUse, boundary.coordinates);
+
+    if (result.relation === 'external') {
+      return [{ ...originalStreet, coordinates: pointsToUse }];
+    }
+    if (result.relation === 'internal') {
+      return [];
+    }
+
+    // border / partial → emitir uma sub-rua por trecho externo significativo
+    const MIN_SEGMENT_LENGTH_M = 15;
+    const subStreets: StreetData[] = [];
+    let segIdx = 0;
+    for (const seg of result.outsideSegments) {
+      if (seg.lengthMeters < MIN_SEGMENT_LENGTH_M) continue;
+      // Manter formato de "segmento" mesmo quando há um único ponto
+      const coords = seg.coordinates.length >= 2 ? seg.coordinates : [seg.coordinates[0], seg.coordinates[0]];
+      subStreets.push({
+        ...originalStreet,
+        id: `${originalStreet.id}__ext${segIdx}`,
+        coordinates: coords,
+      });
+      segIdx++;
+    }
+    return subStreets;
+  }
+
   private filterStreetsByRadius(
     streets: StreetData[],
     boundary: BoundaryData,
@@ -163,22 +215,24 @@ export class OptimalPointCalculator {
       // Se tem 1 ponto válido dentro do raio, podemos usar esse ponto diretamente
       if (validPoints.length >= 1) {
         // Se tem apenas 1 ponto, duplicar para manter compatibilidade (mas não é necessário)
-        const pointsToUse = validPoints.length >= 2 
-          ? validPoints 
+        const pointsToUse = validPoints.length >= 2
+          ? validPoints
           : [validPoints[0], validPoints[0]]; // Duplicar ponto para manter formato de segmento
-        
-        // Criar nova rua com os pontos válidos
-        const filteredStreet: StreetData = {
-          ...street,
-          coordinates: pointsToUse
-        };
-        
-        filtered.push(filteredStreet);
-        
-        if (validPoints.length === 1) {
+
+        // 🆕 Boundary segmentation (issue 1.8):
+        // Quando o boundary OSM "invade" a calçada/faixa da rua perimetral, a regra
+        // antiga rejeitava o candidato como "dentro do boundary". Aqui dividimos a
+        // rua em trechos dentro/fora do polígono e usamos apenas os trechos externos.
+        const subStreets = this.segmentStreetByBoundary(street, pointsToUse, boundary);
+        for (const sub of subStreets) {
+          filtered.push(sub);
+        }
+
+        if (subStreets.length === 0) {
           const streetName = street.name || street.id || 'unnamed';
+          console.log(`🚫 Street ${street.id} (${streetName}): Rejected - fully internal to boundary`);
         } else if (validPoints.length < street.coordinates.length) {
-          console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length})`);
+          console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length}) → ${subStreets.length} external sub-segment(s)`);
         }
       } else {
         // Mensagem de log mais clara com nome da rua
@@ -242,18 +296,32 @@ export class OptimalPointCalculator {
       // Calcular qualidade do ponto (com boost de ponte se aplicável)
       const quality = await this.calculatePointQuality(pointOnStreet, poiData, boundary, context, street);
       
-      // Calcular bearing esperado
-      // Para POIs grandes (>100k m²), tentar usar entrada principal se disponível
+      // Calcular bearing esperado.
+      // Prioridade do bearing target:
+      //   1. Entrada OSM (entrance=main > entrance=yes > entrance=other) mais próxima
+      //   2. Para POIs grandes (>100k m²) com endereço: rua da entrada principal
+      //   3. Ponto mais próximo do boundary
       let targetPoint: { lat: number; lng: number };
-      
-      if (boundary.area_m2 > 100000 && boundary.address?.street) {
+
+      if (boundary.entrances && boundary.entrances.length > 0) {
+        // Ordenar por prioridade (main > yes > other) e proximidade ao pointOnStreet
+        const priority = { main: 0, yes: 1, other: 2 } as const;
+        const sorted = [...boundary.entrances].sort((a, b) => {
+          const pdiff = priority[a.kind] - priority[b.kind];
+          if (pdiff !== 0) return pdiff;
+          return calculateDistance(pointOnStreet, a) - calculateDistance(pointOnStreet, b);
+        });
+        const best = sorted[0];
+        targetPoint = { lat: best.lat, lng: best.lng };
+        console.log(`🚪 Using OSM entrance (${best.kind}) as bearing target`);
+      } else if (boundary.area_m2 > 100000 && boundary.address?.street) {
         // POI grande: tentar encontrar ponto do boundary na rua do endereço (entrada principal)
         const addressStreet = boundary.address.street;
-        const addressStreetInBoundary = boundary.streets?.find(s => 
+        const addressStreetInBoundary = boundary.streets?.find(s =>
           s.name?.toLowerCase().includes(addressStreet.toLowerCase()) ||
           addressStreet.toLowerCase().includes(s.name?.toLowerCase() || '')
         );
-        
+
         if (addressStreetInBoundary && addressStreetInBoundary.coordinates.length > 0) {
           // Encontrar ponto mais próximo do boundary na rua da entrada principal
           const streetPoint = addressStreetInBoundary.coordinates[0];
@@ -270,7 +338,7 @@ export class OptimalPointCalculator {
         const closestBoundaryPoint = findClosestPointOnBoundary(pointOnStreet, boundary.coordinates);
         targetPoint = { lat: closestBoundaryPoint.lat, lng: closestBoundaryPoint.lng };
       }
-      
+
       const expectedBearing = calculateBearing(pointOnStreet, targetPoint);
       
       // Usar a distância já calculada

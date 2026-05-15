@@ -346,7 +346,8 @@ export async function POST(request: NextRequest) {
           is_active: true,
           access: 'both' as 'walk' | 'car' | 'both',
           confidence: tp.confidence || 0.5,
-          generation_method: tp.generationMethod || 'google_apis',
+          generation_method: tp.generationMethod || 'local_osm',
+          geometry_geojson: tp.geometryGeoJson || null,
           boundary_source: predictionResult.boundary?.source || 'unknown'
         }))
 

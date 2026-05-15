@@ -293,6 +293,24 @@ export const TRIGGER_POINTS_CONSTANTS = {
     metersPerDegree: 111320, // 1 grau ≈ 111,320 metros (constante global)
     earthRadiusKm: 6371, // Raio da Terra em km
     defaultSearchRadius: 500, // Raio padrão de busca em metros
+  },
+
+  // 🎯 TRIGGER POINT — VALORES PADRÃO DO TP
+  // O app tuggi-drive-v2 classifica direção em 4 zonas; "front" é ±35°.
+  // Threshold > 35° é desperdício (o app filtra); threshold > 90° pode
+  // contradizer o filtro do app e fazer o TP nunca disparar como esperado.
+  triggerPoint: {
+    defaultBearingThreshold: 30, // graus — alinhado com a zona "front" do app
+    fallbackBearingThreshold: 60, // graus — apenas para fallbacks de recuperação
+    // Duração média da narração arrival (ver 1.1 — usado no cálculo de radius)
+    audioDurationSec: 35, // narrações duram 25-40s; usar a média
+    audioBufferSec: 5, // buffer extra para garantir que entra antes de iniciar
+    // Limites de radius
+    minRadiusM: 25,
+    maxRadiusM: 2000,
+    // Eye height para line-of-sight 2.5D
+    eyeHeightCarM: 1.5,
+    eyeHeightPedestrianM: 1.7,
   }
 };
 
@@ -359,7 +377,9 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
       min: 3000,   // Mínimo 3km
       max: 15000   // Máximo 15km
     },
-    maxTriggerPoints: 70,
+    // Cobertura completa (issue 2.4b): TP em cada rua que aproxima do POI.
+    // Espaçamento mínimo abaixo evita TPs duplicados na MESMA rua.
+    maxTriggerPoints: 300,
     minDistanceBetweenTPs: 100,
     visibilityThreshold: 0.3,  // Menos restritivo (visível de longe)
     strategy: 'circular',
@@ -380,7 +400,8 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
       min: 750,    // Mínimo 750m
       max: 5000    // Máximo 5km
     },
-    maxTriggerPoints: 35,
+    // Cobertura completa (issue 2.4b)
+    maxTriggerPoints: 200,
     minDistanceBetweenTPs: 80,
     visibilityThreshold: 0.4,  // Moderadamente restritivo
     strategy: 'circular',
@@ -400,9 +421,10 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
       areaMax: 50000          // Área pequena/média
     },
     searchRadius: {
-      fixed: 75  // Raio fixo de 300m (muito limitado)
+      fixed: 300  // Anel imediato de ruas em centro denso; 75m era curto demais (1-2 segmentos)
     },
-    maxTriggerPoints: 15,
+    // Cobertura completa (issue 2.4b)
+    maxTriggerPoints: 100,
     minDistanceBetweenTPs: 40,
     visibilityThreshold: 0.6,  // Muito restritivo (muitas obstruções)
     strategy: 'linear',
@@ -426,7 +448,8 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
     searchRadius: {
       fixed: 120  // Raio fixo de 120m (limitado ao entorno imediato)
     },
-    maxTriggerPoints: 40,
+    // Cobertura completa (issue 2.4b): parques têm muito perímetro
+    maxTriggerPoints: 500,
     minDistanceBetweenTPs: 40,
     visibilityThreshold: 0.5,  // Moderado
     strategy: 'standard',
@@ -841,8 +864,9 @@ export const DEFAULT_TRIGGER_POINTS_CONFIG: TriggerPointsConfig = {
         maxLimit: 120
       }
     },
-    
-    limits: createLimits(10, 200) // Aumentado mínimo para POIs grandes
+
+    // Cobertura completa (issue 2.4b): teto alto, controle real é minDistanceBetweenTPs
+    limits: createLimits(10, 500)
   },
 
   // 📐 DISTÂNCIA MÍNIMA ENTRE TPs - Evita TPs muito próximos

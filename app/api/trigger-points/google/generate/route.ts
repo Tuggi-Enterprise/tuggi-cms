@@ -202,8 +202,9 @@ function validateOptions(options: any): { valid: boolean; errors: string[] } {
   }
   
   if (options.maxTriggerPoints !== undefined) {
-    if (typeof options.maxTriggerPoints !== 'number' || options.maxTriggerPoints < 1 || options.maxTriggerPoints > 50) {
-      errors.push('maxTriggerPoints must be a number between 1 and 50');
+    // Issue 2.4b — Cobertura completa (até 500 para POIs com muito perímetro como parques)
+    if (typeof options.maxTriggerPoints !== 'number' || options.maxTriggerPoints < 1 || options.maxTriggerPoints > 500) {
+      errors.push('maxTriggerPoints must be a number between 1 and 500');
     }
   }
   

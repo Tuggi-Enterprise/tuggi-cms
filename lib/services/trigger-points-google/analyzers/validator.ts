@@ -8,6 +8,7 @@ import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS,
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { DirectionalAnalyzer } from './directional-analyzer';
 import { SRTMLocalService } from '../../srtm-local-service';
+import { resolveStreetSpeedKmh, calculateAudioAwareRadius, isApproachableForBearing } from '../../../geometry';
 
 export class TriggerPointValidator {
   private visibilityValidator: VisibilityValidator;
@@ -131,13 +132,14 @@ export class TriggerPointValidator {
    * 🎯 ATUALIZADO: Usa configurações específicas do grupo do POI
    */
   async validateAndRankPoints(
-    candidates: TriggerPointCandidate[], 
-    poiData: POIData, 
+    candidates: TriggerPointCandidate[],
+    poiData: POIData,
     context: GeographicContext,
     boundary: BoundaryData,
     maxTriggerPoints: number = 50,
     minDistanceBetweenTPs: number = 40, // metros (aumentado para melhor qualidade)
-    directionalAnalysis: DirectionalAnalysis[] = [] // NOVO: análise direcional
+    directionalAnalysis: DirectionalAnalysis[] = [], // NOVO: análise direcional
+    options: { simulateApproach?: boolean; validateCorridor?: boolean } = {}
   ): Promise<TriggerPoint[]> {
     // 🎯 USAR CONFIGURAÇÕES DO GRUPO DO POI (se disponível)
     if (boundary.classification) {
@@ -168,9 +170,35 @@ export class TriggerPointValidator {
       }
       
       
-      // M2: VALIDAÇÃO DE SENTIDO DE VIA - REMOVIDA
-      // Motivo: Lógica incorreta (90°-270° não é contramão) e muito restritiva para canyons urbanos
-      const onewayValidCandidates = basicValidCandidates; // Pular validação de direção
+      // ✅ M2 v2: Validação de sentido de via reimplementada (issue 1.2).
+      //
+      // Por que isso importa: o app `tuggi-drive-v2` BLOQUEIA o trigger quando a
+      // direção classificada (front/right/left/back) é "back". Um TP numa rua de
+      // mão única que flui PARA LONGE do POI sempre disparará como "back", logo
+      // nunca executará.
+      //
+      // Aqui descartamos candidatos cuja rua é one-way e cuja única direção de
+      // tráfego resultaria em "back" relativo ao POI. Vias bidirecionais sempre
+      // passam (alguém indo na direção certa pode disparar).
+      const onewayValidCandidates = basicValidCandidates.filter(c => {
+        const streetTags: any = (c.street as any)?.tags || {};
+        const oneway: string | undefined = streetTags.oneway;
+
+        // Vias sem tag de oneway: bidirecionais → sempre OK
+        if (!oneway || oneway === 'no' || oneway === 'false' || oneway === '0') return true;
+
+        const streetCoords = (c.street as any)?.coordinates;
+        if (!streetCoords || streetCoords.length < 2) return true;
+
+        // Usa o expectedBearing JÁ calculado pelo point-calculator (que pode ter
+        // sido derivado de uma entrada OSM ou da rua de endereço para POIs grandes).
+        // Recalcular aqui via centroid descartaria essa precisão.
+        return isApproachableForBearing(streetCoords, oneway, c.expectedBearing);
+      });
+
+      if (onewayValidCandidates.length < basicValidCandidates.length) {
+        console.log(`🚦 One-way validation: discarded ${basicValidCandidates.length - onewayValidCandidates.length}/${basicValidCandidates.length} candidate(s) on wrong-direction lanes`);
+      }
 
       
       // ✅ ORDENAR POR PRIORIDADE (RÁPIDO - sem verificação de visibilidade)
@@ -194,11 +222,41 @@ export class TriggerPointValidator {
       // ✅ VALIDAÇÃO DE VISIBILIDADE (LENTO - ÚLTIMA LINHA DE DEFESA)
       // Aplicar apenas aos candidatos que já passaram por todos os outros filtros
       const visibilityValidCandidates = await this.filterByVisibilityOptimized(distanceFilteredCandidates, boundary, context);
-      
+
+      // Issue 2.1 / 2.3 — Validação via OSRM (opt-in).
+      // - simulateApproach: rotas reais que passam pelo TP em direção ao POI;
+      //   rejeita se >50% das simulações resultarem em direction="back".
+      // - validateCorridor: testa se a rua do TP de fato leva ao POI;
+      //   rejeita se OSRM não roteia ou se o heading no TP difere >60° do bearing.
+      // Ambos rodam DEPOIS da visibilidade (caros, ~1 HTTP por candidato × N).
+      let postSimulationCandidates = visibilityValidCandidates;
+      if ((options.simulateApproach || options.validateCorridor) && visibilityValidCandidates.length > 0) {
+        const { ApproachSimulator } = await import('./approach-simulator');
+        const survivors: TriggerPointCandidate[] = [];
+        let rejectedSim = 0, rejectedCorridor = 0;
+        for (const cand of visibilityValidCandidates) {
+          const candRadius = this.calculateRadius(cand, context);
+
+          if (options.validateCorridor) {
+            const corridor = await ApproachSimulator.validateCorridor(cand, poiData.location, candRadius);
+            if (!corridor.valid) { rejectedCorridor++; continue; }
+          }
+          if (options.simulateApproach) {
+            const sim = await ApproachSimulator.simulate(cand, poiData.location, candRadius);
+            if (sim.shouldReject) { rejectedSim++; continue; }
+          }
+          survivors.push(cand);
+        }
+        if (rejectedSim + rejectedCorridor > 0) {
+          console.log(`🧭 OSRM filters: rejected ${rejectedSim} (approach) + ${rejectedCorridor} (corridor) / ${visibilityValidCandidates.length}`);
+        }
+        postSimulationCandidates = survivors;
+      }
+
       // Converter candidatos validados para TriggerPoint[]
       const selectedTriggerPoints: TriggerPoint[] = [];
-      for (let i = 0; i < visibilityValidCandidates.length; i++) {
-        const candidate = visibilityValidCandidates[i];
+      for (let i = 0; i < postSimulationCandidates.length; i++) {
+        const candidate = postSimulationCandidates[i];
         const triggerPoint = this.convertToTriggerPoint(candidate, i, boundary, context);
         selectedTriggerPoints.push(triggerPoint);
       }
@@ -1593,8 +1651,8 @@ out geom meta;
    * Verifica se um candidato é válido
    */
   private async isValidCandidate(
-    candidate: TriggerPointCandidate, 
-    poiData: POIData, 
+    candidate: TriggerPointCandidate,
+    poiData: POIData,
     context: GeographicContext,
     boundary?: BoundaryData,
     cachedBaseElevation?: number | null
@@ -1602,6 +1660,17 @@ out geom meta;
     // Verificar qualidade mínima
     if (candidate.quality < 0.3) {
       console.log(`🚫 Candidate rejected: quality ${candidate.quality.toFixed(2)} < 0.3`);
+      return false;
+    }
+
+    // Issue 2.7 — Speed-aware filter: descartar TPs em vias rápidas (>80 km/h)
+    // para POIs FLAT muito baixos (<10m). A janela visual a 80+ km/h é curta
+    // demais para o motorista identificar uma estrutura baixa.
+    const streetTags: any = (candidate.street as any)?.tags || {};
+    const speedKmh = resolveStreetSpeedKmh(streetTags.maxspeed, candidate.street?.type);
+    const poiHeight = boundary?.height ?? 0;
+    if (speedKmh > 80 && poiHeight > 0 && poiHeight < 10) {
+      console.log(`🚫 Candidate rejected: high-speed road (${speedKmh}km/h) + low POI (${poiHeight}m)`);
       return false;
     }
     
@@ -1688,14 +1757,14 @@ out geom meta;
       location: candidate.location,
       radius,
       expectedBearing: candidate.expectedBearing,
-      bearingThreshold: 30,
+      bearingThreshold: TRIGGER_POINTS_CONSTANTS.triggerPoint.defaultBearingThreshold,
       type,
       priority,
       confidence: candidate.confidence,
       quality: candidate.quality,
       street: candidate.street,
       distance: candidate.distance,
-      generationMethod: 'google_apis',
+      generationMethod: 'local_osm',
       contextData: context,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -2077,13 +2146,28 @@ out geom meta;
   // Usar função centralizada do utils/calculations.ts (DRY)
   
   /**
-   * Calcula raio do trigger point
+   * Calcula o radius do trigger point dimensionado pela duração da narração e
+   * pela velocidade típica da rua.
+   *
+   * Por que: a narração arrival dura 25-40s. Com radius fixo de 20m, o usuário
+   * a 60km/h passa pelo POI em ~1.4s — a narração corta. Dimensionando pelo
+   * tempo de áudio, garantimos que o usuário entra no radius cedo o suficiente
+   * para a narração completar.
+   *
+   * Fórmula: radius = speed_m_per_s × (audioDuration + buffer)
+   * Speed: tag OSM `maxspeed`, fallback inferido pelo tipo `highway`.
    */
   private calculateRadius(candidate: TriggerPointCandidate, context: GeographicContext): number {
-    // REGRA: Range fixo de 20m (não calcular dinamicamente)
-    // Conforme especificação: sempre usar 20m como range padrão
-    const STANDARD_TP_RADIUS = 20; // metros (fixo)
-    return STANDARD_TP_RADIUS;
+    const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
+    const tags: any = (candidate.street as any)?.tags || {};
+    const streetType = candidate.street?.type;
+    const speedKmh = resolveStreetSpeedKmh(tags.maxspeed, streetType);
+    return calculateAudioAwareRadius(
+      speedKmh,
+      cfg.audioDurationSec,
+      cfg.audioBufferSec,
+      { min: cfg.minRadiusM, max: cfg.maxRadiusM }
+    );
   }
   
   /**

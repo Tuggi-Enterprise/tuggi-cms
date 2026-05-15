@@ -351,6 +351,64 @@ export class LocalOSMFetcher {
   }
 
   /**
+   * Busca pontos de entrada OSM (entrance=main / entrance=yes / entrance=*)
+   * dentro de uma bounding box. Retorna nós (lat/lng) com a tag normalizada
+   * em `kind` para priorização (main > yes > other).
+   *
+   * Cobre tanto a tabela `pois` (onde nodes de entrada costumam cair) quanto
+   * possíveis nodes em `buildings` com tag de entrada.
+   */
+  public fetchEntrances(
+    bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }
+  ): Array<{ lat: number; lng: number; kind: 'main' | 'yes' | 'other' }> | null {
+    if (!this.db) return null;
+
+    try {
+      // Usamos LIKE em vez de json_extract para pegar qualquer valor de `entrance`
+      const stmt = this.db.prepare(`
+        SELECT geometry_json, tags_json FROM pois
+        WHERE tags_json LIKE '%"entrance"%'
+          AND min_lat <= ? AND max_lat >= ?
+          AND min_lng <= ? AND max_lng >= ?
+      `);
+      const rows = stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng) as any[];
+
+      if (!rows || rows.length === 0) return null;
+
+      const entrances: Array<{ lat: number; lng: number; kind: 'main' | 'yes' | 'other' }> = [];
+      for (const row of rows) {
+        try {
+          const geom = JSON.parse(row.geometry_json);
+          const tags = row.tags_json ? JSON.parse(row.tags_json) : {};
+          const entranceTag = String(tags.entrance || '').toLowerCase();
+          if (!entranceTag) continue;
+
+          const kind: 'main' | 'yes' | 'other' =
+            entranceTag === 'main' ? 'main' :
+            (entranceTag === 'yes' || entranceTag === 'true') ? 'yes' : 'other';
+
+          // Geometria de nó costuma ser um ponto único (array com 1 elemento) ou um objeto
+          const point = Array.isArray(geom) ? geom[0] : geom;
+          if (!point || typeof point.lat !== 'number') continue;
+
+          entrances.push({
+            lat: point.lat,
+            lng: point.lng ?? point.lon,
+            kind,
+          });
+        } catch {
+          // ignora rows com geometry/tags inválidos
+        }
+      }
+
+      return entrances.length > 0 ? entrances : null;
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching entrances:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Busca um elemento OSM específico por tipo e ID no banco local.
    * Estratégia de busca (em ordem de prioridade):
    *   1. Coluna osm_id na tabela pois (mais rápido, dados importados com pbf2json)

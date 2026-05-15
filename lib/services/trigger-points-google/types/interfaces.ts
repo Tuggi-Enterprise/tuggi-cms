@@ -116,6 +116,9 @@ export interface BoundaryData {
   vegetation?: any[]; // vegetação para análise de obstruções
   barriers?: any[]; // barreiras para análise de obstruções
   peaks?: any[]; // picos/montanhas para análise de obstruções (SSLT: reutilizar dados já coletados)
+  // NOVO: pontos de entrada OSM (entrance=main / entrance=yes) dentro do boundary.
+  // Usado como bearing target prioritário em vez do centroid/closest-point.
+  entrances?: Array<{ lat: number; lng: number; kind: 'main' | 'yes' | 'other' }>;
   // NOVO: Classificação do POI (HIGH, MEDIUM, CANYON, FLAT)
   classification?: any; // POIClassification from poi-classifier.service
   osmTags?: any; // NOVO: tags OSM para classificação de POI
@@ -164,14 +167,24 @@ export interface TriggerPoint {
   radius: number;
   expectedBearing: number;
   bearingThreshold: number;
-  type: 'primary' | 'secondary' | 'fallback';
+  /**
+   * Tipo do trigger:
+   * - 'primary' / 'secondary' / 'fallback': TP arrival (point + radius + bearing)
+   * - 'geofence': dispara quando o usuário entra no polígono do boundary,
+   *   sem checagem de bearing. Requer `geometryGeoJson` preenchido.
+   */
+  type: 'primary' | 'secondary' | 'fallback' | 'geofence';
   priority: number;
   confidence: number;
   quality: number;
   street: StreetData;
   distance: number;
-  generationMethod: 'google_apis';
+  generationMethod: 'local_osm' | 'overpass_fallback' | 'estimated' | 'fallback_recovery';
   contextData?: GeographicContext;
+  // Para TPs do tipo 'geofence': polígono que define a área de disparo.
+  // O save layer persiste isso (depois da migração que adiciona a coluna)
+  // ou propaga para attractions.boundary_geometry para o app sintetizar.
+  geometryGeoJson?: string;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -195,6 +208,16 @@ export interface TriggerPointGenerationOptions {
   minQuality?: number;
   maxTriggerPoints?: number; // Se não fornecido, será calculado dinamicamente baseado em área, elevação e altura do POI (10-150 TPs)
   maxConcurrent?: number;
+  /**
+   * Issue 2.1 — Aproximação simulada via OSRM.
+   * Quando true, cada candidato é validado simulando rotas reais que passam
+   * por ele em direção ao POI. Rejeita candidatos que disparariam com
+   * direction="back" no app. Requer OSRM (env OSRM_API_URL) — desligado por
+   * padrão para evitar custos/timeouts no demo público.
+   */
+  simulateApproach?: boolean;
+  /** Issue 2.3 — Validação de corredor via OSRM (testa se rua leva ao POI). */
+  validateCorridor?: boolean;
 }
 
 export interface TriggerPointGenerationResult {

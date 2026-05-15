@@ -30,7 +30,7 @@ export interface TriggerPointSaveData {
   radius_meters?: number
   expected_bearing?: number
   bearing_threshold?: number
-  type: 'primary' | 'secondary' | 'fallback' | 'special' | 'testing'
+  type: 'primary' | 'secondary' | 'fallback' | 'special' | 'testing' | 'geofence' | 'entry' | 'exit' | 'approach' | 'custom'
   priority?: number
   is_active?: boolean
   confidence?: number
@@ -44,6 +44,9 @@ export interface TriggerPointSaveData {
   updated_by?: string
   access?: 'walk' | 'car' | 'both'
   custom_description_id?: string
+  // Issue 2.4 — GeoJSON Polygon para TPs do tipo 'geofence'.
+  // Requer migração 20260515_add_geofence_trigger_type.sql aplicada.
+  geometry_geojson?: string | null
   created_at?: string
   updated_at?: string
 }
@@ -79,6 +82,8 @@ export class TriggerPointSavingService {
       validation_notes: tp.validation_notes,
       access: tp.access || 'both',
       custom_description_id: tp.custom_description_id || null,
+      // Issue 2.4: persistir o polígono GeoJSON para TPs do tipo 'geofence'
+      ...(tp.geometry_geojson ? { geometry_geojson: tp.geometry_geojson } : {}),
       created_at: tp.created_at || new Date().toISOString(),
       updated_at: tp.updated_at || new Date().toISOString()
       // NOTE: created_by and updated_by are NOT included here because
@@ -143,6 +148,8 @@ export class TriggerPointSavingService {
     if (tp.access) updateData.access = tp.access
     if (tp.custom_description_id !== undefined) updateData.custom_description_id = tp.custom_description_id
     if (tp.updated_by) updateData.updated_by = tp.updated_by
+    // Issue 2.4 — permitir update do polígono GeoJSON
+    if (tp.geometry_geojson !== undefined) updateData.geometry_geojson = tp.geometry_geojson
 
     return updateData
   }
@@ -439,9 +446,14 @@ export class TriggerPointSavingService {
       auto_status: tp.auto_status,
       final_status: tp.final_status,
       score_factors: tp.score_factors,
-      generation_method: tp.generation_method || `google_apis_${boundarySource}`,
+      // Issue 1.3 — preservar o método real (local_osm/overpass_fallback) em vez
+      // de sempre rotular como google_apis_*. Mantém compatibilidade com TPs
+      // antigos que não traziam generation_method.
+      generation_method: tp.generation_method || `local_osm_${boundarySource}`,
       validation_notes: tp.reasoning || tp.validation_notes,
-      access: tp.access || 'both'
+      access: tp.access || 'both',
+      // Issue 2.4 — preservar polígono para TPs geofence
+      geometry_geojson: tp.geometry_geojson ?? null,
     }))
 
     // Use unified saveTriggerPoints() with replace_all mode
