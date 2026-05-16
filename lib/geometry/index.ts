@@ -260,36 +260,55 @@ export function isApproachableForPOI(
 }
 
 // =====================================================================
-// RADIUS CALCULATION (for issue 1.1)
+// RADIUS CALCULATION
 // =====================================================================
+//
+// IMPORTANTE: o radius do TP NÃO está relacionado à duração do áudio.
+// O app `tuggi-drive-v2` toca a narração até o fim mesmo que o usuário
+// saia do radius. O radius serve só como **gatilho** — garantir que o
+// GPS faz pelo menos uma leitura dentro da zona enquanto o usuário
+// passa por ali.
+//
+// Por isso a fórmula é baseada na janela de amostragem GPS, não em áudio.
+// Histórico do produto: radius de 10-50m funciona bem na prática.
 
 /**
- * Computes a radius that gives the user enough time to hear the narration
- * before passing the POI.
+ * Computes a radius large enough to catch a GPS sample while the user
+ * passes through the trigger zone.
  *
- * Formula: `radius = speed_m_per_s × (audioDurationSec + bufferSec)`
+ * Formula: `radius = speed_m_per_s × gpsPingWindowSec × safetyFactor`
  *
- * @param streetSpeedKmh  typical speed on the street (from OSM `maxspeed`
- *                        or inferred from `highway` type)
- * @param audioDurationSec  narration duration (default 35s — midpoint of 25-40s)
- * @param bufferSec  extra time so the user is comfortably inside before the
- *                   audio starts (default 5s)
- * @param limits  optional clamping
+ * Examples (with default 3s window, safety 2):
+ *   - walking 5 km/h  →  ~8m  (clamped to min ≈ 15-20m)
+ *   - city 40 km/h    →  ~67m (clamped to group cap ≈ 50m)
+ *   - highway 100 km/h →  ~167m (clamped to HIGH cap 100m)
+ *
+ * @param streetSpeedKmh    typical speed on the street (OSM maxspeed / inferred)
+ * @param gpsPingWindowSec  GPS sampling interval in seconds (default 3)
+ * @param safetyFactor      multiplier to cover ping variance (default 2)
+ * @param limits            min/max clamping (from per-group caps)
  */
-export function calculateAudioAwareRadius(
+export function calculateGpsAwareRadius(
   streetSpeedKmh: number,
-  audioDurationSec: number = 35,
-  bufferSec: number = 5,
+  gpsPingWindowSec: number = 3,
+  safetyFactor: number = 2,
   limits: { min?: number; max?: number } = {}
 ): number {
-  const min = limits.min ?? 20;
-  const max = limits.max ?? 2000;
+  const min = limits.min ?? 15;
+  const max = limits.max ?? 100;
 
   const speedMps = streetSpeedKmh / 3.6;
-  const radius = speedMps * (audioDurationSec + bufferSec);
+  const radius = speedMps * gpsPingWindowSec * safetyFactor;
 
   return Math.max(min, Math.min(max, Math.round(radius)));
 }
+
+/**
+ * @deprecated Use `calculateGpsAwareRadius`. Mantida só para retro-compat —
+ * o nome "audio-aware" estava errado: o áudio do app toca até o fim mesmo
+ * fora do radius. Veja o comentário acima.
+ */
+export const calculateAudioAwareRadius = calculateGpsAwareRadius;
 
 /**
  * Infers a typical travel speed (km/h) from an OSM `highway` tag when the

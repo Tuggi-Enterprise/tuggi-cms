@@ -302,12 +302,19 @@ export const TRIGGER_POINTS_CONSTANTS = {
   triggerPoint: {
     defaultBearingThreshold: 30, // graus — alinhado com a zona "front" do app
     fallbackBearingThreshold: 60, // graus — apenas para fallbacks de recuperação
-    // Duração média da narração arrival (ver 1.1 — usado no cálculo de radius)
-    audioDurationSec: 35, // narrações duram 25-40s; usar a média
-    audioBufferSec: 5, // buffer extra para garantir que entra antes de iniciar
-    // Limites de radius
-    minRadiusM: 25,
-    maxRadiusM: 2000,
+
+    // ⚠️ Modelo de radius: NÃO é "audio-aware".
+    // O áudio do app toca até o fim mesmo que o usuário saia do radius.
+    // O radius serve só pra GARANTIR que o GPS pingue pelo menos uma vez
+    // dentro da zona enquanto o usuário passa. Por isso usamos a janela
+    // de amostragem GPS típica (~3s) × velocidade da via × safety factor.
+    // Histórico do produto: 10-50m funciona bem na maioria dos casos.
+    gpsPingWindowSec: 3,      // janela típica entre pings GPS
+    gpsPingSafetyFactor: 2,   // multiplicador de segurança (cobrir variação)
+    // Limites globais — caps refinados por grupo (POIGroupConfig.maxTPRadiusM)
+    minRadiusM: 15,
+    maxRadiusM: 150,
+
     // Eye height para line-of-sight 2.5D
     eyeHeightCarM: 1.5,
     eyeHeightPedestrianM: 1.7,
@@ -357,6 +364,13 @@ export interface POIGroupConfig {
   strategy: 'circular' | 'linear' | 'standard';
   streetPriority: string[];
   blockStreets: string[];
+  /**
+   * Issue 2.7 — Teto de `radius_meters` do TP por grupo. A fórmula
+   * audio-aware (velocidade × duração da narração) é correta para HIGH,
+   * mas produz radii absurdos para FLAT/CANYON em ruas rápidas — fazendo
+   * o áudio disparar a 800m de um pier pequeno. Capamos por grupo.
+   */
+  maxTPRadiusM: number;
   specialRules?: {
     prioritizeFrontStreet?: boolean;
     rigorousVisibilityCheck?: boolean;
@@ -384,7 +398,9 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
     visibilityThreshold: 0.3,  // Menos restritivo (visível de longe)
     strategy: 'circular',
     streetPriority: ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'],  // Incluídas rodovias, avenidas e ruas coletoras/principais de bairro
-    blockStreets: ['residential', 'unclassified']  // Bloquear apenas ruas residenciais muito pequenas (muitas árvores/prédios)
+    blockStreets: ['residential', 'unclassified'],  // Bloquear apenas ruas residenciais muito pequenas (muitas árvores/prédios)
+    // GPS-aware: rodovias com pings esparsos, precisam de radius um pouco maior
+    maxTPRadiusM: 100
   },
   
   // 🏗️ MEDIUM: Baixa elevação + estrutura alta (>50m)
@@ -406,7 +422,8 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
     visibilityThreshold: 0.4,  // Moderadamente restritivo
     strategy: 'circular',
     streetPriority: ['motorway', 'trunk', 'primary', 'secondary'],
-    blockStreets: []  // Não bloqueia nenhuma rua
+    blockStreets: [],  // Não bloqueia nenhuma rua
+    maxTPRadiusM: 60   // avenidas e ruas urbanas: 40-60m é suficiente
   },
   
   // 🏙️ CANYON: Baixa elevação + estrutura média (10-50m) + área densa
@@ -430,6 +447,7 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
     strategy: 'linear',
     streetPriority: ['primary', 'secondary', 'tertiary'],  // Ruas locais
     blockStreets: [],
+    maxTPRadiusM: 40,   // centro denso, ruas urbanas: 25-40m
     specialRules: {
       prioritizeFrontStreet: true,      // Priorizar rua da frente
       rigorousVisibilityCheck: true     // Validação rigorosa de visibilidade
@@ -454,7 +472,8 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
     visibilityThreshold: 0.5,  // Moderado
     strategy: 'standard',
     streetPriority: ['motorway', 'trunk','primary', 'secondary', 'tertiary', 'residential'],
-    blockStreets: []
+    blockStreets: [],
+    maxTPRadiusM: 50    // POI local: 20-50m cobre walkers e drivers em ruas urbanas
   }
 };
 

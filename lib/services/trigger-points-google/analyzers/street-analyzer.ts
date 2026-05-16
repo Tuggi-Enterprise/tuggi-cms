@@ -153,13 +153,23 @@ export class StreetAnalyzer {
    * Versão que retorna metadados para visualização no frontend
    */
   async findAccessibleStreetsWithMetadata(
-    poiData: POIData, 
-    boundary: BoundaryData, 
+    poiData: POIData,
+    boundary: BoundaryData,
     context: GeographicContext
   ): Promise<{ streets: StreetData[]; searchRadius: number; elevationAnalysis?: any }> {
     try {
-      const searchRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
-      
+      // Modo fan: usa o alcance máximo do polígono de visibilidade como raio de busca.
+      // Garante que streets dentro do fan são fetchadas (não importa a classificação).
+      const fanMax = boundary.visibilityFan?.maxDistanceM;
+      const categoricalRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
+      const searchRadius = fanMax && fanMax > categoricalRadius
+        ? Math.ceil(fanMax + 100) // pequena margem
+        : categoricalRadius;
+
+      if (fanMax) {
+        console.log(`🔭 Street search radius driven by visibility fan: ${searchRadius}m (fan max ${fanMax}m, categorical ${categoricalRadius}m)`);
+      }
+
       const roads = await this.getRoadsAroundBoundary(boundary, searchRadius, context);
       
       if (roads.length === 0) {
@@ -486,14 +496,70 @@ export class StreetAnalyzer {
     console.log(`📊 [INPUT] boundary.streets: ${boundary.streets?.length || 0} consolidated streets`);
     
     try {
-      // 🚀 NOVA ESTRATÉGIA: Verificar se já temos dados consolidados do boundary
+      // 🚀 ESTRATÉGIA: usar streets consolidadas + EXPANDIR se o searchRadius
+      // pedido for maior que o raio coberto durante detecção do boundary.
+      //
+      // Crítico para o modo visibility-driven: o fan pode dizer "POI visível a
+      // 3km" mas `boundary.streets` só tem ruas no raio inicial (500m). Sem
+      // re-fetch, FAN-WALK roda só com as 39 streets do quarteirão e perde
+      // todas as ruas no entorno expandido.
       if (boundary.streets && boundary.streets.length > 0) {
-        console.log(`✅ [STRATEGY] Using consolidated streets from boundary: ${boundary.streets.length} streets`);
-        console.log(`🔍 [FILTER] Filtering ${boundary.streets.length} consolidated streets by radius ${searchRadius}m...`);
-        
+        let streets = boundary.streets;
+
+        // Quando o fan está ativo, SEMPRE buscar streets usando amostragem ao
+        // longo do boundary. A `boundary.streets` consolidada veio da detecção
+        // inicial (raio ~600m do centroide) e é insuficiente pra POIs cujo
+        // boundary é grande ou cuja visibilidade vai longe.
+        //
+        // Estratégia: N pontos amostrados ao longo do perímetro × raio fan
+        // por ponto = cobertura proporcional ao tamanho real do POI E à
+        // visibilidade física.
+        const fanActive = !!boundary.visibilityFan?.polygons?.length;
+        if (fanActive && searchRadius > 300) {
+          console.log(`🔭 [EXTEND] Fan active → fetching streets along boundary (searchRadius=${searchRadius}m)`);
+          try {
+            const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
+            const fetcher = LocalOSMFetcher.getInstance();
+
+            // Raio por sample-point = distância máxima de visibilidade do fan.
+            //
+            // Crítico: para POIs altos (Cristo, Jaraguá), o boundary é pequeno
+            // mas a visibilidade vai a quilômetros. O fan já calculou a real
+            // distância máxima visível considerando altura+terreno+prédios.
+            // Usar isso como raio garante:
+            //  - Cristo: 1 sample point × fan.max=10km → cobre Botafogo, Copa
+            //  - Queensboro: 8 sample points × fan.max=5km → cobre Manhattan + Queens
+            //  - Pier 97: 1 sample × fan.max=100m → cobre só o entorno (correto)
+            //
+            // Cap em 4km por sample-point para limitar carga em SP/NY denso.
+            const fanMaxM = boundary.visibilityFan?.maxDistanceM ?? searchRadius;
+            const radiusPerPoint = Math.max(300, Math.min(fanMaxM, 4000));
+            console.log(`🔭 [EXTEND] Using radiusPerPoint=${radiusPerPoint}m (fan max=${fanMaxM}m)`);
+
+            const extended = fetcher.fetchStreetsAlongBoundary(
+              boundary.coordinates,
+              radiusPerPoint
+            );
+
+            if (extended && extended.length > 0) {
+              const seen = new Set(streets.map(s => String(s.id)));
+              const additional = extended.filter((s: any) => !seen.has(String(s.id)));
+              streets = [...streets, ...additional];
+              console.log(`✅ [EXTEND] Added ${additional.length} streets sampled along boundary (total: ${streets.length})`);
+            } else {
+              console.log(`⚠️ [EXTEND] No additional streets found along boundary`);
+            }
+          } catch (err) {
+            console.warn(`⚠️ [EXTEND] Failed to fetch streets along boundary:`, err);
+          }
+        }
+
+        console.log(`✅ [STRATEGY] Using ${streets.length} streets (consolidated + any extensions)`);
+        console.log(`🔍 [FILTER] Filtering ${streets.length} streets by radius ${searchRadius}m...`);
+
         // ✅ CRÍTICO: Filtrar ruas consolidadas pelo raio também (podem ter sido criadas com raio maior)
-        const filtered = this.filterStreetPointsByRadius(boundary.streets, boundary, searchRadius);
-        console.log(`✅ [RESULT] After filtering: ${filtered.length} streets within ${searchRadius}m radius (from ${boundary.streets.length} consolidated)`);
+        const filtered = this.filterStreetPointsByRadius(streets, boundary, searchRadius);
+        console.log(`✅ [RESULT] After filtering: ${filtered.length} streets within ${searchRadius}m radius (from ${streets.length} input)`);
         
         if (filtered.length === 0 && boundary.streets.length > 0) {
           console.error(`❌ [CRITICAL] All ${boundary.streets.length} consolidated streets were rejected by filterStreetPointsByRadius`);

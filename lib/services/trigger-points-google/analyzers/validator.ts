@@ -8,7 +8,7 @@ import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS,
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { DirectionalAnalyzer } from './directional-analyzer';
 import { SRTMLocalService } from '../../srtm-local-service';
-import { resolveStreetSpeedKmh, calculateAudioAwareRadius, isApproachableForBearing } from '../../../geometry';
+import { resolveStreetSpeedKmh, calculateGpsAwareRadius, isApproachableForBearing } from '../../../geometry';
 
 export class TriggerPointValidator {
   private visibilityValidator: VisibilityValidator;
@@ -180,24 +180,35 @@ export class TriggerPointValidator {
       // Aqui descartamos candidatos cuja rua é one-way e cuja única direção de
       // tráfego resultaria em "back" relativo ao POI. Vias bidirecionais sempre
       // passam (alguém indo na direção certa pode disparar).
+      // ✅ Bypass cases — one-way não faz sentido em:
+      //   1. Ruas sem tag oneway (bidirecional)
+      //   2. TPs DENTRO do boundary do POI (você não está "indo embora" de algo
+      //      em que está em cima — caso típico: deck de ponte, ruas dentro de
+      //      parque, túnel sob o POI)
+      const onewayRejections: string[] = [];
       const onewayValidCandidates = basicValidCandidates.filter(c => {
         const streetTags: any = (c.street as any)?.tags || {};
         const oneway: string | undefined = streetTags.oneway;
 
-        // Vias sem tag de oneway: bidirecionais → sempre OK
         if (!oneway || oneway === 'no' || oneway === 'false' || oneway === '0') return true;
 
         const streetCoords = (c.street as any)?.coordinates;
         if (!streetCoords || streetCoords.length < 2) return true;
 
-        // Usa o expectedBearing JÁ calculado pelo point-calculator (que pode ter
-        // sido derivado de uma entrada OSM ou da rua de endereço para POIs grandes).
-        // Recalcular aqui via centroid descartaria essa precisão.
-        return isApproachableForBearing(streetCoords, oneway, c.expectedBearing);
+        // TP está DENTRO do boundary do POI? Não aplica one-way.
+        if (isPointInPolygon(c.location, boundary.coordinates)) return true;
+
+        const ok = isApproachableForBearing(streetCoords, oneway, c.expectedBearing);
+        if (!ok) {
+          onewayRejections.push(`${c.street?.id} (${(c.street as any)?.name || 'unnamed'}) oneway=${oneway}, bearing=${c.expectedBearing.toFixed(0)}°`);
+        }
+        return ok;
       });
 
-      if (onewayValidCandidates.length < basicValidCandidates.length) {
-        console.log(`🚦 One-way validation: discarded ${basicValidCandidates.length - onewayValidCandidates.length}/${basicValidCandidates.length} candidate(s) on wrong-direction lanes`);
+      if (onewayRejections.length > 0) {
+        console.log(`🚦 One-way validation: discarded ${onewayRejections.length}/${basicValidCandidates.length} candidate(s):`);
+        for (const r of onewayRejections.slice(0, 10)) console.log(`   → ${r}`);
+        if (onewayRejections.length > 10) console.log(`   → (+${onewayRejections.length - 10} more)`);
       }
 
       
@@ -216,12 +227,32 @@ export class TriggerPointValidator {
       });
       
       
-      // ✅ FILTRO DE DISTÂNCIA MÍNIMA COMPLETO (RÁPIDO - mantém candidatos)
-      const distanceFilteredCandidates = this.selectCandidatesWithMinDistance(rankedCandidates, dynamicMaxTPs, minDistanceBetweenTPs, boundary, context);
-      
-      // ✅ VALIDAÇÃO DE VISIBILIDADE (LENTO - ÚLTIMA LINHA DE DEFESA)
-      // Aplicar apenas aos candidatos que já passaram por todos os outros filtros
-      const visibilityValidCandidates = await this.filterByVisibilityOptimized(distanceFilteredCandidates, boundary, context);
+      // ✅ FILTRO DE DISTÂNCIA MÍNIMA.
+      // No modo fan, FAN-WALK já espaçou candidatos INTRA-rua pelo
+      // minDistanceBetweenTPs. Aplicar o mesmo threshold globalmente
+      // (inter-streets) removeria TPs em ruas paralelas próximas — o que vai
+      // contra a meta de "cobertura completa". Reduzimos o threshold global
+      // pela metade no modo fan: ainda evita duplicatas reais, mas preserva
+      // cobertura em malhas urbanas densas.
+      const fanActiveForSpacing = !!boundary.visibilityFan?.polygons?.length;
+      const effectiveMinDistance = fanActiveForSpacing ? Math.max(15, Math.floor(minDistanceBetweenTPs / 2)) : minDistanceBetweenTPs;
+      if (fanActiveForSpacing) {
+        console.log(`👁️ Inter-street spacing relaxed for fan mode: ${effectiveMinDistance}m (config: ${minDistanceBetweenTPs}m)`);
+      }
+      const distanceFilteredCandidates = this.selectCandidatesWithMinDistance(rankedCandidates, dynamicMaxTPs, effectiveMinDistance, boundary, context);
+
+      // VALIDAÇÃO DE VISIBILIDADE (lento — última linha de defesa).
+      //
+      // ⚠️ PULAR quando o visibility fan está presente: o fan já validou
+      // fisicamente cada ponto (ray-cast 2.5D com alturas reais). Refazer aqui
+      // duplica trabalho e pode rejeitar TPs que o fan já aprovou.
+      const fanActive = !!boundary.visibilityFan?.polygons?.length;
+      const visibilityValidCandidates = fanActive
+        ? distanceFilteredCandidates
+        : await this.filterByVisibilityOptimized(distanceFilteredCandidates, boundary, context);
+      if (fanActive) {
+        console.log(`👁️ Skipping post-fan visibility check: fan is the source of truth (${distanceFilteredCandidates.length} candidates pass through)`);
+      }
 
       // Issue 2.1 / 2.3 — Validação via OSRM (opt-in).
       // - simulateApproach: rotas reais que passam pelo TP em direção ao POI;
@@ -235,7 +266,7 @@ export class TriggerPointValidator {
         const survivors: TriggerPointCandidate[] = [];
         let rejectedSim = 0, rejectedCorridor = 0;
         for (const cand of visibilityValidCandidates) {
-          const candRadius = this.calculateRadius(cand, context);
+          const candRadius = this.calculateRadius(cand, context, boundary);
 
           if (options.validateCorridor) {
             const corridor = await ApproachSimulator.validateCorridor(cand, poiData.location, candRadius);
@@ -290,29 +321,16 @@ export class TriggerPointValidator {
     const selectedCandidates: TriggerPointCandidate[] = [];
     let rejectedCount = 0;
     
-    // 🆕 Ajustar distância mínima baseado no tamanho do POI e altura
-    const poiHeight = boundary.height || 0;
-    const isSmallPOI = boundary.area_m2 < 10000;
-    const isDenseZone = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
-    const isFlatPOI = poiHeight === 0 || poiHeight < 5;
-    
-    let adjustedMinDistance = minDistance;
-    
-    // POIs pequenos (< 10000m²) precisam de distância mínima maior
-    if (isSmallPOI) {
-      adjustedMinDistance = Math.max(adjustedMinDistance, 60); // Mínimo 60m para POIs pequenos
-    }
-    
-    // POIs FLAT em áreas densas precisam de distância mínima maior para evitar TPs próximos sem visão
-    if (isFlatPOI && isDenseZone) {
-      adjustedMinDistance = Math.max(adjustedMinDistance, 80); // Mínimo 80m para POIs FLAT em áreas densas
-    }
-    
-    if (adjustedMinDistance > minDistance) {
-    }
-    
-    const STANDARD_TP_RADIUS = 20; // metros (fixo)
-    const minDistanceBetweenCenters = (STANDARD_TP_RADIUS * 2) + adjustedMinDistance;
+    // Issue 2.4b — Cobertura completa. Apenas honramos `minDistance` configurada
+    // (vinda de `GROUP_CONFIGS.minDistanceBetweenTPs`). Removidos:
+    //  1. O override "forced 60m para POIs pequenos" — bloqueava cobertura em pier/edifícios.
+    //  2. O override "forced 80m para FLAT+dense" — bloqueava cobertura em parques urbanos.
+    //  3. A duplicação do raio (`STANDARD_TP_RADIUS * 2`) — usava valor hardcoded de 20m
+    //     e era inconsistente com o radius adaptativo (audio-aware). Esse "espaçamento de
+    //     segurança" não tem propósito funcional: o app já tem cooldown de 10min por POI,
+    //     então TPs próximos não causam disparos duplicados.
+    const adjustedMinDistance = minDistance;
+    const minDistanceBetweenCenters = adjustedMinDistance;
     
     for (const candidate of rankedCandidates) {
       // Verificar se já temos o máximo de candidatos
@@ -352,22 +370,10 @@ export class TriggerPointValidator {
     const selectedTPs: TriggerPoint[] = [];
     let rejectedCount = 0;
     
-    // Reutilizar lógica de ajuste de distância
-    const poiHeight = boundary.height || 0;
-    const isSmallPOI = boundary.area_m2 < 10000;
-    const isDenseZone = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense';
-    const isFlatPOI = poiHeight === 0 || poiHeight < 5;
-    
-    let adjustedMinDistance = minDistance;
-    if (isSmallPOI) {
-      adjustedMinDistance = Math.max(adjustedMinDistance, 60);
-    }
-    if (isFlatPOI && isDenseZone) {
-      adjustedMinDistance = Math.max(adjustedMinDistance, 80);
-    }
-    
-    const STANDARD_TP_RADIUS = 20;
-    const minDistanceBetweenCenters = (STANDARD_TP_RADIUS * 2) + adjustedMinDistance;
+    // Issue 2.4b — Cobertura completa (mesma lógica de selectCandidatesWithMinDistance):
+    // honra apenas `minDistance` da config; sem overrides forçados nem duplicação de raio.
+    const adjustedMinDistance = minDistance;
+    const minDistanceBetweenCenters = adjustedMinDistance;
     
     for (const candidate of rankedCandidates) {
       if (selectedTPs.length >= maxTriggerPoints) break;
@@ -891,12 +897,16 @@ out geom tags;
 
       // 5. NOVO: Verificar obstrução por elevação do terreno
       // ✅ AJUSTE: Para POIs HIGH (alta elevação), ser muito mais tolerante
+      // ✅ FIX (bridge case): incluir altura da estrutura — sem isso, a "linha de
+      //    visão teórica" é desenhada no nível do chão e qualquer prédio/colina
+      //    no caminho bloqueia, mesmo para POIs claramente visíveis (pontes etc.)
       const blockedByTerrain = await this.checkTerrainElevationBlocking(
         candidate.location,
         boundary.center,
         boundary.elevation?.center || 0,
         boundary.classification?.group, // Passar classificação para ajustar tolerância
-        boundary.elevation?.center || 0 // Passar elevação do POI
+        boundary.elevation?.center || 0, // Passar elevação do POI
+        boundary.height || 0 // Altura da estrutura (ex: 41m para Williamsburg Bridge)
       );
       
       if (blockedByTerrain) {
@@ -1674,34 +1684,38 @@ out geom meta;
       return false;
     }
     
-    // Verificar distância máxima DINÂMICA baseada na ELEVAÇÃO REAL
-    let maxDistance = 1000; // Default para POIs baixos
-    
-    // 🏔️ USAR ELEVAÇÃO REAL DO BOUNDARY ao invés do contexto estimado
-    if (boundary?.elevation && boundary.elevation.center > 0 && cachedBaseElevation !== null) {
-      const poiElevation = boundary.elevation.center;
-      const baseElevation = cachedBaseElevation || await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
-      const elevationDiff = poiElevation - baseElevation;
-      
-      if (elevationDiff > 150) {
-        maxDistance = 15000; // 15km para POIs de alta elevação relativa (Cristo até Copacabana ~8km)
-         //console.log(`🏔️ HIGH ELEVATION POI detected - elevation: ${poiElevation.toFixed(0)}m, diff: ${elevationDiff.toFixed(0)}m → extending max distance to ${maxDistance}m`);
-      } else if (elevationDiff > 50) {
-        maxDistance = 4000; // 4km para POIs moderadamente elevados
-        //console.log(`⛰️ MODERATE elevation POI - elevation: ${poiElevation.toFixed(0)}m, diff: ${elevationDiff.toFixed(0)}m → extending max distance to ${maxDistance}m`);
-      } else {
-        //console.log(`🏞️ LOW elevation POI - elevation: ${poiElevation.toFixed(0)}m, diff: ${elevationDiff.toFixed(0)}m → standard max distance: ${maxDistance}m`);
+    // Distância máxima do candidato ao centroide do POI.
+    //
+    // Modo fan-driven: PULA a checagem por completo. O FAN-WALK já filtrou
+    // fisicamente (fan polygons + boundary + safety 100m). Se um candidato
+    // chegou aqui, ele passou pela visibilidade — não há razão pra rejeitar
+    // por distância arbitrária. Casos típicos onde a regra antiga atrapalha:
+    //  - POIs storefront com fan degenerado (max=30m): a regra rejeitava TPs
+    //    legítimos em ruas adjacentes a 35-100m.
+    //  - Infraestruturas vizinhas visíveis (Roosevelt Island Bridge a 1.5km
+    //    da Queensboro): a regra cortava antes mesmo do fan opinar.
+    //
+    // Modo categórico (fallback, sem fan): mantém regra antiga.
+    const fanForDistance = !!boundary?.visibilityFan?.polygons?.length;
+    if (!fanForDistance) {
+      let maxDistance = 1000;
+      if (boundary?.elevation && boundary.elevation.center > 0 && cachedBaseElevation !== null) {
+        const poiElevation = boundary.elevation.center;
+        const baseElevation = cachedBaseElevation || await ElevationAnalysisService.estimateRegionalBaseElevation(boundary.center, context, poiData);
+        const elevationDiff = poiElevation - baseElevation;
+        if (elevationDiff > 150) maxDistance = 15000;
+        else if (elevationDiff > 50) maxDistance = 4000;
+      } else if (context.urbanDensity.level === 'rural') {
+        maxDistance = 3000;
+        console.log(`🌾 Rural area without elevation data → extending max distance to ${maxDistance}m`);
       }
-    } else if (context.urbanDensity.level === 'rural') {
-      maxDistance = 3000; // 3km para áreas rurais sem dados de elevação
-      console.log(`🌾 Rural area without elevation data → extending max distance to ${maxDistance}m`);
+
+      if (candidate.distance > maxDistance) {
+        console.log(`🚫 Candidate rejected: distance ${candidate.distance.toFixed(0)}m > ${maxDistance}m`);
+        return false;
+      }
     }
-    
-    if (candidate.distance > maxDistance) {
-      console.log(`🚫 Candidate rejected: distance ${candidate.distance.toFixed(0)}m > ${maxDistance}m`);
-      return false;
-    }
-    
+
     // Verificar acessibilidade
     if (!this.isAccessible(candidate.location, context)) {
       console.log(`🚫 Candidate rejected: not accessible`);
@@ -1750,7 +1764,7 @@ out geom meta;
     const id = this.generateTriggerPointId();
     const type = this.determineTriggerType(index, candidate.quality, candidate, boundary, context);
     const priority = index + 1;
-    const radius = this.calculateRadius(candidate, context);
+    const radius = this.calculateRadius(candidate, context, boundary);
     
     return {
       id,
@@ -2146,27 +2160,35 @@ out geom meta;
   // Usar função centralizada do utils/calculations.ts (DRY)
   
   /**
-   * Calcula o radius do trigger point dimensionado pela duração da narração e
-   * pela velocidade típica da rua.
+   * Calcula o radius do trigger point para garantir que o GPS pinga pelo menos
+   * uma vez enquanto o usuário passa pela zona — NÃO está relacionado à
+   * duração da narração (o app toca até o fim mesmo fora do radius).
    *
-   * Por que: a narração arrival dura 25-40s. Com radius fixo de 20m, o usuário
-   * a 60km/h passa pelo POI em ~1.4s — a narração corta. Dimensionando pelo
-   * tempo de áudio, garantimos que o usuário entra no radius cedo o suficiente
-   * para a narração completar.
+   * Fórmula: radius = speed × gpsPingWindow × safetyFactor, capada por grupo.
    *
-   * Fórmula: radius = speed_m_per_s × (audioDuration + buffer)
-   * Speed: tag OSM `maxspeed`, fallback inferido pelo tipo `highway`.
+   * Exemplos (com defaults 3s × 2x):
+   *   - rua urbana 40km/h → ~67m → capado em FLAT (50m)
+   *   - rodovia 100km/h   → ~167m → capado em HIGH (100m)
+   *   - calçada 5km/h     → ~8m → clamp pelo min (15m)
    */
-  private calculateRadius(candidate: TriggerPointCandidate, context: GeographicContext): number {
+  private calculateRadius(
+    candidate: TriggerPointCandidate,
+    context: GeographicContext,
+    boundary?: BoundaryData
+  ): number {
     const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
     const tags: any = (candidate.street as any)?.tags || {};
     const streetType = candidate.street?.type;
     const speedKmh = resolveStreetSpeedKmh(tags.maxspeed, streetType);
-    return calculateAudioAwareRadius(
+
+    // Cap por grupo: rodovia precisa de mais que calçada por causa do ping GPS
+    const groupCap = boundary?.classification?.maxTPRadiusM ?? cfg.maxRadiusM;
+
+    return calculateGpsAwareRadius(
       speedKmh,
-      cfg.audioDurationSec,
-      cfg.audioBufferSec,
-      { min: cfg.minRadiusM, max: cfg.maxRadiusM }
+      cfg.gpsPingWindowSec,
+      cfg.gpsPingSafetyFactor,
+      { min: cfg.minRadiusM, max: groupCap }
     );
   }
   
@@ -2514,7 +2536,8 @@ out geom meta;
     poiLocation: { lat: number; lng: number },
     poiElevation: number,
     poiGroup?: string, // HIGH, MEDIUM, CANYON, FLAT
-    poiElevationActual?: number // Elevação real do POI
+    poiElevationActual?: number, // Elevação real do POI
+    poiStructureHeight: number = 0 // Altura da estrutura (ponte/torre/edifício)
   ): Promise<boolean> {
     try {
       const distance = calculateDistance(tpLocation, poiLocation);
@@ -2579,8 +2602,12 @@ out geom meta;
       
       // Verificar se há elevação do terreno maior que a linha de visão
       const tpElevation = elevations[0];
-      const poiElevationFinal = elevations[elevations.length - 1];
-      
+      const poiGroundElevation = elevations[elevations.length - 1];
+      // ✅ FIX: o "endpoint" da linha de visão é o TOPO do POI, não o chão.
+      // Sem isso, uma ponte (deck a 40m) tem sua linha de visão desenhada no
+      // nível da água — qualquer prédio ou colina entre TP e ponte bloqueia.
+      const poiTopElevation = poiGroundElevation + (poiStructureHeight || 0);
+
       // ✅ AJUSTE: Margem dinâmica baseada na elevação do POI
       // POIs mais altos = margem maior (pequenas variações não bloqueiam)
       let margin = 10; // Margem padrão para POIs baixos
@@ -2589,16 +2616,20 @@ out geom meta;
       } else if (poiElevationActual && poiElevationActual > 200) {
         margin = 20; // POIs acima de 200m: margem de 20m
       }
-      
-      // Calcular linha de visão teórica (elevação linear entre TP e POI)
+      // Estrutura significativa (ponte, torre): margem extra proporcional
+      if (poiStructureHeight && poiStructureHeight > 20) {
+        margin = Math.max(margin, 15);
+      }
+
+      // Calcular linha de visão teórica (elevação linear entre TP e POI topo)
       for (let i = 1; i < elevations.length - 1; i++) {
         const sampleElevation = elevations[i];
         const ratio = i / (elevations.length - 1);
-        const theoreticalElevation = tpElevation + (poiElevationFinal - tpElevation) * ratio;
-        
+        const theoreticalElevation = tpElevation + (poiTopElevation - tpElevation) * ratio;
+
         // Se terreno está mais alto que a linha de visão teórica + margem, bloqueia
         if (sampleElevation > theoreticalElevation + margin) {
-          console.log(`⛰️ Terrain elevation blocks line of sight: sample point ${i} at ${sampleElevation.toFixed(1)}m > theoretical ${theoreticalElevation.toFixed(1)}m + ${margin}m margin`);
+          console.log(`⛰️ Terrain elevation blocks line of sight: sample point ${i} at ${sampleElevation.toFixed(1)}m > theoretical ${theoreticalElevation.toFixed(1)}m + ${margin}m margin (poi top: ${poiTopElevation.toFixed(1)}m, structure: ${poiStructureHeight}m)`);
           return true;
         }
       }

@@ -58,12 +58,21 @@ export class OptimalPointCalculator {
     console.log(`🔍 Filtered streets: ${filteredStreets.length}/${streets.length} within ${searchRadius}m radius (from initial 500m query)`);
     
     const candidates: TriggerPointCandidate[] = [];
-    
+
+    // 👁️ ESTRATÉGIA FAN-WALK (substitui as estratégias categóricas quando o
+    // visibility map está ativo). Caminha por cada rua filtrada pelo fan e solta
+    // candidatos espaçados, sem depender de distância-alvo categórica nem
+    // descartar pontos por estarem "dentro do boundary" (caso da ponte cujo
+    // deck É o boundary).
+    if (boundary.visibilityFan && boundary.visibilityFan.polygons.length > 0) {
+      console.log(`👁️ FAN-WALK STRATEGY: Walking each street and dropping candidates spaced by minDistanceBetweenTPs (substitui ${strategy} categórica)`);
+      candidates.push(...await this.calculateFanWalkStrategy(filteredStreets, poiData, boundary, context, classification));
+    }
     // 🏔️ ESTRATÉGIA CIRCULAR: Para HIGH e MEDIUM (múltiplas ruas, múltiplas distâncias)
-    if (strategy === 'circular') {
+    else if (strategy === 'circular') {
       console.log(`🔄 CIRCULAR STRATEGY: Using multiple streets with multiple distances`);
       candidates.push(...await this.calculateMultipleStreetsStrategy(filteredStreets, poiData, boundary, context, classification));
-    } 
+    }
     // 🏙️ ESTRATÉGIA LINEAR: Para CANYON (front street priority, single distance)
     else if (strategy === 'linear') {
       console.log(`📍 LINEAR STRATEGY: Prioritizing front street`);
@@ -182,29 +191,57 @@ export class OptimalPointCalculator {
   ): StreetData[] {
     if (!streets || streets.length === 0) return streets;
     if (!boundary.coordinates || boundary.coordinates.length === 0) return streets;
-    
+
     const filtered: StreetData[] = [];
-    const maxAllowedDistance = searchRadius + 20; // Margem de 20m para ruas que passam perto do limite
-    
-    console.log(`🔍 Filtering streets and points by radius: ${searchRadius}m (max: ${maxAllowedDistance}m)`);
-    
+
+    // Visibility-driven mode: usa a união de polígonos de visibilidade real
+    // (um por ponto amostrado ao longo do boundary) em vez do raio categórico.
+    // Quando ativo, um ponto da rua é aceito se estiver DENTRO de qualquer fan.
+    const fanPolygons = boundary.visibilityFan?.polygons;
+    const useFan = !!(fanPolygons && fanPolygons.length > 0 && fanPolygons[0].length >= 3);
+
+    const maxAllowedDistance = searchRadius + 20;
+    if (useFan) {
+      console.log(`🔍 Filtering streets by VISIBILITY FAN (${fanPolygons!.length} sub-polygons, max ${boundary.visibilityFan!.maxDistanceM}m, mean ${boundary.visibilityFan!.meanDistanceM}m)`);
+    } else {
+      console.log(`🔍 Filtering streets and points by radius: ${searchRadius}m (max: ${maxAllowedDistance}m)`);
+    }
+
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length === 0) continue;
-      
+
       // ✅ NOVO: Filtrar PONTOS da rua pelo raio, não apenas a rua inteira
       const validPoints: Array<{ lat: number; lng: number }> = [];
       let minDistanceToBoundary = Infinity;
       let maxDistanceToBoundary = 0;
-      
+
       for (const streetPoint of street.coordinates) {
         const distanceToBoundary = calculateDistanceToBoundary(streetPoint, boundary.coordinates);
-        
+
         // Calcular distâncias min/max para debug
         minDistanceToBoundary = Math.min(minDistanceToBoundary, distanceToBoundary);
         maxDistanceToBoundary = Math.max(maxDistanceToBoundary, distanceToBoundary);
-        
-        // Manter apenas pontos dentro do raio permitido
-        if (distanceToBoundary <= maxAllowedDistance) {
+
+        // Critério de aceitação:
+        //  - Modo fan: ponto está DENTRO de qualquer sub-polígono de visibilidade
+        //    (um por ponto amostrado no boundary), OU dentro do boundary do POI,
+        //    OU colado (≤30m) a uma aresta do boundary (safety net mínimo).
+        //  - Modo radius: ponto está dentro do raio categórico
+        //
+        // ⚠️ Safety net reduzido de 100m → 30m (Camada 2).
+        // Por que: 100m era gerar TPs em ruas adjacentes mesmo quando o fan
+        // dizia "POI não visível dali" (prédios bloqueando). Apenas pontos
+        // ENCOSTADOS no boundary (calçada perimetral) entram pelo safety —
+        // o resto precisa estar realmente no fan.
+        const accepted = useFan
+          ? (
+              fanPolygons!.some(poly => isPointInPolygon(streetPoint, poly)) ||
+              isPointInPolygon(streetPoint, boundary.coordinates) ||
+              distanceToBoundary <= 30  // safety mínimo: calçada perimetral
+            )
+          : distanceToBoundary <= maxAllowedDistance;
+
+        if (accepted) {
           validPoints.push(streetPoint);
         }
       }
@@ -957,6 +994,139 @@ export class OptimalPointCalculator {
   /**
    * 🏔️ ESTRATÉGIA PARA MÚLTIPLAS RUAS (POIs de alta elevação)
    */
+  /**
+   * 👁️ FAN-WALK STRATEGY — usada quando o visibility map está ativo.
+   *
+   * Princípio: o fan JÁ filtrou onde o POI é fisicamente visível. Agora
+   * caminhamos por cada rua filtrada e soltamos candidatos espaçados, sem
+   * regras categóricas de "distância alvo" nem descartar pontos por estarem
+   * dentro do boundary (pontes têm o deck no boundary).
+   *
+   * Espaçamento: usa minDistanceBetweenTPs da classificação (default 40m).
+   * Bearing target: já tratado depois (entrance/centroid/closest-on-boundary).
+   */
+  private async calculateFanWalkStrategy(
+    streets: StreetData[],
+    poiData: POIData,
+    boundary: BoundaryData,
+    context: GeographicContext,
+    classification: any
+  ): Promise<TriggerPointCandidate[]> {
+    const candidates: TriggerPointCandidate[] = [];
+    const minSpacing = classification.minDistanceBetweenTPs || 40;
+    const fanPolygons = boundary.visibilityFan!.polygons;
+
+    // Pre-resolver bearing target uma vez (sem repetir por rua)
+    let bearingTarget: { lat: number; lng: number };
+    if (boundary.entrances && boundary.entrances.length > 0) {
+      const priority = { main: 0, yes: 1, other: 2 } as const;
+      const best = [...boundary.entrances].sort((a, b) => priority[a.kind] - priority[b.kind])[0];
+      bearingTarget = { lat: best.lat, lng: best.lng };
+    } else {
+      bearingTarget = { lat: boundary.center.lat, lng: boundary.center.lng };
+    }
+
+    for (const street of streets) {
+      if (!street.coordinates || street.coordinates.length < 2) continue;
+
+      // 1. Mantém só os pontos visíveis (inside any fan OR inside boundary OR
+      //    near-boundary). Safety net 30m apenas pra calçada perimetral
+      //    (Camada 2): pontos mais distantes precisam estar REALMENTE no fan.
+      const visiblePoints = street.coordinates.filter(p => {
+        if (fanPolygons.some(poly => isPointInPolygon(p, poly))) return true;
+        if (isPointInPolygon(p, boundary.coordinates)) return true;
+        const distToBoundary = calculateDistanceToBoundary(p, boundary.coordinates);
+        return distToBoundary <= 30;
+      });
+      if (visiblePoints.length === 0) continue;
+
+      // 2. Caminha pelos pontos visíveis em ordem, droppando candidato a cada
+      //    `minSpacing` metros acumulados.
+      let accumulatedDist = minSpacing; // garantir candidato no primeiro ponto
+      let streetCandidates = 0;
+      for (let i = 0; i < visiblePoints.length; i++) {
+        if (i > 0) {
+          accumulatedDist += calculateDistance(visiblePoints[i - 1], visiblePoints[i]);
+        }
+        if (accumulatedDist < minSpacing && i > 0) continue;
+        accumulatedDist = 0;
+
+        const pointOnStreet = visiblePoints[i];
+
+        // Quality SIMPLIFICADA (modo fan-driven): substitui a fórmula categórica
+        // por sinais 100% físicos. O fan já garantiu visibilidade; restam só
+        // qualidade da rua (tipo OSM) e proximidade ao POI como diferenciadores.
+        const quality = this.calculateFanWalkQuality(pointOnStreet, boundary, street);
+
+        const expectedBearing = calculateBearing(pointOnStreet, bearingTarget);
+        const distance = calculateDistance(pointOnStreet, boundary.center);
+
+        candidates.push({
+          location: pointOnStreet,
+          distance,
+          quality,
+          street,
+          expectedBearing,
+          confidence: 0.85,
+        });
+        streetCandidates++;
+      }
+      if (streetCandidates > 0) {
+        console.log(`  ↳ ${street.id} (${street.name || 'unnamed'}): ${streetCandidates} candidate(s) from ${visiblePoints.length} visible point(s)`);
+      }
+    }
+
+    console.log(`👁️ FAN-WALK: generated ${candidates.length} candidates from ${streets.length} streets`);
+    return candidates;
+  }
+
+  /**
+   * Quality score 100% físico — sem bônus categóricos por urbanDensity ou
+   * elevationType. Usado pelo FAN-WALK (modo visibility-driven).
+   *
+   * Sinais:
+   *  - Tipo de rua OSM (motorway/primary > residential > unknown)
+   *  - Proximidade ao POI (mais perto = melhor, capped)
+   *  - Confiança do registro OSM da rua
+   */
+  private calculateFanWalkQuality(
+    point: { lat: number; lng: number },
+    boundary: BoundaryData,
+    street: StreetData
+  ): number {
+    // Base: 0.6 (já validado pelo fan)
+    let q = 0.6;
+
+    // Tipo de rua — preferência por vias com tráfego real
+    const streetTypeScore: Record<string, number> = {
+      motorway: 0.25,
+      trunk: 0.22,
+      primary: 0.20,
+      secondary: 0.17,
+      tertiary: 0.14,
+      residential: 0.10,
+      unclassified: 0.08,
+      living_street: 0.06,
+      service: 0.04,
+      pedestrian: 0.05,
+      footway: 0.03,
+      cycleway: 0.03,
+    };
+    q += streetTypeScore[street.type] ?? 0.05;
+
+    // Proximidade ao POI (capped: ganho diminui ao se aproximar muito)
+    const distanceToBoundary = calculateDistanceToBoundary(point, boundary.coordinates);
+    if (distanceToBoundary <= 50) q += 0.10;
+    else if (distanceToBoundary <= 200) q += 0.05;
+    else if (distanceToBoundary <= 500) q += 0.02;
+    // > 500m: sem bônus, mas também sem penalidade (fan já validou visibilidade)
+
+    // Confiança do dado da rua
+    if (street.confidence > 0.8) q += 0.03;
+
+    return Math.min(1.0, Math.max(0, q));
+  }
+
   private async calculateMultipleStreetsStrategy(
     streets: StreetData[],
     poiData: POIData,

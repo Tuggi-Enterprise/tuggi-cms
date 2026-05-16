@@ -69,7 +69,13 @@ export async function POST(request: NextRequest) {
     }
     
     console.log(`🚀 API: Generating trigger points for POI: ${poiData.name} (${poiData.id})`);
-    
+    console.log(`🚀 API: Options received: ${JSON.stringify({
+      useVisibilityMap: options.useVisibilityMap || false,
+      visibilityMaxHorizonM: options.visibilityMaxHorizonM,
+      simulateApproach: options.simulateApproach || false,
+      validateCorridor: options.validateCorridor || false,
+    })}`);
+
     // Gerar trigger points
     const predictor = new CoreTriggerPointPredictor();
     const predictionResult = await predictor.predictTriggerPointsComplete(poiData, options);
@@ -213,7 +219,19 @@ function validateOptions(options: any): { valid: boolean; errors: string[] } {
       errors.push('maxConcurrent must be a number between 1 and 10');
     }
   }
-  
+
+  // Visibility-driven mode flags (boolean, opt-in)
+  for (const flag of ['useVisibilityMap', 'simulateApproach', 'validateCorridor'] as const) {
+    if (options[flag] !== undefined && typeof options[flag] !== 'boolean') {
+      errors.push(`${flag} must be a boolean`);
+    }
+  }
+  if (options.visibilityMaxHorizonM !== undefined) {
+    if (typeof options.visibilityMaxHorizonM !== 'number' || options.visibilityMaxHorizonM < 500 || options.visibilityMaxHorizonM > 30000) {
+      errors.push('visibilityMaxHorizonM must be a number between 500 and 30000');
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors

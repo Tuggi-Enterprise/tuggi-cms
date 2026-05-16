@@ -351,6 +351,114 @@ export class LocalOSMFetcher {
   }
 
   /**
+   * Busca ruas ao redor de N pontos amostrados ao longo do boundary do POI.
+   *
+   * Substitui o paradigma "raio fixo a partir do centro" — que falha pra POIs
+   * longos (pontes, calçadões, parques): o centro fica num lugar arbitrário
+   * (meio do rio, etc.) e o raio fixo não cobre todas as extremidades.
+   *
+   * Aqui pegamos N pontos ao longo do perímetro do boundary, buscamos ruas em
+   * raio pequeno ao redor de cada um, e fazemos merge. Resultado: cobertura
+   * proporcional ao tamanho real do POI, sem buracos.
+   */
+  public fetchStreetsAlongBoundary(
+    boundaryCoords: Array<{ lat: number; lng: number }>,
+    radiusPerPointM: number = 200,
+    maxSamplePoints: number = 16
+  ): StreetData[] | null {
+    if (!this.db) return null;
+    if (!boundaryCoords || boundaryCoords.length === 0) return null;
+
+    try {
+      // Amostragem proporcional ao perímetro
+      const samples = this.sampleBoundaryPoints(boundaryCoords, maxSamplePoints);
+      if (samples.length === 0) return null;
+
+      const seen = new Set<string>();
+      const merged: StreetData[] = [];
+
+      for (const sp of samples) {
+        const bbox = this.calculateBBox(sp, radiusPerPointM);
+        const rows = this.queryStreets(bbox);
+        for (const row of rows) {
+          const id = String(row.id);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          merged.push({
+            id: row.id,
+            name: row.name || 'Unknown Street',
+            type: row.type || 'residential',
+            coordinates: JSON.parse(row.geometry_json),
+            accessibility: 'public',
+            confidence: 0.9,
+            tags: row.tags_json ? JSON.parse(row.tags_json) : {},
+          });
+        }
+      }
+
+      console.log(`🚀 [LocalOSMFetcher] Streets along boundary: ${merged.length} unique (from ${samples.length} sample points × ${radiusPerPointM}m radius)`);
+      return merged;
+    } catch (error) {
+      console.error(`❌ [LocalOSMFetcher] Error fetching streets along boundary:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Amostra N pontos distribuídos ao longo do perímetro de um polígono.
+   * Mesma lógica do VisibilityMapBuilder.sampleBoundary — refatorável depois.
+   */
+  private sampleBoundaryPoints(
+    coords: Array<{ lat: number; lng: number }>,
+    maxCount: number
+  ): Array<{ lat: number; lng: number }> {
+    if (coords.length === 0) return [];
+
+    // Perímetro
+    let perimeter = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const dLat = (coords[i + 1].lat - coords[i].lat) * 111_000;
+      const dLng = (coords[i + 1].lng - coords[i].lng) * 111_000 * Math.cos(coords[i].lat * Math.PI / 180);
+      perimeter += Math.sqrt(dLat * dLat + dLng * dLng);
+    }
+
+    // Centroide
+    const centroid = {
+      lat: coords.reduce((s, c) => s + c.lat, 0) / coords.length,
+      lng: coords.reduce((s, c) => s + c.lng, 0) / coords.length,
+    };
+
+    let n: number;
+    if (perimeter < 400) n = 1;
+    else if (perimeter < 2000) n = 4;
+    else if (perimeter < 5000) n = 8;
+    else n = Math.min(maxCount, 12);
+
+    if (n === 1) return [centroid];
+
+    const samples: Array<{ lat: number; lng: number }> = [centroid];
+    const spacing = perimeter / n;
+    let walked = 0;
+    let nextTarget = spacing;
+    for (let i = 0; i < coords.length - 1 && samples.length < n; i++) {
+      const dLat = (coords[i + 1].lat - coords[i].lat) * 111_000;
+      const dLng = (coords[i + 1].lng - coords[i].lng) * 111_000 * Math.cos(coords[i].lat * Math.PI / 180);
+      const segLen = Math.sqrt(dLat * dLat + dLng * dLng);
+      while (walked + segLen >= nextTarget && samples.length < n) {
+        const t = (nextTarget - walked) / segLen;
+        samples.push({
+          lat: coords[i].lat + (coords[i + 1].lat - coords[i].lat) * t,
+          lng: coords[i].lng + (coords[i + 1].lng - coords[i].lng) * t,
+        });
+        nextTarget += spacing;
+      }
+      walked += segLen;
+    }
+
+    return samples;
+  }
+
+  /**
    * Busca pontos de entrada OSM (entrance=main / entrance=yes / entrance=*)
    * dentro de uma bounding box. Retorna nós (lat/lng) com a tag normalizada
    * em `kind` para priorização (main > yes > other).

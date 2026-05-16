@@ -51,6 +51,9 @@ export default function TriggerPointsSinglePage() {
   const [showSearchRadius, setShowSearchRadius] = useState(true)
   const [showStatistics, setShowStatistics] = useState(false)
 
+  // Visibility-driven mode — default ON (motor padrão agora)
+  const [useVisibilityMap, setUseVisibilityMap] = useState(true)
+
   // Buscar POI por ID
   const searchPOI = async () => {
     if (!poiId.trim()) {
@@ -163,7 +166,7 @@ export default function TriggerPointsSinglePage() {
     setError(null)
     setSuccess(null)
     
-    await generateTriggerPoints(poiInfo)
+    await generateTriggerPoints(poiInfo, { useVisibilityMap })
     
     if (generationError) {
       setError(generationError)
@@ -306,6 +309,25 @@ export default function TriggerPointsSinglePage() {
                   {isGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Target className="h-4 w-4" />}
                   Gerar Trigger Points
                 </button>
+
+                {/* Visibility-driven mode toggle (DEFAULT ON) */}
+                <label className="flex items-start gap-3 mt-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-md cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useVisibilityMap}
+                    onChange={(e) => setUseVisibilityMap(e.target.checked)}
+                    className="mt-1 rounded"
+                  />
+                  <div className="text-xs">
+                    <div className="font-semibold text-emerald-900 dark:text-emerald-100">
+                      👁️ Modo Visibility-Driven (padrão)
+                    </div>
+                    <div className="text-emerald-800 dark:text-emerald-200 mt-1">
+                      Motor físico: ray-cast 2.5D usando alturas dos prédios + SRTM.
+                      Substitui filtros categóricos. Desmarque para usar o motor categórico legado.
+                    </div>
+                  </div>
+                </label>
               </div>
             </div>
 

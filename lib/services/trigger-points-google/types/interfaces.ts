@@ -119,6 +119,25 @@ export interface BoundaryData {
   // NOVO: pontos de entrada OSM (entrance=main / entrance=yes) dentro do boundary.
   // Usado como bearing target prioritário em vez do centroid/closest-point.
   entrances?: Array<{ lat: number; lng: number; kind: 'main' | 'yes' | 'other' }>;
+  /**
+   * Visibility fan: união de polígonos (um por ponto amostrado no boundary)
+   * representando onde o POI é fisicamente visível (ray-cast 2.5D). Quando
+   * presente, substitui o searchRadius categórico para filtrar ruas. Opt-in
+   * via options.useVisibilityMap.
+   *
+   * Multi-polígono porque POIs longos (pontes, parques, avenidas como POI)
+   * têm sua visibilidade definida ao redor de toda a extensão, não apenas
+   * do centroide.
+   */
+  visibilityFan?: {
+    polygons: Array<Array<{ lat: number; lng: number }>>;
+    samplePoints: Array<{ lat: number; lng: number }>;
+    maxDistanceM: number;
+    meanDistanceM: number;
+    minDistanceM: number;
+    coverageAreaM2: number;
+    elapsedMs: number;
+  };
   // NOVO: Classificação do POI (HIGH, MEDIUM, CANYON, FLAT)
   classification?: any; // POIClassification from poi-classifier.service
   osmTags?: any; // NOVO: tags OSM para classificação de POI
@@ -218,6 +237,17 @@ export interface TriggerPointGenerationOptions {
   simulateApproach?: boolean;
   /** Issue 2.3 — Validação de corredor via OSRM (testa se rua leva ao POI). */
   validateCorridor?: boolean;
+  /**
+   * Visibility-driven mode. Substitui o raio de busca categórico (HIGH=5km,
+   * FLAT=120m, etc.) por um polígono de visibilidade real computado via
+   * ray-cast 2.5D (alturas dos prédios + SRTM). TPs ficam onde o POI é
+   * fisicamente visível, independente de regra categórica.
+   *
+   * Performance: +1-3s por POI. Local data only (sem rate-limit).
+   */
+  useVisibilityMap?: boolean;
+  /** Cap superior pra busca de visibilidade. Default 10km. Decisão de produto. */
+  visibilityMaxHorizonM?: number;
 }
 
 export interface TriggerPointGenerationResult {

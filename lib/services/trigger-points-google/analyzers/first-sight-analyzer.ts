@@ -25,7 +25,7 @@ import {
   calculateBearing,
   isSightLineBlockedBy,
   buildingCentroid,
-  calculateAudioAwareRadius,
+  calculateGpsAwareRadius,
   resolveStreetSpeedKmh,
 } from '../../../geometry';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
@@ -113,10 +113,10 @@ export class FirstSightAnalyzer {
     const tags: any = (street as any).tags || {};
     const speed = resolveStreetSpeedKmh(tags.maxspeed, street.type);
     const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
-    const radius = calculateAudioAwareRadius(
+    const radius = calculateGpsAwareRadius(
       speed,
-      cfg.audioDurationSec,
-      cfg.audioBufferSec,
+      cfg.gpsPingWindowSec,
+      cfg.gpsPingSafetyFactor,
       { min: cfg.minRadiusM, max: cfg.maxRadiusM }
     );
 
