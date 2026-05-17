@@ -1,7 +1,7 @@
 // Validador e ranker de trigger points
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData, DirectionalAnalysis } from '../types/interfaces';
-import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon } from '../utils/calculations';
+import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary } from '../utils/calculations';
 import { VisibilityValidator } from './visibility-validator';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
@@ -180,12 +180,19 @@ export class TriggerPointValidator {
       // Aqui descartamos candidatos cuja rua é one-way e cuja única direção de
       // tráfego resultaria em "back" relativo ao POI. Vias bidirecionais sempre
       // passam (alguém indo na direção certa pode disparar).
-      // ✅ Bypass cases — one-way não faz sentido em:
-      //   1. Ruas sem tag oneway (bidirecional)
-      //   2. TPs DENTRO do boundary do POI (você não está "indo embora" de algo
-      //      em que está em cima — caso típico: deck de ponte, ruas dentro de
-      //      parque, túnel sob o POI)
-      const onewayRejections: string[] = [];
+      // One-way validation:
+      //
+      // Modo fan: DESLIGADO. Motivo: a direção de way no OSM tem inconsistências
+      // (alguns segmentos desenhados na direção contrária ao tráfego real),
+      // gerando falsos positivos de rejeição em ruas de mão única famosas
+      // (ex: 5th Ave em Manhattan). O app `tuggi-drive-v2` já filtra
+      // `direction=back` em runtime — TPs gerados em ruas de mão errada
+      // simplesmente não disparam, sem prejuízo. Aqui apenas LOGAMOS o que
+      // SERIA rejeitado, pra monitoramento.
+      //
+      // Modo categórico (sem fan): mantém pre-filter (legado).
+      const fanModeForOneway = !!boundary.visibilityFan?.polygons?.length;
+      const onewayWouldReject: string[] = [];
       const onewayValidCandidates = basicValidCandidates.filter(c => {
         const streetTags: any = (c.street as any)?.tags || {};
         const oneway: string | undefined = streetTags.oneway;
@@ -199,16 +206,20 @@ export class TriggerPointValidator {
         if (isPointInPolygon(c.location, boundary.coordinates)) return true;
 
         const ok = isApproachableForBearing(streetCoords, oneway, c.expectedBearing);
+
         if (!ok) {
-          onewayRejections.push(`${c.street?.id} (${(c.street as any)?.name || 'unnamed'}) oneway=${oneway}, bearing=${c.expectedBearing.toFixed(0)}°`);
+          onewayWouldReject.push(`${c.street?.id} (${(c.street as any)?.name || 'unnamed'}) oneway=${oneway}, bearing=${c.expectedBearing.toFixed(0)}°`);
+          // Modo fan: NÃO descarta, só registra. Modo categórico: descarta.
+          return fanModeForOneway;
         }
-        return ok;
+        return true;
       });
 
-      if (onewayRejections.length > 0) {
-        console.log(`🚦 One-way validation: discarded ${onewayRejections.length}/${basicValidCandidates.length} candidate(s):`);
-        for (const r of onewayRejections.slice(0, 10)) console.log(`   → ${r}`);
-        if (onewayRejections.length > 10) console.log(`   → (+${onewayRejections.length - 10} more)`);
+      if (onewayWouldReject.length > 0) {
+        const action = fanModeForOneway ? 'flagged-only (fan mode, app filters runtime)' : 'DISCARDED';
+        console.log(`🚦 One-way validation: ${action} ${onewayWouldReject.length}/${basicValidCandidates.length} candidate(s):`);
+        for (const r of onewayWouldReject.slice(0, 10)) console.log(`   → ${r}`);
+        if (onewayWouldReject.length > 10) console.log(`   → (+${onewayWouldReject.length - 10} more)`);
       }
 
       
@@ -227,19 +238,26 @@ export class TriggerPointValidator {
       });
       
       
-      // ✅ FILTRO DE DISTÂNCIA MÍNIMA.
-      // No modo fan, FAN-WALK já espaçou candidatos INTRA-rua pelo
-      // minDistanceBetweenTPs. Aplicar o mesmo threshold globalmente
-      // (inter-streets) removeria TPs em ruas paralelas próximas — o que vai
-      // contra a meta de "cobertura completa". Reduzimos o threshold global
-      // pela metade no modo fan: ainda evita duplicatas reais, mas preserva
-      // cobertura em malhas urbanas densas.
+      // ✅ FILTRO DE PROXIMIDADE — duas variantes:
+      //
+      // Modo fan (type-aware smart dedup):
+      //   - Pré-classifica cada candidato como 'primary' (alto valor: intersection,
+      //     rua principal, perto do POI, addr:street match) ou 'secondary'.
+      //   - Dedup com thresholds DIFERENTES por type:
+      //       primary+primary próximos: 20m + 30° (muito permissivo)
+      //       secondary+secondary próximos: 50m + 45° (atual)
+      //       mixed (primary vs secondary próximos): primary sempre vence
+      //
+      // Modo categórico (fallback): spacing tradicional por distância apenas.
       const fanActiveForSpacing = !!boundary.visibilityFan?.polygons?.length;
-      const effectiveMinDistance = fanActiveForSpacing ? Math.max(15, Math.floor(minDistanceBetweenTPs / 2)) : minDistanceBetweenTPs;
+      let distanceFilteredCandidates: TriggerPointCandidate[];
       if (fanActiveForSpacing) {
-        console.log(`👁️ Inter-street spacing relaxed for fan mode: ${effectiveMinDistance}m (config: ${minDistanceBetweenTPs}m)`);
+        // Tag cada candidato com primaryScore e predictedType
+        this.classifyCandidatesByPrimaryScore(rankedCandidates, boundary);
+        distanceFilteredCandidates = this.selectCandidatesWithTypeAwareDedup(rankedCandidates, dynamicMaxTPs);
+      } else {
+        distanceFilteredCandidates = this.selectCandidatesWithMinDistance(rankedCandidates, dynamicMaxTPs, minDistanceBetweenTPs, boundary, context);
       }
-      const distanceFilteredCandidates = this.selectCandidatesWithMinDistance(rankedCandidates, dynamicMaxTPs, effectiveMinDistance, boundary, context);
 
       // VALIDAÇÃO DE VISIBILIDADE (lento — última linha de defesa).
       //
@@ -307,6 +325,242 @@ export class TriggerPointValidator {
   }
   
   
+  /**
+   * Score-based classification — atribui `predictedType` e `primaryScore` a
+   * cada candidato baseado em propriedades intrínsecas:
+   *  - street class (motorway/primary > residential)
+   *  - proximidade ao boundary (mais perto = melhor)
+   *  - intersection (≥1 outro candidato com street.id diferente em raio 30m)
+   *  - addr:street match (rua = endereço OSM do POI)
+   *
+   * Score >= 0.55 → primary, senão → secondary.
+   * Substitui o velho `determineTriggerType` baseado em índice.
+   */
+  private classifyCandidatesByPrimaryScore(
+    candidates: TriggerPointCandidate[],
+    boundary: BoundaryData
+  ): void {
+    // FIXES (round 2):
+    //  - proximity agora usa `calculateDistanceToBoundary` (distância à aresta,
+    //    0 se dentro do polígono). Antes usava centroide, o que dava bônus
+    //    baixo pra TPs em cantos de POIs grandes.
+    //  - threshold 0.55 → 0.50 (achievable por secondary street + edge + intersection)
+    //  - intersection bonus 0.15 → 0.20 (esquinas valem mais)
+    const PRIMARY_THRESHOLD = 0.50;
+    const INTERSECTION_RADIUS_M = 30;
+    const INTERSECTION_BONUS = 0.20;
+    const addrStreet = (boundary.address?.street || '').toLowerCase().trim();
+
+    const streetClassScore: Record<string, number> = {
+      motorway: 0.30,
+      trunk: 0.25,
+      primary: 0.20,
+      secondary: 0.15,
+      tertiary: 0.10,
+      residential: 0.05,
+      unclassified: 0.03,
+      living_street: 0.03,
+      service: 0.02,
+      pedestrian: 0.05,
+    };
+
+    let primaryCount = 0;
+    for (const cand of candidates) {
+      let score = 0;
+      const breakdown: any = {};
+
+      // 1. Street class
+      const sc = streetClassScore[cand.street?.type] ?? 0;
+      score += sc; breakdown.streetClass = sc;
+
+      // 2. Proximity to boundary EDGE (FIX: usa distância à aresta, 0 se dentro)
+      const distToEdge = calculateDistanceToBoundary(cand.location, boundary.coordinates);
+      let proximityBonus = 0;
+      if (distToEdge <= 30) proximityBonus = 0.15;
+      else if (distToEdge <= 100) proximityBonus = 0.10;
+      else if (distToEdge <= 500) proximityBonus = 0.05;
+      score += proximityBonus; breakdown.proximity = proximityBonus;
+
+      // 3. Intersection: outro candidato com street.id diferente em raio 30m
+      const hasIntersection = candidates.some(other => {
+        if (other === cand) return false;
+        if (String(other.street?.id) === String(cand.street?.id)) return false;
+        return calculateDistance(other.location, cand.location) < INTERSECTION_RADIUS_M;
+      });
+      const interBonus = hasIntersection ? INTERSECTION_BONUS : 0;
+      score += interBonus; breakdown.intersection = interBonus;
+
+      // 4. addr:street match (POI's named front street)
+      let addrBonus = 0;
+      if (addrStreet) {
+        const sName = (cand.street?.name || '').toLowerCase().trim();
+        if (sName && (sName.includes(addrStreet) || addrStreet.includes(sName))) {
+          addrBonus = 0.20;
+        }
+      }
+      score += addrBonus; breakdown.addrMatch = addrBonus;
+
+      cand.primaryScore = Math.round(score * 100) / 100;
+      cand.predictedType = score >= PRIMARY_THRESHOLD ? 'primary' : 'secondary';
+      cand.metadata = { ...(cand.metadata || {}), primaryScoreBreakdown: breakdown };
+
+      if (cand.predictedType === 'primary') primaryCount++;
+    }
+
+    console.log(`🏷️ Classification: ${primaryCount} primary / ${candidates.length - primaryCount} secondary (threshold=${PRIMARY_THRESHOLD})`);
+  }
+
+  /**
+   * Type-aware dedup. Aplica thresholds DIFERENTES por type:
+   *  - primary+primary próximos: 20m + 30° (muito permissivo)
+   *  - secondary+secondary próximos: 50m + 45° (atual)
+   *  - mixed: primary vence, secondary descartado
+   *
+   * Ordem de processamento: primaries primeiro (asc quality), depois secondaries
+   * (asc quality). Isso garante que primaries "ocupam" o espaço antes dos
+   * secondaries serem avaliados.
+   */
+  private selectCandidatesWithTypeAwareDedup(
+    candidates: TriggerPointCandidate[],
+    maxTriggerPoints: number
+  ): TriggerPointCandidate[] {
+    // Sort: primaries primeiro, dentro de cada grupo por quality desc
+    const sorted = [...candidates].sort((a, b) => {
+      const aPrim = a.predictedType === 'primary' ? 1 : 0;
+      const bPrim = b.predictedType === 'primary' ? 1 : 0;
+      if (aPrim !== bPrim) return bPrim - aPrim;
+      return b.quality - a.quality;
+    });
+
+    const selected: TriggerPointCandidate[] = [];
+    let droppedRedundant = 0;
+    let droppedByMixed = 0;
+    let droppedByCap = 0;
+
+    // Thresholds bumpados (round 2):
+    //  - Hard floor 15m: pares < 15m sempre dedup (radii sobrepostos, duplicata física)
+    //  - Primary+Primary: 30m + 45° (era 20m + 30°)
+    //  - Secondary+Secondary: 70m + 60° (era 50m + 45°)
+    //  - Primary absorve Secondary: 70m + 60° (era 50m + 45°)
+    const HARD_FLOOR_M = 15;
+
+    for (const cand of sorted) {
+      if (selected.length >= maxTriggerPoints) { droppedByCap++; continue; }
+
+      const candType = cand.predictedType || 'secondary';
+      let isRedundant = false;
+
+      for (const existing of selected) {
+        const existingType = existing.predictedType || 'secondary';
+        const dist = calculateDistance(cand.location, existing.location);
+        const bearingDiff = Math.abs(normalizeAngleDifference(existing.expectedBearing - cand.expectedBearing));
+        const qualityGap = existing.quality - cand.quality;
+
+        // Hard floor: TPs colados são duplicata física, dropa independente de type/bearing
+        if (dist < HARD_FLOOR_M) {
+          isRedundant = true;
+          droppedRedundant++;
+          break;
+        }
+
+        let thresholdDist: number, thresholdBearing: number, requireQualityGap: boolean;
+        if (candType === 'primary' && existingType === 'primary') {
+          // Primary vs Primary: permissivo
+          thresholdDist = 30; thresholdBearing = 45; requireQualityGap = true;
+        } else if (candType === 'primary' && existingType === 'secondary') {
+          // Primary sendo avaliado contra Secondary — primary nunca perde
+          continue;
+        } else if (candType === 'secondary' && existingType === 'primary') {
+          // Mixed: secondary perde pra primary se "próximos"
+          thresholdDist = 70; thresholdBearing = 60; requireQualityGap = false;
+          if (dist < thresholdDist && bearingDiff < thresholdBearing) {
+            isRedundant = true;
+            droppedByMixed++;
+            break;
+          }
+          continue;
+        } else {
+          // Secondary vs Secondary: mais agressivo
+          thresholdDist = 70; thresholdBearing = 60; requireQualityGap = true;
+        }
+
+        if (dist < thresholdDist && bearingDiff < thresholdBearing) {
+          if (requireQualityGap && qualityGap < 0.05) continue;
+          isRedundant = true;
+          droppedRedundant++;
+          break;
+        }
+      }
+
+      if (!isRedundant) selected.push(cand);
+    }
+
+    const finalPrim = selected.filter(c => c.predictedType === 'primary').length;
+    const finalSec = selected.length - finalPrim;
+    console.log(
+      `🏷️ Type-aware dedup: kept ${selected.length}/${candidates.length} (${finalPrim} primary + ${finalSec} secondary). ` +
+      `Dropped: ${droppedRedundant} redundant same-type, ${droppedByMixed} secondary-absorbed-by-primary, ${droppedByCap} by cap.`
+    );
+    return selected;
+  }
+
+  /**
+   * Smart dedup bearing-aware (modo fan).
+   *
+   * Princípio: dois candidatos são considerados "duplicatas" só quando
+   * fisicamente próximos E apontando pra mesma direção. Caso contrário,
+   * mesmo se próximos, ambos são mantidos (ruas perpendiculares no cruzamento,
+   * ruas paralelas próximas, approaches distintos).
+   *
+   * "Errar por mais": empate de quality (diff < threshold) mantém os dois.
+   * Só dropa o claramente pior.
+   *
+   * Complexidade: O(n²) por par. Pra n típico (<300 candidatos) é trivial.
+   */
+  private selectCandidatesWithBearingDedup(
+    rankedCandidates: TriggerPointCandidate[],
+    maxTriggerPoints: number,
+    config: { proximityM: number; bearingDeltaDeg: number; qualityTieDelta: number }
+  ): TriggerPointCandidate[] {
+    const selected: TriggerPointCandidate[] = [];
+    let droppedRedundant = 0;
+    let droppedByCap = 0;
+
+    // Já chega ordenado por (front-street, quality desc). Iteração greedy.
+    for (const cand of rankedCandidates) {
+      if (selected.length >= maxTriggerPoints) {
+        droppedByCap++;
+        continue;
+      }
+
+      const isRedundant = selected.some(existing => {
+        const dist = calculateDistance(cand.location, existing.location);
+        if (dist >= config.proximityM) return false;
+
+        // Diferença angular tratada com wrap-around (0/360°)
+        const diff = Math.abs(normalizeAngleDifference(existing.expectedBearing - cand.expectedBearing));
+        if (diff >= config.bearingDeltaDeg) return false;
+
+        // Empate de quality: NÃO considera redundante (mantém ambos)
+        const qualityGap = existing.quality - cand.quality;
+        if (qualityGap < config.qualityTieDelta) return false;
+
+        // Caiu nos 3 critérios → redundante de fato
+        return true;
+      });
+
+      if (isRedundant) {
+        droppedRedundant++;
+        continue;
+      }
+
+      selected.push(cand);
+    }
+
+    console.log(`👁️ Smart dedup: kept ${selected.length}/${rankedCandidates.length} (dropped ${droppedRedundant} as redundant, ${droppedByCap} by max cap=${maxTriggerPoints}). Thresholds: dist<${config.proximityM}m AND |Δbearing|<${config.bearingDeltaDeg}° AND Δquality≥${config.qualityTieDelta}`);
+    return selected;
+  }
+
   /**
    * NOVO: Seleciona candidatos garantindo distância mínima entre eles (mantém como candidatos)
    * ✅ OTIMIZAÇÃO: Mantém candidatos para aplicar verificação de visibilidade depois
@@ -1762,7 +2016,12 @@ out geom meta;
     context: GeographicContext
   ): TriggerPoint {
     const id = this.generateTriggerPointId();
-    const type = this.determineTriggerType(index, candidate.quality, candidate, boundary, context);
+    // Prefere o type pré-computado por `classifyCandidatesByPrimaryScore`
+    // (intrínseco: street class + proximity + intersection + addr:street).
+    // Fallback pro velho `determineTriggerType` (baseado em índice) quando o
+    // pré-computado não está disponível (modo categórico, sem fan).
+    const type = candidate.predictedType
+      || this.determineTriggerType(index, candidate.quality, candidate, boundary, context);
     const priority = index + 1;
     const radius = this.calculateRadius(candidate, context, boundary);
     

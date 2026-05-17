@@ -177,6 +177,14 @@ export interface TriggerPointCandidate {
   confidence: number;
   streetName?: string; // NOVO: nome da rua
   streetDirection?: { lat: number; lng: number }; // NOVO: direção da rua
+  /**
+   * Tipo pré-computado por valor intrínseco do candidato (street class,
+   * intersection, proximity, addr:street match). Setado durante a fase de
+   * score-based classification, usado por dedup type-aware e convertToTriggerPoint.
+   */
+  predictedType?: 'primary' | 'secondary';
+  /** Score 0-1 computado por `computePrimaryScore` */
+  primaryScore?: number;
   metadata?: any; // NOVO: metadados adicionais
 }
 

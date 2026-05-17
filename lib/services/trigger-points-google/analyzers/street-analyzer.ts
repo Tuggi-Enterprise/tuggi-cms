@@ -508,15 +508,16 @@ export class StreetAnalyzer {
 
         // Quando o fan está ativo, SEMPRE buscar streets usando amostragem ao
         // longo do boundary. A `boundary.streets` consolidada veio da detecção
-        // inicial (raio ~600m do centroide) e é insuficiente pra POIs cujo
-        // boundary é grande ou cuja visibilidade vai longe.
+        // inicial (bbox ~600m centrada no PIN do POI), o que enviesa cobertura
+        // pro lado do pin em boundaries grandes/assimétricos. O fetch ao longo
+        // do boundary distribui os bboxes uniformemente pelo perímetro real.
         //
         // Estratégia: N pontos amostrados ao longo do perímetro × raio fan
         // por ponto = cobertura proporcional ao tamanho real do POI E à
         // visibilidade física.
         const fanActive = !!boundary.visibilityFan?.polygons?.length;
-        if (fanActive && searchRadius > 300) {
-          console.log(`🔭 [EXTEND] Fan active → fetching streets along boundary (searchRadius=${searchRadius}m)`);
+        if (fanActive) {
+          console.log(`🔭 [EXTEND] Fan active → fetching streets along boundary (searchRadius=${searchRadius}m, bypassing pin-bias from initial fetch)`);
           try {
             const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
             const fetcher = LocalOSMFetcher.getInstance();
