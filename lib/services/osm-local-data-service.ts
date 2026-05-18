@@ -177,7 +177,7 @@ export class OSMLocalDataService {
         // Ferry/waterway: maritime taxi, ferries, navigable rivers/canals.
         // Aerialway: cable cars / gondolas approaching mountain/landmark POIs.
         const NAVIGABLE_WATERWAYS = ['river', 'canal', 'tidal_channel', 'drain'];
-        const SCENIC_RAILWAYS = ['rail', 'light_rail', 'tram', 'monorail', 'narrow_gauge', 'preserved'];
+        const SCENIC_RAILWAYS = ['rail', 'light_rail', 'tram', 'monorail', 'subway', 'narrow_gauge', 'preserved'];
         const AERIALWAY_TYPES = ['cable_car', 'gondola', 'chair_lift', 'mixed_lift'];
 
         const isFerry = tags.route === 'ferry' || tags.ferry === 'yes';

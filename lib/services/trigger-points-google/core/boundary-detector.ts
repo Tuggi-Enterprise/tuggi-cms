@@ -1094,14 +1094,23 @@ out geom tags;
       'pedestrian': 'pedestrian',
       'service': 'service',
       // Non-road routes classified with prefixed names matching isStreetAccessible
+      // Non-motorized / active transport
+      'cycleway': 'cycleway',
+      'footway': 'footway',
+      'path': 'path',
+      'bus_guideway': 'bus_guideway',
+      // Maritime
       'ferry': 'ferry',
       'waterway': 'waterway',
+      // Railway (prefixed so isStreetAccessible can match by exact type)
       'rail': 'railway_rail',
       'light_rail': 'railway_light_rail',
       'tram': 'railway_tram',
+      'subway': 'railway_subway',
       'monorail': 'railway_monorail',
       'narrow_gauge': 'railway_narrow_gauge',
       'preserved': 'railway_preserved',
+      // Aerialway
       'cable_car': 'aerialway_cable_car',
       'gondola': 'aerialway_gondola',
       'chair_lift': 'aerialway_chair_lift',

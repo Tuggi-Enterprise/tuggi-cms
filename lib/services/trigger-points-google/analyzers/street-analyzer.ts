@@ -1471,23 +1471,26 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
    * Verifica se uma rua é acessível
    */
   private isStreetAccessible(road: StreetData, context: GeographicContext): boolean {
-    // Verificar se a rua é acessível - INCLUINDO RODOVIAS PARA POIs DE ALTA ELEVAÇÃO
-    const accessibleRoadTypes = [
-      'motorway',        // 🛣️ Rodovias (ex: Rodoanel)
-      'trunk',           // 🛣️ Vias Expressas (ex: Anhanguera)
-      'primary',         // 🛤️ Vias Principais
-      'secondary',       // 🛤️ Vias Secundárias
-      'tertiary',        // 🛤️ Vias Terciárias
-      'residential',     // 🏘️ Ruas Residenciais
-      'living_street',   // 🏘️ Ruas de Convivência
-      'unclassified',    // 🛤️ Ruas não classificadas (ex: Estradas Turísticas)
-      'motorway_link',   // 🔗 Acessos às Rodovias
-      'trunk_link',      // 🔗 Acessos às Vias Expressas
-      'ferry',                   // ⛴️ Rotas de ferry / táxi marítimo
-      'waterway',               // 🌊 Hidrovias navegáveis (rios, canais)
+    // Tipos de vias onde usuários passam e podem ouvir audio guides.
+    // Inclui todos os modos: carro, ônibus, bicicleta, pedestre, trem, barco, teleférico.
+    const MOTORIZED_ROAD_TYPES = new Set([
+      'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+      'residential', 'living_street', 'unclassified',
+      'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+      'bus_guideway',  // 🚌 Faixa exclusiva de ônibus
+      'ferry',         // ⛴️ Ferry / táxi marítimo
+    ]);
+
+    const NON_MOTORIZED_TYPES = new Set([
+      'cycleway',      // 🚲 Ciclovia dedicada
+      'footway',       // 🚶 Calçada / passeio
+      'pedestrian',    // 🚶 Zona pedestre (rua comercial, piazza)
+      'path',          // 🥾 Caminho genérico (trilha, atalho urbano)
+      'waterway',      // 🌊 Hidrovia navegável (rio, canal)
       'railway_rail',           // 🚆 Trem de superfície
       'railway_light_rail',     // 🚊 VLT / light rail
       'railway_tram',           // 🚃 Bonde / tram
+      'railway_subway',         // 🚇 Metrô ELEVADO (filtro de túnel abaixo rejeita o subterrâneo)
       'railway_monorail',       // 🚝 Monotrilho
       'railway_narrow_gauge',   // 🚂 Trem de bitola estreita (turístico)
       'railway_preserved',      // 🚂 Ferrovia histórica preservada
@@ -1495,10 +1498,13 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       'aerialway_gondola',      // 🚡 Gôndola
       'aerialway_chair_lift',   // 🪑 Cadeirinha
       'aerialway_mixed_lift',   // 🚡 Teleférico misto
-    ];
-    
-    if (!accessibleRoadTypes.includes(road.type)) {
-      console.log(`🚫 Road type '${road.type}' not in accessible types: [${accessibleRoadTypes.join(', ')}]`);
+    ]);
+
+    const isMotorizedRoad = MOTORIZED_ROAD_TYPES.has(road.type);
+    const isNonMotorized = NON_MOTORIZED_TYPES.has(road.type);
+
+    if (!isMotorizedRoad && !isNonMotorized) {
+      console.log(`🚫 Road type '${road.type}' not in accessible types`);
       return false;
     }
 
@@ -1507,23 +1513,22 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
       return false;
     }
 
-    // Restrições adicionais de acesso veicular (tags OSM):
-    //  - motor_vehicle=no/private/destination: park loops (Central Park),
-    //    drives de serviço, pedestrian-only zones taggeadas como tertiary
-    //    legado. Carros NÃO passam por ali, não devemos gerar TP.
-    //  - vehicle=no: qualquer veículo proibido (rara mas explícita).
-    //
-    // Genérico: aplica a qualquer POI cercado por área restrita
-    // (parques, campus, plazas), sem hardcode por categoria de POI.
-    const motorVehicle = road.tags?.motor_vehicle;
-    if (motorVehicle === 'no' || motorVehicle === 'private' || motorVehicle === 'destination') {
-      console.log(`🚫 Street ${road.id} (${(road as any).name || 'unnamed'}) rejected: motor_vehicle=${motorVehicle}`);
-      return false;
-    }
-    const vehicleTag = road.tags?.vehicle;
-    if (vehicleTag === 'no' || vehicleTag === 'private') {
-      console.log(`🚫 Street ${road.id} (${(road as any).name || 'unnamed'}) rejected: vehicle=${vehicleTag}`);
-      return false;
+    // motor_vehicle/vehicle filter: rejeitar vias RODOVIÁRIAS restritas a carros
+    // (park loops do Central Park, drives de serviço, pedestrian zones taggeadas como tertiary legado).
+    // NÃO aplica a rotas não-motorizadas (ciclovia, calçada, trem, barco) — elas
+    // inerentemente não têm tráfego de motor_vehicle, então o tag seria irrelevante
+    // ou ausente. Aplicar aqui causaria falsos negativos em pedestrian streets legítimas.
+    if (isMotorizedRoad) {
+      const motorVehicle = road.tags?.motor_vehicle;
+      if (motorVehicle === 'no' || motorVehicle === 'private' || motorVehicle === 'destination') {
+        console.log(`🚫 Street ${road.id} (${(road as any).name || 'unnamed'}) rejected: motor_vehicle=${motorVehicle}`);
+        return false;
+      }
+      const vehicleTag = road.tags?.vehicle;
+      if (vehicleTag === 'no' || vehicleTag === 'private') {
+        console.log(`🚫 Street ${road.id} (${(road as any).name || 'unnamed'}) rejected: vehicle=${vehicleTag}`);
+        return false;
+      }
     }
     
     // NOVO: Rejeitar ruas em túneis (sem visibilidade do céu/POI)
