@@ -157,12 +157,6 @@ export class CoreTriggerPointPredictor {
         // ✅ Use the robust fallback strategy that guarantees at least one point
         const fallbackPoints = await this.generateRecoveryFallbackTriggerPoints(poiData, context, boundary);
 
-        // Issue 2.4 — Mesmo sem ruas acessíveis, se temos boundary válido,
-        // emite o geofence TP (cobre o caso do usuário caminhando que entra
-        // pelo polígono sem passar por nenhum TP arrival na rua).
-        const geofenceTP = this.buildGeofenceTriggerPoint(poiData, boundary, context);
-        if (geofenceTP) fallbackPoints.unshift(geofenceTP);
-
         const processingTime = Date.now() - startTime;
 
         return {
@@ -328,14 +322,8 @@ export class CoreTriggerPointPredictor {
       const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, filteredPoints);
       for (const t of frontalTPs) filteredPoints.push(t);
 
-      // 9. Geofence TP (issue 2.4): se o POI tem boundary válido, gera 1 TP
-      //    de cobertura por polígono. Usuários andando que entram pela porta
-      //    do museu / lateral do parque disparam por aqui, sem depender de
-      //    passar por um TP arrival na rua.
-      const geofenceTP = this.buildGeofenceTriggerPoint(poiData, boundary, context);
-      if (geofenceTP) {
-        filteredPoints.unshift(geofenceTP); // prioridade 1 (cobertura primária)
-      }
+      // Geofence: o app usa o boundary polygon diretamente para point-in-polygon.
+      // Não gerar TP do tipo geofence — é redundante e polui o DB.
 
       const processingTime = Date.now() - startTime;
 
@@ -643,17 +631,13 @@ export class CoreTriggerPointPredictor {
     const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, out);
     for (const t of frontalTPs) out.push(t);
 
-    // 2. Geofence TP
-    const geofence = this.buildGeofenceTriggerPoint(poiData, boundary, context);
-    if (geofence) out.unshift(geofence);
-
     if (out.length > 0) {
-      console.log(`🛟 Fan-collapse fallback: emitted ${out.length} TP(s) — ${frontalTPs.length} frontal + ${geofence ? 1 : 0} geofence`);
+      console.log(`🛟 Fan-collapse fallback: emitted ${out.length} frontal TP(s)`);
       return out;
     }
 
-    // 3. Último recurso: legacy single-TP fallback
-    console.warn('🛟 Fan-collapse fallback: no frontal nor geofence available, falling back to legacy single-TP');
+    // Último recurso: legacy single-TP fallback
+    console.warn('🛟 Fan-collapse fallback: no frontal TPs available, falling back to legacy single-TP');
     return await this.generateFallbackTriggerPoints(poiData, boundary, context, accessibleStreets);
   }
 
@@ -1564,15 +1548,11 @@ export class CoreTriggerPointPredictor {
       const d = calculateDistance(boundary.center, c);
       if (d > polygonBoundingRadius) polygonBoundingRadius = d;
     }
-    // safetyRadius: pre-filter radius used by the app before doing point-in-polygon check.
-    // The actual geofence zone is defined by geometryGeoJson (the boundary polygon).
-    // DB constraint chk_radius_positive caps radius_meters at 500m, so we cap here too.
-    const DB_RADIUS_MAX = 500;
-    const safetyRadius = Math.min(
-      Math.max(500, Math.round(fanMax), Math.round(polygonBoundingRadius)),
-      DB_RADIUS_MAX
-    );
-    console.log(`🟦 Geofence radius: ${safetyRadius}m (polygon bounding=${polygonBoundingRadius.toFixed(0)}m, fanMax=${fanMax.toFixed(0)}m, capped at ${DB_RADIUS_MAX}m)`);
+    // Para geofence, o trigger zone É o polígono em geometry_geojson.
+    // O app usa point-in-polygon — radius_meters não tem significado aqui.
+    // Valor 1 satisfaz o DB constraint (chk_radius_positive > 0).
+    const safetyRadius = 1;
+    console.log(`🟦 Geofence TP: polygon=${boundary.coordinates.length} pts, area=${boundary.area_m2?.toFixed(0)}m² — trigger zone is the polygon (radius_meters=1, nominal only)`);
 
     return {
       id: deterministicTPId(poiData.id, 'geofence', boundary.center.lat, boundary.center.lng),
