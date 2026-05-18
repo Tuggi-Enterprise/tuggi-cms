@@ -1,46 +1,55 @@
 /**
  * Regenera TPs para POIs do core usando fila com claim atômico (SKIP LOCKED).
- * Múltiplos processos/workers podem rodar em paralelo sem coordenação manual.
+ * Múltiplos workers podem rodar em paralelo sem coordenação manual.
  *
  * Fluxo:
- *   1. `--create-batch` — cria a fila no DB (rodar 1x)
+ *   1. `--create-batch` — cria a fila no DB (1x por cidade/região)
  *   2. `--run-batch`    — worker consome a fila (rodar N vezes em paralelo)
+ *   3. `--status`       — ver progresso
  *
- * Uso:
- *   # 1. Criar batch (1x)
+ * Exemplos:
+ *   npx tsx scripts/regen-trigger-points.ts --id <uuid>
+ *
  *   npx tsx scripts/regen-trigger-points.ts \
  *     --create-batch ny-2026-05-18 \
  *     --city "New York" --state "NY" --country "United States"
  *
- *   # 2. Rodar 5 workers em paralelo (5 terminais ou processos em background)
- *   for i in 1 2 3 4 5; do
- *     npx tsx scripts/regen-trigger-points.ts --run-batch ny-2026-05-18 &
- *   done
+ *   npx tsx scripts/regen-trigger-points.ts --run-batch ny-2026-05-18
+ *   # (abrir N terminais com o mesmo comando para N workers)
  *
- *   # Status do batch
  *   npx tsx scripts/regen-trigger-points.ts --status ny-2026-05-18
- *
- *   # POI único (sem fila)
- *   npx tsx scripts/regen-trigger-points.ts --id <uuid>
  */
 
 import { PoiMigrationPipeline } from '../lib/services/poi-migration-pipeline'
-import { getSupabase } from '../lib/core/supabase-client'
+import { createClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
 import * as os from 'os'
 
-const supabase = getSupabase('service')
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
+const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || ''
+
+if (!SUPABASE_URL || !SERVICE_KEY) {
+  console.error('❌ SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios.')
+  process.exit(1)
+}
+
+// Cliente para o schema 'core' (attractions, tp_regen_queue, RPCs)
+const db = createClient(SUPABASE_URL, SERVICE_KEY, {
+  db: { schema: 'core' },
+  auth: { autoRefreshToken: false, persistSession: false },
+})
+
 const WORKER_ID = `${os.hostname()}-${process.pid}`
 
 // ─── POI único ───────────────────────────────────────────────────────────────
 
 async function regenSingle(attractionId: string) {
-  console.log(`\n🔄 Regenerating TPs for: ${attractionId}`)
+  console.log(`\n🔄 Regenerando TPs para: ${attractionId}`)
   const result = await PoiMigrationPipeline.executePipeline(attractionId, {
     mode: 'reprocess_triggers_core',
     auto_approve_if_satisfactory: true,
   })
-  console.log(`✅ Done:`, JSON.stringify(result, null, 2))
+  console.log(`✅ Concluído:`, JSON.stringify(result, null, 2))
 }
 
 // ─── Criar fila ──────────────────────────────────────────────────────────────
@@ -49,32 +58,30 @@ async function createBatch(batchId: string, filters: {
   city?: string; state?: string; country?: string
 }) {
   // Verificar se batch já existe
-  const { data: existing } = await (supabase as any)
-    .schema('core').from('tp_regen_queue')
-    .select('id', { count: 'exact', head: true })
+  const { count: existingCount } = await db
+    .from('tp_regen_queue')
+    .select('*', { count: 'exact', head: true })
     .eq('batch_id', batchId)
 
-  if ((existing as any)?.count > 0) {
-    console.log(`⚠️  Batch "${batchId}" já existe. Use --status para ver o progresso.`)
+  if (existingCount && existingCount > 0) {
+    console.log(`⚠️  Batch "${batchId}" já existe com ${existingCount} itens. Use --status para ver o progresso.`)
     return
   }
 
-  // Buscar IDs do core
-  let query = (supabase as any).schema('core').from('attractions')
-    .select('id')
-    .eq('status', 'active')
+  // Buscar IDs das attractions no schema 'core'
+  let query = db.from('attractions').select('id')
 
   if (filters.country) query = query.eq('country', filters.country)
-  if (filters.state)   query = query.eq('state', filters.state)
-  if (filters.city)    query = query.eq('city', filters.city)
+  if (filters.state)   query = query.eq('state',   filters.state)
+  if (filters.city)    query = query.eq('city',     filters.city)
 
   const { data, error } = await query
-  if (error) { console.error('❌', error); process.exit(1) }
-  if (!data?.length) { console.log('Nenhum POI encontrado.'); return }
+  if (error) { console.error('❌ Erro ao buscar POIs:', error.message); process.exit(1) }
+  if (!data?.length) { console.log('Nenhum POI encontrado com esses filtros.'); return }
 
   console.log(`📋 Inserindo ${data.length} POIs na fila "${batchId}"...`)
 
-  // Inserir em batches de 500 (limite de upsert do Supabase)
+  // Inserir em chunks de 500 (limite do Supabase por request)
   const CHUNK = 500
   let inserted = 0
   for (let i = 0; i < data.length; i += CHUNK) {
@@ -84,18 +91,15 @@ async function createBatch(batchId: string, filters: {
       batch_id: batchId,
       status: 'pending',
     }))
-    const { error: insertErr } = await (supabase as any)
-      .schema('core').from('tp_regen_queue')
-      .insert(chunk)
-    if (insertErr) { console.error('❌ Insert error:', insertErr); process.exit(1) }
+    const { error: insertErr } = await db.from('tp_regen_queue').insert(chunk)
+    if (insertErr) { console.error('❌ Erro ao inserir chunk:', insertErr.message); process.exit(1) }
     inserted += chunk.length
     process.stdout.write(`\r   ${inserted}/${data.length} inseridos...`)
   }
 
   console.log(`\n✅ Batch "${batchId}" criado com ${inserted} POIs.`)
-  console.log(`\nAgora rode os workers:`)
+  console.log(`\nInicie os workers (1 por terminal):`)
   console.log(`  npx tsx scripts/regen-trigger-points.ts --run-batch ${batchId}`)
-  console.log(`  # (rode N vezes em paralelo para N workers)`)
 }
 
 // ─── Worker: consome fila ─────────────────────────────────────────────────────
@@ -106,47 +110,45 @@ async function runBatch(batchId: string) {
   const startMs = Date.now()
 
   while (true) {
-    // Claim atômico: pega o próximo POI disponível (SKIP LOCKED evita colisão entre workers)
-    const { data: attractionId, error: claimErr } = await (supabase as any)
-      .schema('core')
+    // Claim atômico via SKIP LOCKED — só 1 worker pega cada POI
+    const { data: attractionId, error: claimErr } = await db
       .rpc('claim_next_regen', { p_batch_id: batchId, p_worker_id: WORKER_ID })
 
-    if (claimErr) { console.error('❌ Claim error:', claimErr); break }
+    if (claimErr) { console.error('❌ Erro no claim:', claimErr.message); break }
     if (!attractionId) {
-      console.log(`\n✅ Worker ${WORKER_ID} concluído — fila vazia.`)
+      console.log(`\n✅ Worker concluído — fila vazia.`)
       break
     }
 
-    const elapsed = ((Date.now() - startMs) / 1000).toFixed(0)
     process.stdout.write(`[${processed + failed + 1}] ${attractionId}... `)
 
     let tpCount = 0
     let errorMsg: string | null = null
 
     try {
-      const result = await PoiMigrationPipeline.executePipeline(attractionId, {
+      await PoiMigrationPipeline.executePipeline(attractionId, {
         mode: 'reprocess_triggers_core',
         auto_approve_if_satisfactory: true,
       })
-      tpCount = (result as any)?.steps?.trigger_points?.tp_count || 0
       processed++
-      console.log(`✅ ${tpCount} TPs (${elapsed}s)`)
+      const elapsed = ((Date.now() - startMs) / 1000).toFixed(0)
+      const rate = (processed / parseFloat(elapsed || '1')).toFixed(2)
+      console.log(`✅  (${elapsed}s, ${rate} POIs/s)`)
     } catch (e: any) {
       errorMsg = e.message?.slice(0, 200)
       failed++
       console.log(`❌ ${errorMsg}`)
     }
 
-    // Marcar como done/failed na fila
-    await (supabase as any)
-      .schema('core').from('tp_regen_queue')
+    // Marcar como done ou failed
+    await db.from('tp_regen_queue')
       .update({
-        status: errorMsg ? 'failed' : 'done',
-        completed_at: new Date().toISOString(),
+        status:        errorMsg ? 'failed' : 'done',
+        completed_at:  new Date().toISOString(),
         error_message: errorMsg,
-        tp_count: tpCount,
+        tp_count:      tpCount,
       })
-      .eq('batch_id', batchId)
+      .eq('batch_id',      batchId)
       .eq('attraction_id', attractionId)
   }
 
@@ -157,35 +159,50 @@ async function runBatch(batchId: string) {
 // ─── Status ───────────────────────────────────────────────────────────────────
 
 async function batchStatus(batchId: string) {
-  const { data, error } = await (supabase as any)
-    .schema('core').from('tp_regen_queue')
+  const { data, error } = await db
+    .from('tp_regen_queue')
     .select('status, tp_count, error_message')
     .eq('batch_id', batchId)
 
-  if (error) { console.error('❌', error); return }
+  if (error) { console.error('❌', error.message); return }
   if (!data?.length) { console.log(`Batch "${batchId}" não encontrado.`); return }
 
   const counts = data.reduce((acc: any, r: any) => {
     acc[r.status] = (acc[r.status] || 0) + 1; return acc
   }, {} as Record<string, number>)
 
-  const totalTPs = data.filter((r: any) => r.status === 'done')
-    .reduce((sum: number, r: any) => sum + (r.tp_count || 0), 0)
-  const failed = data.filter((r: any) => r.status === 'failed')
+  const totalTPs = data
+    .filter((r: any) => r.status === 'done')
+    .reduce((s: number, r: any) => s + (r.tp_count || 0), 0)
 
   console.log(`\n📊 Batch "${batchId}":`)
-  console.log(`  pending:    ${counts.pending || 0}`)
+  console.log(`  pending:    ${counts.pending    || 0}`)
   console.log(`  processing: ${counts.processing || 0}`)
-  console.log(`  done:       ${counts.done || 0}  (${totalTPs} TPs salvos)`)
-  console.log(`  failed:     ${counts.failed || 0}`)
+  console.log(`  done:       ${counts.done       || 0}  (${totalTPs} TPs salvos)`)
+  console.log(`  failed:     ${counts.failed     || 0}`)
   console.log(`  total:      ${data.length}`)
 
-  if (failed.length > 0) {
-    console.log(`\nFalhas recentes:`)
-    failed.slice(0, 5).forEach((r: any) =>
-      console.log(`  ${r.error_message?.slice(0, 80)}`)
+  const failures = data.filter((r: any) => r.status === 'failed')
+  if (failures.length > 0) {
+    console.log(`\nÚltimas falhas:`)
+    failures.slice(0, 5).forEach((r: any) =>
+      console.log(`  ${r.error_message?.slice(0, 100)}`)
     )
   }
+}
+
+// ─── Resetar processing travados ─────────────────────────────────────────────
+
+async function resetStuck(batchId: string) {
+  const { count, error } = await db
+    .from('tp_regen_queue')
+    .update({ status: 'pending', worker_id: null, claimed_at: null })
+    .eq('batch_id', batchId)
+    .eq('status', 'processing')
+    .select('*', { count: 'exact', head: true } as any)
+
+  if (error) { console.error('❌', error.message); return }
+  console.log(`✅ ${count || 0} itens "processing" resetados para "pending".`)
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────
@@ -193,15 +210,15 @@ async function batchStatus(batchId: string) {
 async function main() {
   const args = process.argv.slice(2)
   const get = (flag: string) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : undefined }
-  const has = (flag: string) => args.includes(flag)
 
-  const id          = get('--id')
+  const id            = get('--id')
   const createBatchId = get('--create-batch')
-  const runBatchId  = get('--run-batch')
-  const statusId    = get('--status')
-  const city        = get('--city')
-  const state       = get('--state')
-  const country     = get('--country')
+  const runBatchId    = get('--run-batch')
+  const statusId      = get('--status')
+  const resetId       = get('--reset-stuck')
+  const city          = get('--city')
+  const state         = get('--state')
+  const country       = get('--country')
 
   if (id) {
     await regenSingle(id)
@@ -211,22 +228,27 @@ async function main() {
     await runBatch(runBatchId)
   } else if (statusId) {
     await batchStatus(statusId)
+  } else if (resetId) {
+    await resetStuck(resetId)
   } else {
     console.log(`
 Uso:
   # POI único
   npx tsx scripts/regen-trigger-points.ts --id <uuid>
 
-  # 1. Criar fila (1x)
+  # 1. Criar fila (1x por cidade)
   npx tsx scripts/regen-trigger-points.ts \\
     --create-batch ny-2026-05-18 \\
     --city "New York" --state "NY" --country "United States"
 
-  # 2. Rodar workers em paralelo (N terminais)
+  # 2. Rodar workers (1 por terminal, quantos quiser)
   npx tsx scripts/regen-trigger-points.ts --run-batch ny-2026-05-18
 
-  # Status
+  # Ver progresso
   npx tsx scripts/regen-trigger-points.ts --status ny-2026-05-18
+
+  # Resetar itens travados (após crash de worker)
+  npx tsx scripts/regen-trigger-points.ts --reset-stuck ny-2026-05-18
     `)
     process.exit(1)
   }
