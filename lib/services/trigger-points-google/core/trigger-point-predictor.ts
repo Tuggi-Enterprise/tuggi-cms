@@ -1221,7 +1221,12 @@ export class CoreTriggerPointPredictor {
       //
       // Filtro de ruído: elevationDiff < 100m é considerado ruído SRTM (urbano), ignorado.
       // 100m+ é sinal forte de POI naturalmente elevado.
-      const poiGround = boundary.elevation?.center ?? 0;
+      // `elevation.average` = só o terreno (SRTM ground), `elevation.center` = total
+      // (ground + structure). Para o cálculo de elevationDiff precisamos APENAS do terreno —
+      // a altura da estrutura já está em `poiHeight`. Usar `center` fazia double-count:
+      // ESB (ground=42m, structure=443m) virava elevationDiff=480m → classificado como
+      // montanha → horizon 13.6km em vez de ~6.6km.
+      const poiGround = boundary.elevation?.average ?? boundary.elevation?.center ?? 0;
       const poiHeight = Math.max(boundary.height ?? 0, 1.7);
 
       let regionalBase = poiGround; // fallback se SRTM falhar → elevationDiff vira 0
