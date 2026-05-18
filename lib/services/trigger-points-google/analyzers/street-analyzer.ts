@@ -544,10 +544,29 @@ export class StreetAnalyzer {
             );
 
             if (extended && extended.length > 0) {
-              const seen = new Set(streets.map(s => String(s.id)));
-              const additional = extended.filter((s: any) => !seen.has(String(s.id)));
-              streets = [...streets, ...additional];
-              console.log(`✅ [EXTEND] Added ${additional.length} streets sampled along boundary (total: ${streets.length})`);
+              // Normaliza IDs antes de dedup: `toOverpassElement` pode gerar um
+              // ID numérico aleatório diferente para ruas sem OSM ID válido, enquanto
+              // `fetchStreetsAlongBoundary` usa o `row.id` original do SQLite
+              // (ex: "osm_way_hdrk4b19j"). Sem normalização, o mesmo segmento físico
+              // entra 2x na lista → FAN-WALK processa o mesmo candidato em duplicata.
+              //
+              // Fix: usar Map keyed por ID normalizado. `fetchStreetsAlongBoundary`
+              // tem coordenadas completas (fullCoordinates) — preferir esses sobre
+              // boundary.streets quando há colisão de ID normalizado.
+              const normalizeId = (id: string | number): string => {
+                const s = String(id);
+                // "osm_way_226041025" → "226041025", "226041025" → "226041025"
+                // "osm_way_hdrk4b19j" → "hdrk4b19j" (alphanumeric, sem conflito)
+                return s.replace(/^osm_way_/, '').replace(/^osm_/, '');
+              };
+              // Rebuild final list: extended streets take priority (have fullCoordinates)
+              const finalMap = new Map<string, StreetData>();
+              for (const s of streets) finalMap.set(normalizeId(s.id), s);
+              for (const s of extended as StreetData[]) finalMap.set(normalizeId(s.id), s);
+              const before = streets.length;
+              streets = Array.from(finalMap.values());
+              const deduped = before + extended.length - streets.length;
+              console.log(`✅ [EXTEND] Merged ${extended.length} boundary streets → ${streets.length} total (${deduped} deduped)`);
             } else {
               console.log(`⚠️ [EXTEND] No additional streets found along boundary`);
             }
