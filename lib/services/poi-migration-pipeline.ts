@@ -774,8 +774,10 @@ export class PoiMigrationPipeline {
       
       const predictor = new CoreTriggerPointPredictor()
       const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
-        maxSearchRadius: 1000,
-        minQuality: 0.4
+        // Sem maxSearchRadius — o motor calcula dinamicamente via fan de visibilidade.
+        // O cap de 1000m estava cortando TPs em POIs grandes (Central Park, aeroportos).
+        clusterIntersections: true,
+        minQuality: 0.3
       })
 
       if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {
