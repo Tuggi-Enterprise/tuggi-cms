@@ -1259,9 +1259,21 @@ export class CoreTriggerPointPredictor {
 
       // horizon × 15: regra heurística — POI de 30m visível ~450m de longe em situação
       // típica. Floor 300m (audio approach mínimo de driving). Cap 15km (Cristo).
-      const horizonDefault = Math.max(300, Math.min(15_000, Math.round(effectiveHeight * 15)));
+      //
+      // POIs em terreno PLANO (arranha-céus urbanos como ESB): visibilidade física vai a
+      // quilômetros mas usuário que visita se aproxima de ≤2km. TPs além disso disparam
+      // o audio guide cedo demais → cap 2km. Cap só ativo quando o terreno não tem
+      // elevação significativa (effectiveElevationContribution == 0).
+      //
+      // POIs em terreno ELEVADO (Cristo, picos, mirantes): usuário dirige ao longo de
+      // estradas que circundam o maciço → alcance completo (~11km para Cristo).
+      const URBAN_HORIZON_CAP_M = 2000;
+      const isUrbanTerrain = effectiveElevationContribution === 0;
+      const horizonDefault = isUrbanTerrain
+        ? Math.max(300, Math.min(URBAN_HORIZON_CAP_M, Math.round(effectiveHeight * 15)))
+        : Math.max(300, Math.min(15_000, Math.round(effectiveHeight * 15)));
       const horizon = maxHorizonM ?? horizonDefault;
-      console.log(`🔭 Horizon: ${horizon}m (height=${poiHeight.toFixed(0)}m, elevDiff=${elevationDiff.toFixed(0)}m${effectiveElevationContribution > 0 ? ' (significant — POI naturally elevated)' : ' (filtered as SRTM noise)'}, effectiveHeight=${effectiveHeight.toFixed(0)}m, ${maxHorizonM ? 'user-override' : 'auto'})`);
+      console.log(`🔭 Horizon: ${horizon}m (height=${poiHeight.toFixed(0)}m, elevDiff=${elevationDiff.toFixed(0)}m${effectiveElevationContribution > 0 ? ' (significant — POI naturally elevated)' : ' (filtered as SRTM noise)'}, effectiveHeight=${effectiveHeight.toFixed(0)}m, terrain=${isUrbanTerrain ? 'urban-flat (cap 2km)' : 'elevated'}, ${maxHorizonM ? 'user-override' : 'auto'})`);
 
       const fetcher = LocalOSMFetcher.getInstance();
       const overpassLike = fetcher.fetchAsOverpassData(poiData.location, horizon, {
