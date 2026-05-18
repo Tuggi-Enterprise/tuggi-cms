@@ -1385,126 +1385,113 @@ export class CoreTriggerPointPredictor {
     const { calculateBearing, calculateDistance, calculateDistanceToBoundary, closestPointOnPolyline, walkAlongPolyline, resolveBearingTarget } = require('../utils/calculations');
     const { resolveStreetSpeedKmh, calculateGpsAwareRadius } = require('../../../geometry');
 
-    // Estratégia 1: usar OSM addr:street (mais preciso semanticamente)
-    let matching: StreetData | undefined;
-    let strategyUsed = '';
+    const bearingTarget = resolveBearingTarget(boundary);
+    const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
+    const groupCap = boundary.classification?.maxTPRadiusM ?? cfg.maxRadiusM;
 
+    // ─── KISS: todas as ruas adjacentes ao boundary ─────────────────────────
+    // Princípio: se você está a ≤80m do boundary, o POI é visível — seja
+    // montanha ou prédio. Sem fan check. Geramos TPs em TODAS as ruas próximas,
+    // não só na rua de frente. Isso garante cobertura direcional em qualquer
+    // sentido de aproximação (5th Ave N/S, 34th St L/R, etc.).
+    //
+    // addr:street (OSM) garante que a rua de endereço sempre entra, mesmo que
+    // esteja a >80m (ex: POI em recuo). O restante é puro proximity threshold.
+    const PERIMETER_RADIUS_M = 80;
+    const MAX_PERIMETER_STREETS = 8; // cap pra não explodir em POIs no centro de praças
+
+    // Calcular distância mínima de cada rua ao boundary
+    const streetDistances: Array<{ street: StreetData; dist: number }> = [];
     const addrStreet = boundary.address?.street;
-    if (addrStreet) {
-      const addrLower = addrStreet.toLowerCase().trim();
-      matching = accessibleStreets.find(s => {
-        const sName = (s.name || '').toLowerCase().trim();
-        if (!sName) return false;
-        return sName.includes(addrLower) || addrLower.includes(sName);
-      });
-      if (matching) strategyUsed = `addr:street="${addrStreet}"`;
-    }
+    const addrLower = addrStreet?.toLowerCase().trim() ?? '';
 
-    // Estratégia 2 (Camada 3): se addr:street ausente ou sem match, achar a
-    // rua acessível MAIS PRÓXIMA do boundary. Pura física — qualquer rua a
-    // ≤80m do POI tem grande chance de ter line-of-sight direto pra fachada.
-    if (!matching) {
-      let bestStreet: StreetData | undefined;
-      let bestDistance = Infinity;
-      for (const s of accessibleStreets) {
-        if (!s.coordinates?.length) continue;
-        let streetMin = Infinity;
-        for (const p of s.coordinates) {
-          const d = calculateDistanceToBoundary(p, boundary.coordinates);
-          if (d < streetMin) streetMin = d;
-        }
-        if (streetMin < bestDistance) {
-          bestDistance = streetMin;
-          bestStreet = s;
-        }
+    for (const s of accessibleStreets) {
+      if (!s.coordinates?.length) continue;
+      let minDist = Infinity;
+      for (const p of s.coordinates) {
+        const d = calculateDistanceToBoundary(p, boundary.coordinates);
+        if (d < minDist) minDist = d;
       }
-      if (bestStreet && bestDistance <= 80) {
-        matching = bestStreet;
-        strategyUsed = `closest-street (${bestStreet.name || bestStreet.id}, ${bestDistance.toFixed(0)}m from boundary)`;
+      // Sempre incluir a rua do endereço OSM, mesmo se > 80m
+      const isAddrMatch = addrLower && (s.name || '').toLowerCase().includes(addrLower);
+      if (minDist <= PERIMETER_RADIUS_M || isAddrMatch) {
+        streetDistances.push({ street: s, dist: minDist });
       }
     }
 
-    if (!matching || !matching.coordinates?.length) {
-      if (addrStreet) {
-        console.log(`🏠 Frontal TP skipped: addr:street="${addrStreet}" não encontrada + nenhuma rua ≤80m do boundary`);
-      }
+    if (streetDistances.length === 0) {
+      console.log(`🏠 Perimeter TPs skipped: nenhuma rua ≤${PERIMETER_RADIUS_M}m do boundary`);
       return [];
     }
 
-    // Bearing target (SSOT em utils/calculations)
-    const bearingTarget = resolveBearingTarget(boundary);
-
-    // Radius GPS-aware baseado na velocidade da rua
-    const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
-    const tags: any = (matching as any).tags || {};
-    const speedKmh = resolveStreetSpeedKmh(tags.maxspeed, matching.type);
-    const groupCap = boundary.classification?.maxTPRadiusM ?? cfg.maxRadiusM;
-    const radius = calculateGpsAwareRadius(
-      speedKmh,
-      cfg.gpsPingWindowSec,
-      cfg.gpsPingSafetyFactor,
-      { min: cfg.minRadiusM, max: groupCap }
-    );
-
-    // Recupera a polilinha REAL. `accessibleStreets` chega com `coordinates`
-    // colapsado a 1 ponto por `street-analyzer.findClosestPointToBoundary`,
-    // mas `fullCoordinates` preserva a polilinha original — necessário pra
-    // spawnar upstream/downstream.
-    const polyline = (matching.fullCoordinates && matching.fullCoordinates.length >= 2)
-      ? matching.fullCoordinates
-      : matching.coordinates;
-
-    const projection = closestPointOnPolyline(boundary.center, polyline);
-    if (!projection) return [];
-
-    // Spawna 2 TPs simétricos ao longo da polilinha: um upstream e outro
-    // downstream. Garante que ao menos um dispare como "front" em qualquer
-    // sentido de aproximação (motor não valida one-way em modo fan — confia
-    // que app filtra direction=back em runtime). Se polilinha for muito
-    // curta pra suportar 2 pontos distintos, emite 1 na projeção.
-    const offsetM = 25;
-    const upstreamPoint = walkAlongPolyline(polyline, projection, -offsetM);
-    const downstreamPoint = walkAlongPolyline(polyline, projection, +offsetM);
-
-    const flanks: Array<{ key: 'up' | 'down' | 'center'; location: { lat: number; lng: number } }> = [];
-    const upToDown = calculateDistance(upstreamPoint, downstreamPoint);
-    if (upToDown > 10) {
-      flanks.push({ key: 'up', location: upstreamPoint });
-      flanks.push({ key: 'down', location: downstreamPoint });
-    } else {
-      flanks.push({ key: 'center', location: projection.point });
-    }
+    // Ordenar por distância e limitar ao cap
+    streetDistances.sort((a, b) => a.dist - b.dist);
+    const candidates = streetDistances.slice(0, MAX_PERIMETER_STREETS);
+    console.log(`🏠 Perimeter TPs: ${candidates.length} ruas adjacentes (≤${PERIMETER_RADIUS_M}m)`);
 
     const tps: TriggerPoint[] = [];
-    for (const f of flanks) {
-      const tooClose = existingTPs.some(tp => calculateDistance(tp.location, f.location) < 30);
-      if (tooClose) {
-        console.log(`🏠 Frontal TP (${f.key}) skipped: existing TP within 30m`);
-        continue;
+    // Accumulate placed positions para dedup entre ruas diferentes
+    const placedLocations: Array<{ lat: number; lng: number }> = existingTPs.map(t => t.location);
+
+    for (const { street, dist } of candidates) {
+      const polyline = (street.fullCoordinates && street.fullCoordinates.length >= 2)
+        ? street.fullCoordinates
+        : street.coordinates;
+
+      const projection = closestPointOnPolyline(boundary.center, polyline);
+      if (!projection) continue;
+
+      const tags: any = (street as any).tags || {};
+      const speedKmh = resolveStreetSpeedKmh(tags.maxspeed, street.type);
+      const radius = calculateGpsAwareRadius(
+        speedKmh,
+        cfg.gpsPingWindowSec,
+        cfg.gpsPingSafetyFactor,
+        { min: cfg.minRadiusM, max: groupCap }
+      );
+
+      // 2 TPs por rua: upstream e downstream — garante disparo em qualquer sentido
+      const offsetM = 25;
+      const upstreamPoint = walkAlongPolyline(polyline, projection, -offsetM);
+      const downstreamPoint = walkAlongPolyline(polyline, projection, +offsetM);
+      const upToDown = calculateDistance(upstreamPoint, downstreamPoint);
+
+      const flanks: Array<{ key: string; location: { lat: number; lng: number } }> = upToDown > 10
+        ? [{ key: 'up', location: upstreamPoint }, { key: 'down', location: downstreamPoint }]
+        : [{ key: 'center', location: projection.point }];
+
+      let emitted = 0;
+      for (const f of flanks) {
+        // Dedup: não colocar TP a <30m de outro já emitido (desta iteração ou existente)
+        const tooClose = placedLocations.some(loc => calculateDistance(loc, f.location) < 30);
+        if (tooClose) continue;
+
+        tps.push({
+          id: deterministicTPId(poiData.id, `perimeter_${street.id}_${f.key}`, f.location.lat, f.location.lng),
+          location: f.location,
+          radius,
+          expectedBearing: calculateBearing(f.location, bearingTarget),
+          bearingThreshold: cfg.defaultBearingThreshold,
+          type: 'primary',
+          priority: 1,
+          confidence: 0.95,
+          quality: 0.95,
+          street,
+          distance: calculateDistance(f.location, boundary.center),
+          generationMethod: 'local_osm',
+          contextData: context,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        placedLocations.push(f.location);
+        emitted++;
       }
-      tps.push({
-        id: deterministicTPId(poiData.id, `frontal_${f.key}`, f.location.lat, f.location.lng),
-        location: f.location,
-        radius,
-        expectedBearing: calculateBearing(f.location, bearingTarget),
-        bearingThreshold: cfg.defaultBearingThreshold,
-        type: 'primary',
-        priority: 1,
-        confidence: 0.95,
-        quality: 0.95,
-        street: matching,
-        distance: calculateDistance(f.location, boundary.center),
-        generationMethod: 'local_osm',
-        contextData: context,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+      if (emitted > 0) {
+        console.log(`  🏠 "${street.name || street.id}" (${dist.toFixed(0)}m): ${emitted} TP(s)`);
+      }
     }
 
-    if (tps.length > 0) {
-      const flanksStr = tps.map(t => t.id.split('_')[1]).join('+');
-      console.log(`🏠 Frontal TP: emitted ${tps.length} (${flanksStr}) on "${matching.name || 'unnamed'}" (${matching.id}), proj=${projection.distance.toFixed(0)}m from POI center, polyline=${polyline.length}pts, up↔down=${upToDown.toFixed(0)}m, radius=${radius}m [strategy: ${strategyUsed}]`);
-    }
+    console.log(`🏠 Perimeter TPs total: ${tps.length} emitted`);
     return tps;
   }
 
