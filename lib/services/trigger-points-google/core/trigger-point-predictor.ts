@@ -1390,29 +1390,49 @@ export class CoreTriggerPointPredictor {
     const groupCap = boundary.classification?.maxTPRadiusM ?? cfg.maxRadiusM;
 
     // ─── KISS: todas as ruas adjacentes ao boundary ─────────────────────────
-    // Princípio: se você está a ≤80m do boundary, o POI é visível — seja
-    // montanha ou prédio. Sem fan check. Geramos TPs em TODAS as ruas próximas,
-    // não só na rua de frente. Isso garante cobertura direcional em qualquer
-    // sentido de aproximação (5th Ave N/S, 34th St L/R, etc.).
-    //
-    // addr:street (OSM) garante que a rua de endereço sempre entra, mesmo que
-    // esteja a >80m (ex: POI em recuo). O restante é puro proximity threshold.
+    // Princípio: se você está a ≤80m do boundary, o POI é visível.
+    // IMPORTANTE: NÃO usar `accessibleStreets` aqui — ele vem da pipeline principal
+    // que pode sofrer SQL LIMIT (15k rows por bbox grande). Para raios pequenos
+    // (100m), fazemos query direta no SQLite com baixíssima chance de LIMIT.
     const PERIMETER_RADIUS_M = 80;
-    const MAX_PERIMETER_STREETS = 8; // cap pra não explodir em POIs no centro de praças
+    const PERIMETER_FETCH_RADIUS_M = 150; // buffer extra pra garantir cobertura
+    const MAX_PERIMETER_STREETS = 8;
 
-    // Calcular distância mínima de cada rua ao boundary
-    const streetDistances: Array<{ street: StreetData; dist: number }> = [];
+    const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
+    const fetcher = LocalOSMFetcher.getInstance();
+
+    // Query direta de raio pequeno — retorna no máximo ~20-50 ruas, nunca atinge LIMIT
+    const rawPerimeterStreets: StreetData[] | null = fetcher.fetchStreetsAlongBoundary(
+      boundary.coordinates,
+      PERIMETER_FETCH_RADIUS_M,
+      4 // até 4 sample points no boundary
+    );
+
     const addrStreet = boundary.address?.street;
     const addrLower = addrStreet?.toLowerCase().trim() ?? '';
 
-    for (const s of accessibleStreets) {
+    // Filtrar por acessibilidade e distância real ao polygon
+    const streetDistances: Array<{ street: StreetData; dist: number }> = [];
+    for (const s of rawPerimeterStreets ?? []) {
       if (!s.coordinates?.length) continue;
+      // isStreetAccessible check (inline para não importar o analisador aqui)
+      const ACCESSIBLE = new Set([
+        'motorway','trunk','primary','secondary','tertiary','residential',
+        'living_street','unclassified','motorway_link','trunk_link',
+        'primary_link','secondary_link','tertiary_link','bus_guideway',
+        'ferry','waterway','cycleway','footway','pedestrian','path',
+        'railway_rail','railway_light_rail','railway_tram','railway_subway',
+        'railway_monorail','railway_narrow_gauge','railway_preserved',
+        'aerialway_cable_car','aerialway_gondola','aerialway_chair_lift','aerialway_mixed_lift',
+      ]);
+      if (!ACCESSIBLE.has(s.type)) continue;
+      if ((s as any).tags?.tunnel === 'yes' || (s as any).tags?.covered === 'yes') continue;
+
       let minDist = Infinity;
       for (const p of s.coordinates) {
         const d = calculateDistanceToBoundary(p, boundary.coordinates);
         if (d < minDist) minDist = d;
       }
-      // Sempre incluir a rua do endereço OSM, mesmo se > 80m
       const isAddrMatch = addrLower && (s.name || '').toLowerCase().includes(addrLower);
       if (minDist <= PERIMETER_RADIUS_M || isAddrMatch) {
         streetDistances.push({ street: s, dist: minDist });
@@ -1420,7 +1440,7 @@ export class CoreTriggerPointPredictor {
     }
 
     if (streetDistances.length === 0) {
-      console.log(`🏠 Perimeter TPs skipped: nenhuma rua ≤${PERIMETER_RADIUS_M}m do boundary`);
+      console.log(`🏠 Perimeter TPs skipped: nenhuma rua ≤${PERIMETER_RADIUS_M}m do boundary (fetched ${rawPerimeterStreets?.length ?? 0} ruas em ${PERIMETER_FETCH_RADIUS_M}m)`);
       return [];
     }
 
