@@ -157,12 +157,6 @@ export class CoreTriggerPointPredictor {
         // ✅ Use the robust fallback strategy that guarantees at least one point
         const fallbackPoints = await this.generateRecoveryFallbackTriggerPoints(poiData, context, boundary);
 
-        // Issue 2.4 — Mesmo sem ruas acessíveis, se temos boundary válido,
-        // emite o geofence TP (cobre o caso do usuário caminhando que entra
-        // pelo polígono sem passar por nenhum TP arrival na rua).
-        const geofenceTP = this.buildGeofenceTriggerPoint(poiData, boundary, context);
-        if (geofenceTP) fallbackPoints.unshift(geofenceTP);
-
         const processingTime = Date.now() - startTime;
 
         return {
@@ -328,14 +322,8 @@ export class CoreTriggerPointPredictor {
       const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, filteredPoints);
       for (const t of frontalTPs) filteredPoints.push(t);
 
-      // 9. Geofence TP (issue 2.4): se o POI tem boundary válido, gera 1 TP
-      //    de cobertura por polígono. Usuários andando que entram pela porta
-      //    do museu / lateral do parque disparam por aqui, sem depender de
-      //    passar por um TP arrival na rua.
-      const geofenceTP = this.buildGeofenceTriggerPoint(poiData, boundary, context);
-      if (geofenceTP) {
-        filteredPoints.unshift(geofenceTP); // prioridade 1 (cobertura primária)
-      }
+      // Geofence: o app usa o boundary polygon diretamente para point-in-polygon.
+      // Não gerar TP do tipo geofence — é redundante e polui o DB.
 
       const processingTime = Date.now() - startTime;
 
@@ -643,17 +631,13 @@ export class CoreTriggerPointPredictor {
     const frontalTPs = this.buildFrontalArrivalTP(poiData, boundary, context, accessibleStreets, out);
     for (const t of frontalTPs) out.push(t);
 
-    // 2. Geofence TP
-    const geofence = this.buildGeofenceTriggerPoint(poiData, boundary, context);
-    if (geofence) out.unshift(geofence);
-
     if (out.length > 0) {
-      console.log(`🛟 Fan-collapse fallback: emitted ${out.length} TP(s) — ${frontalTPs.length} frontal + ${geofence ? 1 : 0} geofence`);
+      console.log(`🛟 Fan-collapse fallback: emitted ${out.length} frontal TP(s)`);
       return out;
     }
 
-    // 3. Último recurso: legacy single-TP fallback
-    console.warn('🛟 Fan-collapse fallback: no frontal nor geofence available, falling back to legacy single-TP');
+    // Último recurso: legacy single-TP fallback
+    console.warn('🛟 Fan-collapse fallback: no frontal TPs available, falling back to legacy single-TP');
     return await this.generateFallbackTriggerPoints(poiData, boundary, context, accessibleStreets);
   }
 
