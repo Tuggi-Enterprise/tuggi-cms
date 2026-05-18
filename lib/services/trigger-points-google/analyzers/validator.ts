@@ -1108,7 +1108,7 @@ export class TriggerPointValidator {
     // pré-computado não está disponível (modo categórico, sem fan).
     const type = candidate.predictedType
       || this.determineTriggerType(index, candidate.quality, candidate, boundary, context);
-    const priority = index + 1;
+    const priority = Math.min(index + 1, 10); // DB validation caps at 10; priority is rank, not critical
     const radius = this.calculateRadius(candidate, context, boundary);
     
     return {
