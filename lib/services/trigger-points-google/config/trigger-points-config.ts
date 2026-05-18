@@ -333,6 +333,15 @@ export const TRIGGER_POINTS_CONSTANTS = {
     maxBuildingsPerPOI: 5000,
     /** Max streets carregadas em memória por POI (sort por distância ao center). */
     maxStreetsPerPOI: 8000,
+    /**
+     * LIMIT aplicado direto na query SQL — impede que `Statement.all()` materialize
+     * centenas de milhares de rows em JS antes do cap de distância.
+     * Para Central Park (bbox 340km²), sem LIMIT eram >100k streets e >200k buildings
+     * → OOM fatal. O LIMIT é generoso o suficiente para cobrir qualquer análise real
+     * (o cap pós-query por distância reduz ainda mais).
+     */
+    maxStreetsPerQuery: 15000,
+    maxBuildingsPerQuery: 25000,
   },
 };
 

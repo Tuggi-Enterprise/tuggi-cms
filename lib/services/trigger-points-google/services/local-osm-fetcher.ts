@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { POIData, BoundaryData, StreetData } from '../types/interfaces';
 import { BuildingData, OSMDataBundle } from './osm-data-fetcher';
+import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 
 /**
  * 🌍 LOCAL OSM FETCHER — Singleton
@@ -116,13 +117,18 @@ export class LocalOSMFetcher {
    */
   private queryStreets(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
     if (!this.db) return [];
+    // LIMIT aplicado no SQL — impede Statement.all() de materializar centenas de
+    // milhares de rows em JS (OOM fatal em POIs grandes como Central Park).
+    // O cap pós-query por distância (maxStreetsPerPOI) reduz ainda mais.
+    const limit = TRIGGER_POINTS_CONSTANTS.memory.maxStreetsPerQuery;
     const stmt = this.db.prepare(`
       SELECT id, name, type, geometry_json, tags_json
       FROM streets
       WHERE min_lat <= ? AND max_lat >= ?
         AND min_lng <= ? AND max_lng >= ?
+      LIMIT ?
     `);
-    return stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng) as any[];
+    return stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng, limit) as any[];
   }
 
   /**
@@ -130,13 +136,15 @@ export class LocalOSMFetcher {
    */
   private queryBuildings(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
     if (!this.db) return [];
+    const limit = TRIGGER_POINTS_CONSTANTS.memory.maxBuildingsPerQuery;
     const stmt = this.db.prepare(`
       SELECT id, geometry_json, height, tags_json
       FROM buildings
       WHERE min_lat <= ? AND max_lat >= ?
         AND min_lng <= ? AND max_lng >= ?
+      LIMIT ?
     `);
-    return stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng) as any[];
+    return stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng, limit) as any[];
   }
 
   /**
