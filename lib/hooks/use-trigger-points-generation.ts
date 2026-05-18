@@ -38,10 +38,11 @@ interface Boundary {
 }
 
 interface GenerateOptions {
-  useVisibilityMap?: boolean
   visibilityMaxHorizonM?: number
   simulateApproach?: boolean
   validateCorridor?: boolean
+  clusterIntersections?: boolean
+  intersectionClusterRadiusM?: number
 }
 
 interface UseTriggerPointsGenerationReturn {

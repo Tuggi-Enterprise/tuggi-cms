@@ -278,27 +278,7 @@ export class TriggerPointSavingService {
         return results
       }
 
-      // Handle different modes
-      if (options.mode === 'replace_all') {
-        // DELETE all existing TPs for this attraction
-        const deleteResult = await this.deleteTriggerPoints(attractionId)
-        if (deleteResult.error) {
-          results.errors.push(`Failed to delete existing TPs: ${deleteResult.error}`)
-          // Continue anyway - try to insert new ones
-        }
-      } else if (options.mode === 'replace_single') {
-        // DELETE specific TP
-        if (options.triggerPointId) {
-          const deleteResult = await this.deleteTriggerPoints(attractionId, [options.triggerPointId])
-          if (deleteResult.error) {
-            results.errors.push(`Failed to delete existing TP: ${deleteResult.error}`)
-            // Continue anyway
-          }
-        }
-      }
-      // For 'append' mode, don't delete anything
-
-      // Prepare valid TPs for insertion
+      // Prepare valid TPs (mesma estrutura usada em todos os modes)
       const tpsForInsert = validation.validItems.map(tp => {
         const originalTP = triggerPoints.find(
           o => o.lat === tp.lat && o.lng === tp.lng && o.type === tp.type
@@ -324,8 +304,65 @@ export class TriggerPointSavingService {
         })
       })
 
-      // Before inserting, verify POI exists and has coordinates (required by some triggers)
       const supabase = getSupabaseClient()
+
+      // ✅ REPLACE_ALL atômico via RPC: DELETE + INSERT em transação única.
+      // Garante que o POI nunca fica com zero TPs se o INSERT falhar — a
+      // função PL/pgSQL faz rollback automático em qualquer erro.
+      //
+      // Para 'append' e 'replace_single', mantém path antigo (delete-then-insert).
+      if (options.mode === 'replace_all') {
+        // O RPC reconstrói `location` via ST_MakePoint(lng, lat). Pegamos
+        // lat/lng diretamente de validation.validItems (alinhado por índice
+        // com tpsForInsert) e removemos a string "SRID=...;POINT(...)" e o
+        // attraction_id duplicado (o RPC injeta automaticamente).
+        const tpsForRPC = tpsForInsert.map((tp: any, idx: number) => {
+          const validated = validation.validItems[idx]
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { location: _location, attraction_id: _aid, ...rest } = tp
+          return {
+            ...rest,
+            lat: validated.lat,
+            lng: validated.lng,
+          }
+        })
+
+        const { data: rpcData, error: rpcError } = await supabase
+          .schema('core')
+          .rpc('replace_trigger_points_atomic', {
+            p_attraction_id: attractionId,
+            p_trigger_points: tpsForRPC,
+          })
+
+        if (rpcError) {
+          console.error('❌ Atomic replace_trigger_points RPC error:', rpcError)
+          results.errors.push(`Atomic replace failed (POI retains existing TPs): ${rpcError.message}`)
+          return results
+        }
+
+        const insertedRows = (rpcData as Array<{ id: string }> | null) || []
+        results.saved = insertedRows.length
+        results.skipped = triggerPoints.length - results.saved
+        results.savedIds = insertedRows.map(r => r.id)
+
+        if (results.saved > 0) {
+          await this.markPOIAsProcessed(attractionId)
+        }
+
+        return results
+      }
+
+      // ─── Path para append / replace_single (sem RPC atômico) ───
+      if (options.mode === 'replace_single' && options.triggerPointId) {
+        const deleteResult = await this.deleteTriggerPoints(attractionId, [options.triggerPointId])
+        if (deleteResult.error) {
+          results.errors.push(`Failed to delete existing TP: ${deleteResult.error}`)
+          // Continue anyway
+        }
+      }
+      // For 'append' mode, don't delete anything
+
+      // Before inserting, verify POI exists and has coordinates (required by some triggers)
       const { data: poiCheck, error: poiCheckError } = await supabase
         .schema('core')
         .from('attractions')
@@ -360,7 +397,6 @@ export class TriggerPointSavingService {
 
       if (error) {
         console.error('❌ Error inserting trigger points:', error)
-        // If error is about POI not found, provide more context
         if (error.message?.includes('POI not found') || error.code === 'P0001') {
           results.errors.push(`Database trigger error: ${error.message}. POI exists: ${!!poiCheck}, Has coordinates: ${!!coordCheck}`)
         } else {
@@ -372,11 +408,6 @@ export class TriggerPointSavingService {
       results.saved = data?.length || 0
       results.skipped = triggerPoints.length - results.saved
       results.savedIds = data?.map((d: any) => d.id) || []
-
-      // Only mark POI as processed if we successfully saved TPs
-      if (results.saved > 0 && options.mode === 'replace_all') {
-        await this.markPOIAsProcessed(attractionId)
-      }
 
       return results
     } catch (error) {

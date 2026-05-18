@@ -243,23 +243,20 @@ export async function POST(request: NextRequest) {
 
     console.log(`📊 Found ${poisData.length} POIs to process`)
 
-    // Filter out POIs that already have trigger points (unless specific IDs requested)
+    // Filter out POIs that already have trigger points (unless specific IDs requested).
+    // BATCH query: 1 SELECT com .in() em vez de N queries. Reduz round-trip
+    // significativamente em batches grandes (10k POIs: 10k queries → 1 query).
     let filteredPOIs = poisData
     if (!attraction_ids) {
-      const poisWithoutTPs = []
-      for (const poi of poisData) {
-        const { data: existingTPs } = await supabase
-          .schema('core')
-          .from('attraction_trigger_points')
-          .select('id')
-          .eq('attraction_id', poi.id)
-          .limit(1)
+      const poiIds = poisData.map(p => p.id)
+      const { data: existingTPRows } = await supabase
+        .schema('core')
+        .from('attraction_trigger_points')
+        .select('attraction_id')
+        .in('attraction_id', poiIds)
 
-        if (!existingTPs || existingTPs.length === 0) {
-          poisWithoutTPs.push(poi)
-        }
-      }
-      filteredPOIs = poisWithoutTPs
+      const idsWithTPs = new Set((existingTPRows || []).map(r => r.attraction_id))
+      filteredPOIs = poisData.filter(poi => !idsWithTPs.has(poi.id))
     }
 
     console.log(`🎯 Processing ${filteredPOIs.length} POIs without trigger points`)

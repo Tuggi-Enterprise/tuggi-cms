@@ -51,8 +51,8 @@ export default function TriggerPointsSinglePage() {
   const [showSearchRadius, setShowSearchRadius] = useState(true)
   const [showStatistics, setShowStatistics] = useState(false)
 
-  // Visibility-driven mode — default ON (motor padrão agora)
-  const [useVisibilityMap, setUseVisibilityMap] = useState(true)
+  // Intersection clustering — default ON (resolve duplicatas em corner POIs)
+  const [clusterIntersections, setClusterIntersections] = useState(true)
 
   // Buscar POI por ID
   const searchPOI = async () => {
@@ -166,7 +166,7 @@ export default function TriggerPointsSinglePage() {
     setError(null)
     setSuccess(null)
     
-    await generateTriggerPoints(poiInfo, { useVisibilityMap })
+    await generateTriggerPoints(poiInfo, { clusterIntersections })
     
     if (generationError) {
       setError(generationError)
@@ -310,21 +310,22 @@ export default function TriggerPointsSinglePage() {
                   Gerar Trigger Points
                 </button>
 
-                {/* Visibility-driven mode toggle (DEFAULT ON) */}
-                <label className="flex items-start gap-3 mt-2 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-md cursor-pointer">
+                {/* Intersection clustering toggle (DEFAULT ON) */}
+                <label className="flex items-start gap-3 mt-2 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-md cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={useVisibilityMap}
-                    onChange={(e) => setUseVisibilityMap(e.target.checked)}
+                    checked={clusterIntersections}
+                    onChange={(e) => setClusterIntersections(e.target.checked)}
                     className="mt-1 rounded"
                   />
                   <div className="text-xs">
-                    <div className="font-semibold text-emerald-900 dark:text-emerald-100">
-                      👁️ Modo Visibility-Driven (padrão)
+                    <div className="font-semibold text-indigo-900 dark:text-indigo-100">
+                      🔀 Intersection clustering (padrão)
                     </div>
-                    <div className="text-emerald-800 dark:text-emerald-200 mt-1">
-                      Motor físico: ray-cast 2.5D usando alturas dos prédios + SRTM.
-                      Substitui filtros categóricos. Desmarque para usar o motor categórico legado.
+                    <div className="text-indigo-800 dark:text-indigo-200 mt-1">
+                      Pós-processamento: agrupa TPs em ruas diferentes dentro de 25m
+                      e mantém só o de melhor score. Resolve duplicatas em cantos de POIs
+                      grandes (Madison Sq, etc.). Desmarque para comparar com o estado anterior.
                     </div>
                   </div>
                 </label>

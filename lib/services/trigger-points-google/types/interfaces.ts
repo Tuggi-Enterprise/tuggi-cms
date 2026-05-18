@@ -43,36 +43,6 @@ export interface GeographicContext {
   region: 'auto_detected';
 }
 
-// NOVO: Análise direcional
-export interface DirectionalAnalysis {
-  direction: string;
-  angle: number;
-  range: [number, number];
-  streets: {
-    total: number;
-    withOpenSpaces: number;
-    accessible: number;
-  };
-  openSpaces: {
-    count: number;
-    percentage: number;
-    types: string[];
-  };
-  buildings: {
-    count: number;
-    avgHeight: number;
-    maxHeight: number;
-    density: number; // buildings/km²
-  };
-  visibility: {
-    score: number; // 0-1
-    hasObstructions: boolean;
-    maxObstructionHeight: number;
-  };
-  allowTPs: boolean;
-  reason: string;
-}
-
 export interface LandmarkInfo {
   isHighVisibility: boolean;
   maxRange: number;
@@ -120,10 +90,19 @@ export interface BoundaryData {
   // Usado como bearing target prioritário em vez do centroid/closest-point.
   entrances?: Array<{ lat: number; lng: number; kind: 'main' | 'yes' | 'other' }>;
   /**
+   * GeographicContext já computado durante boundary detection (densidade urbana,
+   * elevation analysis). Caching pra evitar recomputação no predictor — economiza
+   * 1 chamada de `analyzeGeographicContext` por POI (faz density calc + elevation
+   * sampling + queries OSM).
+   *
+   * Quando presente, o predictor reusa em vez de chamar analyzeGeographicContext
+   * novamente. Quando ausente (paths edge), o predictor computa normalmente.
+   */
+  cachedContext?: GeographicContext;
+  /**
    * Visibility fan: união de polígonos (um por ponto amostrado no boundary)
-   * representando onde o POI é fisicamente visível (ray-cast 2.5D). Quando
-   * presente, substitui o searchRadius categórico para filtrar ruas. Opt-in
-   * via options.useVisibilityMap.
+   * representando onde o POI é fisicamente visível (ray-cast 2.5D).
+   * Sempre computado pelo predictor — único modo desde Tier 3.1 (2026-05-18).
    *
    * Multi-polígono porque POIs longos (pontes, parques, avenidas como POI)
    * têm sua visibilidade definida ao redor de toda a extensão, não apenas
@@ -148,6 +127,13 @@ export interface StreetData {
   type: string;
   name?: string; // NOVO: nome da rua
   coordinates: Array<{lat: number, lng: number}>;
+  /**
+   * Polilinha original da rua, preservada quando `coordinates` é colapsado
+   * para 1 ponto (closest-point-to-boundary) por `findClosestPointToBoundary`.
+   * Usado por `predictor.buildFrontalArrivalTP` pra spawnar TPs upstream e
+   * downstream ao longo da polilinha real.
+   */
+  fullCoordinates?: Array<{lat: number, lng: number}>;
   accessibility: string;
   width?: number;
   confidence: number;
@@ -165,6 +151,11 @@ export interface StreetData {
     access?: string;
     oneway?: string;
     maxspeed?: string;
+    /** OSM access modes — usado pra rejeitar park loops, plazas, drivewaysde serviço */
+    motor_vehicle?: string;
+    vehicle?: string;
+    foot?: string;
+    bicycle?: string;
   };
 }
 
@@ -246,16 +237,24 @@ export interface TriggerPointGenerationOptions {
   /** Issue 2.3 — Validação de corredor via OSRM (testa se rua leva ao POI). */
   validateCorridor?: boolean;
   /**
-   * Visibility-driven mode. Substitui o raio de busca categórico (HIGH=5km,
-   * FLAT=120m, etc.) por um polígono de visibilidade real computado via
-   * ray-cast 2.5D (alturas dos prédios + SRTM). TPs ficam onde o POI é
-   * fisicamente visível, independente de regra categórica.
+   * Cap superior pra busca de visibilidade. Default ~300m-15km (auto-scale
+   * baseado em altura efetiva do POI). Decisão de produto pra override manual.
    *
-   * Performance: +1-3s por POI. Local data only (sem rate-limit).
+   * NOTA: a option `useVisibilityMap` foi removida em Tier 3.1 (2026-05-18) —
+   * o motor visibility-driven é o único path agora. O modo categórico legado
+   * (`circular`/`linear`/`standard`) foi deletado.
    */
-  useVisibilityMap?: boolean;
-  /** Cap superior pra busca de visibilidade. Default 10km. Decisão de produto. */
   visibilityMaxHorizonM?: number;
+  /**
+   * Pós-processamento: agrupa TPs dentro de `intersectionClusterRadiusM` que
+   * estão em ruas diferentes (cruzamentos) e mantém só o de melhor score.
+   * Resolve o caso "corner POIs" (Madison Sq Park, etc.) onde 3-4 segmentos
+   * OSM do mesmo cruzamento sobrevivem ao dedup type-aware por terem bearings
+   * muito diferentes. Default ON em modo fan.
+   */
+  clusterIntersections?: boolean;
+  /** Raio do clustering de cruzamento (metros). Default 25m. */
+  intersectionClusterRadiusM?: number;
 }
 
 export interface TriggerPointGenerationResult {

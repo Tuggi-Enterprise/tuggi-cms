@@ -70,10 +70,11 @@ export async function POST(request: NextRequest) {
     
     console.log(`🚀 API: Generating trigger points for POI: ${poiData.name} (${poiData.id})`);
     console.log(`🚀 API: Options received: ${JSON.stringify({
-      useVisibilityMap: options.useVisibilityMap || false,
       visibilityMaxHorizonM: options.visibilityMaxHorizonM,
       simulateApproach: options.simulateApproach || false,
       validateCorridor: options.validateCorridor || false,
+      clusterIntersections: options.clusterIntersections,
+      intersectionClusterRadiusM: options.intersectionClusterRadiusM,
     })}`);
 
     // Gerar trigger points
@@ -220,8 +221,9 @@ function validateOptions(options: any): { valid: boolean; errors: string[] } {
     }
   }
 
-  // Visibility-driven mode flags (boolean, opt-in)
-  for (const flag of ['useVisibilityMap', 'simulateApproach', 'validateCorridor'] as const) {
+  // OSRM/optional flags (boolean). useVisibilityMap removido em Tier 3.1 —
+  // visibility-driven é o único modo agora.
+  for (const flag of ['simulateApproach', 'validateCorridor', 'clusterIntersections'] as const) {
     if (options[flag] !== undefined && typeof options[flag] !== 'boolean') {
       errors.push(`${flag} must be a boolean`);
     }
@@ -229,6 +231,11 @@ function validateOptions(options: any): { valid: boolean; errors: string[] } {
   if (options.visibilityMaxHorizonM !== undefined) {
     if (typeof options.visibilityMaxHorizonM !== 'number' || options.visibilityMaxHorizonM < 500 || options.visibilityMaxHorizonM > 30000) {
       errors.push('visibilityMaxHorizonM must be a number between 500 and 30000');
+    }
+  }
+  if (options.intersectionClusterRadiusM !== undefined) {
+    if (typeof options.intersectionClusterRadiusM !== 'number' || options.intersectionClusterRadiusM < 5 || options.intersectionClusterRadiusM > 100) {
+      errors.push('intersectionClusterRadiusM must be a number between 5 and 100');
     }
   }
 

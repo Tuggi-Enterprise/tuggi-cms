@@ -3,7 +3,7 @@
 import { GoogleAPIsService } from '../services/google-apis.service';
 import { ElevationService } from '../services/elevation.service';
 import { POIData, GeographicContext, BoundaryData, ProcessingResult } from '../types/interfaces';
-import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance } from '../utils/calculations';
+import { convertViewportToPolygon, calculatePolygonArea, calculatePolygonAreaInM2, calculatePolygonCenter, calculateDistance, isPointInPolygon } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { getSupabase } from '../../../core/supabase-client';
 
@@ -404,35 +404,30 @@ out geom tags;
       const center = calculatePolygonCenter(coordinates);
       const area = calculatePolygonAreaInM2(coordinates); // ✅ DRY: usar função SSOT (retorna m²)
       
-      // ✅ VALIDAÇÃO: Verificar se o boundary OSM corresponde à localização do POI
+      // Princípio: quando o POI tem `osm_id` armazenado, o ID é a fonte de
+      // verdade (curado upstream — admin UI, import). Não re-validamos por
+      // proximidade nem por nome — apenas logamos divergências como warnings
+      // pra observabilidade. Validação defensiva existe no caminho discovery
+      // (`detectOSMBoundary` por nome via Nominatim).
       const distanceFromPOI = calculateDistance(center, poiData.location);
-      const maxAllowedDistance = 200; // 200m máximo de distância entre centro do boundary e localização do POI
-      
-      if (distanceFromPOI > maxAllowedDistance) {
-        console.warn(`⚠️ OSM boundary center (${center.lat.toFixed(6)}, ${center.lng.toFixed(6)}) is too far from POI location (${poiData.location.lat.toFixed(6)}, ${poiData.location.lng.toFixed(6)})`);
-        console.warn(`   → Distance: ${distanceFromPOI.toFixed(0)}m (max allowed: ${maxAllowedDistance}m)`);
-        console.warn(`   → OSM ID may be incorrect or element doesn't match POI - rejecting OSM boundary`);
-        return { success: false, error: `OSM boundary too far from POI location (${distanceFromPOI.toFixed(0)}m > ${maxAllowedDistance}m)`, processingTime: 0 };
-      }
-      
-      // ✅ VALIDAÇÃO ADICIONAL: Verificar se o nome/tags do elemento OSM correspondem ao POI
       const poiTags = element.tags || {};
       const osmName = poiTags.name || poiTags['name:pt'] || '';
-      const poiNameLower = poiData.name.toLowerCase();
-      const osmNameLower = osmName.toLowerCase();
-      
-      // Verificar correspondência de nome (parcial ou exata)
-      const nameMatches = osmName && (
-        osmNameLower === poiNameLower ||
-        osmNameLower.includes(poiNameLower) ||
-        poiNameLower.includes(osmNameLower) ||
-        osmNameLower.replace(/\s+/g, '') === poiNameLower.replace(/\s+/g, '')
-      );
-      
-      // Se distância está OK mas nome não corresponde, avisar mas não rejeitar (pode ser variação de nome)
-      if (!nameMatches && osmName) {
-        console.warn(`⚠️ OSM element name "${osmName}" doesn't match POI name "${poiData.name}"`);
-        console.warn(`   → Distance is OK (${distanceFromPOI.toFixed(0)}m), but name mismatch suggests possible incorrect OSM ID`);
+
+      if (distanceFromPOI > 200) {
+        const pinIsInsideBoundary = isPointInPolygon(poiData.location, coordinates);
+        console.log(`📐 osm_id=${osmType}(${osmID}) centroid is ${distanceFromPOI.toFixed(0)}m from POI pin (area=${(area / 1000000).toFixed(2)}km², pin inside=${pinIsInsideBoundary}) — trusting curated osm_id`);
+      }
+      if (osmName) {
+        const osmNameLower = osmName.toLowerCase();
+        const poiNameLower = poiData.name.toLowerCase();
+        const nameMatches =
+          osmNameLower === poiNameLower ||
+          osmNameLower.includes(poiNameLower) ||
+          poiNameLower.includes(osmNameLower) ||
+          osmNameLower.replace(/\s+/g, '') === poiNameLower.replace(/\s+/g, '');
+        if (!nameMatches) {
+          console.warn(`⚠️ osm_id=${osmType}(${osmID}) name "${osmName}" differs from POI name "${poiData.name}" — trusting curated osm_id (verify upstream if unexpected)`);
+        }
       }
       
       // Extrair tags e processar como no fluxo normal
@@ -661,16 +656,20 @@ out geom tags;
         buildings: processedBuildings, // ✅ Usar dados processados
         vegetation: processedVegetation, // ✅ Usar dados processados
         barriers: processedBarriers, // ✅ Usar dados processados
-        peaks: processedPeaks // ✅ SSLT: dados já coletados na query consolidada
+        peaks: processedPeaks, // ✅ SSLT: dados já coletados na query consolidada
+        // ✅ Cache do context já computado durante classification (linha 547).
+        // Predictor reusa em vez de chamar analyzeGeographicContext novamente
+        // (economia: 1 chamada de density/elevation/OSM analysis por POI).
+        cachedContext: contextForClassification,
       };
-      
-      
+
+
       return {
         success: true,
         data: boundary,
         processingTime: 0
       };
-      
+
     } catch (error) {
       console.error(`Error detecting boundary by OSM ID:`, error);
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error', processingTime: 0 };
@@ -1093,10 +1092,28 @@ out geom tags;
       'unclassified': 'unclassified',
       'living_street': 'residential',
       'pedestrian': 'pedestrian',
-      'service': 'service'
+      'service': 'service',
+      // Non-road routes classified with prefixed names matching isStreetAccessible
+      'ferry': 'ferry',
+      'waterway': 'waterway',
+      'rail': 'railway_rail',
+      'light_rail': 'railway_light_rail',
+      'tram': 'railway_tram',
+      'monorail': 'railway_monorail',
+      'narrow_gauge': 'railway_narrow_gauge',
+      'preserved': 'railway_preserved',
+      'cable_car': 'aerialway_cable_car',
+      'gondola': 'aerialway_gondola',
+      'chair_lift': 'aerialway_chair_lift',
+      'mixed_lift': 'aerialway_mixed_lift',
     };
-    
-    return highwayMap[highway] || 'unclassified';
+
+    // Preserva o tag original quando não está mapeado. Crítico: o fallback
+    // antigo era 'unclassified' (presente nos accessible types), o que fazia
+    // `footway`, `cycleway`, `path`, `bridleway`, `track` etc. passarem
+    // mascarados como vias veiculares. Fix: deixar o original fluir pra que
+    // o filtro `isStreetAccessible` rejeite corretamente.
+    return highwayMap[highway] || highway;
   }
 
   /**
@@ -1700,6 +1717,8 @@ out geom tags;
                 let consolidatedBarriers: any[] = [];
                 let consolidatedPeaks: any[] = [];
                 let poiClassification: any = undefined;
+                // Captura context computado pelo classifier pra reuso no predictor.
+                let cachedContextForReturn: any = undefined;
                 
                 try {
                   console.log(`🏗️ Extracting POI elevation and height for Nominatim result...`);
@@ -1917,6 +1936,7 @@ out tags;
                       const GeographicContextAnalyzer = (await import('./geographic-analyzer')).GeographicContextAnalyzer;
                       const geographicAnalyzer = new GeographicContextAnalyzer();
                       const contextForClassification = await geographicAnalyzer.analyzeGeographicContext(poiData, tempBoundaryForDensity);
+                      cachedContextForReturn = contextForClassification;
                       
                       
                       // ===============================================
@@ -2179,7 +2199,10 @@ out tags;
                     barriers: consolidatedBarriers.length > 0 ? consolidatedBarriers : undefined, // NOVO: barreiras consolidadas
                     peaks: consolidatedPeaks && consolidatedPeaks.length > 0 ? this.processOSMPeaks(consolidatedPeaks) : undefined, // ✅ SSLT: picos já coletados
                     classification: poiClassification || undefined, // NOVO: classificação do POI
-                    osmTags: undefined // NOVO: tags OSM para classificação (será preenchido se disponível)
+                    osmTags: undefined, // NOVO: tags OSM para classificação (será preenchido se disponível)
+                    // ✅ Cache do context computado pela classification (linha ~1919).
+                    // Predictor reusa em vez de chamar analyzeGeographicContext novamente.
+                    cachedContext: cachedContextForReturn,
                   },
                   processingTime: 0
                 };

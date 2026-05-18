@@ -76,6 +76,8 @@ async function importWithOsmium(pbfPath: string, localData: OSMLocalDataService)
     'nwr/highway', 'nwr/building', 'nwr/natural', 'nwr/landuse',
     'nwr/amenity', 'nwr/leisure', 'nwr/tourism', 'nwr/historic', 'nwr/water', 'nwr/waterway', 'nwr/shop',
     'nwr/aeroway', 'nwr/railway', 'nwr/man_made', 'nwr/place',
+    'nwr/route=ferry', 'nwr/ferry',
+    'nwr/aerialway',
     '-o', filteredPbf,
     '--overwrite'
   ]);
@@ -108,7 +110,7 @@ async function importWithPbf2Json(pbfPath: string, localData: OSMLocalDataServic
   const leveldbPath = path.join(process.cwd(), 'data', 'leveldb');
   if (!fs.existsSync(leveldbPath)) fs.mkdirSync(leveldbPath, { recursive: true });
 
-  const tags = 'highway,building,amenity,leisure,tourism,historic,natural,water,waterway,shop,aeroway,railway,man_made,landuse,place';
+  const tags = 'highway,building,amenity,leisure,tourism,historic,natural,water,waterway,shop,aeroway,railway,man_made,landuse,place,route,ferry,aerialway';
   
   console.log(`🚀 Streaming PBF through pbf2json (this may take a while for large files)...`);
   

@@ -249,7 +249,7 @@ export const TRIGGER_POINTS_CONSTANTS = {
      * 
      * Esta é uma constante que pode ser ajustada manualmente.
      */
-    defaultHouseHeight: 6, // metros - altura padrão para casas/sobrados
+    defaultHouseHeight: 10, // metros - altura conservadora pra buildings sem tag (era 6m). Bumpado em 2026-05-18 pra reduzir falsos positivos de line-of-sight em áreas residenciais densas (Lower East Side tenements 8-15m, etc.) onde OSM frequentemente não tem height nem building:levels.
     
     /**
      * 🏙️ ALTURA DE PRÉDIOS EM CANYON URBANO - VARIÁVEL
@@ -318,7 +318,22 @@ export const TRIGGER_POINTS_CONSTANTS = {
     // Eye height para line-of-sight 2.5D
     eyeHeightCarM: 1.5,
     eyeHeightPedestrianM: 1.7,
-  }
+  },
+
+  // 🧠 MEMORY CAPS POR POI — proteção contra OOM em batch concurrent.
+  //
+  // Princípio do produto: "qualidade > performance". Caps fazem sort por
+  // distância ao POI e keep top-N (mais próximos). Buildings/streets >5km do
+  // POI raramente bloqueiam line-of-sight ou viram TPs relevantes.
+  //
+  // Estimativa de impacto: pico de ~70MB/POI (JFK) → ~40MB/POI. Em batch
+  // 10 workers, ~700MB → ~400MB heap.
+  memory: {
+    /** Max buildings carregados em memória por POI (sort por distância ao center). */
+    maxBuildingsPerPOI: 5000,
+    /** Max streets carregadas em memória por POI (sort por distância ao center). */
+    maxStreetsPerPOI: 8000,
+  },
 };
 
 // =====================================

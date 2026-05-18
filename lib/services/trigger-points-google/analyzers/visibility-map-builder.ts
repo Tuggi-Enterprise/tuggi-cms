@@ -24,6 +24,7 @@
 import type { BuildingData } from '../services/osm-data-fetcher';
 import { calculateDistance, isPointInPolygon } from '../utils/calculations';
 import { SRTMLocalService } from '../../srtm-local-service';
+import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 
 export type GeoPoint = { lat: number; lng: number };
 
@@ -154,6 +155,13 @@ export class VisibilityMapBuilder {
    * - Boundary 400-2000m: 4 pontos
    * - Boundary 2000-5000m: 8 pontos
    * - Boundary > 5000m: 12 pontos (cap)
+   *
+   * Pra POIs gigantes (área > 1 km²), adiciona grade INTERIOR de até 16 pontos
+   * extras. Motivação: pra JFK/parques/campus, sample points só no perímetro
+   * fazem ray-cast "ver fora" sem encontrar os próprios prédios do POI como
+   * obstáculos. Pontos interiores corrigem isso — o ray sai do centro dum
+   * terminal/edifício do aeroporto e BATE em outros terminais antes de escapar,
+   * resultando em fan mais conservador e fisicamente correto.
    */
   private static sampleBoundary(coords: GeoPoint[]): GeoPoint[] {
     if (!coords || coords.length === 0) return [];
@@ -193,7 +201,74 @@ export class VisibilityMapBuilder {
       walked += segLen;
     }
 
+    // Interior grid pra boundaries grandes (área > 1 km²).
+    const area = this.polygonAreaM2(coords);
+    const LARGE_AREA_THRESHOLD_M2 = 1_000_000;
+    const MAX_INTERIOR_POINTS = 16;
+    if (area > LARGE_AREA_THRESHOLD_M2) {
+      const before = samples.length;
+      // Grid 4×4 dentro do bbox; filtra pelos que caem dentro do polígono.
+      let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+      for (const p of coords) {
+        if (p.lat < minLat) minLat = p.lat;
+        if (p.lat > maxLat) maxLat = p.lat;
+        if (p.lng < minLng) minLng = p.lng;
+        if (p.lng > maxLng) maxLng = p.lng;
+      }
+      const cols = 4;
+      const rows = 4;
+      const interior: GeoPoint[] = [];
+      for (let r = 1; r <= rows; r++) {
+        for (let c = 1; c <= cols; c++) {
+          const lat = minLat + (maxLat - minLat) * (r / (rows + 1));
+          const lng = minLng + (maxLng - minLng) * (c / (cols + 1));
+          const pt = { lat, lng };
+          if (this.isPointInPolygon(pt, coords)) interior.push(pt);
+        }
+      }
+      const toAdd = interior.slice(0, MAX_INTERIOR_POINTS);
+      samples.push(...toAdd);
+      if (toAdd.length > 0) {
+        console.log(`👁️ Large boundary (${(area / 1_000_000).toFixed(2)}km²): added ${toAdd.length} interior sample points (was ${before} on perimeter+centroid)`);
+      }
+    }
+
     return samples;
+  }
+
+  /**
+   * Point-in-polygon ray-cast simples (mesma fórmula que utils/calculations).
+   * Inline aqui pra evitar import circular.
+   */
+  private static isPointInPolygon(point: GeoPoint, polygon: GeoPoint[]): boolean {
+    let inside = false;
+    const x = point.lng, y = point.lat;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i].lng, yi = polygon[i].lat;
+      const xj = polygon[j].lng, yj = polygon[j].lat;
+      const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-12) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  /**
+   * Área aproximada de polígono em m² via fórmula de shoelace + conversão.
+   */
+  private static polygonAreaM2(coords: GeoPoint[]): number {
+    if (coords.length < 3) return 0;
+    let areaDeg = 0;
+    for (let i = 0; i < coords.length; i++) {
+      const j = (i + 1) % coords.length;
+      areaDeg += coords[i].lng * coords[j].lat;
+      areaDeg -= coords[j].lng * coords[i].lat;
+    }
+    areaDeg = Math.abs(areaDeg) / 2;
+    // 1° lat ≈ 111_320m; 1° lng ≈ 111_320 × cos(lat). Aproximação no centroide.
+    const meanLat = coords.reduce((s, c) => s + c.lat, 0) / coords.length;
+    const mPerDegLng = 111_320 * Math.cos((meanLat * Math.PI) / 180);
+    const mPerDegLat = 111_320;
+    return areaDeg * mPerDegLat * mPerDegLng;
   }
 
   private static computeMultiStats(
@@ -264,8 +339,8 @@ export class VisibilityMapBuilder {
     const tags = b.tags || {};
     const levels = parseFloat(tags['building:levels'] as any);
     if (!isNaN(levels) && levels > 0) return levels * 3.5;
-    // Conservative residential fallback
-    return 6;
+    // Fallback conservador (SSOT em TRIGGER_POINTS_CONSTANTS.obstructions.defaultHouseHeight)
+    return TRIGGER_POINTS_CONSTANTS.obstructions.defaultHouseHeight;
   }
 
   /**
