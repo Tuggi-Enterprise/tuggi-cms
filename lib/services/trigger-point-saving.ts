@@ -345,7 +345,7 @@ export class TriggerPointSavingService {
           })
 
         if (rpcError) {
-          console.error('❌ Atomic replace_trigger_points RPC error:', rpcError)
+          console.error('❌ Atomic replace_trigger_points RPC error:', JSON.stringify(rpcError))
           results.errors.push(`Atomic replace failed (POI retains existing TPs): ${rpcError.message}`)
           return results
         }

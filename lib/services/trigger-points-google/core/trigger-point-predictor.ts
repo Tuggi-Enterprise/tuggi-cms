@@ -1566,12 +1566,15 @@ export class CoreTriggerPointPredictor {
       const d = calculateDistance(boundary.center, c);
       if (d > polygonBoundingRadius) polygonBoundingRadius = d;
     }
-    const safetyRadius = Math.max(
-      500,
-      Math.round(fanMax),
-      Math.round(polygonBoundingRadius)
+    // safetyRadius: pre-filter radius used by the app before doing point-in-polygon check.
+    // The actual geofence zone is defined by geometryGeoJson (the boundary polygon).
+    // DB constraint chk_radius_positive caps radius_meters at 500m, so we cap here too.
+    const DB_RADIUS_MAX = 500;
+    const safetyRadius = Math.min(
+      Math.max(500, Math.round(fanMax), Math.round(polygonBoundingRadius)),
+      DB_RADIUS_MAX
     );
-    console.log(`🟦 Geofence radius: ${safetyRadius}m (polygon bounding=${polygonBoundingRadius.toFixed(0)}m, fanMax=${fanMax.toFixed(0)}m, floor=500m)`);
+    console.log(`🟦 Geofence radius: ${safetyRadius}m (polygon bounding=${polygonBoundingRadius.toFixed(0)}m, fanMax=${fanMax.toFixed(0)}m, capped at ${DB_RADIUS_MAX}m)`);
 
     return {
       id: deterministicTPId(poiData.id, 'geofence', boundary.center.lat, boundary.center.lng),
