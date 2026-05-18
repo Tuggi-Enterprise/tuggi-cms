@@ -225,13 +225,20 @@ export async function POST(request: NextRequest) {
             round
           })
 
+          // Pré-batch lookup: 2 queries totais em vez de 2×N. Self-healing
+          // side-effect omitido aqui; quando o POI for processado individualmente,
+          // executePipeline → claimForProcessing dispara checks atomic novamente.
+          const shouldProcessMap = await MigrationService.shouldProcessPOIBatch(
+            pois.map((p: { uuid_id: string }) => p.uuid_id)
+          )
+
           // Process POIs from this round one by one
           for (let i = 0; i < pois.length; i++) {
             const poi = pois[i]
             const globalIndex = totalProcessed + 1
-            
-            // Check if we should process this POI
-            const shouldProcess = await MigrationService.shouldProcessPOI(poi.uuid_id)
+
+            // Check if we should process this POI (cached lookup do batch acima)
+            const shouldProcess = shouldProcessMap.get(poi.uuid_id) || { should_process: true }
             
             if (shouldProcess.should_process) {
               // Truly process this POI

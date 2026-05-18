@@ -20,6 +20,8 @@ export interface POIClassification {
   strategy: 'circular' | 'linear' | 'standard';
   searchRadius: number;
   maxTriggerPoints: number;
+  /** Issue 2.7 — teto do radius do TP por grupo (cap da fórmula audio-aware) */
+  maxTPRadiusM: number;
   minDistanceBetweenTPs: number;
   visibilityThreshold: number;
   streetPriority: string[];
@@ -81,6 +83,7 @@ export class POIClassifierService {
         strategy: config.strategy,
         searchRadius: Math.round(finalRadius),
         maxTriggerPoints: config.maxTriggerPoints,
+        maxTPRadiusM: config.maxTPRadiusM,
         minDistanceBetweenTPs: config.minDistanceBetweenTPs,
         visibilityThreshold: config.visibilityThreshold,
         streetPriority: config.streetPriority,
@@ -172,6 +175,7 @@ export class POIClassifierService {
         strategy: config.strategy,
         searchRadius: Math.round(finalRadius),
         maxTriggerPoints: config.maxTriggerPoints,
+        maxTPRadiusM: config.maxTPRadiusM,
         minDistanceBetweenTPs: config.minDistanceBetweenTPs,
         visibilityThreshold: config.visibilityThreshold,
         streetPriority: config.streetPriority,
@@ -206,6 +210,7 @@ export class POIClassifierService {
         strategy: config.strategy,
         searchRadius: config.searchRadius.fixed!,
         maxTriggerPoints: config.maxTriggerPoints,
+        maxTPRadiusM: config.maxTPRadiusM,
         minDistanceBetweenTPs: config.minDistanceBetweenTPs,
         visibilityThreshold: config.visibilityThreshold,
         streetPriority: config.streetPriority,
@@ -243,6 +248,7 @@ export class POIClassifierService {
         strategy: config.strategy,
         searchRadius: Math.round(finalRadius),
         maxTriggerPoints: config.maxTriggerPoints,
+        maxTPRadiusM: config.maxTPRadiusM,
         minDistanceBetweenTPs: config.minDistanceBetweenTPs,
         visibilityThreshold: config.visibilityThreshold,
         streetPriority: config.streetPriority,
@@ -289,6 +295,7 @@ export class POIClassifierService {
       strategy: config.strategy,
       searchRadius: config.searchRadius.fixed!,
       maxTriggerPoints: config.maxTriggerPoints,
+        maxTPRadiusM: config.maxTPRadiusM,
       minDistanceBetweenTPs: config.minDistanceBetweenTPs,
       visibilityThreshold: config.visibilityThreshold,
       streetPriority: config.streetPriority,

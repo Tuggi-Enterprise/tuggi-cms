@@ -249,7 +249,7 @@ export const TRIGGER_POINTS_CONSTANTS = {
      * 
      * Esta é uma constante que pode ser ajustada manualmente.
      */
-    defaultHouseHeight: 6, // metros - altura padrão para casas/sobrados
+    defaultHouseHeight: 10, // metros - altura conservadora pra buildings sem tag (era 6m). Bumpado em 2026-05-18 pra reduzir falsos positivos de line-of-sight em áreas residenciais densas (Lower East Side tenements 8-15m, etc.) onde OSM frequentemente não tem height nem building:levels.
     
     /**
      * 🏙️ ALTURA DE PRÉDIOS EM CANYON URBANO - VARIÁVEL
@@ -293,7 +293,56 @@ export const TRIGGER_POINTS_CONSTANTS = {
     metersPerDegree: 111320, // 1 grau ≈ 111,320 metros (constante global)
     earthRadiusKm: 6371, // Raio da Terra em km
     defaultSearchRadius: 500, // Raio padrão de busca em metros
-  }
+  },
+
+  // 🎯 TRIGGER POINT — VALORES PADRÃO DO TP
+  // O app tuggi-drive-v2 classifica direção em 4 zonas; "front" é ±35°.
+  // Threshold > 35° é desperdício (o app filtra); threshold > 90° pode
+  // contradizer o filtro do app e fazer o TP nunca disparar como esperado.
+  triggerPoint: {
+    defaultBearingThreshold: 30, // graus — alinhado com a zona "front" do app
+    fallbackBearingThreshold: 60, // graus — apenas para fallbacks de recuperação
+
+    // ⚠️ Modelo de radius: NÃO é "audio-aware".
+    // O áudio do app toca até o fim mesmo que o usuário saia do radius.
+    // O radius serve só pra GARANTIR que o GPS pingue pelo menos uma vez
+    // dentro da zona enquanto o usuário passa. Por isso usamos a janela
+    // de amostragem GPS típica (~3s) × velocidade da via × safety factor.
+    // Histórico do produto: 10-50m funciona bem na maioria dos casos.
+    gpsPingWindowSec: 3,      // janela típica entre pings GPS
+    gpsPingSafetyFactor: 2,   // multiplicador de segurança (cobrir variação)
+    // Limites globais — caps refinados por grupo (POIGroupConfig.maxTPRadiusM)
+    minRadiusM: 15,
+    maxRadiusM: 150,
+
+    // Eye height para line-of-sight 2.5D
+    eyeHeightCarM: 1.5,
+    eyeHeightPedestrianM: 1.7,
+  },
+
+  // 🧠 MEMORY CAPS POR POI — proteção contra OOM em batch concurrent.
+  //
+  // Princípio do produto: "qualidade > performance". Caps fazem sort por
+  // distância ao POI e keep top-N (mais próximos). Buildings/streets >5km do
+  // POI raramente bloqueiam line-of-sight ou viram TPs relevantes.
+  //
+  // Estimativa de impacto: pico de ~70MB/POI (JFK) → ~40MB/POI. Em batch
+  // 10 workers, ~700MB → ~400MB heap.
+  memory: {
+    /** Max buildings carregados em memória por POI (sort por distância ao center). */
+    maxBuildingsPerPOI: 5000,
+    /** Max streets carregadas em memória por POI (sort por distância ao center). */
+    maxStreetsPerPOI: 8000,
+    /**
+     * LIMIT aplicado direto na query SQL — impede que `Statement.all()` materialize
+     * centenas de milhares de rows em JS antes do cap de distância.
+     * Para Central Park (bbox 340km²), sem LIMIT eram >100k streets e >200k buildings
+     * → OOM fatal. O LIMIT é generoso o suficiente para cobrir qualquer análise real
+     * (o cap pós-query por distância reduz ainda mais).
+     */
+    maxStreetsPerQuery: 15000,
+    maxBuildingsPerQuery: 25000,
+  },
 };
 
 // =====================================
@@ -339,6 +388,13 @@ export interface POIGroupConfig {
   strategy: 'circular' | 'linear' | 'standard';
   streetPriority: string[];
   blockStreets: string[];
+  /**
+   * Issue 2.7 — Teto de `radius_meters` do TP por grupo. A fórmula
+   * audio-aware (velocidade × duração da narração) é correta para HIGH,
+   * mas produz radii absurdos para FLAT/CANYON em ruas rápidas — fazendo
+   * o áudio disparar a 800m de um pier pequeno. Capamos por grupo.
+   */
+  maxTPRadiusM: number;
   specialRules?: {
     prioritizeFrontStreet?: boolean;
     rigorousVisibilityCheck?: boolean;
@@ -359,12 +415,16 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
       min: 3000,   // Mínimo 3km
       max: 15000   // Máximo 15km
     },
-    maxTriggerPoints: 70,
+    // Cobertura completa (issue 2.4b): TP em cada rua que aproxima do POI.
+    // Espaçamento mínimo abaixo evita TPs duplicados na MESMA rua.
+    maxTriggerPoints: 300,
     minDistanceBetweenTPs: 100,
     visibilityThreshold: 0.3,  // Menos restritivo (visível de longe)
     strategy: 'circular',
     streetPriority: ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'],  // Incluídas rodovias, avenidas e ruas coletoras/principais de bairro
-    blockStreets: ['residential', 'unclassified']  // Bloquear apenas ruas residenciais muito pequenas (muitas árvores/prédios)
+    blockStreets: ['residential', 'unclassified'],  // Bloquear apenas ruas residenciais muito pequenas (muitas árvores/prédios)
+    // GPS-aware: rodovias com pings esparsos, precisam de radius um pouco maior
+    maxTPRadiusM: 100
   },
   
   // 🏗️ MEDIUM: Baixa elevação + estrutura alta (>50m)
@@ -380,12 +440,14 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
       min: 750,    // Mínimo 750m
       max: 5000    // Máximo 5km
     },
-    maxTriggerPoints: 35,
+    // Cobertura completa (issue 2.4b)
+    maxTriggerPoints: 200,
     minDistanceBetweenTPs: 80,
     visibilityThreshold: 0.4,  // Moderadamente restritivo
     strategy: 'circular',
     streetPriority: ['motorway', 'trunk', 'primary', 'secondary'],
-    blockStreets: []  // Não bloqueia nenhuma rua
+    blockStreets: [],  // Não bloqueia nenhuma rua
+    maxTPRadiusM: 60   // avenidas e ruas urbanas: 40-60m é suficiente
   },
   
   // 🏙️ CANYON: Baixa elevação + estrutura média (10-50m) + área densa
@@ -400,14 +462,16 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
       areaMax: 50000          // Área pequena/média
     },
     searchRadius: {
-      fixed: 75  // Raio fixo de 300m (muito limitado)
+      fixed: 300  // Anel imediato de ruas em centro denso; 75m era curto demais (1-2 segmentos)
     },
-    maxTriggerPoints: 15,
+    // Cobertura completa (issue 2.4b)
+    maxTriggerPoints: 100,
     minDistanceBetweenTPs: 40,
     visibilityThreshold: 0.6,  // Muito restritivo (muitas obstruções)
     strategy: 'linear',
     streetPriority: ['primary', 'secondary', 'tertiary'],  // Ruas locais
     blockStreets: [],
+    maxTPRadiusM: 40,   // centro denso, ruas urbanas: 25-40m
     specialRules: {
       prioritizeFrontStreet: true,      // Priorizar rua da frente
       rigorousVisibilityCheck: true     // Validação rigorosa de visibilidade
@@ -426,12 +490,14 @@ export const GROUP_CONFIGS: Record<POIGroup, POIGroupConfig> = {
     searchRadius: {
       fixed: 120  // Raio fixo de 120m (limitado ao entorno imediato)
     },
-    maxTriggerPoints: 40,
+    // Cobertura completa (issue 2.4b): parques têm muito perímetro
+    maxTriggerPoints: 500,
     minDistanceBetweenTPs: 40,
     visibilityThreshold: 0.5,  // Moderado
     strategy: 'standard',
     streetPriority: ['motorway', 'trunk','primary', 'secondary', 'tertiary', 'residential'],
-    blockStreets: []
+    blockStreets: [],
+    maxTPRadiusM: 50    // POI local: 20-50m cobre walkers e drivers em ruas urbanas
   }
 };
 
@@ -841,8 +907,9 @@ export const DEFAULT_TRIGGER_POINTS_CONFIG: TriggerPointsConfig = {
         maxLimit: 120
       }
     },
-    
-    limits: createLimits(10, 200) // Aumentado mínimo para POIs grandes
+
+    // Cobertura completa (issue 2.4b): teto alto, controle real é minDistanceBetweenTPs
+    limits: createLimits(10, 500)
   },
 
   // 📐 DISTÂNCIA MÍNIMA ENTRE TPs - Evita TPs muito próximos

@@ -12,7 +12,7 @@ export interface TriggerPointForDB {
   radius_meters: number
   expected_bearing?: number
   bearing_threshold?: number
-  type: 'primary' | 'secondary' | 'fallback' | 'special' | 'testing'
+  type: 'primary' | 'secondary' | 'fallback' | 'special' | 'testing' | 'geofence' | 'entry' | 'exit' | 'approach' | 'custom'
   priority: number
   confidence_score: number
   auto_status: 'approved' | 'review' | 'rejected'
@@ -21,6 +21,8 @@ export interface TriggerPointForDB {
   generation_method: string
   validation_notes?: string
   access?: 'walk' | 'car' | 'both'
+  // Issue 2.4 — Polígono para TPs do tipo 'geofence'
+  geometry_geojson?: string | null
 }
 
 /**
@@ -45,16 +47,19 @@ export function convertTriggerPointToDB(
     ? Math.max(1, Math.min(180, tp.bearingThreshold))
     : 30
   
-  // Validate type
-  const validTypes = ['primary', 'secondary', 'fallback', 'special', 'testing']
-  const type = validTypes.includes(tp.type) ? tp.type : 'primary'
-  
+  // Validate type — inclui 'geofence' (issue 2.4) e tipos legados do schema
+  const validTypes = [
+    'primary', 'secondary', 'fallback', 'special', 'testing',
+    'geofence', 'entry', 'exit', 'approach', 'custom'
+  ] as const
+  const type = (validTypes as readonly string[]).includes(tp.type) ? tp.type as any : 'primary'
+
   // Validate priority (1-10)
   const priority = Math.max(1, Math.min(10, tp.priority || 1))
-  
+
   // Validate confidence_score (0.0-1.0)
   const confidence_score = Math.max(0.0, Math.min(1.0, tp.confidence || 0))
-  
+
   // Calculate auto_status based on confidence
   let auto_status: 'approved' | 'review' | 'rejected'
   if (confidence_score >= 0.7) {
@@ -64,10 +69,10 @@ export function convertTriggerPointToDB(
   } else {
     auto_status = 'rejected'
   }
-  
+
   // Final status defaults to auto_status
   const final_status = auto_status
-  
+
   // Build score_factors from metadata
   const score_factors: any = {
     quality: tp.quality,
@@ -77,12 +82,14 @@ export function convertTriggerPointToDB(
       confidence: tp.street.confidence
     } : null
   }
-  
-  // Build generation_method
-  const generation_method = boundarySource 
-    ? `google_apis_${boundarySource}`
-    : 'google_apis'
-  
+
+  // Build generation_method — preserva o método declarado no TP (issue 1.3).
+  // Antes: hardcoded 'google_apis' independente da origem real.
+  const baseMethod = tp.generationMethod || 'local_osm'
+  const generation_method = boundarySource
+    ? `${baseMethod}_${boundarySource}`
+    : baseMethod
+
   return {
     lat: tp.location.lat,
     lng: tp.location.lng,
@@ -97,7 +104,9 @@ export function convertTriggerPointToDB(
     score_factors,
     generation_method,
     validation_notes: reasoning,
-    access: 'both' // Default access
+    access: 'both', // Default access
+    // Issue 2.4 — propagar polígono para TPs do tipo 'geofence'
+    geometry_geojson: tp.geometryGeoJson ?? null,
   }
 }
 

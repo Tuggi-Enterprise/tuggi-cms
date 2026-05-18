@@ -1,0 +1,33 @@
+﻿Visão Geral e Regras de Sistema: TUGGI
+1. O que é o TUGGI (Definição e Proposta de Valor)
+O TUGGI é uma plataforma de inteligência territorial e áudio contextual desenvolvida para transformar qualquer deslocamento em uma experiência de descoberta cultural. O sistema utiliza geolocalização de alta precisão para disparar automaticamente narrações sobre o entorno, permitindo que o usuário receba contexto histórico e cultural no momento exato em que passa por um local relevante.
+A proposta central é ser um copiloto cultural universal, eliminando a necessidade de guias físicos ou pesquisas manuais durante o trajeto.
+2. Objetivos de Negócio: Democratização e Acessibilidade
+O TUGGI fundamenta-se na premissa de que a cultura deve ser acessível a todos, independentemente da língua ou de limitações sensoriais:
+* Democratização Multilíngue: O sistema é nativamente preparado para escala global, oferecendo suporte a diversos idiomas (incluindo Português, Inglês, Espanhol, Italiano, Francês, Russo, Coreano, Chinês e Alemão) para que turistas e locais possam consumir a história de um destino em sua língua materna.
+* Acessibilidade Universal: O sistema foi projetado para ser inclusivo:
+   * Deficiência Visual: A narração automática via áudio de alta qualidade permite que pessoas com deficiência visual tenham uma experiência imersiva e detalhada do ambiente ao seu redor.
+   * Deficiência Auditiva: O sistema mantém as narrativas em formato de texto estruturado, permitindo que pessoas com deficiência auditiva possam acompanhar o conteúdo cultural visualmente através da interface.
+* Escalabilidade de Conteúdo: Utilização de inteligência artificial para gerar e manter narrativas ricas e curadas em larga escala, reduzindo o custo e o tempo de produção de guias tradicionais.
+3. O Problema que Resolvemos
+O sistema ataca as lacunas do turismo e da mobilidade urbana:
+* Contexto no Momento Certo: Resolve o problema de passar por lugares importantes sem perceber ou sem ter informações confiáveis à mão.
+* Fricção de Navegação: Elimina a necessidade de roteiros rígidos; o TUGGI se adapta ao caminho que o usuário escolher fazer.
+* Inexistência de Narrativa entre Pontos: Valoriza o trajeto "entre destinos", transformando o tempo de deslocamento em tempo de aprendizado.
+4. Como o Sistema Funciona (Mecânica Principal)
+A inteligência do TUGGI opera de forma automatizada através de entidades técnicas integradas:
+* Pontos de Interesse (POIs): Locais com relevância cultural ou histórica cadastrados com dados e narrativas associadas.
+* Trigger Points (Gatilhos): Pontos geográficos que, ao serem cruzados, disparam a execução da experiência.
+* Execução de Áudio (TTS): Conversão dinâmica de texto em fala através de vozes neurais, garantindo uma narração fluida e natural.
+* Lógica de Passagem: O sistema identifica a posição e o movimento para garantir que a história comece no tempo correto.
+5. Regras de Negócio e Diretrizes Sistêmicas
+Para o planejamento de novas saídas e modelos de negócio, o sistema obedece às seguintes regras:
+Versatilidade de Modalidade
+* Multi-modal (Drive & Walk): O sistema não é exclusivo para veículos. Ele deve suportar tanto usuários em deslocamento rodoviário quanto turistas e pedestres que exploram destinos a pé, adaptando os gatilhos e o ritmo da narração à velocidade de cada modalidade.
+Engenharia e Resiliência
+* Execução em Segundo Plano: O core do aplicativo é desenvolvido em linguagens nativas (Swift para iOS e Kotlin para Android) para garantir que os gatilhos de geolocalização funcionem mesmo quando o app não estiver em primeiro plano na tela.
+* Resiliência Offline: O sistema utiliza cache inteligente para baixar os roteiros previamente, garantindo que o usuário não perca o conteúdo em áreas sem sinal de internet ou em túneis.
+Governança de Conteúdo
+* Gestão Centralizada via CMS: Toda a inteligência de pontos, gatilhos e textos é gerenciada por um CMS próprio, que serve como o centro de governança do produto.
+* Precisão Factual: O sistema exige que as narrativas sejam fundamentadas e verificadas (através de técnicas de grounding) para evitar alucinações de dados históricos ou culturais.
+* Independência de Dados: O TUGGI utiliza o OpenStreetMap (OSM) e curadoria manual, não dependendo exclusivamente de provedores de mapas comerciais para a criação de seus pontos culturais.

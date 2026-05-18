@@ -37,8 +37,16 @@ interface Boundary {
   }
 }
 
+interface GenerateOptions {
+  visibilityMaxHorizonM?: number
+  simulateApproach?: boolean
+  validateCorridor?: boolean
+  clusterIntersections?: boolean
+  intersectionClusterRadiusM?: number
+}
+
 interface UseTriggerPointsGenerationReturn {
-  generate: (poiData: POIInfo) => Promise<void>
+  generate: (poiData: POIInfo, options?: GenerateOptions) => Promise<void>
   isLoading: boolean
   error: string | null
   result: TriggerPointResult | null
@@ -62,7 +70,7 @@ export function useTriggerPointsGeneration(): UseTriggerPointsGenerationReturn {
   const isGeneratingRef = useRef(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const generate = useCallback(async (poiData: POIInfo) => {
+  const generate = useCallback(async (poiData: POIInfo, options: GenerateOptions = {}) => {
     // Prevenir múltiplas chamadas simultâneas
     if (isGeneratingRef.current) {
       console.warn('Generation already in progress, skipping...')
@@ -95,7 +103,8 @@ export function useTriggerPointsGeneration(): UseTriggerPointsGenerationReturn {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          poiData
+          poiData,
+          options,
         }),
         signal: abortControllerRef.current.signal
       })

@@ -167,7 +167,41 @@ export class OSMLocalDataService {
             stringifiedTags
           );
           insertedAsMain = true;
-        } 
+        }
+
+        // Non-road routes: ferry/waterway, railway, aerialway.
+        // Stored in streets table so LocalOSMFetcher.queryStreets picks them up for TP generation.
+        //
+        // Railway: above-ground rail, light rail, tram, monorail — all offer POI views.
+        //   Underground subway (tunnel=yes) will be rejected by isStreetAccessible.
+        // Ferry/waterway: maritime taxi, ferries, navigable rivers/canals.
+        // Aerialway: cable cars / gondolas approaching mountain/landmark POIs.
+        const NAVIGABLE_WATERWAYS = ['river', 'canal', 'tidal_channel', 'drain'];
+        const SCENIC_RAILWAYS = ['rail', 'light_rail', 'tram', 'monorail', 'subway', 'narrow_gauge', 'preserved'];
+        const AERIALWAY_TYPES = ['cable_car', 'gondola', 'chair_lift', 'mixed_lift'];
+
+        const isFerry = tags.route === 'ferry' || tags.ferry === 'yes';
+        const isNavigableWaterway = tags.waterway && NAVIGABLE_WATERWAYS.includes(tags.waterway);
+        const isScenicRailway = tags.railway && SCENIC_RAILWAYS.includes(tags.railway);
+        const isAerialway = tags.aerialway && AERIALWAY_TYPES.includes(tags.aerialway);
+
+        if (!insertedAsMain && (isFerry || isNavigableWaterway || isScenicRailway || isAerialway)) {
+          let routeType: string;
+          if (isFerry) routeType = 'ferry';
+          else if (isNavigableWaterway) routeType = 'waterway';
+          else if (isScenicRailway) routeType = `railway_${tags.railway}`;
+          else routeType = `aerialway_${tags.aerialway}`;
+
+          insertStreet.run(
+            `osm_way_${osmId}`,
+            tags.name || tags.ref || routeType,
+            routeType,
+            stringifiedCoords,
+            minLat, maxLat, minLng, maxLng,
+            stringifiedTags
+          );
+          insertedAsMain = true;
+        }
         
         if (tags.building || tags.natural === 'wood' || tags.landuse === 'forest') {
           let height = 6; // Default

@@ -142,12 +142,19 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Filter POIs that should be processed (using shouldProcessPOI logic)
+    // Filter POIs that should be processed (BATCH lookup — 2 queries totais
+    // em vez de 2×N. shouldProcessPOIBatch pula self-healing side-effect;
+    // se algum POI realmente precisar dele, será disparado quando processar
+    // individualmente via shouldProcessPOI dentro do pipeline.
     const poisToProcess: typeof pois = []
     const skippedReasons: Record<string, number> = {}
-    
+
+    const shouldProcessMap = await MigrationService.shouldProcessPOIBatch(
+      pois.map(p => p.uuid_id)
+    )
+
     for (const poi of pois) {
-      const shouldProcess = await MigrationService.shouldProcessPOI(poi.uuid_id)
+      const shouldProcess = shouldProcessMap.get(poi.uuid_id) || { should_process: true }
       if (shouldProcess.should_process) {
         poisToProcess.push(poi)
         if (poisToProcess.length >= batch_size) {
