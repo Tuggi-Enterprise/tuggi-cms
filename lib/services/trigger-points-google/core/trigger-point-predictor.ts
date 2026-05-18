@@ -1564,16 +1564,11 @@ export class CoreTriggerPointPredictor {
       const d = calculateDistance(boundary.center, c);
       if (d > polygonBoundingRadius) polygonBoundingRadius = d;
     }
-    // safetyRadius: pre-filter used by the app before point-in-polygon check.
-    // Scaled to the actual polygon — no hardcoded 500m floor that makes small POIs
-    // (storefronts, museums) look like they cover several city blocks.
-    // Buffer of 1.5× gives margin for GPS jitter. DB cap: 500m.
-    const DB_RADIUS_MAX = 500;
-    const safetyRadius = Math.min(
-      Math.max(50, Math.round(polygonBoundingRadius * 1.5)),
-      DB_RADIUS_MAX
-    );
-    console.log(`🟦 Geofence radius: ${safetyRadius}m (polygon bounding=${polygonBoundingRadius.toFixed(0)}m × 1.5, capped at ${DB_RADIUS_MAX}m)`);
+    // Para geofence, o trigger zone É o polígono em geometry_geojson.
+    // O app usa point-in-polygon — radius_meters não tem significado aqui.
+    // Valor 1 satisfaz o DB constraint (chk_radius_positive > 0).
+    const safetyRadius = 1;
+    console.log(`🟦 Geofence TP: polygon=${boundary.coordinates.length} pts, area=${boundary.area_m2?.toFixed(0)}m² — trigger zone is the polygon (radius_meters=1, nominal only)`);
 
     return {
       id: deterministicTPId(poiData.id, 'geofence', boundary.center.lat, boundary.center.lng),
