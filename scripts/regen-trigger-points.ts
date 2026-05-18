@@ -68,16 +68,33 @@ async function createBatch(batchId: string, filters: {
     return
   }
 
-  // Buscar IDs das attractions no schema 'core'
-  let query = db.from('attractions').select('id')
+  // Buscar IDs com paginação (Supabase limita por request)
+  const PAGE = 1000
+  const allIds: string[] = []
+  let page = 0
 
-  if (filters.country) query = query.eq('country', filters.country)
-  if (filters.state)   query = query.eq('state',   filters.state)
-  if (filters.city)    query = query.eq('city',     filters.city)
+  while (true) {
+    let q = db.from('attractions').select('id')
+      .range(page * PAGE, (page + 1) * PAGE - 1)
 
-  const { data, error } = await query
-  if (error) { console.error('❌ Erro ao buscar POIs:', error.message); process.exit(1) }
-  if (!data?.length) { console.log('Nenhum POI encontrado com esses filtros.'); return }
+    if (filters.country) q = q.eq('country', filters.country)
+    if (filters.state)   q = q.eq('state',   filters.state)
+    if (filters.city)    q = q.eq('city',     filters.city)
+
+    const { data: pageData, error } = await q
+    if (error) { console.error('❌ Erro ao buscar POIs:', error.message); process.exit(1) }
+    if (!pageData?.length) break
+
+    pageData.forEach((r: any) => allIds.push(r.id))
+    process.stdout.write(`\r   Buscando POIs... ${allIds.length} encontrados`)
+
+    if (pageData.length < PAGE) break
+    page++
+  }
+
+  const data = allIds.map(id => ({ id }))
+  console.log(`\n📋 ${data.length} POIs encontrados.`)
+  if (!data.length) { console.log('Nenhum POI encontrado com esses filtros.'); return }
 
   console.log(`📋 Inserindo ${data.length} POIs na fila "${batchId}"...`)
 
