@@ -1382,10 +1382,8 @@ export class CoreTriggerPointPredictor {
   ): TriggerPoint[] {
     if (!accessibleStreets.length) return [];
 
-    const { calculateBearing, calculateDistance, calculateDistanceToBoundary, closestPointOnPolyline, walkAlongPolyline, resolveBearingTarget } = require('../utils/calculations');
+    const { calculateBearing, calculateDistance, calculateDistanceToBoundary, closestPointOnPolyline, walkAlongPolyline, findClosestPointOnBoundary } = require('../utils/calculations');
     const { resolveStreetSpeedKmh, calculateGpsAwareRadius } = require('../../../geometry');
-
-    const bearingTarget = resolveBearingTarget(boundary);
     const cfg = TRIGGER_POINTS_CONSTANTS.triggerPoint;
     const groupCap = boundary.classification?.maxTPRadiusM ?? cfg.maxRadiusM;
 
@@ -1490,7 +1488,7 @@ export class CoreTriggerPointPredictor {
           id: deterministicTPId(poiData.id, `perimeter_${street.id}_${f.key}`, f.location.lat, f.location.lng),
           location: f.location,
           radius,
-          expectedBearing: calculateBearing(f.location, bearingTarget),
+          expectedBearing: calculateBearing(f.location, findClosestPointOnBoundary(f.location, boundary.coordinates)),
           bearingThreshold: cfg.defaultBearingThreshold,
           type: 'primary',
           priority: 1,

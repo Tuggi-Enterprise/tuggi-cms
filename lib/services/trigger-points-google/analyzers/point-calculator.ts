@@ -1,7 +1,7 @@
 // Calculador de pontos ótimos para trigger points
 
 import { POIData, BoundaryData, GeographicContext, StreetData, TriggerPointCandidate } from '../types/interfaces';
-import { calculateDistance, calculateBearing, calculateDistanceToBoundary, isPointInPolygon, resolveBearingTarget } from '../utils/calculations';
+import { calculateDistance, calculateBearing, calculateDistanceToBoundary, isPointInPolygon, findClosestPointOnBoundary } from '../utils/calculations';
 import { TRIGGER_POINTS_CONSTANTS } from '../config/trigger-points-config';
 import { POIClassifierService } from '../services/poi-classifier.service';
 
@@ -257,9 +257,6 @@ export class OptimalPointCalculator {
     const minSpacing = classification.minDistanceBetweenTPs || 40;
     const fanPolygons = boundary.visibilityFan!.polygons;
 
-    // Pre-resolver bearing target uma vez (SSOT em utils/calculations)
-    const bearingTarget = resolveBearingTarget(boundary);
-
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length < 2) continue;
 
@@ -295,7 +292,10 @@ export class OptimalPointCalculator {
         // qualidade da rua (tipo OSM) e proximidade ao POI.
         const quality = this.calculateFanWalkQuality(pointOnStreet, boundary, street);
 
-        const expectedBearing = calculateBearing(pointOnStreet, bearingTarget);
+        // Bearing aponta para o ponto mais próximo do boundary — KISS, sempre correto
+        // para qualquer forma de POI (parque, prédio, montanha).
+        const closestOnBoundary = findClosestPointOnBoundary(pointOnStreet, boundary.coordinates);
+        const expectedBearing = calculateBearing(pointOnStreet, closestOnBoundary);
         const distance = calculateDistance(pointOnStreet, boundary.center);
 
         candidates.push({
