@@ -271,6 +271,16 @@ export class TriggerPointSavingService {
 
       const validation = validateTriggerPoints(tpsForDB)
 
+      // DEBUG: log validation summary to understand how many TPs pass
+      const typeBreakdown = validation.validItems.reduce((acc: Record<string, number>, tp) => {
+        acc[tp.type] = (acc[tp.type] || 0) + 1; return acc;
+      }, {});
+      console.log(`💾 [saveTriggerPoints] input=${triggerPoints.length}, valid=${validation.validItems.length}, invalid=${tpsForDB.length - validation.validItems.length}, types=${JSON.stringify(typeBreakdown)}`);
+      if (validation.errors.length > 0) {
+        const sample = validation.errors.slice(0, 5).map(e => `${e.field}:${e.message}`).join(' | ');
+        console.log(`💾 [saveTriggerPoints] sample errors: ${sample}`);
+      }
+
       if (validation.validItems.length === 0) {
         console.warn('⚠️ No valid trigger points after validation')
         results.skipped = triggerPoints.length

@@ -55,7 +55,7 @@ export function validateTriggerPointForDB(tp: TriggerPointForDB): ValidationResu
   }
 
   // Validate type
-  const validTypes = ['primary', 'secondary', 'fallback', 'special', 'testing']
+  const validTypes = ['primary', 'secondary', 'fallback', 'special', 'testing', 'geofence', 'entry', 'exit', 'approach', 'custom']
   if (!validTypes.includes(tp.type)) {
     errors.push({
       field: 'type',
