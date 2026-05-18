@@ -271,6 +271,133 @@ export function calculateDistanceToLineSegment(
 }
 
 /**
+ * Resolve o ponto-alvo de bearing pra um TP apontar (Camada 3 frontal, FAN-WALK).
+ *
+ * Prioridade:
+ *  1. Entrance OSM principal (`main` > `yes` > `other`) se disponível no boundary.
+ *  2. Centróide do boundary (fallback).
+ *
+ * SSOT: substitui a duplicação da lógica em `point-calculator.calculateFanWalkStrategy`
+ * e `predictor.buildFrontalArrivalTP`.
+ */
+export function resolveBearingTarget(
+  boundary: { center: { lat: number; lng: number }; entrances?: Array<{ lat: number; lng: number; kind: 'main' | 'yes' | 'other' }> }
+): { lat: number; lng: number } {
+  if (boundary.entrances && boundary.entrances.length > 0) {
+    const priority = { main: 0, yes: 1, other: 2 } as const;
+    const best = [...boundary.entrances].sort((a, b) => priority[a.kind] - priority[b.kind])[0];
+    return { lat: best.lat, lng: best.lng };
+  }
+  return { lat: boundary.center.lat, lng: boundary.center.lng };
+}
+
+/**
+ * Projeta um ponto na polilinha de uma rua e retorna:
+ *  - point: posição projetada na polilinha (interpolada dentro do segmento mais próximo)
+ *  - segmentIndex: índice do segmento (coords[i] → coords[i+1])
+ *  - t: parâmetro de interpolação [0..1] dentro do segmento
+ *  - distance: distância (metros) do ponto original à projeção
+ *
+ * Generaliza `calculateDistanceToLineSegment` pra polilinhas multi-segmento.
+ * Útil pra spawnar TPs a partir do "closest point on street to POI".
+ */
+export function closestPointOnPolyline(
+  point: { lat: number; lng: number },
+  coords: Array<{ lat: number; lng: number }>
+): { point: { lat: number; lng: number }; segmentIndex: number; t: number; distance: number } | null {
+  if (!coords || coords.length === 0) return null;
+  if (coords.length === 1) {
+    return {
+      point: { lat: coords[0].lat, lng: coords[0].lng },
+      segmentIndex: 0,
+      t: 0,
+      distance: calculateDistance(point, coords[0]),
+    };
+  }
+
+  let best = {
+    point: { lat: coords[0].lat, lng: coords[0].lng },
+    segmentIndex: 0,
+    t: 0,
+    distance: Infinity,
+  };
+
+  for (let i = 0; i < coords.length - 1; i++) {
+    const A = coords[i];
+    const B = coords[i + 1];
+    const dx = B.lng - A.lng;
+    const dy = B.lat - A.lat;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) continue;
+    let t = ((point.lng - A.lng) * dx + (point.lat - A.lat) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    const proj = { lat: A.lat + t * dy, lng: A.lng + t * dx };
+    const d = calculateDistance(point, proj);
+    if (d < best.distance) {
+      best = { point: proj, segmentIndex: i, t, distance: d };
+    }
+  }
+  return best;
+}
+
+/**
+ * Caminha pela polilinha a partir de uma posição inicial (resultado de
+ * `closestPointOnPolyline`) por `distanceM` metros. Sinal de `distanceM`:
+ *  - positivo: avança no sentido coords[i] → coords[i+1] → ...
+ *  - negativo: retrocede no sentido coords[i] → coords[i-1] → ...
+ *
+ * Se atingir o fim da polilinha antes de consumir `distanceM`, retorna o
+ * último ponto alcançável (endpoint da polilinha). Nunca retorna null se
+ * `start` for válido.
+ */
+export function walkAlongPolyline(
+  coords: Array<{ lat: number; lng: number }>,
+  start: { point: { lat: number; lng: number }; segmentIndex: number; t: number },
+  distanceM: number
+): { lat: number; lng: number } {
+  if (!coords || coords.length === 0) return start.point;
+
+  const forward = distanceM >= 0;
+  let remaining = Math.abs(distanceM);
+  let currentPoint = { lat: start.point.lat, lng: start.point.lng };
+
+  if (forward) {
+    let nextIdx = start.segmentIndex + 1;
+    while (remaining > 0 && nextIdx < coords.length) {
+      const next = coords[nextIdx];
+      const segLen = calculateDistance(currentPoint, next);
+      if (segLen >= remaining) {
+        const r = remaining / segLen;
+        return {
+          lat: currentPoint.lat + (next.lat - currentPoint.lat) * r,
+          lng: currentPoint.lng + (next.lng - currentPoint.lng) * r,
+        };
+      }
+      remaining -= segLen;
+      currentPoint = { lat: next.lat, lng: next.lng };
+      nextIdx++;
+    }
+  } else {
+    let nextIdx = start.segmentIndex;
+    while (remaining > 0 && nextIdx >= 0) {
+      const next = coords[nextIdx];
+      const segLen = calculateDistance(currentPoint, next);
+      if (segLen >= remaining) {
+        const r = remaining / segLen;
+        return {
+          lat: currentPoint.lat + (next.lat - currentPoint.lat) * r,
+          lng: currentPoint.lng + (next.lng - currentPoint.lng) * r,
+        };
+      }
+      remaining -= segLen;
+      currentPoint = { lat: next.lat, lng: next.lng };
+      nextIdx--;
+    }
+  }
+  return currentPoint;
+}
+
+/**
  * Calcula o centro (centroid) de um polígono
  */
 export function calculatePolygonCenter(coordinates: Array<{lat: number, lng: number}>): {lat: number, lng: number} {
@@ -303,25 +430,49 @@ export function calculateVariance(values: number[]): number {
 }
 
 /**
- * Gera pontos de amostra em um círculo
+ * Gera pontos de amostra em um círculo. Quando `seed` é fornecido, distâncias
+ * são reproduzíveis (PRNG seedado). Sem seed, mantém Math.random.
+ *
+ * NOTA: função atualmente sem callers no motor (mantida por API stability).
+ * Adicionada opção de seed pra futura adoção determinística.
  */
 export function generateCircleSamplePoints(
   center: { lat: number; lng: number },
   radius: number,
-  count: number
+  count: number,
+  seed?: string
 ): Array<{lat: number, lng: number}> {
   const points = [];
-  
+
+  let rng: () => number;
+  if (seed) {
+    // PRNG determinístico (mulberry32)
+    let h = 0x811c9dc5;
+    for (let i = 0; i < seed.length; i++) {
+      h = Math.imul(h ^ seed.charCodeAt(i), 0x01000193);
+    }
+    let state = h >>> 0;
+    rng = () => {
+      state = (state + 0x6D2B79F5) >>> 0;
+      let t = state;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  } else {
+    rng = Math.random;
+  }
+
   for (let i = 0; i < count; i++) {
     const angle = (i / count) * 2 * Math.PI;
-    const distance = Math.random() * radius;
-    
+    const distance = rng() * radius;
+
     const lat = center.lat + (distance / 111000) * Math.cos(angle);
     const lng = center.lng + (distance / (111000 * Math.cos(center.lat * Math.PI / 180))) * Math.sin(angle);
-    
+
     points.push({ lat, lng });
   }
-  
+
   return points;
 }
 

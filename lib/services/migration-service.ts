@@ -1026,6 +1026,121 @@ export class MigrationService {
   }
 
   /**
+   * BATCH version de `shouldProcessPOI` — 2 queries totais em vez de 2×N.
+   * Mesma lógica funcional; pula side-effect de self-healing (delete from
+   * homolog) pra manter idempotência da chamada batch. Self-healing acontece
+   * naturalmente quando o POI for processado individualmente depois.
+   *
+   * Returns: Map<uuid_id, ShouldProcessResult> com mesma semântica de shouldProcessPOI.
+   */
+  static async shouldProcessPOIBatch(
+    uuid_ids: string[]
+  ): Promise<Map<string, { should_process: boolean; reason?: string }>> {
+    const results = new Map<string, { should_process: boolean; reason?: string }>();
+    if (uuid_ids.length === 0) return results;
+
+    try {
+      // 1. Batch check core.attractions
+      const { data: coreRows } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, approved')
+        .in('id', uuid_ids);
+      const coreById = new Map(
+        (coreRows || []).map(r => [r.id, r as { id: string; approved: boolean }])
+      );
+
+      // 2. Batch check homolog.pois (apenas pros uuids NÃO em core, mas
+      // queremos status pra todos pra completude do retorno)
+      const { data: homologRows } = await supabase
+        .schema('homolog')
+        .from('pois')
+        .select('uuid_id, processing_status, migration_attempts, last_migration_attempt_at')
+        .in('uuid_id', uuid_ids);
+      const homologById = new Map(
+        (homologRows || []).map(r => [r.uuid_id, r as any])
+      );
+
+      const now = Date.now();
+      const lockTimeout = 10 * 60 * 1000; // 10 minutes — mesma constante da função single
+
+      for (const uuid_id of uuid_ids) {
+        const inCore = coreById.get(uuid_id);
+        if (inCore) {
+          if (inCore.approved) {
+            // Self-healing NÃO é feito aqui (side-effect omitido no batch).
+            // O caller pode invocar shouldProcessPOI single pra disparar cleanup.
+            results.set(uuid_id, {
+              should_process: false,
+              reason: 'POI already exists and is approved in core.attractions'
+            });
+          } else {
+            results.set(uuid_id, {
+              should_process: true,
+              reason: 'Partial migration found: exists in core but not approved. Resuming pipeline.'
+            });
+          }
+          continue;
+        }
+
+        const poi = homologById.get(uuid_id);
+        if (!poi) {
+          results.set(uuid_id, {
+            should_process: false,
+            reason: 'POI not found in homolog.pois'
+          });
+          continue;
+        }
+
+        if (poi.processing_status === 'migrated') {
+          results.set(uuid_id, { should_process: false, reason: 'POI marked as migrated in homolog' });
+          continue;
+        }
+        if (poi.processing_status === 'skipped') {
+          results.set(uuid_id, { should_process: false, reason: 'POI marked as skipped' });
+          continue;
+        }
+        if (poi.processing_status === 'failed' && (poi.migration_attempts || 0) >= 3) {
+          results.set(uuid_id, {
+            should_process: false,
+            reason: 'POI failed migration 3+ times (permanent failure)'
+          });
+          continue;
+        }
+        if (poi.processing_status === 'processing') {
+          const lockTime = poi.last_migration_attempt_at
+            ? new Date(poi.last_migration_attempt_at).getTime()
+            : 0;
+          if (lockTime && now - lockTime < lockTimeout) {
+            results.set(uuid_id, {
+              should_process: false,
+              reason: `POI is currently being processed (locked at ${poi.last_migration_attempt_at})`
+            });
+            continue;
+          }
+          // Lock expired: cai pro should_process=true abaixo
+        }
+
+        results.set(uuid_id, { should_process: true });
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error in shouldProcessPOIBatch:', error);
+      // Fail-open: marca todos como should_process=true (mesma semântica que single)
+      for (const uuid_id of uuid_ids) {
+        if (!results.has(uuid_id)) {
+          results.set(uuid_id, {
+            should_process: true,
+            reason: 'Error checking status, allowing processing'
+          });
+        }
+      }
+      return results;
+    }
+  }
+
+  /**
    * Update processing status in homolog
    */
   static async updateProcessingStatus(

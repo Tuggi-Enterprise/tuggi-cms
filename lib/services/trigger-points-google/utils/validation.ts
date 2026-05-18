@@ -23,11 +23,12 @@ export interface ValidationResult {
 export function validateTriggerPointForDB(tp: TriggerPointForDB): ValidationResult {
   const errors: ValidationError[] = []
 
-  // Validate radius_meters (1-500)
-  if (tp.radius_meters <= 0 || tp.radius_meters > 500) {
+  // Validate radius_meters — geofence TPs can have large radii (>2km), normal TPs 1-500m.
+  // The DB has no upper constraint; this is app-level sanity only.
+  if (tp.radius_meters <= 0 || tp.radius_meters > 50000) {
     errors.push({
       field: 'radius_meters',
-      message: `radius_meters must be between 1 and 500, got ${tp.radius_meters}`,
+      message: `radius_meters must be between 1 and 50000, got ${tp.radius_meters}`,
       value: tp.radius_meters
     })
   }
@@ -55,7 +56,7 @@ export function validateTriggerPointForDB(tp: TriggerPointForDB): ValidationResu
   }
 
   // Validate type
-  const validTypes = ['primary', 'secondary', 'fallback', 'special', 'testing']
+  const validTypes = ['primary', 'secondary', 'fallback', 'special', 'testing', 'geofence', 'entry', 'exit', 'approach', 'custom']
   if (!validTypes.includes(tp.type)) {
     errors.push({
       field: 'type',
@@ -64,7 +65,7 @@ export function validateTriggerPointForDB(tp: TriggerPointForDB): ValidationResu
     })
   }
 
-  // Validate priority (1-10)
+  // Validate priority (1-10) — clamped to 10 in convertToTriggerPoint
   if (tp.priority < 1 || tp.priority > 10) {
     errors.push({
       field: 'priority',

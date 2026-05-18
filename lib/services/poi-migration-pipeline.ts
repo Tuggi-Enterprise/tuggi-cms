@@ -774,8 +774,10 @@ export class PoiMigrationPipeline {
       
       const predictor = new CoreTriggerPointPredictor()
       const predictionResult = await predictor.predictTriggerPointsComplete(poiData, {
-        maxSearchRadius: 1000,
-        minQuality: 0.4
+        // Sem maxSearchRadius — o motor calcula dinamicamente via fan de visibilidade.
+        // O cap de 1000m estava cortando TPs em POIs grandes (Central Park, aeroportos).
+        clusterIntersections: true,
+        minQuality: 0.3
       })
 
       if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {
@@ -809,8 +811,11 @@ export class PoiMigrationPipeline {
         is_active: true,
         access: 'both' as 'walk' | 'car' | 'both',
         confidence: tp.confidence || 0.5,
-        generation_method: tp.generationMethod || 'google_apis',
-        boundary_source: predictionResult.boundary?.source || 'unknown'
+        generation_method: tp.generationMethod || 'local_osm',
+        boundary_source: predictionResult.boundary?.source || 'unknown',
+        // TPs do tipo geofence carregam o polígono GeoJSON; requer a migração
+        // 20260515_add_geofence_trigger_type.sql aplicada.
+        geometry_geojson: tp.geometryGeoJson || null,
       }))
       
       const saveResult = await TriggerPointSavingService.saveTriggerPoints(

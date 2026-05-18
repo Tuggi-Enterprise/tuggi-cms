@@ -29,13 +29,14 @@ export interface TriggerPoint {
   custom_description?: string
 }
 
-export type TriggerPointType = 
+export type TriggerPointType =
   | 'primary'
   | 'fallback'
   | 'entry'
   | 'exit'
   | 'approach'
   | 'custom'
+  | 'geofence' // Issue 2.4 — TP de cobertura por polígono (POIs com boundary)
 
 export interface TriggerPointTypeInfo {
   value: TriggerPointType
@@ -162,7 +163,8 @@ export const TRIGGER_POINT_TYPES: TriggerPointTypeInfo[] = [
   { value: 'entry', label: 'Entry', color: '#10B981', description: 'Entry point trigger' },
   { value: 'exit', label: 'Exit', color: '#EF4444', description: 'Exit point trigger' },
   { value: 'approach', label: 'Approach', color: '#8B5CF6', description: 'Approach trigger' },
-  { value: 'custom', label: 'Custom', color: '#F59E0B', description: 'Custom trigger point' }
+  { value: 'custom', label: 'Custom', color: '#F59E0B', description: 'Custom trigger point' },
+  { value: 'geofence', label: 'Geofence', color: '#06B6D4', description: 'Polygon-based trigger (no bearing check)' }
 ]
 
 export const DEFAULT_TRIGGER_POINT: TriggerPointFormData = {

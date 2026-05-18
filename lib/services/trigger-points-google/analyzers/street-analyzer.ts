@@ -5,16 +5,17 @@ import { POIData, BoundaryData, GeographicContext, StreetData } from '../types/i
 import { calculateDistance, isPointInPolygon, extractBuildingHeight, calculateBearing, calculateDistanceToLineSegment, calculateDistanceToPolygon, calculateDistanceToBoundary, findClosestPointOnBoundary } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
+import { LRUCacheWithTTL } from '../utils/lru-cache';
 
 export class StreetAnalyzer {
   private googleAPIs: GoogleAPIsService;
-  
-  // Cache para altura de prédios vizinhos (QUALIDADE > PERFORMANCE)
-  private static surroundingHeightCache = new Map<string, { 
-    data: { average: number; max: number; buildingCount: number }, 
-    timestamp: number 
-  }>();
-  private static CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
+
+  // ✅ LRU cache: max 1000 entries, TTL 30min. Antes era Map<{data, timestamp}>
+  // ilimitado com TTL manual.
+  private static surroundingHeightCache = new LRUCacheWithTTL<
+    string,
+    { average: number; max: number; buildingCount: number; tallBuildingsCount?: number }
+  >(1000, 30 * 60 * 1000);
   
   constructor() {
     this.googleAPIs = new GoogleAPIsService();
@@ -153,13 +154,23 @@ export class StreetAnalyzer {
    * Versão que retorna metadados para visualização no frontend
    */
   async findAccessibleStreetsWithMetadata(
-    poiData: POIData, 
-    boundary: BoundaryData, 
+    poiData: POIData,
+    boundary: BoundaryData,
     context: GeographicContext
   ): Promise<{ streets: StreetData[]; searchRadius: number; elevationAnalysis?: any }> {
     try {
-      const searchRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
-      
+      // Modo fan: usa o alcance máximo do polígono de visibilidade como raio de busca.
+      // Garante que streets dentro do fan são fetchadas (não importa a classificação).
+      const fanMax = boundary.visibilityFan?.maxDistanceM;
+      const categoricalRadius = await this.calculateIntelligentRadius(boundary, context, poiData);
+      const searchRadius = fanMax && fanMax > categoricalRadius
+        ? Math.ceil(fanMax + 100) // pequena margem
+        : categoricalRadius;
+
+      if (fanMax) {
+        console.log(`🔭 Street search radius driven by visibility fan: ${searchRadius}m (fan max ${fanMax}m, categorical ${categoricalRadius}m)`);
+      }
+
       const roads = await this.getRoadsAroundBoundary(boundary, searchRadius, context);
       
       if (roads.length === 0) {
@@ -486,14 +497,115 @@ export class StreetAnalyzer {
     console.log(`📊 [INPUT] boundary.streets: ${boundary.streets?.length || 0} consolidated streets`);
     
     try {
-      // 🚀 NOVA ESTRATÉGIA: Verificar se já temos dados consolidados do boundary
+      // 🚀 ESTRATÉGIA: usar streets consolidadas + EXPANDIR se o searchRadius
+      // pedido for maior que o raio coberto durante detecção do boundary.
+      //
+      // Crítico para o modo visibility-driven: o fan pode dizer "POI visível a
+      // 3km" mas `boundary.streets` só tem ruas no raio inicial (500m). Sem
+      // re-fetch, FAN-WALK roda só com as 39 streets do quarteirão e perde
+      // todas as ruas no entorno expandido.
       if (boundary.streets && boundary.streets.length > 0) {
-        console.log(`✅ [STRATEGY] Using consolidated streets from boundary: ${boundary.streets.length} streets`);
-        console.log(`🔍 [FILTER] Filtering ${boundary.streets.length} consolidated streets by radius ${searchRadius}m...`);
-        
+        let streets = boundary.streets;
+
+        // Quando o fan está ativo, SEMPRE buscar streets usando amostragem ao
+        // longo do boundary. A `boundary.streets` consolidada veio da detecção
+        // inicial (bbox ~600m centrada no PIN do POI), o que enviesa cobertura
+        // pro lado do pin em boundaries grandes/assimétricos. O fetch ao longo
+        // do boundary distribui os bboxes uniformemente pelo perímetro real.
+        //
+        // Estratégia: N pontos amostrados ao longo do perímetro × raio fan
+        // por ponto = cobertura proporcional ao tamanho real do POI E à
+        // visibilidade física.
+        const fanActive = !!boundary.visibilityFan?.polygons?.length;
+        if (fanActive) {
+          console.log(`🔭 [EXTEND] Fan active → fetching streets along boundary (searchRadius=${searchRadius}m, bypassing pin-bias from initial fetch)`);
+          try {
+            const { LocalOSMFetcher } = require('../services/local-osm-fetcher');
+            const fetcher = LocalOSMFetcher.getInstance();
+
+            // Raio por sample-point = distância máxima de visibilidade do fan.
+            //
+            // Crítico: para POIs altos (Cristo, Jaraguá), o boundary é pequeno
+            // mas a visibilidade vai a quilômetros. O fan já calculou a real
+            // distância máxima visível considerando altura+terreno+prédios.
+            // Usar isso como raio garante:
+            //  - Cristo: 1 sample point × fan.max=10km → cobre Botafogo, Copa
+            //  - Queensboro: 8 sample points × fan.max=5km → cobre Manhattan + Queens
+            //  - Pier 97: 1 sample × fan.max=100m → cobre só o entorno (correto)
+            //
+            // Cap em 4km por sample-point para limitar carga em SP/NY denso.
+            const fanMaxM = boundary.visibilityFan?.maxDistanceM ?? searchRadius;
+            const radiusPerPoint = Math.max(300, Math.min(fanMaxM, 4000));
+            console.log(`🔭 [EXTEND] Using radiusPerPoint=${radiusPerPoint}m (fan max=${fanMaxM}m)`);
+
+            const extended = fetcher.fetchStreetsAlongBoundary(
+              boundary.coordinates,
+              radiusPerPoint
+            );
+
+            if (extended && extended.length > 0) {
+              // Normaliza IDs antes de dedup: `toOverpassElement` pode gerar um
+              // ID numérico aleatório diferente para ruas sem OSM ID válido, enquanto
+              // `fetchStreetsAlongBoundary` usa o `row.id` original do SQLite
+              // (ex: "osm_way_hdrk4b19j"). Sem normalização, o mesmo segmento físico
+              // entra 2x na lista → FAN-WALK processa o mesmo candidato em duplicata.
+              //
+              // Fix: usar Map keyed por ID normalizado. `fetchStreetsAlongBoundary`
+              // tem coordenadas completas (fullCoordinates) — preferir esses sobre
+              // boundary.streets quando há colisão de ID normalizado.
+              const normalizeId = (id: string | number): string => {
+                const s = String(id);
+                // "osm_way_226041025" → "226041025", "226041025" → "226041025"
+                // "osm_way_hdrk4b19j" → "hdrk4b19j" (alphanumeric, sem conflito)
+                return s.replace(/^osm_way_/, '').replace(/^osm_/, '');
+              };
+              // Rebuild final list: extended streets take priority (have fullCoordinates)
+              const finalMap = new Map<string, StreetData>();
+              for (const s of streets) finalMap.set(normalizeId(s.id), s);
+              for (const s of extended as StreetData[]) finalMap.set(normalizeId(s.id), s);
+              const before = streets.length;
+              streets = Array.from(finalMap.values());
+              const deduped = before + extended.length - streets.length;
+              console.log(`✅ [EXTEND] Merged ${extended.length} boundary streets → ${streets.length} total (${deduped} deduped)`);
+            } else {
+              console.log(`⚠️ [EXTEND] No additional streets found along boundary`);
+            }
+          } catch (err) {
+            console.warn(`⚠️ [EXTEND] Failed to fetch streets along boundary:`, err);
+          }
+        }
+
+        // Memory cap: pra POIs em áreas hiper-densas (Manhattan, parques grandes),
+        // streets podem chegar a 12k+ entradas. Sort por distância ao boundary
+        // center e mantém top-N. Streets longe-do-POI raramente são candidatos
+        // a TP relevante. SSOT do limite em TRIGGER_POINTS_CONSTANTS.memory.
+        const MAX_STREETS = TRIGGER_POINTS_CONSTANTS.memory.maxStreetsPerPOI;
+        if (streets.length > MAX_STREETS) {
+          const poiCenter = boundary.center;
+          const distanceToCenter = (s: any): number => {
+            if (!s.coordinates || s.coordinates.length === 0) return Infinity;
+            // Usa o ponto mais próximo do center pra avaliar (não primeiro vertex)
+            let minD = Infinity;
+            for (const p of s.coordinates) {
+              const d = calculateDistance(poiCenter, p);
+              if (d < minD) minD = d;
+            }
+            return minD;
+          };
+          streets = streets
+            .map(s => ({ s, d: distanceToCenter(s) }))
+            .sort((a, b) => a.d - b.d)
+            .slice(0, MAX_STREETS)
+            .map(x => x.s);
+          console.log(`🧠 Memory cap: trimmed streets to ${MAX_STREETS} closest to POI center`);
+        }
+
+        console.log(`✅ [STRATEGY] Using ${streets.length} streets (consolidated + any extensions)`);
+        console.log(`🔍 [FILTER] Filtering ${streets.length} streets by radius ${searchRadius}m...`);
+
         // ✅ CRÍTICO: Filtrar ruas consolidadas pelo raio também (podem ter sido criadas com raio maior)
-        const filtered = this.filterStreetPointsByRadius(boundary.streets, boundary, searchRadius);
-        console.log(`✅ [RESULT] After filtering: ${filtered.length} streets within ${searchRadius}m radius (from ${boundary.streets.length} consolidated)`);
+        const filtered = this.filterStreetPointsByRadius(streets, boundary, searchRadius);
+        console.log(`✅ [RESULT] After filtering: ${filtered.length} streets within ${searchRadius}m radius (from ${streets.length} input)`);
         
         if (filtered.length === 0 && boundary.streets.length > 0) {
           console.error(`❌ [CRITICAL] All ${boundary.streets.length} consolidated streets were rejected by filterStreetPointsByRadius`);
@@ -1199,104 +1311,6 @@ out geom tags; // ADICIONAR 'tags' para obter tunnel, bridge, layer, etc
   /**
    * Busca ruas nos pontos do boundary (OTIMIZADO - evita queries desnecessárias)
    */
-  private async getRoadsFromBoundaryPoints(boundary: BoundaryData, processedRoads: Set<string>): Promise<StreetData[]> {
-    const streets: StreetData[] = [];
-    
-    // 🚀 OTIMIZAÇÃO: Para boundaries grandes (>100 pontos), usar estratégia inteligente
-    if (boundary.coordinates.length > 100) {
-      console.log(`⚡ SMART OPTIMIZATION: Large boundary (${boundary.coordinates.length} points), creating virtual streets from boundary perimeter`);
-      
-      // Criar "ruas virtuais" baseadas no perímetro do boundary
-      // Isso evita queries OSM desnecessárias e usa os dados já disponíveis
-      const virtualStreets = this.createVirtualStreetsFromBoundary(boundary);
-      console.log(`🎯 Created ${virtualStreets.length} virtual streets from boundary perimeter`);
-      return virtualStreets;
-    }
-    
-    // ═══════════════════════════════════════════════════════════════
-    // ESTRATÉGIA 1: LOCAL OSM DB (primário - uma query única em vez de N)
-    // ═══════════════════════════════════════════════════════════════
-    try {
-      const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
-      const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(boundary.center, 50);
-      if (localStreets && localStreets.length > 0) {
-        console.log(`🚀 [LocalOSMFetcher] Found ${localStreets.length} streets locally for boundary points`);
-        for (const street of localStreets) {
-          if (!processedRoads.has(street.id)) {
-            processedRoads.add(street.id);
-            streets.push({ ...street, confidence: 0.9 });
-          }
-        }
-        console.log(`📍 Found ${streets.length} roads from boundary points (local)`);
-        return streets;
-      }
-    } catch (localError) {
-      console.warn(`⚠️ [LocalOSMFetcher] Local DB failed for boundary points, falling back to Overpass`);
-    }
-    
-    // ═══════════════════════════════════════════════════════════════
-    // ESTRATÉGIA 2: OVERPASS API (fallback - per-point queries)
-    // ═══════════════════════════════════════════════════════════════
-    
-    // Para boundaries menores, usar pontos estratégicos
-    const strategicPoints = this.selectStrategicBoundaryPoints(boundary.coordinates);
-    console.log(`📍 Using ${strategicPoints.length} strategic points from boundary`);
-    
-    for (const point of strategicPoints) {
-      try {
-        // Query OSM otimizada para buscar ruas próximas ao ponto
-        const query = `
-[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
-(
-  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|track|service)$"](around:50,${point.lat},${point.lng});
-);
-out geom tags;
-`;
-        
-        const response = await this.retryOSMQuery(
-          query,
-          'OSM query for roads for boundary point',
-          7, // Aumentado para 7 para cobrir todos os mirrors
-          1000
-        );
-        
-        if (response.ok) {
-          const data = await response.json();
-          const roads = data.elements || [];
-          
-          for (const road of roads) {
-            if (road.id && !processedRoads.has(road.id.toString())) {
-              processedRoads.add(road.id.toString());
-              
-              // Converter geometria OSM para formato esperado
-              const coordinates = road.geometry ? road.geometry.map((point: any) => ({
-                lat: point.lat,
-                lng: point.lon
-              })) : [];
-              
-              streets.push({
-                id: road.id.toString(),
-                type: road.tags?.highway || 'road',
-                coordinates,
-                accessibility: this.determineAccessibility(road.tags),
-                confidence: 0.9 // Alta confidence para pontos no boundary
-              });
-            }
-          }
-        }
-      } catch (error) {
-        console.warn(`Failed to get roads for boundary point via OSM:`, error);
-      }
-    }
-    
-    console.log(`📍 Found ${streets.length} roads from boundary points`);
-    return streets;
-  }
-  
-  /**
-   * Cria ruas virtuais baseadas no perímetro do boundary (OTIMIZAÇÃO)
-   * Evita queries OSM desnecessárias quando já temos boundary completo
-   */
   private createVirtualStreetsFromBoundary(boundary: BoundaryData): StreetData[] {
     const streets: StreetData[] = [];
     
@@ -1372,88 +1386,6 @@ out geom tags;
 
   /**
    * Busca ruas na área expandida ao redor do boundary
-   */
-  private async getRoadsFromExpandedArea(boundary: BoundaryData, searchRadius: number, processedRoads: Set<string>): Promise<StreetData[]> {
-    const streets: StreetData[] = [];
-    
-    // Criar círculo expandido ao redor do centro do boundary
-    const expandedPoints = this.generateSearchPath(boundary.center, searchRadius);
-    
-    try {
-      // ═══════════════════════════════════════════════════════════════
-      // ESTRATÉGIA 1: LOCAL OSM DB (primário - sem rede)
-      // ═══════════════════════════════════════════════════════════════
-      try {
-        const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
-        const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(boundary.center, searchRadius);
-        if (localStreets && localStreets.length > 0) {
-          console.log(`🚀 [LocalOSMFetcher] Found ${localStreets.length} streets locally for expanded area`);
-          for (const street of localStreets) {
-            if (!processedRoads.has(street.id)) {
-              processedRoads.add(street.id);
-              streets.push({ ...street, confidence: 0.7 });
-            }
-          }
-          console.log(`🔄 Found ${streets.length} roads from expanded area (local)`);
-          return streets;
-        }
-      } catch (localError) {
-        console.warn(`⚠️ [LocalOSMFetcher] Local DB failed for expanded area, falling back to Overpass`);
-      }
-      
-      // ═══════════════════════════════════════════════════════════════
-      // ESTRATÉGIA 2: OVERPASS API (fallback - rede)
-      // ═══════════════════════════════════════════════════════════════
-      const query = `
-[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
-(
-  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|track|service)$"](around:${searchRadius},${boundary.center.lat},${boundary.center.lng});
-);
-out geom tags;
-`;
-      console.log(`🧭 Querying roads around center point (${boundary.center.lat}, ${boundary.center.lng}) with radius ${searchRadius}m...`);
-      
-      const response = await this.retryOSMQuery(
-        query,
-        'OSM query for roads (fast)',
-        7,
-        1500
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        const roads = data.elements || [];
-        
-        for (const road of roads) {
-          if (road.id && !processedRoads.has(road.id.toString())) {
-            processedRoads.add(road.id.toString());
-            
-            // Converter geometria OSM para formato esperado
-            const coordinates = road.geometry ? road.geometry.map((point: any) => ({
-              lat: point.lat,
-              lng: point.lon
-            })) : [];
-            
-            streets.push({
-              id: road.id.toString(),
-              type: road.tags?.highway || 'road',
-              coordinates,
-              accessibility: this.determineAccessibility(road.tags),
-              confidence: 0.7 // Média confidence para área expandida
-            });
-          }
-        }
-      }
-    } catch (error) {
-      console.warn(`Failed to get roads from expanded area via OSM:`, error);
-    }
-    
-    console.log(`🔄 Found ${streets.length} roads from expanded area`);
-    return streets;
-  }
-  
-  /**
-   * Seleciona pontos estratégicos do boundary (MELHORADO: cobertura 360°)
    */
   private selectStrategicBoundaryPoints(
     coordinates: Array<{lat: number, lng: number}>, 
@@ -1540,69 +1472,6 @@ out geom tags;
   /**
    * Busca ruas em um raio específico (método original mantido para fallback)
    */
-  private async getRoadsInRadius(location: { lat: number; lng: number }, radius: number): Promise<StreetData[]> {
-    try {
-      // Gerar pontos em círculo para buscar ruas
-      const searchPath = this.generateSearchPath(location, radius);
-      
-      // 🔴 REMOVED: Google Roads API usage (M0 - economia)
-      // Usar query OSM para buscar ruas no raio
-      const query = `
-[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryMedium}];
-(
-  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:${radius},${location.lat},${location.lng});
-);
-out geom tags;
-`;
-      
-      const response = await this.retryOSMQuery(
-        query,
-        'OSM query for roads around point',
-        7,
-        1500
-      );
-      
-      if (!response.ok) {
-        return [];
-      }
-      
-      const data = await response.json();
-      const roads = data.elements || [];
-      
-      // Processar ruas OSM
-      const streets: StreetData[] = [];
-      const processedRoads = new Set<string>();
-      
-      for (const road of roads) {
-        if (road.id && !processedRoads.has(road.id.toString())) {
-          processedRoads.add(road.id.toString());
-          
-          // Converter geometria OSM para formato esperado
-          const coordinates = road.geometry ? road.geometry.map((point: any) => ({
-            lat: point.lat,
-            lng: point.lon
-          })) : [];
-          
-          streets.push({
-            id: road.id.toString(),
-            type: road.tags?.highway || 'road',
-            coordinates,
-            accessibility: this.determineAccessibility(road.tags),
-            confidence: 0.8
-          });
-        }
-      }
-      
-      return streets;
-    } catch (error) {
-      console.warn('Error getting roads in radius:', error);
-      return [];
-    }
-  }
-  
-  /**
-   * Gera caminho de busca em círculo
-   */
   private generateSearchPath(center: { lat: number; lng: number }, radius: number): Array<{lat: number, lng: number}> {
     const points: Array<{lat: number, lng: number}> = [];
     const steps = 16;
@@ -1621,28 +1490,64 @@ out geom tags;
    * Verifica se uma rua é acessível
    */
   private isStreetAccessible(road: StreetData, context: GeographicContext): boolean {
-    // Verificar se a rua é acessível - INCLUINDO RODOVIAS PARA POIs DE ALTA ELEVAÇÃO
-    const accessibleRoadTypes = [
-      'motorway',        // 🛣️ Rodovias (ex: Rodoanel)
-      'trunk',           // 🛣️ Vias Expressas (ex: Anhanguera) 
-      'primary',         // 🛤️ Vias Principais
-      'secondary',       // 🛤️ Vias Secundárias
-      'tertiary',        // 🛤️ Vias Terciárias
-      'residential',     // 🏘️ Ruas Residenciais
-      'living_street',   // 🏘️ Ruas de Convivência
-      'unclassified',    // 🛤️ Ruas não classificadas (ex: Estradas Turísticas)
-      'motorway_link',   // 🔗 Acessos às Rodovias
-      'trunk_link'       // 🔗 Acessos às Vias Expressas
-    ];
-    
-    if (!accessibleRoadTypes.includes(road.type)) {
-      console.log(`🚫 Road type '${road.type}' not in accessible types: [${accessibleRoadTypes.join(', ')}]`);
+    // Tipos de vias onde usuários passam e podem ouvir audio guides.
+    // Inclui todos os modos: carro, ônibus, bicicleta, pedestre, trem, barco, teleférico.
+    const MOTORIZED_ROAD_TYPES = new Set([
+      'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+      'residential', 'living_street', 'unclassified',
+      'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+      'bus_guideway',  // 🚌 Faixa exclusiva de ônibus
+      'ferry',         // ⛴️ Ferry / táxi marítimo
+    ]);
+
+    const NON_MOTORIZED_TYPES = new Set([
+      'cycleway',      // 🚲 Ciclovia dedicada
+      'footway',       // 🚶 Calçada / passeio
+      'pedestrian',    // 🚶 Zona pedestre (rua comercial, piazza)
+      'path',          // 🥾 Caminho genérico (trilha, atalho urbano)
+      'waterway',      // 🌊 Hidrovia navegável (rio, canal)
+      'railway_rail',           // 🚆 Trem de superfície
+      'railway_light_rail',     // 🚊 VLT / light rail
+      'railway_tram',           // 🚃 Bonde / tram
+      'railway_subway',         // 🚇 Metrô ELEVADO (filtro de túnel abaixo rejeita o subterrâneo)
+      'railway_monorail',       // 🚝 Monotrilho
+      'railway_narrow_gauge',   // 🚂 Trem de bitola estreita (turístico)
+      'railway_preserved',      // 🚂 Ferrovia histórica preservada
+      'aerialway_cable_car',    // 🚠 Teleférico (ex: Cristo Redentor)
+      'aerialway_gondola',      // 🚡 Gôndola
+      'aerialway_chair_lift',   // 🪑 Cadeirinha
+      'aerialway_mixed_lift',   // 🚡 Teleférico misto
+    ]);
+
+    const isMotorizedRoad = MOTORIZED_ROAD_TYPES.has(road.type);
+    const isNonMotorized = NON_MOTORIZED_TYPES.has(road.type);
+
+    if (!isMotorizedRoad && !isNonMotorized) {
+      console.log(`🚫 Road type '${road.type}' not in accessible types`);
       return false;
     }
-    
+
     // Verificar restrições de acesso
     if (road.accessibility === 'private' || road.accessibility === 'no') {
       return false;
+    }
+
+    // motor_vehicle/vehicle filter: rejeitar vias RODOVIÁRIAS restritas a carros
+    // (park loops do Central Park, drives de serviço, pedestrian zones taggeadas como tertiary legado).
+    // NÃO aplica a rotas não-motorizadas (ciclovia, calçada, trem, barco) — elas
+    // inerentemente não têm tráfego de motor_vehicle, então o tag seria irrelevante
+    // ou ausente. Aplicar aqui causaria falsos negativos em pedestrian streets legítimas.
+    if (isMotorizedRoad) {
+      const motorVehicle = road.tags?.motor_vehicle;
+      if (motorVehicle === 'no' || motorVehicle === 'private' || motorVehicle === 'destination') {
+        console.log(`🚫 Street ${road.id} (${(road as any).name || 'unnamed'}) rejected: motor_vehicle=${motorVehicle}`);
+        return false;
+      }
+      const vehicleTag = road.tags?.vehicle;
+      if (vehicleTag === 'no' || vehicleTag === 'private') {
+        console.log(`🚫 Street ${road.id} (${(road as any).name || 'unnamed'}) rejected: vehicle=${vehicleTag}`);
+        return false;
+      }
     }
     
     // NOVO: Rejeitar ruas em túneis (sem visibilidade do céu/POI)
@@ -1674,11 +1579,11 @@ out geom tags;
     if (street.coordinates.length === 0) {
       return street;
     }
-    
+
     // Encontrar ponto na rua mais próximo ao centro do boundary
     let closestPoint = street.coordinates[0];
     let minDistance = calculateDistance(street.coordinates[0], boundary.center);
-    
+
     for (const point of street.coordinates) {
       const distance = calculateDistance(point, boundary.center);
       if (distance < minDistance) {
@@ -1686,144 +1591,32 @@ out geom tags;
         closestPoint = point;
       }
     }
-    
+
+    // Preserva a polilinha original em `fullCoordinates` antes de colapsar
+    // `coordinates` para 1 ponto. Consumers que precisam de upstream/downstream
+    // (ex: `predictor.buildFrontalArrivalTP`) usam `fullCoordinates`.
     return {
       ...street,
       coordinates: [closestPoint],
+      fullCoordinates: street.coordinates,
       distance: minDistance
-    };
+    } as StreetData;
   }
   
   /**
    * Busca ruas usando Google Roads API com fallback
    */
-  async getRoadsWithFallback(location: { lat: number; lng: number }, radius: number): Promise<StreetData[]> {
-    try {
-      // Tentar Google Roads API primeiro
-      const roads = await this.getRoadsInRadius(location, radius);
-      
-      if (roads.length > 0) {
-        return roads;
-      }
-      
-      // Fallback para OSM se Google não retornar resultados
-      console.log('Google Roads API returned no results, trying OSM fallback...');
-      return await this.getOSMRoads(location, radius);
-      
-    } catch (error) {
-      console.error('Error getting roads with fallback:', error);
-      return [];
-    }
-  }
-  
-  /**
-   * Busca ruas usando OSM como fallback
-   */
-  private async getOSMRoads(location: { lat: number; lng: number }, radius: number): Promise<StreetData[]> {
-    try {
-      const query = `
-[out:json][timeout:${TRIGGER_POINTS_CONSTANTS.timeouts.osmQueryExtreme}];
-(
-  way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|living_street|pedestrian|service|footway|path|track)$"](around:${radius},${location.lat},${location.lng});
-);
-out geom;
-`;
-      
-      const response = await this.retryOSMQuery(
-        query,
-        'OSM query for all streets',
-        7,
-        2000
-      );
-      
-      if (!response.ok) {
-        throw new Error(`OSM API error: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (!data.elements || data.elements.length === 0) {
-        return [];
-      }
-      
-      const streets: StreetData[] = [];
-      
-      for (const element of data.elements) {
-        if (element.type === 'way' && element.geometry) {
-          // Pegar ponto médio da rua
-          const midIndex = Math.floor(element.geometry.length / 2);
-          const midPoint = element.geometry[midIndex];
-          
-          streets.push({
-            id: element.id.toString(),
-            type: element.tags?.highway || 'road',
-            coordinates: [{ lat: midPoint.lat, lng: midPoint.lon }],
-            accessibility: element.tags?.access || 'public',
-            confidence: 0.6
-          });
-        }
-      }
-      
-      return streets;
-    } catch (error) {
-      console.error('Error getting OSM roads:', error);
-      return [];
-    }
-  }
-  
-  /**
-   * Calcula confiança da rua baseada em múltiplos fatores
-   */
-  calculateStreetConfidence(street: StreetData, context: GeographicContext): number {
-    let confidence = street.confidence || 0.5;
-    
-    // Ajustar baseado no tipo de rua
-    const roadTypeConfidence: Record<string, number> = {
-      'primary': 0.9,
-      'secondary': 0.8,
-      'tertiary': 0.7,
-      'residential': 0.6,
-      'living_street': 0.5,
-      'pedestrian': 0.4,
-      'service': 0.3,
-      'footway': 0.2,
-      'path': 0.1,
-      'track': 0.1
-    };
-    
-    const typeConfidence = roadTypeConfidence[street.type] || 0.5;
-    confidence = (confidence + typeConfidence) / 2;
-    
-    // Ajustar baseado na acessibilidade
-    if (street.accessibility === 'public') {
-      confidence += 0.1;
-    } else if (street.accessibility === 'private' || street.accessibility === 'no') {
-      confidence -= 0.3;
-    }
-    
-    // Ajustar baseado no contexto urbano
-    if (context.urbanDensity.level === 'very_dense' && street.type === 'residential') {
-      confidence += 0.1; // Ruas residenciais são mais importantes em áreas densas
-    }
-    
-    return Math.max(0, Math.min(1, confidence));
-  }
-
-  /**
-   * NOVO: Calcula altura média dos prédios vizinhos para ajustar raio de visibilidade
-   * COM CACHE para evitar re-queries (QUALIDADE > PERFORMANCE)
-   */
   private async calculateSurroundingBuildingsHeight(
     poiLocation: { lat: number; lng: number },
     radius: number = 500
   ): Promise<{ average: number; max: number; buildingCount: number }> {
-    // Verificar cache primeiro
+    // Verificar cache primeiro (TTL gerenciado internamente)
     const cacheKey = `${poiLocation.lat.toFixed(4)},${poiLocation.lng.toFixed(4)},${radius}`;
     const cached = StreetAnalyzer.surroundingHeightCache.get(cacheKey);
-    
-      if (cached && (Date.now() - cached.timestamp) < StreetAnalyzer.CACHE_DURATION) {
-      console.log(`🏙️ Using cached surrounding buildings data (${cached.data.buildingCount} buildings, avg: ${cached.data.average}m)`);
-      return cached.data;
+
+    if (cached !== undefined) {
+      console.log(`🏙️ Using cached surrounding buildings data (${cached.buildingCount} buildings, avg: ${cached.average}m)`);
+      return cached;
     }
     
     const query = `
@@ -1883,11 +1676,8 @@ out tags;
         tallBuildingsCount: tallBuildingsCount // NOVO: contagem de prédios altos
       };
       
-      // Armazenar no cache
-      StreetAnalyzer.surroundingHeightCache.set(cacheKey, {
-        data: result,
-        timestamp: Date.now()
-      });
+      // Armazenar no cache (TTL aplicado internamente)
+      StreetAnalyzer.surroundingHeightCache.set(cacheKey, result);
       
       console.log(`🏙️ Surrounding buildings: ${heights.length} analyzed, avg height: ${averageHeight.toFixed(1)}m, max: ${maxHeight.toFixed(1)}m (cached)`);
       

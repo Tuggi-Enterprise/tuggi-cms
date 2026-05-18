@@ -1,14 +1,16 @@
 import { GeographicContext, POIData } from '../types/interfaces';
 import { SRTMLocalService } from '../../srtm-local-service';
+import { LRUCacheWithTTL } from '../utils/lru-cache';
 
 /**
  * Serviço centralizado para análise de elevação
  * Fonte única de verdade para cálculos de elevação base regional
  */
 export class ElevationAnalysisService {
-  // 🚀 CACHE SIMPLES para evitar múltiplas chamadas de API para o mesmo POI
-  private static elevationCache = new Map<string, number>();
-  
+  // ✅ LRU cache: max 1000 entries, TTL 24h. Antes era Map<> ilimitado e sem TTL.
+  // Em batch 10k POIs (cidade grande), poderia crescer indefinidamente.
+  private static elevationCache = new LRUCacheWithTTL<string, number>(1000, 24 * 60 * 60 * 1000);
+
   /**
    * Limpa o cache de elevação (útil para testes ou entre diferentes POIs)
    */
