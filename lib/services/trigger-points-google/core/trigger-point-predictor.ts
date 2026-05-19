@@ -1093,18 +1093,40 @@ export class CoreTriggerPointPredictor {
    */
   private applyOptions(triggerPoints: TriggerPoint[], options: TriggerPointGenerationOptions): TriggerPoint[] {
     let filtered = [...triggerPoints];
-    
+
     // Filtrar por qualidade mínima
     if (options.minQuality !== undefined) {
       filtered = filtered.filter(tp => tp.quality >= options.minQuality!);
     }
-    
+
     // Limitar número máximo de trigger points
     if (options.maxTriggerPoints !== undefined) {
       filtered = filtered.slice(0, options.maxTriggerPoints);
     }
-    
-    return filtered;
+
+    // Dedup por cobertura real: dois TPs com círculos sobrepostos são redundantes
+    // — o usuário aciona ambos ao mesmo tempo sem benefício. Mantém o de maior
+    // qualidade e descarta vizinhos cujo centro está a < max(r1, r2) do mantido.
+    // Ordenar por (primary > secondary, quality desc) antes do greedy pass.
+    const { calculateDistance } = require('../utils/calculations');
+    filtered.sort((a, b) => {
+      if (a.type === 'primary' && b.type !== 'primary') return -1;
+      if (b.type === 'primary' && a.type !== 'primary') return 1;
+      return b.quality - a.quality;
+    });
+    const kept: TriggerPoint[] = [];
+    for (const tp of filtered) {
+      const tooClose = kept.some(k => {
+        const dist = calculateDistance(tp.location, k.location);
+        return dist < Math.max(tp.radius, k.radius);
+      });
+      if (!tooClose) kept.push(tp);
+    }
+    if (kept.length < filtered.length) {
+      console.log(`🔵 Radius-aware dedup: ${filtered.length} → ${kept.length} TPs (removed overlapping coverage)`);
+    }
+
+    return kept;
   }
   
   /**
