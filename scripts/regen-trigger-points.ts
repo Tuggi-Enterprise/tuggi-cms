@@ -107,7 +107,8 @@ async function createBatch(batchId: string, filters: {
       batch_id: batchId,
       status: 'pending',
     }))
-    const { error: insertErr } = await db.from('tp_regen_queue').insert(chunk)
+    const { error: insertErr } = await db.from('tp_regen_queue')
+      .upsert(chunk, { onConflict: 'batch_id,attraction_id', ignoreDuplicates: true })
     if (insertErr) { console.error('❌ Erro ao inserir chunk:', insertErr.message); process.exit(1) }
     inserted += chunk.length
     process.stdout.write(`\r   ${inserted}/${data.length} inseridos...`)
