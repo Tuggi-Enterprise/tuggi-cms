@@ -12,12 +12,12 @@
  */
 
 import { POIData, BoundaryData, StreetData } from '../types/interfaces';
+import { LocalOSMFetcher } from './local-osm-fetcher';
 import { 
   calculatePolygonArea, 
   calculatePolygonCenter, 
   calculateDistance 
 } from '../utils/calculations';
-import { redisCache, RedisCache } from '../../../cache/redis-cache';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TIPOS
@@ -56,35 +56,40 @@ export class OSMDataFetcher {
     poiData: POIData,
     streetSearchRadius: number = 250
   ): Promise<OSMDataBundle> {
-    // Chave de cache baseada no OSM ID (preferencial) ou coordenada
-    const cacheKey = poiData.osm_id && poiData.osm_type
-      ? RedisCache.overpassBoundaryKey(poiData.osm_type, poiData.osm_id)
-      : `overpass:bundle:coord:${poiData.location.lat.toFixed(3)}:${poiData.location.lng.toFixed(3)}`
+    
+    // 🌍 ESTRATÉGIA 1: BUSCAR LOCALMENTE NO BANCO DE DADOS (0ms, 100% Offline)
+    const localData = LocalOSMFetcher.getInstance().fetchLocalData(poiData, streetSearchRadius);
+    
+    if (localData && localData.streets.length > 0) {
+      console.log(`🚀 [OSMDataFetcher] Using Local OSM Data (Strategy 1)`);
+      return localData;
+    }
+    
+    console.log(`🔄 [OSMDataFetcher] Local data insufficient or missing. Falling back to Overpass API (Strategy 2)`);
 
+    // 🌐 ESTRATÉGIA 2: OVERPASS API (Fallback)
     const query = this.buildConsolidatedQuery(poiData, streetSearchRadius);
-
-    // Cacheia a resposta bruta do Overpass (JSON) — o parse sempre roda com dados frescos
-    const rawResult = await redisCache.getOrSet<any>(cacheKey, RedisCache.TTL.OVERPASS, async () => {
-      for (let attempt = 0; attempt < OSMDataFetcher.MAX_RETRIES; attempt++) {
-        try {
-          console.log(`🌍 OSM Fetch attempt ${attempt + 1}/${OSMDataFetcher.MAX_RETRIES}...`);
-          return await this.executeQuery(query);
-        } catch (error) {
-          console.warn(`⚠️ OSM attempt ${attempt + 1} failed: ${error}`);
-
-          if (attempt < OSMDataFetcher.MAX_RETRIES - 1) {
-            const delay = OSMDataFetcher.RETRY_DELAYS[attempt];
-            console.log(`⏳ Waiting ${delay/1000}s before retry...`);
-            await this.sleep(delay);
-          }
+    
+    for (let attempt = 0; attempt < OSMDataFetcher.MAX_RETRIES; attempt++) {
+      try {
+        console.log(`🌍 OSM Fetch attempt ${attempt + 1}/${OSMDataFetcher.MAX_RETRIES}...`);
+        const result = await this.executeQuery(query);
+        const bundle = this.parseOSMResponse(result, poiData, streetSearchRadius);
+        console.log(`✅ OSM Fetch successful: ${bundle.streets.length} streets, ${bundle.buildings.length} buildings`);
+        return bundle;
+      } catch (error) {
+        console.warn(`⚠️ OSM attempt ${attempt + 1} failed: ${error}`);
+        
+        if (attempt < OSMDataFetcher.MAX_RETRIES - 1) {
+          const delay = OSMDataFetcher.RETRY_DELAYS[attempt];
+          console.log(`⏳ Waiting ${delay/1000}s before retry...`);
+          await this.sleep(delay);
         }
       }
-      throw new Error('OSM_FETCH_FAILED: Unable to retrieve geographic data after all retries');
-    });
-
-    const bundle = this.parseOSMResponse(rawResult, poiData, streetSearchRadius);
-    console.log(`✅ OSM Fetch successful: ${bundle.streets.length} streets, ${bundle.buildings.length} buildings`);
-    return bundle;
+    }
+    
+    // Todas as tentativas falharam
+    throw new Error('OSM_FETCH_FAILED: Unable to retrieve geographic data after all retries');
   }
 
   /**
@@ -94,6 +99,17 @@ export class OSMDataFetcher {
     center: { lat: number; lng: number },
     radius: number
   ): Promise<StreetData[]> {
+    
+    // 🌍 ESTRATÉGIA 1: LOCAL DB
+    const localStreets = LocalOSMFetcher.getInstance().fetchExtendedStreets(center, radius);
+    
+    if (localStreets && localStreets.length > 0) {
+       console.log(`🚀 [OSMDataFetcher] Using Local OSM Data for extended streets (Strategy 1)`);
+       return localStreets;
+    }
+    
+    console.log(`🔄 [OSMDataFetcher] Local extended streets missing. Falling back to Overpass API (Strategy 2)`);
+
     const query = `
       [out:json][timeout:150];
       (
@@ -170,7 +186,10 @@ export class OSMDataFetcher {
       try {
         const response = await fetch(server, {
           method: 'POST',
-          headers: { 'Content-Type': 'text/plain' },
+          headers: { 
+            'Content-Type': 'text/plain',
+            'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+          },
           body: `data=${encodeURIComponent(query)}`
         });
 

@@ -18,6 +18,7 @@ import { locationService, Country, State, City, LocationResult } from '../core/l
 export interface UseLocationDataOptions {
   autoLoadCountries?: boolean
   cacheResults?: boolean
+  schema?: 'core' | 'homolog'
   onError?: (error: string) => void
 }
 
@@ -52,6 +53,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
   const {
     autoLoadCountries = true,
     cacheResults = true,
+    schema = 'core',
     onError
   } = options
   
@@ -76,7 +78,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
     setCountriesError(null)
     
     try {
-      const result = await locationService.countries(category)
+      const result = await locationService.countries(category, schema)
       
       if (result.success && result.data) {
         setCountries(result.data)
@@ -92,7 +94,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
     } finally {
       setCountriesLoading(false)
     }
-  }, [onError])
+  }, [onError, schema])
   
   // Load states for a country
   const loadStates = useCallback(async (country: string, category?: string) => {
@@ -105,7 +107,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
     setStatesError(null)
     
     try {
-      const result = await locationService.states(country, category)
+      const result = await locationService.states(country, category, schema)
       
       if (result.success && result.data) {
         setStates(result.data)
@@ -121,7 +123,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
     } finally {
       setStatesLoading(false)
     }
-  }, [onError])
+  }, [onError, schema])
   
   // Load cities for a country and optional state
   const loadCities = useCallback(async (country: string, state?: string, category?: string) => {
@@ -134,7 +136,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
     setCitiesError(null)
     
     try {
-      const result = await locationService.cities(country, state, category)
+      const result = await locationService.cities(country, state, category, schema)
       
       if (result.success && result.data) {
         setCities(result.data)
@@ -150,7 +152,7 @@ export function useLocationData(options: UseLocationDataOptions = {}): UseLocati
     } finally {
       setCitiesLoading(false)
     }
-  }, [onError])
+  }, [onError, schema])
   
   // Clear cache
   const clearCache = useCallback(() => {

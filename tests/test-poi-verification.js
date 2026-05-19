@@ -3,12 +3,12 @@ require('dotenv').config({ path: '.env' })
 const { createClient } = require('@supabase/supabase-js')
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const supabaseKey = process.env.SUPABASE_SECRET_KEY
 
 if (!supabaseUrl || !supabaseKey) {
   console.error('❌ Variáveis de ambiente não encontradas')
   console.log('NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? 'Definida' : 'Não definida')
-  console.log('SUPABASE_SERVICE_ROLE_KEY:', supabaseKey ? 'Definida' : 'Não definida')
+  console.log('SUPABASE_SECRET_KEY:', supabaseKey ? 'Definida' : 'Não definida')
   process.exit(1)
 }
 

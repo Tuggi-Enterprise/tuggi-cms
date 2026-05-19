@@ -20,7 +20,16 @@ import {
 // --- SSOT BRIDGE ---
 // Ensure legacy environment variables exist for backward compatibility with 
 // third-party libraries (like @supabase/auth-helpers) that expect them.
+if (typeof window !== 'undefined') {
+  console.log('🔍 [Supabase] Browser environment variables:', {
+    hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+    hasPublishable: !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    hasAnon: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  });
+}
+
 if (typeof process !== 'undefined' && process.env) {
+  // Bridge for compatibility with 3rd party libs that expect legacy names
   if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   }
@@ -95,7 +104,7 @@ export class SupabaseClientManager {
       const config = this.getConfig('service')
       if (!config.serviceRoleKey) {
         if (process.env.NODE_ENV === 'development') {
-          console.warn('⚠️ SUPABASE_SERVICE_ROLE_KEY is missing for service client')
+          console.warn('⚠️ SUPABASE_SECRET_KEY is missing for service client')
         }
       }
       this.serviceClient = createClient(config.url, config.serviceRoleKey || '', {
@@ -157,7 +166,7 @@ export class SupabaseClientManager {
       { cookies: () => cookies },
       {
         supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
       }
     )
   }
@@ -199,11 +208,10 @@ export class SupabaseClientManager {
         deno?.env.get('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY') || 
         deno?.env.get('SUPABASE_PUBLISHABLE_KEY') || 
         deno?.env.get('SUPABASE_ANON_KEY') || 
-        deno?.env.get('NEXT_PUBLIC_SUPABASE_ANON_KEY') || 
         ''
       serviceRoleKey = 
         deno?.env.get('SUPABASE_SECRET_KEY') || 
-        deno?.env.get('SUPABASE_SERVICE_ROLE_KEY')
+        deno?.env.get('SUPABASE_SECRET_KEY')
     } else {
       // Node.js/Next.js environment
       url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -212,7 +220,7 @@ export class SupabaseClientManager {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
         ''
       serviceRoleKey = 
-        process.env.SUPABASE_SECRET_KEY || 
+        process.env.SUPABASE_SECRET_KEY ||
         process.env.SUPABASE_SERVICE_ROLE_KEY
     }
     
@@ -223,7 +231,7 @@ export class SupabaseClientManager {
       if (process.env.NODE_ENV === 'development') {
         console.warn(
           `⚠️ Supabase environment variables missing. ` +
-          `Requests will fail until NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or legacy keys) are set.`
+          `Requests will fail until NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY are set.`
         )
       }
     }
@@ -255,7 +263,7 @@ export class SupabaseClientManager {
     try {
       const config = this.getConfig('server')
       if (!config.url) errors.push('NEXT_PUBLIC_SUPABASE_URL is missing')
-      if (!config.anonKey) errors.push('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or legacy anon key) is missing')
+      if (!config.anonKey) errors.push('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is missing')
     } catch (error) {
       errors.push(`Configuration error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }

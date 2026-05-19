@@ -95,8 +95,8 @@ export async function GET(request: NextRequest) {
         }
       },
       debugging_info: {
-        service_role_key_configured: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-        anon_key_configured: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        service_role_key_configured: !!process.env.SUPABASE_SECRET_KEY,
+        anon_key_configured: !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
         url_configured: !!process.env.NEXT_PUBLIC_SUPABASE_URL
       }
     })

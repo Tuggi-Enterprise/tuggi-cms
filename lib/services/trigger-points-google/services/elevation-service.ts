@@ -1,14 +1,16 @@
 import { GeographicContext, POIData } from '../types/interfaces';
-import { redisCache, RedisCache } from '../../../cache/redis-cache';
+import { SRTMLocalService } from '../../srtm-local-service';
+import { LRUCacheWithTTL } from '../utils/lru-cache';
 
 /**
  * Serviço centralizado para análise de elevação
  * Fonte única de verdade para cálculos de elevação base regional
  */
 export class ElevationAnalysisService {
-  // 🚀 CACHE SIMPLES para evitar múltiplas chamadas de API para o mesmo POI
-  private static elevationCache = new Map<string, number>();
-  
+  // ✅ LRU cache: max 1000 entries, TTL 24h. Antes era Map<> ilimitado e sem TTL.
+  // Em batch 10k POIs (cidade grande), poderia crescer indefinidamente.
+  private static elevationCache = new LRUCacheWithTTL<string, number>(1000, 24 * 60 * 60 * 1000);
+
   /**
    * Limpa o cache de elevação (útil para testes ou entre diferentes POIs)
    */
@@ -39,22 +41,7 @@ export class ElevationAnalysisService {
     
     console.log(`🏞️ [ElevationService] Estimating regional base elevation for (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)})`);
     
-    // 🌍 ESTRATÉGIA 1: Buscar elevação da cidade via GeoNames + Open Elevation
-    if (poiData?.city && poiData?.country) {
-      try {
-        const cityElevation = await this.getCityElevation(poiData.city, poiData.country, cacheKey);
-        if (cityElevation !== null) {
-          console.log(`🏙️ [ElevationService] City elevation from APIs: ${cityElevation}m (${poiData.city}, ${poiData.country})`);
-          // 🚀 SALVAR NO CACHE
-          this.elevationCache.set(cacheKey, cityElevation);
-          return cityElevation;
-        }
-      } catch (error) {
-        console.warn(`⚠️ [ElevationService] Failed to get city elevation via APIs:`, error);
-      }
-    }
-    
-    // 🎯 ESTRATÉGIA 2: Amostragem de elevação regional (fallback)
+    // 🌍 Amostragem de elevação regional (rápida e 100% offline via SRTM)
     try {
       const regionalElevation = await this.sampleRegionalElevation(location, context);
       if (regionalElevation !== null) {
@@ -105,157 +92,62 @@ export class ElevationAnalysisService {
     return baseElevation;
   }
 
-  /**
-   * Obtém elevação da cidade usando GeoNames + Open Elevation
-   */
-  private static async getCityElevation(city: string, country: string, cacheKey: string): Promise<number | null> {
-    const redisCacheKey = RedisCache.elevationCityKey(city, country);
 
-    return redisCache.getOrSet<number | null>(redisCacheKey, RedisCache.TTL.ELEVATION, async () => {
-      try {
-        // 1️⃣ Buscar coordenadas da cidade via GeoNames
-        const geonamesUsername = process.env.GEONAMES_USERNAME;
-        if (!geonamesUsername) {
-          console.warn('⚠️ [ElevationService] GEONAMES_USERNAME not found in environment');
-          return null;
-        }
-
-        const cityQuery = encodeURIComponent(city);
-        const countryCode = this.getCountryCode(country);
-        const geonamesUrl = `http://api.geonames.org/searchJSON?q=${cityQuery}&country=${countryCode}&maxRows=1&username=${geonamesUsername}`;
-
-        console.log(`🌍 [ElevationService] Fetching city coordinates: ${city}, ${country}`);
-        const geonamesResponse = await fetch(geonamesUrl);
-        const geonamesData = await geonamesResponse.json();
-
-        if (!geonamesData.geonames || geonamesData.geonames.length === 0) {
-          console.log(`❌ [ElevationService] City not found in GeoNames: ${city}, ${country}`);
-          return null;
-        }
-
-        const cityData = geonamesData.geonames[0];
-        const cityLat = parseFloat(cityData.lat);
-        const cityLng = parseFloat(cityData.lng);
-
-        console.log(`📍 [ElevationService] City coordinates: ${cityLat.toFixed(4)}, ${cityLng.toFixed(4)}`);
-
-        // 2️⃣ Buscar elevação das coordenadas da cidade via Open Elevation
-        const elevationUrl = `https://api.open-elevation.com/api/v1/lookup?locations=${cityLat},${cityLng}`;
-        const elevationResponse = await fetch(elevationUrl);
-        const elevationData = await elevationResponse.json();
-
-        if (elevationData.results && elevationData.results.length > 0) {
-          const cityElevation = elevationData.results[0].elevation;
-          console.log(`🏙️ [ElevationService] City elevation: ${cityElevation}m`);
-          this.elevationCache.set(cacheKey, cityElevation);
-          return cityElevation;
-        }
-
-        // 🆘 FALLBACK: Se Open Elevation falhar, usar conhecimento geográfico básico
-        const fallbackElevation = this.getFallbackCityElevation(city, country, cityLat, cityLng);
-        if (fallbackElevation !== null) {
-          console.log(`🆘 [ElevationService] Using fallback city elevation: ${fallbackElevation}m (${city}, ${country})`);
-          this.elevationCache.set(cacheKey, fallbackElevation);
-          return fallbackElevation;
-        }
-
-        return null;
-      } catch (error) {
-        console.error('[ElevationService] Error getting city elevation:', error);
-        return null;
-      }
-    });
-  }
 
   /**
    * Amostra elevação regional fazendo múltiplas consultas ao redor do POI
    */
   private static async sampleRegionalElevation(location: { lat: number; lng: number }, context: GeographicContext): Promise<number | null> {
-    const redisCacheKey = RedisCache.elevationRegionKey(location.lat, location.lng);
-
-    return redisCache.getOrSet<number | null>(redisCacheKey, RedisCache.TTL.ELEVATION, async () => {
-      try {
-        // Definir raio de amostragem baseado na densidade urbana
-        const samplingRadius = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense'
-          ? 0.02 // ~2km para áreas urbanas
-          : 0.05; // ~5km para áreas rurais
-
-        // 4 pontos cardeais ao redor do POI
-        const samplePoints = [
-          { lat: location.lat + samplingRadius, lng: location.lng }, // Norte
-          { lat: location.lat - samplingRadius, lng: location.lng }, // Sul
-          { lat: location.lat, lng: location.lng + samplingRadius }, // Leste
-          { lat: location.lat, lng: location.lng - samplingRadius }  // Oeste
-        ];
+    try {
+      // Definir raio de amostragem baseado na densidade urbana
+      const samplingRadius = context.urbanDensity.level === 'very_dense' || context.urbanDensity.level === 'dense' 
+        ? 0.02 // ~2km para áreas urbanas
+        : 0.05; // ~5km para áreas rurais
+      
+      // 4 pontos cardeais ao redor do POI
+      const samplePoints = [
+        { lat: location.lat + samplingRadius, lng: location.lng }, // Norte
+        { lat: location.lat - samplingRadius, lng: location.lng }, // Sul  
+        { lat: location.lat, lng: location.lng + samplingRadius }, // Leste
+        { lat: location.lat, lng: location.lng - samplingRadius }  // Oeste
+      ];
       
       console.log(`🎯 [ElevationService] Sampling regional elevation at ${(samplingRadius * 111).toFixed(1)}km radius (${samplePoints.length} points)`);
-
-        const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            locations: samplePoints.map(p => ({ latitude: p.lat, longitude: p.lng }))
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error(`Open Elevation API failed: ${response.status}`);
+      
+      const srtm = SRTMLocalService.getInstance();
+      const validElevations: number[] = [];
+      
+      // Amostragem local SRTM é tão rápida que podemos fazer em série ou Promise.all
+      const results = await Promise.all(
+        samplePoints.map(p => srtm.getElevation(p.lat, p.lng))
+      );
+      
+      for (const ele of results) {
+        if (ele !== null && !isNaN(ele)) {
+          validElevations.push(ele);
         }
-
-        const data = await response.json();
-        const validElevations = (data.results || []).map((r: any) => r.elevation).filter((e: any) => e !== null && !isNaN(e));
-
-        if (validElevations.length === 0) {
-          console.log(`❌ [ElevationService] No valid elevation samples found`);
-          return null;
-        }
-
-        // Calcular mediana (mais robusta que média)
-        const sortedElevations = validElevations.sort((a: number, b: number) => a - b);
-        const medianElevation = sortedElevations[Math.floor(sortedElevations.length / 2)];
-
-        console.log(`📊 [ElevationService] Regional elevation samples: [${validElevations.map((e: number) => e.toFixed(0)).join(', ')}]m`);
-        console.log(`🎯 [ElevationService] Regional median elevation: ${medianElevation}m`);
-
-        return medianElevation;
-      } catch (error) {
-        console.error('[ElevationService] Error sampling regional elevation:', error);
+      }
+      
+      if (validElevations.length === 0) {
+        console.log(`❌ [ElevationService] No valid SRTM elevation samples found`);
         return null;
       }
-    });
+      
+      // Calcular mediana (mais robusta que média)
+      const sortedElevations = validElevations.sort((a: number, b: number) => a - b);
+      const medianElevation = sortedElevations[Math.floor(sortedElevations.length / 2)];
+      
+      console.log(`📊 [ElevationService] Regional elevation samples: [${validElevations.map((e: number) => e.toFixed(0)).join(', ')}]m`);
+      console.log(`🎯 [ElevationService] Regional median elevation: ${medianElevation}m`);
+      
+      return medianElevation;
+    } catch (error) {
+      console.error('[ElevationService] Error sampling regional elevation:', error);
+      return null;
+    }
   }
 
-  /**
-   * Fallback inteligente para elevação de cidades quando APIs falham
-   * Baseado em geografia física, não dados hardcoded
-   */
-  private static getFallbackCityElevation(city: string, country: string, lat: number, lng: number): number | null {
-    // 🌊 LÓGICA GEOGRÁFICA: Proximidade com oceanos
-    const distanceToAtlantic = Math.abs(lng + 40); // Aproximação do Atlântico Sul
-    const distanceToPacific = Math.abs(lng + 80);   // Aproximação do Pacífico
-    
-    const nearOcean = Math.min(distanceToAtlantic, distanceToPacific) < 20; // Dentro de ~20 graus do oceano
-    
-    if (nearOcean) {
-      // Cidades próximas ao oceano tendem a ser baixas
-      console.log(`🌊 [ElevationService] City near ocean (dist: ${Math.min(distanceToAtlantic, distanceToPacific).toFixed(1)}°) → low elevation`);
-      return 20; // Elevação baixa para cidades costeiras
-    }
-    
-    // 🏔️ LÓGICA GEOGRÁFICA: Latitude e continentalidade
-    const isEquatorial = Math.abs(lat) < 10;
-    const isTemperate = Math.abs(lat) > 20 && Math.abs(lat) < 40;
-    const isContinental = Math.min(distanceToAtlantic, distanceToPacific) > 30;
-    
-    if (isEquatorial) {
-      return isContinental ? 300 : 50; // Equatorial: continental alto, costeiro baixo
-    } else if (isTemperate) {
-      return isContinental ? 600 : 100; // Temperado: continental mais alto
-    }
-    
-    // Fallback geral baseado em continentalidade
-    return isContinental ? 400 : 80;
-  }
+
 
   /**
    * Detecta se uma localização é costeira usando amostragem de elevação dinâmica
@@ -271,20 +163,18 @@ export class ElevationAnalysisService {
         { lat: location.lat, lng: location.lng - samplingRadius }  // Oeste
       ];
       
-      const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          locations: samplePoints.map(p => ({ latitude: p.lat, longitude: p.lng }))
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Open Elevation API failed: ${response.status}`);
+      const srtm = SRTMLocalService.getInstance();
+      const validElevations: number[] = [];
+      
+      const results = await Promise.all(
+        samplePoints.map(p => srtm.getElevation(p.lat, p.lng))
+      );
+      
+      for (const ele of results) {
+        if (ele !== null && !isNaN(ele)) {
+          validElevations.push(ele);
+        }
       }
-
-      const data = await response.json();
-      const validElevations = (data.results || []).map((r: any) => r.elevation).filter((e: any) => e !== null && !isNaN(e));
       
       if (validElevations.length >= 2) {
         const avgElevation = validElevations.reduce((a: number, b: number) => a + b, 0) / validElevations.length;
@@ -301,25 +191,7 @@ export class ElevationAnalysisService {
     }
   }
 
-  /**
-   * Converte nome do país para código ISO
-   */
-  private static getCountryCode(country: string): string {
-    const countryMap: { [key: string]: string } = {
-      'Brazil': 'BR',
-      'Brasil': 'BR',
-      'United States': 'US',
-      'USA': 'US',
-      'Canada': 'CA',
-      'Mexico': 'MX',
-      'Argentina': 'AR',
-      'Chile': 'CL',
-      'Colombia': 'CO',
-      'Peru': 'PE'
-    };
-    
-    return countryMap[country] || country.substring(0, 2).toUpperCase();
-  }
+
 
   /**
    * Calcula diferença de elevação e determina se é alta elevação

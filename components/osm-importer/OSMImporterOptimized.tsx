@@ -9,7 +9,7 @@
 'use client'
 
 import { useState, Suspense } from 'react'
-import { Upload, Trash2, Download, RefreshCw, CheckSquare, Square, X, Loader2 } from 'lucide-react'
+import { Upload, Trash2, Download, RefreshCw, CheckSquare, Square, X, Loader2, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
@@ -144,12 +144,12 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
     }
   }
 
-  // Handle delete selected
-  const handleDeleteSelected = async () => {
+  // Handle blacklist selected
+  const handleBlacklistSelected = async () => {
     if (selectedCount === 0) return
     
     const confirmed = window.confirm(
-      t('alerts.delete_confirm', { count: selectedCount })
+      `Tem certeza que deseja mover ${selectedCount} POIs para o Lixo? Eles serão excluídos e não poderão ser re-importados.`
     )
     if (!confirmed) return
     
@@ -166,7 +166,7 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
       if (result.success) {
         clearSelection()
         refetch()
-        alert(t('alerts.delete_success', { count: result.deleted }))
+        alert(`${result.deleted} POIs movidos para o lixo com sucesso`)
       } else {
         alert(t('error', { message: result.error }))
       }
@@ -273,17 +273,18 @@ export function OSMImporterOptimized({ initialHasData = false }: OSMImporterOpti
             {canEdit && (
               <>
                 <button
-                  onClick={handleDeleteSelected}
+                  onClick={handleBlacklistSelected}
                   disabled={!canEdit || isViewer || selectedCount === 0 || isDeleting}
                   className={cn(
                     "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center",
                     selectedCount === 0 || isDeleting || !canEdit || isViewer
                       ? "bg-gray-200 text-gray-400 cursor-not-allowed"
-                      : "bg-red-600 text-white hover:bg-red-700"
+                      : "bg-gray-900 text-white dark:bg-white dark:text-gray-900 hover:opacity-80"
                   )}
+                  title="Mover para Lixo (Blacklist)"
                 >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  {isDeleting ? t('status.deleting') : t('actions.delete_selected')}
+                  <XCircle className="w-4 h-4 mr-2" />
+                  {isDeleting ? t('status.deleting') : 'Mover para Lixo'}
                 </button>
                 
                 <button

@@ -57,6 +57,7 @@ export const generateMasterPack = async (
     // - system_instruction: persona, language rules, output format (invariável)
     // - user contents: research task only (clean, no formatting constraints)
     // This split prevents the 'attention conflict' that causes empty grounded responses.
+    // NOTE: To maximize Context Caching, systemInstruction must NOT contain POI-specific data.
     const hasReferenceLinks = referenceLinks && referenceLinks.length > 0;
 
     const systemInstruction = [
@@ -65,12 +66,6 @@ export const generateMasterPack = async (
         `You are a friendly, knowledgeable tour guide who must communicate with EVERYONE — from teenagers to senior citizens.`,
         `Your style is warm, clear, and conversational. Avoid complex vocabulary, long subordinate clauses, or academic jargon.`,
         `Imagine you are speaking to a curious 15-year-old who wants to learn and have fun.`,
-        isComplex
-            ? `When describing complexes or parks, mention the key internal highlights: ${membersSummary}`
-            : ``,
-        hasReferenceLinks
-            ? `You have been provided with authoritative reference URLs. Prioritize information from these sources in your response.`
-            : ``,
         ``,
         `OUTPUT FORMAT — use these exact XML tags. Do NOT use Markdown tables or headers inside the tags:`,
         `<master_description>`,
@@ -97,8 +92,11 @@ export const generateMasterPack = async (
 
     const userPrompt = [
         `Research and write about: "${poiName}" located in ${city}.`,
+        isComplex
+            ? `SPECIAL INSTRUCTION: This POI is a complex/park. You MUST mention its key internal highlights: ${membersSummary}`
+            : ``,
         hasReferenceLinks
-            ? `Use the provided reference URLs as primary sources. Also use Google Search for any additional foundation date, founding figures, key historical dates, and at least one surprising curiosity or little-known fact not covered by the references.`
+            ? `You have been provided with authoritative reference URLs in your tools context. Prioritize information from these sources. Also use Google Search for any additional foundation date, founding figures, key historical dates, and at least one surprising curiosity or little-known fact not covered by the references.`
             : `Find using Google Search: foundation date, founding figures, key historical dates, and at least one surprising curiosity or little-known fact about this place.`,
         rawContext ? `Additional context: ${rawContext}` : ``,
     ].filter(Boolean).join('\n');

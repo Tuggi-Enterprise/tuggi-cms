@@ -32,7 +32,7 @@ interface OptimizedPOIMapProps {
  * - Lightweight data transfer
  * - Real-time progress updates
  */
-const TP_ZOOM_THRESHOLD = 14
+const TP_ZOOM_THRESHOLD = 12
 
 export function OptimizedPOIMap({
   searchTerm,
@@ -62,7 +62,6 @@ export function OptimizedPOIMap({
   }
 
   // Fetch POIs using React Query
-  // Standard map POIs (clusters) are shown if triggers are off OR if triggers are on but we are zoomed out
   const { data: searchResult, isLoading, isFetching } = useQuery({
     queryKey: ['map-pois', bounds, zoom, filters],
     queryFn: async () => {
@@ -71,15 +70,9 @@ export function OptimizedPOIMap({
     },
     placeholderData: (previousData) => previousData,
     staleTime: 60000,
-    enabled: !!bounds && (!showTriggers || zoom < TP_ZOOM_THRESHOLD),
+    gcTime: 30000, // Evict old panning results after 30s to save memory
+    enabled: !!bounds,
   })
-
-  // Detailed POIs with Triggers are only fetched when showTriggers is ON AND zoom is high enough
-  const { data: detailedPois, isLoading: isLoadingDetailed } = usePOIsWithTriggers({
-    city: cityFilter,
-    state: stateFilter,
-    country: countryFilter
-  }, showTriggers && !!cityFilter && zoom >= TP_ZOOM_THRESHOLD)
 
   const pois = searchResult?.data || []
   const loadingTime = searchResult?.duration || null
@@ -118,43 +111,18 @@ export function OptimizedPOIMap({
       description_count: 0,
       audio_count: 0,
       available_languages: [],
-      trigger_points_count: 0,
-      active_trigger_points_count: 0
+      trigger_points_count: poi.trigger_points?.length || 0,
+      active_trigger_points_count: poi.trigger_points?.filter(tp => tp.is_active).length || 0,
+      trigger_points: (poi as any).trigger_points || []
     }))
   }
 
   const transformedPois = useMemo(() => {
-    // If showTriggers is active and zoom is sufficient, use the detailed data
-    if (showTriggers && detailedPois && zoom >= TP_ZOOM_THRESHOLD) {
-      // PERFORM VIEWPORT CLIPPING: Only render POIs within the current bounds
-      // This is crucial for performance when using detailed POI objects
-      return detailedPois
-        .filter(poi => {
-          if (!bounds || !poi.coordinates) return true
-          const { latitude, longitude } = poi.coordinates
-          return (
-            latitude >= bounds.minLat && 
-            latitude <= bounds.maxLat && 
-            longitude >= bounds.minLng && 
-            longitude <= bounds.maxLng
-          )
-        })
-        .map(poi => ({
-          ...poi,
-          has_description: (poi.descriptions?.length || 0) > 0,
-          has_audio: (poi.descriptions?.some((d: any) => d.audio_url) || false),
-          description_count: poi.descriptions?.length || 0,
-          audio_count: 0,
-          available_languages: [],
-          trigger_points_count: poi.trigger_points?.length || 0,
-          active_trigger_points_count: poi.trigger_points?.filter((tp: any) => tp.is_active).length || 0
-        }))
-    }
     return transformMapPOIsForVisualization(pois)
-  }, [pois, detailedPois, showTriggers, zoom, bounds])
+  }, [pois, showTriggers, zoom, bounds])
 
 
-  const isAnyLoading = isLoading || isFetching || (showTriggers && isLoadingDetailed)
+  const isAnyLoading = isLoading || isFetching
 
   return (
     <div className="relative">

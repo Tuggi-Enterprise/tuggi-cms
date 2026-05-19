@@ -68,7 +68,7 @@ lib/services/trigger-points-google/
 GOOGLE_MAPS_API_KEY=your_google_maps_api_key
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_SECRET_KEY=your_supabase_service_role_key
 
 # Configurações do sistema
 TRIGGER_POINTS_MAX_SEARCH_RADIUS=2000
@@ -105,7 +105,7 @@ export class SupabaseService {
   constructor() {
     this.client = createClient(
       process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+      process.env.SUPABASE_SECRET_KEY!
     );
   }
 }

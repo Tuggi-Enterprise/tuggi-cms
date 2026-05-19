@@ -25,6 +25,7 @@ export interface MapPOI {
   approved?: boolean
   has_description?: boolean
   has_audio?: boolean
+  trigger_points?: any[]
 }
 
 export interface MapSearchFilters {
@@ -116,7 +117,8 @@ export async function fetchPOIsForMap(
     country: row.metadata?.country,
     approved: row.metadata?.approved,
     has_description: row.metadata?.has_description,
-    has_audio: row.metadata?.has_audio
+    has_audio: row.metadata?.has_audio,
+    trigger_points: row.metadata?.trigger_points
   }))
 
   const duration = performance.now() - startTime

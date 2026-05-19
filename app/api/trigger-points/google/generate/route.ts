@@ -69,7 +69,14 @@ export async function POST(request: NextRequest) {
     }
     
     console.log(`🚀 API: Generating trigger points for POI: ${poiData.name} (${poiData.id})`);
-    
+    console.log(`🚀 API: Options received: ${JSON.stringify({
+      visibilityMaxHorizonM: options.visibilityMaxHorizonM,
+      simulateApproach: options.simulateApproach || false,
+      validateCorridor: options.validateCorridor || false,
+      clusterIntersections: options.clusterIntersections,
+      intersectionClusterRadiusM: options.intersectionClusterRadiusM,
+    })}`);
+
     // Gerar trigger points
     const predictor = new CoreTriggerPointPredictor();
     const predictionResult = await predictor.predictTriggerPointsComplete(poiData, options);
@@ -202,8 +209,9 @@ function validateOptions(options: any): { valid: boolean; errors: string[] } {
   }
   
   if (options.maxTriggerPoints !== undefined) {
-    if (typeof options.maxTriggerPoints !== 'number' || options.maxTriggerPoints < 1 || options.maxTriggerPoints > 50) {
-      errors.push('maxTriggerPoints must be a number between 1 and 50');
+    // Issue 2.4b — Cobertura completa (até 500 para POIs com muito perímetro como parques)
+    if (typeof options.maxTriggerPoints !== 'number' || options.maxTriggerPoints < 1 || options.maxTriggerPoints > 500) {
+      errors.push('maxTriggerPoints must be a number between 1 and 500');
     }
   }
   
@@ -212,7 +220,25 @@ function validateOptions(options: any): { valid: boolean; errors: string[] } {
       errors.push('maxConcurrent must be a number between 1 and 10');
     }
   }
-  
+
+  // OSRM/optional flags (boolean). useVisibilityMap removido em Tier 3.1 —
+  // visibility-driven é o único modo agora.
+  for (const flag of ['simulateApproach', 'validateCorridor', 'clusterIntersections'] as const) {
+    if (options[flag] !== undefined && typeof options[flag] !== 'boolean') {
+      errors.push(`${flag} must be a boolean`);
+    }
+  }
+  if (options.visibilityMaxHorizonM !== undefined) {
+    if (typeof options.visibilityMaxHorizonM !== 'number' || options.visibilityMaxHorizonM < 500 || options.visibilityMaxHorizonM > 30000) {
+      errors.push('visibilityMaxHorizonM must be a number between 500 and 30000');
+    }
+  }
+  if (options.intersectionClusterRadiusM !== undefined) {
+    if (typeof options.intersectionClusterRadiusM !== 'number' || options.intersectionClusterRadiusM < 5 || options.intersectionClusterRadiusM > 100) {
+      errors.push('intersectionClusterRadiusM must be a number between 5 and 100');
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors

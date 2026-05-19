@@ -11,8 +11,8 @@ export async function GET(request: NextRequest) {
   try {
     // Verify environment variables are loaded
     const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL
-    const hasAnonKey = !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    const hasServiceKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY
+    const hasAnonKey = !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    const hasServiceKey = !!process.env.SUPABASE_SECRET_KEY
     
     if (!hasUrl || !hasAnonKey) {
       return NextResponse.json(
@@ -193,8 +193,8 @@ export async function GET(request: NextRequest) {
         const stats: any = {
           connection: {
             url: process.env.NEXT_PUBLIC_SUPABASE_URL ? 'configured' : 'not configured',
-            hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-            hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY
+            hasAnonKey: !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+            hasServiceKey: !!process.env.SUPABASE_SECRET_KEY
           }
         }
 

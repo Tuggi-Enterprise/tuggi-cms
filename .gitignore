@@ -57,5 +57,23 @@ scripts/*.txt
 scripts/*.log
 tsconfig.tsbuildinfo
 data/geofabrik/
-.lock
--lock.json
+
+data/*.db
+data/*.db-journal
+data/*.pbf
+data/*.geojson
+data/*.geojsonseq
+
+# SRTM elevation cache (binary HGT tiles, downloaded on demand)
+data/srtm-cache/
+
+# Ad-hoc investigation/migration scripts (not part of core pipeline)
+scripts/probe-nominatim-stuck-pois.ts
+scripts/recover-cities-proximity.ts
+scripts/test-enrichment-fallback-fix.ts
+scripts/test-enrichment-via-cache.ts
+
+# One-off reports
+lost_pois_report.md
+installed_apps.txt
+

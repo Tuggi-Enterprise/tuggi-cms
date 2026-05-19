@@ -30,7 +30,7 @@ export interface TriggerPointSaveData {
   radius_meters?: number
   expected_bearing?: number
   bearing_threshold?: number
-  type: 'primary' | 'secondary' | 'fallback' | 'special' | 'testing'
+  type: 'primary' | 'secondary' | 'fallback' | 'special' | 'testing' | 'geofence' | 'entry' | 'exit' | 'approach' | 'custom'
   priority?: number
   is_active?: boolean
   confidence?: number
@@ -44,6 +44,9 @@ export interface TriggerPointSaveData {
   updated_by?: string
   access?: 'walk' | 'car' | 'both'
   custom_description_id?: string
+  // Issue 2.4 — GeoJSON Polygon para TPs do tipo 'geofence'.
+  // Requer migração 20260515_add_geofence_trigger_type.sql aplicada.
+  geometry_geojson?: string | null
   created_at?: string
   updated_at?: string
 }
@@ -52,6 +55,7 @@ export interface SaveResult {
   saved: number
   skipped: number
   errors: string[]
+  savedIds?: string[]
 }
 
 export class TriggerPointSavingService {
@@ -78,6 +82,8 @@ export class TriggerPointSavingService {
       validation_notes: tp.validation_notes,
       access: tp.access || 'both',
       custom_description_id: tp.custom_description_id || null,
+      // Issue 2.4: persistir o polígono GeoJSON para TPs do tipo 'geofence'
+      ...(tp.geometry_geojson ? { geometry_geojson: tp.geometry_geojson } : {}),
       created_at: tp.created_at || new Date().toISOString(),
       updated_at: tp.updated_at || new Date().toISOString()
       // NOTE: created_by and updated_by are NOT included here because
@@ -142,6 +148,8 @@ export class TriggerPointSavingService {
     if (tp.access) updateData.access = tp.access
     if (tp.custom_description_id !== undefined) updateData.custom_description_id = tp.custom_description_id
     if (tp.updated_by) updateData.updated_by = tp.updated_by
+    // Issue 2.4 — permitir update do polígono GeoJSON
+    if (tp.geometry_geojson !== undefined) updateData.geometry_geojson = tp.geometry_geojson
 
     return updateData
   }
@@ -263,6 +271,16 @@ export class TriggerPointSavingService {
 
       const validation = validateTriggerPoints(tpsForDB)
 
+      // DEBUG: log validation summary to understand how many TPs pass
+      const typeBreakdown = validation.validItems.reduce((acc: Record<string, number>, tp) => {
+        acc[tp.type] = (acc[tp.type] || 0) + 1; return acc;
+      }, {});
+      console.log(`💾 [saveTriggerPoints] input=${triggerPoints.length}, valid=${validation.validItems.length}, invalid=${tpsForDB.length - validation.validItems.length}, types=${JSON.stringify(typeBreakdown)}`);
+      if (validation.errors.length > 0) {
+        const sample = validation.errors.slice(0, 5).map(e => `${e.field}:${e.message}`).join(' | ');
+        console.log(`💾 [saveTriggerPoints] sample errors: ${sample}`);
+      }
+
       if (validation.validItems.length === 0) {
         console.warn('⚠️ No valid trigger points after validation')
         results.skipped = triggerPoints.length
@@ -270,27 +288,7 @@ export class TriggerPointSavingService {
         return results
       }
 
-      // Handle different modes
-      if (options.mode === 'replace_all') {
-        // DELETE all existing TPs for this attraction
-        const deleteResult = await this.deleteTriggerPoints(attractionId)
-        if (deleteResult.error) {
-          results.errors.push(`Failed to delete existing TPs: ${deleteResult.error}`)
-          // Continue anyway - try to insert new ones
-        }
-      } else if (options.mode === 'replace_single') {
-        // DELETE specific TP
-        if (options.triggerPointId) {
-          const deleteResult = await this.deleteTriggerPoints(attractionId, [options.triggerPointId])
-          if (deleteResult.error) {
-            results.errors.push(`Failed to delete existing TP: ${deleteResult.error}`)
-            // Continue anyway
-          }
-        }
-      }
-      // For 'append' mode, don't delete anything
-
-      // Prepare valid TPs for insertion
+      // Prepare valid TPs (mesma estrutura usada em todos os modes)
       const tpsForInsert = validation.validItems.map(tp => {
         const originalTP = triggerPoints.find(
           o => o.lat === tp.lat && o.lng === tp.lng && o.type === tp.type
@@ -316,8 +314,65 @@ export class TriggerPointSavingService {
         })
       })
 
-      // Before inserting, verify POI exists and has coordinates (required by some triggers)
       const supabase = getSupabaseClient()
+
+      // ✅ REPLACE_ALL atômico via RPC: DELETE + INSERT em transação única.
+      // Garante que o POI nunca fica com zero TPs se o INSERT falhar — a
+      // função PL/pgSQL faz rollback automático em qualquer erro.
+      //
+      // Para 'append' e 'replace_single', mantém path antigo (delete-then-insert).
+      if (options.mode === 'replace_all') {
+        // O RPC reconstrói `location` via ST_MakePoint(lng, lat). Pegamos
+        // lat/lng diretamente de validation.validItems (alinhado por índice
+        // com tpsForInsert) e removemos a string "SRID=...;POINT(...)" e o
+        // attraction_id duplicado (o RPC injeta automaticamente).
+        const tpsForRPC = tpsForInsert.map((tp: any, idx: number) => {
+          const validated = validation.validItems[idx]
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { location: _location, attraction_id: _aid, ...rest } = tp
+          return {
+            ...rest,
+            lat: validated.lat,
+            lng: validated.lng,
+          }
+        })
+
+        const { data: rpcData, error: rpcError } = await supabase
+          .schema('core')
+          .rpc('replace_trigger_points_atomic', {
+            p_attraction_id: attractionId,
+            p_trigger_points: tpsForRPC,
+          })
+
+        if (rpcError) {
+          console.error('❌ Atomic replace_trigger_points RPC error:', JSON.stringify(rpcError))
+          results.errors.push(`Atomic replace failed (POI retains existing TPs): ${rpcError.message}`)
+          return results
+        }
+
+        const insertedRows = (rpcData as Array<{ id: string }> | null) || []
+        results.saved = insertedRows.length
+        results.skipped = triggerPoints.length - results.saved
+        results.savedIds = insertedRows.map(r => r.id)
+
+        if (results.saved > 0) {
+          await this.markPOIAsProcessed(attractionId)
+        }
+
+        return results
+      }
+
+      // ─── Path para append / replace_single (sem RPC atômico) ───
+      if (options.mode === 'replace_single' && options.triggerPointId) {
+        const deleteResult = await this.deleteTriggerPoints(attractionId, [options.triggerPointId])
+        if (deleteResult.error) {
+          results.errors.push(`Failed to delete existing TP: ${deleteResult.error}`)
+          // Continue anyway
+        }
+      }
+      // For 'append' mode, don't delete anything
+
+      // Before inserting, verify POI exists and has coordinates (required by some triggers)
       const { data: poiCheck, error: poiCheckError } = await supabase
         .schema('core')
         .from('attractions')
@@ -352,7 +407,6 @@ export class TriggerPointSavingService {
 
       if (error) {
         console.error('❌ Error inserting trigger points:', error)
-        // If error is about POI not found, provide more context
         if (error.message?.includes('POI not found') || error.code === 'P0001') {
           results.errors.push(`Database trigger error: ${error.message}. POI exists: ${!!poiCheck}, Has coordinates: ${!!coordCheck}`)
         } else {
@@ -363,11 +417,7 @@ export class TriggerPointSavingService {
 
       results.saved = data?.length || 0
       results.skipped = triggerPoints.length - results.saved
-
-      // Only mark POI as processed if we successfully saved TPs
-      if (results.saved > 0 && options.mode === 'replace_all') {
-        await this.markPOIAsProcessed(attractionId)
-      }
+      results.savedIds = data?.map((d: any) => d.id) || []
 
       return results
     } catch (error) {
@@ -437,9 +487,14 @@ export class TriggerPointSavingService {
       auto_status: tp.auto_status,
       final_status: tp.final_status,
       score_factors: tp.score_factors,
-      generation_method: tp.generation_method || `google_apis_${boundarySource}`,
+      // Issue 1.3 — preservar o método real (local_osm/overpass_fallback) em vez
+      // de sempre rotular como google_apis_*. Mantém compatibilidade com TPs
+      // antigos que não traziam generation_method.
+      generation_method: tp.generation_method || `local_osm_${boundarySource}`,
       validation_notes: tp.reasoning || tp.validation_notes,
-      access: tp.access || 'both'
+      access: tp.access || 'both',
+      // Issue 2.4 — preservar polígono para TPs geofence
+      geometry_geojson: tp.geometry_geojson ?? null,
     }))
 
     // Use unified saveTriggerPoints() with replace_all mode
@@ -482,17 +537,19 @@ export class TriggerPointSavingService {
         }
       }
 
-      // Fetch the saved TP to return
+      // Fetch the saved TP by ID (lat/lng don't exist as columns — coordinates live in `location` geography)
+      const savedId = result.savedIds?.[0]
+      if (!savedId) {
+        console.warn('⚠️ Could not retrieve saved trigger point ID, but it was saved successfully')
+        return { success: true }
+      }
+
       const supabase = getSupabaseClient()
       const { data: savedTP, error: fetchError } = await supabase
         .schema('core')
         .from('attraction_trigger_points')
         .select()
-        .eq('attraction_id', triggerPointData.attraction_id)
-        .eq('lat', triggerPointData.lat)
-        .eq('lng', triggerPointData.lng)
-        .order('created_at', { ascending: false })
-        .limit(1)
+        .eq('id', savedId)
         .single()
 
       if (fetchError || !savedTP) {

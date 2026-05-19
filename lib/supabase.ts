@@ -10,7 +10,10 @@ export const supabase = new Proxy({} as SupabaseClient, {
 })
 
 // Client-side Supabase client for auth helpers
-export const createClientComponent = () => createClientComponentClient()
+export const createClientComponent = () => createClientComponentClient({
+  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+})
 
 // Database types
 export interface CmsUser {

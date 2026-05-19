@@ -9,7 +9,8 @@
  */
 
 import { getSupabase } from '../../core/supabase-client'
-import { redisCache, RedisCache } from '../../cache/redis-cache'
+import { OSMCacheService } from '../osm-cache-service'
+
 
 // Service role client for database operations (must use 'service' for homolog schema access)
 const supabaseAdmin = getSupabase('service')
@@ -59,11 +60,11 @@ export class HomologEnrichmentService {
       // Step 2: Try OSM ID lookup first (more accurate)
       let osmData: any = null
       let enrichmentMethod: 'osm_lookup' | 'reverse_geocoding' = 'reverse_geocoding'
-      
+
       if (poiData.osm_id && poiData.osm_type) {
         console.log(`🔍 Trying OSM ID lookup: ${poiData.osm_type}${poiData.osm_id}`)
         osmData = await this.fetchOSMDataByID(poiData.osm_id, poiData.osm_type)
-        
+
         if (osmData) {
           enrichmentMethod = 'osm_lookup'
           console.log(`✅ OSM ID lookup successful`)
@@ -72,22 +73,56 @@ export class HomologEnrichmentService {
         }
       }
 
-      // Step 3: Fallback to reverse geocoding
-      if (!osmData && poiData.lat && poiData.lng) {
-        console.log(`📍 Using reverse geocoding for: ${poiData.lat}, ${poiData.lng}`)
-        osmData = await this.fetchOSMDataByCoordinates(poiData.lat, poiData.lng)
+      // Step 3: Fallback to reverse geocoding when /lookup is missing OR has no usable city.
+      // Natural features (ridges, peaks, wetlands, parks) often come from USGS topo and
+      // return only state/country from /lookup, so we MUST query /reverse to learn the
+      // administrative city/township via point-in-polygon at the centroid.
+      const lookupCityFound = this.hasUsableCity(osmData?.address)
+      if ((!osmData || !lookupCityFound) && poiData.lat && poiData.lng) {
+        const reason = !osmData ? 'no /lookup result' : 'no city in /lookup address'
+        console.log(`📍 Using reverse geocoding (${reason}) for: ${poiData.lat}, ${poiData.lng}`)
+        const reverseData = await this.fetchOSMDataByCoordinates(poiData.lat, poiData.lng)
+        if (reverseData) {
+          if (osmData) {
+            // Keep the original /lookup result (name, class, type, extratags) but merge
+            // the /reverse address on top so the city/town cascade in extractUpdates sees it.
+            osmData = {
+              ...osmData,
+              address: { ...(osmData.address ?? {}), ...(reverseData.address ?? {}) },
+              extratags: { ...(osmData.extratags ?? {}), ...(reverseData.extratags ?? {}) }
+            }
+            // Mark this as a hybrid result for telemetry — still lookup-anchored but city
+            // came from /reverse.
+            enrichmentMethod = 'reverse_geocoding'
+          } else {
+            osmData = reverseData
+          }
+        }
       }
-      
+
+      // Step 4: Fallback to Photon (Komoot) when Nominatim fails completely.
+      // Photon is a mirror of Nominatim that often has better coverage for edge cases
+      // and is not affected by the same rate-limiting. Used as last resort when both
+      // /lookup and /reverse fail but coordinates are available.
+      if (!osmData && poiData.lat && poiData.lng) {
+        console.log(`📡 Using Photon (Komoot) as final fallback for: ${poiData.lat}, ${poiData.lng}`)
+        const photonData = await this.fetchViaPhoton(poiData.lat, poiData.lng)
+        if (photonData) {
+          osmData = photonData
+          enrichmentMethod = 'reverse_geocoding'
+        }
+      }
+
       if (!osmData) {
         return {
           success: false,
           uuid_id,
-          message: 'No OSM data found via OSM ID or reverse geocoding',
+          message: 'No OSM data found via OSM ID, Nominatim reverse, or Photon geocoding',
           error: 'OSM data not found'
         }
       }
 
-      // Step 4: Extract relevant information
+      // Step 5: Extract relevant information
       const updates = this.extractUpdates(osmData)
       
       if (Object.keys(updates).length === 0) {
@@ -100,7 +135,7 @@ export class HomologEnrichmentService {
         }
       }
 
-      // Step 5: Update homolog.pois
+      // Step 6: Update homolog.pois
       const updateResult = await this.updateHomologPOI(uuid_id, updates)
 
       if (!updateResult.success) {
@@ -131,6 +166,20 @@ export class HomologEnrichmentService {
         error: error.message
       }
     }
+  }
+
+  // Mirrors the city cascade in extractUpdates(): returns true when Nominatim's
+  // address payload has any field we would accept as `city`.
+  private static hasUsableCity(address: any): boolean {
+    if (!address) return false
+    return Boolean(
+      address.city ||
+      address.town ||
+      address.village ||
+      address.municipality ||
+      address.province ||
+      address.county
+    )
   }
 
   // =====================================
@@ -202,32 +251,40 @@ export class HomologEnrichmentService {
     osmId: string | number,
     osmType: 'node' | 'way' | 'relation'
   ): Promise<any | null> {
-    const cacheKey = RedisCache.nominatimLookupKey(osmType, osmId)
-
-    return redisCache.getOrSet(cacheKey, RedisCache.TTL.NOMINATIM, async () => {
-      try {
-        const typePrefix = osmType.charAt(0).toUpperCase()
-        const lookupUrl = `https://nominatim.openstreetmap.org/lookup?osm_ids=${typePrefix}${osmId}&format=json&extratags=1&namedetails=1&addressdetails=1`
-
-        console.log(`   Nominatim lookup URL: ${lookupUrl}`)
-
-        const response = await fetch(lookupUrl, {
-          headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
-        })
-
-        if (response.ok) {
-          const results = await response.json()
-          if (Array.isArray(results) && results.length > 0) {
-            return results[0]
-          }
-        }
-
-        return null
-      } catch (error) {
-        console.error('❌ Error fetching OSM data by ID:', error)
-        return null
+    try {
+      // Format: N for node, W for way, R for relation
+      const typePrefix = osmType.charAt(0).toUpperCase()
+      const lookupUrl = `https://nominatim.openstreetmap.org/lookup?osm_ids=${typePrefix}${osmId}&format=json&extratags=1&namedetails=1&addressdetails=1`
+      
+      console.log(`   Nominatim lookup URL: ${lookupUrl}`)
+      
+      // 🚀 CACHE CHECK
+      const cacheService = OSMCacheService.getInstance()
+      const cachedData = cacheService.get(lookupUrl, 30) // Cache Nominatim for 30 days (it rarely changes)
+      
+      if (cachedData) {
+        console.log(`   ✅ Using cached Nominatim data for OSM ID: ${osmType}${osmId}`)
+        return cachedData
       }
-    })
+      
+      const response = await fetch(lookupUrl, {
+        headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
+      })
+      
+      if (response.ok) {
+        const results = await response.json()
+        if (Array.isArray(results) && results.length > 0) {
+          // 🚀 SAVE TO CACHE
+          cacheService.set(lookupUrl, results[0])
+          return results[0]
+        }
+      }
+      
+      return null
+    } catch (error) {
+      console.error('❌ Error fetching OSM data by ID:', error)
+      return null
+    }
   }
 
   /**
@@ -235,29 +292,95 @@ export class HomologEnrichmentService {
    * Uses Nominatim /reverse endpoint
    */
   private static async fetchOSMDataByCoordinates(lat: number, lng: number): Promise<any | null> {
-    const cacheKey = RedisCache.nominatimReverseKey(lat, lng)
+    try {
+      const reverseUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&extratags=1&namedetails=1&addressdetails=1`
 
-    return redisCache.getOrSet(cacheKey, RedisCache.TTL.NOMINATIM, async () => {
-      try {
-        const reverseUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&extratags=1&namedetails=1&addressdetails=1`
+      // 🚀 CACHE CHECK
+      const cacheService = OSMCacheService.getInstance()
+      const cachedData = cacheService.get(reverseUrl, 30)
 
-        const response = await fetch(reverseUrl, {
-          headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          if (data && !data.error) {
-            return data
-          }
-        }
-
-        return null
-      } catch (error) {
-        console.error('❌ Error fetching OSM data by coordinates:', error)
-        return null
+      if (cachedData) {
+        console.log(`   ✅ Using cached Nominatim reverse data for coords`)
+        return cachedData
       }
-    })
+
+      const response = await fetch(reverseUrl, {
+        headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data && !data.error) {
+          // 🚀 SAVE TO CACHE
+          cacheService.set(reverseUrl, data)
+          return data
+        }
+      }
+
+      return null
+    } catch (error) {
+      console.error('❌ Error fetching OSM data by coordinates:', error)
+      return null
+    }
+  }
+
+  /**
+   * Fetch OSM data via Photon (Komoot's Nominatim mirror)
+   * Used as last resort when Nominatim fails. Photon often has better coverage
+   * for edge cases and is independent of Nominatim's rate-limiting.
+   */
+  private static async fetchViaPhoton(lat: number, lng: number): Promise<any | null> {
+    try {
+      const photonUrl = `https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&limit=1`
+
+      // 🚀 CACHE CHECK
+      const cacheService = OSMCacheService.getInstance()
+      const cachedData = cacheService.get(photonUrl, 30)
+
+      if (cachedData) {
+        console.log(`   ✅ Using cached Photon data for coords`)
+        return cachedData
+      }
+
+      const response = await fetch(photonUrl, {
+        headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data?.features && data.features.length > 0) {
+          const feature = data.features[0]
+          // Transform Photon response to Nominatim-like format for compatibility
+          const transformed = {
+            name: feature.properties?.name,
+            type: feature.properties?.osm_value,
+            class: feature.properties?.osm_key,
+            display_name: `${feature.properties?.name || ''} ${feature.geometry?.coordinates?.[1] || ''}, ${feature.geometry?.coordinates?.[0] || ''}`,
+            address: {
+              city: feature.properties?.city,
+              town: feature.properties?.town,
+              village: feature.properties?.village,
+              county: feature.properties?.county,
+              state: feature.properties?.state,
+              country: feature.properties?.country,
+              postcode: feature.properties?.postcode,
+              road: feature.properties?.street
+            },
+            extratags: {},
+            osm_id: feature.properties?.osm_id,
+            osm_type: feature.properties?.osm_type
+          }
+          // 🚀 SAVE TO CACHE
+          cacheService.set(photonUrl, transformed)
+          return transformed
+        }
+      }
+
+      return null
+    } catch (error) {
+      console.error('❌ Error fetching data via Photon:', error)
+      return null
+    }
   }
 
   // =====================================
@@ -269,26 +392,9 @@ export class HomologEnrichmentService {
     const extratags = osmData.extratags || {}
     const updates: any = {}
 
-    // Location Hierarchy — chain covers all Nominatim address variants:
-    // urban: city > town > village > municipality
-    // rural/natural: hamlet > locality > quarter > suburb > city_district > district > province > county
-    const addr = address
-    const cityValue =
-      addr.city ||
-      addr.town ||
-      addr.village ||
-      addr.municipality ||
-      addr.hamlet ||
-      addr.locality ||
-      addr.quarter ||
-      addr.suburb ||
-      addr.city_district ||
-      addr.district ||
-      addr.province ||
-      addr.county
-
-    if (cityValue) {
-      updates.city = cityValue
+    // Location Hierarchy (with province/county fallbacks for natural/rural areas)
+    if (address.city || address.town || address.village || address.municipality || address.province || address.county) {
+      updates.city = address.city || address.town || address.village || address.municipality || address.province || address.county
     }
     
     if (address.state || address.province || address.region) {

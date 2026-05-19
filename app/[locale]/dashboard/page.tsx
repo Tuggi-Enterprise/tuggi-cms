@@ -141,9 +141,10 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-[#F0F2F5] dark:bg-gray-950 p-4 lg:p-6 flex flex-col gap-4 animate-in fade-in duration-500">
       
       {/* 1. MÁSTER KPI BAR (COMPACT) */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         <StatCard size="compact" icon={Database} title={t('labels.catalog')} value={stats.totalInventory} color={TUGGI_COLORS.blue} isLoading={isLoading} />
         <StatCard size="compact" icon={CheckCircle} title={t('labels.approved')} value={stats.approvedPOIs} color={TUGGI_COLORS.green} isLoading={isLoading} />
+        <StatCard size="compact" icon={Clock} title={t('labels.migration_speed')} value={stats.migrationMetrics?.recentAvgSeconds ? `${stats.migrationMetrics.recentAvgSeconds}s` : '--'} color={TUGGI_COLORS.green} isLoading={isLoading} />
         <StatCard size="compact" icon={Users} title={t('labels.users')} value={stats.totalUsers} color={TUGGI_COLORS.purple} isLoading={isLoading} />
         <StatCard size="compact" icon={ShieldCheck} title={t('labels.premium')} value={stats.totalPremiumUsers} color={TUGGI_COLORS.orange} isLoading={isLoading} />
         <StatCard size="compact" icon={Zap} title={t('labels.active_30d')} value={stats.activeUsers30d} color={TUGGI_COLORS.green} isLoading={isLoading} />
@@ -419,7 +420,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* DENSITY & POPULARITY GRID (CITIES, COUNTRIES & TOP POIS) */}
+           {/* DENSITY & POPULARITY GRID (CITIES, COUNTRIES & TOP POIS) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1">
              {/* COUNTRIES DENSITY */}
              <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-2xl shadow-black/5 flex flex-col h-[440px]">
@@ -463,43 +464,43 @@ export default function DashboardPage() {
                 </div>
              </div>
 
-             {/* CITIES DENSITY */}
-             <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-2xl shadow-black/5 flex flex-col h-[440px]">
-                <div className="px-5 py-4 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
-                   <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">{t('labels.geo_density')}</h3>
-                   <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-blue-500 opacity-50" />
-                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('labels.urban_capillarity')}</span>
-                   </div>
-                </div>
-                <div className="flex-1 overflow-y-auto custom-scrollbar">
-                   <table className="w-full text-left border-collapse">
-                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10 transition-colors">
-                       <tr>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase tracking-tighter">{t('labels.location')}</th>
-                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right tracking-tighter">{t('labels.volume')}</th>
-                       </tr>
-                     </thead>
-                     <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                       {stats.cityDistribution.slice(0, 8).map((city, idx) => (
-                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors group">
-                           <td className="px-5 py-3">
-                             <span className="text-xs font-black text-gray-900 dark:text-gray-200 group-hover:text-tuggi-blue transition-colors">{city.city}</span>
-                             <span className="text-[9px] text-gray-400 font-bold ml-2 uppercase opacity-40">{city.country}</span>
-                           </td>
-                           <td className="px-5 py-3 text-right">
-                             <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/20 text-blue-600 border border-blue-100 dark:border-blue-800/30 px-2 py-0.5 rounded-full shadow-sm">
-                               {city.poi_count}
-                             </span>
-                           </td>
-                         </tr>
-                       ))}
-                     </tbody>
-                   </table>
+             {/* TOP CONTENT GENERATORS (MOVED UP) */}
+             <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-[440px]">
+                <h3 className="text-xs font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
+                   <span>{t('labels.top_generators')}</span>
+                   <Users className="h-4 w-4 text-tuggi-blue opacity-50" />
+                </h3>
+                <div className="space-y-2.5 flex-1 overflow-y-auto custom-scrollbar pr-1">
+                   {stats.topGenerators.length > 0 ? stats.topGenerators.map((gen, idx) => (
+                     <div 
+                       key={gen.user_id} 
+                       className="flex items-center gap-4 p-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent hover:border-gray-100 dark:hover:border-gray-800 rounded-xl transition-all duration-300 group"
+                     >
+                        <div className={cn(
+                          "w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm shrink-0 shadow-sm",
+                          idx === 0 ? "bg-tuggi-blue text-white" : "bg-white dark:bg-gray-800 text-gray-400 border border-gray-100 dark:border-gray-700"
+                        )}>
+                           #{idx + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-4">
+                              <span className="text-xs font-black text-gray-900 dark:text-white line-clamp-1 group-hover:text-tuggi-blue transition-colors flex-1">
+                                {gen.nickname}
+                              </span>
+                              <div className="flex flex-col items-end shrink-0 ml-auto leading-none">
+                                 <span className="text-sm font-black text-tuggi-blue leading-none">{gen.content_count}</span>
+                                 <span className="text-[9px] font-bold text-gray-400 uppercase tracking-tighter mt-1">{t('labels.content_generated')}</span>
+                              </div>
+                            </div>
+                         </div>
+                       </div>
+                    )) : (
+                      <div className="h-full flex items-center justify-center opacity-30 text-[10px] font-black uppercase tracking-widest">{t('labels.waiting_interactions')}</div>
+                    )}
                 </div>
              </div>
 
-             {/* TOP PERFORMING POIS - PREMIUM LIST STYLE */}
+              {/* TOP PERFORMING POIS - PREMIUM LIST STYLE */}
              <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-[440px]">
                 <h3 className="text-xs font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
                    <span>{t('labels.top_visited_pois')}</span>
@@ -536,13 +537,49 @@ export default function DashboardPage() {
                     )}
                 </div>
              </div>
+
+             {/* CITIES DENSITY (HIDDEN BUT NOT REMOVED) */}
+             <div className="hidden bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-2xl shadow-black/5 flex flex-col h-[440px]">
+                <div className="px-5 py-4 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between bg-gray-50/20">
+                   <h3 className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">{t('labels.geo_density')}</h3>
+                   <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-blue-500 opacity-50" />
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t('labels.urban_capillarity')}</span>
+                   </div>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                   <table className="w-full text-left border-collapse">
+                     <thead className="bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 backdrop-blur-sm z-10 transition-colors">
+                       <tr>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase tracking-tighter">{t('labels.location')}</th>
+                         <th className="px-5 py-2 text-[9px] font-black text-gray-400 uppercase text-right tracking-tighter">{t('labels.volume')}</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                       {stats.cityDistribution.slice(0, 8).map((city, idx) => (
+                         <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors group">
+                           <td className="px-5 py-3">
+                             <span className="text-xs font-black text-gray-900 dark:text-gray-200 group-hover:text-tuggi-blue transition-colors">{city.city}</span>
+                             <span className="text-[9px] text-gray-400 font-bold ml-2 uppercase opacity-40">{city.country}</span>
+                           </td>
+                           <td className="px-5 py-3 text-right">
+                             <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-900/20 text-blue-600 border border-blue-100 dark:border-blue-800/30 px-2 py-0.5 rounded-full shadow-sm">
+                               {city.poi_count}
+                             </span>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+                </div>
+             </div>
           </div>
         </div>
 
         {/* RIGHT HUB: POPULARITY & PLATFORMS (4 COLS) */}
         <div className="lg:col-span-4 flex flex-col gap-4">
           {/* RECENT APP ACTIVITY - MISSION CONTROL LOG STYLE */}
-          <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-full">
+          <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col h-[400px]">
              <h3 className="text-[11px] font-black uppercase text-gray-400 mb-6 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
                 <span className="flex items-center gap-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-tuggi-blue animate-pulse" />
@@ -618,7 +655,59 @@ export default function DashboardPage() {
              </div>
           </div>
 
-
+          {/* MIGRATION PERFORMANCE */}
+          <div className="bg-white dark:bg-gray-950 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 shadow-2xl shadow-black/5 flex flex-col flex-1 min-h-[240px]">
+             <h3 className="text-[11px] font-black uppercase text-gray-400 mb-4 tracking-[0.2em] border-b border-gray-50 dark:border-gray-800 pb-3 flex items-center justify-between">
+                <span>{t('labels.migration_speed')}</span>
+                <Clock className="h-4 w-4 text-tuggi-green opacity-50" />
+             </h3>
+             <div className="flex items-center gap-3 mb-4">
+                <span suppressHydrationWarning className="text-3xl font-black text-tuggi-green leading-none">
+                  {(() => {
+                    const data2026 = (stats.migrationMetrics?.monthly || []).filter(item => item.month.startsWith('2026'));
+                    const totalVol = data2026.reduce((acc, curr) => acc + curr.volume, 0);
+                    return totalVol > 0 ? (data2026.reduce((acc, curr) => acc + (curr.avg_seconds * curr.volume), 0) / totalVol).toFixed(2) : '0.00';
+                  })()}s
+                </span>
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-tight border-l border-gray-100 dark:border-gray-800 pl-3">{t('labels.global_average')}<br/>(2026)</span>
+             </div>
+             <div className="flex-1 min-h-0 w-full mt-2">
+                {isMounted && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart 
+                      data={(stats.migrationMetrics?.monthly || [])
+                        .filter(item => item.month.startsWith('2026'))
+                        .sort((a, b) => a.month.localeCompare(b.month))
+                      } 
+                      margin={{ top: 20, right: 0, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
+                      <XAxis 
+                        dataKey="month" 
+                        tick={{ fill: '#9ca3af', fontSize: 10, fontWeight: 700 }} 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tickFormatter={(val) => val ? `${val.split('-')[1]}/${val.split('-')[0].slice(2)}` : ''} 
+                      />
+                      <YAxis hide domain={[0, 'dataMax']} />
+                      <Tooltip 
+                        cursor={{ fill: 'rgba(16,185,129,0.05)' }} 
+                        contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '11px', fontWeight: '900' }} 
+                      />
+                      <Bar dataKey="volume" fill={TUGGI_COLORS.green} radius={[4, 4, 0, 0]} barSize={24}>
+                         <LabelList 
+                           dataKey="avg_seconds" 
+                           position="top" 
+                           formatter={(val: any) => `${val}s`} 
+                           style={{ fill: '#9ca3af', fontSize: 10, fontWeight: '800' }} 
+                           offset={6} 
+                         />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+             </div>
+          </div>
           
         </div>
       </div>

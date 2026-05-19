@@ -4,6 +4,7 @@
 import { POIData, GeographicContext, BoundaryData } from '../types/interfaces';
 import { calculateVariance, calculateBearing, calculateDistance } from '../utils/calculations';
 import { ElevationAnalysisService } from '../services/elevation-service';
+import { SRTMLocalService } from '../../srtm-local-service';
 
 export class GeographicContextAnalyzer {
   constructor() {
@@ -198,11 +199,9 @@ export class GeographicContextAnalyzer {
         poiData
       );
       
-      // Buscar elevação real do ponto (via Open Elevation, que é free)
-      const url = `https://api.open-elevation.com/api/v1/lookup?locations=${location.lat},${location.lng}`;
-      const response = await fetch(url);
-      const data = await response.json();
-      const poiElevation = data.results?.[0]?.elevation || baseElevation;
+      // Buscar elevação real do ponto via SRTM Local (100% offline)
+      const srtm = SRTMLocalService.getInstance();
+      const poiElevation = await srtm.getElevation(location.lat, location.lng) ?? baseElevation;
       
       const elevationDiff = poiElevation - baseElevation;
       
@@ -230,30 +229,41 @@ export class GeographicContextAnalyzer {
    */
   private async analyzeStreetPattern(location: { lat: number; lng: number }) {
     try {
-      // 🔴 REMOVED: Google Roads API usage (M0 - economia)
-      // Usar análise OSM para determinar padrão de ruas
+      // 🌍 ESTRATÉGIA 1: LOCAL OSM DB
+      const { LocalOSMFetcher } = await import('../services/local-osm-fetcher');
+      const localData = LocalOSMFetcher.getInstance().fetchAsOverpassData(
+        location, 2000, { includeBuildings: false }
+      );
       
-      // Query OSM para buscar ruas na área
-      const query = `
+      let roads: any[] = [];
+      
+      if (localData && localData.elements.length > 0) {
+        roads = localData.elements;
+      } else {
+        // 🔄 ESTRATÉGIA 2: OVERPASS API (Fallback)
+        const query = `
 [out:json][timeout:15];
 (
   way["highway"~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)$"](around:2000,${location.lat},${location.lng});
 );
 out geom;
 `;
-      
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        body: query,
-        headers: { 'Content-Type': 'text/plain' }
-      });
-      
-      if (!response.ok) {
-        return { type: 'mixed' as const, confidence: 0.5 };
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          body: query,
+          headers: { 
+            'Content-Type': 'text/plain',
+            'User-Agent': 'TuggiCMS/1.0 (trigger-points-generation)'
+          }
+        });
+        
+        if (!response.ok) {
+          return { type: 'mixed' as const, confidence: 0.5 };
+        }
+        
+        const data = await response.json();
+        roads = data.elements || [];
       }
-      
-      const data = await response.json();
-      const roads = data.elements || [];
       
       if (roads.length < 3) {
         return { type: 'mixed' as const, confidence: 0.3 };

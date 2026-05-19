@@ -102,10 +102,11 @@ function geoJsonToWkt(geometry: any): string | null {
 async function main() {
   const filePath = process.argv[2];
   const countryParam = process.argv[3];
+  const stateParam = process.argv[4];
   
   if (!filePath) {
     console.error('❌ Please provide the GeoJSON file path');
-    console.error('   Usage: npx tsx scripts/import-geojson-homolog.ts <path> [country]');
+    console.error('   Usage: npx tsx scripts/import-geojson-homolog.ts <path> [country] [state]');
     process.exit(1);
   }
 
@@ -166,7 +167,7 @@ async function main() {
         osm_properties: props,
         category: props.tourism || props.historic || props.leisure || props.natural || props.amenity || props.aerialway,
         city: props['addr:city'],
-        state: props['addr:state'],
+        state: stateParam || props['addr:state'],
         country: countryParam || props['addr:country'] || 'Thailand',
         postal_code: props['addr:postcode'],
         street_name: props['addr:street'],

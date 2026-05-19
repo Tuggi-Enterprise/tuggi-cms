@@ -54,7 +54,7 @@ export class ClientService {
     if (error || !cmsUser) {
       const details = error ? (error.message || JSON.stringify(error)) : 'No cms_user returned from Supabase'
       if (res.status === 404) {
-        throw new Error(`Failed to register client (cms_user): ${details}. Received 404 from Supabase - check NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and that the 'cms_users' table exists in the 'core' schema.`)
+        throw new Error(`Failed to register client (cms_user): ${details}. Received 404 from Supabase - check NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY and that the 'cms_users' table exists in the 'core' schema.`)
       }
       throw new Error(`Failed to register client (cms_user): ${details}`)
     }

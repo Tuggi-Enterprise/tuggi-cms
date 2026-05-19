@@ -8,7 +8,13 @@ export const metadata = {
 }
 
 export default async function ClientApprovalsPage() {
-  const supabase = createServerComponentClient({ cookies })
+  const supabase = createServerComponentClient(
+    { cookies },
+    {
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    }
+  )
   const { data: { session } } = await supabase.auth.getSession()
 
   if (!session) {

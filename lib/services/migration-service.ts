@@ -44,24 +44,13 @@ export class MigrationService {
     error?: string
   }> {
     try {
-      // Load POI and coordinates in parallel — they are independent queries
-      const [
-        { data: poi, error: poiError },
-        { data: coordinate, error: coordError }
-      ] = await Promise.all([
-        supabase
-          .schema('core')
-          .from('attractions')
-          .select('id, name, city, state, country, category, osm_id, osm_type, estimated_height_m, osm_tags')
-          .eq('id', attraction_id)
-          .maybeSingle(),
-        supabase
-          .schema('core')
-          .from('attraction_coordinate')
-          .select('latitude, longitude')
-          .eq('attraction_id', attraction_id)
-          .maybeSingle()
-      ])
+      // Load POI
+      const { data: poi, error: poiError } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, name, city, state, country, category, osm_id, osm_type, estimated_height_m, osm_tags')
+        .eq('id', attraction_id)
+        .maybeSingle()
 
       if (poiError || !poi) {
         return {
@@ -69,6 +58,14 @@ export class MigrationService {
           error: poiError?.message || 'POI not found'
         }
       }
+
+      // Load coordinates
+      const { data: coordinate, error: coordError } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('latitude, longitude')
+        .eq('attraction_id', attraction_id)
+        .maybeSingle()
 
       if (coordError || !coordinate) {
         return {
@@ -109,28 +106,13 @@ export class MigrationService {
     longitude: number
   ): Promise<DuplicateCheckResult> {
     try {
-      // Fire UUID and OSM duplicate checks in parallel — independent queries on the same table
-      const uuidPromise = supabase
+      // Check by UUID (same UUID already exists in core)
+      const { data: existingByUuid } = await supabase
         .schema('core')
         .from('attractions')
         .select('id')
         .eq('id', uuid_id)
-        .maybeSingle()
-
-      const osmPromise = osm_id && osm_type
-        ? supabase
-            .schema('core')
-            .from('attractions')
-            .select('id')
-            .eq('osm_id', osm_id.toString())
-            .eq('osm_type', osm_type)
-            .maybeSingle()
-        : Promise.resolve({ data: null, error: null })
-
-      const [{ data: existingByUuid }, { data: existingByOsm }] = await Promise.all([
-        uuidPromise,
-        osmPromise
-      ])
+        .single()
 
       if (existingByUuid) {
         return {
@@ -141,14 +123,32 @@ export class MigrationService {
         }
       }
 
-      if (existingByOsm) {
-        return {
-          is_duplicate: true,
-          duplicate_type: 'osm',
-          existing_id: existingByOsm.id,
-          message: `POI with OSM ID ${osm_id} (${osm_type}) already exists in core.attractions`
+      // Check by OSM ID + Type (same OSM POI)
+      if (osm_id && osm_type) {
+        const { data: existingByOsm } = await supabase
+          .schema('core')
+          .from('attractions')
+          .select('id')
+          .eq('osm_id', osm_id.toString())
+          .eq('osm_type', osm_type)
+          .single()
+
+        if (existingByOsm) {
+          return {
+            is_duplicate: true,
+            duplicate_type: 'osm',
+            existing_id: existingByOsm.id,
+            message: `POI with OSM ID ${osm_id} (${osm_type}) already exists in core.attractions`
+          }
         }
       }
+
+      // Check by coordinates (within ~50m radius)
+      // NOTE: We no longer block migration for coordinate duplicates
+      // The user wants to import even if coordinates are similar, removing existing POIs
+      // We only check for UUID duplicates to prevent ID conflicts
+      // Coordinate duplicates are allowed and will replace existing POIs
+      // The removal of duplicate POIs happens at the end of the pipeline after approval
 
       return {
         is_duplicate: false
@@ -442,14 +442,13 @@ export class MigrationService {
     let wasCreated = false
 
     try {
-      // 1+2. Fetch POI and coordinates from homolog in parallel (independent queries — saves 1 RTT)
-      const [
-        { data: poi, error: poiError },
-        { data: coord, error: coordError }
-      ] = await Promise.all([
-        supabase.schema('homolog').from('pois').select('*').eq('uuid_id', uuid_id).single(),
-        supabase.schema('homolog').from('coordinates').select('*').eq('poi_uuid_id', uuid_id).single()
-      ])
+      // 1. Fetch POI from homolog
+      const { data: poi, error: poiError } = await supabase
+        .schema('homolog')
+        .from('pois')
+        .select('*')
+        .eq('uuid_id', uuid_id)
+        .single()
 
       if (poiError || !poi) {
         return {
@@ -457,6 +456,14 @@ export class MigrationService {
           error: `POI not found in homolog: ${poiError?.message || 'Unknown error'}`
         }
       }
+
+      // 2. Fetch coordinates from homolog
+      const { data: coord, error: coordError } = await supabase
+        .schema('homolog')
+        .from('coordinates')
+        .select('*')
+        .eq('poi_uuid_id', uuid_id)
+        .single()
 
       if (coordError || !coord) {
         return {
@@ -473,19 +480,11 @@ export class MigrationService {
         }
       }
 
-      // City: required for UX but many natural/rural POIs genuinely lack a city-level admin area.
-      // Fallback chain: city → state → country. Never hard-fail on missing city alone.
       if (!poi.city || poi.city.trim() === '') {
-        const cityFallback = poi.state?.trim() || poi.country?.trim() || null
-        if (!cityFallback) {
-          return {
-            success: false,
-            error: 'POI city, state and country are all empty — cannot determine location'
-          }
+        return {
+          success: false,
+          error: 'POI city is required and cannot be empty'
         }
-        console.warn(`⚠️  POI ${uuid_id} has no city — using "${cityFallback}" as fallback`)
-        warnings.push(`City not found, used fallback: ${cityFallback}`)
-        poi.city = cityFallback
       }
 
       if (!coord.latitude || !coord.longitude) {
@@ -504,65 +503,64 @@ export class MigrationService {
         }
       }
 
-      // 4+6 merged: single query covers UUID duplicate check AND lock check.
-      // Fire OSM dup check in parallel — eliminates 2 serial round-trips (was 3 queries, now 2 parallel).
+      // 4. Check for duplicates (only by UUID and OSM ID - coordinates are allowed to be similar)
+      const duplicateCheck = await this.checkDuplicates(
+        uuid_id,
+        poi.osm_id,
+        poi.osm_type,
+        coord.latitude,
+        coord.longitude
+      )
+
+      // Only block if UUID or OSM ID duplicate (same POI)
+      // Coordinate duplicates are allowed - we'll remove the existing POI
+      if (duplicateCheck.is_duplicate && duplicateCheck.duplicate_type !== 'coordinates') {
+        // Self-healing: If exact duplicate exists in core, verify it matches our ID/OSM ID and clean up homolog
+        console.log(`♻️ Self-healing: POI ${uuid_id} already exists in core (${duplicateCheck.duplicate_type}). Removing from homolog...`)
+        
+        // Skip archiving for deduplication
+        await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
+        // Delete from homolog (coordinates first, then POI) to resolve the "ghost" duplicate
+        await supabase.schema('homolog').from('coordinates').delete().eq('poi_uuid_id', uuid_id)
+        await supabase.schema('homolog').from('pois').delete().eq('uuid_id', uuid_id)
+
+        // Reset skip archiving
+        await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
+
+        return {
+          success: true,
+          attraction_id: duplicateCheck.existing_id,
+          migrated_fields: ['(Self-healed duplicate)'],
+          warnings: [`Duplicate resolved: POI already existed in core and was removed from homolog (Type: ${duplicateCheck.duplicate_type})`]
+        }
+      }
+
+      // NOTE: We don't remove duplicate POIs during migration
+      // This will be done at the end of the pipeline after approval
+      // to ensure we only remove duplicates if the new POI is successfully processed
+
+      // 4.5. Try to acquire lock atomically (prevents race conditions)
+      // Use INSERT ... ON CONFLICT to handle both creation and lock acquisition atomically
       const lockUserId = 'migration-service'
       const lockTimestamp = new Date().toISOString()
-
-      const [
-        { data: existingPOI },
-        { data: osmDup }
-      ] = await Promise.all([
-        supabase
-          .schema('core')
-          .from('attractions')
-          .select('id, processing_lock_by, processing_lock_at')
-          .eq('id', uuid_id)
-          .maybeSingle(),
-        poi.osm_id && poi.osm_type
-          ? supabase
-              .schema('core')
-              .from('attractions')
-              .select('id')
-              .eq('osm_id', poi.osm_id.toString())
-              .eq('osm_type', poi.osm_type)
-              .maybeSingle()
-          : Promise.resolve({ data: null, error: null })
-      ])
-
-      // Handle UUID duplicate: found with no active lock = already migrated → self-heal
-      if (existingPOI && !existingPOI.processing_lock_by) {
-        console.log(`♻️ Self-healing: POI ${uuid_id} already exists in core (uuid). Removing from homolog...`)
-        await supabase.schema('homolog').from('coordinates').delete().eq('poi_uuid_id', uuid_id)
-        await supabase.schema('homolog').from('pois').delete().eq('uuid_id', uuid_id)
-        return {
-          success: true,
-          migrated_fields: ['(Self-healed duplicate)'],
-          warnings: [`Duplicate resolved: POI already existed in core and was removed from homolog (Type: uuid)`]
-        }
-      }
-
-      // Handle OSM duplicate (only when UUID is not in core): self-heal
-      if (!existingPOI && osmDup) {
-        console.log(`♻️ Self-healing: POI ${uuid_id} already exists in core (osm). Removing from homolog...`)
-        await supabase.schema('homolog').from('coordinates').delete().eq('poi_uuid_id', uuid_id)
-        await supabase.schema('homolog').from('pois').delete().eq('uuid_id', uuid_id)
-        return {
-          success: true,
-          migrated_fields: ['(Self-healed duplicate)'],
-          warnings: [`Duplicate resolved: POI already existed in core and was removed from homolog (Type: osm)`]
-        }
-      }
-
-      // NOTE: Coordinate duplicates are allowed — existing POIs are removed after approval.
-
+      
       // 5. Map homolog data to core format
       const mappedPOI = this.mapHomologToCore(poi, coord)
       migrated_fields.push(...Object.keys(mappedPOI).filter(k => mappedPOI[k] !== null && mappedPOI[k] !== undefined))
-
+      
       // Set lock fields
       mappedPOI.processing_lock_by = lockUserId
       mappedPOI.processing_lock_at = lockTimestamp
+
+      // 6. Try to create POI atomically with lock
+      // If POI already exists, check if we can acquire lock
+      const { data: existingPOI } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, processing_lock_by, processing_lock_at')
+        .eq('id', uuid_id)
+        .maybeSingle()
 
       // finalPOI defined at top scope
 
@@ -658,7 +656,15 @@ export class MigrationService {
         }
       }
 
-      // 8. Upsert coordinate — single round-trip replaces SELECT + conditional INSERT/UPDATE
+      // 8. Create coordinate in core.attraction_coordinate
+      // First check if coordinate already exists (UNIQUE constraint on attraction_id)
+      const { data: existingCoord } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('id')
+        .eq('attraction_id', finalPOI.id)
+        .maybeSingle()
+
       const mappedCoord: any = {
         attraction_id: finalPOI.id,
         latitude: coord.latitude,
@@ -676,18 +682,47 @@ export class MigrationService {
         updated_at: coord.updated_at || new Date().toISOString()
       }
 
-      const { error: coordCreateError } = await supabase
-        .schema('core')
-        .from('attraction_coordinate')
-        .upsert(mappedCoord, { onConflict: 'attraction_id' })
+      let createdCoord
+      let coordCreateError
+
+      if (existingCoord) {
+        // Update existing coordinate
+        const { data: updatedCoord, error: updateError } = await supabase
+          .schema('core')
+          .from('attraction_coordinate')
+          .update(mappedCoord)
+          .eq('id', existingCoord.id)
+          .select('id')
+          .single()
+
+        createdCoord = updatedCoord
+        coordCreateError = updateError
+      } else {
+        // Insert new coordinate
+        const { data: insertedCoord, error: insertError } = await supabase
+          .schema('core')
+          .from('attraction_coordinate')
+          .insert(mappedCoord)
+          .select('id')
+          .single()
+
+        createdCoord = insertedCoord
+        coordCreateError = insertError
+      }
 
       if (coordCreateError) {
         // Rollback: delete the POI we just created
+        // Skip archiving for rollback
+        await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
         await supabase
           .schema('core')
           .from('attractions')
           .delete()
           .eq('id', finalPOI.id)
+
+        // Reset skip archiving
+        await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
         return {
           success: false,
@@ -696,6 +731,9 @@ export class MigrationService {
       }
 
       // 9. Delete from homolog after successful migration
+      // Skip archiving for successful migration (it now lives in core)
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
       // First delete coordinates (to avoid FK issues if cascade is missing)
       await supabase
         .schema('homolog')
@@ -709,6 +747,9 @@ export class MigrationService {
         .from('pois')
         .delete()
         .eq('uuid_id', uuid_id)
+
+      // Reset skip archiving
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
       // 9. Release lock
       await supabase
@@ -768,11 +809,17 @@ export class MigrationService {
     try {
       console.log(`🔄 Rolling back migration for attraction: ${attraction_id}`)
       
+      // Skip archiving for rollback
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
       const { error } = await supabase
         .schema('core')
         .from('attractions')
         .delete()
         .eq('id', attraction_id)
+      
+      // Reset skip archiving
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
       if (error) {
         console.error('❌ Rollback error:', error)
@@ -829,6 +876,10 @@ export class MigrationService {
       // Delete from homolog.coordinates (cascade will handle it, but we can be explicit)
       // Actually, coordinates has foreign key with CASCADE, so deleting pois will delete coordinates
       // But let's delete coordinates first to be safe
+      
+      // Skip archiving for safe delete
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
+
       const { error: coordError } = await supabase
         .schema('homolog')
         .from('coordinates')
@@ -846,6 +897,9 @@ export class MigrationService {
         .from('pois')
         .delete()
         .eq('uuid_id', uuid_id)
+
+      // Reset skip archiving
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
       if (poiError) {
         return {
@@ -968,6 +1022,121 @@ export class MigrationService {
         should_process: true,
         reason: 'Error checking status, allowing processing'
       }
+    }
+  }
+
+  /**
+   * BATCH version de `shouldProcessPOI` — 2 queries totais em vez de 2×N.
+   * Mesma lógica funcional; pula side-effect de self-healing (delete from
+   * homolog) pra manter idempotência da chamada batch. Self-healing acontece
+   * naturalmente quando o POI for processado individualmente depois.
+   *
+   * Returns: Map<uuid_id, ShouldProcessResult> com mesma semântica de shouldProcessPOI.
+   */
+  static async shouldProcessPOIBatch(
+    uuid_ids: string[]
+  ): Promise<Map<string, { should_process: boolean; reason?: string }>> {
+    const results = new Map<string, { should_process: boolean; reason?: string }>();
+    if (uuid_ids.length === 0) return results;
+
+    try {
+      // 1. Batch check core.attractions
+      const { data: coreRows } = await supabase
+        .schema('core')
+        .from('attractions')
+        .select('id, approved')
+        .in('id', uuid_ids);
+      const coreById = new Map(
+        (coreRows || []).map(r => [r.id, r as { id: string; approved: boolean }])
+      );
+
+      // 2. Batch check homolog.pois (apenas pros uuids NÃO em core, mas
+      // queremos status pra todos pra completude do retorno)
+      const { data: homologRows } = await supabase
+        .schema('homolog')
+        .from('pois')
+        .select('uuid_id, processing_status, migration_attempts, last_migration_attempt_at')
+        .in('uuid_id', uuid_ids);
+      const homologById = new Map(
+        (homologRows || []).map(r => [r.uuid_id, r as any])
+      );
+
+      const now = Date.now();
+      const lockTimeout = 10 * 60 * 1000; // 10 minutes — mesma constante da função single
+
+      for (const uuid_id of uuid_ids) {
+        const inCore = coreById.get(uuid_id);
+        if (inCore) {
+          if (inCore.approved) {
+            // Self-healing NÃO é feito aqui (side-effect omitido no batch).
+            // O caller pode invocar shouldProcessPOI single pra disparar cleanup.
+            results.set(uuid_id, {
+              should_process: false,
+              reason: 'POI already exists and is approved in core.attractions'
+            });
+          } else {
+            results.set(uuid_id, {
+              should_process: true,
+              reason: 'Partial migration found: exists in core but not approved. Resuming pipeline.'
+            });
+          }
+          continue;
+        }
+
+        const poi = homologById.get(uuid_id);
+        if (!poi) {
+          results.set(uuid_id, {
+            should_process: false,
+            reason: 'POI not found in homolog.pois'
+          });
+          continue;
+        }
+
+        if (poi.processing_status === 'migrated') {
+          results.set(uuid_id, { should_process: false, reason: 'POI marked as migrated in homolog' });
+          continue;
+        }
+        if (poi.processing_status === 'skipped') {
+          results.set(uuid_id, { should_process: false, reason: 'POI marked as skipped' });
+          continue;
+        }
+        if (poi.processing_status === 'failed' && (poi.migration_attempts || 0) >= 3) {
+          results.set(uuid_id, {
+            should_process: false,
+            reason: 'POI failed migration 3+ times (permanent failure)'
+          });
+          continue;
+        }
+        if (poi.processing_status === 'processing') {
+          const lockTime = poi.last_migration_attempt_at
+            ? new Date(poi.last_migration_attempt_at).getTime()
+            : 0;
+          if (lockTime && now - lockTime < lockTimeout) {
+            results.set(uuid_id, {
+              should_process: false,
+              reason: `POI is currently being processed (locked at ${poi.last_migration_attempt_at})`
+            });
+            continue;
+          }
+          // Lock expired: cai pro should_process=true abaixo
+        }
+
+        results.set(uuid_id, { should_process: true });
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error in shouldProcessPOIBatch:', error);
+      // Fail-open: marca todos como should_process=true (mesma semântica que single)
+      for (const uuid_id of uuid_ids) {
+        if (!results.has(uuid_id)) {
+          results.set(uuid_id, {
+            should_process: true,
+            reason: 'Error checking status, allowing processing'
+          });
+        }
+      }
+      return results;
     }
   }
 
@@ -1136,7 +1305,8 @@ export class MigrationService {
         return { removed_count: 0, removed_ids: [], errors: [] }
       }
 
-      console.log(`🗑️  Found ${duplicateIds.length} duplicate POI(s) to remove: ${duplicateIds.join(', ')}`)
+      // Skip archiving for duplicate removal in core
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'true' })
 
       // Remove each duplicate POI
       for (const duplicateId of duplicateIds) {
@@ -1161,6 +1331,9 @@ export class MigrationService {
           errors.push(errorMsg)
         }
       }
+
+      // Reset skip archiving
+      await supabase.schema('core').rpc('set_session_setting', { p_name: 'tuggi.skip_archive', p_value: 'false' })
 
       console.log(`✅ Removed ${removed_ids.length} duplicate POI(s), ${errors.length} error(s)`)
       return {

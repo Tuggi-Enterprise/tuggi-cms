@@ -129,7 +129,8 @@ export const FILTER_CONFIG = {
     "parada de ", "terminal de ", "agência ", "agencia ",
     "centro de saúde", "centro de saude", "posto de saúde", "posto de saude",
     "posto policial", "delegacia", "fórum", "forum",
-    "câmara municipal", "camara municipal", "vereadores"
+    "câmara municipal", "camara municipal", "vereadores",
+    "path continues", "trailhead", "waymark", "guidepost", "route map", "notice board", "information board", "signpost"
   ],
 
   RELIGIOUS_BRANDS: [
@@ -183,7 +184,7 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   const hasWikidata = !!props.wikidata;
   const hasDescription = !!(props.description && props.description.trim().length > 5);
   
-  const isFamous = hasWikipedia || hasHeritage || hasHistoric || hasWikidata || hasDescription;
+  let isFamous = hasWikipedia || hasHeritage || hasHistoric || hasWikidata || hasDescription;
   const hasReference = hasWikipedia || hasWikidata;
 
   // --- 1. BASIC FILTERS ---

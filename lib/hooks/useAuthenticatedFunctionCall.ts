@@ -6,10 +6,10 @@
 'use client'
 
 import { useCallback } from 'react'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseClient } from '@/lib/core/supabase-client'
 
 export function useAuthenticatedFunctionCall() {
-  const supabase = createClientComponentClient()
+  const supabase = getSupabaseClient()
 
   const callFunction = useCallback(
     async <T = any,>(

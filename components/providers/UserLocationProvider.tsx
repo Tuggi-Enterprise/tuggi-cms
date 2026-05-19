@@ -58,9 +58,9 @@ export function UserLocationProvider({ children }: { children: React.ReactNode }
             resolve(location)
           },
           (err) => {
-            // Error Code 2: POSITION_UNAVAILABLE - often happens with highAccuracy: true in some environments
-            if (err.code === err.POSITION_UNAVAILABLE && highAccuracy) {
-              console.warn('⚠️ [Location] High accuracy unavailable, retrying with low accuracy...')
+            // Fallback to low accuracy if high accuracy fails (except for permission denied)
+            if (highAccuracy && (err.code === err.POSITION_UNAVAILABLE || err.code === err.TIMEOUT)) {
+              console.warn(`⚠️ [Location] High accuracy failed (Code: ${err.code}), retrying with low accuracy...`)
               getPosition(false)
               return
             }
@@ -84,7 +84,7 @@ export function UserLocationProvider({ children }: { children: React.ReactNode }
           },
           {
             enableHighAccuracy: highAccuracy,
-            timeout: highAccuracy ? 10000 : 5000,
+            timeout: highAccuracy ? 15000 : 10000,
             maximumAge: 300000, // 5 minutes cache
           }
         )

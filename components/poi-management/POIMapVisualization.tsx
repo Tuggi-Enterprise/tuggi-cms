@@ -145,31 +145,31 @@ function getStatusColor(status: POIStatus): string {
   }
 }
 
-// Create marker icon based on status
-function createMarkerIcon(status: POIStatus, isSelected: boolean = false): google.maps.Icon {
+// Create DOM elements for AdvancedMarkerElement
+function createAdvancedMarkerElement(status: POIStatus, isSelected: boolean = false): HTMLElement {
   const color = getStatusColor(status)
   const size = isSelected ? 28 : 24
   
-  return {
-    url: 'data:image/svg+xml;base64,' + btoa(`
-      <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="12" cy="12" r="10" fill="${color}" stroke="white" stroke-width="2"/>
-        <circle cx="12" cy="12" r="4" fill="white"/>
-      </svg>
-    `),
-    scaledSize: new google.maps.Size(size, size),
-    anchor: new google.maps.Point(size / 2, size / 2),
-    labelOrigin: new google.maps.Point(size / 2, size + 10)
-  }
+  const div = document.createElement('div')
+  div.innerHTML = `
+    <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.3));">
+      <circle cx="12" cy="12" r="10" fill="${color}" stroke="white" stroke-width="2"/>
+      <circle cx="12" cy="12" r="4" fill="white"/>
+    </svg>
+  `
+  // Center alignment for AdvancedMarkerElement
+  div.style.transform = 'translate(0%, 0%)'
+  return div
 }
 
-function createTriggerMarkerIcon(is_active: boolean, bearing: number | null): google.maps.Icon {
+function createAdvancedTriggerMarkerElement(is_active: boolean, bearing: number | null): HTMLElement {
   const color = '#F97316'
   const size = 18
   const opacity = is_active ? 1 : 0.5
   const hasBearing = bearing !== null && bearing !== undefined
   
-  const svg = `
+  const div = document.createElement('div')
+  div.innerHTML = `
     <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="12" cy="12" r="6" fill="${color}" fill-opacity="${opacity}" stroke="white" stroke-width="2"/>
       ${hasBearing ? `
@@ -179,13 +179,25 @@ function createTriggerMarkerIcon(is_active: boolean, bearing: number | null): go
       ` : ''}
     </svg>
   `
-  
-  return {
-    url: 'data:image/svg+xml;base64,' + btoa(svg),
-    scaledSize: new google.maps.Size(size, size),
-    anchor: new google.maps.Point(size / 2, size / 2)
-  }
+  div.style.transform = 'translate(0%, 0%)'
+  return div
 }
+
+function createClusterMarkerElement(count: number): HTMLElement {
+  const div = document.createElement('div')
+  const displayCount = count > 999 ? Math.floor(count/1000) + 'k' : count.toString()
+  div.innerHTML = `
+    <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.2));">
+      <circle cx="20" cy="20" r="18" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
+      <text x="20" y="26" text-anchor="middle" fill="white" font-size="12" font-weight="bold">
+        ${displayCount}
+      </text>
+    </svg>
+  `
+  div.style.transform = 'translate(0%, 0%)'
+  return div
+}
+
 
 // Inner Component: Contains only map logic, assumes API is loaded
 function POIMapInner({
@@ -209,11 +221,12 @@ function POIMapInner({
 }: POIMapVisualizationProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
-  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map())
-  const triggerMarkersRef = useRef<google.maps.Marker[]>([])
-  const polylinesRef = useRef<google.maps.Polyline[]>([])
-  const boundariesRef = useRef<google.maps.Polygon[]>([])
+  const markersRef = useRef<Map<string, google.maps.marker.AdvancedMarkerElement>>(new Map())
+  const triggerMarkersRef = useRef<Map<string, google.maps.marker.AdvancedMarkerElement>>(new Map())
+  const polylinesRef = useRef<Map<string, google.maps.Polyline>>(new Map())
+  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null)
   const boundsChangedTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const updateTaskIdRef = useRef<number>(0)
   
   // Simple UI State
   const [selectedPOI, setSelectedPOI] = useState<POI | null>(null)
@@ -236,6 +249,7 @@ function POIMapInner({
     const map = new google.maps.Map(mapRef.current, {
       center: mapState.center,
       zoom: mapState.zoom,
+      mapId: 'TUGGI_POI_MAP_ID', // Required for AdvancedMarkerElement
       mapTypeControl: true,
       streetViewControl: true,
       fullscreenControl: true,
@@ -252,27 +266,13 @@ function POIMapInner({
     })
 
     mapInstanceRef.current = map
-
-    // State preservation listeners
-    map.addListener('center_changed', () => {
-      const center = map.getCenter()!
-      setMapState(prev => ({
-        ...prev,
-        center: { lat: center.lat(), lng: center.lng() }
-      }))
-    })
-
-    map.addListener('zoom_changed', () => {
-      const zoom = map.getZoom()!
-      setMapState(prev => ({
-        ...prev,
-        zoom: zoom
-      }))
-      setZoomLevel(zoom)
-    })
+    infoWindowRef.current = new google.maps.InfoWindow()
 
     // Bounds change listener (debounced) - This triggers server fetch
     map.addListener('idle', () => {
+      const zoom = map.getZoom() || 4
+      setZoomLevel(zoom)
+
       if (onBoundsChanged) {
         if (boundsChangedTimeoutRef.current) {
           clearTimeout(boundsChangedTimeoutRef.current)
@@ -282,9 +282,7 @@ function POIMapInner({
           if (!mapInstanceRef.current) return
           
           const bounds = mapInstanceRef.current.getBounds()
-          const zoom = mapInstanceRef.current.getZoom()
-          
-          if (bounds && zoom) {
+          if (bounds) {
             const ne = bounds.getNorthEast()
             const sw = bounds.getSouthWest()
             onBoundsChanged({
@@ -308,161 +306,299 @@ function POIMapInner({
     }
   }, [initializeMap])
 
-  // 3. Update Markers Effect
-  // This reacts ONLY to `pois` prop changes. No internal fetching.
+  // 3. Update Markers Effect (Diffing Algorithm for Performance)
   const updateMarkers = useCallback(() => {
-    if (!mapInstanceRef.current) return
+    if (!mapInstanceRef.current || !window.google?.maps?.marker?.AdvancedMarkerElement) return
 
-    // Clear existing
-    markersRef.current.forEach(marker => marker.setMap(null))
-    markersRef.current.clear()
-    triggerMarkersRef.current.forEach(m => m.setMap(null))
-    triggerMarkersRef.current = []
-    polylinesRef.current.forEach(p => p.setMap(null))
-    polylinesRef.current = []
+    // Increment task ID to cancel previous pending batches
+    const taskId = ++updateTaskIdRef.current
+    
+    const CHUNK_SIZE = 250
+    let currentIndex = 0
+    const currentPoiIds = new Set<string>()
+    const currentTriggerIds = new Set<string>()
 
-    console.log(`🗺️ [POIMapVisualization] Rendering ${pois.length} items`)
+    const processBatch = () => {
+      // If a new update started, stop this one
+      if (taskId !== updateTaskIdRef.current) return
 
-    pois.forEach((poi) => {
-      if (!poi.coordinates?.latitude || !poi.coordinates?.longitude) return
+      const end = Math.min(currentIndex + CHUNK_SIZE, pois.length)
+      
+      for (let i = currentIndex; i < end; i++) {
+        const poi = pois[i]
+        if (!poi.coordinates?.latitude || !poi.coordinates?.longitude) continue
 
-      const position = new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude)
-      const isSelected = selectedPOI?.id === poi.id
+        currentPoiIds.add(poi.id)
+        const position = new google.maps.LatLng(poi.coordinates.latitude, poi.coordinates.longitude)
+        const isSelected = selectedPOI?.id === poi.id
 
-      let marker: google.maps.Marker
-
-      if (poi.type === 'cluster') {
+        // === POI MARKER ===
+        let marker = markersRef.current.get(poi.id) as any
+        
+        const poiStatus = getPOIStatus(poi)
+        const isCluster = poi.type === 'cluster'
         const count = poi.count || 0
-        marker = new google.maps.Marker({
-          position,
-          icon: {
-            url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-              <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="20" cy="20" r="18" fill="#3B82F6" stroke="#1E40AF" stroke-width="2"/>
-                <text x="20" y="26" text-anchor="middle" fill="white" font-size="12" font-weight="bold">
-                  ${count > 999 ? Math.floor(count/1000) + 'k' : count}
-                </text>
-              </svg>
-            `),
-            scaledSize: new google.maps.Size(40, 40),
-            anchor: new google.maps.Point(20, 20)
-          },
-          label: {
-            text: count.toString(),
-            color: 'white',
-            fontSize: '12px',
-            fontWeight: 'bold'
-          },
-          zIndex: 1000,
-          map: mapInstanceRef.current!,
-          cursor: 'pointer'
-        })
-        
-        marker.addListener('click', () => {
-           const map = mapInstanceRef.current
-           if (map) {
-             map.setCenter(position)
-             map.setZoom((map.getZoom() || 0) + 2)
-           }
-        })
-      } else {
-        // Individual POI
-        const status = getPOIStatus(poi)
-        
-        marker = new google.maps.Marker({
-          position,
-          title: `${poi.name}`,
-          icon: createMarkerIcon(status, isSelected),
-          label: zoomLevel >= 17 ? {
-            text: poi.name,
-            color: '#1F2937',
-            fontSize: '10px',
-            fontWeight: '600',
-            className: 'poi-map-label'
-          } : null,
-          optimized: true,
-          map: mapInstanceRef.current!,
-          cursor: 'pointer'
-        })
+        const isZoomedIn = zoomLevel >= 17
 
-        // ... event listeners ...
+        if (!marker) {
+          // Create new AdvancedMarkerElement
+          let content: HTMLElement
+          if (isCluster) {
+            content = createClusterMarkerElement(count)
+          } else {
+            content = createAdvancedMarkerElement(poiStatus, isSelected)
+            
+            // Append name label if zoomed in
+            if (isZoomedIn) {
+              const label = document.createElement('div')
+              label.textContent = poi.name
+              label.style.position = 'absolute'
+              label.style.top = '100%'
+              label.style.left = '50%'
+              label.style.transform = 'translate(-50%, 0)'
+              label.style.fontSize = '10px'
+              label.style.fontWeight = '600'
+              label.style.color = '#1F2937'
+              label.style.whiteSpace = 'nowrap'
+              label.style.textShadow = '1px 1px 2px white'
+              content.appendChild(label)
+            }
+          }
 
-        // NEW: Draw Triggers if requested
+          marker = new google.maps.marker.AdvancedMarkerElement({
+            position,
+            map: mapInstanceRef.current,
+            content,
+            title: poi.name,
+            zIndex: isSelected ? 1000 : (isCluster ? 500 : 1),
+            collisionBehavior: isCluster 
+              ? google.maps.CollisionBehavior.REQUIRED 
+              : google.maps.CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY
+          }) as any
+
+          // Store state to avoid future redundant updates
+          marker._tuggiState = {
+            lat: position.lat(),
+            lng: position.lng(),
+            isCluster,
+            count,
+            poiStatus,
+            isSelected,
+            isZoomedIn
+          }
+
+          if (isCluster) {
+            marker.addListener('click', () => {
+              const map = mapInstanceRef.current
+              if (map) {
+                map.setCenter(position)
+                map.setZoom((map.getZoom() || 0) + 2)
+              }
+            })
+          } else {
+            marker.addListener('click', () => {
+              onPOIClick(poi)
+              setSelectedPOI(poi)
+              
+              if (infoWindowRef.current) {
+                const infoContent = `
+                <div class="p-3 max-w-xs">
+                  <div class="flex items-start space-x-3">
+                    <div class="flex-1 min-w-0">
+                      <h3 class="text-lg font-semibold text-gray-900 mb-1">${poi.name}</h3>
+                      <p class="text-sm text-gray-600 mb-2">${poi.city}, ${poi.country}</p>
+                      <div class="flex items-center justify-between">
+                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          poi.approved ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
+                        }">
+                          ${poi.approved ? 'Approved' : 'Pending'}
+                        </span>
+                        <div class="text-xs text-blue-600 font-medium">✏️ Click to edit</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>`
+                infoWindowRef.current.setContent(infoContent)
+                infoWindowRef.current.open({
+                   map: mapInstanceRef.current,
+                   anchor: marker
+                })
+              }
+            })
+          }
+          markersRef.current.set(poi.id, marker)
+        } else {
+          // Update existing marker ONLY if state changed
+          const s = marker._tuggiState
+          const posLat = position.lat()
+          const posLng = position.lng()
+
+          if (s.lat !== posLat || s.lng !== posLng) {
+            marker.position = position
+            s.lat = posLat
+            s.lng = posLng
+          }
+          
+          if (
+            s.isCluster !== isCluster || 
+            s.count !== count || 
+            s.poiStatus !== poiStatus || 
+            s.isSelected !== isSelected || 
+            s.isZoomedIn !== isZoomedIn
+          ) {
+            if (isCluster) {
+              marker.content = createClusterMarkerElement(count)
+            } else {
+              const newContent = createAdvancedMarkerElement(poiStatus, isSelected)
+              if (isZoomedIn) {
+                const label = document.createElement('div')
+                label.textContent = poi.name
+                label.style.position = 'absolute'
+                label.style.top = '100%'
+                label.style.left = '50%'
+                label.style.transform = 'translate(-50%, 0)'
+                label.style.fontSize = '10px'
+                label.style.fontWeight = '600'
+                label.style.color = '#1F2937'
+                label.style.whiteSpace = 'nowrap'
+                label.style.textShadow = '1px 1px 2px white'
+                newContent.appendChild(label)
+              }
+              marker.content = newContent
+            }
+            marker.zIndex = isSelected ? 1000 : (isCluster ? 500 : 1)
+            s.isCluster = isCluster
+            s.count = count
+            s.poiStatus = poiStatus
+            s.isSelected = isSelected
+            s.isZoomedIn = isZoomedIn
+          }
+        }
+
+        // === TRIGGER MARKERS & POLYLINES ===
         if (showTriggers && poi.trigger_points) {
           poi.trigger_points.forEach(tp => {
             if (!tp.latitude || !tp.longitude) return
+            
+            const tpId = `${poi.id}-${tp.id}`
+            currentTriggerIds.add(tpId)
             const tpPos = new google.maps.LatLng(tp.latitude, tp.longitude)
             
-            const tpMarker = new google.maps.Marker({
-              position: tpPos,
-              icon: createTriggerMarkerIcon(tp.is_active, tp.bearing),
-              map: mapInstanceRef.current!,
-              zIndex: 50
-            })
-            triggerMarkersRef.current.push(tpMarker)
+            let tpMarker = triggerMarkersRef.current.get(tpId) as any
+            if (!tpMarker) {
+              tpMarker = new google.maps.marker.AdvancedMarkerElement({
+                position: tpPos,
+                map: mapInstanceRef.current,
+                content: createAdvancedTriggerMarkerElement(tp.is_active, tp.bearing),
+                zIndex: 50,
+                collisionBehavior: google.maps.CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY
+              }) as any
+              tpMarker._tuggiState = {
+                lat: tpPos.lat(),
+                lng: tpPos.lng(),
+                isActive: tp.is_active,
+                bearing: tp.bearing
+              }
+              triggerMarkersRef.current.set(tpId, tpMarker)
+            } else {
+              const s = tpMarker._tuggiState
+              const pLat = tpPos.lat()
+              const pLng = tpPos.lng()
 
-            const polyline = new google.maps.Polyline({
-              path: [position, tpPos],
-              geodesic: true,
-              strokeColor: '#F97316',
-              strokeOpacity: 0.6,
-              strokeWeight: 2,
-              icons: [{
-                icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, scale: 2 },
-                offset: '0',
-                repeat: '10px'
-              }],
-              map: mapInstanceRef.current!
-            })
-            polylinesRef.current.push(polyline)
-          })
-        }
+              if (s.lat !== pLat || s.lng !== pLng) {
+                tpMarker.position = tpPos
+                s.lat = pLat
+                s.lng = pLng
+              }
 
-        const infoContent = `
-        <div class="p-3 max-w-xs">
-          <div class="flex items-start space-x-3">
-            <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold text-gray-900 mb-1">${poi.name}</h3>
-              <p class="text-sm text-gray-600 mb-2">${poi.city}, ${poi.country}</p>
-              <div class="flex items-center justify-between">
-                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  poi.approved ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
-                }">
-                  ${poi.approved ? 'Approved' : 'Pending'}
-                </span>
-                <div class="text-xs text-blue-600 font-medium">✏️ Click to edit</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        `
+              if (s.isActive !== tp.is_active || s.bearing !== tp.bearing) {
+                tpMarker.content = createAdvancedTriggerMarkerElement(tp.is_active, tp.bearing)
+                s.isActive = tp.is_active
+                s.bearing = tp.bearing
+              }
+            }
 
-        const infoWindow = new google.maps.InfoWindow({ content: infoContent })
+            let polyline = polylinesRef.current.get(tpId) as any
+            if (!polyline) {
+              polyline = new google.maps.Polyline({
+                path: [position, tpPos],
+                geodesic: true,
+                strokeColor: '#F97316',
+                strokeOpacity: 0.6,
+                strokeWeight: 2,
+                icons: [{
+                  icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, scale: 2 },
+                  offset: '0',
+                  repeat: '10px'
+                }],
+                map: mapInstanceRef.current!
+              }) as any
+              polyline._tuggiState = {
+                p1Lat: position.lat(), p1Lng: position.lng(),
+                p2Lat: tpPos.lat(), p2Lng: tpPos.lng()
+              }
+              polylinesRef.current.set(tpId, polyline)
+            } else {
+              const s = polyline._tuggiState
+              const p1Lat = position.lat(), p1Lng = position.lng()
+              const p2Lat = tpPos.lat(), p2Lng = tpPos.lng()
 
-        marker.addListener('click', () => {
-          markersRef.current.forEach((otherMarker, otherId) => {
-            if (otherId !== poi.id && (otherMarker as any).infoWindow) {
-              ;(otherMarker as any).infoWindow.close()
+              if (s.p1Lat !== p1Lat || s.p1Lng !== p1Lng || s.p2Lat !== p2Lat || s.p2Lng !== p2Lng) {
+                polyline.setPath([position, tpPos])
+                s.p1Lat = p1Lat
+                s.p1Lng = p1Lng
+                s.p2Lat = p2Lat
+                s.p2Lng = p2Lng
+              }
             }
           })
-          onPOIClick(poi)
-          setSelectedPOI(poi)
-          marker.setIcon(createMarkerIcon(status, true))
-          infoWindow.open(mapInstanceRef.current!, marker)
-        })
-
-        ;(marker as any).infoWindow = infoWindow
+        }
       }
 
-      markersRef.current.set(poi.id, marker)
-    })
+      currentIndex = end
+      if (currentIndex < pois.length) {
+        requestAnimationFrame(processBatch)
+      } else {
+        // === CLEANUP ORPHANS (Final step) ===
+        for (const [id, marker] of markersRef.current.entries()) {
+          if (!currentPoiIds.has(id)) {
+            marker.map = null
+            markersRef.current.delete(id)
+          }
+        }
+
+        for (const [id, marker] of triggerMarkersRef.current.entries()) {
+          if (!currentTriggerIds.has(id)) {
+            marker.map = null
+            triggerMarkersRef.current.delete(id)
+          }
+        }
+
+        for (const [id, polyline] of polylinesRef.current.entries()) {
+          if (!currentTriggerIds.has(id)) {
+            polyline.setMap(null)
+            polylinesRef.current.delete(id)
+          }
+        }
+      }
+    }
+
+    requestAnimationFrame(processBatch)
   }, [pois, onPOIClick, selectedPOI, zoomLevel, showTriggers])
 
   useEffect(() => {
     if (mapInstanceRef.current && pois.length > 0) {
       updateMarkers()
+    } else if (pois.length === 0 && mapInstanceRef.current) {
+       // Cleanup everything if list is completely emptied
+       for (const marker of markersRef.current.values()) marker.map = null
+       markersRef.current.clear()
+       for (const marker of triggerMarkersRef.current.values()) marker.map = null
+       triggerMarkersRef.current.clear()
+       for (const poly of polylinesRef.current.values()) poly.setMap(null)
+       polylinesRef.current.clear()
     }
-  }, [updateMarkers]) // updateMarkers depends on pois, stable
+  }, [updateMarkers, pois.length]) 
 
   // 4. City Boundaries Logic (kept as it might be useful, but localized)
   // Fetch city boundaries
@@ -491,6 +627,7 @@ function POIMapInner({
   }, [cityFilter, countryFilter, stateFilter])
 
   // Update boundaries on map
+  const boundariesRef = useRef<google.maps.Polygon[]>([])
   const updateCityBoundaries = useCallback(() => {
     if (!mapInstanceRef.current) return
 

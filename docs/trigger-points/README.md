@@ -37,7 +37,8 @@ Trigger points are strategic locations where users naturally pass and can best o
 - **[User Interface](./05-user-interface.md)** - CMS interface guide
 - **[Algorithms & Logic](./06-algorithms.md)** - Technical implementation details
 - **[Troubleshooting](./07-troubleshooting.md)** - Common issues and solutions
-- **[Configuration](./08-configuration.md)** - System settings and parameters
+- **[Local Cache & PBF Indexing](./08-local-cache-and-pbf.md)** - Performance acceleration strategies
+- **[Configuration](./09-configuration.md)** - System settings and parameters
 
 ## 🚀 Quick Start
 
