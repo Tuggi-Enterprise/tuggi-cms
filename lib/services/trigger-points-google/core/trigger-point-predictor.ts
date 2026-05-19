@@ -1137,7 +1137,15 @@ export class CoreTriggerPointPredictor {
     //   JFK      (~25km): max(1, round(25000/2400)) = 10 → capped at 5 → max 40
     const ARC_SPACING_M = 300;
     const NUM_SECTORS = 8;
-    const perimeter = boundary?.perimeter_m ?? 500;
+    // perimeter_m pode estar 0 quando não computado na detecção — calcular das coords.
+    let perimeter = boundary?.perimeter_m || 0;
+    const coords = boundary?.coordinates;
+    if (!perimeter && coords && coords.length > 1) {
+      for (let i = 0; i < coords.length - 1; i++) {
+        perimeter += calculateDistance(coords[i], coords[i + 1]);
+      }
+    }
+    if (!perimeter) perimeter = 500;
     const tpsPerSector = Math.max(1, Math.min(5, Math.round(perimeter / (NUM_SECTORS * ARC_SPACING_M))));
 
     // Agrupar por setor de 45°, manter top-N por setor (primary first, then closest)
