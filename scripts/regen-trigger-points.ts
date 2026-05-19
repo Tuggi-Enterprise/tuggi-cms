@@ -57,15 +57,14 @@ async function regenSingle(attractionId: string) {
 async function createBatch(batchId: string, filters: {
   city?: string; state?: string; country?: string
 }) {
-  // Verificar se batch já existe
+  // Verificar se batch já existe (só informa, não bloqueia — o insert usa ON CONFLICT DO NOTHING)
   const { count: existingCount } = await db
     .from('tp_regen_queue')
     .select('*', { count: 'exact', head: true })
     .eq('batch_id', batchId)
 
   if (existingCount && existingCount > 0) {
-    console.log(`⚠️  Batch "${batchId}" já existe com ${existingCount} itens. Use --status para ver o progresso.`)
-    return
+    console.log(`ℹ️  Batch "${batchId}" já tem ${existingCount} itens — adicionando apenas os que faltam.`)
   }
 
   // Buscar IDs com paginação (Supabase limita por request)
@@ -108,7 +107,8 @@ async function createBatch(batchId: string, filters: {
       batch_id: batchId,
       status: 'pending',
     }))
-    const { error: insertErr } = await db.from('tp_regen_queue').insert(chunk)
+    const { error: insertErr } = await db.from('tp_regen_queue')
+      .upsert(chunk, { onConflict: 'batch_id,attraction_id', ignoreDuplicates: true })
     if (insertErr) { console.error('❌ Erro ao inserir chunk:', insertErr.message); process.exit(1) }
     inserted += chunk.length
     process.stdout.write(`\r   ${inserted}/${data.length} inseridos...`)

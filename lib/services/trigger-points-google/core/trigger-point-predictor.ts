@@ -310,7 +310,7 @@ export class CoreTriggerPointPredictor {
       );
       
       // 7. Aplicar opções de filtro adicionais (se houver)
-      const filteredPoints = this.applyOptions(validatedPoints, options);
+      const filteredPoints = this.applyOptions(validatedPoints, options, boundary);
       
       // 8. Otimização já foi feita em selectTriggerPointsWithMinDistance
 
@@ -1091,20 +1091,85 @@ export class CoreTriggerPointPredictor {
   /**
    * Aplica opções de filtro aos trigger points
    */
-  private applyOptions(triggerPoints: TriggerPoint[], options: TriggerPointGenerationOptions): TriggerPoint[] {
+  private applyOptions(triggerPoints: TriggerPoint[], options: TriggerPointGenerationOptions, boundary?: BoundaryData): TriggerPoint[] {
     let filtered = [...triggerPoints];
-    
+
     // Filtrar por qualidade mínima
     if (options.minQuality !== undefined) {
       filtered = filtered.filter(tp => tp.quality >= options.minQuality!);
     }
-    
+
     // Limitar número máximo de trigger points
     if (options.maxTriggerPoints !== undefined) {
       filtered = filtered.slice(0, options.maxTriggerPoints);
     }
-    
-    return filtered;
+
+    // ── Dedup 1: cobertura real ──────────────────────────────────────────────
+    // Dois TPs com círculos sobrepostos disparam ao mesmo tempo — redundantes.
+    // Greedy: primary > secondary, quality desc. Remove vizinhos a < max(r1, r2).
+    const { calculateDistance } = require('../utils/calculations');
+    filtered.sort((a, b) => {
+      if (a.type === 'primary' && b.type !== 'primary') return -1;
+      if (b.type === 'primary' && a.type !== 'primary') return 1;
+      return b.quality - a.quality;
+    });
+    const afterRadius: TriggerPoint[] = [];
+    for (const tp of filtered) {
+      const overlaps = afterRadius.some(k =>
+        calculateDistance(tp.location, k.location) < Math.max(tp.radius, k.radius)
+      );
+      if (!overlaps) afterRadius.push(tp);
+    }
+    if (afterRadius.length < filtered.length) {
+      console.log(`🔵 Radius dedup: ${filtered.length} → ${afterRadius.length} TPs`);
+    }
+
+    // ── Dedup 2: setor de bearing com capacidade proporcional ao perímetro ────
+    // POIs pequenos (pier, monumento): 1 TP por setor de 45° → max 8 TPs.
+    // POIs grandes (Central Park 10km): N TPs por setor, onde N escala com o
+    // comprimento do arco do perímetro coberto por cada setor.
+    //
+    // Fórmula: tpsPerSector = max(1, round(perimeter_m / (8 × ARC_SPACING_M)))
+    //   ARC_SPACING_M = 300m: um TP a cada 300m de arco de perímetro por setor.
+    //   Pier 83  (~200m):  max(1, round(200/2400)) = 1
+    //   Vietnam  (~500m):  max(1, round(500/2400)) = 1
+    //   Central Park (~10km): max(1, round(10000/2400)) = 4  → max 32 TPs
+    //   JFK      (~25km): max(1, round(25000/2400)) = 10 → capped at 5 → max 40
+    const ARC_SPACING_M = 300;
+    const NUM_SECTORS = 8;
+    // perimeter_m pode estar 0 quando não computado na detecção — calcular das coords.
+    let perimeter = boundary?.perimeter_m || 0;
+    const coords = boundary?.coordinates;
+    if (!perimeter && coords && coords.length > 1) {
+      for (let i = 0; i < coords.length - 1; i++) {
+        perimeter += calculateDistance(coords[i], coords[i + 1]);
+      }
+    }
+    if (!perimeter) perimeter = 500;
+    const tpsPerSector = Math.max(1, Math.min(5, Math.round(perimeter / (NUM_SECTORS * ARC_SPACING_M))));
+
+    // Agrupar por setor de 45°, manter top-N por setor (primary first, then closest)
+    const sectorBuckets = new Map<number, TriggerPoint[]>();
+    for (const tp of afterRadius) {
+      const sector = Math.floor(((tp.expectedBearing % 360) + 360) % 360 / 45);
+      if (!sectorBuckets.has(sector)) sectorBuckets.set(sector, []);
+      sectorBuckets.get(sector)!.push(tp);
+    }
+
+    const afterSector: TriggerPoint[] = [];
+    for (const [, bucket] of sectorBuckets) {
+      // Ordenar: primary primeiro, depois por distância crescente ao POI
+      bucket.sort((a, b) => {
+        if (a.type === 'primary' && b.type !== 'primary') return -1;
+        if (b.type === 'primary' && a.type !== 'primary') return 1;
+        return a.distance - b.distance;
+      });
+      afterSector.push(...bucket.slice(0, tpsPerSector));
+    }
+
+    console.log(`🧭 Bearing-sector dedup: ${afterRadius.length} → ${afterSector.length} TPs (${tpsPerSector}/sector, perimeter=${Math.round(perimeter)}m)`);
+
+    return afterSector;
   }
   
   /**
