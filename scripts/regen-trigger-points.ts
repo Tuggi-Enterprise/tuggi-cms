@@ -57,15 +57,14 @@ async function regenSingle(attractionId: string) {
 async function createBatch(batchId: string, filters: {
   city?: string; state?: string; country?: string
 }) {
-  // Verificar se batch já existe
+  // Verificar se batch já existe (só informa, não bloqueia — o insert usa ON CONFLICT DO NOTHING)
   const { count: existingCount } = await db
     .from('tp_regen_queue')
     .select('*', { count: 'exact', head: true })
     .eq('batch_id', batchId)
 
   if (existingCount && existingCount > 0) {
-    console.log(`⚠️  Batch "${batchId}" já existe com ${existingCount} itens. Use --status para ver o progresso.`)
-    return
+    console.log(`ℹ️  Batch "${batchId}" já tem ${existingCount} itens — adicionando apenas os que faltam.`)
   }
 
   // Buscar IDs com paginação (Supabase limita por request)
