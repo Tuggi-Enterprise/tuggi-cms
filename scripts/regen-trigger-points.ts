@@ -176,12 +176,22 @@ async function runBatch(batchId: string) {
 // ─── Status ───────────────────────────────────────────────────────────────────
 
 async function batchStatus(batchId: string) {
-  const { data, error } = await db
-    .from('tp_regen_queue')
-    .select('status, tp_count, error_message')
-    .eq('batch_id', batchId)
-
-  if (error) { console.error('❌', error.message); return }
+  // Paginar para superar limite de 2k do Supabase
+  const PAGE = 1000
+  const data: any[] = []
+  let page = 0
+  while (true) {
+    const { data: chunk, error } = await db
+      .from('tp_regen_queue')
+      .select('status, tp_count, error_message')
+      .eq('batch_id', batchId)
+      .range(page * PAGE, (page + 1) * PAGE - 1)
+    if (error) { console.error('❌', error.message); return }
+    if (!chunk?.length) break
+    data.push(...chunk)
+    if (chunk.length < PAGE) break
+    page++
+  }
   if (!data?.length) { console.log(`Batch "${batchId}" não encontrado.`); return }
 
   const counts = data.reduce((acc: any, r: any) => {
