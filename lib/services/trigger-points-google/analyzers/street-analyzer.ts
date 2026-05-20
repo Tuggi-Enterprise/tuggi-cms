@@ -533,9 +533,13 @@ export class StreetAnalyzer {
             //  - Queensboro: 8 sample points × fan.max=5km → cobre Manhattan + Queens
             //  - Pier 97: 1 sample × fan.max=100m → cobre só o entorno (correto)
             //
-            // Cap em 4km por sample-point para limitar carga em SP/NY denso.
+            // Cap em 10km por sample-point. Antes era 4km, mas pra HIGH POIs
+            // (Cristo: fan max=7.2km) o cap menor cortava streets em áreas
+            // distantes visíveis (Copacabana, Ipanema). 10km cobre qualquer
+            // fan razoável; carga em zonas densas é controlada pelo
+            // fan-aware memory cap abaixo (prefere streets dentro do fan).
             const fanMaxM = boundary.visibilityFan?.maxDistanceM ?? searchRadius;
-            const radiusPerPoint = Math.max(300, Math.min(fanMaxM, 4000));
+            const radiusPerPoint = Math.max(300, Math.min(fanMaxM, 10000));
             console.log(`🔭 [EXTEND] Using radiusPerPoint=${radiusPerPoint}m (fan max=${fanMaxM}m)`);
 
             const extended = fetcher.fetchStreetsAlongBoundary(
@@ -576,15 +580,23 @@ export class StreetAnalyzer {
         }
 
         // Memory cap: pra POIs em áreas hiper-densas (Manhattan, parques grandes),
-        // streets podem chegar a 12k+ entradas. Sort por distância ao boundary
-        // center e mantém top-N. Streets longe-do-POI raramente são candidatos
-        // a TP relevante. SSOT do limite em TRIGGER_POINTS_CONSTANTS.memory.
+        // streets podem chegar a 12k+ entradas. SSOT do limite em
+        // TRIGGER_POINTS_CONSTANTS.memory.
+        //
+        // Estratégia FAN-AWARE: quando o visibility fan existe, streets dentro
+        // do polígono do fan têm PRIORIDADE absoluta — elas são candidatas
+        // legítimas a TPs (visibilidade física confirmada). Streets fora do fan
+        // raramente viram TP e são descartadas primeiro.
+        //
+        // Sem essa estratégia, pra HIGH POIs (Cristo: fan max=7.2km), streets
+        // distantes-mas-visíveis (Copacabana) eram cortadas pelo "closest to
+        // center" enquanto streets próximas-mas-invisíveis (atrás da montanha)
+        // sobreviviam.
         const MAX_STREETS = TRIGGER_POINTS_CONSTANTS.memory.maxStreetsPerPOI;
         if (streets.length > MAX_STREETS) {
           const poiCenter = boundary.center;
           const distanceToCenter = (s: any): number => {
             if (!s.coordinates || s.coordinates.length === 0) return Infinity;
-            // Usa o ponto mais próximo do center pra avaliar (não primeiro vertex)
             let minD = Infinity;
             for (const p of s.coordinates) {
               const d = calculateDistance(poiCenter, p);
@@ -592,12 +604,47 @@ export class StreetAnalyzer {
             }
             return minD;
           };
-          streets = streets
-            .map(s => ({ s, d: distanceToCenter(s) }))
-            .sort((a, b) => a.d - b.d)
-            .slice(0, MAX_STREETS)
-            .map(x => x.s);
-          console.log(`🧠 Memory cap: trimmed streets to ${MAX_STREETS} closest to POI center`);
+
+          const fanMaxM = boundary.visibilityFan?.maxDistanceM ?? 0;
+          const hasFanRadius = fanMaxM > 0;
+
+          if (hasFanRadius) {
+            // Split: streets com QUALQUER ponto dentro do raio derivado do fan
+            // vs fora. Sem polygon check — per-TP downstream faz a verificação
+            // exata de linha de visão.
+            const inRadius: any[] = [];
+            const outRadius: any[] = [];
+            for (const s of streets) {
+              const coords = s.coordinates || [];
+              const anyInside = coords.some((p: any) =>
+                calculateDistance(poiCenter, p) <= fanMaxM
+              );
+              (anyInside ? inRadius : outRadius).push(s);
+            }
+
+            // Streets dentro do raio são candidatas legítimas até o per-TP
+            // check rodar. Mantemos todas (teto alto só pra safety).
+            const FAN_RADIUS_CEILING = 20000;
+            if (inRadius.length > FAN_RADIUS_CEILING) {
+              streets = inRadius
+                .map(s => ({ s, d: distanceToCenter(s) }))
+                .sort((a, b) => a.d - b.d)
+                .slice(0, FAN_RADIUS_CEILING)
+                .map(x => x.s);
+              console.log(`🧠 Memory cap (fan-radius ceiling): trimmed ${inRadius.length} in-radius streets to ${FAN_RADIUS_CEILING} closest (${outRadius.length} out-of-radius dropped)`);
+            } else {
+              streets = inRadius;
+              console.log(`🧠 Memory cap (fan-radius): kept ALL ${inRadius.length} in-radius streets (radius=${fanMaxM}m; ${outRadius.length} out-of-radius dropped)`);
+            }
+          } else {
+            // Sem fan: fallback ao critério antigo (closest to center).
+            streets = streets
+              .map(s => ({ s, d: distanceToCenter(s) }))
+              .sort((a, b) => a.d - b.d)
+              .slice(0, MAX_STREETS)
+              .map(x => x.s);
+            console.log(`🧠 Memory cap: trimmed streets to ${MAX_STREETS} closest to POI center`);
+          }
         }
 
         console.log(`✅ [STRATEGY] Using ${streets.length} streets (consolidated + any extensions)`);

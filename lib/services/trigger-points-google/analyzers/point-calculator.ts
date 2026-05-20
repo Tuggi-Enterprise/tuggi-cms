@@ -152,20 +152,24 @@ export class OptimalPointCalculator {
 
     const filtered: StreetData[] = [];
 
-    // Princípio: visibilidade física é GATE, não score. Streets de onde o POI
-    // não é visível (fora do visibility fan) são rejeitadas — colocar TP onde
-    // o POI não pode ser visto é desastre de produto (audio guide tocando
-    // sobre nada visível).
+    // Arquitetura: fan = MEDIDOR DE ALCANCE (max distance), per-TP = VERIFICADOR.
     //
-    // Quando o fan COLAPSA (POI pequeno em hiper-densa), o pipeline cai pra
-    // `buildFanCollapseFallback` no predictor que gera 2 frontais simétricos
-    // na rua de endereço + 1 geofence. Esse path é o safety net adequado.
-    const fanPolygons = boundary.visibilityFan?.polygons;
-    const useFan = !!(fanPolygons && fanPolygons.length > 0 && fanPolygons[0].length >= 3);
+    // O fan computa `maxDistanceM` (até onde o POI é visível em ALGUMA direção).
+    // Usamos isso como RAIO para o filtro inicial — permissivo, captura streets
+    // que o polígono do fan rejeitaria por edge effects ou ray-cast errors
+    // (ex: Vieira Souto/Ipanema do Cristo, onde fan polygon under-shoots).
+    //
+    // O per-TP check downstream faz ray-cast EXATO ponto a ponto e rejeita
+    // os falsos positivos (ex: Av. Niemeyer atrás de Vidigal/Dois Irmãos).
+    //
+    // Quando o fan COLAPSA, `buildFanCollapseFallback` no predictor cobre.
+    const fanMaxM = boundary.visibilityFan?.maxDistanceM ?? 0;
+    const useFanRadius = fanMaxM > 0;
+    const effectiveRadius = useFanRadius ? fanMaxM : searchRadius;
+    const maxAllowedDistance = effectiveRadius + 20;
 
-    const maxAllowedDistance = searchRadius + 20;
-    if (useFan) {
-      console.log(`🔍 Filtering streets by VISIBILITY FAN (${fanPolygons!.length} sub-polygons, max ${boundary.visibilityFan!.maxDistanceM}m, mean ${boundary.visibilityFan!.meanDistanceM}m)`);
+    if (useFanRadius) {
+      console.log(`🔍 Filtering streets by FAN-DERIVED RADIUS: ${fanMaxM}m (per-TP check downstream validates exact LOS)`);
     } else {
       console.log(`🔍 Filtering streets and points by radius: ${searchRadius}m (max: ${maxAllowedDistance}m)`);
     }
@@ -183,16 +187,13 @@ export class OptimalPointCalculator {
         minDistanceToBoundary = Math.min(minDistanceToBoundary, distanceToBoundary);
         maxDistanceToBoundary = Math.max(maxDistanceToBoundary, distanceToBoundary);
 
-        // Modo fan: dentro de qualquer sub-polígono de visibilidade OU dentro
-        // do boundary OU colado (≤30m) à aresta (safety net calçada perimetral).
-        // Modo radius (sem fan): dentro do raio.
-        const accepted = useFan
-          ? (
-              fanPolygons!.some(poly => isPointInPolygon(streetPoint, poly)) ||
-              isPointInPolygon(streetPoint, boundary.coordinates) ||
-              distanceToBoundary <= 30
-            )
-          : distanceToBoundary <= maxAllowedDistance;
+        // Aceite unificado: dentro do raio efetivo OU dentro do boundary OU
+        // colado (≤30m) à aresta (safety net calçada perimetral).
+        // Sem mais split fan/radius — o per-TP check faz o filtro fino.
+        const accepted =
+          distanceToBoundary <= maxAllowedDistance ||
+          isPointInPolygon(streetPoint, boundary.coordinates) ||
+          distanceToBoundary <= 30;
 
         if (accepted) {
           validPoints.push(streetPoint);
@@ -225,9 +226,9 @@ export class OptimalPointCalculator {
           console.log(`✂️ Street ${street.id}: Filtered ${street.coordinates.length - validPoints.length} points outside radius (kept ${validPoints.length}/${street.coordinates.length}) → ${subStreets.length} external sub-segment(s)`);
         }
       } else {
-        // Mensagem de log mais clara com nome da rua
         const streetName = street.name || street.id || 'unnamed';
-        const reason = `no valid points (all points: ${minDistanceToBoundary.toFixed(0)}m-${maxDistanceToBoundary.toFixed(0)}m from boundary, max allowed: ${maxAllowedDistance.toFixed(0)}m)`;
+        const distRange = `${minDistanceToBoundary.toFixed(0)}m-${maxDistanceToBoundary.toFixed(0)}m from boundary`;
+        const reason = `outside radius (${distRange}, max allowed: ${maxAllowedDistance.toFixed(0)}m${useFanRadius ? ' = fan max' : ''})`;
         console.log(`🚫 Street ${street.id} (${streetName}): Rejected - ${reason}`);
       }
     }
@@ -255,7 +256,9 @@ export class OptimalPointCalculator {
   ): Promise<TriggerPointCandidate[]> {
     const candidates: TriggerPointCandidate[] = [];
     const minSpacing = classification.minDistanceBetweenTPs || 40;
-    const fanPolygons = boundary.visibilityFan!.polygons;
+    // Usa fan max distance como raio — mesmo critério que filterStreetsByRadius.
+    // Per-TP check downstream valida cada candidato individual com ray-cast exato.
+    const fanRadiusM = boundary.visibilityFan!.maxDistanceM || 0;
 
     for (const street of streets) {
       if (!street.coordinates || street.coordinates.length < 2) continue;
@@ -268,9 +271,9 @@ export class OptimalPointCalculator {
       // Se TODAS as ruas forem descartadas (fan colapsado completamente),
       // o predictor cai em `buildFanCollapseFallback`.
       const visiblePoints = street.coordinates.filter(p => {
-        if (fanPolygons.some(poly => isPointInPolygon(p, poly))) return true;
-        if (isPointInPolygon(p, boundary.coordinates)) return true;
         const distToBoundary = calculateDistanceToBoundary(p, boundary.coordinates);
+        if (distToBoundary <= fanRadiusM + 20) return true;
+        if (isPointInPolygon(p, boundary.coordinates)) return true;
         return distToBoundary <= 30;
       });
       if (visiblePoints.length === 0) continue;

@@ -341,7 +341,10 @@ export const TRIGGER_POINTS_CONSTANTS = {
      * (o cap pós-query por distância reduz ainda mais).
      */
     maxStreetsPerQuery: 15000,
-    maxBuildingsPerQuery: 25000,
+    // 100k buildings cobre POIs HIGH urbanos (Cristo, Pão de Açúcar) cujo fan
+    // de 6-8km cruza Centro do Rio (3000+ prédios em 500m bbox). Antes era 25k
+    // — Centro do RJ caía fora da query e per-TP perdia urban-canyon blockage.
+    maxBuildingsPerQuery: 100000,
   },
 };
 

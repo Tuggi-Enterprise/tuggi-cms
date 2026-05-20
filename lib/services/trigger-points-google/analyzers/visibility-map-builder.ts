@@ -304,6 +304,108 @@ export class VisibilityMapBuilder {
     };
   }
 
+  /**
+   * Per-TP exact visibility check — usado APÓS o fan-walk pra validar cada
+   * candidato individual via ray-cast preciso.
+   *
+   * Vantagens sobre o filtro de polígono do fan:
+   *  - Sem interpolação angular (5° entre vértices) — verifica o bearing EXATO
+   *  - Sem edge effects de point-in-polygon
+   *  - Sampling em intervalo FIXO (100m) em vez de proporcional → pega peaks
+   *    estreitos que o fan miss
+   *  - Short-circuit: para na primeira amostra que bloqueia
+   *  - Cache de elevação injetável → múltiplos TPs compartilham pixels SRTM
+   *
+   * Escopo: apenas TERRENO. Buildings já são checadas no fan (suficiente).
+   *
+   * Performance: ~1-3ms por TP com cache warm. Pra Cristo (~6k candidates)
+   * em paralelo (Promise.all em lotes): ~1-3s total.
+   */
+  static async checkExactVisibility(
+    poi: GeoPoint,
+    poiTopAltitudeM: number,
+    target: GeoPoint,
+    options: {
+      sampleIntervalM?: number;
+      noiseMarginM?: number;
+      observerEyeHeightM?: number;
+      elevCache?: Map<string, number>;
+      buildingTops?: Array<{ centroid: GeoPoint; topAltitudeM: number }>;
+    } = {}
+  ): Promise<boolean> {
+    const sampleIntervalM = options.sampleIntervalM ?? 100;
+    const noiseMarginM = options.noiseMarginM ?? 15;
+    const observerEyeHeightM = options.observerEyeHeightM ?? 1.7;
+    const elevCache = options.elevCache;
+    const buildingTops = options.buildingTops;
+
+    const srtm = SRTMLocalService.getInstance();
+    const getElev = async (lat: number, lng: number): Promise<number> => {
+      if (elevCache) {
+        const k = `${lat.toFixed(4)},${lng.toFixed(4)}`; // ~10m grid
+        const cached = elevCache.get(k);
+        if (cached !== undefined) return cached;
+        const v = (await srtm.getElevation(lat, lng)) ?? SRTM_FAIL_VALUE;
+        elevCache.set(k, v);
+        return v;
+      }
+      return (await srtm.getElevation(lat, lng)) ?? SRTM_FAIL_VALUE;
+    };
+
+    const distanceM = calculateDistance(poi, target);
+    if (distanceM < sampleIntervalM) return true; // muito próximo, confia
+
+    const observerGroundAlt = await getElev(target.lat, target.lng);
+    const earthDrop = (distanceM * distanceM) / (2 * EARTH_RADIUS_M);
+    const observerEyeAlt = observerGroundAlt + observerEyeHeightM - earthDrop;
+
+    // Bearing POI → target (inline pra evitar import circular)
+    const φ1 = (poi.lat * Math.PI) / 180;
+    const φ2 = (target.lat * Math.PI) / 180;
+    const Δλ = ((target.lng - poi.lng) * Math.PI) / 180;
+    const yB = Math.sin(Δλ) * Math.cos(φ2);
+    const xB = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    const bearingDeg = (Math.atan2(yB, xB) * 180) / Math.PI;
+
+    // ── Terrain check: caminhar a 100m steps; short-circuit ao primeiro bloqueio.
+    const sampleCount = Math.floor(distanceM / sampleIntervalM);
+    for (let i = 1; i <= sampleCount; i++) {
+      const sampleDistance = i * sampleIntervalM;
+      const samplePoint = this.offsetByBearing(poi, bearingDeg, sampleDistance);
+      const terrainAlt = await getElev(samplePoint.lat, samplePoint.lng);
+      const t = sampleDistance / distanceM;
+      const lineAlt = poiTopAltitudeM * (1 - t) + observerEyeAlt * t;
+      if (terrainAlt > lineAlt + noiseMarginM) {
+        return false; // terreno bloqueia
+      }
+    }
+
+    // ── Building check: prédios na corredor do raio (urban canyon).
+    // Foco no observador: a linha está mais baixa perto dele, então prédios
+    // próximos ao observador bloqueiam com altura modesta. Ex: Pão de Açúcar
+    // (395m) visto da Av. General Justo a 4km — linha a 50m do observador
+    // está a 6.6m. Prédio de 30m em escritórios bloqueia totalmente.
+    if (buildingTops && buildingTops.length > 0) {
+      const CORRIDOR_WIDTH_M = 30; // semi-largura: prédio dentro de ±30m do raio é considerado
+      const SKIP_NEAR_POI_M = 50;  // ignora prédios colados ao POI (line altitude ≈ poiTop)
+      const targetPoint = target;
+      for (const b of buildingTops) {
+        const distFromPoi = calculateDistance(poi, b.centroid);
+        if (distFromPoi >= distanceM) continue;       // atrás do observador
+        if (distFromPoi < SKIP_NEAR_POI_M) continue;  // colado ao POI
+        const perpDist = this.perpendicularDistanceToSegment(b.centroid, poi, targetPoint);
+        if (perpDist > CORRIDOR_WIDTH_M) continue;
+        const t = distFromPoi / distanceM;
+        const lineAlt = poiTopAltitudeM * (1 - t) + observerEyeAlt * t;
+        if (b.topAltitudeM > lineAlt + noiseMarginM) {
+          return false; // prédio bloqueia
+        }
+      }
+    }
+
+    return true;
+  }
+
   // ───────────────────────────────────────────────────────────────────
   // Internals
   // ───────────────────────────────────────────────────────────────────
@@ -459,8 +561,13 @@ export class VisibilityMapBuilder {
       const terrainAlt = (await srtm.getElevation(samplePoint.lat, samplePoint.lng)) ?? SRTM_FAIL_VALUE;
       const t = sampleDistance / observerDistanceM;
       const lineAlt = poiTopAltitudeM * (1 - t) + observerEyeAlt * t;
-      // Small margin (5m) to forgive SRTM resolution noise
-      if (terrainAlt > lineAlt + 5) {
+      // SRTM resolution noise margin. Grid horizontal ~30m, vertical ±10-20m.
+      // Margem menor (era 5m) gerava obstáculos fantasmas em terreno íngreme
+      // (Cristo Redentor, picos, mirantes) — fan colapsava a ~1km quando a
+      // visibilidade real ia a 7km+. 15m é o ponto onde ruído estatístico do
+      // dataset não cria false positives em slopes naturais.
+      const SRTM_NOISE_MARGIN_M = 15;
+      if (terrainAlt > lineAlt + SRTM_NOISE_MARGIN_M) {
         return true;
       }
     }

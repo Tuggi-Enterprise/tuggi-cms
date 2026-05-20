@@ -24,12 +24,31 @@ import { PoiMigrationPipeline } from '../lib/services/poi-migration-pipeline'
 import { createClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
 import * as os from 'os'
+import * as fs from 'fs'
+import * as path from 'path'
+
+// Parse .env manually if running directly in node/tsx
+const envPath = path.join(__dirname, '../.env')
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8')
+  for (const line of envContent.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed && !trimmed.startsWith('#')) {
+      const idx = trimmed.indexOf('=')
+      if (idx !== -1) {
+        const key = trimmed.substring(0, idx).trim()
+        const val = trimmed.substring(idx + 1).trim()
+        process.env[key] = val
+      }
+    }
+  }
+}
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || ''
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
-  console.error('❌ SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios.')
+  console.error('❌ SUPABASE_URL e SUPABASE_SECRET_KEY são obrigatórios.')
   process.exit(1)
 }
 
@@ -139,7 +158,6 @@ async function runBatch(batchId: string) {
 
     process.stdout.write(`[${processed + failed + 1}] ${attractionId}... `)
 
-    let tpCount = 0
     let errorMsg: string | null = null
 
     try {
@@ -163,7 +181,7 @@ async function runBatch(batchId: string) {
         status:        errorMsg ? 'failed' : 'done',
         completed_at:  new Date().toISOString(),
         error_message: errorMsg,
-        tp_count:      tpCount,
+        tp_count:      0,
       })
       .eq('batch_id',      batchId)
       .eq('attraction_id', attractionId)

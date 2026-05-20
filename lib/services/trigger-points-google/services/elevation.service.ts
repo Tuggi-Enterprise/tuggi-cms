@@ -74,11 +74,23 @@ export class ElevationService {
       }
 
       // Estratégia 2: SRTM Local (100% Offline)
+      //
+      // ⚠️ SRTM tem grid de 30m e suaviza picos estreitos — pode subestimar
+      // peaks naturais em 50-200m (ex: Pão de Açúcar OSM ele=392m vs SRTM=278m).
+      // OSM `ele` tag é hand-curated e é a fonte canônica pra peaks.
+      //
+      // Estratégia: usar o MAIOR entre OSM ele_tag e SRTM. Em POI urbano
+      // sem OSM ele (groundElevation=0), SRTM vence naturalmente. Em peak
+      // com OSM ele, OSM vence (mais preciso).
       try {
         const srtmResult = await this.getElevationFromLocalSRTM(location);
         if (srtmResult.confidence > 0.5) {
-          groundElevation = srtmResult.ground;
-          groundSource = 'local_srtm';
+          if (srtmResult.ground > groundElevation) {
+            groundElevation = srtmResult.ground;
+            groundSource = 'local_srtm';
+          } else if (groundSource === 'ele_tag') {
+            console.log(`📊 Keeping OSM ele_tag (${groundElevation}m) over SRTM (${srtmResult.ground}m) — peak likely smoothed by SRTM grid`);
+          }
           confidence = Math.max(confidence, 0.8);
         }
       } catch (error) {

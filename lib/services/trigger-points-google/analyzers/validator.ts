@@ -100,13 +100,10 @@ export class TriggerPointValidator {
       intersectionClusterRadiusM?: number;
     } = {}
   ): Promise<TriggerPoint[]> {
-    // 🎯 USAR CONFIGURAÇÕES DO GRUPO DO POI (se disponível)
-    if (boundary.classification) {
-      const classification = boundary.classification;
-      // Substituir parâmetros pelos do grupo
-      maxTriggerPoints = classification.maxTriggerPoints;
-      minDistanceBetweenTPs = classification.minDistanceBetweenTPs;
-    }
+    // NÃO sobrescrever maxTriggerPoints/minDistanceBetweenTPs com a classificação:
+    // o predictor já injeta os valores corretos (`safety ceiling 5000` em
+    // calculateDynamicTPLimit + minDistance calculado em calculateMinDistance).
+    // O controle real de quantidade vive em applyOptions (density thinning).
     // 🚀 OTIMIZAÇÃO: Calcular elevação base UMA ÚNICA VEZ para evitar centenas de chamadas de API
     let baseElevation: number | null = null;
     if (boundary?.elevation && boundary.elevation.center > 0) {
@@ -1064,7 +1061,7 @@ export class TriggerPointValidator {
     
     // Verificar confiança mínima
     if (candidate.confidence < TRIGGER_POINTS_CONSTANTS.scores.minConfidence) {
-      //console.log(`🚫 Candidate rejected: confidence ${candidate.confidence.toFixed(2)} < 0.2`);
+      console.log(`🚫 Candidate rejected: confidence ${candidate.confidence.toFixed(2)} < ${TRIGGER_POINTS_CONSTANTS.scores.minConfidence}`);
       return false;
     }
     
