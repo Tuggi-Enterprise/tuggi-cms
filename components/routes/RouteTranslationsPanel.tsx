@@ -56,10 +56,15 @@ const ALL_LANGUAGES: Array<{ code: string; name: string; flag: string; sub?: str
 // ─── Status badge ──────────────────────────────────────────────────────────────
 
 function StatusBadge({
-  status, manuallyEdited,
-}: { status: Translation['status'] | 'original'; manuallyEdited?: boolean }) {
+  status, manuallyEdited, hasAudio,
+}: { status: Translation['status'] | 'original'; manuallyEdited?: boolean; hasAudio?: boolean }) {
   if (status === 'original')
-    return <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">Original</span>
+    return (
+      <span className="flex items-center gap-0.5 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">
+        Original
+        {hasAudio && <Volume2 className="h-2 w-2 ml-0.5 text-blue-500" />}
+      </span>
+    )
   if (manuallyEdited && status === 'ready')
     return <span className="flex items-center gap-0.5 text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full"><Edit2 className="h-2 w-2" />Editado</span>
   if (status === 'ready')
@@ -399,6 +404,7 @@ export function RouteTranslationsPanel({ routeId, routeName, onClose, inline = f
                             <StatusBadge
                               status={lang.isOriginal ? 'original' : (tr?.status ?? null)}
                               manuallyEdited={tr?.manually_edited}
+                              hasAudio={lang.isOriginal ? Boolean(tr?.audio_url) : undefined}
                             />
                           </div>
                           {lang.isOriginal
@@ -411,10 +417,13 @@ export function RouteTranslationsPanel({ routeId, routeName, onClose, inline = f
 
                         {/* Actions */}
                         <div className="flex items-center gap-0.5 shrink-0">
-                          {tr?.audio_url && !lang.isOriginal && (
+
+                          {/* Play audio — available for ALL languages including original */}
+                          {tr?.audio_url && (
                             <button
                               onClick={() => toggleAudio(lang.code, tr.audio_url!)}
                               className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                              title="Ouvir áudio"
                             >
                               {playingAudio === lang.code
                                 ? <Pause className="h-3 w-3 text-indigo-500" />
@@ -422,6 +431,23 @@ export function RouteTranslationsPanel({ routeId, routeName, onClose, inline = f
                               }
                             </button>
                           )}
+
+                          {/* Original language: show generate-audio button when no audio yet */}
+                          {lang.isOriginal && !tr?.audio_url && (
+                            <button
+                              onClick={() => generateTranslation(lang.code)}
+                              disabled={isGen || isBatchGenerating}
+                              className="px-2 py-1 rounded-lg text-[9px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-all flex items-center gap-1 disabled:opacity-40"
+                              title="Gerar áudio da descrição original"
+                            >
+                              {isGen
+                                ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Gerando</>
+                                : <><Volume2 className="h-2.5 w-2.5" /> Gerar áudio</>
+                              }
+                            </button>
+                          )}
+
+                          {/* Translated languages: edit and regenerate */}
                           {!lang.isOriginal && tr?.status === 'ready' && (
                             <button
                               onClick={() => openEditor(lang.code)}
