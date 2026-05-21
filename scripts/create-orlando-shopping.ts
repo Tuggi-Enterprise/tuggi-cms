@@ -61,8 +61,8 @@ const FORCE = process.argv.includes('--force')
 
 // ─── Constantes da rota ───────────────────────────────────────────────────────
 
-const ROUTE_NAME        = 'Orlando Shopping — O Dia Inteiro de Compras dos Brasileiros'
-const ROUTE_DESCRIPTION = 'O roteiro definitivo de compras em Orlando para brasileiros: outlets premium, shopping centers, Walmart, Costco, T.J.Maxx, Ross e Disney Springs — tudo numa volta de carro pelo grande corredor de compras da Flórida. Um dia inteiro de compras passando pelos pontos que todo brasileiro precisa conhecer: do custo-benefício imbatível dos outlets ao luxo das grifes no Mall at Millenia, sem esquecer os paraísos de marcas americanas que não existem no Brasil.'
+const ROUTE_NAME        = 'Orlando Shopping — International Drive e os Outlets dos Brasileiros'
+const ROUTE_DESCRIPTION = 'O roteiro definitivo de compras em Orlando para brasileiros, com foco no coração turístico da cidade: a International Drive. Dois Premium Outlets (I-Drive ao norte e Vineland ao sul, com mais de 300 lojas somadas), o mall mais luxuoso da Flórida, Walmart, Costco, TJ Maxx, Ross, Marshalls e Disney Springs — tudo no grande corredor turístico onde os brasileiros ficam hospedados. De lojas de grife com 65% de desconto a produtos americanos que não existem no Brasil: um dia inteiro de compras sem precisar sair da região central de Orlando.'
 const ROUTE_COUNTRY     = 'United States'
 const ROUTE_REGION      = 'Orlando'
 
@@ -90,34 +90,39 @@ interface EnrichedWaypoint {
   }
 }
 
-// ─── Landmarks — rota completa de compras (dia inteiro de carro) ─────────────
-// Inicia no coração turístico da I-Drive, desce até Disney/Kissimmee,
-// sobe pelo Florida Mall / Millenia e termina de volta na I-Drive.
+// ─── Landmarks — corredor turístico da I-Drive e arredores ───────────────────
+// Rota corrigida com base nas localizações reais dos shoppings frequentados
+// por brasileiros em Orlando. Foco total na I-Drive e Lake Buena Vista.
+// Sequência: I-Drive norte → centro → Florida Mall → LBV → Vineland sul → volta
 
 const ROUTE_LANDMARKS: RouteLandmark[] = [
-  // ── I-Drive: ponto de partida dos turistas ──
-  { name: 'Pointe Orlando — International Drive',         lat: 28.4379, lng: -81.4672 },
-  { name: 'Orlando Vineland Premium Outlets',             lat: 28.4278, lng: -81.4730 },
-  { name: 'Walmart Supercenter (Sand Lake Rd)',           lat: 28.4456, lng: -81.4603 },
+  // ── I-Drive NORTE: maior outlet outlet de Orlando ──
+  { name: 'Orlando International Premium Outlets (I-Drive, 180+ lojas)', lat: 28.4727, lng: -81.4504 },
+
+  // ── Meio da I-Drive: entretenimento + compras ──
+  { name: 'Pointe Orlando (9101 International Drive)',     lat: 28.4390, lng: -81.4665 },
+  { name: 'TJ Maxx / Ross / Old Navy — The Loop I-Drive', lat: 28.4378, lng: -81.4460 },
+
+  // ── Lojas americanas must-have perto da I-Drive ──
+  { name: 'Walmart Supercenter — Turkey Lake Rd',         lat: 28.4400, lng: -81.4670 },
+  { name: 'Costco Wholesale — Sand Lake Rd',              lat: 28.4430, lng: -81.4790 },
   { name: 'Target — Sand Lake Road',                      lat: 28.4416, lng: -81.4630 },
-  { name: 'T.J.Maxx / Ross / Burlington (Sand Lake)',     lat: 28.4403, lng: -81.4503 },
 
-  // ── Disney / Lake Buena Vista ──
-  { name: 'Lake Buena Vista Factory Stores',              lat: 28.3835, lng: -81.5042 },
-  { name: 'Disney Springs',                               lat: 28.3694, lng: -81.5157 },
-  { name: 'Celebration Town Center',                      lat: 28.3267, lng: -81.5480 },
+  // ── Mallls premium (saindo da I-Drive para o norte) ──
+  { name: 'The Mall at Millenia — Luxury (Neiman Marcus, Bloomingdale\'s)', lat: 28.4842, lng: -81.4375 },
 
-  // ── Kissimmee ──
-  { name: 'The Loop — Kissimmee',                         lat: 28.3162, lng: -81.4484 },
-  { name: 'Walmart Supercenter Kissimmee',                lat: 28.3175, lng: -81.4389 },
+  // ── Florida Mall (maior mall fechado da região) ──
+  { name: 'The Florida Mall — 8001 S Orange Blossom Trail', lat: 28.4460, lng: -81.4020 },
 
-  // ── Florida Mall / Millenia (volta pelo leste) ──
-  { name: 'The Florida Mall',                             lat: 28.4507, lng: -81.4155 },
-  { name: 'The Mall at Millenia',                         lat: 28.4842, lng: -81.4375 },
-  { name: 'Costco Wholesale (Metrowest)',                 lat: 28.5217, lng: -81.4645 },
+  // ── Lake Buena Vista: próximo a Disney ──
+  { name: 'Lake Buena Vista Factory Stores (SR-535)',     lat: 28.3837, lng: -81.5047 },
+  { name: 'Disney Springs — Shopping + Lazer Grátis',    lat: 28.3694, lng: -81.5157 },
 
-  // ── Fim: de volta à I-Drive ──
-  { name: 'International Drive Premium Outlets',          lat: 28.4448, lng: -81.4667 },
+  // ── I-Drive SUL: outlet luxury (Gucci, Prada, Versace) ──
+  { name: 'Orlando Premium Outlets — Vineland (Luxury, 160+ lojas)', lat: 28.3872, lng: -81.4925 },
+
+  // ── Volta pela I-Drive: mais discount stores ──
+  { name: 'Marshalls + HomeGoods — I-Drive Corridor',    lat: 28.4350, lng: -81.4550 },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
