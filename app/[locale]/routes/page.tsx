@@ -426,7 +426,7 @@ export default function RoutesPage() {
                             <MapIcon className="h-4 w-4 text-tuggi-blue" />
                           </div>
                           <div className="min-w-0">
-                            <p className="font-bold text-gray-900 dark:text-white leading-tight truncate max-w-[280px]">
+                            <p className="font-bold text-gray-900 dark:text-white leading-tight truncate max-w-[480px]">
                               {route.name}
                             </p>
                             {route.description && (
