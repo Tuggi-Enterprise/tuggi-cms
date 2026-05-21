@@ -1172,8 +1172,8 @@ function RouteEditorModalInner({
             {activeTab === 'content' && (
               <div className="flex h-full overflow-hidden">
 
-                {/* ── Left: form ──────────────────────────────────────── */}
-                <div className="w-[420px] shrink-0 border-r border-gray-100 dark:border-gray-800 overflow-y-auto custom-scrollbar">
+                {/* ── Left: form (60%) ────────────────────────────────── */}
+                <div className="w-[60%] shrink-0 border-r border-gray-100 dark:border-gray-800 overflow-y-auto custom-scrollbar">
                   <div className="p-6 space-y-6">
 
                     {/* LOCATION */}
