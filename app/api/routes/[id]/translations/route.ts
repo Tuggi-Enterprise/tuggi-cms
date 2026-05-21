@@ -11,9 +11,9 @@ export const dynamic = 'force-dynamic'
 // ─── GET — listar traduções ────────────────────────────────────────────────────
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const routeId = params.id
+  const { id: routeId } = await params
   const supabase = getSupabase('service')
 
   // Buscar dados originais da rota (pt-BR)
@@ -50,9 +50,9 @@ export async function GET(
 // ─── POST — salvar edição manual ──────────────────────────────────────────────
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const routeId = params.id
+  const { id: routeId } = await params
   const body = await req.json()
   const { language, gender = 'male', name, description } = body
 

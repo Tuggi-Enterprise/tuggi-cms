@@ -11,9 +11,9 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const routeId = params.id
+  const { id: routeId } = await params
   const body = await req.json()
   const { language, gender = 'male', generateAudio = true } = body
 

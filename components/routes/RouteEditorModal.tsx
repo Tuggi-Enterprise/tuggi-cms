@@ -128,7 +128,7 @@ function RouteEditorModalInner({
   const fetchViewportPOIsRef = useRef<() => void>(() => {})
 
   // ── Linked POI coords ──────────────────────────────────────────────────────
-  const [linkedPOICoords, setLinkedPOICoords] = useState<Record<string, { lat: number; lng: number; name: string }>>({})
+  const [linkedPOICoords, setLinkedPOICoords] = useState<Record<string, { lat: number; lng: number; name: string; country?: string | null; city?: string | null }>>({})
   const linkedPOIMarkersRef = useRef<google.maps.Marker[]>([])
 
   // ── Map refs ───────────────────────────────────────────────────────────────
@@ -423,7 +423,7 @@ function RouteEditorModalInner({
 
   useEffect(() => { fetchViewportPOIsRef.current = fetchTuggiPOIsForViewport }, [fetchTuggiPOIsForViewport])
 
-  // ── Linked POI markers ─────────────────────────────────────────────────────
+  // ── Linked POI markers — busca coordenadas + country dos POIs vinculados ────
   useEffect(() => {
     const ids = waypoints.map(w => w.metadata?.attraction_id).filter(Boolean) as string[]
     if (ids.length === 0) { setLinkedPOICoords({}); return }
@@ -431,9 +431,26 @@ function RouteEditorModalInner({
     fetch(`/api/attractions/coordinates?ids=${ids.join(',')}`)
       .then(r => r.json())
       .then(data => {
-        const map: Record<string, { lat: number; lng: number; name: string }> = {}
-        ;(data.coords ?? []).forEach((c: any) => { map[c.id] = { lat: c.latitude, lng: c.longitude, name: c.name } })
+        const map: Record<string, { lat: number; lng: number; name: string; country?: string | null; city?: string | null }> = {}
+        ;(data.coords ?? []).forEach((c: any) => {
+          map[c.id] = { lat: c.latitude, lng: c.longitude, name: c.name, country: c.country, city: c.city }
+        })
         setLinkedPOICoords(map)
+
+        // Auto-popular país da rota a partir do primeiro POI vinculado que tenha country
+        // Só preenche se o campo ainda estiver vazio (não sobrescreve o que o admin setou)
+        setCountry(prev => {
+          if (prev) return prev // já tem — não sobrescreve
+          const firstWithCountry = (data.coords ?? []).find((c: any) => c.country)
+          return firstWithCountry?.country ?? prev
+        })
+
+        // Auto-popular região a partir da city do primeiro POI (se não tiver região ainda)
+        setRegion(prev => {
+          if (prev) return prev
+          const firstWithCity = (data.coords ?? []).find((c: any) => c.city)
+          return firstWithCity?.city ?? prev
+        })
       })
       .catch(() => {})
   }, [waypoints])

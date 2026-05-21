@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabase
       .schema('core')
       .from('attraction_coordinate')
-      .select('attraction_id, latitude, longitude, attractions!inner(id, name)')
+      .select('attraction_id, latitude, longitude, attractions!inner(id, name, country, city)')
       .in('attraction_id', ids)
 
     if (error) {
@@ -56,6 +56,8 @@ export async function GET(request: NextRequest) {
       return {
         id:        attraction?.id ?? row.attraction_id,
         name:      attraction?.name ?? '',
+        country:   attraction?.country ?? null,
+        city:      attraction?.city ?? null,
         latitude:  row.latitude,
         longitude: row.longitude,
       }
