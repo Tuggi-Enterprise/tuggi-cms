@@ -662,8 +662,8 @@ function RouteEditorModalInner({
   const tabs: { id: RouteTab; icon: any; label: string; badge?: string }[] = [
     { id: 'route',      icon: Navigation, label: t('tabs.route')      },
     { id: 'experience', icon: Camera,     label: t('tabs.experience') },
+    // Content tab shows form + translations side-by-side — no separate Languages tab needed
     { id: 'content',    icon: FileText,   label: t('tabs.content'),   badge: contentLangMeta?.flag },
-    ...(effectiveIsEditing ? [{ id: 'languages' as RouteTab, icon: Globe, label: t('tabs.languages') }] : []),
   ]
 
   // ── Save validation ──────────────────────────────────────────────────────────
@@ -1168,85 +1168,81 @@ function RouteEditorModalInner({
               </div>
             )}
 
-            {/* ══ TAB: CONTEÚDO ══ */}
+            {/* ══ TAB: CONTEÚDO — formulário (esq) + traduções (dir) ══ */}
             {activeTab === 'content' && (
-              <div className="overflow-y-auto custom-scrollbar h-full">
-                <div className="p-8 max-w-2xl mx-auto space-y-7">
+              <div className="flex h-full overflow-hidden">
 
-                  {/* 1 — LOCALIZAÇÃO (primeiro, pois é o mais estrutural) */}
-                  <section className="space-y-3">
-                    <div>
-                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2 mb-0.5">
-                        <Globe className="h-3.5 w-3.5" /> {t('location_title')} <span className="text-red-500">*</span>
+                {/* ── Left: form ──────────────────────────────────────── */}
+                <div className="w-[420px] shrink-0 border-r border-gray-100 dark:border-gray-800 overflow-y-auto custom-scrollbar">
+                  <div className="p-6 space-y-6">
+
+                    {/* LOCATION */}
+                    <section className="space-y-3">
+                      <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <Globe className="h-3.5 w-3.5" /> {t('location_title')} <span className="text-red-400">*</span>
                       </h3>
-                      <p className="text-[11px] text-gray-400">{t('location_note')}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
-                          {t('country')} <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={country}
-                          onChange={e => setCountry(e.target.value)}
-                          placeholder={t('country_placeholder')}
-                          className={cn(
-                            'w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm',
-                            !country.trim() ? 'border-amber-300 dark:border-amber-700' : 'border-transparent'
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                            {t('country')} <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={country}
+                            onChange={e => setCountry(e.target.value)}
+                            placeholder={t('country_placeholder')}
+                            className={cn(
+                              'w-full px-3 py-2.5 bg-gray-50 dark:bg-gray-800 border rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm',
+                              !country.trim() ? 'border-amber-300 dark:border-amber-700' : 'border-transparent'
+                            )}
+                          />
+                          {!country.trim() && (
+                            <p className="text-[10px] text-amber-600 mt-1">{t('required_field')}</p>
                           )}
-                        />
-                        {!country.trim() && (
-                          <p className="text-[10px] text-amber-600 mt-1">{t('required_field')}</p>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
-                          {t('region')} <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={region}
-                          onChange={e => setRegion(e.target.value)}
-                          placeholder={t('region_placeholder')}
-                          className={cn(
-                            'w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm',
-                            !region.trim() ? 'border-amber-300 dark:border-amber-700' : 'border-transparent'
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">
+                            {t('region')} <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={region}
+                            onChange={e => setRegion(e.target.value)}
+                            placeholder={t('region_placeholder')}
+                            className={cn(
+                              'w-full px-3 py-2.5 bg-gray-50 dark:bg-gray-800 border rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm',
+                              !region.trim() ? 'border-amber-300 dark:border-amber-700' : 'border-transparent'
+                            )}
+                          />
+                          {!region.trim() && (
+                            <p className="text-[10px] text-amber-600 mt-1">{t('required_field')}</p>
                           )}
-                        />
-                        {!region.trim() && (
-                          <p className="text-[10px] text-amber-600 mt-1">{t('required_field')}</p>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                  </section>
+                    </section>
 
-                  {/* 2 — TEXTO DA ROTA com seletor de idioma inline */}
-                  <section className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-800">
-
-                    {/* Header: label + language select */}
-                    <div className="flex items-center justify-between gap-4">
-                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2 shrink-0">
-                        <FileText className="h-3.5 w-3.5" /> {t('text_section')}
-                      </h3>
-                      {/* Language — compact select */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Languages className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-                        <select
-                          value={contentLanguage}
-                          onChange={e => setContentLanguage(e.target.value)}
-                          className="text-xs font-semibold bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-tuggi-blue transition-all cursor-pointer text-gray-700 dark:text-gray-300"
-                        >
-                          {CONTENT_LANGUAGES.map(lang => (
-                            <option key={lang.code} value={lang.code}>
-                              {lang.flag} {lang.label}
-                            </option>
-                          ))}
-                        </select>
+                    {/* ROUTE TEXT */}
+                    <section className="space-y-4 pt-1 border-t border-gray-100 dark:border-gray-800">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                          <FileText className="h-3.5 w-3.5" /> {t('text_section')}
+                        </h3>
+                        <div className="flex items-center gap-1.5">
+                          <Languages className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                          <select
+                            value={contentLanguage}
+                            onChange={e => setContentLanguage(e.target.value)}
+                            className="text-xs font-semibold bg-gray-50 dark:bg-gray-800 border-none rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-tuggi-blue transition-all cursor-pointer text-gray-700 dark:text-gray-300"
+                          >
+                            {CONTENT_LANGUAGES.map(lang => (
+                              <option key={lang.code} value={lang.code}>
+                                {lang.flag} {lang.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="space-y-4">
                       <div>
                         <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                           {t('name')} <span className="text-red-500">*</span>
@@ -1255,7 +1251,7 @@ function RouteEditorModalInner({
                           type="text"
                           value={name}
                           onChange={e => setName(e.target.value)}
-                          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm font-medium"
+                          className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm font-medium"
                           placeholder="Ex: Grand Tour de Lisboa — De Oriente a Belém"
                         />
                         {!name && (
@@ -1271,24 +1267,49 @@ function RouteEditorModalInner({
                         <textarea
                           value={description}
                           onChange={e => setDescription(e.target.value)}
-                          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all resize-none text-sm"
-                          rows={6}
+                          className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all resize-none text-sm leading-relaxed"
+                          rows={8}
                           placeholder="Descreva a experiência da rota: pontos de destaque, duração estimada, melhor época para fazer..."
                         />
                         <p className="text-[10px] text-gray-400 mt-1">
                           {t('char_count', { count: description.length })}{description.length > 0 && description.length < 80 && ` · ${t('char_recommendation')}`}
                         </p>
                       </div>
-                    </div>
 
-                    {/* Base content note — small, inline */}
-                    <p className="text-[10px] text-gray-400 flex items-center gap-1.5">
-                      <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
-                      {t('content_base_note')}
-                    </p>
-                  </section>
+                      <p className="text-[10px] text-gray-400 flex items-center gap-1.5">
+                        <AlertTriangle className="h-3 w-3 text-amber-400 shrink-0" />
+                        {t('content_base_note')}
+                      </p>
+                    </section>
 
+                  </div>
                 </div>
+
+                {/* ── Right: translations panel ────────────────────────── */}
+                <div className="flex-1 overflow-hidden flex flex-col">
+                  {effectiveIsEditing && effectiveRouteId ? (
+                    <RouteTranslationsPanel
+                      routeId={effectiveRouteId}
+                      routeName={name || initialData?.name || ''}
+                      inline
+                    />
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center">
+                      <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-2xl">
+                        <Globe className="h-8 w-8 text-gray-300 dark:text-gray-600 mx-auto" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-500 dark:text-gray-400">
+                          {t('tabs.languages')}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1 max-w-xs">
+                          {t('content_base_note')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </div>
             )}
 
