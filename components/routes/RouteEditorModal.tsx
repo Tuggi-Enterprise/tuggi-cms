@@ -20,13 +20,37 @@ import {
   Plus, RefreshCw, Route, PenTool, CheckCircle, XCircle, Edit, Link2,
   ExternalLink, Settings, Accessibility, Car, Mountain, Sun, Moon, Sunrise,
   Camera, Trees, Building2, Wheat, ParkingCircle, ChevronDown, MapPin, Globe,
-  ChevronUp,
+  ChevronUp, FileText, Languages, ChevronRight, AlertTriangle,
 } from 'lucide-react'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { RouteTranslationsPanel } from './RouteTranslationsPanel'
+
+// ─── Content language catalogue ───────────────────────────────────────────────
+
+const CONTENT_LANGUAGES = [
+  { code: 'pt-br', label: 'Português (Brasil)',  flag: '🇧🇷' },
+  { code: 'pt-pt', label: 'Português (Portugal)', flag: '🇵🇹' },
+  { code: 'en-us', label: 'English (US)',         flag: '🇺🇸' },
+  { code: 'en-gb', label: 'English (UK)',         flag: '🇬🇧' },
+  { code: 'es-es', label: 'Español',              flag: '🇪🇸' },
+  { code: 'fr-fr', label: 'Français',             flag: '🇫🇷' },
+  { code: 'de-de', label: 'Deutsch',              flag: '🇩🇪' },
+  { code: 'it-it', label: 'Italiano',             flag: '🇮🇹' },
+  { code: 'ja-jp', label: '日本語',               flag: '🇯🇵' },
+]
+
+/** Map next-intl locale → our lang code (fallback: prepend -xx) */
+function localeToLangCode(locale: string): string {
+  const map: Record<string, string> = {
+    pt: 'pt-br', 'pt-BR': 'pt-br', 'pt-PT': 'pt-pt',
+    en: 'en-us', 'en-US': 'en-us', 'en-GB': 'en-gb',
+    es: 'es-es', fr: 'fr-fr', de: 'de-de', it: 'it-it', ja: 'ja-jp',
+  }
+  return map[locale] ?? locale.toLowerCase().replace('_', '-')
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -64,7 +88,7 @@ export interface RouteEditorModalProps {
   onDeleted?: (routeId: string) => void
 }
 
-type RouteTab = 'route' | 'experience' | 'settings' | 'languages'
+type RouteTab = 'route' | 'content' | 'experience' | 'settings' | 'languages'
 
 // ─── Inner component (mounted after Google Maps loads) ──────────────────────
 
@@ -74,10 +98,15 @@ function RouteEditorModalInner({
   const t       = useTranslations('CustomRoutes.editor')
   const commonT = useTranslations('Common')
   const { canEdit, isViewer } = useCmsUser()
+  const locale    = useLocale()
   const isEditing = Boolean(routeId)
 
   // ── Tab state ──────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<RouteTab>('route')
+
+  // ── Content language (for name + description fields) ───────────────────────
+  // Default = CMS locale. Persisted in route metadata.content_language.
+  const [contentLanguage, setContentLanguage] = useState<string>(() => localeToLangCode(locale))
 
   // ── Route data state ───────────────────────────────────────────────────────
   const [initialData, setInitialData] = useState<any>(null)
@@ -157,6 +186,7 @@ function RouteEditorModalInner({
         setClientId(route.client_id || '')
         setCountry(route.country || '')
         setRegion(route.region || '')
+        setContentLanguage(route.metadata?.content_language || localeToLangCode(locale))
         setWaypoints(route.waypoints || [])
         setSnapToRoads(route.metadata?.source === 'osrm' || true)
         setRouteGeometry(route.geometry_coords || [])
@@ -543,6 +573,7 @@ function RouteEditorModalInner({
           best_time: bestTime, road_conditions: roadConditions, photogenic_rating: photogenicRating,
           stops_count: stopsCount || waypoints.length,
           country: country || null, region: region || null,
+          content_language: contentLanguage,
         }),
       })
       if (res.ok) {
@@ -566,8 +597,10 @@ function RouteEditorModalInner({
   }
 
   // ── Tab definitions ────────────────────────────────────────────────────────
-  const tabs: { id: RouteTab; icon: any; label: string }[] = [
+  const contentLangMeta = CONTENT_LANGUAGES.find(l => l.code === contentLanguage)
+  const tabs: { id: RouteTab; icon: any; label: string; badge?: string }[] = [
     { id: 'route',      icon: Navigation, label: 'Rota'        },
+    { id: 'content',    icon: FileText,   label: 'Conteúdo',   badge: contentLangMeta?.flag },
     { id: 'experience', icon: Camera,     label: 'Experiência' },
     { id: 'settings',   icon: Settings,   label: 'Config'      },
     ...(isEditing ? [{ id: 'languages' as RouteTab, icon: Globe, label: 'Idiomas' }] : []),
@@ -638,6 +671,15 @@ function RouteEditorModalInner({
             )}>
               {isActive ? 'Ativa' : 'Inativa'}
             </span>
+            {/* Save button — always visible, validates before saving */}
+            <button
+              onClick={handleSave}
+              disabled={!canEdit || isViewer || isSaving || isGenerating || !name || waypoints.length < 2}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-tuggi-blue text-white text-xs font-bold rounded-xl hover:bg-tuggi-blue/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md shadow-tuggi-blue/20 active:scale-[0.97]"
+            >
+              {isSaving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              {commonT('actions.save')}
+            </button>
             <button
               onClick={handleClose}
               className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-all text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
@@ -667,8 +709,11 @@ function RouteEditorModalInner({
                     : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
                 )}
               >
-                <tab.icon className={cn('h-5 w-5', activeTab === tab.id && 'animate-pulse')} />
-                {tab.label}
+                <tab.icon className={cn('h-5 w-5 shrink-0', activeTab === tab.id && 'animate-pulse')} />
+                <span className="flex-1">{tab.label}</span>
+                {tab.badge && (
+                  <span className="text-base leading-none">{tab.badge}</span>
+                )}
               </button>
             ))}
 
@@ -704,32 +749,13 @@ function RouteEditorModalInner({
                         <MapPin className="h-4 w-4 text-indigo-500 shrink-0 mt-0.5" />
                         <p className="text-[11px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-medium">
                           Você define os <strong>pontos de interesse</strong>. O Google Maps ou Apple Maps escolherá o melhor caminho. O traçado é uma <strong>prévia aproximada</strong>.
+                          {!name && (
+                            <span className="ml-1 text-orange-600 dark:text-orange-400 font-bold">
+                              · Adicione o título na aba <button onClick={() => setActiveTab('content')} className="underline hover:no-underline">Conteúdo</button>.
+                            </span>
+                          )}
                         </p>
                       </div>
-
-                      {/* Basic info */}
-                      <section className="space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('name')}</label>
-                          <input
-                            type="text"
-                            value={name}
-                            onChange={e => setName(e.target.value)}
-                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all"
-                            placeholder="Ex: Rota Histórica Centro"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('description')}</label>
-                          <textarea
-                            value={description}
-                            onChange={e => setDescription(e.target.value)}
-                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all resize-none"
-                            rows={2}
-                            placeholder="Opcional..."
-                          />
-                        </div>
-                      </section>
 
                       {/* Waypoints */}
                       <section className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-800">
@@ -1017,6 +1043,105 @@ function RouteEditorModalInner({
                       }
                     </button>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* ══ TAB: CONTEÚDO — título, descrição e idioma base ══ */}
+            {activeTab === 'content' && (
+              <div className="overflow-y-auto custom-scrollbar h-full">
+                <div className="p-8 max-w-2xl mx-auto space-y-8">
+
+                  {/* Language selector — must choose before writing */}
+                  <section className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-tuggi-blue/10 rounded-xl">
+                        <Languages className="h-5 w-5 text-tuggi-blue" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-900 dark:text-white text-sm">Idioma do conteúdo</h3>
+                        <p className="text-[11px] text-gray-400">Em qual idioma você está escrevendo o título e a descrição?</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      {CONTENT_LANGUAGES.map(lang => (
+                        <button
+                          key={lang.code}
+                          type="button"
+                          onClick={() => setContentLanguage(lang.code)}
+                          className={cn(
+                            'flex items-center gap-2.5 px-3 py-2.5 rounded-xl border-2 transition-all text-left',
+                            contentLanguage === lang.code
+                              ? 'bg-tuggi-blue/5 border-tuggi-blue text-gray-900 dark:text-white'
+                              : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 dark:hover:border-gray-700 text-gray-600 dark:text-gray-400'
+                          )}
+                        >
+                          <span className="text-lg leading-none">{lang.flag}</span>
+                          <span className="text-xs font-semibold leading-tight">{lang.label}</span>
+                          {contentLanguage === lang.code && (
+                            <CheckCircle className="h-3.5 w-3.5 text-tuggi-blue ml-auto shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Info: this is the "base" language — translations go in Idiomas tab */}
+                    <div className="flex items-start gap-2.5 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 rounded-xl">
+                      <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                        Este é o <strong>conteúdo base</strong> da rota. Para gerar versões em outros idiomas, use a aba <strong>Idiomas</strong> (disponível após salvar).
+                      </p>
+                    </div>
+                  </section>
+
+                  {/* Title and description — unlocked after language is confirmed */}
+                  <section className="space-y-5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                        <FileText className="h-4 w-4" /> Texto da Rota
+                      </h3>
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-tuggi-blue bg-tuggi-blue/10 px-2.5 py-1 rounded-full">
+                        {CONTENT_LANGUAGES.find(l => l.code === contentLanguage)?.flag}{' '}
+                        {CONTENT_LANGUAGES.find(l => l.code === contentLanguage)?.label}
+                      </span>
+                    </div>
+
+                    <div className="space-y-5">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                          {t('name')} <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={name}
+                          onChange={e => setName(e.target.value)}
+                          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm font-medium"
+                          placeholder="Ex: Grand Tour de Lisboa — De Oriente a Belém"
+                        />
+                        {!name && (
+                          <p className="text-[10px] text-red-500 mt-1">O título é obrigatório para salvar a rota.</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                          {t('description')}
+                          <span className="text-gray-400 font-normal ml-1 text-xs">(opcional)</span>
+                        </label>
+                        <textarea
+                          value={description}
+                          onChange={e => setDescription(e.target.value)}
+                          className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all resize-none text-sm"
+                          rows={5}
+                          placeholder="Descreva a experiência da rota: pontos de destaque, duração estimada, melhor época para fazer..."
+                        />
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          {description.length} caracteres{description.length > 0 && description.length < 80 && ' · Recomendamos pelo menos 80 caracteres para uma boa descrição.'}
+                        </p>
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </div>
             )}

@@ -101,6 +101,23 @@ export async function PUT(
       stops_count: body.stops_count
     }, userId)
 
+    // Persist extra fields not handled by RouteService
+    const extras: Record<string, any> = {}
+    if (body.country  !== undefined) extras.country = body.country
+    if (body.region   !== undefined) extras.region  = body.region
+
+    if (body.content_language) {
+      // Merge content_language into existing metadata (preserve other fields)
+      const { data: cur } = await (supabaseAuth as any)
+        .schema('core').from('custom_routes').select('metadata').eq('id', id).single()
+      extras.metadata = { ...(cur?.metadata ?? {}), content_language: body.content_language }
+    }
+
+    if (Object.keys(extras).length > 0) {
+      await (supabaseAuth as any)
+        .schema('core').from('custom_routes').update(extras).eq('id', id)
+    }
+
     return NextResponse.json({ route })
   } catch (error) {
     console.error('PUT /api/routes/[id] error:', error)
