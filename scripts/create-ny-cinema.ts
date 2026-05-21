@@ -62,8 +62,8 @@ const FORCE = process.argv.includes('--force')
 
 // ─── Constantes da rota ───────────────────────────────────────────────────────
 
-const ROUTE_NAME        = 'Nova York no Cinema — Locações Icônicas do Maior Estúdio a Céu Aberto do Mundo'
-const ROUTE_DESCRIPTION = 'Nova York é o maior estúdio de cinema ao ar livre do mundo. Este roteiro passa pelos locais reais de filmes históricos: a Katz\'s Deli de "Quando Harry Encontrou Sally" (com a placa na mesa do cenário famoso), o Quartel do Ghostbusters na Tribeca (ainda em operação!), o Flatiron Building do Daily Bugle do Spider-Man, o Grand Central de Men in Black e os Vingadores, o Empire State de King Kong, a Washington Square Park de dezenas de filmes, e o DUMBO de Brooklyn com o skyline que aparece em cada cartaz de filme de NY. Uma caminhada pelo set mais famoso do cinema mundial.'
+const ROUTE_NAME        = 'NY no Cinema — Ghostbusters, Vingadores, Madagascar, Spider-Man e Mais'
+const ROUTE_DESCRIPTION = 'Nova York é o maior set de filmagens ao ar livre do mundo — e este roteiro vai te levar a cada cena. A Katz\'s Deli com a placa exata da mesa de "Quando Harry Encontrou Sally". O quartel REAL dos Ghostbusters ainda em operação como bombeiros. O Flatiron Building que virou o Daily Bugle do Spider-Man. O Grand Central onde os Vingadores e o Men in Black combateram invasões alienígenas. O Central Park onde os leões do Madagascar fugiram do zoológico. A NY Public Library destruída no "Dia Depois de Amanhã". O Rockefeller onde Tom Hanks dançou em "Big". DUMBO com o skyline que aparece em todo cartaz de filme. Cada ponto com o filme que aconteceu lá.'
 const ROUTE_COUNTRY     = 'United States'
 const ROUTE_REGION      = 'New York'
 
@@ -94,17 +94,67 @@ interface EnrichedWaypoint {
 // ─── Landmarks ────────────────────────────────────────────────────────────────
 
 const ROUTE_LANDMARKS: RouteLandmark[] = [
-  { name: 'Katz\'s Delicatessen — "Quando Harry Encontrou Sally" (1989)', lat: 40.7223, lng: -73.9872 },
-  { name: 'Ghostbusters Firehouse — Hook & Ladder Co. 8, Tribeca', lat: 40.7196, lng: -74.0077 },
-  { name: 'Washington Square Park — Dezenas de Filmes',          lat: 40.7308, lng: -74.0000 },
-  { name: 'Flatiron Building — Daily Bugle do Spider-Man',       lat: 40.7411, lng: -73.9897 },
-  { name: 'Empire State Building — King Kong e Sleepless in Seattle', lat: 40.7484, lng: -73.9857 },
-  { name: 'Grand Central Terminal — Men in Black e Os Vingadores', lat: 40.7527, lng: -73.9772 },
-  { name: 'Bryant Park + NY Public Library — Muitos Filmes',     lat: 40.7536, lng: -73.9832 },
-  { name: 'Rockefeller Center — FAO Schwarz de "Big" (1988)',    lat: 40.7587, lng: -73.9787 },
-  { name: 'Times Square — O Cenário Mais Filmado do Mundo',      lat: 40.7580, lng: -73.9855 },
-  { name: 'Central Park — "Encantada", "Avengers", "Home Alone 2"', lat: 40.7748, lng: -73.9709 },
-  { name: 'DUMBO Brooklyn — O Skyline de Todo Cartaz de Filme de NY', lat: 40.7033, lng: -73.9890 },
+  // ── Downtown / Tribeca ────────────────────────────────────────────────────
+  {
+    name: 'Katz\'s Deli — Mesa da Cena Famosa de "Quando Harry Encontrou Sally" (1989)',
+    lat: 40.7223, lng: -73.9872,
+  },
+  {
+    name: 'Ghostbusters Firehouse — Hook & Ladder Co. 8 (Ghostbusters 1984, 1989, 2016, 2024)',
+    lat: 40.7196, lng: -74.0077,
+  },
+
+  // ── Greenwich Village / West Village ─────────────────────────────────────
+  {
+    name: 'Washington Square Park — "Eu Sou a Lenda" (2007), "Vingadores: Guerra Infinita" (2018), "Quando Harry Encontrou Sally"',
+    lat: 40.7308, lng: -74.0000,
+  },
+
+  // ── Flatiron / Midtown South ──────────────────────────────────────────────
+  {
+    name: 'Flatiron Building — Daily Bugle do "Spider-Man" (2002) e "Spider-Man 2" (2004)',
+    lat: 40.7411, lng: -73.9897,
+  },
+  {
+    name: 'Empire State Building — "King Kong" (1933/2005), "Sleepless in Seattle" (1993), "An Affair to Remember" (1957)',
+    lat: 40.7484, lng: -73.9857,
+  },
+
+  // ── Midtown East ──────────────────────────────────────────────────────────
+  {
+    name: 'Grand Central Terminal — "Men in Black" (1997), "Os Vingadores" (2012), "Homem-Aranha: Sem Volta para Casa" (2021)',
+    lat: 40.7527, lng: -73.9772,
+  },
+  {
+    name: 'Bryant Park + NY Public Library — "O Dia Depois de Amanhã" (2004, congelada!), "Ghostbusters" (1984)',
+    lat: 40.7536, lng: -73.9832,
+  },
+
+  // ── Midtown West / Rockefeller ────────────────────────────────────────────
+  {
+    name: 'Rockefeller Center — Piano de chão de "Big" com Tom Hanks (1988) — hoje o piano fica no FAO Schwarz ali perto',
+    lat: 40.7587, lng: -73.9787,
+  },
+  {
+    name: 'Times Square — "Vanilla Sky" (2001), "Noite Fora de Série" (2010), "Os Vingadores" (2012), "Birdman" (2014)',
+    lat: 40.7580, lng: -73.9855,
+  },
+
+  // ── Central Park ──────────────────────────────────────────────────────────
+  {
+    name: 'Central Park Zoo — "Madagascar" (2005): Marty, Alex, Melman e Glória fugiram DAQUI!',
+    lat: 40.7678, lng: -73.9718,
+  },
+  {
+    name: 'Central Park Geral — "Home Alone 2" (1992), "Encantada" (2007), "Os Vingadores" (2012), "Elf" (2003)',
+    lat: 40.7748, lng: -73.9709,
+  },
+
+  // ── Brooklyn ──────────────────────────────────────────────────────────────
+  {
+    name: 'DUMBO Brooklyn — O Skyline de Todo Cartaz de Filme de NY: "The Dark Knight Rises", "Creed", "Saturday Night Fever"',
+    lat: 40.7033, lng: -73.9890,
+  },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
