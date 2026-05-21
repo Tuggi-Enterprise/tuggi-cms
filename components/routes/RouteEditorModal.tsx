@@ -18,9 +18,9 @@ import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import {
   X, Save, Trash2, Navigation, Map as MapIcon, Activity, Clock, AlertCircle,
   Plus, RefreshCw, Route, PenTool, CheckCircle, XCircle, Edit, Link2,
-  ExternalLink, Settings, Accessibility, Car, Mountain, Sun, Moon, Sunrise,
+  ExternalLink, Accessibility, Car, Mountain, Sun, Moon, Sunrise,
   Camera, Trees, Building2, Wheat, ParkingCircle, ChevronDown, MapPin, Globe,
-  ChevronUp, FileText, Languages, ChevronRight, AlertTriangle,
+  FileText, Languages, AlertTriangle,
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
 import { cn } from '@/lib/utils'
@@ -88,7 +88,7 @@ export interface RouteEditorModalProps {
   onDeleted?: (routeId: string) => void
 }
 
-type RouteTab = 'route' | 'content' | 'experience' | 'settings' | 'languages'
+type RouteTab = 'route' | 'experience' | 'content' | 'languages'
 
 // ─── Inner component (mounted after Google Maps loads) ──────────────────────
 
@@ -102,9 +102,8 @@ function RouteEditorModalInner({
   const isEditing = Boolean(routeId)
 
   // ── Tab state ──────────────────────────────────────────────────────────────
-  // Criação → começa em Conteúdo (nome é obrigatório antes do mapa)
-  // Edição  → começa em Rota (ver o mapa existente é a ação mais comum)
-  const [activeTab, setActiveTab] = useState<RouteTab>(isEditing ? 'route' : 'content')
+  // Sempre começa na Rota — o mapa é o ponto de partida
+  const [activeTab, setActiveTab] = useState<RouteTab>('route')
 
   // ── Content language (for name + description fields) ───────────────────────
   // Default = CMS locale. Persisted in route metadata.content_language.
@@ -560,7 +559,12 @@ function RouteEditorModalInner({
 
   // ── Save ───────────────────────────────────────────────────────────────────
   const handleSave = async () => {
-    if (!name || waypoints.length < 2) { alert(t('points_required')); return }
+    if (!name.trim() || !country.trim() || !region.trim() || waypoints.length < 2) {
+      // Navegue para a aba que tem o campo faltando
+      if (!name.trim() || !country.trim() || !region.trim()) setActiveTab('content')
+      else setActiveTab('route')
+      return
+    }
     try {
       setIsSaving(true)
       const url    = isEditing ? `/api/routes/${routeId}` : '/api/routes'
@@ -598,15 +602,24 @@ function RouteEditorModalInner({
     },
   }
 
-  // ── Tab definitions ────────────────────────────────────────────────────────
+  // ── Tab definitions ─────────────────────────────────────────────────────────
+  // Ordem segue a jornada: Criar rota → Descrever experiência → Nomear/descrever → Traduzir
   const contentLangMeta = CONTENT_LANGUAGES.find(l => l.code === contentLanguage)
   const tabs: { id: RouteTab; icon: any; label: string; badge?: string }[] = [
-    { id: 'content',    icon: FileText,   label: 'Conteúdo',   badge: contentLangMeta?.flag },
     { id: 'route',      icon: Navigation, label: 'Rota'        },
     { id: 'experience', icon: Camera,     label: 'Experiência' },
-    { id: 'settings',   icon: Settings,   label: 'Config'      },
+    { id: 'content',    icon: FileText,   label: 'Conteúdo',   badge: contentLangMeta?.flag },
     ...(isEditing ? [{ id: 'languages' as RouteTab, icon: Globe, label: 'Idiomas' }] : []),
   ]
+
+  // ── Save validation ──────────────────────────────────────────────────────────
+  // Campos obrigatórios para salvar: nome + país + região/cidade + ≥2 waypoints
+  const missingFields: string[] = []
+  if (!name.trim())    missingFields.push('Título')
+  if (!country.trim()) missingFields.push('País')
+  if (!region.trim())  missingFields.push('Região / Cidade')
+  if (waypoints.length < 2) missingFields.push('Mínimo 2 pontos no mapa')
+  const canSave = missingFields.length === 0 && !isSaving && !isGenerating && canEdit && !isViewer
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoadingRoute) {
@@ -663,24 +676,28 @@ function RouteEditorModalInner({
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Status badge */}
-            <span className={cn(
-              'px-2.5 py-1 rounded-full text-[10px] font-bold',
-              isActive
-                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                : 'bg-gray-100 text-gray-500 dark:bg-gray-800'
-            )}>
-              {isActive ? 'Ativa' : 'Inativa'}
-            </span>
-            {/* Save button — always visible, validates before saving */}
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Status toggle — igual ao POI management */}
             <button
-              onClick={handleSave}
-              disabled={!canEdit || isViewer || isSaving || isGenerating || !name || waypoints.length < 2}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-tuggi-blue text-white text-xs font-bold rounded-xl hover:bg-tuggi-blue/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md shadow-tuggi-blue/20 active:scale-[0.97]"
+              onClick={() => setIsActive(v => !v)}
+              disabled={!canEdit || isViewer}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border',
+                isActive
+                  ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/30 dark:border-green-800 dark:text-green-400 hover:bg-green-100'
+                  : 'bg-gray-50 border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 hover:bg-gray-100'
+              )}
             >
-              {isSaving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              {commonT('actions.save')}
+              <div className={cn(
+                'w-7 h-4 rounded-full relative transition-all duration-300',
+                isActive ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
+              )}>
+                <div className={cn(
+                  'absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-sm',
+                  isActive ? 'translate-x-3' : 'translate-x-0'
+                )} />
+              </div>
+              {isActive ? 'Ativa' : 'Inativa'}
             </button>
             <button
               onClick={handleClose}
@@ -722,15 +739,65 @@ function RouteEditorModalInner({
             {/* Divider */}
             <div className="my-2 border-t border-gray-100 dark:border-gray-800" />
 
-            {/* Bottom accent box */}
-            <div className="mt-auto p-4 bg-gradient-to-br from-tuggi-blue/5 to-indigo-50 dark:from-tuggi-blue/10 dark:to-indigo-900/20 rounded-2xl border border-tuggi-blue/10 dark:border-tuggi-blue/20">
-              <div className="flex items-center gap-2 mb-1">
-                <Route className="h-3.5 w-3.5 text-tuggi-blue" />
-                <span className="text-[10px] font-bold text-tuggi-blue uppercase tracking-wider">Tuggi Route Engine</span>
-              </div>
-              <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                Os pontos são sugestões. O traçado é uma prévia — o app usa Google Maps ou Apple Maps.
-              </p>
+            {/* Stats + Save — bottom of sidebar */}
+            <div className="mt-auto space-y-3">
+              {/* Stats */}
+              {(stopsCount > 0 || distance || isGenerating) && (
+                <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-2xl space-y-2">
+                  {stopsCount > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-400 flex items-center gap-1.5">
+                        <MapPin className="h-3.5 w-3.5" /> Paradas
+                      </span>
+                      <span className="font-bold text-gray-700 dark:text-gray-300">{stopsCount}</span>
+                    </div>
+                  )}
+                  {(distance || isGenerating) && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-400 flex items-center gap-1.5">
+                        <Activity className="h-3.5 w-3.5" /> Distância
+                      </span>
+                      <span className="font-bold text-gray-700 dark:text-gray-300 font-mono">
+                        {isGenerating ? <RefreshCw className="h-3.5 w-3.5 animate-spin inline" /> : fmt.distance(distance)}
+                      </span>
+                    </div>
+                  )}
+                  {(duration || isGenerating) && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-400 flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5" /> Duração
+                      </span>
+                      <span className="font-bold text-gray-700 dark:text-gray-300 font-mono">
+                        {isGenerating ? '…' : fmt.duration(duration)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Missing fields warning */}
+              {missingFields.length > 0 && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800/30">
+                  <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold mb-1">Para salvar, preencha:</p>
+                  <ul className="space-y-0.5">
+                    {missingFields.map(f => (
+                      <li key={f} className="text-[10px] text-amber-600 dark:text-amber-500 flex items-center gap-1">
+                        <span className="w-1 h-1 bg-amber-400 rounded-full shrink-0" /> {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Save button */}
+              <button
+                onClick={handleSave}
+                disabled={!canSave}
+                className="w-full py-3.5 bg-tuggi-blue text-white font-bold rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/20 active:scale-[0.98] flex items-center justify-center gap-2 text-sm"
+              >
+                {isSaving ? <RefreshCw className="h-4.5 w-4.5 animate-spin" /> : <Save className="h-4 w-4" />}
+                {commonT('actions.save')}
+              </button>
             </div>
           </aside>
 
@@ -750,13 +817,33 @@ function RouteEditorModalInner({
                       <div className="flex items-start gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-2xl">
                         <MapPin className="h-4 w-4 text-indigo-500 shrink-0 mt-0.5" />
                         <p className="text-[11px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-medium">
-                          Você define os <strong>pontos de interesse</strong>. O Google Maps ou Apple Maps escolherá o melhor caminho. O traçado é uma <strong>prévia aproximada</strong>.
-                          {!name && (
-                            <span className="ml-1 text-orange-600 dark:text-orange-400 font-bold">
-                              · Adicione o título na aba <button onClick={() => setActiveTab('content')} className="underline hover:no-underline">Conteúdo</button>.
-                            </span>
-                          )}
+                          Defina os <strong>pontos de interesse</strong>. O traçado é uma <strong>prévia</strong> — o app usa Google Maps ou Apple Maps.
                         </p>
+                      </div>
+
+                      {/* Snap to roads — toggle compacto */}
+                      <div
+                        className={cn(
+                          'flex items-center justify-between px-4 py-3 rounded-xl cursor-pointer select-none transition-all border',
+                          snapToRoads
+                            ? 'bg-blue-50/60 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/30'
+                            : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200'
+                        )}
+                        onClick={() => setSnapToRoads(v => !v)}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          {snapToRoads
+                            ? <Route className="h-4 w-4 text-tuggi-blue" />
+                            : <PenTool className="h-4 w-4 text-gray-400" />
+                          }
+                          <div>
+                            <p className="text-xs font-bold text-gray-800 dark:text-white">{t('snap_to_roads')}</p>
+                            <p className="text-[10px] text-gray-400">{snapToRoads ? 'Seguir vias' : 'Linhas retas'}</p>
+                          </div>
+                        </div>
+                        <div className={cn('w-9 h-5 rounded-full relative transition-all duration-300', snapToRoads ? 'bg-tuggi-blue' : 'bg-gray-300 dark:bg-gray-600')}>
+                          <div className={cn('absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-sm', snapToRoads ? 'translate-x-4' : 'translate-x-0')} />
+                        </div>
                       </div>
 
                       {/* Waypoints */}
@@ -979,34 +1066,7 @@ function RouteEditorModalInner({
                     </div>
                   </div>
 
-                  {/* Save footer */}
-                  <div className="p-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 space-y-3 shrink-0">
-                    {(distance || isGenerating) && (
-                      <div className="grid grid-cols-2 gap-2">
-                        {[
-                          { icon: Activity, label: 'Distância', value: isGenerating ? null : fmt.distance(distance) },
-                          { icon: Clock,    label: 'Duração',   value: isGenerating ? null : fmt.duration(duration) },
-                        ].map(({ icon: Icon, label, value }) => (
-                          <div key={label} className="bg-white dark:bg-gray-800 p-3 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-                            <div className="flex items-center gap-2 text-[10px] text-gray-400 font-bold uppercase mb-1">
-                              <Icon className="h-3 w-3" /> {label}
-                            </div>
-                            <div className="text-base font-bold text-tuggi-blue font-mono leading-none">
-                              {value === null ? <RefreshCw className="h-4 w-4 animate-spin" /> : value}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <button
-                      onClick={handleSave}
-                      disabled={!canEdit || isViewer || isSaving || isGenerating || !name || waypoints.length < 2}
-                      className="w-full py-3.5 bg-tuggi-blue text-white font-bold rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/30 active:scale-[0.98] flex items-center justify-center gap-2"
-                    >
-                      {isSaving ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
-                      {commonT('actions.save')}
-                    </button>
-                  </div>
+                  {/* (stats + save moved to sidebar) */}
                 </div>
 
                 {/* Map panel */}
@@ -1144,6 +1204,55 @@ function RouteEditorModalInner({
                       </div>
                     </div>
                   </section>
+
+                  {/* Localização — obrigatório para filtros no app */}
+                  <section className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-800">
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2 mb-1">
+                        <Globe className="h-4 w-4" /> Localização <span className="text-red-500">*</span>
+                      </h3>
+                      <p className="text-[11px] text-gray-400">Obrigatório para que a rota apareça nos filtros do app.</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
+                          País <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={country}
+                          onChange={e => setCountry(e.target.value)}
+                          placeholder="Ex: Portugal"
+                          className={cn(
+                            'w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm',
+                            !country.trim() ? 'border-amber-300 dark:border-amber-700' : 'border-transparent'
+                          )}
+                        />
+                        {!country.trim() && (
+                          <p className="text-[10px] text-amber-600 mt-1">Campo obrigatório</p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
+                          Região / Cidade <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={region}
+                          onChange={e => setRegion(e.target.value)}
+                          placeholder="Ex: Lisboa"
+                          className={cn(
+                            'w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm',
+                            !region.trim() ? 'border-amber-300 dark:border-amber-700' : 'border-transparent'
+                          )}
+                        />
+                        {!region.trim() && (
+                          <p className="text-[10px] text-amber-600 mt-1">Campo obrigatório</p>
+                        )}
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </div>
             )}
@@ -1270,96 +1379,6 @@ function RouteEditorModalInner({
                       </div>
                     </div>
                   </section>
-                </div>
-              </div>
-            )}
-
-            {/* ══ TAB: CONFIG ══ */}
-            {activeTab === 'settings' && (
-              <div className="overflow-y-auto custom-scrollbar h-full">
-                <div className="p-8 space-y-8">
-
-                  {/* Exibição */}
-                  <section className="space-y-4">
-                    <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em]">Configurações de Exibição</h3>
-
-                    {/* Snap to roads */}
-                    <div className={cn(
-                      'flex items-center justify-between p-4 rounded-2xl cursor-pointer select-none transition-all border',
-                      snapToRoads ? 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-100' : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200'
-                    )} onClick={() => setSnapToRoads(!snapToRoads)}>
-                      <div className="flex items-center gap-3">
-                        <div className={cn('p-2.5 rounded-xl transition-colors shadow-sm', snapToRoads ? 'bg-white text-tuggi-blue' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                          {snapToRoads ? <Route className="h-5 w-5" /> : <PenTool className="h-5 w-5" />}
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold text-gray-900 dark:text-white">{t('snap_to_roads')}</p>
-                          <p className="text-[10px] text-gray-500">{snapToRoads ? 'Seguir vias mapeadas' : 'Linhas retas (Manual)'}</p>
-                        </div>
-                      </div>
-                      <div className={cn('w-11 h-6 rounded-full relative transition-all duration-300', snapToRoads ? 'bg-tuggi-blue' : 'bg-gray-300')}>
-                        <div className={cn('absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-md', snapToRoads ? 'translate-x-5' : 'translate-x-0')} />
-                      </div>
-                    </div>
-
-                    {/* Status */}
-                    <div className={cn(
-                      'flex items-center justify-between p-4 rounded-2xl cursor-pointer select-none transition-all border',
-                      isActive ? 'bg-green-50/50 dark:bg-green-900/10 border-green-100' : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200'
-                    )} onClick={() => setIsActive(!isActive)}>
-                      <div className="flex items-center gap-3">
-                        <div className={cn('p-2.5 rounded-xl transition-colors shadow-sm', isActive ? 'bg-white text-green-600' : 'bg-gray-200 dark:bg-gray-700 text-gray-400')}>
-                          {isActive ? <CheckCircle className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold text-gray-900 dark:text-white">Status da Rota</p>
-                          <p className="text-[10px] text-gray-500">{isActive ? 'Visível no Tuggi App' : 'Oculta para usuários'}</p>
-                        </div>
-                      </div>
-                      <div className={cn('w-11 h-6 rounded-full relative transition-all duration-300', isActive ? 'bg-green-500' : 'bg-gray-300')}>
-                        <div className={cn('absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-md', isActive ? 'translate-x-5' : 'translate-x-0')} />
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* Localização */}
-                  <section className="space-y-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-                    <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em]">Localização</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">País</label>
-                        <input
-                          type="text"
-                          value={country}
-                          onChange={e => setCountry(e.target.value)}
-                          placeholder="Ex: Portugal"
-                          className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-500 mb-1">Região / Cidade</label>
-                        <input
-                          type="text"
-                          value={region}
-                          onChange={e => setRegion(e.target.value)}
-                          placeholder="Ex: Lisboa"
-                          className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-800 border-none rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm"
-                        />
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* Save button */}
-                  <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
-                    <button
-                      onClick={handleSave}
-                      disabled={!canEdit || isViewer || isSaving || !name || waypoints.length < 2}
-                      className="w-full py-4 bg-tuggi-blue text-white font-bold rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-50 transition-all shadow-xl shadow-tuggi-blue/30 active:scale-[0.98] flex items-center justify-center gap-2 text-sm"
-                    >
-                      {isSaving ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
-                      {commonT('actions.save')}
-                    </button>
-                  </div>
                 </div>
               </div>
             )}
