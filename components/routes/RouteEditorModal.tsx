@@ -175,6 +175,9 @@ function RouteEditorModalInner({
   // ── Load route data ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!routeId) return
+    // Reset map instance before loading — the map div will unmount while
+    // isLoadingRoute=true, so when it remounts the init effect must recreate it.
+    mapInstanceRef.current = null
     setIsLoadingRoute(true)
     fetch(`/api/routes/${routeId}`)
       .then(r => r.json())
@@ -213,6 +216,9 @@ function RouteEditorModalInner({
 
   // ── Initialize Map ─────────────────────────────────────────────────────────
   useEffect(() => {
+    // Run after route data finishes loading (isLoadingRoute: true → false)
+    // to ensure the map div is in the DOM before we try to init.
+    if (isLoadingRoute) return
     if (activeTab !== 'route') return
     if (mapRef.current && !mapInstanceRef.current && window.google) {
       let savedCenter = { lat: -23.5505, lng: -46.6333 }
@@ -259,7 +265,7 @@ function RouteEditorModalInner({
 
       mapInstanceRef.current = map
     }
-  }, [activeTab, waypoints])
+  }, [activeTab, waypoints, isLoadingRoute]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Generate route geometry ────────────────────────────────────────────────
   useEffect(() => {
