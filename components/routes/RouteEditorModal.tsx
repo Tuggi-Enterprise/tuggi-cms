@@ -170,6 +170,16 @@ function RouteEditorModalInner({
   // ── Animation state ────────────────────────────────────────────────────────
   const [animateClosing, setAnimateClosing] = useState(false)
 
+  // ── Internal routeId — updated after first save of a new route ────────────
+  // Allows Idiomas tab to appear even before parent re-opens modal with the ID.
+  const [savedRouteId, setSavedRouteId] = useState<string | undefined>(routeId)
+  const effectiveRouteId = savedRouteId || routeId
+  const effectiveIsEditing = Boolean(effectiveRouteId)
+
+  // ── Translation validation state ───────────────────────────────────────────
+  const [translationSaved, setTranslationSaved] = useState(false)   // shows post-save banner
+  const [missingLangs,     setMissingLangs]     = useState<string[]>([])
+
   const stopsCount = waypoints.length
 
   // ── Load route data ────────────────────────────────────────────────────────
@@ -567,18 +577,20 @@ function RouteEditorModalInner({
     setWaypoints(prev => prev.filter(w => w.id !== id))
   }
 
+  // ── Languages that need translation (all CMS languages minus content language)
+  const TRANSLATION_REQUIRED = CONTENT_LANGUAGES.map(l => l.code).filter(c => c !== contentLanguage)
+
   // ── Save ───────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!name.trim() || !country.trim() || !region.trim() || waypoints.length < 2) {
-      // Navegue para a aba que tem o campo faltando
       if (!name.trim() || !country.trim() || !region.trim()) setActiveTab('content')
       else setActiveTab('route')
       return
     }
     try {
       setIsSaving(true)
-      const url    = isEditing ? `/api/routes/${routeId}` : '/api/routes'
-      const method = isEditing ? 'PUT' : 'POST'
+      const url    = effectiveIsEditing ? `/api/routes/${effectiveRouteId}` : '/api/routes'
+      const method = effectiveIsEditing ? 'PUT' : 'POST'
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -593,8 +605,37 @@ function RouteEditorModalInner({
         }),
       })
       if (res.ok) {
-        const data = await res.json()
-        onSaved(data.route?.id || routeId || '')
+        const data    = await res.json()
+        const savedId = data.route?.id || effectiveRouteId || ''
+
+        // Persist routeId internally so Idiomas tab appears immediately
+        setSavedRouteId(savedId)
+
+        // Validation: check which languages still need translation
+        let missing: string[] = []
+        try {
+          const tRes = await fetch(`/api/routes/${savedId}/translations`)
+          if (tRes.ok) {
+            const tData  = await tRes.json()
+            const ready  = new Set((tData.translations || [])
+              .filter((t: any) => t.status === 'ready')
+              .map((t: any) => t.language as string))
+            missing = TRANSLATION_REQUIRED.filter(c => !ready.has(c))
+          }
+        } catch { /* non-blocking */ }
+
+        setMissingLangs(missing)
+
+        if (missing.length > 0) {
+          // Route saved — navigate to Idiomas tab for translation generation
+          setTranslationSaved(true)
+          setActiveTab('languages')
+          // Also notify parent to refresh the list (route is saved)
+          onSaved(savedId)
+        } else {
+          // All translations ready — close modal normally
+          onSaved(savedId)
+        }
       } else {
         const err = await res.json()
         alert(`${t('save_error')}: ${err.error}`)
@@ -619,7 +660,8 @@ function RouteEditorModalInner({
     { id: 'route',      icon: Navigation, label: 'Rota'        },
     { id: 'experience', icon: Camera,     label: 'Experiência' },
     { id: 'content',    icon: FileText,   label: 'Conteúdo',   badge: contentLangMeta?.flag },
-    ...(isEditing ? [{ id: 'languages' as RouteTab, icon: Globe, label: 'Idiomas' }] : []),
+    // Idiomas aparece logo que o routeId fica conhecido (mesmo em nova rota recém salva)
+    ...(effectiveIsEditing ? [{ id: 'languages' as RouteTab, icon: Globe, label: 'Idiomas', badge: missingLangs.length > 0 ? '!' : undefined }] : []),
   ]
 
   // ── Save validation ──────────────────────────────────────────────────────────
@@ -783,7 +825,7 @@ function RouteEditorModalInner({
                 </div>
               )}
 
-              {/* Missing fields warning */}
+              {/* Missing required fields warning */}
               {missingFields.length > 0 && (
                 <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800/30">
                   <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold mb-1">Para salvar, preencha:</p>
@@ -795,6 +837,19 @@ function RouteEditorModalInner({
                     ))}
                   </ul>
                 </div>
+              )}
+
+              {/* Translations pending warning — shown after save */}
+              {missingLangs.length > 0 && missingFields.length === 0 && (
+                <button
+                  onClick={() => setActiveTab('languages')}
+                  className="w-full p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-200 dark:border-orange-800/30 text-left hover:bg-orange-100 transition-all"
+                >
+                  <p className="text-[10px] text-orange-700 dark:text-orange-400 font-semibold">
+                    {missingLangs.length} idioma{missingLangs.length !== 1 ? 's' : ''} sem tradução
+                  </p>
+                  <p className="text-[10px] text-orange-500 mt-0.5">Clique para gerar → Idiomas</p>
+                </button>
               )}
 
               {/* Save button */}
@@ -816,120 +871,107 @@ function RouteEditorModalInner({
             {activeTab === 'route' && (
               <div className="flex h-full overflow-hidden">
 
-                {/* Form panel */}
-                <div className="w-[420px] flex flex-col border-r border-gray-100 dark:border-gray-800 shrink-0">
-                  <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    <div className="p-6 space-y-6">
+                {/* Form panel — flex column: fixed header | scrollable list | fixed footer */}
+                <div className="w-[420px] flex flex-col border-r border-gray-100 dark:border-gray-800 shrink-0 overflow-hidden">
 
-                      {/* Concept banner */}
-                      <div className="flex items-start gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-2xl">
-                        <MapPin className="h-4 w-4 text-indigo-500 shrink-0 mt-0.5" />
-                        <p className="text-[11px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-medium">
-                          Defina os <strong>pontos de interesse</strong>. O traçado é uma <strong>prévia</strong> — o app usa Google Maps ou Apple Maps.
-                        </p>
+                  {/* Fixed header: snap toggle + waypoints header + POI search */}
+                  <div className="px-4 pt-3 pb-2 space-y-2 border-b border-gray-100 dark:border-gray-800 shrink-0">
+
+                    {/* Snap to roads — minimal, low-key */}
+                    <div
+                      className="flex items-center gap-2 cursor-pointer select-none group py-1"
+                      onClick={() => setSnapToRoads(v => !v)}
+                    >
+                      {snapToRoads
+                        ? <Route className="h-3.5 w-3.5 text-tuggi-blue shrink-0" />
+                        : <PenTool className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                      }
+                      <span className={cn(
+                        'text-xs transition-colors flex-1',
+                        snapToRoads ? 'text-tuggi-blue font-medium' : 'text-gray-400 group-hover:text-gray-600'
+                      )}>
+                        {snapToRoads ? 'Seguir vias (snap to roads)' : 'Linhas retas (manual)'}
+                      </span>
+                      <div className={cn('w-7 h-4 rounded-full relative transition-all duration-300 shrink-0', snapToRoads ? 'bg-tuggi-blue' : 'bg-gray-200 dark:bg-gray-700')}>
+                        <div className={cn('absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-sm', snapToRoads ? 'translate-x-3' : 'translate-x-0')} />
                       </div>
+                    </div>
 
-                      {/* Snap to roads — toggle compacto */}
-                      <div
+                    {/* Waypoints header */}
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Navigation className="h-3.5 w-3.5" />
+                        Pontos de Passagem
+                        <span className="font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full text-[10px]">
+                          {waypoints.length}
+                        </span>
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setShowPoiSearch(v => !v)}
                         className={cn(
-                          'flex items-center justify-between px-4 py-3 rounded-xl cursor-pointer select-none transition-all border',
-                          snapToRoads
-                            ? 'bg-blue-50/60 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/30'
-                            : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200'
+                          'p-1.5 rounded-lg transition-all text-xs font-semibold flex items-center gap-1',
+                          showPoiSearch ? 'bg-tuggi-blue text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700'
                         )}
-                        onClick={() => setSnapToRoads(v => !v)}
                       >
-                        <div className="flex items-center gap-2.5">
-                          {snapToRoads
-                            ? <Route className="h-4 w-4 text-tuggi-blue" />
-                            : <PenTool className="h-4 w-4 text-gray-400" />
-                          }
-                          <div>
-                            <p className="text-xs font-bold text-gray-800 dark:text-white">{t('snap_to_roads')}</p>
-                            <p className="text-[10px] text-gray-400">{snapToRoads ? 'Seguir vias' : 'Linhas retas'}</p>
-                          </div>
-                        </div>
-                        <div className={cn('w-9 h-5 rounded-full relative transition-all duration-300', snapToRoads ? 'bg-tuggi-blue' : 'bg-gray-300 dark:bg-gray-600')}>
-                          <div className={cn('absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all duration-300 shadow-sm', snapToRoads ? 'translate-x-4' : 'translate-x-0')} />
-                        </div>
-                      </div>
+                        <Plus className="h-3.5 w-3.5" /> Buscar POI
+                      </button>
+                    </div>
 
-                      {/* Waypoints */}
-                      <section className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-800">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                            <Navigation className="h-4 w-4" />
-                            Pontos de Passagem
-                          </h3>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full">
-                              {waypoints.length}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setShowPoiSearch(v => !v)}
-                              className={cn(
-                                'p-1.5 rounded-lg transition-all text-xs font-semibold flex items-center gap-1',
-                                showPoiSearch ? 'bg-tuggi-blue text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700'
-                              )}
-                            >
-                              <Plus className="h-3.5 w-3.5" /> Buscar POI
+                    {/* POI search (when open) */}
+                    {showPoiSearch && (
+                      <div className="relative">
+                        <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
+                          <MapPin className="h-4 w-4 text-gray-400 shrink-0" />
+                          <input
+                            type="text"
+                            autoFocus
+                            value={poiSearchQuery}
+                            onChange={e => handlePoiSearch(e.target.value)}
+                            placeholder="Buscar local no banco..."
+                            className="flex-1 text-xs bg-transparent outline-none text-gray-700 dark:text-gray-300 placeholder:text-gray-400"
+                          />
+                          {isSearchingPoi && <RefreshCw className="h-3.5 w-3.5 text-gray-400 animate-spin shrink-0" />}
+                          {poiSearchQuery && !isSearchingPoi && (
+                            <button onClick={() => { setPoiSearchQuery(''); setPoiSearchResults([]) }}>
+                              <X className="h-3.5 w-3.5 text-gray-400" />
                             </button>
-                          </div>
+                          )}
                         </div>
-
-                        {/* POI search */}
-                        {showPoiSearch && (
-                          <div className="relative">
-                            <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
-                              <MapPin className="h-4 w-4 text-gray-400 shrink-0" />
-                              <input
-                                type="text"
-                                autoFocus
-                                value={poiSearchQuery}
-                                onChange={e => handlePoiSearch(e.target.value)}
-                                placeholder="Buscar local no banco..."
-                                className="flex-1 text-xs bg-transparent outline-none text-gray-700 dark:text-gray-300 placeholder:text-gray-400"
-                              />
-                              {isSearchingPoi && <RefreshCw className="h-3.5 w-3.5 text-gray-400 animate-spin shrink-0" />}
-                              {poiSearchQuery && !isSearchingPoi && (
-                                <button onClick={() => { setPoiSearchQuery(''); setPoiSearchResults([]) }}>
-                                  <X className="h-3.5 w-3.5 text-gray-400" />
-                                </button>
-                              )}
-                            </div>
-                            {poiSearchResults.length > 0 && (
-                              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
-                                {poiSearchResults.map(poi => (
-                                  <button
-                                    key={poi.id}
-                                    type="button"
-                                    onClick={() => addWaypointFromPoi(poi)}
-                                    disabled={!poi.coordinates}
-                                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-left disabled:opacity-40"
-                                  >
-                                    <MapPin className="h-3.5 w-3.5 text-tuggi-blue shrink-0" />
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{poi.name}</p>
-                                      {(poi.city || poi.country) && (
-                                        <p className="text-[10px] text-gray-400 truncate">{[poi.city, poi.country].filter(Boolean).join(', ')}</p>
-                                      )}
-                                    </div>
-                                    {!poi.coordinates && <span className="text-[10px] text-orange-400 shrink-0">sem coords</span>}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                            {poiSearchQuery.length >= 2 && !isSearchingPoi && poiSearchResults.length === 0 && (
-                              <p className="text-[10px] text-gray-400 text-center mt-2">
-                                Nenhum POI encontrado. Clique no mapa para adicionar manualmente.
-                              </p>
-                            )}
+                        {poiSearchResults.length > 0 && (
+                          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
+                            {poiSearchResults.map(poi => (
+                              <button
+                                key={poi.id}
+                                type="button"
+                                onClick={() => addWaypointFromPoi(poi)}
+                                disabled={!poi.coordinates}
+                                className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-left disabled:opacity-40"
+                              >
+                                <MapPin className="h-3.5 w-3.5 text-tuggi-blue shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{poi.name}</p>
+                                  {(poi.city || poi.country) && (
+                                    <p className="text-[10px] text-gray-400 truncate">{[poi.city, poi.country].filter(Boolean).join(', ')}</p>
+                                  )}
+                                </div>
+                                {!poi.coordinates && <span className="text-[10px] text-orange-400 shrink-0">sem coords</span>}
+                              </button>
+                            ))}
                           </div>
                         )}
+                        {poiSearchQuery.length >= 2 && !isSearchingPoi && poiSearchResults.length === 0 && (
+                          <p className="text-[10px] text-gray-400 text-center mt-1">
+                            Nenhum POI encontrado. Clique no mapa para adicionar.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
 
-                        {/* Waypoint list */}
-                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
+                  {/* Scrollable waypoint list — flex-1, fills all remaining space */}
+                  <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-2">
+                    <div className="space-y-1.5">
                           {waypoints.map((wp, index) => {
                             const isExpanded = expandedWaypointId === wp.id
                             const isStartOrEnd = index === 0 || index === waypoints.length - 1
@@ -1057,24 +1099,24 @@ function RouteEditorModalInner({
                             )
                           })}
                           {waypoints.length === 0 && (
-                            <div className="text-center py-8 border-2 border-dashed border-gray-100 dark:border-gray-800 rounded-2xl">
+                            <div className="text-center py-12 border-2 border-dashed border-gray-100 dark:border-gray-800 rounded-2xl">
+                              <MapPin className="h-8 w-8 text-gray-200 dark:text-gray-700 mx-auto mb-2" />
                               <p className="text-xs text-gray-400 px-4">Clique no mapa para adicionar pontos</p>
                             </div>
                           )}
-                        </div>
-
-                        <button
-                          onClick={() => setWaypoints([])}
-                          disabled={waypoints.length === 0}
-                          className="w-full py-2 text-xs font-semibold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-xl transition-all disabled:opacity-30 flex items-center justify-center gap-2"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" /> {t('clear_points')}
-                        </button>
-                      </section>
                     </div>
                   </div>
 
-                  {/* (stats + save moved to sidebar) */}
+                  {/* Fixed footer: clear points */}
+                  <div className="px-3 py-2 border-t border-gray-100 dark:border-gray-800 shrink-0">
+                    <button
+                      onClick={() => setWaypoints([])}
+                      disabled={waypoints.length === 0}
+                      className="w-full py-2 text-xs font-semibold text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-xl transition-all disabled:opacity-20 flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> {t('clear_points')}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Map panel */}
@@ -1392,13 +1434,37 @@ function RouteEditorModalInner({
             )}
 
             {/* ══ TAB: IDIOMAS ══ */}
-            {activeTab === 'languages' && isEditing && routeId && (
-              <div className="h-full overflow-y-auto custom-scrollbar">
-                <RouteTranslationsPanel
-                  routeId={routeId}
-                  routeName={name || initialData?.name || ''}
-                  inline
-                />
+            {activeTab === 'languages' && effectiveIsEditing && effectiveRouteId && (
+              <div className="h-full flex flex-col overflow-hidden">
+                {/* Post-save validation banner */}
+                {(translationSaved || missingLangs.length > 0) && (
+                  <div className="shrink-0 px-6 pt-4">
+                    <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 rounded-2xl">
+                      <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-amber-800 dark:text-amber-300 mb-1">
+                          {translationSaved ? 'Rota salva! Traduções pendentes.' : 'Traduções incompletas'}
+                        </p>
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                          {missingLangs.length} idioma{missingLangs.length !== 1 ? 's' : ''} sem tradução:{' '}
+                          <span className="font-semibold">{missingLangs.join(', ')}</span>.
+                          Use o botão <strong>"Gerar todos os pendentes"</strong> abaixo.
+                        </p>
+                      </div>
+                      <button onClick={() => { setTranslationSaved(false); setMissingLangs([]) }}
+                        className="text-amber-400 hover:text-amber-600 p-1 shrink-0">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                  <RouteTranslationsPanel
+                    routeId={effectiveRouteId}
+                    routeName={name || initialData?.name || ''}
+                    inline
+                  />
+                </div>
               </div>
             )}
 
