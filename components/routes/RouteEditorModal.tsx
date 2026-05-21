@@ -175,9 +175,6 @@ function RouteEditorModalInner({
   // ── Load route data ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!routeId) return
-    // Reset map instance before loading — the map div will unmount while
-    // isLoadingRoute=true, so when it remounts the init effect must recreate it.
-    mapInstanceRef.current = null
     setIsLoadingRoute(true)
     fetch(`/api/routes/${routeId}`)
       .then(r => r.json())
@@ -216,9 +213,6 @@ function RouteEditorModalInner({
 
   // ── Initialize Map ─────────────────────────────────────────────────────────
   useEffect(() => {
-    // Run after route data finishes loading (isLoadingRoute: true → false)
-    // to ensure the map div is in the DOM before we try to init.
-    if (isLoadingRoute) return
     if (activeTab !== 'route') return
     if (mapRef.current && !mapInstanceRef.current && window.google) {
       let savedCenter = { lat: -23.5505, lng: -46.6333 }
@@ -265,7 +259,17 @@ function RouteEditorModalInner({
 
       mapInstanceRef.current = map
     }
-  }, [activeTab, waypoints, isLoadingRoute]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, waypoints]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Pan map to first waypoint once, when route data arrives ──────────────
+  // Guard prevents repeated panning on every waypoint change.
+  const hasAutoZoomedRef = useRef(false)
+  useEffect(() => {
+    if (!mapInstanceRef.current || waypoints.length === 0 || hasAutoZoomedRef.current) return
+    hasAutoZoomedRef.current = true
+    mapInstanceRef.current.panTo({ lat: waypoints[0].lat, lng: waypoints[0].lng })
+    mapInstanceRef.current.setZoom(12)
+  }, [waypoints])
 
   // ── Generate route geometry ────────────────────────────────────────────────
   useEffect(() => {
@@ -627,21 +631,10 @@ function RouteEditorModalInner({
   if (waypoints.length < 2) missingFields.push('Mínimo 2 pontos no mapa')
   const canSave = missingFields.length === 0 && !isSaving && !isGenerating && canEdit && !isViewer
 
-  // ── Loading state ──────────────────────────────────────────────────────────
-  if (isLoadingRoute) {
-    return (
-      <div className="fixed inset-0 z-[100] flex justify-end bg-black/50 backdrop-blur-sm">
-        <div className="w-[85vw] bg-white dark:bg-gray-900 h-full flex items-center justify-center shadow-2xl">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-12 h-12 border-4 border-tuggi-blue/20 border-t-tuggi-blue rounded-full animate-spin" />
-            <p className="text-gray-400 font-bold animate-pulse">Carregando rota...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   // ─────────────────────────────────────────────────────────────────────────
+  // NOTE: We never early-return during isLoadingRoute — that would unmount the
+  // map div and break mapInstanceRef. Instead we render the full modal always
+  // and show a loading overlay on top of the content area.
   return (
     <div
       className={cn(
@@ -715,7 +708,16 @@ function RouteEditorModalInner({
         </div>
 
         {/* ── Main flex row ────────────────────────────────────────────────── */}
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex overflow-hidden relative">
+          {/* Loading overlay — sits over content without unmounting map div */}
+          {isLoadingRoute && (
+            <div className="absolute inset-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-10 h-10 border-4 border-tuggi-blue/20 border-t-tuggi-blue rounded-full animate-spin" />
+                <p className="text-sm text-gray-500 font-medium animate-pulse">Carregando rota...</p>
+              </div>
+            </div>
+          )}
 
           {/* ── Left tab nav sidebar ───────────────────────────────────────── */}
           <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex flex-col gap-2 z-20 shrink-0">
