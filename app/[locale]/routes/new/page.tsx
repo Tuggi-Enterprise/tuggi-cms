@@ -1,22 +1,25 @@
 'use client'
 
-import { RouteEditor } from '@/components/routes/RouteEditor'
-import { useCmsUser } from '@/lib/hooks/useCmsUser'
+/**
+ * /routes/new — redirect para /routes?mode=new
+ *
+ * A criação de rotas agora ocorre no modal de /routes.
+ * Esta página serve como entrada de deep link para compatibilidade.
+ */
+
+import { useEffect } from 'react'
+import { useRouter } from '@/navigation'
 
 export default function NewRoutePage() {
-  const { isViewer } = useCmsUser()
+  const router = useRouter()
 
-  if (isViewer) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <p className="text-red-500 font-bold">Você não tem permissão para criar rotas.</p>
-      </div>
-    )
-  }
+  useEffect(() => {
+    router.replace('/routes?mode=new')
+  }, [router])
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] overflow-hidden">
-      <RouteEditor />
+    <div className="h-full flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-tuggi-blue/20 border-t-tuggi-blue rounded-full animate-spin" />
     </div>
   )
 }
