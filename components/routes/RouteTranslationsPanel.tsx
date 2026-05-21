@@ -447,14 +447,14 @@ export function RouteTranslationsPanel({ routeId, routeName, onClose, inline = f
                             </button>
                           )}
 
-                          {/* Translated languages: edit and regenerate */}
-                          {!lang.isOriginal && tr?.status === 'ready' && (
+                          {/* Edit — always visible for translated languages (write directly or edit existing) */}
+                          {!lang.isOriginal && (
                             <button
                               onClick={() => openEditor(lang.code)}
                               className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                              title="Editar"
+                              title="Escrever / editar"
                             >
-                              <Edit2 className="h-3 w-3 text-gray-400" />
+                              <Edit2 className={cn('h-3 w-3', tr?.status === 'ready' ? 'text-gray-400' : 'text-gray-300')} />
                             </button>
                           )}
                           {!lang.isOriginal && (tr?.status === 'failed' || tr?.status === 'ready') && (
@@ -470,7 +470,8 @@ export function RouteTranslationsPanel({ routeId, routeName, onClose, inline = f
                               }
                             </button>
                           )}
-                          {!lang.isOriginal && tr?.status === 'ready' && (
+                          {/* Chevron to open/close editor — always for non-original */}
+                          {!lang.isOriginal && (
                             <button
                               onClick={() => openEditor(lang.code)}
                               className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -487,6 +488,13 @@ export function RouteTranslationsPanel({ routeId, routeName, onClose, inline = f
                       {/* Editor expanded */}
                       {isExpanded && edit && (
                         <div className="px-3 pb-3 space-y-2 border-t border-indigo-100 dark:border-indigo-800/30 pt-2">
+                          {/* Context hint: new vs editing */}
+                          {!tr && (
+                            <p className="text-[9px] text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg flex items-center gap-1">
+                              <Edit2 className="h-2.5 w-2.5 shrink-0" />
+                              Escreve directamente em {TRANSLATABLE_LANGUAGES.find(l => l.code === lang.code)?.name ?? lang.code} sem precisar de gerar pela IA.
+                            </p>
+                          )}
                           {tr?.manually_edited && (
                             <p className="text-[9px] text-amber-600 flex items-center gap-1">
                               <Edit2 className="h-2.5 w-2.5" />
