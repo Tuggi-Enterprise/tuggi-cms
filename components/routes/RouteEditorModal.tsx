@@ -102,7 +102,9 @@ function RouteEditorModalInner({
   const isEditing = Boolean(routeId)
 
   // ── Tab state ──────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<RouteTab>('route')
+  // Criação → começa em Conteúdo (nome é obrigatório antes do mapa)
+  // Edição  → começa em Rota (ver o mapa existente é a ação mais comum)
+  const [activeTab, setActiveTab] = useState<RouteTab>(isEditing ? 'route' : 'content')
 
   // ── Content language (for name + description fields) ───────────────────────
   // Default = CMS locale. Persisted in route metadata.content_language.
@@ -599,8 +601,8 @@ function RouteEditorModalInner({
   // ── Tab definitions ────────────────────────────────────────────────────────
   const contentLangMeta = CONTENT_LANGUAGES.find(l => l.code === contentLanguage)
   const tabs: { id: RouteTab; icon: any; label: string; badge?: string }[] = [
-    { id: 'route',      icon: Navigation, label: 'Rota'        },
     { id: 'content',    icon: FileText,   label: 'Conteúdo',   badge: contentLangMeta?.flag },
+    { id: 'route',      icon: Navigation, label: 'Rota'        },
     { id: 'experience', icon: Camera,     label: 'Experiência' },
     { id: 'settings',   icon: Settings,   label: 'Config'      },
     ...(isEditing ? [{ id: 'languages' as RouteTab, icon: Globe, label: 'Idiomas' }] : []),
