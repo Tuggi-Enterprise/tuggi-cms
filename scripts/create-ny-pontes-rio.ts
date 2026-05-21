@@ -62,8 +62,8 @@ const FORCE = process.argv.includes('--force')
 
 // ─── Constantes da rota ───────────────────────────────────────────────────────
 
-const ROUTE_NAME        = 'New York pelas Pontes — East River de Ferry e a Pé'
-const ROUTE_DESCRIPTION = 'A rota mais única de New York: explorar as pontes icônicas da cidade de dois ângulos — do rio pelo NYC Ferry e a pé pelos mirantes mais fotogênicos. O East River Ferry passa sob a Brooklyn Bridge, Manhattan Bridge e Williamsburg Bridge com vistas impossíveis de se ter em terra. Comece no Pier 11 (Wall Street), atravesse para o DUMBO com o famoso enquadramento da Manhattan Bridge, caminhe pela Brooklyn Bridge Park com o skyline de Manhattan ao fundo, e veja a Queensboro Bridge da Long Island City com vista panorâmica de Midtown. Um roteiro de balsa e caminhada sem precisar de carro — 100% transporte público.'
+const ROUTE_NAME        = 'East River de Ferry — De Upper East Side a Wall Street Pelas 4 Pontes'
+const ROUTE_DESCRIPTION = 'A rota mais única de New York: o NYC Ferry sai do cais de East 90th Street (Upper East Side) e desce o East River passando sob 4 das pontes mais icônicas da cidade. O bilhete de US$ 2,75 (era US$ 4 há alguns anos) compra uma das experiências mais cinematográficas de Nova York: o East River com a skyline de Manhattan de um lado, Brooklyn e Queens do outro, e as grandes pontes passando sobre você. Depois de Pier 11, siga a pé até o DUMBO para a foto mais famosa da cidade e caminhe pela Brooklyn Bridge. Rota 100% ferry + caminhada, sem carro.'
 const ROUTE_COUNTRY     = 'United States'
 const ROUTE_REGION      = 'New York'
 
@@ -93,17 +93,33 @@ interface EnrichedWaypoint {
 
 // ─── Landmarks ────────────────────────────────────────────────────────────────
 
+// Rota norte-sul: embarca em E 90th St, desce pelo East River
+// passando sob a Queensboro (59th), Williamsburg, Manhattan e Brooklyn Bridges
+
 const ROUTE_LANDMARKS: RouteLandmark[] = [
-  { name: 'Pier 11 / Wall Street — East River Ferry Terminal',    lat: 40.7038, lng: -74.0123 },
-  { name: 'Brooklyn Bridge Park — Pier 1 (vistas da Brooklyn Bridge)', lat: 40.6985, lng: -73.9981 },
+  // ── Partida: Upper East Side ──────────────────────────────────────────────
+  { name: 'E 90th Street Ferry Terminal — Embarque NYC Ferry ($2.75)', lat: 40.7779, lng: -73.9449 },
+
+  // ── Queensboro / 59th Street Bridge ──────────────────────────────────────
+  { name: 'Roosevelt Island — Embaixo da Queensboro Bridge (tram ou ferry)', lat: 40.7568, lng: -73.9507 },
+
+  // ── East 34th St: parada do ferry ────────────────────────────────────────
+  { name: 'East 34th Street Pier — Parada do Ferry em Midtown',       lat: 40.7448, lng: -73.9729 },
+
+  // ── Williamsburg Bridge ───────────────────────────────────────────────────
+  { name: 'NYC Ferry — Williamsburg (N 7th St, vista da Williamsburg Bridge)', lat: 40.7163, lng: -73.9583 },
+  { name: 'Domino Park — Williamsburg Waterfront',                    lat: 40.7148, lng: -73.9674 },
+
+  // ── Manhattan Bridge (melhor vista: de baixo, no DUMBO) ──────────────────
   { name: 'DUMBO — Washington & Front St (a foto da Manhattan Bridge)', lat: 40.7033, lng: -73.9890 },
-  { name: 'Fulton Ferry Landing — Onde o Brooklyn e Manhattan se encontram', lat: 40.7025, lng: -73.9883 },
-  { name: 'Brooklyn Bridge — Travessia a Pé (lado Brooklyn)',     lat: 40.7061, lng: -73.9969 },
-  { name: 'Williamsburg Waterfront — Vista da Williamsburg Bridge', lat: 40.7148, lng: -73.9674 },
-  { name: 'NYC Ferry — Williamsburg (N 7th St pier)',             lat: 40.7163, lng: -73.9583 },
-  { name: 'Long Island City — Gantry Plaza State Park (Queensboro Bridge)', lat: 40.7453, lng: -73.9545 },
-  { name: 'Roosevelt Island Tram — Embaixo da Queensboro Bridge', lat: 40.7568, lng: -73.9507 },
-  { name: 'East 34th St Pier — NYC Ferry de volta a Manhattan',   lat: 40.7448, lng: -73.9729 },
+  { name: 'Fulton Ferry Landing Brooklyn',                            lat: 40.7025, lng: -73.9883 },
+
+  // ── Brooklyn Bridge ───────────────────────────────────────────────────────
+  { name: 'Brooklyn Bridge Park — Pier 1 (vista de todas as pontes)', lat: 40.6985, lng: -73.9981 },
+  { name: 'Brooklyn Bridge — Travessia a Pé (entrada lado Brooklyn)', lat: 40.7061, lng: -73.9969 },
+
+  // ── Chegada: Pier 11 / Wall Street ────────────────────────────────────────
+  { name: 'Pier 11 / Wall Street — Terminal Final do East River Ferry', lat: 40.7038, lng: -74.0123 },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

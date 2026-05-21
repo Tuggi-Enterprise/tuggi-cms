@@ -61,8 +61,8 @@ const FORCE = process.argv.includes('--force')
 
 // ─── Constantes da rota ───────────────────────────────────────────────────────
 
-const ROUTE_NAME        = 'The One with New York — O Roteiro dos Fãs de Friends'
-const ROUTE_DESCRIPTION = 'Para os fãs de Friends, Nova York é um parque temático ao ar livre. Este roteiro passa pelos locais reais onde a série foi filmada externamente: o prédio icônico de 90 Bedford Street onde ficavam os apartamentos de Monica e Joey/Chandler, o prédio de Phoebe na Morton Street, o American Museum of Natural History onde Ross trabalhava como paleontólogo, a Bloomingdale\'s onde Rachel trabalhava, o Central Park de inúmeras cenas e muito mais. Todos confirmados — sem invenção. Um roteiro de caminhada pelo Greenwich Village e West Side que vai fazer qualquer fã de Friends pirar.'
+const ROUTE_NAME        = 'The One with New York — O Roteiro dos Fãs de Friends (com Episódios!)'
+const ROUTE_DESCRIPTION = 'Para os fãs de Friends, Nova York é um parque temático ao ar livre. Este roteiro passa pelos locais REAIS onde a série foi filmada externamente — com referência ao episódio que aparece em cada lugar. O prédio de 90 Bedford Street aparece em TODOS os 236 episódios. A rua de Phoebe em S7E15. O museu de Ross e a data inesquecível de S2E15. A Bloomingdale\'s onde Rachel começou em S3E10. O Central Park onde Phoebe corre estranhamente em S6E7. Todos locais confirmados com fontes. Um roteiro de caminhada pelo Greenwich Village e Upper West Side que vai fazer qualquer fã pirar.'
 const ROUTE_COUNTRY     = 'United States'
 const ROUTE_REGION      = 'New York'
 
@@ -92,17 +92,30 @@ interface EnrichedWaypoint {
 
 // ─── Landmarks ────────────────────────────────────────────────────────────────
 
+// Nota: localizações verificadas com fonte. Episódios indicados no nome.
+// High Line REMOVIDA — abriu em 2009, 5 anos DEPOIS do final de Friends (2004).
+// Rockefeller/Grand Central REMOVIDOS — sem episódio confirmado nestas locações.
+
 const ROUTE_LANDMARKS: RouteLandmark[] = [
-  { name: '90 Bedford Street — O Prédio de Monica, Rachel, Joey e Chandler', lat: 40.7324, lng: -74.0062 },
-  { name: '5 Morton Street — O Prédio da Phoebe',                lat: 40.7315, lng: -74.0008 },
-  { name: '19 Grove Street — O Prédio do Ugly Naked Guy',        lat: 40.7325, lng: -74.0059 },
-  { name: 'Grove Street e Bedford — O Cruzamento Icônico da Série', lat: 40.7327, lng: -74.0059 },
-  { name: 'The High Line — Parque Elevado no Chelsea (área da série)', lat: 40.7480, lng: -74.0048 },
-  { name: 'Central Park — Bethesda Fountain (inúmeras cenas)',   lat: 40.7731, lng: -73.9703 },
-  { name: 'American Museum of Natural History — O Museu do Ross', lat: 40.7813, lng: -73.9740 },
-  { name: 'Bloomingdale\'s 59th St — O Trabalho de Rachel',      lat: 40.7627, lng: -73.9680 },
-  { name: 'Rockefeller Center — 30 Rock (NBC Studios)',          lat: 40.7587, lng: -73.9787 },
-  { name: 'Grand Central Terminal — Cenas de NY da Série',       lat: 40.7527, lng: -73.9772 },
+  // ── Greenwich Village: o coração de Friends ───────────────────────────────
+  { name: '90 Bedford St — Monica, Joey & Chandler (TODOS os 236 episódios)', lat: 40.7324, lng: -74.0062 },
+  { name: '19 Grove St — Prédio do Ugly Naked Guy (exterior em frente ao 90 Bedford)', lat: 40.7325, lng: -74.0059 },
+  { name: '5 Morton St — Prédio da Phoebe (S7E15 — "The One With Joey\'s New Brain")', lat: 40.7315, lng: -74.0008 },
+  { name: 'Grove & Bedford — O Cruzamento que Aparece em Todo Externo',       lat: 40.7327, lng: -74.0059 },
+
+  // ── West Village / SoHo: o bairro de Friends ─────────────────────────────
+  { name: 'Abingdon Square Park — Entrada do West Village (bairro da série)', lat: 40.7358, lng: -74.0082 },
+  { name: 'Washington Square Park — NYU onde Ross lecionou (Temporadas 6-10)', lat: 40.7308, lng: -74.0000 },
+
+  // ── Upper West Side: Ross e o museu ──────────────────────────────────────
+  { name: 'AMNH — O Museu do Ross (S2E15 — primeira data com Rachel no planetário)', lat: 40.7813, lng: -73.9740 },
+
+  // ── Central Park ──────────────────────────────────────────────────────────
+  { name: 'Central Park The Mall — S6E7 "The One Where Phoebe Runs" (Phoebe corre estranhamente)', lat: 40.7719, lng: -73.9742 },
+  { name: 'Central Park Bethesda Fountain — Cenas de caminhada e encontros de várias temporadas', lat: 40.7731, lng: -73.9703 },
+
+  // ── Midtown: trabalho de Rachel ───────────────────────────────────────────
+  { name: 'Bloomingdale\'s 59th St — S3E10 "The One Where Rachel Quits" (Rachel começa aqui)', lat: 40.7627, lng: -73.9680 },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
