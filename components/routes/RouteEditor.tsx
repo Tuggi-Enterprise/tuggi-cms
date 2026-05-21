@@ -23,6 +23,7 @@ import {
   Edit,
   Link2,
   ExternalLink,
+  Globe,
   // Characteristics icons
   Accessibility,
   Car,
@@ -44,6 +45,7 @@ import { cn } from '@/lib/utils'
 import { useRouter } from '@/navigation'
 import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
+import { RouteTranslationsPanel } from './RouteTranslationsPanel'
 
 const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
@@ -117,6 +119,9 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
   
   // Waypoint UI State
   const [expandedWaypointId, setExpandedWaypointId] = useState<string | null>(null)
+
+  // Painel de traduções
+  const [showTranslations, setShowTranslations] = useState(false)
 
   // POI Search State (busca manual pelo admin)
   const [poiSearchQuery, setPoiSearchQuery] = useState('')
@@ -1472,16 +1477,38 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
             </div>
           )}
 
-          <button
-            onClick={handleSave}
-            disabled={!canEdit || isViewer || isSaving || isGenerating || !name || waypoints.length < 2}
-            className="w-full py-4 bg-tuggi-blue text-white font-bold rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/30 active:scale-[0.98] flex items-center justify-center gap-3 text-lg"
-          >
-            {isSaving ? <RefreshCw className="h-6 w-6 animate-spin" /> : <Save className="h-6 w-6" />}
-            {commonT('actions.save')}
-          </button>
+          <div className="flex gap-2">
+            {/* Botão Traduções — só aparece quando editando uma rota existente */}
+            {isEditing && initialData?.id && (
+              <button
+                onClick={() => setShowTranslations(true)}
+                className="px-4 py-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-2xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all flex items-center gap-2 border border-indigo-100 dark:border-indigo-800/30 shrink-0"
+                title="Gerenciar traduções da rota"
+              >
+                <Globe className="h-5 w-5" />
+              </button>
+            )}
+
+            <button
+              onClick={handleSave}
+              disabled={!canEdit || isViewer || isSaving || isGenerating || !name || waypoints.length < 2}
+              className="flex-1 py-4 bg-tuggi-blue text-white font-bold rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/30 active:scale-[0.98] flex items-center justify-center gap-3 text-lg"
+            >
+              {isSaving ? <RefreshCw className="h-6 w-6 animate-spin" /> : <Save className="h-6 w-6" />}
+              {commonT('actions.save')}
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Painel de Traduções */}
+      {showTranslations && isEditing && initialData?.id && (
+        <RouteTranslationsPanel
+          routeId={initialData.id}
+          routeName={name || initialData.name}
+          onClose={() => setShowTranslations(false)}
+        />
+      )}
 
       {/* Main Map Area */}
       <div className="flex-1 relative bg-gray-100 dark:bg-gray-950">
