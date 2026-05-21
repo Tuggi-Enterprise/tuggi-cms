@@ -183,7 +183,14 @@
       "Bash(sqlite3 data/local_osm.db \"SELECT substr\\(tags_json,1,100\\) FROM pois WHERE tags_json LIKE '%Saint Patrick%Cathedral%' AND min_lat > 40.757 AND max_lat < 40.760 LIMIT 2;\")",
       "Bash(sqlite3 data/local_osm.db \"SELECT id, min_lat, max_lat, min_lng, max_lng, substr\\(tags_json,1,200\\) FROM pois WHERE tags_json LIKE '%\\\\\"name\\\\\":\\\\\"Brooklyn Botanic Garden\\\\\"%' LIMIT 3;\")",
       "Bash(sqlite3 data/local_osm.db \"SELECT json_extract\\(tags_json, '$.name'\\) FROM pois WHERE tags_json LIKE '%Saint Patrick%Cathedral%' AND min_lat > 40.757 AND max_lat < 40.760 LIMIT 1;\")",
-      "Bash(sqlite3 data/local_osm.db \"SELECT hex\\(json_extract\\(tags_json, '$.name'\\)\\) FROM pois WHERE tags_json LIKE '%Saint Patrick%Cathedral%' AND min_lat > 40.757 LIMIT 1;\")"
+      "Bash(sqlite3 data/local_osm.db \"SELECT hex\\(json_extract\\(tags_json, '$.name'\\)\\) FROM pois WHERE tags_json LIKE '%Saint Patrick%Cathedral%' AND min_lat > 40.757 LIMIT 1;\")",
+      "Bash(osmium fileinfo *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git merge feat/geofences --no-ff -m 'feat: visibility-driven trigger points motor + production hardening *)",
+      "Bash(git stash *)",
+      "Bash(git merge *)",
+      "Bash(awk 'NR>2 && NR<20')"
     ],
     "additionalDirectories": [
       "/private/tmp"
