@@ -1,22 +1,40 @@
 /**
  * GET  /api/routes/[id]/translations  — lista todas as traduções da rota
  * POST /api/routes/[id]/translations  — salva edição manual de um idioma
+ *
+ * Auth: verifica sessão via getSupabaseRouteHandler (como todas as outras rotas).
+ * DB:   usa getSupabase('service') para operações que precisam ignorar RLS
+ *       (o admin precisa ler/escrever traduções de qualquer rota do cliente).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabase } from '@/lib/core/supabase-client'
+import { getSupabase, getSupabaseRouteHandler } from '@/lib/core/supabase-client'
+import { cookies } from 'next/headers'
 
 export const dynamic = 'force-dynamic'
+
+// ─── Auth helper ──────────────────────────────────────────────────────────────
+
+async function requireAuth() {
+  const cookieStore = await cookies()
+  const supabaseAuth = getSupabaseRouteHandler(cookieStore)
+  const { data: { session }, error } = await supabaseAuth.auth.getSession()
+  if (error || !session) return null
+  return session
+}
 
 // ─── GET — listar traduções ────────────────────────────────────────────────────
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireAuth()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { id: routeId } = await params
   const supabase = getSupabase('service')
 
-  // Buscar dados originais da rota (pt-BR)
+  // Buscar dados originais da rota (conteúdo base)
   const { data: route, error: routeError } = await supabase
     .schema('core')
     .from('custom_routes')
@@ -52,6 +70,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const session = await requireAuth()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { id: routeId } = await params
   const body = await req.json()
   const { language, gender = 'male', name, description } = body

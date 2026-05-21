@@ -26,31 +26,12 @@ import { useTranslations, useLocale } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
+import { ROUTE_LANGUAGES, localeToLangCode } from '@/lib/constants/route-languages'
 import { RouteTranslationsPanel } from './RouteTranslationsPanel'
 
-// ─── Content language catalogue ───────────────────────────────────────────────
-
-const CONTENT_LANGUAGES = [
-  { code: 'pt-br', label: 'Português (Brasil)',  flag: '🇧🇷' },
-  { code: 'pt-pt', label: 'Português (Portugal)', flag: '🇵🇹' },
-  { code: 'en-us', label: 'English (US)',         flag: '🇺🇸' },
-  { code: 'en-gb', label: 'English (UK)',         flag: '🇬🇧' },
-  { code: 'es-es', label: 'Español',              flag: '🇪🇸' },
-  { code: 'fr-fr', label: 'Français',             flag: '🇫🇷' },
-  { code: 'de-de', label: 'Deutsch',              flag: '🇩🇪' },
-  { code: 'it-it', label: 'Italiano',             flag: '🇮🇹' },
-  { code: 'ja-jp', label: '日本語',               flag: '🇯🇵' },
-]
-
-/** Map next-intl locale → our lang code (fallback: prepend -xx) */
-function localeToLangCode(locale: string): string {
-  const map: Record<string, string> = {
-    pt: 'pt-br', 'pt-BR': 'pt-br', 'pt-PT': 'pt-pt',
-    en: 'en-us', 'en-US': 'en-us', 'en-GB': 'en-gb',
-    es: 'es-es', fr: 'fr-fr', de: 'de-de', it: 'it-it', ja: 'ja-jp',
-  }
-  return map[locale] ?? locale.toLowerCase().replace('_', '-')
-}
+// SSOT: language catalogue is in lib/constants/route-languages.ts
+// Alias kept for backward-compat with JSX below (uses .name not .label)
+const CONTENT_LANGUAGES = ROUTE_LANGUAGES
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1236,7 +1217,7 @@ function RouteEditorModalInner({
                           >
                             {CONTENT_LANGUAGES.map(lang => (
                               <option key={lang.code} value={lang.code}>
-                                {lang.flag} {lang.label}
+                                {lang.flag} {lang.name}
                               </option>
                             ))}
                           </select>

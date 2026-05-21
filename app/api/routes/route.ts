@@ -157,6 +157,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'At least 2 waypoints are required' }, { status: 400 })
     }
 
+    // country and region required for app filters and display
+    if (!body.country || !body.region) {
+      return NextResponse.json({ error: 'country and region are required' }, { status: 400 })
+    }
+
     const userId = session.user.id
 
     const route = await RouteService.createRoute(supabaseAuth, {

@@ -7,6 +7,12 @@ import {
   Loader2, Wand2, Save, Volume2, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  ROUTE_LANGUAGES,
+  TRANSLATABLE_LANGS,
+  DEFAULT_SELECTED_LANGS,
+  type RouteLang,
+} from '@/lib/constants/route-languages'
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -35,23 +41,13 @@ interface Props {
   inline?: boolean
 }
 
-// ─── Idiomas (excl. original pt-br que é o conteúdo base) ─────────────────────
-
-const TRANSLATABLE_LANGUAGES = [
-  { code: 'en-us', name: 'English',    sub: 'US',       flag: '🇺🇸' },
-  { code: 'en-gb', name: 'English',    sub: 'UK',       flag: '🇬🇧' },
-  { code: 'es-es', name: 'Español',    sub: 'España',   flag: '🇪🇸' },
-  { code: 'fr-fr', name: 'Français',   sub: 'France',   flag: '🇫🇷' },
-  { code: 'de-de', name: 'Deutsch',    sub: 'DE',       flag: '🇩🇪' },
-  { code: 'it-it', name: 'Italiano',   sub: 'IT',       flag: '🇮🇹' },
-  { code: 'ja-jp', name: 'Japanese',   sub: 'JP',       flag: '🇯🇵' },
-  { code: 'pt-pt', name: 'Português',  sub: 'Portugal', flag: '🇵🇹' },
-]
-
-const ALL_LANGUAGES: Array<{ code: string; name: string; flag: string; sub?: string; isOriginal?: boolean }> = [
-  { code: 'pt-br', name: 'Português (BR)', flag: '🇧🇷', isOriginal: true },
-  ...TRANSLATABLE_LANGUAGES,
-]
+// SSOT: language lists come from lib/constants/route-languages.ts
+// Local aliases for legibility within this file
+const TRANSLATABLE_LANGUAGES = TRANSLATABLE_LANGS
+const ALL_LANGUAGES: Array<RouteLang & { isOriginal?: boolean }> = ROUTE_LANGUAGES.map(l => ({
+  ...l,
+  isOriginal: l.isBase,
+}))
 
 // ─── Status badge ──────────────────────────────────────────────────────────────
 
@@ -93,8 +89,8 @@ export function RouteTranslationsPanel({ routeId, routeName, onClose, inline = f
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ── Language selection (POI pattern) ─────────────────────────────────────────
-  // Default: select the 4 most common translation targets
-  const [selectedLangs, setSelectedLangs] = useState<string[]>(['en-us', 'fr-fr', 'de-de', 'es-es'])
+  // Default: select the 4 most common translation targets (SSOT from route-languages.ts)
+  const [selectedLangs, setSelectedLangs] = useState<string[]>(DEFAULT_SELECTED_LANGS)
 
   const toggleLang = (code: string) =>
     setSelectedLangs(prev =>
