@@ -198,14 +198,30 @@ export const GenerateContextualNarrationSchema = z.object({
 
 /**
  * generate-translated-audio
- * Generate narration in target language
+ * Generate narration in target language — supports POI mode and Route mode.
+ *
+ * POI mode:   pass attractionId  → translates description → writes to attraction_descriptions
+ * Route mode: pass routeId       → translates name + description → writes to custom_route_descriptions
+ *
+ * Either attractionId OR routeId is required (mutually exclusive).
  */
 export const GenerateTranslatedAudioSchema = z.object({
-  attractionId: AttractionId,
+  // ─── POI mode (existing) ────────────────────────────────
+  attractionId: AttractionId.optional(),
+  originalDescription: z.string().max(5000).optional(),
+
+  // ─── Route mode (new) ───────────────────────────────────
+  routeId: AttractionId.optional(),
+  originalName: z.string().max(500).optional(),   // route name to translate
+  generateAudio: z.boolean().optional(),           // default true; false = text only
+
+  // ─── Common ─────────────────────────────────────────────
   targetLanguage: Language,
   voiceGender: VoiceGender,
-  originalDescription: z.string().max(5000).optional(),
-});
+}).refine(
+  (data) => Boolean(data.attractionId) || Boolean(data.routeId),
+  { message: "Either attractionId (POI mode) or routeId (route mode) is required" }
+);
 
 /**
  * extract-iphan-images

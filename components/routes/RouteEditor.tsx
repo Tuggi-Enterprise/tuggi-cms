@@ -3,12 +3,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import { 
-  Save, 
-  Trash2, 
-  Navigation, 
-  Map as MapIcon, 
-  Activity, 
-  Clock, 
+  Save,
+  Trash2,
+  Navigation,
+  Map as MapIcon,
+  Activity,
+  Clock,
   AlertCircle,
   Plus,
   X,
@@ -21,6 +21,8 @@ import {
   CheckCircle,
   XCircle,
   Edit,
+  Link2,
+  ExternalLink,
   // Characteristics icons
   Accessibility,
   Car,
@@ -51,6 +53,11 @@ interface LatLng {
 }
 
 interface WaypointMetadata {
+  // Identificação do local (novo)
+  name?: string
+  attraction_id?: string | null
+  is_generic?: boolean
+  // Recursos do ponto (existente)
   wheelchair_access?: 'yes' | 'partial' | 'no' | 'unknown'
   parking?: 'yes' | 'no' | 'unknown'
   restrooms?: 'yes' | 'no' | 'unknown'
@@ -61,6 +68,14 @@ interface WaypointMetadata {
 interface Waypoint extends LatLng {
   id: string
   metadata?: WaypointMetadata
+}
+
+interface PoiSearchResult {
+  id: string
+  name: string
+  city?: string
+  country?: string
+  coordinates?: { latitude: number; longitude: number }
 }
 
 interface RouteEditorProps {
@@ -102,7 +117,30 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
   
   // Waypoint UI State
   const [expandedWaypointId, setExpandedWaypointId] = useState<string | null>(null)
-  
+
+  // POI Search State (busca manual pelo admin)
+  const [poiSearchQuery, setPoiSearchQuery] = useState('')
+  const [poiSearchResults, setPoiSearchResults] = useState<PoiSearchResult[]>([])
+  const [isSearchingPoi, setIsSearchingPoi] = useState(false)
+  const [showPoiSearch, setShowPoiSearch] = useState(false)
+  const poiSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Tuggi POIs ao longo da rota (exibidos no mapa como contexto)
+  const [tuggiPOIs, setTuggiPOIs] = useState<any[]>([])
+  const [showTuggiPOIs, setShowTuggiPOIs] = useState(true)
+  const [isLoadingPOIs, setIsLoadingPOIs] = useState(false)
+  const tuggiMarkersRef       = useRef<google.maps.Marker[]>([])
+  const tuggiClustererRef     = useRef<any | null>(null)
+  const viewportFetchTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // fetchViewportPOIsRef — aponta sempre para a versão mais recente da função,
+  // evitando stale closure no listener de `idle` do mapa.
+  const fetchViewportPOIsRef  = useRef<() => void>(() => {})
+
+  // Coordenadas reais dos POIs vinculados (attraction_id → {lat, lng, name})
+  // Podem diferir da posição do waypoint (que é onde o user clicou/script colocou)
+  const [linkedPOICoords, setLinkedPOICoords] = useState<Record<string, { lat: number; lng: number; name: string }>>({})
+  const linkedPOIMarkersRef = useRef<google.maps.Marker[]>([])
+
   // Computed: stops count = all waypoints (including start and end)
   const stopsCount = waypoints.length
 
@@ -139,9 +177,16 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
   // Initialize Map
   useEffect(() => {
     if (mapRef.current && !mapInstanceRef.current && window.google) {
-      const initialCenter = waypoints.length > 0 
+      // Prioridade: 1) primeiro waypoint existente, 2) última posição salva, 3) São Paulo
+      let savedCenter = { lat: -23.5505, lng: -46.6333 }
+      try {
+        const stored = localStorage.getItem('tuggi:last-map-center')
+        if (stored) savedCenter = JSON.parse(stored)
+      } catch { /* ignore */ }
+
+      const initialCenter = waypoints.length > 0
         ? { lat: waypoints[0].lat, lng: waypoints[0].lng }
-        : { lat: -23.5505, lng: -46.6333 } // São Paulo default
+        : savedCenter
 
       const map = new google.maps.Map(mapRef.current, {
         center: initialCenter,
@@ -149,7 +194,14 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
         mapTypeControl: false,
         streetViewControl: false,
         fullscreenControl: false,
-        zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER }
+        zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER },
+        // Mapa limpo: remove POIs padrão do Google (restaurantes, hotéis, atrações)
+        // para não confundir com os POIs do Tuggi que exibimos em laranja.
+        styles: [
+          { featureType: 'poi',            stylers: [{ visibility: 'off' }] },
+          { featureType: 'poi.park',       elementType: 'geometry', stylers: [{ visibility: 'on' }] },
+          { featureType: 'transit.station', elementType: 'labels',  stylers: [{ visibility: 'off' }] },
+        ],
       })
 
       map.addListener('click', (e: google.maps.MapMouseEvent) => {
@@ -168,6 +220,16 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           }
           setWaypoints(prev => [...prev, newWaypoint])
         }
+      })
+
+      // Idle: dispara após o mapa parar de mover (pan/zoom finalizado).
+      // Carrega POIs do viewport atual — debounced 700ms.
+      // Usa ref para apontar sempre para a versão mais recente da função.
+      map.addListener('idle', () => {
+        if (viewportFetchTimer.current) clearTimeout(viewportFetchTimer.current)
+        viewportFetchTimer.current = setTimeout(() => {
+          fetchViewportPOIsRef.current()
+        }, 700)
       })
 
       mapInstanceRef.current = map
@@ -259,30 +321,35 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
       markersRef.current.push(marker)
     })
 
-    // Draw Route Polyline
+    // Draw Route Polyline (estilo tracejado = "prévia aproximada", não rota definitiva)
     if (polylineRef.current) polylineRef.current.setMap(null)
-    
+
     if (routeGeometry.length > 0) {
       const polyline = new google.maps.Polyline({
         path: routeGeometry,
         geodesic: true,
-        strokeColor: '#3B82F6',
-        strokeOpacity: 0.8,
-        strokeWeight: 4,
+        strokeColor: '#6366F1',   // índigo — diferente do azul sólido para indicar "prévia"
+        strokeOpacity: 0,         // opacidade 0 para usar ícones de tracejado
+        strokeWeight: 3,
+        icons: [{
+          icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.7, scale: 3 },
+          offset: '0',
+          repeat: '12px'
+        }],
         map: mapInstanceRef.current
       })
       polylineRef.current = polyline
     } else if (waypoints.length > 1 && !isGenerating) {
-        // Fallback straight line polyline
-        const polyline = new google.maps.Polyline({
-            path: waypoints,
-            geodesic: true,
-            strokeColor: '#3B82F6',
-            strokeOpacity: 0.5,
-            strokeWeight: 3,
-            map: mapInstanceRef.current
-          })
-          polylineRef.current = polyline
+      // Fallback linha reta ainda mais suave
+      const polyline = new google.maps.Polyline({
+        path: waypoints,
+        geodesic: true,
+        strokeColor: '#9CA3AF',
+        strokeOpacity: 0.4,
+        strokeWeight: 2,
+        map: mapInstanceRef.current
+      })
+      polylineRef.current = polyline
     }
 
   }, [waypoints, routeGeometry, isGenerating])
@@ -338,6 +405,300 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
     setWaypoints(prev => prev.filter(w => w.id !== id))
   }
 
+  // ─── POIs Tuggi ao longo da rota ────────────────────────────────────────────
+
+  // Limpar todos os marcadores Tuggi do mapa
+  const clearTuggiMarkers = useCallback(() => {
+    if (tuggiClustererRef.current) {
+      tuggiClustererRef.current.clearMarkers?.()
+      tuggiClustererRef.current.setMap?.(null)
+      tuggiClustererRef.current = null
+    }
+    tuggiMarkersRef.current.forEach(m => m.setMap(null))
+    tuggiMarkersRef.current = []
+  }, [])
+
+  // Ícone SVG para POI individual: ● [Nome do Local]
+  // Quando clustering: o individual some (substituído pelo cluster laranja).
+  // Quando individual: o SVG fica visível — círculo laranja + pill branco com nome.
+  const createTuggiPOIIcon = useCallback((name: string) => {
+    const truncated = name.length > 24 ? name.slice(0, 24) + '…' : name
+    // ~5.5px por char a 9px de font — suficiente para estimativa de largura
+    const textWidth = Math.round(truncated.length * 5.5)
+    const pillW     = textWidth + 14
+    const totalW    = 14 + pillW   // circle zone (14px) + pill
+    const H         = 20
+
+    // Sanitizar texto para SVG
+    const safe = truncated
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${H}">
+      <circle cx="7" cy="10" r="5" fill="#FF6B35" stroke="white" stroke-width="1.5"/>
+      <rect x="14" y="3" width="${pillW}" height="13" rx="6"
+            fill="rgba(255,255,255,0.93)" stroke="#e5e7eb" stroke-width="0.5"/>
+      <text x="21" y="13" font-family="-apple-system,system-ui,Arial,sans-serif"
+            font-size="9" font-weight="500" fill="#111827">${safe}</text>
+    </svg>`
+
+    return {
+      url:        `data:image/svg+xml,${encodeURIComponent(svg)}`,
+      scaledSize: new google.maps.Size(totalW, H),
+      anchor:     new google.maps.Point(7, 10),   // ancora no centro do círculo
+    }
+  }, [])
+
+  // Criar marcadores e inicializar clustering
+  const renderTuggiMarkers = useCallback(async (pois: any[], visible: boolean) => {
+    clearTuggiMarkers()
+    if (!mapInstanceRef.current || !visible || pois.length === 0) return
+
+    // Suporta ambos os formatos de coordenadas retornados pela API
+    const getLat = (p: any): number | null => p.latitude ?? p.coordinates?.latitude ?? null
+    const getLng = (p: any): number | null => p.longitude ?? p.coordinates?.longitude ?? null
+
+    const validPOIs = pois.filter(p => getLat(p) !== null && getLng(p) !== null)
+    const markers: google.maps.Marker[] = validPOIs.map(poi =>
+      new google.maps.Marker({
+        position: { lat: getLat(poi)!, lng: getLng(poi)! },
+        title: poi.name,
+        // Ícone SVG com nome: visível apenas quando o marker NÃO está em cluster.
+        // Quando está em cluster, o clusterer o oculta e mostra o cluster laranja.
+        icon:  createTuggiPOIIcon(poi.name ?? ''),
+        zIndex: 5,
+      })
+    )
+    tuggiMarkersRef.current = markers
+
+    try {
+      const { MarkerClusterer } = await import('@googlemaps/markerclusterer')
+
+      // Renderer customizado: clusters laranja Tuggi em vez do azul padrão
+      const renderer = {
+        render: ({ count, position }: { count: number; position: google.maps.LatLng }) =>
+          new google.maps.Marker({
+            position,
+            label: {
+              text:       String(count),
+              color:      '#FFFFFF',
+              fontSize:   '11px',
+              fontWeight: 'bold',
+            },
+            icon: {
+              path:        google.maps.SymbolPath.CIRCLE,
+              scale:       12 + Math.min(count * 0.5, 8),  // cresce levemente com a densidade
+              fillColor:   '#FF6B35',   // laranja Tuggi
+              fillOpacity: 0.9,
+              strokeColor: '#FFFFFF',
+              strokeWeight: 2,
+            },
+            zIndex: Number(google.maps.Marker.MAX_ZINDEX) + count,
+          }),
+      }
+
+      tuggiClustererRef.current = new MarkerClusterer({
+        map: mapInstanceRef.current,
+        markers,
+        renderer,
+      })
+    } catch {
+      // Fallback sem clustering — adiciona cada marker direto no mapa
+      markers.forEach(m => m.setMap(mapInstanceRef.current))
+    }
+  }, [clearTuggiMarkers])
+
+  // Buscar POIs do Tuggi para o viewport atual do mapa.
+  //
+  // Estratégia: carregar o que está visível no mapa (80% do viewport),
+  // para que o admin veja os POIs disponíveis ANTES de decidir onde colocar
+  // o próximo waypoint.
+  // Acionado pelo evento `idle` do mapa (pan/zoom finalizado), debounced 700ms.
+  // Limite: zoom >= 12 (abaixo disso, cidades inteiras entram na bbox).
+  const fetchTuggiPOIsForViewport = useCallback(async () => {
+    if (!mapInstanceRef.current) return
+
+    const zoom = mapInstanceRef.current.getZoom() ?? 10
+    if (zoom < 12) {
+      // Muito afastado — limpa para não sobrecarregar
+      clearTuggiMarkers()
+      setTuggiPOIs([])
+      return
+    }
+
+    const bounds = mapInstanceRef.current.getBounds()
+    if (!bounds) return
+
+    const ne  = bounds.getNorthEast()
+    const sw  = bounds.getSouthWest()
+    const dLat = ne.lat() - sw.lat()
+    const dLng = ne.lng() - sw.lng()
+    // Usar 80% do viewport (recuamos 10% em cada lado)
+    const M   = 0.10
+    const params = new URLSearchParams({
+      min_lat: (sw.lat() + dLat * M).toFixed(6),
+      min_lng: (sw.lng() + dLng * M).toFixed(6),
+      max_lat: (ne.lat() - dLat * M).toFixed(6),
+      max_lng: (ne.lng() - dLng * M).toFixed(6),
+      // Sem limit explícito — o servidor calcula dinamicamente pela área do viewport
+    })
+
+    setIsLoadingPOIs(true)
+    try {
+      const res = await fetch(`/api/pois/map-bbox?${params}`)
+      if (!res.ok) return
+      const data = await res.json()
+      const pois = data.pois ?? []
+      setTuggiPOIs(pois)
+      await renderTuggiMarkers(pois, showTuggiPOIs)
+    } catch { /* silently fail */ } finally {
+      setIsLoadingPOIs(false)
+    }
+  }, [showTuggiPOIs, renderTuggiMarkers, clearTuggiMarkers])
+
+  // Atualiza o ref sempre que fetchTuggiPOIsForViewport muda (evita stale closure no idle listener)
+  useEffect(() => {
+    fetchViewportPOIsRef.current = fetchTuggiPOIsForViewport
+  }, [fetchTuggiPOIsForViewport])
+
+  // ─── POIs Vinculados: posição real no banco ───────────────────────────────
+
+  // Busca as coordenadas reais dos POIs vinculados aos waypoints.
+  // A posição do waypoint (onde o user clicou) pode diferir da posição real
+  // do POI no banco — mostramos ambas no mapa para o admin ver a relação.
+  useEffect(() => {
+    const ids = waypoints
+      .map(w => w.metadata?.attraction_id)
+      .filter(Boolean) as string[]
+
+    if (ids.length === 0) {
+      setLinkedPOICoords({})
+      return
+    }
+
+    fetch(`/api/attractions/coordinates?ids=${ids.join(',')}`)
+      .then(r => r.json())
+      .then(data => {
+        const map: Record<string, { lat: number; lng: number; name: string }> = {}
+        ;(data.coords ?? []).forEach((c: any) => {
+          map[c.id] = { lat: c.latitude, lng: c.longitude, name: c.name }
+        })
+        setLinkedPOICoords(map)
+      })
+      .catch(() => {})
+  }, [waypoints])
+
+  // Renderiza marcadores dos POIs vinculados no mapa.
+  // São pins laranja (posição real do DB) distintos dos círculos azuis (waypoints).
+  useEffect(() => {
+    linkedPOIMarkersRef.current.forEach(m => m.setMap(null))
+    linkedPOIMarkersRef.current = []
+
+    if (!mapInstanceRef.current || Object.keys(linkedPOICoords).length === 0) return
+
+    const markers = Object.entries(linkedPOICoords).map(([, poi]) => {
+      const marker = new google.maps.Marker({
+        position: { lat: poi.lat, lng: poi.lng },
+        map: mapInstanceRef.current,
+        title: poi.name,
+        // Reutiliza o mesmo ícone SVG dos POIs do Tuggi (círculo laranja + pill com nome).
+        // Ficam visíveis sempre (sem clustering), pois são poucos (1 por waypoint vinculado).
+        icon: createTuggiPOIIcon(poi.name),
+        zIndex: 25,  // acima dos POIs do viewport (zIndex 5) e da rota (zIndex 10)
+      })
+      return marker
+    })
+
+    linkedPOIMarkersRef.current = markers
+  }, [linkedPOICoords])
+
+  // Cleanup dos marcadores de POIs vinculados no unmount
+  useEffect(() => () => {
+    linkedPOIMarkersRef.current.forEach(m => m.setMap(null))
+  }, [])
+
+  // Toggle visibilidade dos POIs Tuggi
+  const toggleTuggiPOIs = useCallback(async () => {
+    const next = !showTuggiPOIs
+    setShowTuggiPOIs(next)
+    if (next) {
+      // Recarregar pelo viewport atual ao reativar
+      await fetchTuggiPOIsForViewport()
+    } else {
+      clearTuggiMarkers()
+    }
+  }, [showTuggiPOIs, fetchTuggiPOIsForViewport, clearTuggiMarkers])
+
+  // Cleanup no unmount
+  useEffect(() => () => {
+    clearTuggiMarkers()
+    if (viewportFetchTimer.current) clearTimeout(viewportFetchTimer.current)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Busca POIs do nosso banco (core.attractions) — sem custo, sem Google Places
+  const handlePoiSearch = (query: string) => {
+    setPoiSearchQuery(query)
+    if (poiSearchTimeoutRef.current) clearTimeout(poiSearchTimeoutRef.current)
+    if (!query.trim() || query.length < 2) {
+      setPoiSearchResults([])
+      return
+    }
+    poiSearchTimeoutRef.current = setTimeout(async () => {
+      setIsSearchingPoi(true)
+      try {
+        const params = new URLSearchParams({ search: query, limit: '8' })
+        const res = await fetch(`/api/pois/search?${params}`)
+        if (!res.ok) throw new Error('Search failed')
+        const data = await res.json()
+        setPoiSearchResults(data.pois || data.data || [])
+      } catch {
+        setPoiSearchResults([])
+      } finally {
+        setIsSearchingPoi(false)
+      }
+    }, 300)
+  }
+
+  // Adiciona waypoint a partir de um POI do banco
+  const addWaypointFromPoi = (poi: PoiSearchResult) => {
+    if (!poi.coordinates) return
+    const newWaypoint: Waypoint = {
+      id: Math.random().toString(36).substring(2, 9),
+      lat: poi.coordinates.latitude,
+      lng: poi.coordinates.longitude,
+      metadata: {
+        name: poi.name,
+        attraction_id: poi.id,
+        is_generic: false,
+        wheelchair_access: 'unknown',
+        parking: 'unknown',
+        restrooms: 'unknown',
+        rest_areas: 'unknown',
+        photogenic_rating: 'unknown',
+      }
+    }
+    setWaypoints(prev => [...prev, newWaypoint])
+    // Centralizar mapa no POI adicionado
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.panTo({ lat: poi.coordinates!.latitude, lng: poi.coordinates!.longitude })
+      mapInstanceRef.current.setZoom(15)
+    }
+    // Salvar posição no localStorage para próxima sessão
+    try {
+      localStorage.setItem('tuggi:last-map-center', JSON.stringify({ lat: poi.coordinates.latitude, lng: poi.coordinates.longitude }))
+    } catch { /* ignore */ }
+    // Fechar busca
+    setPoiSearchQuery('')
+    setPoiSearchResults([])
+    setShowPoiSearch(false)
+  }
+
+  // Atualiza o nome de um waypoint específico
+  const updateWaypointName = (id: string, name: string) => {
+    setWaypoints(prev => prev.map(w =>
+      w.id === id ? { ...w, metadata: { ...w.metadata, name } } : w
+    ))
+  }
+
   const formatDistance = (m: number | null) => {
     if (m === null) return '--'
     return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(0)} m`
@@ -353,7 +714,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
     <div className="flex h-full overflow-hidden bg-white dark:bg-gray-900 border-none">
       {/* Sidebar Editor */}
       <div className="w-[450px] flex flex-col h-full bg-white dark:bg-gray-900 shadow-2xl z-10 border-r border-gray-100 dark:border-gray-800">
-        <div className="p-8 space-y-8 overflow-y-auto flex-1 custom-scrollbar">
+        <div className="p-8 flex flex-col gap-8 overflow-y-auto flex-1 custom-scrollbar">
           {/* Header & Back Button */}
           <div className="flex items-start gap-4">
             <button 
@@ -374,8 +735,16 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
             </div>
           </div>
 
+          {/* Concept Banner — explica o modelo mental da funcionalidade */}
+          <div style={{ order: 0 }} className="flex items-start gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-2xl">
+            <MapPin className="h-4 w-4 text-indigo-500 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-medium">
+              Você define os <strong>pontos de interesse</strong>. O Google Maps ou Apple Maps escolherá o melhor caminho entre eles. O traçado aqui é uma <strong>prévia aproximada</strong>.
+            </p>
+          </div>
+
           {/* Basic Info */}
-          <section className="space-y-4">
+          <section style={{ order: 1 }} className="space-y-4">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4" />
               {t('basic_info')}
@@ -425,7 +794,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           </section>
 
           {/* THE EXPERIENCE - Scenic, Best Time, Photogenic */}
-          <section className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+          <section style={{ order: 3 }} className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
               <Camera className="h-4 w-4" />
               A Experiência
@@ -521,7 +890,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           </section>
 
           {/* THE DRIVE - Drivability, Road Conditions */}
-          <section className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+          <section style={{ order: 4 }} className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
               <Car className="h-4 w-4" />
               A Direção
@@ -585,7 +954,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           </section>
 
           {/* LOGISTICS - Wheelchair Accessibility & Stops Summary */}
-          <section className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+          <section style={{ order: 5 }} className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
               <Accessibility className="h-4 w-4" />
               Acessibilidade & Logística
@@ -633,16 +1002,86 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           </section>
 
           {/* Route Points */}
-          <section className="space-y-4">
+          <section style={{ order: 2 }} className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
                 <Navigation className="h-4 w-4" />
                 Pontos de Passagem
               </h3>
-              <span className="text-xs font-bold px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full">
-                {waypoints.length}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full">
+                  {waypoints.length}
+                </span>
+                {/* Botão para abrir busca de POI */}
+                <button
+                  type="button"
+                  onClick={() => setShowPoiSearch(v => !v)}
+                  title="Buscar ponto de interesse"
+                  className={cn(
+                    "p-1.5 rounded-lg transition-all text-xs font-semibold flex items-center gap-1",
+                    showPoiSearch
+                      ? "bg-tuggi-blue text-white"
+                      : "bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
+                  )}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Buscar POI
+                </button>
+              </div>
             </div>
+
+            {/* Busca de POI — usa nossa base de atrações, sem custo */}
+            {showPoiSearch && (
+              <div className="relative">
+                <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl">
+                  <MapPin className="h-4 w-4 text-gray-400 shrink-0" />
+                  <input
+                    type="text"
+                    autoFocus
+                    value={poiSearchQuery}
+                    onChange={e => handlePoiSearch(e.target.value)}
+                    placeholder="Buscar local no banco... (ex: Castelo, Rossio)"
+                    className="flex-1 text-xs bg-transparent outline-none text-gray-700 dark:text-gray-300 placeholder:text-gray-400"
+                  />
+                  {isSearchingPoi && <RefreshCw className="h-3.5 w-3.5 text-gray-400 animate-spin shrink-0" />}
+                  {poiSearchQuery && !isSearchingPoi && (
+                    <button onClick={() => { setPoiSearchQuery(''); setPoiSearchResults([]) }}>
+                      <X className="h-3.5 w-3.5 text-gray-400" />
+                    </button>
+                  )}
+                </div>
+                {/* Resultados */}
+                {poiSearchResults.length > 0 && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
+                    {poiSearchResults.map(poi => (
+                      <button
+                        key={poi.id}
+                        type="button"
+                        onClick={() => addWaypointFromPoi(poi)}
+                        disabled={!poi.coordinates}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-left disabled:opacity-40"
+                      >
+                        <MapPin className="h-3.5 w-3.5 text-tuggi-blue shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{poi.name}</p>
+                          {(poi.city || poi.country) && (
+                            <p className="text-[10px] text-gray-400 truncate">{[poi.city, poi.country].filter(Boolean).join(', ')}</p>
+                          )}
+                        </div>
+                        {!poi.coordinates && (
+                          <span className="text-[10px] text-orange-400 shrink-0">sem coords</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {poiSearchQuery.length >= 2 && !isSearchingPoi && poiSearchResults.length === 0 && (
+                  <p className="text-[10px] text-gray-400 text-center mt-2">
+                    Nenhum POI encontrado. Clique no mapa para adicionar manualmente.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
               {waypoints.map((wp, index) => {
@@ -668,8 +1107,24 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                         {index + 1}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{pointLabel}</p>
-                        <p className="text-[10px] text-gray-500 truncate font-mono">{wp.lat.toFixed(5)}, {wp.lng.toFixed(5)}</p>
+                        {/* Nome do POI vinculado ou rótulo genérico */}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {wp.metadata?.attraction_id ? (
+                            <Link2 className="h-3 w-3 text-green-500 shrink-0" />
+                          ) : (
+                            <span className="h-3 w-3 shrink-0" /> /* spacer */
+                          )}
+                          <p className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
+                            {wp.metadata?.name || pointLabel}
+                          </p>
+                        </div>
+                        {/* Label de posição (Início/Fim/Ponto N) */}
+                        <p className="text-[10px] text-gray-400 truncate pl-4">
+                          {pointLabel}
+                          {!wp.metadata?.name && (
+                            <span className="font-mono ml-1 opacity-60">{wp.lat.toFixed(4)}, {wp.lng.toFixed(4)}</span>
+                          )}
+                        </p>
                       </div>
                       <div className="flex items-center gap-1">
                         {wp.metadata?.wheelchair_access && wp.metadata.wheelchair_access !== 'unknown' && (
@@ -691,6 +1146,58 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
                     {/* Expanded Metadata */}
                     {isExpanded && (
                       <div className="mt-2 ml-9 p-4 bg-white dark:bg-gray-800/80 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm space-y-4">
+                        {/* Nome do ponto — editável */}
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-1.5">
+                            Nome do Local
+                          </label>
+                          <input
+                            type="text"
+                            value={wp.metadata?.name || ''}
+                            onChange={e => updateWaypointName(wp.id, e.target.value)}
+                            onClick={e => e.stopPropagation()}
+                            placeholder="Ex: Castelo de São Jorge"
+                            className="w-full px-3 py-2 text-xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-tuggi-blue outline-none transition-all placeholder:text-gray-400"
+                          />
+                          {wp.metadata?.attraction_id ? (
+                            <div className="mt-2 flex items-start justify-between gap-2 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/30 rounded-xl">
+                              <div className="flex items-start gap-1.5 min-w-0">
+                                <Link2 className="h-3 w-3 text-green-500 shrink-0 mt-0.5" />
+                                <div className="min-w-0">
+                                  <p className="text-[10px] font-bold text-green-700 dark:text-green-400">
+                                    POI vinculado
+                                  </p>
+                                  {/* Nome do POI real no banco (pode diferir do nome do waypoint) */}
+                                  {linkedPOICoords[wp.metadata.attraction_id] && (
+                                    <p className="text-[10px] text-green-600 dark:text-green-500 truncate">
+                                      {linkedPOICoords[wp.metadata.attraction_id].name}
+                                    </p>
+                                  )}
+                                  <p className="text-[10px] text-green-500/70 font-mono mt-0.5">
+                                    {wp.metadata.attraction_id.slice(0, 8)}…
+                                  </p>
+                                </div>
+                              </div>
+                              {/* Link para abrir o POI no painel */}
+                              <a
+                                href={`/pois?poiId=${wp.metadata.attraction_id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={e => e.stopPropagation()}
+                                className="p-1 rounded-lg hover:bg-green-100 dark:hover:bg-green-800/30 transition-colors shrink-0"
+                                title="Abrir POI no painel"
+                              >
+                                <ExternalLink className="h-3 w-3 text-green-500" />
+                              </a>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
+                              <span className="w-3 h-3 rounded-full bg-gray-300 inline-block shrink-0" />
+                              Ponto genérico — não vinculado a POI do banco
+                            </p>
+                          )}
+                        </div>
+
                         <div className="flex items-center justify-between">
                           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em]">Recursos do Ponto</p>
                           {isStartOrEnd && (
@@ -872,7 +1379,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           </section>
 
           {/* Settings Group */}
-          <section className="space-y-3 pt-6 border-t border-gray-100 dark:border-gray-800">
+          <section style={{ order: 6 }} className="space-y-3 pt-6 border-t border-gray-100 dark:border-gray-800">
             <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-2 px-1">Configurações de Exibição</h3>
             
              <div 
@@ -992,6 +1499,30 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
             </div>
           </div>
         )}
+
+        {/* Toggle POIs Tuggi — canto inferior esquerdo */}
+        <div className="absolute bottom-8 left-8 z-10">
+          <button
+            onClick={toggleTuggiPOIs}
+            title={showTuggiPOIs ? 'Ocultar POIs do Tuggi' : 'Mostrar POIs do Tuggi ao longo da rota'}
+            className={cn(
+              "flex items-center gap-2 px-3 py-2.5 rounded-2xl shadow-lg text-xs font-semibold transition-all border",
+              showTuggiPOIs
+                ? "bg-orange-500 text-white border-orange-400 hover:bg-orange-600"
+                : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-gray-300"
+            )}
+          >
+            <MapPin className={cn("h-3.5 w-3.5", showTuggiPOIs && "text-white")} />
+            {isLoadingPOIs
+              ? <><RefreshCw className="h-3 w-3 animate-spin" /> Buscando...</>
+              : showTuggiPOIs && tuggiPOIs.length > 0
+                ? `${tuggiPOIs.length} POIs Tuggi`
+                : showTuggiPOIs
+                  ? 'POIs Tuggi'
+                  : 'Mostrar POIs Tuggi'
+            }
+          </button>
+        </div>
 
         {/* Floating Map Utils */}
         <div className="absolute bottom-8 right-8 flex flex-col gap-2">
