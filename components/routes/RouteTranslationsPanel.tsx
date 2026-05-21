@@ -31,7 +31,9 @@ interface OriginalData {
 interface Props {
   routeId: string
   routeName: string
-  onClose: () => void
+  onClose?: () => void
+  /** inline=true: renderiza dentro do sidebar (sem slide-over, backdrop ou botão fechar) */
+  inline?: boolean
 }
 
 // ─── Idiomas suportados ───────────────────────────────────────────────────────
@@ -70,7 +72,7 @@ function StatusBadge({ status, manuallyEdited }: { status: Translation['status']
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function RouteTranslationsPanel({ routeId, routeName, onClose }: Props) {
+export function RouteTranslationsPanel({ routeId, routeName, onClose, inline = false }: Props) {
   const [original, setOriginal] = useState<OriginalData | null>(null)
   const [translations, setTranslations] = useState<Translation[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -216,37 +218,51 @@ export function RouteTranslationsPanel({ routeId, routeName, onClose }: Props) {
     return !t || t.status === 'failed'
   }).length
 
+  const containerClass = inline
+    ? 'flex flex-col h-full'
+    : 'fixed right-0 top-0 h-full w-[480px] max-w-full bg-white dark:bg-gray-900 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300'
+
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/40 z-40 transition-opacity"
-        onClick={onClose}
-      />
+      {/* Backdrop — apenas no modo slide-over */}
+      {!inline && (
+        <div className="fixed inset-0 bg-black/40 z-40 transition-opacity" onClick={onClose} />
+      )}
 
-      {/* Slide-over panel */}
-      <div className="fixed right-0 top-0 h-full w-[480px] max-w-full bg-white dark:bg-gray-900 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-300">
+      <div className={containerClass}>
 
-        {/* Header */}
-        <div className="flex items-start justify-between p-6 border-b border-gray-100 dark:border-gray-800">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl">
-              <Globe className="h-5 w-5 text-indigo-500" />
+        {/* Header — só no slide-over; no inline o tab header já contextualiza */}
+        {!inline && (
+          <div className="flex items-start justify-between p-6 border-b border-gray-100 dark:border-gray-800">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl">
+                <Globe className="h-5 w-5 text-indigo-500" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-gray-900 dark:text-white">Traduções</h2>
+                <p className="text-[11px] text-gray-400 truncate max-w-[280px]">{routeName}</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-base font-bold text-gray-900 dark:text-white">Traduções</h2>
-              <p className="text-[11px] text-gray-400 truncate max-w-[280px]">{routeName}</p>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                {readyCount}/{LANGUAGES.length - 1} prontos
+              </span>
+              <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <X className="h-4 w-4 text-gray-500" />
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+        )}
+
+        {/* Header inline: só o contador de prontos */}
+        {inline && (
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Idiomas disponíveis</p>
             <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full">
               {readyCount}/{LANGUAGES.length - 1} prontos
             </span>
-            <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-              <X className="h-4 w-4 text-gray-500" />
-            </button>
           </div>
-        </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
