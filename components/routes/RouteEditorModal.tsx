@@ -176,9 +176,6 @@ function RouteEditorModalInner({
   const effectiveRouteId = savedRouteId || routeId
   const effectiveIsEditing = Boolean(effectiveRouteId)
 
-  // ── Translation validation state ───────────────────────────────────────────
-  const [translationSaved, setTranslationSaved] = useState(false)   // shows post-save banner
-  const [missingLangs,     setMissingLangs]     = useState<string[]>([])
 
   const stopsCount = waypoints.length
 
@@ -577,9 +574,6 @@ function RouteEditorModalInner({
     setWaypoints(prev => prev.filter(w => w.id !== id))
   }
 
-  // ── Languages that need translation (all CMS languages minus content language)
-  const TRANSLATION_REQUIRED = CONTENT_LANGUAGES.map(l => l.code).filter(c => c !== contentLanguage)
-
   // ── Save ───────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!name.trim() || !country.trim() || !region.trim() || waypoints.length < 2) {
@@ -610,32 +604,7 @@ function RouteEditorModalInner({
 
         // Persist routeId internally so Idiomas tab appears immediately
         setSavedRouteId(savedId)
-
-        // Validation: check which languages still need translation
-        let missing: string[] = []
-        try {
-          const tRes = await fetch(`/api/routes/${savedId}/translations`)
-          if (tRes.ok) {
-            const tData  = await tRes.json()
-            const ready  = new Set((tData.translations || [])
-              .filter((t: any) => t.status === 'ready')
-              .map((t: any) => t.language as string))
-            missing = TRANSLATION_REQUIRED.filter(c => !ready.has(c))
-          }
-        } catch { /* non-blocking */ }
-
-        setMissingLangs(missing)
-
-        if (missing.length > 0) {
-          // Route saved — navigate to Idiomas tab for translation generation
-          setTranslationSaved(true)
-          setActiveTab('languages')
-          // Also notify parent to refresh the list (route is saved)
-          onSaved(savedId)
-        } else {
-          // All translations ready — close modal normally
-          onSaved(savedId)
-        }
+        onSaved(savedId)
       } else {
         const err = await res.json()
         alert(`${t('save_error')}: ${err.error}`)
@@ -657,20 +626,19 @@ function RouteEditorModalInner({
   // Ordem segue a jornada: Criar rota → Descrever experiência → Nomear/descrever → Traduzir
   const contentLangMeta = CONTENT_LANGUAGES.find(l => l.code === contentLanguage)
   const tabs: { id: RouteTab; icon: any; label: string; badge?: string }[] = [
-    { id: 'route',      icon: Navigation, label: 'Rota'        },
-    { id: 'experience', icon: Camera,     label: 'Experiência' },
-    { id: 'content',    icon: FileText,   label: 'Conteúdo',   badge: contentLangMeta?.flag },
-    // Idiomas aparece logo que o routeId fica conhecido (mesmo em nova rota recém salva)
-    ...(effectiveIsEditing ? [{ id: 'languages' as RouteTab, icon: Globe, label: 'Idiomas', badge: missingLangs.length > 0 ? '!' : undefined }] : []),
+    { id: 'route',      icon: Navigation, label: t('tabs.route')      },
+    { id: 'experience', icon: Camera,     label: t('tabs.experience') },
+    { id: 'content',    icon: FileText,   label: t('tabs.content'),   badge: contentLangMeta?.flag },
+    ...(effectiveIsEditing ? [{ id: 'languages' as RouteTab, icon: Globe, label: t('tabs.languages') }] : []),
   ]
 
   // ── Save validation ──────────────────────────────────────────────────────────
   // Campos obrigatórios para salvar: nome + país + região/cidade + ≥2 waypoints
   const missingFields: string[] = []
-  if (!name.trim())    missingFields.push('Título')
-  if (!country.trim()) missingFields.push('País')
-  if (!region.trim())  missingFields.push('Região / Cidade')
-  if (waypoints.length < 2) missingFields.push('Mínimo 2 pontos no mapa')
+  if (!name.trim())    missingFields.push(t('required_title_field'))
+  if (!country.trim()) missingFields.push(t('required_country_field'))
+  if (!region.trim())  missingFields.push(t('required_region_field'))
+  if (waypoints.length < 2) missingFields.push(t('required_waypoints'))
   const canSave = missingFields.length === 0 && !isSaving && !isGenerating && canEdit && !isViewer
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -738,7 +706,7 @@ function RouteEditorModalInner({
                   isActive ? 'translate-x-3' : 'translate-x-0'
                 )} />
               </div>
-              {isActive ? 'Ativa' : 'Inativa'}
+              {isActive ? t('status_active') : t('status_inactive')}
             </button>
             <button
               onClick={handleClose}
@@ -756,7 +724,7 @@ function RouteEditorModalInner({
             <div className="absolute inset-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="w-10 h-10 border-4 border-tuggi-blue/20 border-t-tuggi-blue rounded-full animate-spin" />
-                <p className="text-sm text-gray-500 font-medium animate-pulse">Carregando rota...</p>
+                <p className="text-sm text-gray-500 font-medium animate-pulse">{t('loading')}</p>
               </div>
             </div>
           )}
@@ -764,7 +732,7 @@ function RouteEditorModalInner({
           {/* ── Left tab nav sidebar ───────────────────────────────────────── */}
           <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex flex-col gap-2 z-20 shrink-0">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-2">
-              Configuração
+              {t('configuration')}
             </p>
 
             {tabs.map(tab => (
@@ -797,7 +765,7 @@ function RouteEditorModalInner({
                   {stopsCount > 0 && (
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-400 flex items-center gap-1.5">
-                        <MapPin className="h-3.5 w-3.5" /> Paradas
+                        <MapPin className="h-3.5 w-3.5" /> {t('stops')}
                       </span>
                       <span className="font-bold text-gray-700 dark:text-gray-300">{stopsCount}</span>
                     </div>
@@ -805,7 +773,7 @@ function RouteEditorModalInner({
                   {(distance || isGenerating) && (
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-400 flex items-center gap-1.5">
-                        <Activity className="h-3.5 w-3.5" /> Distância
+                        <Activity className="h-3.5 w-3.5" /> {t('distance')}
                       </span>
                       <span className="font-bold text-gray-700 dark:text-gray-300 font-mono">
                         {isGenerating ? <RefreshCw className="h-3.5 w-3.5 animate-spin inline" /> : fmt.distance(distance)}
@@ -815,7 +783,7 @@ function RouteEditorModalInner({
                   {(duration || isGenerating) && (
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-400 flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5" /> Duração
+                        <Clock className="h-3.5 w-3.5" /> {t('duration')}
                       </span>
                       <span className="font-bold text-gray-700 dark:text-gray-300 font-mono">
                         {isGenerating ? '…' : fmt.duration(duration)}
@@ -828,7 +796,7 @@ function RouteEditorModalInner({
               {/* Missing required fields warning */}
               {missingFields.length > 0 && (
                 <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800/30">
-                  <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold mb-1">Para salvar, preencha:</p>
+                  <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold mb-1">{t('save_required')}</p>
                   <ul className="space-y-0.5">
                     {missingFields.map(f => (
                       <li key={f} className="text-[10px] text-amber-600 dark:text-amber-500 flex items-center gap-1">
@@ -839,18 +807,6 @@ function RouteEditorModalInner({
                 </div>
               )}
 
-              {/* Translations pending warning — shown after save */}
-              {missingLangs.length > 0 && missingFields.length === 0 && (
-                <button
-                  onClick={() => setActiveTab('languages')}
-                  className="w-full p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl border border-orange-200 dark:border-orange-800/30 text-left hover:bg-orange-100 transition-all"
-                >
-                  <p className="text-[10px] text-orange-700 dark:text-orange-400 font-semibold">
-                    {missingLangs.length} idioma{missingLangs.length !== 1 ? 's' : ''} sem tradução
-                  </p>
-                  <p className="text-[10px] text-orange-500 mt-0.5">Clique para gerar → Idiomas</p>
-                </button>
-              )}
 
               {/* Save button */}
               <button
@@ -890,7 +846,7 @@ function RouteEditorModalInner({
                         'text-xs transition-colors flex-1',
                         snapToRoads ? 'text-tuggi-blue font-medium' : 'text-gray-400 group-hover:text-gray-600'
                       )}>
-                        {snapToRoads ? 'Seguir vias (snap to roads)' : 'Linhas retas (manual)'}
+                        {snapToRoads ? t('snap_roads_on') : t('snap_roads_off')}
                       </span>
                       <div className={cn('w-7 h-4 rounded-full relative transition-all duration-300 shrink-0', snapToRoads ? 'bg-tuggi-blue' : 'bg-gray-200 dark:bg-gray-700')}>
                         <div className={cn('absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-sm', snapToRoads ? 'translate-x-3' : 'translate-x-0')} />
@@ -901,7 +857,7 @@ function RouteEditorModalInner({
                     <div className="flex items-center justify-between">
                       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
                         <Navigation className="h-3.5 w-3.5" />
-                        Pontos de Passagem
+                        {t('waypoints_title')}
                         <span className="font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-500 rounded-full text-[10px]">
                           {waypoints.length}
                         </span>
@@ -914,7 +870,7 @@ function RouteEditorModalInner({
                           showPoiSearch ? 'bg-tuggi-blue text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700'
                         )}
                       >
-                        <Plus className="h-3.5 w-3.5" /> Buscar POI
+                        <Plus className="h-3.5 w-3.5" /> {t('search_poi')}
                       </button>
                     </div>
 
@@ -928,7 +884,7 @@ function RouteEditorModalInner({
                             autoFocus
                             value={poiSearchQuery}
                             onChange={e => handlePoiSearch(e.target.value)}
-                            placeholder="Buscar local no banco..."
+                            placeholder={t('search_placeholder')}
                             className="flex-1 text-xs bg-transparent outline-none text-gray-700 dark:text-gray-300 placeholder:text-gray-400"
                           />
                           {isSearchingPoi && <RefreshCw className="h-3.5 w-3.5 text-gray-400 animate-spin shrink-0" />}
@@ -962,7 +918,7 @@ function RouteEditorModalInner({
                         )}
                         {poiSearchQuery.length >= 2 && !isSearchingPoi && poiSearchResults.length === 0 && (
                           <p className="text-[10px] text-gray-400 text-center mt-1">
-                            Nenhum POI encontrado. Clique no mapa para adicionar.
+                            {t('no_poi_found')}
                           </p>
                         )}
                       </div>
@@ -975,7 +931,7 @@ function RouteEditorModalInner({
                           {waypoints.map((wp, index) => {
                             const isExpanded = expandedWaypointId === wp.id
                             const isStartOrEnd = index === 0 || index === waypoints.length - 1
-                            const pointLabel = index === 0 ? 'Início' : (index === waypoints.length - 1 ? 'Fim' : `Ponto ${index}`)
+                            const pointLabel = index === 0 ? t('wp_start') : (index === waypoints.length - 1 ? t('wp_end') : t('wp_point', { n: index }))
                             return (
                               <div key={wp.id} className="group">
                                 <div
@@ -1023,13 +979,13 @@ function RouteEditorModalInner({
                                 {isExpanded && (
                                   <div className="mt-2 ml-9 p-4 bg-white dark:bg-gray-800/80 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm space-y-4">
                                     <div>
-                                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-1.5">Nome do Local</label>
+                                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-1.5">{t('wp_name_label')}</label>
                                       <input
                                         type="text"
                                         value={wp.metadata?.name || ''}
                                         onChange={e => updateWaypointName(wp.id, e.target.value)}
                                         onClick={e => e.stopPropagation()}
-                                        placeholder="Ex: Castelo de São Jorge"
+                                        placeholder={t('wp_name_placeholder')}
                                         className="w-full px-3 py-2 text-xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-1 focus:ring-tuggi-blue outline-none transition-all placeholder:text-gray-400"
                                       />
                                       {wp.metadata?.attraction_id ? (
@@ -1037,7 +993,7 @@ function RouteEditorModalInner({
                                           <div className="flex items-start gap-1.5 min-w-0">
                                             <Link2 className="h-3 w-3 text-green-500 shrink-0 mt-0.5" />
                                             <div className="min-w-0">
-                                              <p className="text-[10px] font-bold text-green-700 dark:text-green-400">POI vinculado</p>
+                                              <p className="text-[10px] font-bold text-green-700 dark:text-green-400">{t('wp_linked_poi')}</p>
                                               {linkedPOICoords[wp.metadata.attraction_id] && (
                                                 <p className="text-[10px] text-green-600 dark:text-green-500 truncate">{linkedPOICoords[wp.metadata.attraction_id].name}</p>
                                               )}
@@ -1051,18 +1007,18 @@ function RouteEditorModalInner({
                                       ) : (
                                         <p className="text-[10px] text-gray-400 mt-1 flex items-center gap-1">
                                           <span className="w-3 h-3 rounded-full bg-gray-300 inline-block shrink-0" />
-                                          Ponto genérico — não vinculado a POI
+                                          {t('wp_generic')}
                                         </p>
                                       )}
                                     </div>
 
                                     {/* Waypoint resources (compact) */}
                                     {[
-                                      { key: 'wheelchair_access', label: 'Cadeirante', icon: Accessibility, opts: ['yes', 'partial', 'no', 'unknown'], labels: ['Sim', 'Parcial', 'Não', 'N/I'] },
-                                      { key: 'parking',           label: 'Estacionamento', icon: ParkingCircle, opts: ['yes', 'no', 'unknown'], labels: ['Sim', 'Não', 'N/I'] },
-                                      { key: 'restrooms',         label: 'Banheiros',      icon: Building2,     opts: ['yes', 'no', 'unknown'], labels: ['Sim', 'Não', 'N/I'] },
-                                      { key: 'rest_areas',        label: 'Descanso',       icon: Trees,         opts: ['yes', 'no', 'unknown'], labels: ['Sim', 'Não', 'N/I'] },
-                                      { key: 'photogenic_rating', label: 'Fotogênica',     icon: Camera,        opts: ['low', 'medium', 'high', 'unknown'], labels: ['Baixa', 'Média', 'Alta', 'N/I'] },
+                                      { key: 'wheelchair_access', label: t('wheelchair'), icon: Accessibility, opts: ['yes', 'partial', 'no', 'unknown'], labels: [t('yes'), t('partial_opt'), t('no_opt'), t('unknown')] },
+                                      { key: 'parking',           label: t('parking'),    icon: ParkingCircle, opts: ['yes', 'no', 'unknown'], labels: [t('yes'), t('no_opt'), t('unknown')] },
+                                      { key: 'restrooms',         label: t('restrooms'),  icon: Building2,     opts: ['yes', 'no', 'unknown'], labels: [t('yes'), t('no_opt'), t('unknown')] },
+                                      { key: 'rest_areas',        label: t('rest_areas'), icon: Trees,         opts: ['yes', 'no', 'unknown'], labels: [t('yes'), t('no_opt'), t('unknown')] },
+                                      { key: 'photogenic_rating', label: t('photogenic'), icon: Camera,        opts: ['low', 'medium', 'high', 'unknown'], labels: [t('photogenic_basic'), t('photogenic_good'), t('photogenic_great'), t('unknown')] },
                                     ].map(({ key, label, icon: Icon, opts, labels }) => (
                                       <div key={key} className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
@@ -1101,7 +1057,7 @@ function RouteEditorModalInner({
                           {waypoints.length === 0 && (
                             <div className="text-center py-12 border-2 border-dashed border-gray-100 dark:border-gray-800 rounded-2xl">
                               <MapPin className="h-8 w-8 text-gray-200 dark:text-gray-700 mx-auto mb-2" />
-                              <p className="text-xs text-gray-400 px-4">Clique no mapa para adicionar pontos</p>
+                              <p className="text-xs text-gray-400 px-4">{t('wp_empty')}</p>
                             </div>
                           )}
                     </div>
@@ -1129,8 +1085,8 @@ function RouteEditorModalInner({
                         <Plus className="h-6 w-6" />
                       </div>
                       <div>
-                        <p className="font-bold text-gray-900 dark:text-white uppercase tracking-tighter">Comece aqui</p>
-                        <p className="text-xs text-gray-500 font-medium">Clique no mapa para definir o ponto de partida</p>
+                        <p className="font-bold text-gray-900 dark:text-white uppercase tracking-tighter">{t('map_start_hint')}</p>
+                        <p className="text-xs text-gray-500 font-medium">{t('map_start_hint_sub')}</p>
                       </div>
                     </div>
                   )}
@@ -1148,10 +1104,10 @@ function RouteEditorModalInner({
                     >
                       <MapPin className="h-3.5 w-3.5" />
                       {isLoadingPOIs
-                        ? <><RefreshCw className="h-3 w-3 animate-spin" /> Buscando...</>
+                        ? <><RefreshCw className="h-3 w-3 animate-spin" /> {t('pois_loading')}</>
                         : showTuggiPOIs && tuggiPOIs.length > 0
-                          ? `${tuggiPOIs.length} POIs Tuggi`
-                          : 'POIs Tuggi'
+                          ? `${tuggiPOIs.length} ${t('pois_toggle')}`
+                          : t('pois_toggle')
                       }
                     </button>
                   </div>
@@ -1171,8 +1127,8 @@ function RouteEditorModalInner({
                         <Languages className="h-5 w-5 text-tuggi-blue" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-gray-900 dark:text-white text-sm">Idioma do conteúdo</h3>
-                        <p className="text-[11px] text-gray-400">Em qual idioma você está escrevendo o título e a descrição?</p>
+                        <h3 className="font-bold text-gray-900 dark:text-white text-sm">{t('content_lang_title')}</h3>
+                        <p className="text-[11px] text-gray-400">{t('content_lang_subtitle')}</p>
                       </div>
                     </div>
 
@@ -1202,7 +1158,7 @@ function RouteEditorModalInner({
                     <div className="flex items-start gap-2.5 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 rounded-xl">
                       <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
                       <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                        Este é o <strong>conteúdo base</strong> da rota. Para gerar versões em outros idiomas, use a aba <strong>Idiomas</strong> (disponível após salvar).
+                        {t('content_base_note')}
                       </p>
                     </div>
                   </section>
@@ -1211,7 +1167,7 @@ function RouteEditorModalInner({
                   <section className="space-y-5">
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                        <FileText className="h-4 w-4" /> Texto da Rota
+                        <FileText className="h-4 w-4" /> {t('text_section')}
                       </h3>
                       <span className="flex items-center gap-1 text-[10px] font-bold text-tuggi-blue bg-tuggi-blue/10 px-2.5 py-1 rounded-full">
                         {CONTENT_LANGUAGES.find(l => l.code === contentLanguage)?.flag}{' '}
@@ -1232,7 +1188,7 @@ function RouteEditorModalInner({
                           placeholder="Ex: Grand Tour de Lisboa — De Oriente a Belém"
                         />
                         {!name && (
-                          <p className="text-[10px] text-red-500 mt-1">O título é obrigatório para salvar a rota.</p>
+                          <p className="text-[10px] text-red-500 mt-1">{t('name_required')}</p>
                         )}
                       </div>
 
@@ -1249,7 +1205,7 @@ function RouteEditorModalInner({
                           placeholder="Descreva a experiência da rota: pontos de destaque, duração estimada, melhor época para fazer..."
                         />
                         <p className="text-[10px] text-gray-400 mt-1">
-                          {description.length} caracteres{description.length > 0 && description.length < 80 && ' · Recomendamos pelo menos 80 caracteres para uma boa descrição.'}
+                          {t('char_count', { count: description.length })}{description.length > 0 && description.length < 80 && ` · ${t('char_recommendation')}`}
                         </p>
                       </div>
                     </div>
@@ -1259,46 +1215,46 @@ function RouteEditorModalInner({
                   <section className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-800">
                     <div>
                       <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2 mb-1">
-                        <Globe className="h-4 w-4" /> Localização <span className="text-red-500">*</span>
+                        <Globe className="h-4 w-4" /> {t('location_title')} <span className="text-red-500">*</span>
                       </h3>
-                      <p className="text-[11px] text-gray-400">Obrigatório para que a rota apareça nos filtros do app.</p>
+                      <p className="text-[11px] text-gray-400">{t('location_note')}</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
-                          País <span className="text-red-500">*</span>
+                          {t('country')} <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="text"
                           value={country}
                           onChange={e => setCountry(e.target.value)}
-                          placeholder="Ex: Portugal"
+                          placeholder={t('country_placeholder')}
                           className={cn(
                             'w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm',
                             !country.trim() ? 'border-amber-300 dark:border-amber-700' : 'border-transparent'
                           )}
                         />
                         {!country.trim() && (
-                          <p className="text-[10px] text-amber-600 mt-1">Campo obrigatório</p>
+                          <p className="text-[10px] text-amber-600 mt-1">{t('required_field')}</p>
                         )}
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1.5">
-                          Região / Cidade <span className="text-red-500">*</span>
+                          {t('region')} <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="text"
                           value={region}
                           onChange={e => setRegion(e.target.value)}
-                          placeholder="Ex: Lisboa"
+                          placeholder={t('region_placeholder')}
                           className={cn(
                             'w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border rounded-xl focus:ring-2 focus:ring-tuggi-blue transition-all text-sm',
                             !region.trim() ? 'border-amber-300 dark:border-amber-700' : 'border-transparent'
                           )}
                         />
                         {!region.trim() && (
-                          <p className="text-[10px] text-amber-600 mt-1">Campo obrigatório</p>
+                          <p className="text-[10px] text-amber-600 mt-1">{t('required_field')}</p>
                         )}
                       </div>
                     </div>
@@ -1315,18 +1271,18 @@ function RouteEditorModalInner({
                   {/* A Experiência — Scenic, Best Time, Photogenic */}
                   <section className="space-y-5">
                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                      <Camera className="h-4 w-4" /> A Experiência
+                      <Camera className="h-4 w-4" /> {t('section_experience')}
                     </h3>
 
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-2">Perfil Cênico</label>
+                      <label className="block text-xs font-medium text-gray-500 mb-2">{t('scenic_label')}</label>
                       <div className="grid grid-cols-5 gap-2">
                         {[
-                          { id: 'panoramic', label: 'Panorâmica', icon: Mountain },
-                          { id: 'historical', label: 'Histórica',  icon: Building2 },
-                          { id: 'nature',     label: 'Natureza',   icon: Trees },
-                          { id: 'urban',      label: 'Urbana',     icon: Building2 },
-                          { id: 'rural',      label: 'Rural',      icon: Wheat },
+                          { id: 'panoramic', label: t('scenic_panoramic'), icon: Mountain },
+                          { id: 'historical', label: t('scenic_historical'), icon: Building2 },
+                          { id: 'nature',     label: t('scenic_nature'),   icon: Trees },
+                          { id: 'urban',      label: t('scenic_urban'),    icon: Building2 },
+                          { id: 'rural',      label: t('scenic_rural'),    icon: Wheat },
                         ].map(({ id, label, icon: Icon }) => (
                           <button key={id} type="button"
                             onClick={() => setScenicProfile(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
@@ -1342,13 +1298,13 @@ function RouteEditorModalInner({
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-2">Melhor Período</label>
+                      <label className="block text-xs font-medium text-gray-500 mb-2">{t('best_time_label')}</label>
                       <div className="grid grid-cols-4 gap-2">
                         {[
-                          { id: 'morning',   label: 'Manhã',      icon: Sun },
-                          { id: 'afternoon', label: 'Tarde',      icon: Sun },
-                          { id: 'sunset',    label: 'Pôr do Sol', icon: Sunrise },
-                          { id: 'night',     label: 'Noite',      icon: Moon },
+                          { id: 'morning',   label: t('time_morning'),   icon: Sun },
+                          { id: 'afternoon', label: t('time_afternoon'), icon: Sun },
+                          { id: 'sunset',    label: t('time_sunset'),    icon: Sunrise },
+                          { id: 'night',     label: t('time_night'),     icon: Moon },
                         ].map(({ id, label, icon: Icon }) => (
                           <button key={id} type="button"
                             onClick={() => setBestTime(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
@@ -1364,9 +1320,9 @@ function RouteEditorModalInner({
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-2">Fotogênica</label>
+                      <label className="block text-xs font-medium text-gray-500 mb-2">{t('photogenic_label')}</label>
                       <div className="grid grid-cols-4 gap-2">
-                        {[{ id: 'low', label: 'Básica' }, { id: 'medium', label: 'Boa' }, { id: 'high', label: 'Incrível' }, { id: 'unknown', label: 'N/I' }].map(({ id, label }) => (
+                        {[{ id: 'low', label: t('photogenic_basic') }, { id: 'medium', label: t('photogenic_good') }, { id: 'high', label: t('photogenic_great') }, { id: 'unknown', label: t('unknown') }].map(({ id, label }) => (
                           <button key={id} type="button" onClick={() => setPhotogenicRating(id)}
                             className={cn('py-2 px-3 rounded-xl border-2 transition-all text-xs font-bold',
                               photogenicRating === id ? 'bg-pink-50 dark:bg-pink-900/20 border-pink-300 text-pink-600' : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500'
@@ -1380,13 +1336,13 @@ function RouteEditorModalInner({
                   {/* A Direção — Drivability, Road Conditions */}
                   <section className="space-y-5 pt-4 border-t border-gray-100 dark:border-gray-800">
                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                      <Car className="h-4 w-4" /> A Direção
+                      <Car className="h-4 w-4" /> {t('section_drive')}
                     </h3>
 
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-2">Facilidade ao Dirigir</label>
+                      <label className="block text-xs font-medium text-gray-500 mb-2">{t('drivability_label')}</label>
                       <div className="grid grid-cols-4 gap-2">
-                        {[{ id: 'easy', label: 'Fácil' }, { id: 'moderate', label: 'Moderado' }, { id: 'demanding', label: 'Exigente' }, { id: 'unknown', label: 'N/I' }].map(({ id, label }) => (
+                        {[{ id: 'easy', label: t('drive_easy') }, { id: 'moderate', label: t('drive_moderate') }, { id: 'demanding', label: t('drive_demanding') }, { id: 'unknown', label: t('unknown') }].map(({ id, label }) => (
                           <button key={id} type="button" onClick={() => setDrivability(id)}
                             className={cn('py-2 px-3 rounded-xl border-2 transition-all text-xs font-bold',
                               drivability === id ? 'bg-tuggi-blue/10 border-tuggi-blue text-tuggi-blue' : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500'
@@ -1397,9 +1353,9 @@ function RouteEditorModalInner({
                     </div>
 
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-2">Condições do Caminho</label>
+                      <label className="block text-xs font-medium text-gray-500 mb-2">{t('road_label')}</label>
                       <div className="flex flex-wrap gap-2">
-                        {[{ id: 'paved', label: 'Asfalto' }, { id: 'dirt', label: 'Terra' }, { id: 'steep', label: 'Íngremes' }, { id: 'curves', label: 'Curvas' }].map(({ id, label }) => (
+                        {[{ id: 'paved', label: t('road_paved') }, { id: 'dirt', label: t('road_dirt') }, { id: 'steep', label: t('road_steep') }, { id: 'curves', label: t('road_curves') }].map(({ id, label }) => (
                           <button key={id} type="button"
                             onClick={() => setRoadConditions(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
                             className={cn('py-1.5 px-3 rounded-full border-2 transition-all text-xs font-medium',
@@ -1414,12 +1370,12 @@ function RouteEditorModalInner({
                   {/* Acessibilidade */}
                   <section className="space-y-5 pt-4 border-t border-gray-100 dark:border-gray-800">
                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
-                      <Accessibility className="h-4 w-4" /> Acessibilidade
+                      <Accessibility className="h-4 w-4" /> {t('section_accessibility')}
                     </h3>
                     <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-2">Acesso para Cadeirantes (Rota)</label>
+                      <label className="block text-xs font-medium text-gray-500 mb-2">{t('accessibility_label')}</label>
                       <div className="grid grid-cols-4 gap-2">
-                        {[{ id: 'accessible', label: 'Acessível' }, { id: 'partial', label: 'Parcial' }, { id: 'not_accessible', label: 'Não' }, { id: 'unknown', label: 'N/I' }].map(({ id, label }) => (
+                        {[{ id: 'accessible', label: t('accessibility_accessible') }, { id: 'partial', label: t('accessibility_partial') }, { id: 'not_accessible', label: t('accessibility_not') }, { id: 'unknown', label: t('unknown') }].map(({ id, label }) => (
                           <button key={id} type="button" onClick={() => setAccessibility(id)}
                             className={cn('py-2 px-2 rounded-xl border-2 transition-all text-[10px] font-bold',
                               accessibility === id ? 'bg-purple-50 dark:bg-purple-900/20 border-purple-300 text-purple-600' : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:border-gray-200 text-gray-500'
@@ -1436,28 +1392,6 @@ function RouteEditorModalInner({
             {/* ══ TAB: IDIOMAS ══ */}
             {activeTab === 'languages' && effectiveIsEditing && effectiveRouteId && (
               <div className="h-full flex flex-col overflow-hidden">
-                {/* Post-save validation banner */}
-                {(translationSaved || missingLangs.length > 0) && (
-                  <div className="shrink-0 px-6 pt-4">
-                    <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 rounded-2xl">
-                      <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                      <div className="flex-1">
-                        <p className="text-xs font-bold text-amber-800 dark:text-amber-300 mb-1">
-                          {translationSaved ? 'Rota salva! Traduções pendentes.' : 'Traduções incompletas'}
-                        </p>
-                        <p className="text-[11px] text-amber-700 dark:text-amber-400">
-                          {missingLangs.length} idioma{missingLangs.length !== 1 ? 's' : ''} sem tradução:{' '}
-                          <span className="font-semibold">{missingLangs.join(', ')}</span>.
-                          Use o botão <strong>"Gerar todos os pendentes"</strong> abaixo.
-                        </p>
-                      </div>
-                      <button onClick={() => { setTranslationSaved(false); setMissingLangs([]) }}
-                        className="text-amber-400 hover:text-amber-600 p-1 shrink-0">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
                   <RouteTranslationsPanel
                     routeId={effectiveRouteId}
