@@ -20,7 +20,7 @@ import {
   Plus, RefreshCw, Route, PenTool, CheckCircle, XCircle, Edit, Link2,
   ExternalLink, Accessibility, Car, Mountain, Sun, Moon, Sunrise,
   Camera, Trees, Building2, Wheat, ParkingCircle, ChevronDown, MapPin, Globe,
-  FileText, Languages, AlertTriangle,
+  FileText, Languages, AlertTriangle, GripVertical,
 } from 'lucide-react'
 import { useTranslations, useLocale } from 'next-intl'
 import { cn } from '@/lib/utils'
@@ -140,6 +140,10 @@ function RouteEditorModalInner({
 
   // ── Waypoint UI state ──────────────────────────────────────────────────────
   const [expandedWaypointId, setExpandedWaypointId] = useState<string | null>(null)
+
+  // ── Drag-to-reorder state ─────────────────────────────────────────────────
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
   // ── POI search state ───────────────────────────────────────────────────────
   const [poiSearchQuery,   setPoiSearchQuery]   = useState('')
@@ -570,6 +574,36 @@ function RouteEditorModalInner({
     setWaypoints(prev => prev.map(w => w.id === id ? { ...w, metadata: { ...w.metadata, name } } : w))
   }
 
+  // ── Drag-to-reorder handlers ─────────────────────────────────────────────
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    e.dataTransfer.effectAllowed = 'move'
+    setDraggingIndex(index)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (index !== draggingIndex) setDragOverIndex(index)
+  }
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault()
+    if (draggingIndex === null || draggingIndex === targetIndex) {
+      setDraggingIndex(null); setDragOverIndex(null); return
+    }
+    const next = [...waypoints]
+    const [moved] = next.splice(draggingIndex, 1)
+    next.splice(targetIndex, 0, moved)
+    setWaypoints(next)
+    setDraggingIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggingIndex(null)
+    setDragOverIndex(null)
+  }
+
   const removeWaypoint = (id: string) => {
     setWaypoints(prev => prev.filter(w => w.id !== id))
   }
@@ -929,20 +963,40 @@ function RouteEditorModalInner({
                   <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-2">
                     <div className="space-y-1.5">
                           {waypoints.map((wp, index) => {
-                            const isExpanded = expandedWaypointId === wp.id
-                            const isStartOrEnd = index === 0 || index === waypoints.length - 1
-                            const pointLabel = index === 0 ? t('wp_start') : (index === waypoints.length - 1 ? t('wp_end') : t('wp_point', { n: index }))
+                            const isExpanded   = expandedWaypointId === wp.id
+                            const isDragging   = draggingIndex === index
+                            const isDropTarget = dragOverIndex === index && draggingIndex !== index
+                            const pointLabel   = index === 0
+                              ? t('wp_start')
+                              : index === waypoints.length - 1
+                                ? t('wp_end')
+                                : t('wp_point', { n: index })
                             return (
-                              <div key={wp.id} className="group">
+                              <div
+                                key={wp.id}
+                                className={cn('group', isDragging && 'opacity-40')}
+                                draggable
+                                onDragStart={e => handleDragStart(e, index)}
+                                onDragOver={e => handleDragOver(e, index)}
+                                onDrop={e => handleDrop(e, index)}
+                                onDragEnd={handleDragEnd}
+                              >
                                 <div
                                   className={cn(
-                                    'flex items-center gap-3 p-3 rounded-xl transition-all border cursor-pointer',
+                                    'flex items-center gap-2 p-3 rounded-xl transition-all border cursor-pointer',
                                     isExpanded
                                       ? 'bg-tuggi-blue/5 border-tuggi-blue/30'
-                                      : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:border-gray-200'
+                                      : isDropTarget
+                                        ? 'bg-tuggi-blue/5 border-tuggi-blue/30'
+                                        : 'bg-gray-50 dark:bg-gray-800 border-transparent hover:bg-gray-100 dark:hover:bg-gray-700/50 hover:border-gray-200'
                                   )}
                                   onClick={() => setExpandedWaypointId(isExpanded ? null : wp.id)}
                                 >
+                                  {/* Drag handle */}
+                                  <GripVertical
+                                    className="h-4 w-4 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onMouseDown={e => e.stopPropagation()}
+                                  />
                                   <div className={cn(
                                     'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0',
                                     index === 0 ? 'bg-green-500' : (index === waypoints.length - 1 ? 'bg-red-500' : 'bg-blue-500')
@@ -964,15 +1018,14 @@ function RouteEditorModalInner({
                                       )}
                                     </p>
                                   </div>
-                                  {!isStartOrEnd && (
-                                    <button
-                                      onClick={e => { e.stopPropagation(); removeWaypoint(wp.id) }}
-                                      className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                  <ChevronDown className={cn('h-4 w-4 text-gray-400 transition-transform', isExpanded && 'rotate-180')} />
+                                  {/* Delete — available for ALL waypoints */}
+                                  <button
+                                    onClick={e => { e.stopPropagation(); removeWaypoint(wp.id) }}
+                                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                  <ChevronDown className={cn('h-4 w-4 text-gray-400 transition-transform shrink-0', isExpanded && 'rotate-180')} />
                                 </div>
 
                                 {/* Expanded metadata */}
