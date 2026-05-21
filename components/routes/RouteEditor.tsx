@@ -24,6 +24,7 @@ import {
   Link2,
   ExternalLink,
   Globe,
+  Settings,
   // Characteristics icons
   Accessibility,
   Car,
@@ -120,8 +121,9 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
   // Waypoint UI State
   const [expandedWaypointId, setExpandedWaypointId] = useState<string | null>(null)
 
-  // Painel de traduções
-  const [showTranslations, setShowTranslations] = useState(false)
+  // Tab navigation (padrão POI modal)
+  type EditorTab = 'route' | 'experience' | 'languages' | 'settings'
+  const [activeTab, setActiveTab] = useState<EditorTab>('route')
 
   // POI Search State (busca manual pelo admin)
   const [poiSearchQuery, setPoiSearchQuery] = useState('')
@@ -719,29 +721,64 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
     <div className="flex h-full overflow-hidden bg-white dark:bg-gray-900 border-none">
       {/* Sidebar Editor */}
       <div className="w-[450px] flex flex-col h-full bg-white dark:bg-gray-900 shadow-2xl z-10 border-r border-gray-100 dark:border-gray-800">
-        <div className="p-8 flex flex-col gap-8 overflow-y-auto flex-1 custom-scrollbar">
-          {/* Header & Back Button */}
-          <div className="flex items-start gap-4">
-            <button 
-              onClick={() => router.push('/routes')}
-              className="mt-1 p-3 bg-gray-50 dark:bg-gray-800 rounded-2xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-all text-gray-500 hover:text-tuggi-blue border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
-              title="Voltar para listagem"
-            >
-              <ChevronLeft className="h-6 w-6" />
-            </button>
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
-                {isEditing ? <Edit className="h-6 w-6 text-tuggi-blue" /> : <Plus className="h-6 w-6 text-tuggi-blue" />}
-                {isEditing ? t('edit_title') : t('create_title')}
-              </h2>
-              <p className="text-[11px] text-gray-400 font-medium whitespace-nowrap overflow-hidden text-ellipsis leading-tight mt-1">
-                Configure os detalhes da rota e defina os pontos no mapa.
-              </p>
-            </div>
-          </div>
 
-          {/* Concept Banner — explica o modelo mental da funcionalidade */}
-          <div style={{ order: 0 }} className="flex items-start gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-2xl">
+        {/* ── Fixed header ─────────────────────────────────────────────── */}
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+          <button
+            onClick={() => router.push('/routes')}
+            className="p-2 bg-gray-50 dark:bg-gray-800 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-all text-gray-500 hover:text-tuggi-blue shrink-0"
+            title="Voltar"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2 truncate">
+              {isEditing ? <Edit className="h-4 w-4 text-tuggi-blue shrink-0" /> : <Plus className="h-4 w-4 text-tuggi-blue shrink-0" />}
+              {name || (isEditing ? t('edit_title') : t('create_title'))}
+            </h2>
+            {(distance || stopsCount > 0) && (
+              <p className="text-[10px] text-gray-400 font-medium">
+                {stopsCount} paradas{distance ? ` · ${formatDistance(distance)}` : ''}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* ── Tab navigation (padrão POI modal) ────────────────────────── */}
+        <div className="flex items-center gap-1 px-4 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30">
+          {([
+            { id: 'route',      icon: Navigation, label: 'Rota'        },
+            { id: 'experience', icon: Camera,     label: 'Experiência' },
+            { id: 'settings',   icon: Settings,   label: 'Config'      },
+            ...(isEditing && initialData?.id
+              ? [{ id: 'languages', icon: Globe, label: 'Idiomas' }]
+              : [])
+          ] as { id: string; icon: any; label: string }[]).map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all flex-1 justify-center',
+                activeTab === tab.id
+                  ? 'bg-tuggi-blue text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
+              )}
+            >
+              <tab.icon className={cn('h-3.5 w-3.5', activeTab === tab.id && 'animate-pulse')} />
+              <span className="hidden sm:inline">{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* ── Scrollable tab content ────────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="p-6 flex flex-col gap-6">
+
+          {/* ══ TAB: ROTA ══════════════════════════════════════════════ */}
+          {activeTab === 'route' && <>
+
+          {/* Concept Banner */}
+          <div className="flex items-start gap-3 p-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-2xl">
             <MapPin className="h-4 w-4 text-indigo-500 shrink-0 mt-0.5" />
             <p className="text-[11px] text-indigo-700 dark:text-indigo-300 leading-relaxed font-medium">
               Você define os <strong>pontos de interesse</strong>. O Google Maps ou Apple Maps escolherá o melhor caminho entre eles. O traçado aqui é uma <strong>prévia aproximada</strong>.
@@ -749,7 +786,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           </div>
 
           {/* Basic Info */}
-          <section style={{ order: 1 }} className="space-y-4">
+          <section className="space-y-4">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4" />
               {t('basic_info')}
@@ -798,8 +835,13 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
             </div>
           </section>
 
+          </> /* end TAB: ROTA */}
+
+          {/* ══ TAB: EXPERIÊNCIA ═══════════════════════════════════════ */}
+          {activeTab === 'experience' && <>
+
           {/* THE EXPERIENCE - Scenic, Best Time, Photogenic */}
-          <section style={{ order: 3 }} className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+          <section className="space-y-4">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
               <Camera className="h-4 w-4" />
               A Experiência
@@ -895,7 +937,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           </section>
 
           {/* THE DRIVE - Drivability, Road Conditions */}
-          <section style={{ order: 4 }} className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+          <section className="space-y-4 pt-4 border-t border-gray-100 dark:border-gray-800">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
               <Car className="h-4 w-4" />
               A Direção
@@ -959,7 +1001,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           </section>
 
           {/* LOGISTICS - Wheelchair Accessibility & Stops Summary */}
-          <section style={{ order: 5 }} className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+          <section className="space-y-4 pt-4 border-t border-gray-100 dark:border-gray-800">
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
               <Accessibility className="h-4 w-4" />
               Acessibilidade & Logística
@@ -1007,7 +1049,7 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
           </section>
 
           {/* Route Points */}
-          <section style={{ order: 2 }} className="space-y-4 pt-6 border-t border-gray-100 dark:border-gray-800">
+          <section className="space-y-4 pt-2 border-t border-gray-100 dark:border-gray-800">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
                 <Navigation className="h-4 w-4" />
@@ -1383,8 +1425,22 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
             </button>
           </section>
 
+          </> /* end TAB: EXPERIÊNCIA */}
+
+          {/* ══ TAB: IDIOMAS ═══════════════════════════════════════════ */}
+          {activeTab === 'languages' && isEditing && initialData?.id && (
+            <RouteTranslationsPanel
+              routeId={initialData.id}
+              routeName={name || initialData.name}
+              inline
+            />
+          )}
+
+          {/* ══ TAB: CONFIG ════════════════════════════════════════════ */}
+          {activeTab === 'settings' && <>
+
           {/* Settings Group */}
-          <section style={{ order: 6 }} className="space-y-3 pt-6 border-t border-gray-100 dark:border-gray-800">
+          <section className="space-y-3">
             <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-2 px-1">Configurações de Exibição</h3>
             
              <div 
@@ -1451,9 +1507,13 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
               </div>
             </div>
           </section>
-        </div>
+          </> /* end TAB: CONFIG */}
 
-        {/* Action Footer */}
+        </div>{/* end flex flex-col gap-6 */}
+        </div>{/* end overflow-y-auto */}
+
+        {/* Action Footer — oculto na tab Idiomas (ela tem seus próprios controles) */}
+        {activeTab !== 'languages' && (
         <div className="p-6 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 space-y-4 mt-auto">
           {/* Stats Summary */}
           {(distance || isGenerating) && (
@@ -1477,38 +1537,17 @@ function RouteEditorInner({ initialData, isEditing = false }: RouteEditorProps) 
             </div>
           )}
 
-          <div className="flex gap-2">
-            {/* Botão Traduções — só aparece quando editando uma rota existente */}
-            {isEditing && initialData?.id && (
-              <button
-                onClick={() => setShowTranslations(true)}
-                className="px-4 py-4 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-bold rounded-2xl hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-all flex items-center gap-2 border border-indigo-100 dark:border-indigo-800/30 shrink-0"
-                title="Gerenciar traduções da rota"
-              >
-                <Globe className="h-5 w-5" />
-              </button>
-            )}
-
-            <button
-              onClick={handleSave}
-              disabled={!canEdit || isViewer || isSaving || isGenerating || !name || waypoints.length < 2}
-              className="flex-1 py-4 bg-tuggi-blue text-white font-bold rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/30 active:scale-[0.98] flex items-center justify-center gap-3 text-lg"
-            >
-              {isSaving ? <RefreshCw className="h-6 w-6 animate-spin" /> : <Save className="h-6 w-6" />}
-              {commonT('actions.save')}
-            </button>
-          </div>
+          <button
+            onClick={handleSave}
+            disabled={!canEdit || isViewer || isSaving || isGenerating || !name || waypoints.length < 2}
+            className="w-full py-4 bg-tuggi-blue text-white font-bold rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/30 active:scale-[0.98] flex items-center justify-center gap-3 text-lg"
+          >
+            {isSaving ? <RefreshCw className="h-6 w-6 animate-spin" /> : <Save className="h-6 w-6" />}
+            {commonT('actions.save')}
+          </button>
         </div>
+        )} {/* end activeTab !== 'languages' */}
       </div>
-
-      {/* Painel de Traduções */}
-      {showTranslations && isEditing && initialData?.id && (
-        <RouteTranslationsPanel
-          routeId={initialData.id}
-          routeName={name || initialData.name}
-          onClose={() => setShowTranslations(false)}
-        />
-      )}
 
       {/* Main Map Area */}
       <div className="flex-1 relative bg-gray-100 dark:bg-gray-950">
