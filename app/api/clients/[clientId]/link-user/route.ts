@@ -11,9 +11,10 @@ import { ClientService } from '@/lib/services/client-service'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
   try {
+    const { clientId } = await params
     // Require authentication
     const cookieStore = await cookies()
     const supabaseAuth = getSupabaseRouteHandler(cookieStore)
@@ -47,7 +48,7 @@ export async function POST(
         .schema('core')
         .from('clients')
         .select('id')
-        .eq('id', params.clientId)
+        .eq('id', clientId)
         .eq('cms_user_id', cmsUser.id)
         .single()
 
@@ -69,10 +70,10 @@ export async function POST(
       )
     }
 
-    console.log('🔗 Linking CMS user to client:', { clientId: params.clientId, cmsUserId })
+    console.log('🔗 Linking CMS user to client:', { clientId: clientId, cmsUserId })
 
     const link = await ClientService.linkCmsUser(
-      params.clientId,
+      clientId,
       cmsUserId,
       cmsUser.id,
       clientRole

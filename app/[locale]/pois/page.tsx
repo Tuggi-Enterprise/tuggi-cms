@@ -629,7 +629,7 @@ function POIListWithSearchParams() {
 
   // Handle POI garbage (blacklist)
   const handleGarbagePoi = async (poiId: string) => {
-    if (!confirm('Tem certeza que deseja marcar este POI como LIXO? Ele será excluído e não poderá ser re-importado.')) return
+    if (!confirm(t('alerts.confirm_garbage_single'))) return
 
     try {
       const response = await fetch(`/api/pois/${poiId}/garbage`, {
@@ -640,11 +640,11 @@ function POIListWithSearchParams() {
         fetchPois()
       } else {
         const errorData = await response.json()
-        alert(errorData.error || 'Erro ao marcar como lixo')
+        alert(errorData.error || t('alerts.garbage_error'))
       }
     } catch (error) {
       console.error('Error marking POI as garbage:', error)
-      alert('Erro na requisição')
+      alert(t('alerts.request_error'))
     }
   }
 
@@ -872,26 +872,9 @@ function POIListWithSearchParams() {
 
               {/* Filters List */}
               <div className="space-y-5">
-                {/* Record Type Section */}
-                <div>
-                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">{t('filters.record_type')}</h3>
-                  <select
-                    value={categoryFilter}
-                    onChange={(e) => {
-                      setCategoryFilter(e.target.value)
-                      setCurrentPage(1)
-                    }}
-                    className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
-                  >
-                    <option value="all">{t('status_options.all_types')}</option>
-                    <option value="point_of_interest">{t('status_options.poi_standard')}</option>
-                    <option value="geofence">{t('status_options.geofence')}</option>
-                  </select>
-                </div>
-
                 {/* Location Section */}
                 <div>
-                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Localização</h3>
+                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">{t('filters.location')}</h3>
                   <div className="space-y-3">
                     <select
                       value={countryFilter}
@@ -981,8 +964,25 @@ function POIListWithSearchParams() {
                   </div>
                 </div>
 
+                {/* Record Type Section */}
                 <div>
-                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">Avançado</h3>
+                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">{t('filters.record_type')}</h3>
+                  <select
+                    value={categoryFilter}
+                    onChange={(e) => {
+                      setCategoryFilter(e.target.value)
+                      setCurrentPage(1)
+                    }}
+                    className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                  >
+                    <option value="all">{t('status_options.all_types')}</option>
+                    <option value="point_of_interest">{t('status_options.poi_standard')}</option>
+                    <option value="geofence">{t('status_options.geofence')}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">{t('filters.advanced')}</h3>
                   <div className="space-y-3">
                     <select
                       value={groupStatusFilter}
@@ -1025,7 +1025,7 @@ function POIListWithSearchParams() {
                       <label className="flex items-center justify-between cursor-pointer group p-1">
                         <div className="flex flex-col">
                           <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('filters.show_triggers')}</span>
-                          <span className="text-[9px] text-gray-400 group-hover:text-tuggi-blue transition-colors">Visualizar no Mapa</span>
+                          <span className="text-[9px] text-gray-400 group-hover:text-tuggi-blue transition-colors">{t('filters.show_triggers_subtitle')}</span>
                         </div>
                         <div 
                           onClick={() => setShowTriggers(!showTriggers)}
@@ -1197,6 +1197,16 @@ function POIListWithSearchParams() {
                   triggerPointsFilter={triggerPointsFilter}
                   showTriggers={showTriggers}
                   onPOIClick={handleSelectPoiForMap}
+                  onPOIDelete={(poi) => handleDeletePoi(poi.id)}
+                  onPOIGarbage={(poi) => handleGarbagePoi(poi.id)}
+                  canGarbage={isAdmin}
+                  actionMenuLabels={{
+                    edit: t('map_actions.edit'),
+                    delete: t('map_actions.delete'),
+                    garbage: t('map_actions.garbage'),
+                    approved: t('map_actions.approved'),
+                    pending: t('map_actions.pending')
+                  }}
                   height="70vh"
                   className="w-full"
                 />

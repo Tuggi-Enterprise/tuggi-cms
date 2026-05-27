@@ -3,7 +3,7 @@ import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 
 interface RouteParams {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
 /**

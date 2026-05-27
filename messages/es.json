@@ -1025,11 +1025,13 @@
       },
       "types": {
         "primary": "Principal",
+        "secondary": "Secundario",
         "fallback": "Reserva",
         "entry": "Entrada",
         "exit": "Salida",
         "approach": "Aproximación",
-        "custom": "Personalizado"
+        "custom": "Personalizado",
+        "geofence": "Geocerca"
       },
       "access": {
         "walk": "Peatón",
@@ -1061,6 +1063,9 @@
       "title": "Filtros",
       "clear_all": "Limpiar Todo",
       "show_triggers": "Ver Disparadores",
+      "show_triggers_subtitle": "Ver en el Mapa",
+      "location": "Ubicación",
+      "advanced": "Avanzado",
       "search_placeholder": "Buscar POIs...",
       "country": "País",
       "state": "Estado",
@@ -1129,7 +1134,17 @@
       "confirm_delete_single": "¿Estás seguro de que quieres eliminar este POI?",
       "confirm_delete_bulk": "¿Estás seguro de que quieres eliminar {count} POIs?",
       "delete_error": "Error al eliminar el POI",
-      "delete_bulk_error": "Error al eliminar los POIs"
+      "delete_bulk_error": "Error al eliminar los POIs",
+      "confirm_garbage_single": "¿Marcar este POI como BASURA? Será eliminado y no podrá ser re-importado.",
+      "garbage_error": "Error al marcar el POI como basura",
+      "request_error": "Falló la solicitud"
+    },
+    "map_actions": {
+      "edit": "Editar",
+      "delete": "Eliminar",
+      "garbage": "Enviar a Papelera",
+      "approved": "Aprobado",
+      "pending": "Pendiente"
     }
   },
   "Shared": {

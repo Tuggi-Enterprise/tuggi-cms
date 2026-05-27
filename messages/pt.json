@@ -1099,11 +1099,13 @@
       },
       "types": {
         "primary": "Principal",
+        "secondary": "Secundário",
         "fallback": "Reserva",
         "entry": "Entrada",
         "exit": "Saída",
         "approach": "Aproximação",
-        "custom": "Personalizado"
+        "custom": "Personalizado",
+        "geofence": "Geocerca"
       },
       "access": {
         "walk": "Pedestre",
@@ -1137,6 +1139,9 @@
       "category": "Categoria da Atração",
       "clear_all": "Limpar Tudo",
       "show_triggers": "Ver Gatilhos",
+      "show_triggers_subtitle": "Visualizar no Mapa",
+      "location": "Localização",
+      "advanced": "Avançado",
       "search_placeholder": "Buscar POIs...",
       "search_category": "Ex: museu, parque...",
       "country": "País",
@@ -1209,7 +1214,17 @@
       "confirm_delete_single": "Tem certeza de que deseja excluir este POI?",
       "confirm_delete_bulk": "Tem certeza de que deseja excluir {count} POIs?",
       "delete_error": "Falha ao excluir POI",
-      "delete_bulk_error": "Falha ao excluir POIs"
+      "delete_bulk_error": "Falha ao excluir POIs",
+      "confirm_garbage_single": "Marcar este POI como LIXO? Ele será excluído e não poderá ser re-importado.",
+      "garbage_error": "Falha ao marcar POI como lixo",
+      "request_error": "Falha na requisição"
+    },
+    "map_actions": {
+      "edit": "Editar",
+      "delete": "Excluir",
+      "garbage": "Enviar para Lixo",
+      "approved": "Aprovado",
+      "pending": "Pendente"
     }
   },
   "Shared": {

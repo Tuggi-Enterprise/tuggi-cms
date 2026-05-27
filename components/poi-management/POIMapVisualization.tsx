@@ -99,10 +99,25 @@ export interface POIMapVisualizationProps {
   contentStatusFilter: string
   groupStatusFilter?: string
   triggerPointsFilter?: string
-  showTriggers?: boolean
-  
+
+  // Trigger Points — explicit, on-demand
+  // Parent decides which TPs to render (hover-mode, bulk-mode, or both combined).
+  // Pass `[]` (or omit) to clear all TPs from the map.
+  triggers?: TriggerRenderGroup[]
+  drawArrows?: boolean
+
+  // Optional POI boundary polygon to overlay (hover-mode auditing).
+  // Pass `null` to clear.
+  hoverBoundary?: Array<{ lat: number; lng: number }> | null
+
   // Callbacks
   onPOIClick: (poi: POI) => void
+  onPOIDelete?: (poi: POI) => void
+  onPOIGarbage?: (poi: POI) => void
+  canGarbage?: boolean
+  actionMenuLabels?: PoiActionMenuLabels
+  onPoiHoverEnter?: (poi: POI) => void
+  onPoiHoverLeave?: (poiId: string) => void
   onFiltersChange?: (bounds: google.maps.LatLngBounds) => void
   onBoundsChanged?: (bounds: { minLat: number; minLng: number; maxLat: number; maxLng: number }, zoom: number) => void
   onPOIUpdated?: (updatedPOI: POI) => void
@@ -167,7 +182,7 @@ function createAdvancedTriggerMarkerElement(is_active: boolean, bearing: number 
   const size = 18
   const opacity = is_active ? 1 : 0.5
   const hasBearing = bearing !== null && bearing !== undefined
-  
+
   const div = document.createElement('div')
   div.innerHTML = `
     <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -180,7 +195,73 @@ function createAdvancedTriggerMarkerElement(is_active: boolean, bearing: number 
     </svg>
   `
   div.style.transform = 'translate(0%, 0%)'
+  // Don't capture mouse events — otherwise TPs near the hovered POI would
+  // steal the cursor and trigger mouseleave on the POI marker (flicker loop).
+  div.style.pointerEvents = 'none'
   return div
+}
+
+// Inline Lucide icons (kept identical to the React components used in
+// POIDetailsModal.tsx so the visual identity matches across the app).
+const ICON_EDIT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`
+const ICON_TRASH2_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`
+const ICON_XCIRCLE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/></svg>`
+
+export interface PoiActionMenuLabels {
+  edit: string
+  delete: string
+  garbage: string
+  approved: string
+  pending: string
+}
+
+function buildPoiActionMenu(
+  poi: POI,
+  opts: {
+    canGarbage: boolean
+    labels: PoiActionMenuLabels
+    onEdit: () => void
+    onDelete: () => void
+    onGarbage: () => void
+  }
+): HTMLElement {
+  const container = document.createElement('div')
+  container.style.padding = '8px 4px'
+  container.style.minWidth = '220px'
+
+  const statusBg = poi.approved ? '#DCFCE7' : '#FFEDD5'
+  const statusColor = poi.approved ? '#166534' : '#9A3412'
+  const statusLabel = poi.approved ? opts.labels.approved : opts.labels.pending
+  const escape = (s: string) => s.replace(/[&<>"]/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!
+  ))
+
+  // Visual identity mirrors POIDetailsModal.tsx:3607-3627 (Edit primary, Delete red-50/red-700/red-300, Garbage gray-900/white).
+  const btnBase = 'display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:500; cursor:pointer; transition:background 0.15s;'
+  const btnEdit = `${btnBase} background:#00A8E8; color:white; border:1px solid #00A8E8;`
+  const btnDelete = `${btnBase} background:#FEF2F2; color:#B91C1C; border:1px solid #FCA5A5;`
+  const btnGarbage = `${btnBase} background:#111827; color:white; border:1px solid #111827;`
+
+  container.innerHTML = `
+    <div style="margin-bottom:10px;">
+      <h3 style="margin:0 0 4px 0; font-size:14px; font-weight:600; color:#111827;">${escape(poi.name)}</h3>
+      <p style="margin:0 0 6px 0; font-size:12px; color:#6B7280;">${escape(poi.city)}${poi.country ? ', ' + escape(poi.country) : ''}</p>
+      <span style="display:inline-block; padding:2px 8px; border-radius:9999px; font-size:11px; font-weight:500; background:${statusBg}; color:${statusColor};">${escape(statusLabel)}</span>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:6px;">
+      <button data-action="edit" style="${btnEdit}">${ICON_EDIT_SVG}<span>${escape(opts.labels.edit)}</span></button>
+      <button data-action="delete" style="${btnDelete}">${ICON_TRASH2_SVG}<span>${escape(opts.labels.delete)}</span></button>
+      ${opts.canGarbage ? `<button data-action="garbage" style="${btnGarbage}">${ICON_XCIRCLE_SVG}<span>${escape(opts.labels.garbage)}</span></button>` : ''}
+    </div>
+  `
+
+  container.querySelector('[data-action="edit"]')?.addEventListener('click', opts.onEdit)
+  container.querySelector('[data-action="delete"]')?.addEventListener('click', opts.onDelete)
+  if (opts.canGarbage) {
+    container.querySelector('[data-action="garbage"]')?.addEventListener('click', opts.onGarbage)
+  }
+
+  return container
 }
 
 function createClusterMarkerElement(count: number): HTMLElement {
@@ -198,6 +279,144 @@ function createClusterMarkerElement(count: number): HTMLElement {
   return div
 }
 
+// ============================================================
+// Trigger Point rendering helpers (SSOT)
+// Used by both hover-mode and bulk-mode. Apply marker+polyline
+// diffing to avoid recreating Google Maps objects on each render.
+// ============================================================
+
+export interface MapTriggerPointInput {
+  id: string
+  latitude: number
+  longitude: number
+  bearing: number | null
+  is_active: boolean
+}
+
+export interface TriggerRenderGroup {
+  poiId: string
+  poiPosition: { lat: number; lng: number }
+  tps: MapTriggerPointInput[]
+}
+
+function renderTriggers(
+  groups: TriggerRenderGroup[],
+  mapInstance: google.maps.Map,
+  markersRef: Map<string, google.maps.marker.AdvancedMarkerElement>,
+  polylinesRef: Map<string, google.maps.Polyline>,
+  drawArrows: boolean
+): void {
+  const seen = new Set<string>()
+
+  for (const group of groups) {
+    const poiPos = new google.maps.LatLng(group.poiPosition.lat, group.poiPosition.lng)
+
+    for (const tp of group.tps) {
+      if (tp.latitude == null || tp.longitude == null) continue
+      const tpId = `${group.poiId}-${tp.id}`
+      seen.add(tpId)
+      const tpPos = new google.maps.LatLng(tp.latitude, tp.longitude)
+
+      // ----- Marker upsert -----
+      let tpMarker = markersRef.get(tpId) as any
+      if (!tpMarker) {
+        tpMarker = new google.maps.marker.AdvancedMarkerElement({
+          position: tpPos,
+          map: mapInstance,
+          content: createAdvancedTriggerMarkerElement(tp.is_active, tp.bearing),
+          zIndex: 50,
+          collisionBehavior: google.maps.CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY
+        }) as any
+        // Outer <gmp-advanced-marker> wrapper must not capture pointer events,
+        // otherwise TPs near a hovered POI steal the cursor (flicker loop).
+        ;(tpMarker as unknown as HTMLElement).style.pointerEvents = 'none'
+        tpMarker._tuggiState = {
+          lat: tpPos.lat(),
+          lng: tpPos.lng(),
+          isActive: tp.is_active,
+          bearing: tp.bearing
+        }
+        markersRef.set(tpId, tpMarker)
+      } else {
+        const s = tpMarker._tuggiState
+        const pLat = tpPos.lat()
+        const pLng = tpPos.lng()
+        if (s.lat !== pLat || s.lng !== pLng) {
+          tpMarker.position = tpPos
+          s.lat = pLat
+          s.lng = pLng
+        }
+        if (s.isActive !== tp.is_active || s.bearing !== tp.bearing) {
+          tpMarker.content = createAdvancedTriggerMarkerElement(tp.is_active, tp.bearing)
+          s.isActive = tp.is_active
+          s.bearing = tp.bearing
+        }
+      }
+
+      // ----- Polyline upsert -----
+      let polyline = polylinesRef.get(tpId) as any
+      if (!polyline) {
+        polyline = new google.maps.Polyline({
+          path: [poiPos, tpPos],
+          geodesic: true,
+          strokeColor: '#F97316',
+          strokeOpacity: 0.6,
+          strokeWeight: 2,
+          clickable: false,
+          ...(drawArrows ? {
+            icons: [{
+              icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, scale: 2 },
+              offset: '0',
+              repeat: '10px'
+            }]
+          } : {}),
+          map: mapInstance
+        }) as any
+        polyline._tuggiState = {
+          p1Lat: poiPos.lat(),
+          p1Lng: poiPos.lng(),
+          p2Lat: tpPos.lat(),
+          p2Lng: tpPos.lng(),
+          drawArrows
+        }
+        polylinesRef.set(tpId, polyline)
+      } else {
+        const s = polyline._tuggiState
+        const p1Lat = poiPos.lat(), p1Lng = poiPos.lng()
+        const p2Lat = tpPos.lat(), p2Lng = tpPos.lng()
+        if (s.p1Lat !== p1Lat || s.p1Lng !== p1Lng || s.p2Lat !== p2Lat || s.p2Lng !== p2Lng) {
+          polyline.setPath([poiPos, tpPos])
+          s.p1Lat = p1Lat; s.p1Lng = p1Lng; s.p2Lat = p2Lat; s.p2Lng = p2Lng
+        }
+      }
+    }
+  }
+
+  // Cleanup orphans
+  for (const [id, m] of markersRef.entries()) {
+    if (!seen.has(id)) {
+      m.map = null
+      markersRef.delete(id)
+    }
+  }
+  for (const [id, p] of polylinesRef.entries()) {
+    if (!seen.has(id)) {
+      p.setMap(null)
+      polylinesRef.delete(id)
+    }
+  }
+}
+
+function clearTriggers(
+  markersRef: Map<string, google.maps.marker.AdvancedMarkerElement>,
+  polylinesRef: Map<string, google.maps.Polyline>
+): void {
+  for (const m of markersRef.values()) m.map = null
+  markersRef.clear()
+  for (const p of polylinesRef.values()) p.setMap(null)
+  polylinesRef.clear()
+}
+
 
 // Inner Component: Contains only map logic, assumes API is loaded
 function POIMapInner({
@@ -209,11 +428,19 @@ function POIMapInner({
   stateFilter,
   cityFilter,
   onPOIClick,
+  onPOIDelete,
+  onPOIGarbage,
+  canGarbage = false,
+  actionMenuLabels,
+  onPoiHoverEnter,
+  onPoiHoverLeave,
   onFiltersChange,
   onBoundsChanged,
   onPOIUpdated,
   onPOIDeleted,
-  showTriggers = false,
+  triggers,
+  drawArrows = true,
+  hoverBoundary = null,
   height,
   className,
   initialCenter = { lat: 39.8283, lng: -98.5795 }, // Center of USA
@@ -224,9 +451,48 @@ function POIMapInner({
   const markersRef = useRef<Map<string, google.maps.marker.AdvancedMarkerElement>>(new Map())
   const triggerMarkersRef = useRef<Map<string, google.maps.marker.AdvancedMarkerElement>>(new Map())
   const polylinesRef = useRef<Map<string, google.maps.Polyline>>(new Map())
+  const hoverBoundaryPolygonRef = useRef<google.maps.Polygon | null>(null)
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null)
   const boundsChangedTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const updateTaskIdRef = useRef<number>(0)
+
+  // Hover-to-show TPs: debounced enter/leave on POI marker DOM element
+  const HOVER_ENTER_MS = 250
+  const HOVER_LEAVE_MS = 300
+  const hoverCallbacksRef = useRef<{ onEnter?: (poi: POI) => void; onLeave?: (poiId: string) => void }>({})
+  hoverCallbacksRef.current = { onEnter: onPoiHoverEnter, onLeave: onPoiHoverLeave }
+  const hoverEnterTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const hoverLeaveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const hoveredPoiIdRef = useRef<string | null>(null)
+
+  const attachHoverHandlers = useCallback((element: HTMLElement, poi: POI) => {
+    element.style.cursor = 'pointer'
+    element.addEventListener('mouseenter', () => {
+      if (hoverLeaveTimeoutRef.current) {
+        clearTimeout(hoverLeaveTimeoutRef.current)
+        hoverLeaveTimeoutRef.current = null
+      }
+      if (hoverEnterTimeoutRef.current) clearTimeout(hoverEnterTimeoutRef.current)
+      hoverEnterTimeoutRef.current = setTimeout(() => {
+        const prev = hoveredPoiIdRef.current
+        if (prev && prev !== poi.id) hoverCallbacksRef.current.onLeave?.(prev)
+        hoveredPoiIdRef.current = poi.id
+        hoverCallbacksRef.current.onEnter?.(poi)
+      }, HOVER_ENTER_MS)
+    })
+    element.addEventListener('mouseleave', () => {
+      if (hoverEnterTimeoutRef.current) {
+        clearTimeout(hoverEnterTimeoutRef.current)
+        hoverEnterTimeoutRef.current = null
+      }
+      if (hoverLeaveTimeoutRef.current) clearTimeout(hoverLeaveTimeoutRef.current)
+      hoverLeaveTimeoutRef.current = setTimeout(() => {
+        const id = hoveredPoiIdRef.current
+        hoveredPoiIdRef.current = null
+        if (id) hoverCallbacksRef.current.onLeave?.(id)
+      }, HOVER_LEAVE_MS)
+    })
+  }, [])
   
   // Simple UI State
   const [selectedPOI, setSelectedPOI] = useState<POI | null>(null)
@@ -316,7 +582,6 @@ function POIMapInner({
     const CHUNK_SIZE = 250
     let currentIndex = 0
     const currentPoiIds = new Set<string>()
-    const currentTriggerIds = new Set<string>()
 
     const processBatch = () => {
       // If a new update started, stop this one
@@ -397,34 +662,40 @@ function POIMapInner({
             })
           } else {
             marker.addListener('click', () => {
-              onPOIClick(poi)
               setSelectedPOI(poi)
-              
               if (infoWindowRef.current) {
-                const infoContent = `
-                <div class="p-3 max-w-xs">
-                  <div class="flex items-start space-x-3">
-                    <div class="flex-1 min-w-0">
-                      <h3 class="text-lg font-semibold text-gray-900 mb-1">${poi.name}</h3>
-                      <p class="text-sm text-gray-600 mb-2">${poi.city}, ${poi.country}</p>
-                      <div class="flex items-center justify-between">
-                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          poi.approved ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
-                        }">
-                          ${poi.approved ? 'Approved' : 'Pending'}
-                        </span>
-                        <div class="text-xs text-blue-600 font-medium">✏️ Click to edit</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>`
-                infoWindowRef.current.setContent(infoContent)
+                const labels = actionMenuLabels ?? {
+                  edit: 'Edit',
+                  delete: 'Delete',
+                  garbage: 'Send to Garbage',
+                  approved: 'Approved',
+                  pending: 'Pending'
+                }
+                const container = buildPoiActionMenu(poi, {
+                  canGarbage,
+                  labels,
+                  onEdit: () => {
+                    infoWindowRef.current?.close()
+                    onPOIClick(poi)
+                  },
+                  onDelete: () => {
+                    infoWindowRef.current?.close()
+                    onPOIDelete?.(poi)
+                  },
+                  onGarbage: () => {
+                    infoWindowRef.current?.close()
+                    onPOIGarbage?.(poi)
+                  }
+                })
+                infoWindowRef.current.setContent(container)
                 infoWindowRef.current.open({
                    map: mapInstanceRef.current,
                    anchor: marker
                 })
               }
             })
+            // Hover handlers for on-demand TP visualization
+            attachHoverHandlers(content, poi)
           }
           markersRef.current.set(poi.id, marker)
         } else {
@@ -465,6 +736,8 @@ function POIMapInner({
                 newContent.appendChild(label)
               }
               marker.content = newContent
+              // Re-attach hover handlers on the new content element
+              attachHoverHandlers(newContent, poi)
             }
             marker.zIndex = isSelected ? 1000 : (isCluster ? 500 : 1)
             s.isCluster = isCluster
@@ -475,130 +748,88 @@ function POIMapInner({
           }
         }
 
-        // === TRIGGER MARKERS & POLYLINES ===
-        if (showTriggers && poi.trigger_points) {
-          poi.trigger_points.forEach(tp => {
-            if (!tp.latitude || !tp.longitude) return
-            
-            const tpId = `${poi.id}-${tp.id}`
-            currentTriggerIds.add(tpId)
-            const tpPos = new google.maps.LatLng(tp.latitude, tp.longitude)
-            
-            let tpMarker = triggerMarkersRef.current.get(tpId) as any
-            if (!tpMarker) {
-              tpMarker = new google.maps.marker.AdvancedMarkerElement({
-                position: tpPos,
-                map: mapInstanceRef.current,
-                content: createAdvancedTriggerMarkerElement(tp.is_active, tp.bearing),
-                zIndex: 50,
-                collisionBehavior: google.maps.CollisionBehavior.OPTIONAL_AND_HIDES_LOWER_PRIORITY
-              }) as any
-              tpMarker._tuggiState = {
-                lat: tpPos.lat(),
-                lng: tpPos.lng(),
-                isActive: tp.is_active,
-                bearing: tp.bearing
-              }
-              triggerMarkersRef.current.set(tpId, tpMarker)
-            } else {
-              const s = tpMarker._tuggiState
-              const pLat = tpPos.lat()
-              const pLng = tpPos.lng()
-
-              if (s.lat !== pLat || s.lng !== pLng) {
-                tpMarker.position = tpPos
-                s.lat = pLat
-                s.lng = pLng
-              }
-
-              if (s.isActive !== tp.is_active || s.bearing !== tp.bearing) {
-                tpMarker.content = createAdvancedTriggerMarkerElement(tp.is_active, tp.bearing)
-                s.isActive = tp.is_active
-                s.bearing = tp.bearing
-              }
-            }
-
-            let polyline = polylinesRef.current.get(tpId) as any
-            if (!polyline) {
-              polyline = new google.maps.Polyline({
-                path: [position, tpPos],
-                geodesic: true,
-                strokeColor: '#F97316',
-                strokeOpacity: 0.6,
-                strokeWeight: 2,
-                icons: [{
-                  icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.8, scale: 2 },
-                  offset: '0',
-                  repeat: '10px'
-                }],
-                map: mapInstanceRef.current!
-              }) as any
-              polyline._tuggiState = {
-                p1Lat: position.lat(), p1Lng: position.lng(),
-                p2Lat: tpPos.lat(), p2Lng: tpPos.lng()
-              }
-              polylinesRef.current.set(tpId, polyline)
-            } else {
-              const s = polyline._tuggiState
-              const p1Lat = position.lat(), p1Lng = position.lng()
-              const p2Lat = tpPos.lat(), p2Lng = tpPos.lng()
-
-              if (s.p1Lat !== p1Lat || s.p1Lng !== p1Lng || s.p2Lat !== p2Lat || s.p2Lng !== p2Lng) {
-                polyline.setPath([position, tpPos])
-                s.p1Lat = p1Lat
-                s.p1Lng = p1Lng
-                s.p2Lat = p2Lat
-                s.p2Lng = p2Lng
-              }
-            }
-          })
-        }
       }
 
       currentIndex = end
       if (currentIndex < pois.length) {
         requestAnimationFrame(processBatch)
       } else {
-        // === CLEANUP ORPHANS (Final step) ===
+        // === CLEANUP ORPHAN POI MARKERS (Final step) ===
+        // Trigger markers/polylines are managed by a separate effect (see triggers prop).
         for (const [id, marker] of markersRef.current.entries()) {
           if (!currentPoiIds.has(id)) {
             marker.map = null
             markersRef.current.delete(id)
           }
         }
-
-        for (const [id, marker] of triggerMarkersRef.current.entries()) {
-          if (!currentTriggerIds.has(id)) {
-            marker.map = null
-            triggerMarkersRef.current.delete(id)
-          }
-        }
-
-        for (const [id, polyline] of polylinesRef.current.entries()) {
-          if (!currentTriggerIds.has(id)) {
-            polyline.setMap(null)
-            polylinesRef.current.delete(id)
-          }
-        }
       }
     }
 
     requestAnimationFrame(processBatch)
-  }, [pois, onPOIClick, selectedPOI, zoomLevel, showTriggers])
+  }, [pois, onPOIClick, selectedPOI, zoomLevel])
 
   useEffect(() => {
     if (mapInstanceRef.current && pois.length > 0) {
       updateMarkers()
     } else if (pois.length === 0 && mapInstanceRef.current) {
-       // Cleanup everything if list is completely emptied
+       // Cleanup POI markers if list is completely emptied.
+       // Trigger markers/polylines are cleaned by the triggers effect.
        for (const marker of markersRef.current.values()) marker.map = null
        markersRef.current.clear()
-       for (const marker of triggerMarkersRef.current.values()) marker.map = null
-       triggerMarkersRef.current.clear()
-       for (const poly of polylinesRef.current.values()) poly.setMap(null)
-       polylinesRef.current.clear()
     }
-  }, [updateMarkers, pois.length]) 
+  }, [updateMarkers, pois.length])
+
+  // === Trigger Points effect ===
+  // Renders TPs based on the `triggers` prop (parent controls hover-mode + bulk-mode).
+  // Uses the same diffing pattern as POI markers to avoid recreating Google Maps objects.
+  useEffect(() => {
+    if (!mapInstanceRef.current) return
+    if (!triggers || triggers.length === 0) {
+      clearTriggers(triggerMarkersRef.current, polylinesRef.current)
+      return
+    }
+    renderTriggers(
+      triggers,
+      mapInstanceRef.current,
+      triggerMarkersRef.current,
+      polylinesRef.current,
+      drawArrows
+    )
+  }, [triggers, drawArrows])
+
+  // === Hover boundary effect ===
+  // Renders the hovered POI's boundary polygon for visual auditing.
+  useEffect(() => {
+    if (!mapInstanceRef.current) return
+    const existing = hoverBoundaryPolygonRef.current
+
+    if (!hoverBoundary || hoverBoundary.length < 3) {
+      if (existing) {
+        existing.setMap(null)
+        hoverBoundaryPolygonRef.current = null
+      }
+      return
+    }
+
+    const paths = hoverBoundary.map(c => new google.maps.LatLng(c.lat, c.lng))
+
+    if (existing) {
+      existing.setPaths(paths)
+      existing.setMap(mapInstanceRef.current)
+    } else {
+      hoverBoundaryPolygonRef.current = new google.maps.Polygon({
+        paths,
+        fillColor: '#F97316',
+        fillOpacity: 0.1,
+        strokeColor: '#F97316',
+        strokeOpacity: 0.7,
+        strokeWeight: 2,
+        clickable: false,
+        zIndex: 10,
+        map: mapInstanceRef.current
+      })
+    }
+  }, [hoverBoundary])
 
   // 4. City Boundaries Logic (kept as it might be useful, but localized)
   // Fetch city boundaries

@@ -12,9 +12,10 @@ import { ClientService } from '@/lib/services/client-service'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
   try {
+    const { clientId } = await params
     // Require admin authentication
     const cookieStore = await cookies()
     const supabaseAuth = getSupabaseRouteHandler(cookieStore)
@@ -52,10 +53,10 @@ export async function POST(
       )
     }
 
-    console.log('✅ Approving client:', { clientId: params.clientId, email: cmsUserEmail })
+    console.log('✅ Approving client:', { clientId: clientId, email: cmsUserEmail })
 
     const approvedClient = await ClientService.approveClient(
-      params.clientId,
+      clientId,
       cmsUser.id,
       cmsUserEmail,
       cmsUserName

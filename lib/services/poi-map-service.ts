@@ -25,7 +25,8 @@ export interface MapPOI {
   approved?: boolean
   has_description?: boolean
   has_audio?: boolean
-  trigger_points?: any[]
+  trigger_points_count?: number
+  active_trigger_points_count?: number
 }
 
 export interface MapSearchFilters {
@@ -118,7 +119,8 @@ export async function fetchPOIsForMap(
     approved: row.metadata?.approved,
     has_description: row.metadata?.has_description,
     has_audio: row.metadata?.has_audio,
-    trigger_points: row.metadata?.trigger_points
+    trigger_points_count: row.metadata?.trigger_points_count,
+    active_trigger_points_count: row.metadata?.active_trigger_points_count
   }))
 
   const duration = performance.now() - startTime

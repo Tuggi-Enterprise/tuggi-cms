@@ -12,9 +12,10 @@ import { getSupabaseService } from '@/lib/core/supabase-client'
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
+    const { userId } = await params
     const cookieStore = await cookies()
     const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     
@@ -49,7 +50,7 @@ export async function POST(
       .schema('core')
       .from('cms_users')
       .select('*')
-      .eq('id', params.userId)
+      .eq('id', userId)
       .single()
 
     if (userError || !user) {
@@ -59,7 +60,7 @@ export async function POST(
     // Reset password using service role
     const supabaseService = getSupabaseService()
     const { error: resetError } = await supabaseService.auth.admin.updateUserById(
-      params.userId,
+      userId,
       { password }
     )
 
@@ -71,7 +72,7 @@ export async function POST(
       request,
       action: 'PASSWORD_CHANGE',
       entity: 'USER',
-      entityId: params.userId,
+      entityId: userId,
       userId: adminUser.id,
       userEmail: session.user.email || null,
       description: `Admin reset password for user ${user.email}`

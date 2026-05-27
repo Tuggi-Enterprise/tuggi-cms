@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Loader2, Map as MapIcon } from 'lucide-react'
 import { fetchPOIsForMap, MapPOI, MapSearchFilters } from '@/lib/services/poi-map-service'
-import { POIMapVisualization } from './POIMapVisualization'
+import { POIMapVisualization, POI, TriggerRenderGroup, PoiActionMenuLabels } from './POIMapVisualization'
 import { useQuery } from '@tanstack/react-query'
-import { usePOIsWithTriggers } from '@/lib/hooks/use-pois'
+import { useTriggerPointsForPOI } from '@/lib/hooks/use-trigger-points-for-poi'
+import { useTriggerPointsInBbox } from '@/lib/hooks/use-trigger-points-in-bbox'
 
 interface OptimizedPOIMapProps {
   searchTerm: string
@@ -19,20 +20,16 @@ interface OptimizedPOIMapProps {
   triggerPointsFilter?: string
   showTriggers?: boolean
   onPOIClick: (poi: any) => void
+  onPOIDelete?: (poi: any) => void
+  onPOIGarbage?: (poi: any) => void
+  canGarbage?: boolean
+  actionMenuLabels?: PoiActionMenuLabels
   height?: string
   className?: string
 }
 
-/**
- * Optimized POI Map Component
- * 
- * Features:
- * - Progressive loading with visual feedback
- * - Parallel chunk fetching
- * - Lightweight data transfer
- * - Real-time progress updates
- */
 const TP_ZOOM_THRESHOLD = 12
+const BULK_TP_THRESHOLD = 500
 
 export function OptimizedPOIMap({
   searchTerm,
@@ -46,11 +43,16 @@ export function OptimizedPOIMap({
   triggerPointsFilter,
   showTriggers = false,
   onPOIClick,
+  onPOIDelete,
+  onPOIGarbage,
+  canGarbage = false,
+  actionMenuLabels,
   height = '600px',
   className
 }: OptimizedPOIMapProps) {
   const [bounds, setBounds] = useState<{ minLat: number; minLng: number; maxLat: number; maxLng: number } | null>(null)
   const [zoom, setZoom] = useState<number>(2)
+  const [hoveredPoi, setHoveredPoi] = useState<POI | null>(null)
 
   // Filters object for query key
   const filters: MapSearchFilters = {
@@ -70,15 +72,14 @@ export function OptimizedPOIMap({
     },
     placeholderData: (previousData) => previousData,
     staleTime: 60000,
-    gcTime: 30000, // Evict old panning results after 30s to save memory
+    gcTime: 30000,
     enabled: !!bounds,
   })
 
   const pois = searchResult?.data || []
   const loadingTime = searchResult?.duration || null
 
-  // Transform MapPOI to POI interface expected by POIMapVisualization
-  function transformMapPOIsForVisualization(mapPois: MapPOI[]): any[] {
+  function transformMapPOIsForVisualization(mapPois: MapPOI[]): POI[] {
     return mapPois.map(poi => ({
       id: poi.id,
       name: poi.name,
@@ -93,8 +94,6 @@ export function OptimizedPOIMap({
       type: poi.type,
       count: poi.count,
       category: '',
-      approved_by: null,
-      approved_at: null,
       created_at: '',
       updated_at: '',
       vicinity: null,
@@ -111,18 +110,88 @@ export function OptimizedPOIMap({
       description_count: 0,
       audio_count: 0,
       available_languages: [],
-      trigger_points_count: poi.trigger_points?.length || 0,
-      active_trigger_points_count: poi.trigger_points?.filter(tp => tp.is_active).length || 0,
-      trigger_points: (poi as any).trigger_points || []
+      trigger_points_count: poi.trigger_points_count || 0,
+      active_trigger_points_count: poi.active_trigger_points_count || 0
     }))
   }
 
   const transformedPois = useMemo(() => {
     return transformMapPOIsForVisualization(pois)
-  }, [pois, showTriggers, zoom, bounds])
+  }, [pois])
 
+  // ---------- Hover-mode: TPs + boundary for the currently-hovered POI ----------
+  const hoveredPoiId = hoveredPoi?.id || null
+  const { data: hoverData } = useTriggerPointsForPOI(hoveredPoiId)
+  const hoverTps = hoverData?.triggerPoints
+  const hoverBoundary = hoverData?.boundary ?? null
 
-  const isAnyLoading = isLoading || isFetching
+  // ---------- Bulk-mode: TPs for the entire viewport (with guardrail) ----------
+  const bulkEnabled = showTriggers && zoom >= TP_ZOOM_THRESHOLD && !!bounds
+  const {
+    triggerPoints: bulkTps,
+    count: bulkCount,
+    overLimit: bulkOverLimit
+  } = useTriggerPointsInBbox(bounds, bulkEnabled, BULK_TP_THRESHOLD)
+
+  // ---------- Compose `triggers` prop for the map ----------
+  const triggers: TriggerRenderGroup[] = useMemo(() => {
+    const groups: TriggerRenderGroup[] = []
+    const poiPosition = (poiId: string) => {
+      const p = pois.find(x => x.id === poiId)
+      return p ? { lat: p.latitude, lng: p.longitude } : null
+    }
+
+    // Bulk-mode groups
+    if (bulkEnabled && !bulkOverLimit && bulkTps.length > 0) {
+      const byPoi = new Map<string, { lat: number; lng: number; tps: any[] }>()
+      for (const tp of bulkTps) {
+        const pos = poiPosition(tp.attraction_id)
+        if (!pos) continue
+        let g = byPoi.get(tp.attraction_id)
+        if (!g) {
+          g = { lat: pos.lat, lng: pos.lng, tps: [] }
+          byPoi.set(tp.attraction_id, g)
+        }
+        g.tps.push({
+          id: tp.id,
+          latitude: tp.latitude,
+          longitude: tp.longitude,
+          bearing: tp.bearing,
+          is_active: tp.is_active
+        })
+      }
+      for (const [poiId, g] of byPoi) {
+        groups.push({ poiId, poiPosition: { lat: g.lat, lng: g.lng }, tps: g.tps })
+      }
+    }
+
+    // Hover-mode group (always added; takes precedence visually via overwrite of same key)
+    if (hoveredPoi && hoveredPoi.coordinates && hoverTps && hoverTps.length > 0) {
+      const existingIdx = groups.findIndex(g => g.poiId === hoveredPoi.id)
+      const hoverGroup: TriggerRenderGroup = {
+        poiId: hoveredPoi.id,
+        poiPosition: {
+          lat: hoveredPoi.coordinates.latitude,
+          lng: hoveredPoi.coordinates.longitude
+        },
+        tps: hoverTps.map(tp => ({
+          id: tp.id,
+          latitude: tp.latitude,
+          longitude: tp.longitude,
+          bearing: tp.bearing,
+          is_active: tp.is_active
+        }))
+      }
+      if (existingIdx >= 0) groups[existingIdx] = hoverGroup
+      else groups.push(hoverGroup)
+    }
+
+    return groups
+  }, [bulkEnabled, bulkOverLimit, bulkTps, hoveredPoi, hoverTps, pois])
+
+  // Bulk mode benefits from no arrow decoration (cheaper). Hover-only keeps arrows.
+  const isHoverOnly = !bulkEnabled || bulkOverLimit || bulkTps.length === 0
+  const drawArrows = isHoverOnly
 
   return (
     <div className="relative">
@@ -149,6 +218,15 @@ export function OptimizedPOIMap({
         </div>
       )}
 
+      {/* Bulk over-limit guardrail banner */}
+      {bulkEnabled && bulkOverLimit && (
+        <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-10 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-full shadow-lg px-4 py-2 max-w-md text-center">
+          <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+            Muitos TPs nesta região ({bulkCount.toLocaleString()}). Passe o mouse sobre um POI para ver seus TPs específicos, ou aproxime o zoom.
+          </span>
+        </div>
+      )}
+
       {/* Performance Stats */}
       {loadingTime !== null && (
         <div className="absolute top-4 right-4 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-sm px-3 py-2 text-xs">
@@ -164,7 +242,7 @@ export function OptimizedPOIMap({
       {/* Map Component */}
       <POIMapVisualization
         pois={transformedPois}
-        totalCount={transformedPois.length} // Show visible count
+        totalCount={transformedPois.length}
         searchTerm={searchTerm}
         statusFilter={statusFilter}
         countryFilter={countryFilter}
@@ -174,18 +252,24 @@ export function OptimizedPOIMap({
         contentStatusFilter={contentStatusFilter as any}
         groupStatusFilter={groupStatusFilter as any}
         triggerPointsFilter={triggerPointsFilter as any}
-        showTriggers={showTriggers && zoom >= TP_ZOOM_THRESHOLD}
+        triggers={triggers}
+        drawArrows={drawArrows}
+        hoverBoundary={hoverBoundary}
         onPOIClick={onPOIClick}
-        height={height}
-        className={className}
-        // New props
+        onPOIDelete={onPOIDelete}
+        onPOIGarbage={onPOIGarbage}
+        canGarbage={canGarbage}
+        actionMenuLabels={actionMenuLabels}
+        onPoiHoverEnter={(poi) => setHoveredPoi(poi)}
+        onPoiHoverLeave={() => setHoveredPoi(null)}
         onBoundsChanged={(newBounds, newZoom) => {
           setBounds(newBounds)
           setZoom(newZoom)
         }}
+        height={height}
+        className={className}
       />
 
     </div>
   )
 }
-

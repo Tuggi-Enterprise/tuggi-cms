@@ -4,7 +4,7 @@ import { RouteService } from '@/lib/services/route-service'
 import { cookies } from 'next/headers'
 
 interface RouteParams {
-  params: { id: string }
+  params: Promise<{ id: string }>
 }
 
 /**

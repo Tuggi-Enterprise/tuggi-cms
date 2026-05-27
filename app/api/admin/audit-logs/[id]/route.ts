@@ -4,9 +4,10 @@ import { cookies } from 'next/headers'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params
     const cookieStore = await cookies()
     const supabaseAuth = getSupabaseRouteHandler(cookieStore)
 
@@ -31,7 +32,7 @@ export async function GET(
       .schema('core')
       .from('audit_logs')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', id)
       .single()
 
     if (error || !log) {

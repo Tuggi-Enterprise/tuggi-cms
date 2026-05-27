@@ -160,7 +160,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { clientId: string } }
+  { params }: { params: Promise<{ clientId: string }> }
 ) {
   try {
     const adminData = await getAdminUser(request)
@@ -169,7 +169,7 @@ export async function DELETE(
     }
 
     const { supabaseAuth } = adminData
-    const { clientId } = params
+    const { clientId } = await params
 
     // Check if client has linked users
     const { count: usersCount, error: countError } = await supabaseAuth

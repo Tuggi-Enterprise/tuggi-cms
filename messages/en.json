@@ -1100,11 +1100,13 @@
       },
       "types": {
         "primary": "Primary",
+        "secondary": "Secondary",
         "fallback": "Fallback",
         "entry": "Entry",
         "exit": "Exit",
         "approach": "Approach",
-        "custom": "Custom"
+        "custom": "Custom",
+        "geofence": "Geofence"
       },
       "access": {
         "walk": "Walk",
@@ -1138,6 +1140,9 @@
       "category": "Attraction Category",
       "clear_all": "Clear All",
       "show_triggers": "Show Trigger Points",
+      "show_triggers_subtitle": "View on Map",
+      "location": "Location",
+      "advanced": "Advanced",
       "search_placeholder": "Search POIs...",
       "search_category": "Ex: museum, park...",
       "country": "Country",
@@ -1210,7 +1215,17 @@
       "confirm_delete_single": "Are you sure you want to delete this POI?",
       "confirm_delete_bulk": "Are you sure you want to delete {count} POIs?",
       "delete_error": "Failed to delete POI",
-      "delete_bulk_error": "Failed to delete POIs"
+      "delete_bulk_error": "Failed to delete POIs",
+      "confirm_garbage_single": "Mark this POI as GARBAGE? It will be deleted and cannot be re-imported.",
+      "garbage_error": "Failed to mark POI as garbage",
+      "request_error": "Request failed"
+    },
+    "map_actions": {
+      "edit": "Edit",
+      "delete": "Delete",
+      "garbage": "Send to Garbage",
+      "approved": "Approved",
+      "pending": "Pending"
     }
   },
   "Shared": {

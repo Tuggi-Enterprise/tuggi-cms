@@ -38,7 +38,7 @@ async function getAdminUser(request: NextRequest) {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
     const adminData = await getAdminUser(request)
@@ -47,7 +47,7 @@ export async function GET(
     }
 
     const { supabaseAuth } = adminData
-    const { userId } = params
+    const { userId } = await params
 
     // Get user
     const { data: user, error: userError } = await supabaseAuth
@@ -73,7 +73,7 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
     const adminData = await getAdminUser(request)
@@ -82,7 +82,7 @@ export async function PATCH(
     }
 
     const { supabaseAuth } = adminData
-    const { userId } = params
+    const { userId } = await params
     const body = await request.json()
 
     // Get current user
@@ -171,7 +171,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
     const adminData = await getAdminUser(request)
@@ -180,7 +180,7 @@ export async function DELETE(
     }
 
     const { supabaseAuth } = adminData
-    const { userId } = params
+    const { userId } = await params
 
     // Get user to check auth user ID
     const { data: user, error: userError } = await supabaseAuth

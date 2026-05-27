@@ -6,9 +6,9 @@ import { logAuditEvent } from '@/lib/services/audit-service'
 
 const supabaseService = getSupabase('service')
 
-export async function DELETE(request: NextRequest, { params }: { params: { poiId: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ poiId: string }> }) {
   try {
-    const poiId = params.poiId
+    const { poiId } = await params
     const cookieStore = await cookies()
     const supabaseAuth = getSupabaseRouteHandler(cookieStore)
     const { data: { session }, error: authError } = await supabaseAuth.auth.getSession()
@@ -76,9 +76,9 @@ export async function DELETE(request: NextRequest, { params }: { params: { poiId
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { poiId: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ poiId: string }> }) {
   try {
-    const poiId = params.poiId
+    const { poiId } = await params
     const body = await request.json()
 
     const cookieStore = await cookies()
