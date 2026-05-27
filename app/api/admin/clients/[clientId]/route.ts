@@ -107,7 +107,7 @@ export async function PATCH(
     }
 
     const allowedFields = [
-      'name', 'email', 'phone', 'company_name', 'address', 'city', 'state', 'country', 'postal_code', 'industry', 'website', 'status', 'rejection_reason', 'notes',
+      'name', 'email', 'phone', 'company_name', 'address', 'city', 'state', 'country', 'postal_code', 'industry', 'website', 'status', 'rejection_reason', 'notes', 'slug',
       'tax_id', 'tax_id_type', 'legal_representative_name', 'legal_representative_role',
       'billing_email', 'iban', 'bic_swift', 'bank_account_number', 'bank_routing_number', 'bank_name',
       'commission_rate', 'is_platform_owner', 'welcome_poi_id'
@@ -137,8 +137,12 @@ export async function PATCH(
       .single()
 
     if (updateError) {
-      // Check if email conflict
+      // Unique-constraint conflict: identify which column collided
       if (updateError.code === '23505') {
+        const conflict = `${updateError.message || ''} ${updateError.details || ''}`
+        if (conflict.includes('idx_clients_slug') || conflict.includes('(slug)')) {
+          return NextResponse.json({ error: 'Slug already in use' }, { status: 409 })
+        }
         return NextResponse.json({ error: 'Email already exists' }, { status: 409 })
       }
       return NextResponse.json({ error: updateError.message }, { status: 500 })

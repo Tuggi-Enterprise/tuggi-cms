@@ -30,6 +30,8 @@ export interface Client {
   approved_at?: string
   metadata?: Record<string, any>
   notes?: string
+  // URL-friendly identifier for the public /d/<slug> download page
+  slug?: string
   // Legal & Fiscal
   tax_id?: string
   tax_id_type?: TaxIdType

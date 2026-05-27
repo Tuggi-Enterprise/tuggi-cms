@@ -326,7 +326,7 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
     if (!canvas || !client) return
     const url = canvas.toDataURL('image/png')
     const link = document.createElement('a')
-    link.download = `tuggi-qr-${client.name.toLowerCase().replace(/\s+/g, '-')}.png`
+    link.download = `tuggi-qr-${client.slug || client.name.toLowerCase().replace(/\s+/g, '-')}.png`
     link.href = url; link.click()
   }
 
@@ -348,7 +348,10 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
 
   const finalQrUrl = useMemo(() => {
     if (!client) return ''
-    return `https://www.tuggi.app/download?ID=${client.id}`
+    // Prefer the friendly /d/<slug> URL; fall back to the legacy ID link.
+    return client.slug
+      ? `https://www.tuggi.app/d/${client.slug}`
+      : `https://www.tuggi.app/download?ID=${client.id}`
   }, [client])
 
   if (loading) return <div className="text-center py-20 text-sm font-semibold text-gray-400">Loading...</div>
@@ -467,6 +470,7 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-6 gap-x-10">
             <EditField label="Company Trade Name" value={isEditing ? editedClient.company_name || '' : client.company_name || '-'} isEditing={isEditing} onChange={(v) => updateField('company_name', v)} />
             <EditField label="Legal Name / Razão Social" value={isEditing ? editedClient.name || '' : client.name} isEditing={isEditing} onChange={(v) => updateField('name', v)} />
+            <EditField label="Slug (download URL)" value={isEditing ? editedClient.slug || '' : client.slug || '-'} isEditing={isEditing} onChange={(v) => updateField('slug', v.toLowerCase().replace(/[^a-z0-9-]+/g, '-'))} placeholder="auto-generated from company name" fullWidth />
             <EditField label="Contact Email" value={isEditing ? editedClient.email || '' : client.email} isEditing={isEditing} onChange={(v) => updateField('email', v)} type="email" />
             <EditField label="Phone" value={isEditing ? editedClient.phone || '' : client.phone || '-'} isEditing={isEditing} onChange={(v) => updateField('phone', v)} type="tel" />
             <EditField label="Website" value={isEditing ? editedClient.website || '' : client.website || '-'} isEditing={isEditing} isLink={!isEditing && !!client.website} onChange={(v) => updateField('website', v)} />
@@ -814,12 +818,15 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
             <div className="p-5 bg-gray-50 dark:bg-gray-950/20 rounded-2xl border border-gray-100 dark:border-gray-800">
               <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Target Reference Link</h4>
               <div className="flex items-center justify-between gap-4">
-                <code className="text-[11px] font-mono text-tuggi-blue font-bold truncate">/download?ID={client.id}</code>
+                <code className="text-[11px] font-mono text-tuggi-blue font-bold truncate">{client.slug ? `/d/${client.slug}` : `/download?ID=${client.id}`}</code>
                 <button onClick={() => { navigator.clipboard.writeText(finalQrUrl); setCopied(true); setTimeout(() => setCopied(false), 2000) }} className="p-2 hover:bg-white rounded-lg transition-colors text-gray-400">
                   {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="text-[9px] text-gray-400 mt-2">QR Code already points to this ID. Welcome audio is triggered by this link.</p>
+              {client.slug && (
+                <p className="text-[9px] text-gray-400 mt-2 font-mono break-all">Legacy: /download?ID={client.id} (still works)</p>
+              )}
+              <p className="text-[9px] text-gray-400 mt-2">QR Code points to this link. Welcome audio is triggered by it.</p>
             </div>
           </div>
         </div>
