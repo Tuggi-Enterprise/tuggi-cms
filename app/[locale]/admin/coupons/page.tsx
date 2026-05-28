@@ -1,7 +1,7 @@
 'use client'
 
-import AdminCouponsPage from '@/app/admin/coupons/page'
+import { AdminCouponsPageContent } from '@/components/admin/AdminCouponsPageContent'
 
 export default function LocalizedAdminCouponsPage() {
-  return <AdminCouponsPage />
+  return <AdminCouponsPageContent />
 }
