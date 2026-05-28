@@ -185,6 +185,23 @@ export async function DELETE(
       )
     }
 
+    // Check if client has active coupons attributed to it. Service-role
+    // because drive.coupons is RLS service-role-only.
+    const supabaseService = getSupabaseService()
+    const { count: couponsCount } = await supabaseService
+      .schema('drive')
+      .from('coupons')
+      .select('id', { count: 'exact', head: true })
+      .eq('owner_client_id', clientId)
+      .eq('is_active', true)
+
+    if (couponsCount && couponsCount > 0) {
+      return NextResponse.json(
+        { error: `Cannot delete client with ${couponsCount} active coupon(s). Deactivate them first in /admin/coupons.` },
+        { status: 409 }
+      )
+    }
+
     // Delete client
     const { error: deleteError } = await supabaseAuth
       .schema('core')

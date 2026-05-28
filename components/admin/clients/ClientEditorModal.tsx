@@ -27,6 +27,7 @@ import { ProfileTab } from '@/components/admin/clients/tabs/ProfileTab'
 import { FiscalPaymentsTab } from '@/components/admin/clients/tabs/FiscalPaymentsTab'
 import { TeamTab } from '@/components/admin/clients/tabs/TeamTab'
 import { PoisTab } from '@/components/admin/clients/tabs/PoisTab'
+import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import type { Client } from '@/types/clients'
 
 export type ClientEditorTab = 'profile' | 'fiscal' | 'team' | 'pois' | 'coupons'
@@ -46,7 +47,7 @@ const TABS: { id: ClientEditorTab; label: string; icon: typeof Building2; placeh
   { id: 'fiscal', label: 'Fiscal & Pagamentos', icon: Scale },
   { id: 'team', label: 'Equipe', icon: Users },
   { id: 'pois', label: 'POIs', icon: MapPin },
-  { id: 'coupons', label: 'Cupons', icon: Gift, placeholder: true },
+  { id: 'coupons', label: 'Cupons', icon: Gift },
 ]
 
 export function ClientEditorModal({
@@ -318,13 +319,7 @@ export function ClientEditorModal({
               <PoisTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
             )}
             {activeTab === 'coupons' && (
-              <div className="max-w-2xl mx-auto py-20 text-center">
-                <p className="text-sm text-gray-400 font-semibold uppercase tracking-widest mb-2">Em breve</p>
-                <h3 className="text-2xl font-bold text-gray-700 mb-3">Cupons</h3>
-                <p className="text-sm text-gray-500">
-                  Esta aba entra na PR 4. Por enquanto continue usando <a href="/admin/coupons" className="text-tuggi-blue hover:underline font-semibold">/admin/coupons</a> para gerenciar cupons.
-                </p>
-              </div>
+              <CouponsTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
             )}
           </main>
         </div>

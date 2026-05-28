@@ -214,7 +214,11 @@ export function CouponsListAdmin({
                   {!isScopedToOwner && (
                     <td className="px-4 py-3 text-gray-700">
                       {c.owner ? (
-                        <div className="flex items-center gap-2">
+                        <Link
+                          href={`/admin/clients?clientId=${c.owner_client_id}&tab=coupons`}
+                          className="flex items-center gap-2 group"
+                          title="Abrir cliente no editor"
+                        >
                           {c.owner.avatar_url ? (
                             <img
                               src={c.owner.avatar_url}
@@ -226,13 +230,13 @@ export function CouponsListAdmin({
                               {c.owner.name?.charAt(0) ?? '?'}
                             </span>
                           )}
-                          <span>{c.owner.name}</span>
+                          <span className="group-hover:text-tuggi-blue group-hover:underline transition-colors">{c.owner.name}</span>
                           {c.owner.client_type && (
                             <span className="text-xs text-gray-400">
                               · {c.owner.client_type}
                             </span>
                           )}
-                        </div>
+                        </Link>
                       ) : (
                         <span className="text-gray-400">—</span>
                       )}
