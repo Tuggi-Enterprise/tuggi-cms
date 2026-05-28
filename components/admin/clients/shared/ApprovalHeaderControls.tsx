@@ -127,8 +127,12 @@ export function ApprovalHeaderControls({
       )}
 
       {openAction && (
+        // Popover is anchored to the right edge of the header and capped
+        // at the viewport width with margins so it never bleeds out on
+        // smaller laptops (the modal itself is 85vw → on 1280px screens
+        // the available header space is ~1088px).
         <div
-          className="absolute right-0 top-full mt-2 z-50 w-96 rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl"
+          className="absolute right-0 top-full mt-2 z-50 w-[min(24rem,calc(100vw-2rem))] max-w-sm rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between mb-3">

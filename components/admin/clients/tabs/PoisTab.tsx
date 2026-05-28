@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MapPin, ExternalLink, X, Check, AlertCircle, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
@@ -21,10 +21,9 @@ interface PoiPreview {
  * description + audio when a user lands on /d/<slug>).
  *
  * KISS first pass: paste a POI UUID, hit "Validar", we look it up and
- * show name/city/country + the approval state. Saving writes
- * welcome_poi_id directly via supabase client (matches what ClientDetails
- * did before). Autocomplete by name lives in a follow-up — paste-the-ID
- * is enough for the everyday "I have this POI ready, attach it" flow.
+ * show name/city/country + the approval state. Persistence is delegated
+ * to the modal's Save button (SSOT) — this tab only mutates `edited.
+ * welcome_poi_id` via updateField, exactly like every other tab.
  */
 export function PoisTab({ client, edited, updateField, canEdit, clientId }: ClientEditorTabProps) {
   const supabase = useSupabaseClient()
@@ -32,13 +31,16 @@ export function PoisTab({ client, edited, updateField, canEdit, clientId }: Clie
   const [preview, setPreview] = useState<PoiPreview | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
   const [draftId, setDraftId] = useState('')
-  const [persisting, setPersisting] = useState(false)
 
-  // Fetch preview whenever the current id changes (load + after save).
+  // AbortController-style guard so that a quick succession of validate
+  // clicks doesn't paint a stale preview when an older request resolves
+  // after a newer one.
+  const requestIdRef = useRef(0)
+
   const fetchPreview = useCallback(async (poiId: string) => {
     if (!poiId) { setPreview(null); return }
+    const reqId = ++requestIdRef.current
     setLoading(true)
     setError(null)
     try {
@@ -48,6 +50,8 @@ export function PoisTab({ client, edited, updateField, canEdit, clientId }: Clie
         .select('id, name, city, country, approved')
         .eq('id', poiId)
         .single()
+      // Discard the result if a newer request has started since.
+      if (reqId !== requestIdRef.current) return
       if (fetchError) {
         setPreview(null)
         setError('POI não encontrado (UUID inválido ou inexistente)')
@@ -55,72 +59,32 @@ export function PoisTab({ client, edited, updateField, canEdit, clientId }: Clie
       }
       setPreview(data as PoiPreview)
     } catch {
+      if (reqId !== requestIdRef.current) return
       setError('Erro de rede ao buscar POI')
     } finally {
-      setLoading(false)
+      if (reqId === requestIdRef.current) setLoading(false)
     }
   }, [supabase])
 
+  // Sync preview whenever the saved id changes (load or after parent save).
   useEffect(() => { void fetchPreview(currentId) }, [currentId, fetchPreview])
 
-  // Validating only previews the POI without persisting — the user still
-  // has to hit the modal's Save button to write welcome_poi_id.
   const handleValidate = async () => {
     const id = draftId.trim()
     if (!id) return
     await fetchPreview(id)
   }
 
-  const handleAttach = async () => {
-    if (!preview || !clientId) return
-    setPersisting(true)
-    setError(null)
-    setSuccess(null)
-    try {
-      const { error: updateError } = await supabase
-        .schema('core')
-        .from('clients')
-        .update({ welcome_poi_id: preview.id })
-        .eq('id', clientId)
-      if (updateError) {
-        setError('Falha ao salvar Welcome POI')
-        return
-      }
-      updateField('welcome_poi_id', preview.id)
-      setDraftId('')
-      setSuccess('Welcome POI atribuído')
-      setTimeout(() => setSuccess(null), 2500)
-    } catch {
-      setError('Erro de rede ao salvar')
-    } finally {
-      setPersisting(false)
-    }
+  // Just stage the change — the parent modal's Save button persists it.
+  const handleAttach = () => {
+    if (!preview) return
+    updateField('welcome_poi_id', preview.id)
+    setDraftId('')
   }
 
-  const handleDetach = async () => {
-    if (!clientId) return
-    setPersisting(true)
-    setError(null)
-    setSuccess(null)
-    try {
-      const { error: updateError } = await supabase
-        .schema('core')
-        .from('clients')
-        .update({ welcome_poi_id: null })
-        .eq('id', clientId)
-      if (updateError) {
-        setError('Falha ao remover Welcome POI')
-        return
-      }
-      updateField('welcome_poi_id', undefined as never)
-      setPreview(null)
-      setSuccess('Welcome POI removido')
-      setTimeout(() => setSuccess(null), 2500)
-    } catch {
-      setError('Erro de rede ao remover')
-    } finally {
-      setPersisting(false)
-    }
+  const handleDetach = () => {
+    updateField('welcome_poi_id', undefined as never)
+    setPreview(null)
   }
 
   return (
@@ -129,17 +93,12 @@ export function PoisTab({ client, edited, updateField, canEdit, clientId }: Clie
         <SectionHeader icon={<MapPin className="w-4 h-4 text-tuggi-blue" />} title="POI de referência (Welcome POI)" />
         <p className="text-xs text-gray-500 mb-6 leading-relaxed">
           POI tocado quando o usuário acessa a página do parceiro (tuggi.app/d/&lt;slug&gt;) — a descrição e o áudio
-          deste POI servem como conteúdo de boas-vindas. Cole o UUID, valide e atribua.
+          deste POI servem como conteúdo de boas-vindas. Cole o UUID, valide e atribua. As mudanças entram em vigor após o Salvar do modal.
         </p>
 
         {error && (
           <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
             <AlertCircle className="w-3.5 h-3.5" /> {error}
-          </div>
-        )}
-        {success && (
-          <div className="mb-4 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-700">
-            <Check className="w-3.5 h-3.5" /> {success}
           </div>
         )}
 
@@ -168,11 +127,10 @@ export function PoisTab({ client, edited, updateField, canEdit, clientId }: Clie
             {canEdit && (
               <button
                 onClick={handleDetach}
-                disabled={persisting}
-                className="p-2 text-gray-300 hover:text-red-500 transition-colors disabled:opacity-50"
+                className="p-2 text-gray-300 hover:text-red-500 transition-colors"
                 title="Remover Welcome POI"
               >
-                {persisting ? <Loader2 className="w-5 h-5 animate-spin" /> : <X className="w-5 h-5" />}
+                <X className="w-5 h-5" />
               </button>
             )}
           </div>
@@ -200,7 +158,7 @@ export function PoisTab({ client, edited, updateField, canEdit, clientId }: Clie
               </button>
               <button
                 onClick={handleAttach}
-                disabled={!preview || persisting || draftId.trim() === ''}
+                disabled={!preview || draftId.trim() === ''}
                 className="px-4 py-2 bg-tuggi-blue text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-tuggi-blue/90 shadow-md shadow-tuggi-blue/10 transition-all disabled:opacity-50"
                 title={!preview ? 'Valide um POI primeiro' : undefined}
               >

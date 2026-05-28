@@ -107,14 +107,19 @@ export function CouponFormDrawer({
     setSuccess(null);
   }, [isOpen, coupon, lockedOwnerClientId]);
 
-  // Owner list — fetched lazily on first open. Skipped when owner is locked
-  // or when editing (owner is read-only).
+  // Owner list — refetched every time the drawer opens (in create mode
+  // with the selector visible). We used to early-return when the cache
+  // had any entries, but that made newly-created clients invisible until
+  // a full page reload. The endpoint is cheap and capped at 200 rows.
   useEffect(() => {
-    if (!isOpen || owners.length > 0 || isOwnerLocked || isEditing) return;
+    if (!isOpen || isOwnerLocked || isEditing) return;
+    const controller = new AbortController();
     (async () => {
       try {
-        const res = await fetch('/api/admin/clients?limit=200');
+        const res = await fetch('/api/admin/clients?limit=200', { signal: controller.signal });
+        if (controller.signal.aborted) return;
         const data = await res.json();
+        if (controller.signal.aborted) return;
         if (res.ok && Array.isArray(data.clients)) {
           setOwners(
             data.clients.map((c: any) => ({
@@ -126,10 +131,12 @@ export function CouponFormDrawer({
           );
         }
       } catch (err) {
-        console.warn('Could not load owners list', err);
+        if ((err as Error)?.name !== 'AbortError') {
+          console.warn('Could not load owners list', err);
+        }
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => controller.abort();
   }, [isOpen, isOwnerLocked, isEditing]);
 
   const set = <K extends keyof CouponCreateInput>(
@@ -213,29 +220,29 @@ export function CouponFormDrawer({
       />
       <div className="relative ml-auto h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
-          <h2 className="text-lg font-bold text-gray-900">
+          <h2 className="text-base font-bold text-gray-900 leading-tight">
             {isEditing ? `Edit coupon · ${coupon?.code}` : 'Create coupon'}
           </h2>
           <button
             onClick={() => !submitting && onClose()}
-            className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+            className="rounded-xl p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
             <X size={18} />
           </button>
         </div>
 
         <div className="space-y-5 px-6 py-5">
           {error && (
-            <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               <AlertCircle size={16} /> {error}
             </div>
           )}
           {success && (
-            <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
+            <div className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
               <CheckCircle size={16} /> {success}
             </div>
           )}
           {showRedemptionWarning && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <p>
                 Este cupom já tem <strong>{redeemed}</strong> resgate{redeemed === 1 ? '' : 's'}.
@@ -258,7 +265,7 @@ export function CouponFormDrawer({
               maxLength={32}
               readOnly={isEditing}
               disabled={isEditing}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40 disabled:bg-gray-50 disabled:text-gray-500"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 font-mono uppercase tracking-wider text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30 disabled:opacity-60"
             />
             <p className="mt-1 text-xs text-gray-500">
               {isEditing
@@ -278,7 +285,7 @@ export function CouponFormDrawer({
                 value={coupon?.owner?.name ?? (coupon?.owner_client_id ? 'Atribuído' : 'Sem owner (genérico)')}
                 readOnly
                 disabled
-                className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-600"
               />
               <p className="mt-1 text-xs text-gray-500">
                 Imutável após criação — alterar atribuição misrouteria resgates passados e futuros.
@@ -294,7 +301,7 @@ export function CouponFormDrawer({
                 onChange={e =>
                   set('owner_client_id', e.target.value === '' ? null : e.target.value)
                 }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40">
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30">
                 <option value="">No owner (generic)</option>
                 {owners.map(o => (
                   <option key={o.id} value={o.id}>
@@ -316,7 +323,7 @@ export function CouponFormDrawer({
               min={1}
               value={form.duration_days}
               onChange={e => set('duration_days', parseInt(e.target.value) || 1)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
             />
           </div>
 
@@ -331,7 +338,7 @@ export function CouponFormDrawer({
                 onChange={e =>
                   set('eligibility', e.target.value as CouponEligibility)
                 }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40">
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30">
                 <option value="any">Any user</option>
                 <option value="new_subscribers_only">New subscribers only</option>
               </select>
@@ -369,7 +376,7 @@ export function CouponFormDrawer({
                     e.target.value === '' ? null : parseInt(e.target.value) || null
                   )
                 }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
               />
               {isEditing && (
                 <p className="mt-1 text-xs text-gray-500">
@@ -388,7 +395,7 @@ export function CouponFormDrawer({
                 onChange={e =>
                   set('max_redemptions_per_user', parseInt(e.target.value) || 1)
                 }
-                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
               />
             </div>
           </div>
@@ -403,7 +410,7 @@ export function CouponFormDrawer({
                 type="datetime-local"
                 value={form.valid_from ?? ''}
                 onChange={e => set('valid_from', e.target.value || null)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
               />
             </div>
             <div>
@@ -414,7 +421,7 @@ export function CouponFormDrawer({
                 type="datetime-local"
                 value={form.valid_until ?? ''}
                 onChange={e => set('valid_until', e.target.value || null)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40"
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
               />
             </div>
           </div>
@@ -429,7 +436,7 @@ export function CouponFormDrawer({
               value={form.notes ?? ''}
               onChange={e => set('notes', e.target.value || null)}
               placeholder="WebSummit 2026 booth campaign"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
             />
           </div>
         </div>
@@ -438,13 +445,13 @@ export function CouponFormDrawer({
           <button
             onClick={() => !submitting && onClose()}
             disabled={submitting}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+            className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
             Cancel
           </button>
           <button
             onClick={submit}
             disabled={submitting}
-            className="inline-flex items-center gap-2 rounded-lg bg-tuggi-blue px-4 py-2 text-sm font-semibold text-white hover:bg-tuggi-blue/90 disabled:opacity-60">
+            className="inline-flex items-center gap-2 rounded-xl bg-tuggi-blue px-4 py-2 text-sm font-semibold text-white hover:bg-tuggi-blue/90 disabled:opacity-60 shadow-md shadow-tuggi-blue/10">
             {submitting && <Loader2 size={14} className="animate-spin" />}
             {isEditing ? 'Save changes' : 'Create coupon'}
           </button>

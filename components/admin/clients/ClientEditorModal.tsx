@@ -16,7 +16,7 @@
  *   ?clientId={id}&tab=...    → deep-link para uma aba específica
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   X, Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit,
 } from 'lucide-react'
@@ -67,10 +67,20 @@ export function ClientEditorModal({
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // Reset on open
+  // AbortController so that switching clients mid-fetch doesn't paint
+  // the old client's data into the new client's modal.
+  const fetchAbortRef = useRef<AbortController | null>(null)
+
+  // Sync the active tab with the URL `?tab=` whenever it changes. The
+  // previous effect read initialTab once on open and never again, so a
+  // deep-link change while the modal was already open did nothing.
+  useEffect(() => {
+    if (isOpen) setActiveTab(initialTab)
+  }, [isOpen, initialTab])
+
+  // Reset on open / when the target client changes.
   useEffect(() => {
     if (!isOpen) return
-    setActiveTab(initialTab)
     setError(null)
     setSuccess(null)
     if (isEditing && clientId) {
@@ -79,25 +89,38 @@ export function ClientEditorModal({
       setClient(null)
       setEdited({ client_type: 'business', status: 'pending', commission_rate: 0.2 })
     }
+    return () => {
+      // Cancel any in-flight fetch when the effect re-runs or unmounts —
+      // prevents stale data writes after clientId changes.
+      fetchAbortRef.current?.abort()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, clientId, mode])
 
   const fetchClient = useCallback(async (id: string) => {
+    fetchAbortRef.current?.abort()
+    const controller = new AbortController()
+    fetchAbortRef.current = controller
+
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`/api/admin/clients/${id}`)
+      const res = await fetch(`/api/admin/clients/${id}`, { signal: controller.signal })
+      // If aborted between request start and parse, bail silently.
+      if (controller.signal.aborted) return
       const data = await res.json()
+      if (controller.signal.aborted) return
       if (!res.ok) {
         setError(data.error ?? 'Falha ao carregar cliente')
         return
       }
       setClient(data.client)
       setEdited(data.client)
-    } catch {
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') return
       setError('Erro de rede ao carregar cliente')
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
   }, [])
 
@@ -140,8 +163,13 @@ export function ClientEditorModal({
           setError(data.error ?? 'Falha ao salvar')
           return
         }
-        setClient({ ...(client as Client), ...data.client })
-        setEdited({ ...(client as Client), ...data.client })
+        // Null-safe merge — `client` is normally set by fetchClient, but
+        // could be null if the initial fetch errored and the admin
+        // retried via Save anyway. Either way, the server is the source
+        // of truth for the post-save state.
+        const merged = client ? { ...client, ...data.client } : (data.client as Client)
+        setClient(merged)
+        setEdited(merged)
         setSuccess('Salvo com sucesso')
         setTimeout(() => setSuccess(null), 2500)
       } else {

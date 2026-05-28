@@ -64,15 +64,19 @@ export function TeamTab({ clientId, canEdit }: ClientEditorTabProps) {
 
   const fetchAvailable = async () => {
     setLoadingAvailable(true)
+    setError(null)
     try {
       const res = await fetch('/api/admin/users?limit=100')
       const data = await res.json()
-      if (res.ok) {
-        const linkedIds = new Set(linked.map((l) => l.cms_user_id))
-        setAvailable((data.users ?? []).filter((u: CmsUserOption) => !linkedIds.has(u.id)))
+      if (!res.ok) {
+        setError(data.error ?? 'Falha ao carregar usuários disponíveis')
+        return
       }
+      const linkedIds = new Set(linked.map((l) => l.cms_user_id))
+      setAvailable((data.users ?? []).filter((u: CmsUserOption) => !linkedIds.has(u.id)))
     } catch (err) {
       console.error('Failed to load users:', err)
+      setError('Erro de rede ao carregar usuários disponíveis')
     } finally {
       setLoadingAvailable(false)
     }
@@ -107,11 +111,18 @@ export function TeamTab({ clientId, canEdit }: ClientEditorTabProps) {
   const handleUnlink = async (userId: string) => {
     if (!clientId) return
     setUnlinking(userId)
+    setError(null)
     try {
       const res = await fetch(`/api/admin/users/${userId}/link-client?client_id=${clientId}`, { method: 'DELETE' })
-      if (res.ok) await fetchLinked()
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError((data as { error?: string }).error ?? 'Falha ao desvincular usuário')
+        return
+      }
+      await fetchLinked()
     } catch (err) {
       console.error(err)
+      setError('Erro de rede ao desvincular')
     } finally {
       setUnlinking(null)
     }

@@ -45,6 +45,9 @@ export function CouponsListAdmin({
   const isScopedToOwner = Boolean(ownerClientId);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
+  // searchInput tracks what the user has typed; `search` is the
+  // debounced value actually sent to the API.
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [page, setPage] = useState(1);
@@ -85,6 +88,14 @@ export function CouponsListAdmin({
       setLoading(false);
     }
   };
+
+  // Debounce searchInput → search (300ms). Keeps the API call cadence
+  // reasonable when the admin types fast and avoids out-of-order
+  // responses from in-flight requests racing the latest keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(searchInput), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => {
     fetchCoupons(1);
@@ -160,8 +171,8 @@ export function CouponsListAdmin({
           <input
             type="search"
             placeholder="Search by code"
-            value={search}
-            onChange={e => setSearch(e.target.value.toUpperCase())}
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value.toUpperCase())}
             className="w-full rounded-md border border-gray-200 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40 uppercase tracking-wider"
           />
         </div>
