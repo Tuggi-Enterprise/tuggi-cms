@@ -12,6 +12,12 @@ interface CouponCreateDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  /**
+   * When set, the owner is fixed to this client id and the selector is
+   * hidden. Used by the per-client Coupons tab in the Clients editor, where
+   * the owner is always known and locked to the client being edited.
+   */
+  lockedOwnerClientId?: string;
 }
 
 const EMPTY_FORM: CouponCreateInput = {
@@ -31,25 +37,27 @@ export function CouponCreateDrawer({
   isOpen,
   onClose,
   onSuccess,
+  lockedOwnerClientId,
 }: CouponCreateDrawerProps) {
+  const isOwnerLocked = Boolean(lockedOwnerClientId);
   const [form, setForm] = useState<CouponCreateInput>(EMPTY_FORM);
   const [owners, setOwners] = useState<CouponOwnerSummary[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Reset when re-opened
+  // Reset when re-opened (preserve the locked owner if one is set)
   useEffect(() => {
     if (isOpen) {
-      setForm(EMPTY_FORM);
+      setForm({ ...EMPTY_FORM, owner_client_id: lockedOwnerClientId ?? null });
       setError(null);
       setSuccess(null);
     }
-  }, [isOpen]);
+  }, [isOpen, lockedOwnerClientId]);
 
-  // Owner list — fetched lazily on first open
+  // Owner list — fetched lazily on first open. Skipped when owner is locked.
   useEffect(() => {
-    if (!isOpen || owners.length > 0) return;
+    if (!isOpen || owners.length > 0 || isOwnerLocked) return;
     (async () => {
       try {
         const res = await fetch('/api/admin/clients?limit=200');
@@ -69,7 +77,7 @@ export function CouponCreateDrawer({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, isOwnerLocked]);
 
   const set = <K extends keyof CouponCreateInput>(
     key: K,
@@ -162,26 +170,28 @@ export function CouponCreateDrawer({
             </p>
           </div>
 
-          {/* Owner */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Owner (attribution shown in the app)
-            </label>
-            <select
-              value={form.owner_client_id ?? ''}
-              onChange={e =>
-                set('owner_client_id', e.target.value === '' ? null : e.target.value)
-              }
-              className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40">
-              <option value="">No owner (generic)</option>
-              {owners.map(o => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                  {o.client_type ? ` · ${o.client_type}` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* Owner — hidden when locked (per-client editor passes the id directly) */}
+          {!isOwnerLocked && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Owner (attribution shown in the app)
+              </label>
+              <select
+                value={form.owner_client_id ?? ''}
+                onChange={e =>
+                  set('owner_client_id', e.target.value === '' ? null : e.target.value)
+                }
+                className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40">
+                <option value="">No owner (generic)</option>
+                {owners.map(o => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                    {o.client_type ? ` · ${o.client_type}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Duration */}
           <div>

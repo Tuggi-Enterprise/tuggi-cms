@@ -4,33 +4,13 @@ import { useState, useEffect } from 'react'
 import { AlertCircle, Check, Building2, Scale, Landmark, Percent } from 'lucide-react'
 import { Client, TaxIdType } from '@/types/clients'
 import { cn } from '@/lib/utils'
+import { COUNTRIES, TAX_ID_CONFIG, taxConfigFor, usesBankingIBAN } from '@/components/admin/clients/shared/countries'
 
 interface ClientFormAdminProps {
   client?: Client
   onSubmit?: (client: Client) => void
   onCancel?: () => void
   isLoading?: boolean
-}
-
-// Tax ID config per country
-const TAX_ID_CONFIG: Record<string, { type: TaxIdType; label: string; placeholder: string }> = {
-  'Brazil': { type: 'cnpj', label: 'CNPJ', placeholder: 'XX.XXX.XXX/XXXX-XX' },
-  'Portugal': { type: 'nipc', label: 'NIPC', placeholder: '9 digits' },
-  'Spain': { type: 'nif', label: 'NIF/CIF', placeholder: 'A12345678' },
-  'United States': { type: 'ein', label: 'EIN', placeholder: 'XX-XXXXXXX' },
-}
-
-const COUNTRIES = [
-  'Brazil', 'Portugal', 'Spain', 'France', 'Germany', 'Italy', 'Netherlands', 
-  'United Kingdom', 'United States', 'Belgium', 'Austria', 'Switzerland',
-  'Ireland', 'Luxembourg', 'Greece', 'Poland', 'Czech Republic', 'Sweden',
-  'Denmark', 'Norway', 'Finland', 'Canada', 'Mexico', 'Argentina', 'Chile',
-  'Colombia', 'Peru', 'Australia', 'Japan', 'South Korea'
-].sort()
-
-function usesBankingIBAN(country: string): boolean {
-  const usCountries = ['United States', 'Canada']
-  return !usCountries.includes(country)
 }
 
 export function ClientFormAdmin({ client, onSubmit, onCancel, isLoading = false }: ClientFormAdminProps) {
@@ -69,7 +49,7 @@ export function ClientFormAdmin({ client, onSubmit, onCancel, isLoading = false 
   const [showSuccess, setShowSuccess] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
-  const taxConfig = TAX_ID_CONFIG[formData.country] || { type: 'other' as TaxIdType, label: 'Tax ID', placeholder: 'Enter tax ID' }
+  const taxConfig = taxConfigFor(formData.country)
   const showIBAN = usesBankingIBAN(formData.country)
 
   const validateForm = () => {

@@ -19,6 +19,13 @@ import type { Coupon } from '@/types/coupons';
 interface CouponsListAdminProps {
   onCreateNew: () => void;
   reloadKey?: number;
+  /**
+   * When set, scopes the list to a single owner — used by the per-client
+   * Coupons tab in the Clients editor. The Owner column collapses (every
+   * row would repeat the same name), the page heading shifts to "Coupons"
+   * without the global subtitle, and the API call passes ?owner_client_id.
+   */
+  ownerClientId?: string;
 }
 
 const PAGE_SIZE = 20;
@@ -26,7 +33,9 @@ const PAGE_SIZE = 20;
 export function CouponsListAdmin({
   onCreateNew,
   reloadKey,
+  ownerClientId,
 }: CouponsListAdminProps) {
+  const isScopedToOwner = Boolean(ownerClientId);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -51,6 +60,7 @@ export function CouponsListAdmin({
       });
       if (search) params.append('search', search);
       if (status !== 'all') params.append('status', status);
+      if (ownerClientId) params.append('owner_client_id', ownerClientId);
 
       const res = await fetch(`/api/admin/coupons?${params}`);
       const data = await res.json();
@@ -72,7 +82,7 @@ export function CouponsListAdmin({
   useEffect(() => {
     fetchCoupons(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, status, reloadKey]);
+  }, [search, status, reloadKey, ownerClientId]);
 
   const toggleActive = async (coupon: Coupon) => {
     try {
@@ -112,17 +122,21 @@ export function CouponsListAdmin({
             <Gift size={22} className="text-tuggi-orange" />
             Coupons
           </h1>
-          <p className="text-sm text-gray-500">
-            Free Premium days redeemable via the in-app modal or marketing landing pages.
-          </p>
+          {!isScopedToOwner && (
+            <p className="text-sm text-gray-500">
+              Free Premium days redeemable via the in-app modal or marketing landing pages.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            href="/admin/coupons/owners"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
-            <TrendingUp size={14} />
-            Owner performance
-          </Link>
+          {!isScopedToOwner && (
+            <Link
+              href="/admin/coupons/owners"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+              <TrendingUp size={14} />
+              Owner performance
+            </Link>
+          )}
           <button
             onClick={onCreateNew}
             className="inline-flex items-center gap-1.5 rounded-lg bg-tuggi-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-tuggi-blue/90 transition">
@@ -168,7 +182,7 @@ export function CouponsListAdmin({
           <thead className="bg-gray-50 text-xs uppercase tracking-wider text-gray-500">
             <tr>
               <th className="px-4 py-3 text-left">Code</th>
-              <th className="px-4 py-3 text-left">Owner</th>
+              {!isScopedToOwner && <th className="px-4 py-3 text-left">Owner</th>}
               <th className="px-4 py-3 text-left">Duration</th>
               <th className="px-4 py-3 text-left">Eligibility</th>
               <th className="px-4 py-3 text-left">Redemptions</th>
@@ -181,13 +195,13 @@ export function CouponsListAdmin({
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-gray-400">
+                <td colSpan={isScopedToOwner ? 8 : 9} className="px-4 py-10 text-center text-gray-400">
                   Loading…
                 </td>
               </tr>
             ) : coupons.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-gray-400">
+                <td colSpan={isScopedToOwner ? 8 : 9} className="px-4 py-10 text-center text-gray-400">
                   No coupons yet — create your first one.
                 </td>
               </tr>
@@ -197,31 +211,33 @@ export function CouponsListAdmin({
                   <td className="px-4 py-3 font-mono font-bold tracking-wider text-gray-900">
                     {c.code}
                   </td>
-                  <td className="px-4 py-3 text-gray-700">
-                    {c.owner ? (
-                      <div className="flex items-center gap-2">
-                        {c.owner.avatar_url ? (
-                          <img
-                            src={c.owner.avatar_url}
-                            alt=""
-                            className="h-6 w-6 rounded-full object-cover"
-                          />
-                        ) : (
-                          <span className="h-6 w-6 rounded-full bg-tuggi-orange/10 text-tuggi-orange text-[10px] font-bold flex items-center justify-center">
-                            {c.owner.name?.charAt(0) ?? '?'}
-                          </span>
-                        )}
-                        <span>{c.owner.name}</span>
-                        {c.owner.client_type && (
-                          <span className="text-xs text-gray-400">
-                            · {c.owner.client_type}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
+                  {!isScopedToOwner && (
+                    <td className="px-4 py-3 text-gray-700">
+                      {c.owner ? (
+                        <div className="flex items-center gap-2">
+                          {c.owner.avatar_url ? (
+                            <img
+                              src={c.owner.avatar_url}
+                              alt=""
+                              className="h-6 w-6 rounded-full object-cover"
+                            />
+                          ) : (
+                            <span className="h-6 w-6 rounded-full bg-tuggi-orange/10 text-tuggi-orange text-[10px] font-bold flex items-center justify-center">
+                              {c.owner.name?.charAt(0) ?? '?'}
+                            </span>
+                          )}
+                          <span>{c.owner.name}</span>
+                          {c.owner.client_type && (
+                            <span className="text-xs text-gray-400">
+                              · {c.owner.client_type}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-3">{c.duration_days} days</td>
                   <td className="px-4 py-3 text-xs">
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700">

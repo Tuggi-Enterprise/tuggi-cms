@@ -6,6 +6,13 @@ export type ClientStatus = 'pending' | 'approved' | 'rejected'
 export type ClientRole = 'owner' | 'manager' | 'viewer'
 
 /**
+ * Relationship category — drives consumer-facing screens (coupon attribution,
+ * partner landing pages). `business` is the existing B2B default; the others
+ * cover the partner registry added in 20260528125114_clients_supports_partners.
+ */
+export type ClientType = 'business' | 'influencer' | 'hotel' | 'partner' | 'creator'
+
+/**
  * Client entity - represents a business/organization client
  */
 export interface Client {
@@ -48,6 +55,11 @@ export interface Client {
   commission_rate?: number
   is_platform_owner?: boolean
   welcome_poi_id?: string
+  // Partner / consumer-facing attribution (20260528125114_clients_supports_partners)
+  client_type?: ClientType
+  avatar_url?: string
+  social_handle?: string
+  bio_one_line?: string
 }
 
 export type TaxIdType = 'cnpj' | 'nipc' | 'nif' | 'vat' | 'ein' | 'other'

@@ -70,6 +70,7 @@ export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
     const search = params.get('search') || '';
     const status = params.get('status') || 'all'; // all | active | inactive
+    const ownerClientId = params.get('owner_client_id') || '';
     const page = parseInt(params.get('page') || '1');
     const limit = parseInt(params.get('limit') || '20');
     const offset = (page - 1) * limit;
@@ -86,6 +87,13 @@ export async function GET(request: NextRequest) {
 
     if (status === 'active') query = query.eq('is_active', true);
     else if (status === 'inactive') query = query.eq('is_active', false);
+
+    // Owner scoping — when the request comes from the per-client coupons tab,
+    // restrict the list to that owner. Validated as a UUID so we don't pass
+    // arbitrary user input into the query builder.
+    if (ownerClientId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ownerClientId)) {
+      query = query.eq('owner_client_id', ownerClientId);
+    }
 
     if (search) {
       const safe = search.replace(/[%,]/g, '');

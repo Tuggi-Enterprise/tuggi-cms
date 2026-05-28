@@ -5,41 +5,16 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronRight, Edit2, Trash2, AlertCircle, Check, QrCode, Download, Copy, Users, Save, Building2, Scale, Landmark, Percent, Globe, X } from 'lucide-react'
 import { QRCodeCanvas } from 'qrcode.react'
-import { Client, TaxIdType } from '@/types/clients'
+import { Client } from '@/types/clients'
 import { CmsUser } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { MapPin as Pin, ExternalLink } from 'lucide-react'
+import { COUNTRIES, TAX_ID_CONFIG, taxConfigFor, usesBankingIBAN } from '@/components/admin/clients/shared/countries'
 
 interface ClientDetailsProps {
   clientId: string
   isDrawer?: boolean
-}
-
-// Tax ID config per country
-const TAX_ID_CONFIG: Record<string, { type: TaxIdType; label: string; placeholder: string; mask?: string }> = {
-  'Brazil': { type: 'cnpj', label: 'CNPJ', placeholder: 'XX.XXX.XXX/XXXX-XX' },
-  'Portugal': { type: 'nipc', label: 'NIPC', placeholder: '9 dígitos' },
-  'Spain': { type: 'nif', label: 'NIF/CIF', placeholder: 'A12345678' },
-  'France': { type: 'vat', label: 'SIRET / TVA', placeholder: 'FRXX 123456789' },
-  'Germany': { type: 'vat', label: 'USt-IdNr', placeholder: 'DE123456789' },
-  'Italy': { type: 'vat', label: 'Partita IVA', placeholder: 'IT12345678901' },
-  'Netherlands': { type: 'vat', label: 'BTW-nummer', placeholder: 'NL123456789B01' },
-  'United States': { type: 'ein', label: 'EIN', placeholder: 'XX-XXXXXXX' },
-  'United Kingdom': { type: 'vat', label: 'VAT Number', placeholder: 'GB123456789' },
-}
-
-const COUNTRIES = [
-  'Brazil', 'Portugal', 'Spain', 'France', 'Germany', 'Italy', 'Netherlands', 
-  'United Kingdom', 'United States', 'Belgium', 'Austria', 'Switzerland',
-  'Ireland', 'Luxembourg', 'Greece', 'Poland', 'Czech Republic', 'Sweden',
-  'Denmark', 'Norway', 'Finland', 'Canada', 'Mexico', 'Argentina', 'Chile',
-  'Colombia', 'Peru', 'Australia', 'Japan', 'South Korea'
-].sort()
-
-function usesBankingIBAN(country: string): boolean {
-  const usCountries = ['United States', 'Canada']
-  return !usCountries.includes(country)
 }
 
 export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
@@ -81,7 +56,7 @@ export function ClientDetails({ clientId, isDrawer }: ClientDetailsProps) {
 
   // Determine current country for dynamic form
   const currentCountry = isEditing ? (editedClient.country || '') : (client?.country || '')
-  const taxConfig = TAX_ID_CONFIG[currentCountry] || { type: 'other' as TaxIdType, label: 'Tax ID', placeholder: 'Enter tax ID' }
+  const taxConfig = taxConfigFor(currentCountry)
   const showIBAN = usesBankingIBAN(currentCountry)
 
   useEffect(() => {
