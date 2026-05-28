@@ -1,10 +1,7 @@
-import ClientEditPage from '@/app/admin/clients/[clientId]/edit/page'
+'use client'
 
-export default async function LocalizedClientEditPage({
-  params
-}: {
-  params: Promise<{ clientId: string }>
-}) {
-  const resolvedParams = await params
-  return <ClientEditPage params={resolvedParams} />
+import LegacyClientEditRedirect from '@/app/admin/clients/[clientId]/edit/page'
+
+export default function LocalizedClientEditRedirect() {
+  return <LegacyClientEditRedirect />
 }
