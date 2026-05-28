@@ -1458,5 +1458,299 @@
     "audioTaskGenerating": "Generating audio {lang} ({gender})...",
     "confirmedSave": "Confirm and Save Geofence",
     "drawWarning": "⚠️ It is required to draw the boundary on the map before saving."
+  },
+  "Clients": {
+    "editor": {
+      "header": {
+        "newClient": "New client",
+        "noName": "No name"
+      },
+      "loading": "Loading…",
+      "tabs": {
+        "profile": "Profile",
+        "fiscal": "Fiscal & Payments",
+        "team": "Team",
+        "pois": "POIs",
+        "coupons": "Coupons",
+        "configuration": "Configuration",
+        "comingSoon": "Coming soon",
+        "soonBadge": "soon"
+      },
+      "save": "Save",
+      "missingTitle": "Missing to save",
+      "missing": {
+        "name": "Name / Legal name",
+        "email": "Email"
+      },
+      "errors": {
+        "loadFailed": "Failed to load client",
+        "networkLoad": "Network error loading client",
+        "saveFailed": "Failed to save",
+        "createFailed": "Failed to create client",
+        "networkSave": "Network error saving"
+      },
+      "messages": {
+        "saved": "Saved successfully",
+        "created": "Client created"
+      }
+    },
+    "approval": {
+      "approve": "Approve",
+      "reject": "Reject",
+      "approveTitle": "Approve client",
+      "rejectTitle": "Reject client",
+      "cmsUserEmail": "CMS user email",
+      "cmsUserName": "CMS user name",
+      "rejectionReason": "Rejection reason",
+      "rejectionReasonPlaceholder": "Incomplete documentation, etc.",
+      "confirmApprove": "Confirm approval",
+      "confirmReject": "Confirm rejection",
+      "requiredFields": "CMS user email and name are required",
+      "errors": {
+        "approveFailed": "Failed to approve",
+        "rejectFailed": "Failed to reject",
+        "networkApprove": "Network error approving",
+        "networkReject": "Network error rejecting"
+      },
+      "status": {
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "pending": "Pending"
+      }
+    },
+    "profile": {
+      "sections": {
+        "identity": "Identity",
+        "attribution": "Attribution (partner / consumer-facing)",
+        "attributionHelp": "Fields used on app screens where the partner appears (coupon attribution, download page, etc.).",
+        "address": "Address"
+      },
+      "fields": {
+        "name": "Name / Legal name",
+        "companyName": "Trade name",
+        "email": "Primary email",
+        "phone": "Phone",
+        "slug": "Slug (public URL /d/...)",
+        "slugAutoPlaceholder": "auto-generated",
+        "website": "Website",
+        "industry": "Industry",
+        "clientType": "Relationship type",
+        "avatarUrl": "Avatar URL",
+        "avatarPlaceholder": "https://...",
+        "socialHandle": "Social handle",
+        "socialPlaceholder": "@neymarjr",
+        "bioOneLine": "Bio (1 line)",
+        "address": "Address",
+        "city": "City",
+        "state": "State / Province",
+        "country": "Country",
+        "selectCountry": "Select country...",
+        "postalCode": "Postal code"
+      },
+      "clientTypes": {
+        "business": "Business",
+        "influencer": "Influencer",
+        "hotel": "Hotel",
+        "partner": "Partner",
+        "creator": "Creator"
+      }
+    },
+    "fiscal": {
+      "sections": {
+        "legal": "Legal & Fiscal",
+        "banking": "Bank & Payments",
+        "commission": "Commission"
+      },
+      "fields": {
+        "taxIdType": "Tax ID type",
+        "taxIdAutoCountry": "Auto: {type}",
+        "taxIdSelectCountry": "Select a country first",
+        "legalRepName": "Legal representative",
+        "legalRepNamePlaceholder": "Full name",
+        "legalRepRole": "Role / Title",
+        "legalRepRolePlaceholder": "CEO, Director, Managing Partner...",
+        "notes": "Internal notes",
+        "notesPlaceholder": "Internal notes about this client...",
+        "billingEmail": "Billing email",
+        "billingEmailPlaceholder": "finance@company.com",
+        "bankName": "Bank",
+        "bankNamePlaceholder": "e.g. BCP, Itaú",
+        "ibanPlaceholder": "PT50 0000 ...",
+        "bicSwift": "BIC / SWIFT",
+        "bicSwiftPlaceholder": "CEMAPTP2XXX",
+        "routingNumber": "Routing number (ABA)",
+        "routingPlaceholder": "021000021",
+        "accountNumber": "Account number",
+        "accountPlaceholder": "123456789",
+        "commissionRate": "Commission rate",
+        "commissionRateHelp": "Value between 0 and 1 (e.g. 0.20 = 20%)",
+        "isPlatformOwner": "Platform owner?",
+        "isPlatformOwnerHelp": "Check if the client is Tuggi itself (accounting split)"
+      }
+    },
+    "team": {
+      "section": "Linked users",
+      "linkUser": "Link user",
+      "user": "User",
+      "role": "Role",
+      "actions": "Actions",
+      "userSelect": "Select…",
+      "userLoading": "Loading…",
+      "confirmLink": "Confirm link",
+      "emptyTitle": "Client not yet saved",
+      "emptyDesc": "Save the client first to link CMS users.",
+      "noLinkedUsers": "No users linked to this client",
+      "roles": {
+        "viewer": "Viewer",
+        "manager": "Manager",
+        "owner": "Owner"
+      },
+      "errors": {
+        "loadFailed": "Failed to load users",
+        "networkLoad": "Network error loading users",
+        "linkFailed": "Failed to link user",
+        "networkLink": "Network error linking",
+        "loadAvailableFailed": "Failed to load available users",
+        "networkAvailable": "Network error loading available users",
+        "unlinkFailed": "Failed to unlink user",
+        "networkUnlink": "Network error unlinking"
+      }
+    },
+    "pois": {
+      "section": "Reference POI (Welcome POI)",
+      "help": "POI played when the user accesses the partner page (tuggi.app/d/<slug>) — its description and audio serve as welcome content. Paste the UUID, validate, and attach. Changes take effect after the modal's Save.",
+      "uuidPlaceholder": "Paste POI UUID...",
+      "validate": "Validate",
+      "attach": "Attach",
+      "remove": "Remove Welcome POI",
+      "hint": "Tip: copy a POI's ID from the /pois page. Name autocomplete coming in a future iteration.",
+      "saveFirst": "Save the client first to attach a Welcome POI.",
+      "approved": "Approved",
+      "pending": "Pending",
+      "errors": {
+        "notFound": "POI not found (invalid or nonexistent UUID)",
+        "network": "Network error fetching POI"
+      }
+    },
+    "coupons": {
+      "emptyTitle": "Client not yet saved",
+      "emptyHeader": "Coupons",
+      "emptyDesc": "Save the client to start linking coupons.",
+      "scopedBanner": "Only coupons attributed to this client. Generic coupons (no owner) only appear in <link>global search</link>."
+    }
+  },
+  "Coupons": {
+    "list": {
+      "title": "Coupons",
+      "subtitle": "Free Premium days redeemable via the in-app modal or marketing landing pages.",
+      "ownerPerformance": "Owner performance",
+      "newCoupon": "New coupon",
+      "searchPlaceholder": "Search by code",
+      "statusAll": "All statuses",
+      "statusActive": "Active",
+      "statusInactive": "Inactive",
+      "headers": {
+        "code": "Code",
+        "owner": "Owner",
+        "duration": "Duration",
+        "eligibility": "Eligibility",
+        "redemptions": "Redemptions",
+        "validity": "Validity",
+        "status": "Status",
+        "created": "Created"
+      },
+      "days": "days",
+      "anyUser": "Any user",
+      "newSubscribers": "New subscribers",
+      "stack": "Stack",
+      "active": "Active",
+      "inactive": "Inactive",
+      "noCoupons": "No coupons yet — create your first one.",
+      "loading": "Loading…",
+      "deactivate": "Deactivate",
+      "activate": "Activate",
+      "clickToEdit": "Click to edit",
+      "openClient": "Open client in editor",
+      "prev": "Prev",
+      "next": "Next",
+      "pagination": "Page {current} of {total} · {count} coupons",
+      "errors": {
+        "fetchFailed": "Failed to fetch coupons",
+        "loadFailed": "Could not load coupons",
+        "updateFailed": "Failed to update coupon",
+        "updateNetwork": "Could not update coupon"
+      }
+    },
+    "form": {
+      "createTitle": "Create coupon",
+      "editTitle": "Edit coupon · {code}",
+      "code": "Code",
+      "codePlaceholder": "WEBSUMMIT26",
+      "codeHelp": {
+        "create": "Always stored UPPERCASE. Convention: keep slugs lowercase, codes uppercase.",
+        "edit": "Immutable after creation — printed/distributed material depends on it."
+      },
+      "owner": "Owner",
+      "ownerHelp": "Immutable after creation — changing attribution would misroute past and future redemptions.",
+      "ownerCreateHelp": "Owner (attribution shown in the app)",
+      "noOwner": "No owner (generic)",
+      "ownerAttributed": "Attributed",
+      "duration": "Duration (days)",
+      "eligibility": "Eligibility",
+      "anyUser": "Any user",
+      "newSubscribersOnly": "New subscribers only",
+      "stack": "Stack with active Premium?",
+      "stackHelp": "Sums days on top of existing end-date (recommended).",
+      "maxRedemptions": "Max total redemptions",
+      "maxRedemptionsPlaceholder": "Leave blank for unlimited",
+      "alreadyRedeemed": "Already redeemed: {count}. Set a value above this to keep the coupon active.",
+      "maxPerUser": "Max per user",
+      "validFrom": "Valid from",
+      "validUntil": "Valid until",
+      "notes": "Notes (internal)",
+      "notesPlaceholder": "WebSummit 2026 booth campaign",
+      "createButton": "Create coupon",
+      "saveButton": "Save changes",
+      "cancel": "Cancel",
+      "validation": {
+        "codeMinLength": "Code must be at least 3 characters.",
+        "durationMin": "Duration must be at least 1 day."
+      },
+      "errors": {
+        "create": "Failed to create coupon",
+        "update": "Failed to update coupon",
+        "networkCreate": "Network error creating coupon",
+        "networkUpdate": "Network error updating coupon"
+      },
+      "success": {
+        "created": "Coupon {code} created.",
+        "updated": "Coupon {code} updated."
+      },
+      "redemptionWarning": "This coupon already has {count} redemption(s). Changes to duration, eligibility or limits only affect future redemptions — already consumed ones don't change."
+    },
+    "owners": {
+      "title": "Owner performance",
+      "subtitle": "Per-owner aggregates across all of their coupons.",
+      "backToCoupons": "Back to coupons",
+      "totalRedemptions": "Total redemptions",
+      "convertedToPaid": "Converted to paid",
+      "daysGranted": "Premium days granted",
+      "loading": "Loading…",
+      "empty": "No owner activity yet.",
+      "activeSuffix": "active",
+      "headers": {
+        "owner": "Owner",
+        "coupons": "Coupons",
+        "redemptions": "Redemptions",
+        "uniqueUsers": "Unique users",
+        "converted": "Converted",
+        "daysGranted": "Days granted",
+        "lastRedeemed": "Last redeemed"
+      },
+      "errors": {
+        "loadFailed": "Failed to load performance",
+        "loadNetwork": "Could not load owner performance"
+      }
+    }
   }
 }

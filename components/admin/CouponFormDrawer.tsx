@@ -17,6 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle, Loader2, Lock, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import type {
   Coupon,
   CouponCreateInput,
@@ -87,6 +88,7 @@ export function CouponFormDrawer({
   coupon,
   lockedOwnerClientId,
 }: CouponFormDrawerProps) {
+  const t = useTranslations('Coupons.form');
   const isEditing = Boolean(coupon);
   const isOwnerLocked = Boolean(lockedOwnerClientId);
   const [form, setForm] = useState<CouponCreateInput>(EMPTY_FORM);
@@ -149,11 +151,11 @@ export function CouponFormDrawer({
     setSuccess(null);
 
     if (!isEditing && form.code.trim().length < 3) {
-      setError('Code must be at least 3 characters.');
+      setError(t('validation.codeMinLength'));
       return;
     }
     if (form.duration_days < 1) {
-      setError('Duration must be at least 1 day.');
+      setError(t('validation.durationMin'));
       return;
     }
 
@@ -178,10 +180,10 @@ export function CouponFormDrawer({
         });
         const data = await res.json();
         if (!res.ok) {
-          setError(data.error || 'Failed to update coupon');
+          setError(data.error || t('errors.update'));
           return;
         }
-        setSuccess(`Coupon ${data.coupon.code} updated.`);
+        setSuccess(t('success.updated', { code: data.coupon.code }));
         onSuccess();
         setTimeout(onClose, 900);
       } else {
@@ -192,16 +194,16 @@ export function CouponFormDrawer({
         });
         const data = await res.json();
         if (!res.ok) {
-          setError(data.error || 'Failed to create coupon');
+          setError(data.error || t('errors.create'));
           return;
         }
-        setSuccess(`Coupon ${data.coupon.code} created.`);
+        setSuccess(t('success.created', { code: data.coupon.code }));
         onSuccess();
         setTimeout(onClose, 900);
       }
     } catch (err) {
       console.error(err);
-      setError(isEditing ? 'Network error updating coupon' : 'Network error creating coupon');
+      setError(isEditing ? t('errors.networkUpdate') : t('errors.networkCreate'));
     } finally {
       setSubmitting(false);
     }
@@ -221,7 +223,7 @@ export function CouponFormDrawer({
       <div className="relative ml-auto h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
           <h2 className="text-base font-bold text-gray-900 leading-tight">
-            {isEditing ? `Edit coupon · ${coupon?.code}` : 'Create coupon'}
+            {isEditing ? t('editTitle', { code: coupon?.code ?? '' }) : t('createTitle')}
           </h2>
           <button
             onClick={() => !submitting && onClose()}
@@ -244,33 +246,28 @@ export function CouponFormDrawer({
           {showRedemptionWarning && (
             <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-              <p>
-                Este cupom já tem <strong>{redeemed}</strong> resgate{redeemed === 1 ? '' : 's'}.
-                Alterações em duração, elegibilidade ou limites afetam apenas resgates futuros — os já consumidos não mudam.
-              </p>
+              <p>{t('redemptionWarning', { count: redeemed })}</p>
             </div>
           )}
 
           {/* Code — readonly in edit mode */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Code {!isEditing && <span className="text-red-500">*</span>}
+              {t('code')} {!isEditing && <span className="text-red-500">*</span>}
               {isEditing && <Lock size={12} className="inline ml-1 text-gray-400" />}
             </label>
             <input
               type="text"
               value={form.code}
               onChange={e => set('code', e.target.value.toUpperCase())}
-              placeholder="WEBSUMMIT26"
+              placeholder={t('codePlaceholder')}
               maxLength={32}
               readOnly={isEditing}
               disabled={isEditing}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 font-mono uppercase tracking-wider text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30 disabled:opacity-60"
             />
             <p className="mt-1 text-xs text-gray-500">
-              {isEditing
-                ? 'Imutável após criação — material impresso/distribuído depende dele.'
-                : 'Always stored UPPERCASE. Convention: keep slugs lowercase, codes uppercase.'}
+              {isEditing ? t('codeHelp.edit') : t('codeHelp.create')}
             </p>
           </div>
 
@@ -278,23 +275,21 @@ export function CouponFormDrawer({
           {isEditing ? (
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Owner <Lock size={12} className="inline ml-1 text-gray-400" />
+                {t('owner')} <Lock size={12} className="inline ml-1 text-gray-400" />
               </label>
               <input
                 type="text"
-                value={coupon?.owner?.name ?? (coupon?.owner_client_id ? 'Atribuído' : 'Sem owner (genérico)')}
+                value={coupon?.owner?.name ?? (coupon?.owner_client_id ? t('ownerAttributed') : t('noOwner'))}
                 readOnly
                 disabled
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-600"
               />
-              <p className="mt-1 text-xs text-gray-500">
-                Imutável após criação — alterar atribuição misrouteria resgates passados e futuros.
-              </p>
+              <p className="mt-1 text-xs text-gray-500">{t('ownerHelp')}</p>
             </div>
           ) : !isOwnerLocked && (
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Owner (attribution shown in the app)
+                {t('ownerCreateHelp')}
               </label>
               <select
                 value={form.owner_client_id ?? ''}
@@ -302,7 +297,7 @@ export function CouponFormDrawer({
                   set('owner_client_id', e.target.value === '' ? null : e.target.value)
                 }
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30">
-                <option value="">No owner (generic)</option>
+                <option value="">{t('noOwner')}</option>
                 {owners.map(o => (
                   <option key={o.id} value={o.id}>
                     {o.name}
@@ -316,7 +311,7 @@ export function CouponFormDrawer({
           {/* Duration */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Duration (days) <span className="text-red-500">*</span>
+              {t('duration')} <span className="text-red-500">*</span>
             </label>
             <input
               type="number"
@@ -331,7 +326,7 @@ export function CouponFormDrawer({
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Eligibility
+                {t('eligibility')}
               </label>
               <select
                 value={form.eligibility}
@@ -339,13 +334,13 @@ export function CouponFormDrawer({
                   set('eligibility', e.target.value as CouponEligibility)
                 }
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30">
-                <option value="any">Any user</option>
-                <option value="new_subscribers_only">New subscribers only</option>
+                <option value="any">{t('anyUser')}</option>
+                <option value="new_subscribers_only">{t('newSubscribersOnly')}</option>
               </select>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Stack with active Premium?
+                {t('stack')}
               </label>
               <label className="inline-flex items-center gap-2 text-sm text-gray-700">
                 <input
@@ -354,7 +349,7 @@ export function CouponFormDrawer({
                   onChange={e => set('stack_with_active', e.target.checked)}
                   className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue"
                 />
-                Sums days on top of existing end-date (recommended).
+                {t('stackHelp')}
               </label>
             </div>
           </div>
@@ -363,12 +358,12 @@ export function CouponFormDrawer({
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Max total redemptions
+                {t('maxRedemptions')}
               </label>
               <input
                 type="number"
                 min={1}
-                placeholder="Leave blank for unlimited"
+                placeholder={t('maxRedemptionsPlaceholder')}
                 value={form.max_redemptions ?? ''}
                 onChange={e =>
                   set(
@@ -379,14 +374,12 @@ export function CouponFormDrawer({
                 className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
               />
               {isEditing && (
-                <p className="mt-1 text-xs text-gray-500">
-                  Já resgatados: <strong>{redeemed}</strong>. Defina um valor maior que isso para manter o cupom ativo.
-                </p>
+                <p className="mt-1 text-xs text-gray-500">{t('alreadyRedeemed', { count: redeemed })}</p>
               )}
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Max per user
+                {t('maxPerUser')}
               </label>
               <input
                 type="number"
@@ -404,7 +397,7 @@ export function CouponFormDrawer({
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Valid from
+                {t('validFrom')}
               </label>
               <input
                 type="datetime-local"
@@ -415,7 +408,7 @@ export function CouponFormDrawer({
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
-                Valid until
+                {t('validUntil')}
               </label>
               <input
                 type="datetime-local"
@@ -429,13 +422,13 @@ export function CouponFormDrawer({
           {/* Notes */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Notes (internal)
+              {t('notes')}
             </label>
             <textarea
               rows={2}
               value={form.notes ?? ''}
               onChange={e => set('notes', e.target.value || null)}
-              placeholder="WebSummit 2026 booth campaign"
+              placeholder={t('notesPlaceholder')}
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/30"
             />
           </div>
@@ -446,14 +439,14 @@ export function CouponFormDrawer({
             onClick={() => !submitting && onClose()}
             disabled={submitting}
             className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-            Cancel
+            {t('cancel')}
           </button>
           <button
             onClick={submit}
             disabled={submitting}
             className="inline-flex items-center gap-2 rounded-xl bg-tuggi-blue px-4 py-2 text-sm font-semibold text-white hover:bg-tuggi-blue/90 disabled:opacity-60 shadow-md shadow-tuggi-blue/10">
             {submitting && <Loader2 size={14} className="animate-spin" />}
-            {isEditing ? 'Save changes' : 'Create coupon'}
+            {isEditing ? t('saveButton') : t('createButton')}
           </button>
         </div>
       </div>

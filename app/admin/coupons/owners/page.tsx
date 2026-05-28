@@ -16,6 +16,7 @@ import {
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { Container } from '@/components/ui/Container';
 
 interface OwnerPerformance {
@@ -43,6 +44,7 @@ function pct(numerator: number, denominator: number) {
 }
 
 function AdminCouponOwnersContent() {
+  const t = useTranslations('Coupons.owners');
   const router = useRouter();
   const { session, isLoading: sessionLoading } = useSessionContext();
   const supabase = useSupabaseClient();
@@ -90,13 +92,13 @@ function AdminCouponOwnersContent() {
         const res = await fetch('/api/admin/coupons/owners');
         const data = await res.json();
         if (!res.ok) {
-          setError(data.error || 'Failed to load performance');
+          setError(data.error || t('errors.loadFailed'));
           return;
         }
         setOwners(data.owners || []);
       } catch (err) {
         console.error(err);
-        setError('Could not load owner performance');
+        setError(t('errors.loadNetwork'));
       } finally {
         setLoading(false);
       }
@@ -124,15 +126,13 @@ function AdminCouponOwnersContent() {
             <Link
               href="/admin/coupons"
               className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
-              <ArrowLeft size={14} /> Back to coupons
+              <ArrowLeft size={14} /> {t('backToCoupons')}
             </Link>
             <h1 className="mt-1 text-2xl font-bold text-gray-900 flex items-center gap-2">
               <Award size={22} className="text-tuggi-orange" />
-              Owner performance
+              {t('title')}
             </h1>
-            <p className="text-sm text-gray-500">
-              Per-owner aggregates across all of their coupons.
-            </p>
+            <p className="text-sm text-gray-500">{t('subtitle')}</p>
           </div>
         </div>
 
@@ -140,7 +140,7 @@ function AdminCouponOwnersContent() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           <div className="rounded-lg border border-gray-200 bg-white p-4">
             <p className="text-xs uppercase tracking-wider text-gray-500 flex items-center gap-1">
-              <Gift size={12} /> Total redemptions
+              <Gift size={12} /> {t('totalRedemptions')}
             </p>
             <p className="mt-1 text-2xl font-bold text-gray-900">
               {totalRedemptions}
@@ -148,7 +148,7 @@ function AdminCouponOwnersContent() {
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-4">
             <p className="text-xs uppercase tracking-wider text-gray-500 flex items-center gap-1">
-              <TrendingUp size={12} /> Converted to paid
+              <TrendingUp size={12} /> {t('convertedToPaid')}
             </p>
             <p className="mt-1 text-2xl font-bold text-gray-900">
               {totalConverted}{' '}
@@ -159,7 +159,7 @@ function AdminCouponOwnersContent() {
           </div>
           <div className="rounded-lg border border-gray-200 bg-white p-4">
             <p className="text-xs uppercase tracking-wider text-gray-500 flex items-center gap-1">
-              <Calendar size={12} /> Premium days granted
+              <Calendar size={12} /> {t('daysGranted')}
             </p>
             <p className="mt-1 text-2xl font-bold text-gray-900">{totalDays}</p>
           </div>
@@ -175,26 +175,26 @@ function AdminCouponOwnersContent() {
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50 text-xs uppercase tracking-wider text-gray-500">
               <tr>
-                <th className="px-4 py-3 text-left">Owner</th>
-                <th className="px-4 py-3 text-left">Coupons</th>
-                <th className="px-4 py-3 text-left">Redemptions</th>
-                <th className="px-4 py-3 text-left">Unique users</th>
-                <th className="px-4 py-3 text-left">Converted</th>
-                <th className="px-4 py-3 text-left">Days granted</th>
-                <th className="px-4 py-3 text-left">Last redeemed</th>
+                <th className="px-4 py-3 text-left">{t('headers.owner')}</th>
+                <th className="px-4 py-3 text-left">{t('headers.coupons')}</th>
+                <th className="px-4 py-3 text-left">{t('headers.redemptions')}</th>
+                <th className="px-4 py-3 text-left">{t('headers.uniqueUsers')}</th>
+                <th className="px-4 py-3 text-left">{t('headers.converted')}</th>
+                <th className="px-4 py-3 text-left">{t('headers.daysGranted')}</th>
+                <th className="px-4 py-3 text-left">{t('headers.lastRedeemed')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
-                    Loading…
+                    {t('loading')}
                   </td>
                 </tr>
               ) : owners.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
-                    No owner activity yet.
+                    {t('empty')}
                   </td>
                 </tr>
               ) : (
@@ -229,7 +229,7 @@ function AdminCouponOwnersContent() {
                       {o.coupon_count}
                       <span className="text-gray-400">
                         {' '}
-                        ({o.active_coupon_count} active)
+                        ({o.active_coupon_count} {t('activeSuffix')})
                       </span>
                     </td>
                     <td className="px-4 py-3 font-bold text-gray-900">

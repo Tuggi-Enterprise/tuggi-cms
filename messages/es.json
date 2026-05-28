@@ -1377,5 +1377,299 @@
     "audioTaskGenerating": "Generando audio {lang} ({gender})...",
     "confirmedSave": "Confirmar e Guardar Geofence",
     "drawWarning": "⚠️ Es necesario dibujar el boundary en el mapa antes de guardar."
+  },
+  "Clients": {
+    "editor": {
+      "header": {
+        "newClient": "Nuevo cliente",
+        "noName": "Sin nombre"
+      },
+      "loading": "Cargando…",
+      "tabs": {
+        "profile": "Perfil",
+        "fiscal": "Fiscal y Pagos",
+        "team": "Equipo",
+        "pois": "POIs",
+        "coupons": "Cupones",
+        "configuration": "Configuración",
+        "comingSoon": "Próximamente",
+        "soonBadge": "pronto"
+      },
+      "save": "Guardar",
+      "missingTitle": "Faltan para guardar",
+      "missing": {
+        "name": "Nombre / Razón social",
+        "email": "Email"
+      },
+      "errors": {
+        "loadFailed": "Error al cargar el cliente",
+        "networkLoad": "Error de red al cargar el cliente",
+        "saveFailed": "Error al guardar",
+        "createFailed": "Error al crear el cliente",
+        "networkSave": "Error de red al guardar"
+      },
+      "messages": {
+        "saved": "Guardado con éxito",
+        "created": "Cliente creado"
+      }
+    },
+    "approval": {
+      "approve": "Aprobar",
+      "reject": "Rechazar",
+      "approveTitle": "Aprobar cliente",
+      "rejectTitle": "Rechazar cliente",
+      "cmsUserEmail": "Email del CMS user",
+      "cmsUserName": "Nombre del CMS user",
+      "rejectionReason": "Motivo del rechazo",
+      "rejectionReasonPlaceholder": "Documentación incompleta, etc.",
+      "confirmApprove": "Confirmar aprobación",
+      "confirmReject": "Confirmar rechazo",
+      "requiredFields": "Email y nombre del CMS user son obligatorios",
+      "errors": {
+        "approveFailed": "Error al aprobar",
+        "rejectFailed": "Error al rechazar",
+        "networkApprove": "Error de red al aprobar",
+        "networkReject": "Error de red al rechazar"
+      },
+      "status": {
+        "approved": "Aprobado",
+        "rejected": "Rechazado",
+        "pending": "Pendiente"
+      }
+    },
+    "profile": {
+      "sections": {
+        "identity": "Identidad",
+        "attribution": "Atribución (socio / consumer-facing)",
+        "attributionHelp": "Campos usados en pantallas del app donde aparece el socio (atribución de cupón, página de descarga, etc.).",
+        "address": "Dirección"
+      },
+      "fields": {
+        "name": "Nombre / Razón social",
+        "companyName": "Nombre comercial",
+        "email": "Email principal",
+        "phone": "Teléfono",
+        "slug": "Slug (URL pública /d/...)",
+        "slugAutoPlaceholder": "generado automáticamente",
+        "website": "Sitio web",
+        "industry": "Industria",
+        "clientType": "Tipo de relación",
+        "avatarUrl": "URL del avatar",
+        "avatarPlaceholder": "https://...",
+        "socialHandle": "Handle social",
+        "socialPlaceholder": "@neymarjr",
+        "bioOneLine": "Bio (1 línea)",
+        "address": "Dirección",
+        "city": "Ciudad",
+        "state": "Estado / Provincia",
+        "country": "País",
+        "selectCountry": "Seleccionar país...",
+        "postalCode": "Código postal"
+      },
+      "clientTypes": {
+        "business": "Empresa",
+        "influencer": "Influencer",
+        "hotel": "Hotel",
+        "partner": "Socio",
+        "creator": "Creador de contenido"
+      }
+    },
+    "fiscal": {
+      "sections": {
+        "legal": "Legal y Fiscal",
+        "banking": "Banco y Pagos",
+        "commission": "Comisión"
+      },
+      "fields": {
+        "taxIdType": "Tipo de tax ID",
+        "taxIdAutoCountry": "Auto: {type}",
+        "taxIdSelectCountry": "Selecciona el país primero",
+        "legalRepName": "Representante legal",
+        "legalRepNamePlaceholder": "Nombre completo",
+        "legalRepRole": "Cargo / Título",
+        "legalRepRolePlaceholder": "CEO, Director, Socio-Gerente...",
+        "notes": "Notas internas",
+        "notesPlaceholder": "Notas internas sobre este cliente...",
+        "billingEmail": "Email de facturación",
+        "billingEmailPlaceholder": "finanzas@empresa.com",
+        "bankName": "Banco",
+        "bankNamePlaceholder": "ej. Santander, BBVA",
+        "ibanPlaceholder": "ES50 0000 ...",
+        "bicSwift": "BIC / SWIFT",
+        "bicSwiftPlaceholder": "CEMAES2BXXX",
+        "routingNumber": "Routing number (ABA)",
+        "routingPlaceholder": "021000021",
+        "accountNumber": "Número de cuenta",
+        "accountPlaceholder": "123456789",
+        "commissionRate": "Tasa de comisión",
+        "commissionRateHelp": "Valor entre 0 y 1 (ej. 0.20 = 20%)",
+        "isPlatformOwner": "Platform owner?",
+        "isPlatformOwnerHelp": "Marca si el cliente es Tuggi mismo (split contable)"
+      }
+    },
+    "team": {
+      "section": "Usuarios vinculados",
+      "linkUser": "Vincular usuario",
+      "user": "Usuario",
+      "role": "Rol",
+      "actions": "Acciones",
+      "userSelect": "Seleccionar…",
+      "userLoading": "Cargando…",
+      "confirmLink": "Confirmar vínculo",
+      "emptyTitle": "Cliente aún no guardado",
+      "emptyDesc": "Guarda el cliente primero para vincular usuarios CMS.",
+      "noLinkedUsers": "Ningún usuario vinculado a este cliente",
+      "roles": {
+        "viewer": "Visualizador",
+        "manager": "Gerente",
+        "owner": "Owner"
+      },
+      "errors": {
+        "loadFailed": "Error al cargar usuarios",
+        "networkLoad": "Error de red al cargar usuarios",
+        "linkFailed": "Error al vincular usuario",
+        "networkLink": "Error de red al vincular",
+        "loadAvailableFailed": "Error al cargar usuarios disponibles",
+        "networkAvailable": "Error de red al cargar usuarios disponibles",
+        "unlinkFailed": "Error al desvincular usuario",
+        "networkUnlink": "Error de red al desvincular"
+      }
+    },
+    "pois": {
+      "section": "POI de referencia (Welcome POI)",
+      "help": "POI reproducido cuando el usuario accede a la página del socio (tuggi.app/d/<slug>) — su descripción y audio sirven como contenido de bienvenida. Pega el UUID, valida y asigna. Los cambios se aplican tras guardar el modal.",
+      "uuidPlaceholder": "Pega el UUID del POI...",
+      "validate": "Validar",
+      "attach": "Asignar",
+      "remove": "Eliminar Welcome POI",
+      "hint": "Tip: copia el ID de un POI en la página /pois. Autocompletar por nombre llega en una próxima iteración.",
+      "saveFirst": "Guarda el cliente primero para asignar un Welcome POI.",
+      "approved": "Aprobado",
+      "pending": "Pendiente",
+      "errors": {
+        "notFound": "POI no encontrado (UUID inválido o inexistente)",
+        "network": "Error de red al buscar POI"
+      }
+    },
+    "coupons": {
+      "emptyTitle": "Cliente aún no guardado",
+      "emptyHeader": "Cupones",
+      "emptyDesc": "Guarda el cliente para comenzar a vincular cupones.",
+      "scopedBanner": "Solo cupones atribuidos a este cliente. Los cupones genéricos (sin owner) aparecen solo en <link>búsqueda global</link>."
+    }
+  },
+  "Coupons": {
+    "list": {
+      "title": "Cupones",
+      "subtitle": "Días de Premium gratuitos canjeables vía modal in-app o landing pages de marketing.",
+      "ownerPerformance": "Rendimiento por owner",
+      "newCoupon": "Nuevo cupón",
+      "searchPlaceholder": "Buscar por código",
+      "statusAll": "Todos los estados",
+      "statusActive": "Activos",
+      "statusInactive": "Inactivos",
+      "headers": {
+        "code": "Código",
+        "owner": "Owner",
+        "duration": "Duración",
+        "eligibility": "Elegibilidad",
+        "redemptions": "Canjes",
+        "validity": "Validez",
+        "status": "Estado",
+        "created": "Creado"
+      },
+      "days": "días",
+      "anyUser": "Cualquier usuario",
+      "newSubscribers": "Nuevos suscriptores",
+      "stack": "Acumulable",
+      "active": "Activo",
+      "inactive": "Inactivo",
+      "noCoupons": "Sin cupones — crea el primero.",
+      "loading": "Cargando…",
+      "deactivate": "Desactivar",
+      "activate": "Activar",
+      "clickToEdit": "Clic para editar",
+      "openClient": "Abrir cliente en el editor",
+      "prev": "Anterior",
+      "next": "Siguiente",
+      "pagination": "Página {current} de {total} · {count} cupones",
+      "errors": {
+        "fetchFailed": "Error al obtener cupones",
+        "loadFailed": "No se pudieron cargar cupones",
+        "updateFailed": "Error al actualizar cupón",
+        "updateNetwork": "No se pudo actualizar cupón"
+      }
+    },
+    "form": {
+      "createTitle": "Crear cupón",
+      "editTitle": "Editar cupón · {code}",
+      "code": "Código",
+      "codePlaceholder": "WEBSUMMIT26",
+      "codeHelp": {
+        "create": "Siempre guardado en MAYÚSCULAS. Convención: slugs en minúsculas, códigos en mayúsculas.",
+        "edit": "Inmutable tras la creación — material impreso/distribuido depende de él."
+      },
+      "owner": "Owner",
+      "ownerHelp": "Inmutable tras la creación — cambiar la atribución desviaría canjes pasados y futuros.",
+      "ownerCreateHelp": "Owner (atribución mostrada en el app)",
+      "noOwner": "Sin owner (genérico)",
+      "ownerAttributed": "Atribuido",
+      "duration": "Duración (días)",
+      "eligibility": "Elegibilidad",
+      "anyUser": "Cualquier usuario",
+      "newSubscribersOnly": "Solo nuevos suscriptores",
+      "stack": "¿Acumular con Premium activo?",
+      "stackHelp": "Suma los días sobre la fecha actual de fin (recomendado).",
+      "maxRedemptions": "Máximo total de canjes",
+      "maxRedemptionsPlaceholder": "Deja en blanco para ilimitado",
+      "alreadyRedeemed": "Ya canjeados: {count}. Define un valor mayor para mantener el cupón activo.",
+      "maxPerUser": "Máximo por usuario",
+      "validFrom": "Válido desde",
+      "validUntil": "Válido hasta",
+      "notes": "Notas (internas)",
+      "notesPlaceholder": "Campaña WebSummit 2026",
+      "createButton": "Crear cupón",
+      "saveButton": "Guardar cambios",
+      "cancel": "Cancelar",
+      "validation": {
+        "codeMinLength": "El código debe tener al menos 3 caracteres.",
+        "durationMin": "La duración debe ser de al menos 1 día."
+      },
+      "errors": {
+        "create": "Error al crear cupón",
+        "update": "Error al actualizar cupón",
+        "networkCreate": "Error de red al crear cupón",
+        "networkUpdate": "Error de red al actualizar cupón"
+      },
+      "success": {
+        "created": "Cupón {code} creado.",
+        "updated": "Cupón {code} actualizado."
+      },
+      "redemptionWarning": "Este cupón ya tiene {count} canje(s). Los cambios en duración, elegibilidad o límites solo afectan canjes futuros — los ya consumidos no cambian."
+    },
+    "owners": {
+      "title": "Rendimiento por owner",
+      "subtitle": "Agregados por owner en todos los cupones.",
+      "backToCoupons": "Volver a cupones",
+      "totalRedemptions": "Total de canjes",
+      "convertedToPaid": "Convertidos a pago",
+      "daysGranted": "Días de Premium otorgados",
+      "loading": "Cargando…",
+      "empty": "Aún no hay actividad de owner.",
+      "activeSuffix": "activos",
+      "headers": {
+        "owner": "Owner",
+        "coupons": "Cupones",
+        "redemptions": "Canjes",
+        "uniqueUsers": "Usuarios únicos",
+        "converted": "Convertidos",
+        "daysGranted": "Días otorgados",
+        "lastRedeemed": "Último canje"
+      },
+      "errors": {
+        "loadFailed": "Error al cargar el rendimiento",
+        "loadNetwork": "No se pudo cargar el rendimiento por owner"
+      }
+    }
   }
 }

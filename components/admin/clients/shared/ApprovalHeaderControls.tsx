@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { CheckCircle, XCircle, Clock, AlertTriangle, Loader2 } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import type { ClientStatus } from '@/types/clients'
 
@@ -29,6 +30,7 @@ export function ApprovalHeaderControls({
   canEdit,
   onChanged,
 }: ApprovalHeaderControlsProps) {
+  const t = useTranslations('Clients.approval')
   const [openAction, setOpenAction] = useState<null | 'approve' | 'reject'>(null)
   const [cmsUserEmail, setCmsUserEmail] = useState(defaultCmsUserEmail ?? '')
   const [cmsUserName, setCmsUserName] = useState(defaultCmsUserName ?? '')
@@ -39,17 +41,17 @@ export function ApprovalHeaderControls({
   const badge = (() => {
     switch (status) {
       case 'approved':
-        return { label: 'Approved', icon: CheckCircle, className: 'bg-green-50 border-green-200 text-green-700' }
+        return { label: t('status.approved'), icon: CheckCircle, className: 'bg-green-50 border-green-200 text-green-700' }
       case 'rejected':
-        return { label: 'Rejected', icon: XCircle, className: 'bg-red-50 border-red-200 text-red-600' }
+        return { label: t('status.rejected'), icon: XCircle, className: 'bg-red-50 border-red-200 text-red-600' }
       default:
-        return { label: 'Pending', icon: Clock, className: 'bg-orange-50 border-orange-200 text-orange-700' }
+        return { label: t('status.pending'), icon: Clock, className: 'bg-orange-50 border-orange-200 text-orange-700' }
     }
   })()
 
   const handleApprove = async () => {
     if (!cmsUserEmail.trim() || !cmsUserName.trim()) {
-      setError('Email e nome do CMS user são obrigatórios')
+      setError(t('requiredFields'))
       return
     }
     setSubmitting(true)
@@ -62,13 +64,13 @@ export function ApprovalHeaderControls({
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error ?? 'Falha ao aprovar')
+        setError(data.error ?? t('errors.approveFailed'))
         return
       }
       onChanged({ status: 'approved', approved_at: new Date().toISOString() })
       setOpenAction(null)
     } catch {
-      setError('Erro de rede ao aprovar')
+      setError(t('errors.networkApprove'))
     } finally {
       setSubmitting(false)
     }
@@ -85,13 +87,13 @@ export function ApprovalHeaderControls({
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error ?? 'Falha ao rejeitar')
+        setError(data.error ?? t('errors.rejectFailed'))
         return
       }
       onChanged({ status: 'rejected', rejection_reason: rejectionReason.trim() })
       setOpenAction(null)
     } catch {
-      setError('Erro de rede ao rejeitar')
+      setError(t('errors.networkReject'))
     } finally {
       setSubmitting(false)
     }
@@ -113,7 +115,7 @@ export function ApprovalHeaderControls({
             disabled={submitting}
             className="inline-flex items-center gap-1.5 rounded-xl bg-green-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-green-700 disabled:opacity-50 transition-all"
           >
-            <CheckCircle className="w-3.5 h-3.5" /> Aprovar
+            <CheckCircle className="w-3.5 h-3.5" /> {t('approve')}
           </button>
           <button
             type="button"
@@ -121,7 +123,7 @@ export function ApprovalHeaderControls({
             disabled={submitting}
             className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 disabled:opacity-50 transition-all"
           >
-            <XCircle className="w-3.5 h-3.5" /> Rejeitar
+            <XCircle className="w-3.5 h-3.5" /> {t('reject')}
           </button>
         </>
       )}
@@ -137,7 +139,7 @@ export function ApprovalHeaderControls({
         >
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-bold text-gray-900">
-              {openAction === 'approve' ? 'Aprovar cliente' : 'Rejeitar cliente'}
+              {openAction === 'approve' ? t('approveTitle') : t('rejectTitle')}
             </h3>
             <button
               type="button"
@@ -158,7 +160,7 @@ export function ApprovalHeaderControls({
             <div className="space-y-3">
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">
-                  CMS user email
+                  {t('cmsUserEmail')}
                 </label>
                 <input
                   type="email"
@@ -170,7 +172,7 @@ export function ApprovalHeaderControls({
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">
-                  CMS user nome
+                  {t('cmsUserName')}
                 </label>
                 <input
                   type="text"
@@ -187,20 +189,20 @@ export function ApprovalHeaderControls({
                 className="w-full py-2.5 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 text-sm"
               >
                 {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                Confirmar aprovação
+                {t('confirmApprove')}
               </button>
             </div>
           ) : (
             <div className="space-y-3">
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">
-                  Motivo da rejeição
+                  {t('rejectionReason')}
                 </label>
                 <textarea
                   rows={3}
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder="Documentação incompleta, etc."
+                  placeholder={t('rejectionReasonPlaceholder')}
                   className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-tuggi-blue/30 resize-none"
                 />
               </div>
@@ -211,7 +213,7 @@ export function ApprovalHeaderControls({
                 className="w-full py-2.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2 text-sm"
               >
                 {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                Confirmar rejeição
+                {t('confirmReject')}
               </button>
             </div>
           )}

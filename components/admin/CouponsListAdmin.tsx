@@ -14,6 +14,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import type { Coupon } from '@/types/coupons';
 
 interface CouponsListAdminProps {
@@ -42,6 +43,7 @@ export function CouponsListAdmin({
   ownerClientId,
   onEditCoupon,
 }: CouponsListAdminProps) {
+  const t = useTranslations('Coupons.list');
   const isScopedToOwner = Boolean(ownerClientId);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,7 +77,7 @@ export function CouponsListAdmin({
       const res = await fetch(`/api/admin/coupons?${params}`);
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Failed to fetch coupons');
+        setError(data.error || t('errors.fetchFailed'));
         return;
       }
       setCoupons(data.coupons || []);
@@ -83,7 +85,7 @@ export function CouponsListAdmin({
       setPage(searchPage);
     } catch (err) {
       console.error(err);
-      setError('Could not load coupons');
+      setError(t('errors.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -112,7 +114,7 @@ export function CouponsListAdmin({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || 'Failed to update coupon');
+        setError(data.error || t('errors.updateFailed'));
         return;
       }
       setCoupons(prev =>
@@ -120,7 +122,7 @@ export function CouponsListAdmin({
       );
     } catch (err) {
       console.error(err);
-      setError('Could not update coupon');
+      setError(t('errors.updateNetwork'));
     } finally {
       setTogglingId(null);
     }
@@ -138,12 +140,10 @@ export function CouponsListAdmin({
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Gift size={22} className="text-tuggi-orange" />
-            Coupons
+            {t('title')}
           </h1>
           {!isScopedToOwner && (
-            <p className="text-sm text-gray-500">
-              Free Premium days redeemable via the in-app modal or marketing landing pages.
-            </p>
+            <p className="text-sm text-gray-500">{t('subtitle')}</p>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -152,14 +152,14 @@ export function CouponsListAdmin({
               href="/admin/coupons/owners"
               className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
               <TrendingUp size={14} />
-              Owner performance
+              {t('ownerPerformance')}
             </Link>
           )}
           <button
             onClick={onCreateNew}
             className="inline-flex items-center gap-1.5 rounded-lg bg-tuggi-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-tuggi-blue/90 transition">
             <Plus size={16} />
-            New coupon
+            {t('newCoupon')}
           </button>
         </div>
       </div>
@@ -170,7 +170,7 @@ export function CouponsListAdmin({
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="search"
-            placeholder="Search by code"
+            placeholder={t('searchPlaceholder')}
             value={searchInput}
             onChange={e => setSearchInput(e.target.value.toUpperCase())}
             className="w-full rounded-md border border-gray-200 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40 uppercase tracking-wider"
@@ -180,9 +180,9 @@ export function CouponsListAdmin({
           value={status}
           onChange={e => setStatus(e.target.value as any)}
           className="rounded-md border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40">
-          <option value="all">All statuses</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
+          <option value="all">{t('statusAll')}</option>
+          <option value="active">{t('statusActive')}</option>
+          <option value="inactive">{t('statusInactive')}</option>
         </select>
       </div>
 
@@ -199,14 +199,14 @@ export function CouponsListAdmin({
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50 text-xs uppercase tracking-wider text-gray-500">
             <tr>
-              <th className="px-4 py-3 text-left">Code</th>
-              {!isScopedToOwner && <th className="px-4 py-3 text-left">Owner</th>}
-              <th className="px-4 py-3 text-left">Duration</th>
-              <th className="px-4 py-3 text-left">Eligibility</th>
-              <th className="px-4 py-3 text-left">Redemptions</th>
-              <th className="px-4 py-3 text-left">Validity</th>
-              <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-left">Created</th>
+              <th className="px-4 py-3 text-left">{t('headers.code')}</th>
+              {!isScopedToOwner && <th className="px-4 py-3 text-left">{t('headers.owner')}</th>}
+              <th className="px-4 py-3 text-left">{t('headers.duration')}</th>
+              <th className="px-4 py-3 text-left">{t('headers.eligibility')}</th>
+              <th className="px-4 py-3 text-left">{t('headers.redemptions')}</th>
+              <th className="px-4 py-3 text-left">{t('headers.validity')}</th>
+              <th className="px-4 py-3 text-left">{t('headers.status')}</th>
+              <th className="px-4 py-3 text-left">{t('headers.created')}</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -214,13 +214,13 @@ export function CouponsListAdmin({
             {loading ? (
               <tr>
                 <td colSpan={isScopedToOwner ? 8 : 9} className="px-4 py-10 text-center text-gray-400">
-                  Loading…
+                  {t('loading')}
                 </td>
               </tr>
             ) : coupons.length === 0 ? (
               <tr>
                 <td colSpan={isScopedToOwner ? 8 : 9} className="px-4 py-10 text-center text-gray-400">
-                  No coupons yet — create your first one.
+                  {t('noCoupons')}
                 </td>
               </tr>
             ) : (
@@ -229,7 +229,7 @@ export function CouponsListAdmin({
                   key={c.id}
                   className={`hover:bg-gray-50/50 ${onEditCoupon ? 'cursor-pointer' : ''}`}
                   onClick={() => onEditCoupon?.(c)}
-                  title={onEditCoupon ? 'Clique para editar' : undefined}
+                  title={onEditCoupon ? t('clickToEdit') : undefined}
                 >
                   <td className="px-4 py-3 font-mono font-bold tracking-wider text-gray-900">
                     {c.code}
@@ -240,7 +240,7 @@ export function CouponsListAdmin({
                         <Link
                           href={`/admin/clients?clientId=${c.owner_client_id}&tab=coupons`}
                           className="flex items-center gap-2 group"
-                          title="Abrir cliente no editor"
+                          title={t('openClient')}
                         >
                           {c.owner.avatar_url ? (
                             <img
@@ -265,16 +265,16 @@ export function CouponsListAdmin({
                       )}
                     </td>
                   )}
-                  <td className="px-4 py-3">{c.duration_days} days</td>
+                  <td className="px-4 py-3">{c.duration_days} {t('days')}</td>
                   <td className="px-4 py-3 text-xs">
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-700">
                       {c.eligibility === 'new_subscribers_only'
-                        ? 'New subscribers'
-                        : 'Any user'}
+                        ? t('newSubscribers')
+                        : t('anyUser')}
                     </span>
                     {c.stack_with_active && (
                       <span className="ml-1 rounded-full bg-tuggi-blue/10 px-2 py-0.5 text-tuggi-blue">
-                        Stack
+                        {t('stack')}
                       </span>
                     )}
                   </td>
@@ -291,11 +291,11 @@ export function CouponsListAdmin({
                   <td className="px-4 py-3">
                     {c.is_active ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
-                        <CheckCircle size={12} /> Active
+                        <CheckCircle size={12} /> {t('active')}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">
-                        Inactive
+                        {t('inactive')}
                       </span>
                     )}
                   </td>
@@ -309,14 +309,14 @@ export function CouponsListAdmin({
                       onClick={(e) => { e.stopPropagation(); toggleActive(c); }}
                       disabled={togglingId === c.id}
                       className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-40"
-                      title={c.is_active ? 'Deactivate' : 'Activate'}>
+                      title={c.is_active ? t('deactivate') : t('activate')}>
                       {c.is_active ? (
                         <>
-                          <PowerOff size={14} /> Deactivate
+                          <PowerOff size={14} /> {t('deactivate')}
                         </>
                       ) : (
                         <>
-                          <Power size={14} /> Activate
+                          <Power size={14} /> {t('activate')}
                         </>
                       )}
                     </button>
@@ -332,21 +332,20 @@ export function CouponsListAdmin({
       {pagination.pages > 1 && (
         <div className="flex items-center justify-between text-sm text-gray-600">
           <span>
-            Page {pagination.page} of {pagination.pages} · {pagination.total}{' '}
-            coupons
+            {t('pagination', { current: pagination.page, total: pagination.pages, count: pagination.total })}
           </span>
           <div className="flex gap-2">
             <button
               disabled={page <= 1 || loading}
               onClick={() => fetchCoupons(page - 1)}
               className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 disabled:opacity-40">
-              <ChevronLeft size={14} /> Prev
+              <ChevronLeft size={14} /> {t('prev')}
             </button>
             <button
               disabled={page >= pagination.pages || loading}
               onClick={() => fetchCoupons(page + 1)}
               className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 disabled:opacity-40">
-              Next <ChevronRight size={14} />
+              {t('next')} <ChevronRight size={14} />
             </button>
           </div>
         </div>

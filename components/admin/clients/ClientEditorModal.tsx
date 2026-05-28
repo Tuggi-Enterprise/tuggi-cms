@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   X, Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit,
 } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
 import { taxConfigFor } from '@/components/admin/clients/shared/countries'
 import { ApprovalHeaderControls } from '@/components/admin/clients/shared/ApprovalHeaderControls'
@@ -42,12 +43,13 @@ interface ClientEditorModalProps {
   onSaved?: (clientId: string) => void
 }
 
-const TABS: { id: ClientEditorTab; label: string; icon: typeof Building2; placeholder?: boolean }[] = [
-  { id: 'profile', label: 'Perfil', icon: Building2 },
-  { id: 'fiscal', label: 'Fiscal & Pagamentos', icon: Scale },
-  { id: 'team', label: 'Equipe', icon: Users },
-  { id: 'pois', label: 'POIs', icon: MapPin },
-  { id: 'coupons', label: 'Cupons', icon: Gift },
+interface TabDef { id: ClientEditorTab; labelKey: string; icon: typeof Building2; placeholder?: boolean }
+const TABS: TabDef[] = [
+  { id: 'profile', labelKey: 'profile', icon: Building2 },
+  { id: 'fiscal', labelKey: 'fiscal', icon: Scale },
+  { id: 'team', labelKey: 'team', icon: Users },
+  { id: 'pois', labelKey: 'pois', icon: MapPin },
+  { id: 'coupons', labelKey: 'coupons', icon: Gift },
 ]
 
 export function ClientEditorModal({
@@ -58,6 +60,8 @@ export function ClientEditorModal({
   onClose,
   onSaved,
 }: ClientEditorModalProps) {
+  const t = useTranslations('Clients.editor')
+  const tTabs = useTranslations('Clients.editor.tabs')
   const isEditing = mode === 'edit' && Boolean(clientId)
   const [activeTab, setActiveTab] = useState<ClientEditorTab>(initialTab)
   const [client, setClient] = useState<Client | null>(null)
@@ -111,14 +115,14 @@ export function ClientEditorModal({
       const data = await res.json()
       if (controller.signal.aborted) return
       if (!res.ok) {
-        setError(data.error ?? 'Falha ao carregar cliente')
+        setError(data.error ?? t('errors.loadFailed'))
         return
       }
       setClient(data.client)
       setEdited(data.client)
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return
-      setError('Erro de rede ao carregar cliente')
+      setError(t('errors.networkLoad'))
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
@@ -129,14 +133,14 @@ export function ClientEditorModal({
   }, [])
 
   const headerName = useMemo(() => {
-    if (mode === 'new') return 'Novo cliente'
-    return edited.company_name || client?.company_name || edited.name || client?.name || 'Sem nome'
-  }, [mode, edited, client])
+    if (mode === 'new') return t('header.newClient')
+    return edited.company_name || client?.company_name || edited.name || client?.name || t('header.noName')
+  }, [mode, edited, client, t])
 
   // Missing-fields validation (only the bare minimum to allow save).
   const missing: string[] = []
-  if (!String(edited.name ?? client?.name ?? '').trim()) missing.push('Nome / razão social')
-  if (!String(edited.email ?? client?.email ?? '').trim()) missing.push('Email')
+  if (!String(edited.name ?? client?.name ?? '').trim()) missing.push(t('missing.name'))
+  if (!String(edited.email ?? client?.email ?? '').trim()) missing.push(t('missing.email'))
   const canSave = missing.length === 0 && !saving && !loading
 
   const handleSave = async () => {
@@ -160,7 +164,7 @@ export function ClientEditorModal({
         })
         const data = await res.json()
         if (!res.ok) {
-          setError(data.error ?? 'Falha ao salvar')
+          setError(data.error ?? t('errors.saveFailed'))
           return
         }
         // Null-safe merge — `client` is normally set by fetchClient, but
@@ -170,7 +174,7 @@ export function ClientEditorModal({
         const merged = client ? { ...client, ...data.client } : (data.client as Client)
         setClient(merged)
         setEdited(merged)
-        setSuccess('Salvo com sucesso')
+        setSuccess(t('messages.saved'))
         setTimeout(() => setSuccess(null), 2500)
       } else {
         const res = await fetch('/api/admin/clients', {
@@ -180,17 +184,17 @@ export function ClientEditorModal({
         })
         const data = await res.json()
         if (!res.ok) {
-          setError(data.error ?? 'Falha ao criar cliente')
+          setError(data.error ?? t('errors.createFailed'))
           return
         }
         setClient(data.client)
         setEdited(data.client)
-        setSuccess('Cliente criado')
+        setSuccess(t('messages.created'))
         setTimeout(() => setSuccess(null), 2500)
         onSaved?.(data.client.id as string)
       }
     } catch {
-      setError('Erro de rede ao salvar')
+      setError(t('errors.networkSave'))
     } finally {
       setSaving(false)
     }
@@ -255,7 +259,7 @@ export function ClientEditorModal({
             <div className="absolute inset-0 z-30 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm flex items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="w-10 h-10 border-4 border-tuggi-blue/20 border-t-tuggi-blue rounded-full animate-spin" />
-                <p className="text-sm text-gray-500 font-medium animate-pulse">Carregando…</p>
+                <p className="text-sm text-gray-500 font-medium animate-pulse">{t('loading')}</p>
               </div>
             </div>
           )}
@@ -263,7 +267,7 @@ export function ClientEditorModal({
           {/* Sidebar */}
           <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-100/50 dark:border-gray-800 p-6 flex flex-col gap-2 z-20 shrink-0">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-2">
-              Configuração
+              {tTabs('configuration')}
             </p>
 
             {TABS.map((tab) => {
@@ -281,12 +285,12 @@ export function ClientEditorModal({
                         ? 'text-gray-300 cursor-not-allowed'
                         : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5',
                   )}
-                  title={disabled ? 'Em breve (próxima PR)' : undefined}
+                  title={disabled ? tTabs('comingSoon') : undefined}
                 >
                   <tab.icon className={cn('h-5 w-5 shrink-0', activeTab === tab.id && 'animate-pulse')} />
-                  <span className="flex-1">{tab.label}</span>
+                  <span className="flex-1">{tTabs(tab.labelKey)}</span>
                   {tab.placeholder && (
-                    <span className="text-[9px] font-bold uppercase tracking-widest text-gray-300">soon</span>
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-gray-300">{tTabs('soonBadge')}</span>
                   )}
                 </button>
               )
@@ -310,7 +314,7 @@ export function ClientEditorModal({
 
               {missing.length > 0 && (
                 <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800/30">
-                  <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold mb-1">Faltam para salvar</p>
+                  <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold mb-1">{t('missingTitle')}</p>
                   <ul className="space-y-0.5">
                     {missing.map((f) => (
                       <li key={f} className="text-[10px] text-amber-600 dark:text-amber-500 flex items-center gap-1">
@@ -327,7 +331,7 @@ export function ClientEditorModal({
                 className="w-full py-3.5 bg-tuggi-blue text-white font-bold rounded-2xl hover:bg-tuggi-blue/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-xl shadow-tuggi-blue/20 active:scale-[0.98] flex items-center justify-center gap-2 text-sm"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Salvar
+                {t('save')}
               </button>
             </div>
           </aside>

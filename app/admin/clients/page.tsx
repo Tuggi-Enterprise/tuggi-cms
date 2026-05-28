@@ -2,12 +2,14 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { ClientsListAdmin } from '@/components/admin/ClientsListAdmin'
 import { ClientEditorModal, type ClientEditorTab } from '@/components/admin/clients/ClientEditorModal'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
 import { Container } from '@/components/ui/Container'
 
 function AdminClientsContent() {
+  const t = useTranslations('Common.status')
   const router = useRouter()
   const searchParams = useSearchParams()
   const { session, isLoading: sessionLoading } = useSessionContext()
@@ -60,7 +62,7 @@ function AdminClientsContent() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
+          <p className="text-gray-600">{t('loading')}</p>
         </div>
       </div>
     )
