@@ -1,0 +1,90 @@
+'use client';
+
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  useSessionContext,
+  useSupabaseClient,
+} from '@supabase/auth-helpers-react';
+import { Container } from '@/components/ui/Container';
+import { CouponsListAdmin } from '@/components/admin/CouponsListAdmin';
+import { CouponCreateDrawer } from '@/components/admin/CouponCreateDrawer';
+
+function AdminCouponsContent() {
+  const router = useRouter();
+  const { session, isLoading: sessionLoading } = useSessionContext();
+  const supabase = useSupabaseClient();
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      if (sessionLoading) return;
+      if (!session) {
+        router.push('/login');
+        return;
+      }
+      try {
+        const { data: cmsUser } = await supabase
+          .schema('core')
+          .from('cms_users')
+          .select('role')
+          .eq('email', session.user.email)
+          .single();
+
+        if (cmsUser?.role !== 'admin') {
+          router.push('/unauthorized');
+          return;
+        }
+        setIsAuthorized(true);
+      } catch (err) {
+        console.error('Auth error:', err);
+        router.push('/unauthorized');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    checkAuth();
+  }, [session, sessionLoading, router, supabase]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue mx-auto" />
+      </div>
+    );
+  }
+  if (!isAuthorized) return null;
+
+  return (
+    <div className="min-h-screen bg-gray-50/50">
+      <Container className="py-8">
+        <CouponsListAdmin
+          onCreateNew={() => setIsCreateOpen(true)}
+          reloadKey={reloadKey}
+        />
+      </Container>
+
+      <CouponCreateDrawer
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onSuccess={() => setReloadKey(k => k + 1)}
+      />
+    </div>
+  );
+}
+
+export default function AdminCouponsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue mx-auto" />
+        </div>
+      }>
+      <AdminCouponsContent />
+    </Suspense>
+  );
+}

@@ -33,7 +33,8 @@ import {
   LayoutList,
   Globe,
   Bell,
-  Crown
+  Crown,
+  Gift
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TuggiLogo } from './TuggiLogo'
@@ -72,6 +73,7 @@ export function Header({ className }: { className?: string }) {
     { name: t('poi_trigger_map'), href: '/admin/poi-trigger-map', icon: Map, category: 'admin' },
     { name: 'Audit Logs', href: '/admin/audit-logs', icon: Activity, category: 'admin' },
     { name: t('notifications'), href: '/dashboard/notifications', icon: Bell, category: 'admin' },
+    { name: 'Coupons', href: '/admin/coupons', icon: Gift, category: 'admin' },
   ]
 
   useEffect(() => {
