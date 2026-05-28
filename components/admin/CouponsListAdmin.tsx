@@ -26,6 +26,12 @@ interface CouponsListAdminProps {
    * without the global subtitle, and the API call passes ?owner_client_id.
    */
   ownerClientId?: string;
+  /**
+   * Called when the admin clicks a row to edit it. The caller is
+   * responsible for opening the edit drawer with the selected coupon.
+   * When omitted, the row is not clickable (legacy mode).
+   */
+  onEditCoupon?: (coupon: Coupon) => void;
 }
 
 const PAGE_SIZE = 20;
@@ -34,6 +40,7 @@ export function CouponsListAdmin({
   onCreateNew,
   reloadKey,
   ownerClientId,
+  onEditCoupon,
 }: CouponsListAdminProps) {
   const isScopedToOwner = Boolean(ownerClientId);
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -207,12 +214,17 @@ export function CouponsListAdmin({
               </tr>
             ) : (
               coupons.map(c => (
-                <tr key={c.id} className="hover:bg-gray-50/50">
+                <tr
+                  key={c.id}
+                  className={`hover:bg-gray-50/50 ${onEditCoupon ? 'cursor-pointer' : ''}`}
+                  onClick={() => onEditCoupon?.(c)}
+                  title={onEditCoupon ? 'Clique para editar' : undefined}
+                >
                   <td className="px-4 py-3 font-mono font-bold tracking-wider text-gray-900">
                     {c.code}
                   </td>
                   {!isScopedToOwner && (
-                    <td className="px-4 py-3 text-gray-700">
+                    <td className="px-4 py-3 text-gray-700" onClick={(e) => e.stopPropagation()}>
                       {c.owner ? (
                         <Link
                           href={`/admin/clients?clientId=${c.owner_client_id}&tab=coupons`}
@@ -280,8 +292,10 @@ export function CouponsListAdmin({
                     {formatDate(c.created_at)}
                   </td>
                   <td className="px-4 py-3 text-right">
+                    {/* stopPropagation: prevents the row's edit-on-click from
+                        firing when the admin just wants to toggle status. */}
                     <button
-                      onClick={() => toggleActive(c)}
+                      onClick={(e) => { e.stopPropagation(); toggleActive(c); }}
                       disabled={togglingId === c.id}
                       className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-40"
                       title={c.is_active ? 'Deactivate' : 'Activate'}>

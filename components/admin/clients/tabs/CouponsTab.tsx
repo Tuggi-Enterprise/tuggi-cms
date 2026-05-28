@@ -4,28 +4,45 @@ import { useState } from 'react'
 import { Gift, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 import { CouponsListAdmin } from '@/components/admin/CouponsListAdmin'
-import { CouponCreateDrawer } from '@/components/admin/CouponCreateDrawer'
+import { CouponFormDrawer } from '@/components/admin/CouponFormDrawer'
+import type { Coupon } from '@/types/coupons'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 /**
- * Cupons tab — list/create coupons whose owner_client_id matches the
- * client being edited. Reuses CouponsListAdmin and CouponCreateDrawer:
+ * Cupons tab — list / create / edit coupons whose owner_client_id matches
+ * the client being edited. Reuses CouponsListAdmin and CouponFormDrawer:
  *
  *   - CouponsListAdmin gets ownerClientId={clientId} → filters fetch via
  *     ?owner_client_id, hides the Owner column, drops the global header
  *     subtitle and the /admin/coupons/owners link.
  *
- *   - CouponCreateDrawer gets lockedOwnerClientId={clientId} → owner
- *     selector is hidden and the value is fixed to this client. The
- *     owners /api/admin/clients fetch is skipped.
+ *   - CouponFormDrawer gets lockedOwnerClientId={clientId} in create mode
+ *     (owner selector hidden, value fixed) and a coupon object in edit
+ *     mode (code + owner readonly).
  *
  * In ?mode=new the clientId is unknown until save — we show a friendly
  * disabled state mirroring how RouteEditorModal handles its translations
  * tab pre-save.
  */
 export function CouponsTab({ clientId }: ClientEditorTabProps) {
-  const [createOpen, setCreateOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+
+  const openCreate = () => {
+    setEditingCoupon(null)
+    setDrawerOpen(true)
+  }
+
+  const openEdit = (coupon: Coupon) => {
+    setEditingCoupon(coupon)
+    setDrawerOpen(true)
+  }
+
+  const closeDrawer = () => {
+    setDrawerOpen(false)
+    setTimeout(() => setEditingCoupon(null), 200)
+  }
 
   if (!clientId) {
     return (
@@ -53,14 +70,16 @@ export function CouponsTab({ clientId }: ClientEditorTabProps) {
       <CouponsListAdmin
         key={reloadKey}
         ownerClientId={clientId}
-        onCreateNew={() => setCreateOpen(true)}
+        onCreateNew={openCreate}
+        onEditCoupon={openEdit}
       />
 
-      <CouponCreateDrawer
-        isOpen={createOpen}
-        onClose={() => setCreateOpen(false)}
+      <CouponFormDrawer
+        isOpen={drawerOpen}
+        coupon={editingCoupon}
+        onClose={closeDrawer}
         onSuccess={() => setReloadKey((k) => k + 1)}
-        lockedOwnerClientId={clientId}
+        lockedOwnerClientId={editingCoupon ? undefined : clientId}
       />
     </div>
   )

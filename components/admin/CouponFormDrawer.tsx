@@ -1,21 +1,42 @@
 'use client';
 
+/**
+ * CouponFormDrawer — single drawer for both creating and editing coupons.
+ *
+ * Edit mode is enabled by passing `coupon` (and an `id` is then known to
+ * route the request to PATCH /api/admin/coupons/[id]). Create mode is the
+ * default — POSTs to /api/admin/coupons.
+ *
+ * What's locked in edit mode (matches the backend allow-list):
+ *   - code             already printed/distributed; renaming orphans campaigns
+ *   - owner_client_id  re-attribution would misroute past + future redemptions
+ *
+ * A banner appears when editing a coupon that already has redemptions, so
+ * the admin knows the changes affect users with active Premium gifts.
+ */
+
 import { useEffect, useState } from 'react';
-import { AlertCircle, CheckCircle, Loader2, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle, Loader2, Lock, X } from 'lucide-react';
 import type {
+  Coupon,
   CouponCreateInput,
   CouponEligibility,
   CouponOwnerSummary,
 } from '@/types/coupons';
 
-interface CouponCreateDrawerProps {
+interface CouponFormDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   /**
+   * When provided, the drawer opens in edit mode pre-filled with the
+   * coupon's current values. Code and owner_client_id become readonly.
+   */
+  coupon?: Coupon | null;
+  /**
    * When set, the owner is fixed to this client id and the selector is
-   * hidden. Used by the per-client Coupons tab in the Clients editor, where
-   * the owner is always known and locked to the client being edited.
+   * hidden. Used by the per-client Coupons tab in the Clients editor in
+   * create mode.
    */
   lockedOwnerClientId?: string;
 }
@@ -33,12 +54,40 @@ const EMPTY_FORM: CouponCreateInput = {
   notes: null,
 };
 
-export function CouponCreateDrawer({
+/**
+ * `valid_from` / `valid_until` come back from the API as ISO strings; the
+ * <input type="datetime-local"> expects "YYYY-MM-DDTHH:mm". Strip the
+ * trailing seconds + timezone so the value round-trips cleanly.
+ */
+function toDateTimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return '';
+  // Slice "2026-05-28T12:30:45.123Z" → "2026-05-28T12:30"
+  return iso.slice(0, 16);
+}
+
+function buildFormFromCoupon(coupon: Coupon): CouponCreateInput {
+  return {
+    code: coupon.code,
+    owner_client_id: coupon.owner_client_id,
+    duration_days: coupon.duration_days,
+    eligibility: coupon.eligibility,
+    stack_with_active: coupon.stack_with_active,
+    max_redemptions: coupon.max_redemptions,
+    max_redemptions_per_user: coupon.max_redemptions_per_user,
+    valid_from: coupon.valid_from ? toDateTimeLocalValue(coupon.valid_from) : null,
+    valid_until: coupon.valid_until ? toDateTimeLocalValue(coupon.valid_until) : null,
+    notes: coupon.notes,
+  };
+}
+
+export function CouponFormDrawer({
   isOpen,
   onClose,
   onSuccess,
+  coupon,
   lockedOwnerClientId,
-}: CouponCreateDrawerProps) {
+}: CouponFormDrawerProps) {
+  const isEditing = Boolean(coupon);
   const isOwnerLocked = Boolean(lockedOwnerClientId);
   const [form, setForm] = useState<CouponCreateInput>(EMPTY_FORM);
   const [owners, setOwners] = useState<CouponOwnerSummary[]>([]);
@@ -46,18 +95,22 @@ export function CouponCreateDrawer({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Reset when re-opened (preserve the locked owner if one is set)
+  // Reset/populate when re-opened
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    if (coupon) {
+      setForm(buildFormFromCoupon(coupon));
+    } else {
       setForm({ ...EMPTY_FORM, owner_client_id: lockedOwnerClientId ?? null });
-      setError(null);
-      setSuccess(null);
     }
-  }, [isOpen, lockedOwnerClientId]);
+    setError(null);
+    setSuccess(null);
+  }, [isOpen, coupon, lockedOwnerClientId]);
 
-  // Owner list — fetched lazily on first open. Skipped when owner is locked.
+  // Owner list — fetched lazily on first open. Skipped when owner is locked
+  // or when editing (owner is read-only).
   useEffect(() => {
-    if (!isOpen || owners.length > 0 || isOwnerLocked) return;
+    if (!isOpen || owners.length > 0 || isOwnerLocked || isEditing) return;
     (async () => {
       try {
         const res = await fetch('/api/admin/clients?limit=200');
@@ -77,7 +130,7 @@ export function CouponCreateDrawer({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, isOwnerLocked]);
+  }, [isOpen, isOwnerLocked, isEditing]);
 
   const set = <K extends keyof CouponCreateInput>(
     key: K,
@@ -88,7 +141,7 @@ export function CouponCreateDrawer({
     setError(null);
     setSuccess(null);
 
-    if (form.code.trim().length < 3) {
+    if (!isEditing && form.code.trim().length < 3) {
       setError('Code must be at least 3 characters.');
       return;
     }
@@ -99,30 +152,58 @@ export function CouponCreateDrawer({
 
     try {
       setSubmitting(true);
-      const res = await fetch('/api/admin/coupons', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Failed to create coupon');
-        return;
+      if (isEditing && coupon) {
+        // PATCH: only send the fields the backend allow-list accepts.
+        const patch = {
+          duration_days: form.duration_days,
+          eligibility: form.eligibility,
+          stack_with_active: form.stack_with_active,
+          max_redemptions: form.max_redemptions ?? null,
+          max_redemptions_per_user: form.max_redemptions_per_user,
+          valid_from: form.valid_from || null,
+          valid_until: form.valid_until || null,
+          notes: form.notes,
+        };
+        const res = await fetch(`/api/admin/coupons/${coupon.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || 'Failed to update coupon');
+          return;
+        }
+        setSuccess(`Coupon ${data.coupon.code} updated.`);
+        onSuccess();
+        setTimeout(onClose, 900);
+      } else {
+        const res = await fetch('/api/admin/coupons', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(form),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || 'Failed to create coupon');
+          return;
+        }
+        setSuccess(`Coupon ${data.coupon.code} created.`);
+        onSuccess();
+        setTimeout(onClose, 900);
       }
-      setSuccess(`Coupon ${data.coupon.code} created.`);
-      onSuccess();
-      // Hold the success view briefly so the user sees the confirmation,
-      // then close the drawer.
-      setTimeout(onClose, 900);
     } catch (err) {
       console.error(err);
-      setError('Network error creating coupon');
+      setError(isEditing ? 'Network error updating coupon' : 'Network error creating coupon');
     } finally {
       setSubmitting(false);
     }
   };
 
   if (!isOpen) return null;
+
+  const redeemed = coupon?.redeemed_count ?? 0;
+  const showRedemptionWarning = isEditing && redeemed > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -132,7 +213,9 @@ export function CouponCreateDrawer({
       />
       <div className="relative ml-auto h-full w-full max-w-xl bg-white shadow-2xl overflow-y-auto">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
-          <h2 className="text-lg font-bold text-gray-900">Create coupon</h2>
+          <h2 className="text-lg font-bold text-gray-900">
+            {isEditing ? `Edit coupon · ${coupon?.code}` : 'Create coupon'}
+          </h2>
           <button
             onClick={() => !submitting && onClose()}
             className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
@@ -151,11 +234,21 @@ export function CouponCreateDrawer({
               <CheckCircle size={16} /> {success}
             </div>
           )}
+          {showRedemptionWarning && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <p>
+                Este cupom já tem <strong>{redeemed}</strong> resgate{redeemed === 1 ? '' : 's'}.
+                Alterações em duração, elegibilidade ou limites afetam apenas resgates futuros — os já consumidos não mudam.
+              </p>
+            </div>
+          )}
 
-          {/* Code */}
+          {/* Code — readonly in edit mode */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Code <span className="text-red-500">*</span>
+              Code {!isEditing && <span className="text-red-500">*</span>}
+              {isEditing && <Lock size={12} className="inline ml-1 text-gray-400" />}
             </label>
             <input
               type="text"
@@ -163,15 +256,35 @@ export function CouponCreateDrawer({
               onChange={e => set('code', e.target.value.toUpperCase())}
               placeholder="WEBSUMMIT26"
               maxLength={32}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40"
+              readOnly={isEditing}
+              disabled={isEditing}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 font-mono uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40 disabled:bg-gray-50 disabled:text-gray-500"
             />
             <p className="mt-1 text-xs text-gray-500">
-              Always stored UPPERCASE. Convention: keep slugs lowercase, codes uppercase.
+              {isEditing
+                ? 'Imutável após criação — material impresso/distribuído depende dele.'
+                : 'Always stored UPPERCASE. Convention: keep slugs lowercase, codes uppercase.'}
             </p>
           </div>
 
-          {/* Owner — hidden when locked (per-client editor passes the id directly) */}
-          {!isOwnerLocked && (
+          {/* Owner — readonly in edit mode; hidden when locked in create mode */}
+          {isEditing ? (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Owner <Lock size={12} className="inline ml-1 text-gray-400" />
+              </label>
+              <input
+                type="text"
+                value={coupon?.owner?.name ?? (coupon?.owner_client_id ? 'Atribuído' : 'Sem owner (genérico)')}
+                readOnly
+                disabled
+                className="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Imutável após criação — alterar atribuição misrouteria resgates passados e futuros.
+              </p>
+            </div>
+          ) : !isOwnerLocked && (
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
                 Owner (attribution shown in the app)
@@ -258,6 +371,11 @@ export function CouponCreateDrawer({
                 }
                 className="w-full rounded-md border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-tuggi-blue/40"
               />
+              {isEditing && (
+                <p className="mt-1 text-xs text-gray-500">
+                  Já resgatados: <strong>{redeemed}</strong>. Defina um valor maior que isso para manter o cupom ativo.
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -328,10 +446,17 @@ export function CouponCreateDrawer({
             disabled={submitting}
             className="inline-flex items-center gap-2 rounded-lg bg-tuggi-blue px-4 py-2 text-sm font-semibold text-white hover:bg-tuggi-blue/90 disabled:opacity-60">
             {submitting && <Loader2 size={14} className="animate-spin" />}
-            Create coupon
+            {isEditing ? 'Save changes' : 'Create coupon'}
           </button>
         </div>
       </div>
     </div>
   );
 }
+
+/**
+ * Backwards-compat alias — older imports keep working without churn while
+ * we migrate the two callers (the standalone /admin/coupons page and the
+ * Clients editor's CouponsTab) to the new name.
+ */
+export { CouponFormDrawer as CouponCreateDrawer };

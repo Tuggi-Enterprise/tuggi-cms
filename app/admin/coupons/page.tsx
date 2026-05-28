@@ -8,7 +8,8 @@ import {
 } from '@supabase/auth-helpers-react';
 import { Container } from '@/components/ui/Container';
 import { CouponsListAdmin } from '@/components/admin/CouponsListAdmin';
-import { CouponCreateDrawer } from '@/components/admin/CouponCreateDrawer';
+import { CouponFormDrawer } from '@/components/admin/CouponFormDrawer';
+import type { Coupon } from '@/types/coupons';
 
 function AdminCouponsContent() {
   const router = useRouter();
@@ -16,7 +17,8 @@ function AdminCouponsContent() {
   const supabase = useSupabaseClient();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -58,18 +60,37 @@ function AdminCouponsContent() {
   }
   if (!isAuthorized) return null;
 
+  const openCreate = () => {
+    setEditingCoupon(null);
+    setDrawerOpen(true);
+  };
+
+  const openEdit = (coupon: Coupon) => {
+    setEditingCoupon(coupon);
+    setDrawerOpen(true);
+  };
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    // Hold the coupon reference long enough for the slide-out animation
+    // not to flicker — clearing it immediately would jump to create copy.
+    setTimeout(() => setEditingCoupon(null), 200);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50/50">
       <Container className="py-8">
         <CouponsListAdmin
-          onCreateNew={() => setIsCreateOpen(true)}
+          onCreateNew={openCreate}
+          onEditCoupon={openEdit}
           reloadKey={reloadKey}
         />
       </Container>
 
-      <CouponCreateDrawer
-        isOpen={isCreateOpen}
-        onClose={() => setIsCreateOpen(false)}
+      <CouponFormDrawer
+        isOpen={drawerOpen}
+        coupon={editingCoupon}
+        onClose={closeDrawer}
         onSuccess={() => setReloadKey(k => k + 1)}
       />
     </div>
