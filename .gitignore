@@ -60,9 +60,15 @@ data/geofabrik/
 
 data/*.db
 data/*.db-journal
+data/*.db-shm
+data/*.db-wal
 data/*.pbf
 data/*.geojson
 data/*.geojsonseq
+
+# Migration batch outputs (per-run timing + full stdout capture)
+/migration-log-*.log
+/migration-results-*.json
 
 # SRTM elevation cache (binary HGT tiles, downloaded on demand)
 data/srtm-cache/

@@ -97,6 +97,7 @@ export class MigrationService {
 
   /**
    * Check for duplicates before migration
+   * Single round-trip: combines UUID + (osm_id, osm_type) checks into one OR query.
    */
   static async checkDuplicates(
     uuid_id: string,
@@ -106,49 +107,41 @@ export class MigrationService {
     longitude: number
   ): Promise<DuplicateCheckResult> {
     try {
-      // Check by UUID (same UUID already exists in core)
-      const { data: existingByUuid } = await supabase
+      let query = supabase
         .schema('core')
         .from('attractions')
-        .select('id')
-        .eq('id', uuid_id)
-        .single()
+        .select('id, osm_id, osm_type')
 
-      if (existingByUuid) {
-        return {
-          is_duplicate: true,
-          duplicate_type: 'uuid',
-          existing_id: existingByUuid.id,
-          message: `POI with UUID ${uuid_id} already exists in core.attractions`
-        }
+      if (osm_id && osm_type) {
+        query = query.or(`id.eq.${uuid_id},and(osm_id.eq.${osm_id.toString()},osm_type.eq.${osm_type})`)
+      } else {
+        query = query.eq('id', uuid_id)
       }
 
-      // Check by OSM ID + Type (same OSM POI)
-      if (osm_id && osm_type) {
-        const { data: existingByOsm } = await supabase
-          .schema('core')
-          .from('attractions')
-          .select('id')
-          .eq('osm_id', osm_id.toString())
-          .eq('osm_type', osm_type)
-          .single()
+      const { data: matches } = await query.limit(2)
 
-        if (existingByOsm) {
+      if (matches && matches.length > 0) {
+        // Priority: UUID match first (original behavior).
+        const byUuid = matches.find(m => m.id === uuid_id)
+        if (byUuid) {
           return {
             is_duplicate: true,
-            duplicate_type: 'osm',
-            existing_id: existingByOsm.id,
-            message: `POI with OSM ID ${osm_id} (${osm_type}) already exists in core.attractions`
+            duplicate_type: 'uuid',
+            existing_id: byUuid.id,
+            message: `POI with UUID ${uuid_id} already exists in core.attractions`
           }
+        }
+        const byOsm = matches[0]
+        return {
+          is_duplicate: true,
+          duplicate_type: 'osm',
+          existing_id: byOsm.id,
+          message: `POI with OSM ID ${osm_id} (${osm_type}) already exists in core.attractions`
         }
       }
 
-      // Check by coordinates (within ~50m radius)
-      // NOTE: We no longer block migration for coordinate duplicates
-      // The user wants to import even if coordinates are similar, removing existing POIs
-      // We only check for UUID duplicates to prevent ID conflicts
-      // Coordinate duplicates are allowed and will replace existing POIs
-      // The removal of duplicate POIs happens at the end of the pipeline after approval
+      // Coordinate-duplicate check was intentionally removed: similar coords are allowed
+      // because the cleanup step at the end of the pipeline handles them after approval.
 
       return {
         is_duplicate: false

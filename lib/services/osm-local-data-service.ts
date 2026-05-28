@@ -117,16 +117,30 @@ export class OSMLocalDataService {
         
         const feature = JSON.parse(cleanLine);
         
-        // Extract OSM type and ID if present from osmium export
-        const featureId = feature.id || feature['@id'];
-        let osmType = feature['@type'] || 'unknown';
-        let osmId = String(featureId || feature.properties?.id || Math.random().toString(36).substr(2, 9));
-        
-        // In some geojsonseq, the ID might be formatted as "way/12345"
-        if (typeof featureId === 'string' && featureId.includes('/')) {
-          const parts = featureId.split('/');
+        // Extract OSM type and ID. osmium's geojsonseq puts @type/@id INSIDE
+        // properties, not at the feature top level — so we must check both.
+        const props = feature.properties || {};
+        const rawFeatureId =
+          feature.id ??
+          feature['@id'] ??
+          props['@id'] ??
+          props.id;
+        let osmType: string = feature['@type'] || props['@type'] || 'unknown';
+        let osmId: string | null = null;
+
+        // Format "way/12345" (some exporters)
+        if (typeof rawFeatureId === 'string' && rawFeatureId.includes('/')) {
+          const parts = rawFeatureId.split('/');
           osmType = parts[0];
           osmId = parts[1];
+        } else if (rawFeatureId !== undefined && rawFeatureId !== null) {
+          osmId = String(rawFeatureId);
+        }
+
+        // Skip features without a real OSM id — random hashes break the
+        // (osm_type, osm_id) lookup path used by the trigger-points pipeline.
+        if (!osmId) {
+          continue;
         }
 
         const tags = feature.properties || {};

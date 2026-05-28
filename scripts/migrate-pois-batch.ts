@@ -1,15 +1,57 @@
 /**
  * Batch Migration Script - Migrate POIs from homolog to core
- * 
+ *
  * Usage:
  *   npx tsx scripts/migrate-pois-batch.ts --country "Brazil" --state "São Paulo" --city "São Paulo" --batch-size 25
+ *
+ * Concurrency:
+ *   --concurrency 10           Process 10 POIs at a time (default: 1, preserves legacy behavior)
+ *   --quiet true               One line per POI instead of full step breakdown (auto-on if concurrency > 1)
+ *   --legacy-sleep true        Re-enable the legacy 1s sleep between POIs (only meaningful at concurrency=1)
+ *
+ * Output:
+ *   migration-results-<ts>.json  Stats + per-step timings (machine-readable)
+ *   migration-log-<ts>.log       Full stdout/stderr capture (--no-log-file to disable)
  */
 
+import os from 'os'
+import fs from 'fs'
+import path from 'path'
 import { MigrationService } from '../lib/services/migration-service'
 import { PoiMigrationPipeline, PipelineOptions } from '../lib/services/poi-migration-pipeline'
 import { getSupabase } from '../lib/core/supabase-client'
 
 const supabase = getSupabase('service')
+
+/**
+ * Tee stdout/stderr to a log file. Wraps console.log/warn/error so every line
+ * also goes to disk with an ISO timestamp prefix. Returns the file path and a
+ * close fn that flushes the stream.
+ */
+function attachFileLogger(logPath: string): { close: () => Promise<void> } {
+  const stream = fs.createWriteStream(logPath, { flags: 'a' })
+  const origLog = console.log.bind(console)
+  const origWarn = console.warn.bind(console)
+  const origError = console.error.bind(console)
+
+  const write = (level: string, args: unknown[]) => {
+    const line = args
+      .map(a => (typeof a === 'string' ? a : (() => { try { return JSON.stringify(a) } catch { return String(a) } })()))
+      .join(' ')
+    stream.write(`[${new Date().toISOString()}] [${level}] ${line}\n`)
+  }
+
+  console.log = (...args: unknown[]) => { write('LOG', args); origLog(...args) }
+  console.warn = (...args: unknown[]) => { write('WARN', args); origWarn(...args) }
+  console.error = (...args: unknown[]) => { write('ERR', args); origError(...args) }
+
+  return {
+    close: () =>
+      new Promise<void>(resolve => {
+        stream.end(() => resolve())
+      })
+  }
+}
 
 interface ScriptOptions {
   country?: string
@@ -25,6 +67,30 @@ interface ScriptOptions {
   skip_if_exists?: boolean
   update_if_exists?: boolean
   limit?: number
+  concurrency?: number
+  quiet?: boolean
+  legacy_sleep?: boolean
+  log_file?: boolean
+}
+
+async function runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  task: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let cursor = 0
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (true) {
+      const idx = cursor++
+      if (idx >= items.length) return
+      results[idx] = await task(items[idx], idx)
+    }
+  })
+
+  await Promise.all(workers)
+  return results
 }
 
 async function main() {
@@ -77,6 +143,19 @@ async function main() {
         case 'limit':
           options.limit = parseInt(value, 10)
           break
+        case 'concurrency':
+          options.concurrency = parseInt(value, 10)
+          break
+        case 'quiet':
+          options.quiet = value === 'true'
+          break
+        case 'legacy-sleep':
+          options.legacy_sleep = value === 'true'
+          break
+        case 'log-file':
+        case 'no-log-file':
+          options.log_file = key === 'log-file' ? value !== 'false' : false
+          break
       }
     }
   }
@@ -88,8 +167,21 @@ async function main() {
   const autoApprove = options.auto_approve_if_satisfactory ?? true
   const skipIfExists = options.skip_if_exists ?? true
   const updateIfExists = options.update_if_exists ?? false
+  // Concurrency: default 1 (current behavior). Caller opts into parallelism explicitly.
+  const concurrency = Math.max(1, options.concurrency ?? 1)
+  const quiet = options.quiet ?? (concurrency > 1)
+  const legacySleep = options.legacy_sleep ?? false
+  const useLogFile = options.log_file ?? true
 
-  console.log('🚀 Starting batch migration...')
+  const runStartedAt = new Date()
+  const runStamp = runStartedAt.getTime()
+  const logPath = useLogFile ? path.resolve(`migration-log-${runStamp}.log`) : null
+  const logger = logPath ? attachFileLogger(logPath) : null
+  if (logPath) {
+    console.log(`📝 Logging to: ${logPath}`)
+  }
+
+  console.log(`🚀 Starting batch migration at ${runStartedAt.toISOString()}`)
   console.log('Options:', {
     country: options.country || 'all',
     state: options.state || 'all',
@@ -98,7 +190,10 @@ async function main() {
     batch_size: batchSize,
     mode,
     auto_generate_audio: autoGenerateAudio,
-    auto_approve: autoApprove
+    auto_approve: autoApprove,
+    concurrency,
+    quiet,
+    legacy_sleep: legacySleep
   })
 
   if (options.processing_status === 'all') {
@@ -181,7 +276,17 @@ async function main() {
     successful: 0,
     failed: 0,
     skipped: 0,
-    errors: [] as Array<{ uuid_id: string; name: string; error: string }>
+    errors: [] as Array<{ uuid_id: string; name: string; error: string }>,
+    per_poi_timings: [] as Array<{
+      uuid_id: string
+      name: string
+      city: string | null
+      state: string | null
+      success: boolean
+      skipped: boolean
+      total_ms: number
+      steps: Array<{ step: string; ms: number; success: boolean }>
+    }>
   }
 
   // Process each POI
@@ -193,25 +298,41 @@ async function main() {
     mode
   }
 
-  for (let i = 0; i < pois.length; i++) {
-    const poi = pois[i]
-    const progress = `[${i + 1}/${pois.length}]`
+  const startedAt = Date.now()
+  let completed = 0
 
-    console.log(`\n${progress} Processing: ${poi.name} (${poi.city}, ${poi.state})`)
+  await runWithConcurrency(pois, concurrency, async (poi, i) => {
+    const progress = `[${i + 1}/${pois.length}]`
+    const lines: string[] = []
+    const push = (line: string) => lines.push(line)
+
+    push(`${progress} Processing: ${poi.name} (${poi.city}, ${poi.state})`)
+
+    const poiStartedAt = Date.now()
+    let poiTotalMs = 0
+    let poiSuccess = false
+    let poiSkipped = false
+    let poiSteps: Array<{ step: string; ms: number; success: boolean }> = []
 
     try {
       const result = await PoiMigrationPipeline.executePipeline(poi.uuid_id, pipelineOptions)
+      poiTotalMs = result.total_time ?? (Date.now() - poiStartedAt)
+      poiSuccess = result.success
+      poiSkipped = result.skipped ?? false
+      poiSteps = (result.steps || []).map(s => ({
+        step: s.step,
+        ms: s.processing_time,
+        success: s.success
+      }))
 
       if (result.success) {
         stats.successful++
-        console.log(`✅ ${progress} Success: ${poi.name}`)
-        
-        // Log steps
+        push(`✅ ${progress} Success: ${poi.name} — ${(poiTotalMs / 1000).toFixed(1)}s`)
         result.steps.forEach(step => {
           const status = step.success ? '✅' : '❌'
-          console.log(`   ${status} ${step.step}: ${step.processing_time}ms`)
+          push(`   ${status} ${step.step}: ${step.processing_time}ms`)
           if (step.error) {
-            console.log(`      Error: ${step.error}`)
+            push(`      Error: ${step.error}`)
           }
         })
       } else {
@@ -221,9 +342,10 @@ async function main() {
           name: poi.name,
           error: result.error || 'Unknown error'
         })
-        console.log(`❌ ${progress} Failed: ${poi.name} - ${result.error}`)
+        push(`❌ ${progress} Failed: ${poi.name} — ${(poiTotalMs / 1000).toFixed(1)}s — ${result.error}`)
       }
     } catch (error) {
+      poiTotalMs = Date.now() - poiStartedAt
       stats.failed++
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
       stats.errors.push({
@@ -231,16 +353,57 @@ async function main() {
         name: poi.name,
         error: errorMsg
       })
-      console.error(`❌ ${progress} Error: ${poi.name} - ${errorMsg}`)
+      push(`❌ ${progress} Error: ${poi.name} — ${(poiTotalMs / 1000).toFixed(1)}s — ${errorMsg}`)
     }
 
-    // Small delay between POIs to avoid rate limiting
-    if (i < pois.length - 1) {
+    stats.per_poi_timings.push({
+      uuid_id: poi.uuid_id,
+      name: poi.name,
+      city: poi.city ?? null,
+      state: poi.state ?? null,
+      success: poiSuccess,
+      skipped: poiSkipped,
+      total_ms: poiTotalMs,
+      steps: poiSteps
+    })
+
+    completed++
+
+    if (quiet) {
+      // One concise line per POI; full step breakdown stays in migration-results JSON.
+      const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
+      const poiSec = (poiTotalMs / 1000).toFixed(1)
+      console.log(`${progress} ${stats.successful}✓ ${stats.failed}✗ ${completed}/${pois.length} — ${poi.name}: ${poiSec}s (wall ${elapsed}s)`)
+    } else {
+      // Concurrent runs interleave; flush this POI's lines together to keep them grouped.
+      console.log('\n' + lines.join('\n'))
+    }
+
+    // Legacy 1s sleep between POIs — preserved behind --legacy-sleep for one release as a safety net.
+    if (legacySleep && concurrency === 1 && i < pois.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 1000))
     }
-  }
+  })
 
   // Print summary
+  const runFinishedAt = new Date()
+  const totalMs = runFinishedAt.getTime() - runStartedAt.getTime()
+  const totalSec = totalMs / 1000
+  const mins = Math.floor(totalSec / 60)
+  const secs = (totalSec - mins * 60).toFixed(1)
+  const elapsedHuman = mins > 0 ? `${mins}m${secs}s` : `${secs}s`
+  const avgPerPoi = stats.total > 0 ? (totalSec / stats.total).toFixed(2) : '0'
+
+  // Per-POI timing breakdown (sorted desc by total_ms)
+  const sortedTimings = [...stats.per_poi_timings].sort((a, b) => b.total_ms - a.total_ms)
+  const medianMs = sortedTimings.length > 0
+    ? sortedTimings[Math.floor(sortedTimings.length / 2)].total_ms
+    : 0
+  const slowest = sortedTimings.slice(0, Math.min(5, sortedTimings.length))
+  const fastest = sortedTimings.length > 0
+    ? sortedTimings[sortedTimings.length - 1]
+    : null
+
   console.log('\n' + '='.repeat(60))
   console.log('📊 Migration Summary')
   console.log('='.repeat(60))
@@ -248,6 +411,17 @@ async function main() {
   console.log(`✅ Successful: ${stats.successful}`)
   console.log(`❌ Failed: ${stats.failed}`)
   console.log(`⏭️  Skipped: ${stats.skipped}`)
+  console.log(`⏱️  Total time: ${elapsedHuman} (${avgPerPoi}s/POI wall avg, concurrency=${concurrency})`)
+  if (sortedTimings.length > 0) {
+    console.log(`   Per-POI: median=${(medianMs / 1000).toFixed(1)}s` +
+      (fastest ? `, fastest=${(fastest.total_ms / 1000).toFixed(1)}s` : ''))
+    console.log(`   🐢 Slowest:`)
+    slowest.forEach((t, idx) => {
+      console.log(`      ${idx + 1}. ${(t.total_ms / 1000).toFixed(1)}s — ${t.name} (${t.city ?? '?'}, ${t.state ?? '?'})`)
+    })
+  }
+  console.log(`   Started:  ${runStartedAt.toISOString()}`)
+  console.log(`   Finished: ${runFinishedAt.toISOString()}`)
   console.log('='.repeat(60))
 
   if (stats.errors.length > 0) {
@@ -257,14 +431,20 @@ async function main() {
     })
   }
 
-  // Save results to file
-  const timestamp = Date.now()
-  const resultsFile = `migration-results-${timestamp}.json`
-  const fs = await import('fs/promises')
-  await fs.writeFile(
+  // Save results to file (paired with log file via runStamp)
+  const resultsFile = path.resolve(`migration-results-${runStamp}.json`)
+  const fsp = await import('fs/promises')
+  await fsp.writeFile(
     resultsFile,
     JSON.stringify({
       timestamp: new Date().toISOString(),
+      started_at: runStartedAt.toISOString(),
+      finished_at: runFinishedAt.toISOString(),
+      total_ms: totalMs,
+      total_seconds: totalSec,
+      avg_seconds_per_poi: stats.total > 0 ? totalSec / stats.total : 0,
+      concurrency,
+      log_file: logPath,
       options,
       stats,
       errors: stats.errors
@@ -272,47 +452,40 @@ async function main() {
   )
 
   console.log(`\n💾 Results saved to: ${resultsFile}`)
+  if (logPath) console.log(`📝 Full log: ${logPath}`)
 
-  // Refresh migration metrics materialized view to keep dashboard updated
+  // Refresh dashboards in parallel — they write to disjoint materialized views.
+  // If Postgres has internal lock contention it will serialize; worst case is a wash.
   if (stats.successful > 0) {
-    console.log('\n📊 Refreshing migration metrics dashboard...')
-    // Refresh migration metrics
-    const { error: refreshError } = await supabase.schema('core').rpc('refresh_migration_metrics')
-    if (refreshError) {
-      console.warn('⚠️  Failed to refresh migration metrics:', refreshError.message)
-    } else {
-      console.log('✅ Migration metrics refreshed successfully')
-    }
+    console.log('\n📊 Refreshing dashboards (parallel)...')
 
-    // Refresh geographic stats (Country/City Footprint)
-    const { error: geoRefreshError } = await supabase.schema('core').rpc('refresh_geographic_stats')
-    if (geoRefreshError) {
-      console.warn('⚠️  Failed to refresh geographic stats:', geoRefreshError.message)
-    } else {
-      console.log('✅ Geographic stats refreshed successfully')
-    }
+    const refreshes: Array<{ label: string; promise: Promise<{ error: any | null }> }> = [
+      { label: 'Migration metrics', promise: supabase.schema('core').rpc('refresh_migration_metrics') },
+      { label: 'Geographic stats', promise: supabase.schema('core').rpc('refresh_geographic_stats') },
+      { label: 'User analytics', promise: supabase.schema('drive').rpc('refresh_user_stats') },
+      { label: 'Inventory rankings', promise: supabase.schema('core').rpc('refresh_inventory_rankings') }
+    ]
 
-    // Refresh user analytics (MAU/Growth)
-    const { error: userRefreshError } = await supabase.schema('drive').rpc('refresh_user_stats')
-    if (userRefreshError) {
-      console.warn('⚠️  Failed to refresh user stats:', userRefreshError.message)
-    } else {
-      console.log('✅ User analytics refreshed successfully')
-    }
+    const results = await Promise.allSettled(refreshes.map(r => r.promise))
 
-    // Refresh inventory and rankings (Catalog/Top POIs/Generators)
-    const { error: rankingRefreshError } = await supabase.schema('core').rpc('refresh_inventory_rankings')
-    if (rankingRefreshError) {
-      console.warn('⚠️  Failed to refresh inventory rankings:', rankingRefreshError.message)
-    } else {
-      console.log('✅ Inventory and rankings refreshed successfully')
-    }
+    results.forEach((res, idx) => {
+      const label = refreshes[idx].label
+      if (res.status === 'rejected') {
+        console.warn(`⚠️  Failed to refresh ${label}:`, res.reason?.message || res.reason)
+      } else if (res.value?.error) {
+        console.warn(`⚠️  Failed to refresh ${label}:`, res.value.error.message)
+      } else {
+        console.log(`✅ ${label} refreshed successfully`)
+      }
+    })
   }
+
+  if (logger) await logger.close()
 }
 
 
 // Run script
-main().catch((error) => {
+main().catch(async (error) => {
   console.error('Fatal error:', error)
   process.exit(1)
 })
