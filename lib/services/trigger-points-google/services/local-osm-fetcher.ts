@@ -20,18 +20,46 @@ export class LocalOSMFetcher {
   private static instance: LocalOSMFetcher;
   private db: Database.Database | null = null;
   private dbPath: string;
+  // Detected at startup so per-query checks are free. See hotfix-osm-rtree-index.ts.
+  private rtreeAvailable: { pois: boolean; streets: boolean; buildings: boolean } = {
+    pois: false,
+    streets: false,
+    buildings: false
+  };
 
   private constructor() {
     this.dbPath = path.join(process.cwd(), 'data', 'local_osm.db');
-    
+
     try {
       if (!fs.existsSync(this.dbPath)) {
         console.log(`⚠️ [LocalOSMFetcher] Local OSM DB not found at ${this.dbPath}`);
         return;
       }
-      
+
       this.db = new Database(this.dbPath, { readonly: true });
       console.log(`✅ [LocalOSMFetcher] Connected to local OSM database`);
+
+      // Probe for R-tree spatial indexes — used by queryStreets/queryBuildings
+      // when present. Missing = falls back transparently to the legacy b-tree.
+      const checkRtree = (name: string): boolean => {
+        const row = this.db!.prepare(
+          `SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`
+        ).get(name) as { 1: number } | undefined;
+        return Boolean(row);
+      };
+      this.rtreeAvailable = {
+        pois: checkRtree('pois_rtree'),
+        streets: checkRtree('streets_rtree'),
+        buildings: checkRtree('buildings_rtree')
+      };
+      const available = Object.entries(this.rtreeAvailable)
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      if (available.length > 0) {
+        console.log(`🗺️  [LocalOSMFetcher] R-tree spatial index detected for: ${available.join(', ')}`);
+      } else {
+        console.log(`ℹ️  [LocalOSMFetcher] R-tree spatial index not present — using b-tree fallback. Run scripts/hotfix-osm-rtree-index.ts to enable.`);
+      }
     } catch (error) {
       console.error(`❌ [LocalOSMFetcher] Failed to connect to local database:`, error);
     }
@@ -114,6 +142,15 @@ export class LocalOSMFetcher {
   /**
    * Busca ruas no banco local por bounding box.
    * Retorna rows crus do SQLite (caller decide o formato de saída).
+   *
+   * Caminho rápido: JOIN com `streets_rtree` (R-tree espacial) quando o hotfix
+   * spatial index estiver aplicado (scripts/hotfix-osm-rtree-index.ts). O R-tree
+   * é O(log N) verdadeiro pra bbox 4-D, enquanto o índice b-tree legado
+   * `idx_streets_bbox` só consegue usar 1 das 4 colunas como range — degenera
+   * em scans de dezenas de milhares de rows mesmo pra bboxes pequenas.
+   *
+   * Caminho legado: mantido pra retrocompatibilidade com máquinas que ainda não
+   * rodaram o hotfix. Resultado é semanticamente idêntico — mesmas rows.
    */
   private queryStreets(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
     if (!this.db) return [];
@@ -121,29 +158,48 @@ export class LocalOSMFetcher {
     // milhares de rows em JS (OOM fatal em POIs grandes como Central Park).
     // O cap pós-query por distância (maxStreetsPerPOI) reduz ainda mais.
     const limit = TRIGGER_POINTS_CONSTANTS.memory.maxStreetsPerQuery;
-    const stmt = this.db.prepare(`
-      SELECT id, name, type, geometry_json, tags_json
-      FROM streets
-      WHERE min_lat <= ? AND max_lat >= ?
-        AND min_lng <= ? AND max_lng >= ?
-      LIMIT ?
-    `);
+    const stmt = this.rtreeAvailable.streets
+      ? this.db.prepare(`
+          SELECT s.id, s.name, s.type, s.geometry_json, s.tags_json
+          FROM streets s
+          JOIN streets_rtree r ON r.rowid = s.rowid
+          WHERE r.min_lat <= ? AND r.max_lat >= ?
+            AND r.min_lng <= ? AND r.max_lng >= ?
+          LIMIT ?
+        `)
+      : this.db.prepare(`
+          SELECT id, name, type, geometry_json, tags_json
+          FROM streets
+          WHERE min_lat <= ? AND max_lat >= ?
+            AND min_lng <= ? AND max_lng >= ?
+          LIMIT ?
+        `);
     return stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng, limit) as any[];
   }
 
   /**
    * Busca prédios no banco local por bounding box.
+   * Caminho rápido R-tree / fallback b-tree — ver doc em queryStreets().
    */
   private queryBuildings(bbox: { minLat: number; maxLat: number; minLng: number; maxLng: number }) {
     if (!this.db) return [];
     const limit = TRIGGER_POINTS_CONSTANTS.memory.maxBuildingsPerQuery;
-    const stmt = this.db.prepare(`
-      SELECT id, geometry_json, height, tags_json
-      FROM buildings
-      WHERE min_lat <= ? AND max_lat >= ?
-        AND min_lng <= ? AND max_lng >= ?
-      LIMIT ?
-    `);
+    const stmt = this.rtreeAvailable.buildings
+      ? this.db.prepare(`
+          SELECT b.id, b.geometry_json, b.height, b.tags_json
+          FROM buildings b
+          JOIN buildings_rtree r ON r.rowid = b.rowid
+          WHERE r.min_lat <= ? AND r.max_lat >= ?
+            AND r.min_lng <= ? AND r.max_lng >= ?
+          LIMIT ?
+        `)
+      : this.db.prepare(`
+          SELECT id, geometry_json, height, tags_json
+          FROM buildings
+          WHERE min_lat <= ? AND max_lat >= ?
+            AND min_lng <= ? AND max_lng >= ?
+          LIMIT ?
+        `);
     return stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng, limit) as any[];
   }
 
