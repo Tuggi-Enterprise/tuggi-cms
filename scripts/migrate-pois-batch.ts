@@ -325,7 +325,13 @@ async function main() {
         success: s.success
       }))
 
-      if (result.success) {
+      if (result.skipped) {
+        // POI was claimed by another worker, already migrated, or otherwise not
+        // processed by us — does NOT count as a real run-through.
+        stats.skipped++
+        const reason = result.warnings?.[0] ?? result.error ?? 'already processed'
+        push(`⏭️  ${progress} Skipped: ${poi.name} — ${reason}`)
+      } else if (result.success) {
         stats.successful++
         push(`✅ ${progress} Success: ${poi.name} — ${(poiTotalMs / 1000).toFixed(1)}s`)
         result.steps.forEach(step => {
@@ -373,7 +379,8 @@ async function main() {
       // One concise line per POI; full step breakdown stays in migration-results JSON.
       const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
       const poiSec = (poiTotalMs / 1000).toFixed(1)
-      console.log(`${progress} ${stats.successful}✓ ${stats.failed}✗ ${completed}/${pois.length} — ${poi.name}: ${poiSec}s (wall ${elapsed}s)`)
+      const tag = poiSkipped ? 'skipped' : `${poiSec}s`
+      console.log(`${progress} ${stats.successful}✓ ${stats.failed}✗ ${stats.skipped}⏭ ${completed}/${pois.length} — ${poi.name}: ${tag} (wall ${elapsed}s)`)
     } else {
       // Concurrent runs interleave; flush this POI's lines together to keep them grouped.
       console.log('\n' + lines.join('\n'))
@@ -392,10 +399,13 @@ async function main() {
   const mins = Math.floor(totalSec / 60)
   const secs = (totalSec - mins * 60).toFixed(1)
   const elapsedHuman = mins > 0 ? `${mins}m${secs}s` : `${secs}s`
-  const avgPerPoi = stats.total > 0 ? (totalSec / stats.total).toFixed(2) : '0'
+  const realRuns = stats.successful + stats.failed
+  const avgPerProcessed = realRuns > 0 ? (totalSec / realRuns).toFixed(2) : '0'
 
-  // Per-POI timing breakdown (sorted desc by total_ms)
-  const sortedTimings = [...stats.per_poi_timings].sort((a, b) => b.total_ms - a.total_ms)
+  // Per-POI timing breakdown — skipped POIs are excluded because they don't
+  // represent real processing cost (0.3-0.5s lock-check round trip).
+  const processedTimings = stats.per_poi_timings.filter(t => !t.skipped)
+  const sortedTimings = [...processedTimings].sort((a, b) => b.total_ms - a.total_ms)
   const medianMs = sortedTimings.length > 0
     ? sortedTimings[Math.floor(sortedTimings.length / 2)].total_ms
     : 0
@@ -407,13 +417,13 @@ async function main() {
   console.log('\n' + '='.repeat(60))
   console.log('📊 Migration Summary')
   console.log('='.repeat(60))
-  console.log(`Total POIs: ${stats.total}`)
-  console.log(`✅ Successful: ${stats.successful}`)
-  console.log(`❌ Failed: ${stats.failed}`)
-  console.log(`⏭️  Skipped: ${stats.skipped}`)
-  console.log(`⏱️  Total time: ${elapsedHuman} (${avgPerPoi}s/POI wall avg, concurrency=${concurrency})`)
+  console.log(`Total POIs fetched: ${stats.total}`)
+  console.log(`✅ Processed:  ${stats.successful}`)
+  console.log(`❌ Failed:     ${stats.failed}`)
+  console.log(`⏭️  Skipped:   ${stats.skipped}  (claimed by another worker / already in core)`)
+  console.log(`⏱️  Total time: ${elapsedHuman} (${avgPerProcessed}s/processed POI, concurrency=${concurrency})`)
   if (sortedTimings.length > 0) {
-    console.log(`   Per-POI: median=${(medianMs / 1000).toFixed(1)}s` +
+    console.log(`   Per-processed: median=${(medianMs / 1000).toFixed(1)}s` +
       (fastest ? `, fastest=${(fastest.total_ms / 1000).toFixed(1)}s` : ''))
     console.log(`   🐢 Slowest:`)
     slowest.forEach((t, idx) => {
@@ -442,7 +452,14 @@ async function main() {
       finished_at: runFinishedAt.toISOString(),
       total_ms: totalMs,
       total_seconds: totalSec,
+      // Wall-clock seconds per POI fetched (includes skipped). Useful for
+      // overall throughput planning.
       avg_seconds_per_poi: stats.total > 0 ? totalSec / stats.total : 0,
+      // Wall-clock seconds per POI that actually went through the pipeline
+      // (successful + failed). Skipped POIs (claimed by another worker /
+      // already in core) are excluded because they don't reflect real cost.
+      avg_seconds_per_processed_poi: realRuns > 0 ? totalSec / realRuns : 0,
+      processed_count: realRuns,
       concurrency,
       log_file: logPath,
       options,
