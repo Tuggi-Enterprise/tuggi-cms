@@ -8,6 +8,7 @@
  *   --concurrency 10           Process 10 POIs at a time (default: 1, preserves legacy behavior)
  *   --quiet true               One line per POI instead of full step breakdown (auto-on if concurrency > 1)
  *   --legacy-sleep true        Re-enable the legacy 1s sleep between POIs (only meaningful at concurrency=1)
+ *   --no-shuffle true          Disable random batch order (default: shuffle on, reduces cross-process collisions)
  *
  * Output:
  *   migration-results-<ts>.json  Stats + per-step timings (machine-readable)
@@ -71,6 +72,22 @@ interface ScriptOptions {
   quiet?: boolean
   legacy_sleep?: boolean
   log_file?: boolean
+  shuffle?: boolean
+}
+
+/**
+ * Fisher–Yates shuffle in place. Used so that multiple migrator processes
+ * running the same query don't all attack POI #1 first and collide on the
+ * `claimForProcessing` lock. Each process gets a different order; collisions
+ * drop to near zero on the head of the batch.
+ */
+function shuffleInPlace<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const tmp = arr[i]
+    arr[i] = arr[j]
+    arr[j] = tmp
+  }
 }
 
 async function runWithConcurrency<T, R>(
@@ -156,6 +173,10 @@ async function main() {
         case 'no-log-file':
           options.log_file = key === 'log-file' ? value !== 'false' : false
           break
+        case 'shuffle':
+        case 'no-shuffle':
+          options.shuffle = key === 'shuffle' ? value !== 'false' : false
+          break
       }
     }
   }
@@ -172,6 +193,9 @@ async function main() {
   const quiet = options.quiet ?? (concurrency > 1)
   const legacySleep = options.legacy_sleep ?? false
   const useLogFile = options.log_file ?? true
+  // Shuffle: on by default so multiple migrator processes hitting the same
+  // query don't all collide on the first POIs. Disable for reproducible runs.
+  const shuffle = options.shuffle ?? true
 
   const runStartedAt = new Date()
   const runStamp = runStartedAt.getTime()
@@ -193,7 +217,8 @@ async function main() {
     auto_approve: autoApprove,
     concurrency,
     quiet,
-    legacy_sleep: legacySleep
+    legacy_sleep: legacySleep,
+    shuffle
   })
 
   if (options.processing_status === 'all') {
@@ -259,6 +284,11 @@ async function main() {
         hasMore = false
       }
     }
+  }
+
+  if (shuffle && allPois.length > 1) {
+    shuffleInPlace(allPois)
+    console.log(`🔀 Shuffled batch order (reduces collision with other workers/processes)`)
   }
 
   const pois = allPois
