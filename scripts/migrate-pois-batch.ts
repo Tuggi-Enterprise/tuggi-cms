@@ -9,6 +9,18 @@
  *   --quiet true               One line per POI instead of full step breakdown (auto-on if concurrency > 1)
  *   --legacy-sleep true        Re-enable the legacy 1s sleep between POIs (only meaningful at concurrency=1)
  *   --no-shuffle true          Disable random batch order (default: shuffle on, reduces cross-process collisions)
+ *   --debug-quality true       Emit one [TP_DEBUG_QUALITY] JSON line per POI (Phase 0 of TP quality plan).
+ *                              Pure observation, no behavior change. Lines appear in migration-log-<ts>.log.
+ *                              Extract them with: grep TP_DEBUG_QUALITY <log>
+ *   --from-core true           Reprocess TPs on existing core.attractions instead of migrating homolog.pois.
+ *                              Forces mode=reprocess_triggers_core. Uses the same country/state/city/category
+ *                              filters but reads from core.attractions. Skips enrichment + migration; runs
+ *                              ONLY Step 4 (TP generation). TP saves are atomic replace_all — idempotent.
+ *                              Intended for Phase 0 data harvesting on already-migrated POIs.
+ *   --quality-fix-fan-cap false  Kill-switch for Phase 2.A. The fan-cap (reject candidate TPs farther than
+ *                              the fan's reach in their bearing × 1.1) is ON by default since 2026-05-29.
+ *                              Pass `false` to fall back to the legacy "fan-mode skips distance cap" behavior
+ *                              (for A/B against future quality changes).
  *
  * Output:
  *   migration-results-<ts>.json  Stats + per-step timings (machine-readable)
@@ -73,6 +85,9 @@ interface ScriptOptions {
   legacy_sleep?: boolean
   log_file?: boolean
   shuffle?: boolean
+  debug_quality?: boolean
+  from_core?: boolean
+  quality_fix_fan_cap?: boolean
 }
 
 /**
@@ -177,6 +192,15 @@ async function main() {
         case 'no-shuffle':
           options.shuffle = key === 'shuffle' ? value !== 'false' : false
           break
+        case 'debug-quality':
+          options.debug_quality = value === 'true'
+          break
+        case 'from-core':
+          options.from_core = value === 'true'
+          break
+        case 'quality-fix-fan-cap':
+          options.quality_fix_fan_cap = value === 'true'
+          break
       }
     }
   }
@@ -196,6 +220,16 @@ async function main() {
   // Shuffle: on by default so multiple migrator processes hitting the same
   // query don't all collide on the first POIs. Disable for reproducible runs.
   const shuffle = options.shuffle ?? true
+  // Phase 0 of TP quality plan. Off by default. Opt in with --debug-quality true.
+  const debugQuality = options.debug_quality ?? false
+  // Read from core.attractions instead of homolog.pois. Forces reprocess_triggers_core mode.
+  // Used to harvest Phase 0 data on already-migrated POIs without resetting status.
+  const fromCore = options.from_core ?? false
+  // Override mode if reprocessing from core. The pipeline's reprocess_triggers_core
+  // mode treats uuid_id as attraction_id directly and skips Enrichment/Migration.
+  const effectiveMode = fromCore ? 'reprocess_triggers_core' : mode
+  // Phase 2.A — cap candidate TPs by visibility fan reach in their bearing.
+  const qualityFixFanCap = options.quality_fix_fan_cap ?? false
 
   const runStartedAt = new Date()
   const runStamp = runStartedAt.getTime()
@@ -218,15 +252,40 @@ async function main() {
     concurrency,
     quiet,
     legacy_sleep: legacySleep,
-    shuffle
+    shuffle,
+    debug_quality: debugQuality,
+    from_core: fromCore,
+    effective_mode: effectiveMode,
+    quality_fix_fan_cap: qualityFixFanCap
   })
 
   if (options.processing_status === 'all') {
     console.log('ℹ️ Including all processing statuses')
   }
 
-  // Build base query function for pagination
+  // Build base query function for pagination.
+  // Two sources depending on --from-core:
+  //   - homolog.pois (default): POIs awaiting migration; pipeline runs full enrichment + migration + Step 4.
+  //   - core.attractions (--from-core true): already-migrated POIs; pipeline runs ONLY Step 4 via
+  //     reprocess_triggers_core mode. uuid_id field maps to attractions.id. No processing_status filter
+  //     (column lives in homolog).
   const buildQuery = () => {
+    if (fromCore) {
+      // Reshape the core row to expose `uuid_id` (alias for `id`) so the rest of the script is unchanged.
+      let query = supabase
+        .schema('core')
+        .from('attractions')
+        .select('uuid_id:id, name, city, state, country, approved, category')
+
+      if (options.country && options.country !== 'all') query = query.eq('country', options.country)
+      if (options.state && options.state !== 'all') query = query.eq('state', options.state)
+      if (options.city && options.city !== 'all') query = query.eq('city', options.city)
+      if (options.approved !== undefined) query = query.eq('approved', options.approved)
+      if (options.category && options.category !== 'all') query = query.eq('category', options.category)
+
+      return query
+    }
+
     let query = supabase
       .schema('homolog')
       .from('pois')
@@ -235,7 +294,7 @@ async function main() {
     if (options.country && options.country !== 'all') query = query.eq('country', options.country)
     if (options.state && options.state !== 'all') query = query.eq('state', options.state)
     if (options.city && options.city !== 'all') query = query.eq('city', options.city)
-    
+
     if (options.processing_status !== 'all') {
       if (options.processing_status) {
         query = query.eq('processing_status', options.processing_status)
@@ -244,10 +303,10 @@ async function main() {
         query = query.in('processing_status', ['pending', 'processing'])
       }
     }
-    
+
     if (options.approved !== undefined) query = query.eq('approved', options.approved)
     if (options.category && options.category !== 'all') query = query.eq('category', options.category)
-    
+
     return query
   }
 
@@ -325,7 +384,9 @@ async function main() {
     auto_approve_if_satisfactory: autoApprove,
     skip_if_exists: skipIfExists,
     update_if_exists: updateIfExists,
-    mode
+    mode: effectiveMode as PipelineOptions['mode'],
+    debug_quality: debugQuality,
+    quality_fix_fan_cap: qualityFixFanCap
   }
 
   const startedAt = Date.now()

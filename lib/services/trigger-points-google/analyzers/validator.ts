@@ -2,6 +2,7 @@
 
 import { POIData, GeographicContext, TriggerPointCandidate, TriggerPoint, BoundaryData } from '../types/interfaces';
 import { calculateOptimalRadius, calculateDistance, calculateBearing, extractBuildingHeight, normalizeAngleDifference, isPointInPolygon, calculateDistanceToBoundary } from '../utils/calculations';
+import { getFanReachAtBearing } from '../utils/fan-reach';
 import { ElevationAnalysisService } from '../services/elevation-service';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
 import { GoogleAPIsService } from '../services/google-apis.service';
@@ -98,6 +99,7 @@ export class TriggerPointValidator {
       validateCorridor?: boolean;
       clusterIntersections?: boolean;
       intersectionClusterRadiusM?: number;
+      qualityFixFanCap?: boolean;
     } = {}
   ): Promise<TriggerPoint[]> {
     // NÃO sobrescrever maxTriggerPoints/minDistanceBetweenTPs com a classificação:
@@ -119,7 +121,9 @@ export class TriggerPointValidator {
       // ✅ VALIDAÇÃO BÁSICA COMPLETA
       const basicValidCandidates = [];
       for (const candidate of candidates) {
-        const isValid = await this.isValidCandidate(candidate, poiData, context, boundary, baseElevation);
+        const isValid = await this.isValidCandidate(candidate, poiData, context, boundary, baseElevation, {
+          qualityFixFanCap: options.qualityFixFanCap,
+        });
         if (isValid) {
           basicValidCandidates.push(candidate);
         }
@@ -1002,7 +1006,8 @@ export class TriggerPointValidator {
     poiData: POIData,
     context: GeographicContext,
     boundary?: BoundaryData,
-    cachedBaseElevation?: number | null
+    cachedBaseElevation?: number | null,
+    opts?: { qualityFixFanCap?: boolean }
   ): Promise<boolean> {
     // Verificar qualidade mínima
     if (candidate.quality < 0.3) {
@@ -1049,6 +1054,27 @@ export class TriggerPointValidator {
 
       if (candidate.distance > maxDistance) {
         console.log(`🚫 Candidate rejected: distance ${candidate.distance.toFixed(0)}m > ${maxDistance}m`);
+        return false;
+      }
+    } else if (opts?.qualityFixFanCap !== false && boundary) {
+      // Phase 2.A — cap por visibilidade real (default on desde 2026-05-29).
+      // O fan mode antigo pulava qualquer cap apostando que o fan filtrava
+      // fisicamente, mas o fan tem resolução grossa (5° × 100m) e candidatos
+      // vazavam (Vail Lake: fan_mean 297m, TP a 6527m). Aqui fechamos esse
+      // vazamento usando a distância visível do fan na direção do candidato
+      // como teto, com 10% de folga para absorver ruído de fatias adjacentes.
+      //
+      // Validado em A/B (200 POIs California, 2026-05-29): -61% de TPs no
+      // bucket 200-1500m (zona "TP em rua longe"), Robert W. Crown Beach
+      // max_d 2474m → 644m, sem aumento em exit_path errors. Storefronts com
+      // fan colapsado continuam protegidos por buildFrontalArrivalTP que roda
+      // depois do validateAndRankPoints.
+      //
+      // Kill-switch: pass options.qualityFixFanCap = false para desligar.
+      const bearingPoiToCandidate = calculateBearing(boundary.center, candidate.location);
+      const fanReach = getFanReachAtBearing(boundary.visibilityFan, bearingPoiToCandidate);
+      if (Number.isFinite(fanReach) && candidate.distance > fanReach * 1.1) {
+        console.log(`🚫 Candidate rejected (Phase 2.A fan cap): distance ${candidate.distance.toFixed(0)}m > fanReach@${bearingPoiToCandidate.toFixed(0)}° ${fanReach.toFixed(0)}m × 1.1`);
         return false;
       }
     }

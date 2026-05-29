@@ -10,6 +10,15 @@ import { POIData, TriggerPoint, TriggerPointGenerationOptions, TriggerPointPredi
 import { calculateBearing, calculateDistance, findClosestPointOnBoundary } from '../utils/calculations';
 import { deterministicTPId } from '../utils/deterministic';
 import { loadTriggerPointsConfig, TriggerPointsConfig, TRIGGER_POINTS_CONSTANTS, POIGroup } from '../config/trigger-points-config';
+import { emitDebugQuality, DebugQualitySnapshot } from '../debug-quality-logger';
+
+// Defaults baked into VisibilityMapBuilder.buildFan() — used by debug-quality
+// emission when the fan is present (the boundary.visibilityFan type flattens
+// stats but drops directionCount/stepM/maxHorizonM diagnostics). Keep in sync
+// with visibility-map-builder.ts:90-92.
+const FAN_DEFAULT_HORIZON_M = 10000;
+const FAN_DEFAULT_DIRECTION_COUNT = 72;
+const FAN_DEFAULT_STEP_M = 100;
 
 export class CoreTriggerPointPredictor {
   private geographicAnalyzer: GeographicContextAnalyzer;
@@ -43,11 +52,60 @@ export class CoreTriggerPointPredictor {
    * Prediz trigger points para um POI (resultado completo)
    */
   async predictTriggerPointsComplete(
-    poiData: POIData, 
+    poiData: POIData,
     options: TriggerPointGenerationOptions = {}
   ): Promise<TriggerPointPredictionResult> {
     const startTime = Date.now();
-    
+
+    // Phase 0 instrumentation. Captured progressively as the pipeline advances;
+    // a single closure emits one JSON line on whichever exit path we take.
+    // Off by default — opt in with options.debugQuality.
+    let _boundary: BoundaryData | undefined;
+    let _context: GeographicContext | undefined;
+    let _searchRadius: number | undefined;
+    let _optimalCount: number | undefined;
+    let _postLOSCount: number | undefined;
+    let _streetValidatedCount: number | undefined;
+    let _validatedCount: number | undefined;
+    let _finalTPs: TriggerPoint[] | undefined;
+
+    const emitDebugIfEnabled = (exit_path: DebugQualitySnapshot['exit_path']): void => {
+      if (!options.debugQuality) return;
+      const fan = _boundary?.visibilityFan;
+      const snap: DebugQualitySnapshot = {
+        __type: 'tp_debug_quality',
+        ts: new Date().toISOString(),
+        poi_id: poiData.id,
+        poi_name: poiData.name,
+        poi_category: _boundary?.classification?.group ?? null,
+        poi_height_m: _boundary?.height ?? null,
+        poi_height_source: (typeof _boundary?.height === 'number' && _boundary.height > 0) ? 'osm' : 'null_fallback',
+        boundary_source: _boundary?.source,
+        boundary_perimeter_m: _boundary?.perimeter_m,
+        boundary_area_m2: _boundary?.area_m2,
+        urban_density: _context?.urbanDensity?.level ?? null,
+        elevation_diff_m: null,
+        search_radius_m: _searchRadius,
+        fan_max_horizon_m: fan ? (options.visibilityMaxHorizonM ?? FAN_DEFAULT_HORIZON_M) : undefined,
+        fan_direction_count: fan ? FAN_DEFAULT_DIRECTION_COUNT : undefined,
+        fan_step_m: fan ? FAN_DEFAULT_STEP_M : undefined,
+        fan_sample_points: fan?.samplePoints?.length,
+        fan_mean_visible_m: fan?.meanDistanceM,
+        fan_max_visible_m: fan?.maxDistanceM,
+        fan_min_visible_m: fan?.minDistanceM,
+        fan_coverage_km2: typeof fan?.coverageAreaM2 === 'number' ? +(fan.coverageAreaM2 / 1e6).toFixed(3) : undefined,
+        candidate_count_pre_filter: _optimalCount,
+        candidate_count_post_los: _postLOSCount,
+        candidate_count_post_street_validation: _streetValidatedCount,
+        candidate_count_validated: _validatedCount,
+        tp_count_final: _finalTPs?.length,
+        tp_distances_m: _finalTPs?.map(tp => Math.round(tp.distance)),
+        exit_path,
+        processing_time_ms: Date.now() - startTime,
+      };
+      emitDebugQuality(snap);
+    };
+
     try {
       // Validar dados de entrada
       const validation = this.validatePOIData(poiData);
@@ -63,6 +121,7 @@ export class CoreTriggerPointPredictor {
         throw new Error(`Boundary detection failed: ${boundaryResult.error}`);
       }
       const boundary = boundaryResult.data;
+      _boundary = boundary;
 
       // Enriquecer boundary com pontos de entrada OSM (entrance=main/yes) do banco local.
       // Usado como bearing target prioritário em point-calculator.ts.
@@ -71,12 +130,15 @@ export class CoreTriggerPointPredictor {
       // ✅ REGRA: Se boundary é manual (ou manual_drawing), ignorar e não processar
       // POIs manuais não devem ter TPs recalculados automaticamente
       if (boundary.source === 'manual' || boundary.source === 'manual_drawing') {
-        
+
         const processingTime = Date.now() - startTime;
+        _context = await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary);
+        _finalTPs = [];
+        emitDebugIfEnabled('manual_boundary');
         return {
           triggerPoints: [],
           boundary,
-          context: await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary),
+          context: _context,
           processingTime,
           metadata: {
             boundarySource: boundary.source,
@@ -102,6 +164,7 @@ export class CoreTriggerPointPredictor {
       const context = boundary.cachedContext
         ? boundary.cachedContext
         : await this.geographicAnalyzer.analyzeGeographicContext(poiData, boundary);
+      _context = context;
       if (boundary.cachedContext) {
         console.log(`♻️ Reusing geographic context from boundary-detector (no recomputation)`);
       }
@@ -120,10 +183,13 @@ export class CoreTriggerPointPredictor {
       
       // NOVA LÓGICA: Se boundary é estimado (POI não encontrado), usar fallback SUPER SIMPLES
       if (boundary.source === 'estimated') {
-        
+
         const simpleFallbackPoints = await this.generateRecoveryFallbackTriggerPoints(poiData, context, boundary);
         const processingTime = Date.now() - startTime;
-        
+        _searchRadius = 300;
+        _finalTPs = simpleFallbackPoints;
+        emitDebugIfEnabled('estimated_boundary');
+
         return {
           triggerPoints: simpleFallbackPoints,
           boundary,
@@ -147,7 +213,8 @@ export class CoreTriggerPointPredictor {
       // ✅ Context já tem densidade calculada corretamente a partir dos dados OSM
       const streetAnalysisResult = await this.streetAnalyzer.findAccessibleStreetsWithMetadata(poiData, boundary, context);
       const accessibleStreets = streetAnalysisResult.streets;
-      
+      _searchRadius = streetAnalysisResult.searchRadius;
+
       if (accessibleStreets.length === 0) {
         console.error('❌ ========================================');
         console.error('❌ [CRITICAL] No accessible streets found, using fallback strategy');
@@ -158,6 +225,8 @@ export class CoreTriggerPointPredictor {
         const fallbackPoints = await this.generateRecoveryFallbackTriggerPoints(poiData, context, boundary);
 
         const processingTime = Date.now() - startTime;
+        _finalTPs = fallbackPoints;
+        emitDebugIfEnabled('no_streets');
 
         return {
           triggerPoints: fallbackPoints,
@@ -230,11 +299,14 @@ export class CoreTriggerPointPredictor {
       // ✅ Context já tem densidade calculada corretamente a partir dos dados OSM
       // ✅ Usar apenas ruas front/side (sem buildings bloqueando)
       const optimalPoints = await this.pointCalculator.calculateOptimalPoints(poiData, streetsForOptimalPoints, boundary, context, streetAnalysisResult.searchRadius);
-      
+      _optimalCount = optimalPoints.length;
+
       if (optimalPoints.length === 0) {
         console.warn('⚠️ No optimal points calculated, using fallback strategy');
         const fallbackPoints = await this.buildFanCollapseFallback(poiData, boundary, context, accessibleStreets);
         const processingTime = Date.now() - startTime;
+        _finalTPs = fallbackPoints;
+        emitDebugIfEnabled('no_optimal_points');
 
         return {
           triggerPoints: fallbackPoints,
@@ -271,6 +343,7 @@ export class CoreTriggerPointPredictor {
         optimalPoints,
         boundary,
       );
+      _postLOSCount = visibleOptimalPoints.length;
 
       if (visibleOptimalPoints.length === 0) {
         console.warn('⚠️ Per-TP LOS check rejected all candidates — using fan-walk output without per-TP filter');
@@ -280,11 +353,14 @@ export class CoreTriggerPointPredictor {
 
       // 5. Validação de candidatos em ruas (NOVO PASSO)
       const streetValidatedCandidates = await this.validateCandidatesOnStreets(candidatesPostLOS, accessibleStreets);
+      _streetValidatedCount = streetValidatedCandidates.length;
 
       if (streetValidatedCandidates.length === 0) {
         console.warn('⚠️ No candidates validated on streets, using fallback strategy');
         const fallbackPoints = await this.buildFanCollapseFallback(poiData, boundary, context, accessibleStreets);
         const processingTime = Date.now() - startTime;
+        _finalTPs = fallbackPoints;
+        emitDebugIfEnabled('no_street_candidates');
 
         return {
           triggerPoints: fallbackPoints,
@@ -329,9 +405,11 @@ export class CoreTriggerPointPredictor {
           validateCorridor: options.validateCorridor,
           clusterIntersections: options.clusterIntersections,
           intersectionClusterRadiusM: options.intersectionClusterRadiusM,
+          qualityFixFanCap: options.qualityFixFanCap,
         }
       );
-      
+      _validatedCount = validatedPoints.length;
+
       // 7. Aplicar opções de filtro adicionais (se houver)
       const filteredPoints = this.applyOptions(validatedPoints, options, boundary);
       
@@ -397,6 +475,9 @@ export class CoreTriggerPointPredictor {
         
       }
       
+      _finalTPs = filteredPoints;
+      emitDebugIfEnabled('main');
+
       return {
         triggerPoints: filteredPoints,
         boundary,
@@ -404,9 +485,10 @@ export class CoreTriggerPointPredictor {
         processingTime,
         metadata
       };
-      
+
     } catch (error) {
       console.error('Error in trigger point prediction:', error);
+      emitDebugIfEnabled('error');
       throw new Error(`Failed to generate trigger points: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

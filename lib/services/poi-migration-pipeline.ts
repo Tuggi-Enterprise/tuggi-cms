@@ -40,6 +40,14 @@ export interface PipelineOptions {
   languages?: string[]
   // Optional: voice gender for audio generation
   voice_gender?: 'male' | 'female'
+  // Phase 0 (TP quality plan): emit one `[TP_DEBUG_QUALITY] {...}` JSON line
+  // per POI from the predictor. No behavior change. Pure observation, gated
+  // by `--debug-quality true` on `scripts/migrate-pois-batch.ts`.
+  debug_quality?: boolean
+  // Phase 2.A — Cap candidate TPs by the visibility fan's reach in their
+  // bearing. Closes the "fan_mean ~300m but TP at 2km" leak observed in
+  // Phase 0. Off by default; opt in via `--quality-fix-fan-cap true`.
+  quality_fix_fan_cap?: boolean
 }
 
 export interface PipelineStepResult {
@@ -79,7 +87,9 @@ export class PoiMigrationPipeline {
       update_if_exists = false,
       mode = 'enrichment_migration_triggers', // NEW DEFAULT: Enrichment -> Migration -> Triggers
       languages = ['pt-br'],
-      voice_gender = 'male'
+      voice_gender = 'male',
+      debug_quality = false,
+      quality_fix_fan_cap = false
     } = options
 
     try {
@@ -93,7 +103,7 @@ export class PoiMigrationPipeline {
         
         // Directly to Step 4: Generate Trigger Points
         console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
-        const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id)
+        const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality, quality_fix_fan_cap })
         steps.push(triggerPointsStep)
 
         if (!triggerPointsStep.success) {
@@ -315,7 +325,7 @@ export class PoiMigrationPipeline {
 
       // Step 4: Generate Trigger Points
       console.log(`📍 Step 4: Generating trigger points for ${attraction_id}...`)
-      const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id)
+      const triggerPointsStep = await this.executeTriggerPointsStep(attraction_id, { debug_quality, quality_fix_fan_cap })
       steps.push(triggerPointsStep)
 
       // If trigger points fail, rollback and stop (critical for approval)
@@ -711,7 +721,10 @@ export class PoiMigrationPipeline {
   /**
    * Step 4: Generate Trigger Points
    */
-  private static async executeTriggerPointsStep(attraction_id: string): Promise<PipelineStepResult> {
+  private static async executeTriggerPointsStep(
+    attraction_id: string,
+    opts: { debug_quality?: boolean; quality_fix_fan_cap?: boolean } = {}
+  ): Promise<PipelineStepResult> {
     const stepStart = Date.now()
 
     try {
@@ -777,7 +790,9 @@ export class PoiMigrationPipeline {
         // Sem maxSearchRadius — o motor calcula dinamicamente via fan de visibilidade.
         // O cap de 1000m estava cortando TPs em POIs grandes (Central Park, aeroportos).
         clusterIntersections: true,
-        minQuality: 0.3
+        minQuality: 0.3,
+        debugQuality: opts.debug_quality,
+        qualityFixFanCap: opts.quality_fix_fan_cap
       })
 
       if (!predictionResult.triggerPoints || predictionResult.triggerPoints.length === 0) {
