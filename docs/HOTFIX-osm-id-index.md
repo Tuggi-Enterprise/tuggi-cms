@@ -28,8 +28,11 @@ Result on every existing `data/local_osm.db`:
 
 ## What every machine running the migration pipeline must do
 
-For each machine that already has a `data/local_osm.db` built **before this
-commit**, run:
+**Fresh PBF imports**: `scripts/manage-osm.ts --import-pbf <file>` runs this
+hotfix automatically at the end of the import, alongside the R-tree and
+GeoNames hotfixes. Nothing manual to do.
+
+**Existing DBs built before this commit**, run once manually:
 
 ```bash
 git pull

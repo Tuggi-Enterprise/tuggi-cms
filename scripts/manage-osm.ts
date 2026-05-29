@@ -30,17 +30,31 @@ async function main() {
       return;
     }
 
+    // Optional flag to skip the post-import hotfixes (~30-90 min total).
+    // Useful for quick partial imports or debugging. Default: hotfixes run.
+    const skipHotfixes = args.includes('--skip-hotfixes');
+
     console.log(`📦 Importing PBF: ${pbfPath}`);
-    
+
     // Check if osmium is available
     const hasOsmium = spawnSync('osmium', ['--version']).status === 0;
-    
+
     if (hasOsmium) {
       console.log('💎 Using Osmium for high-performance import...');
       await importWithOsmium(pbfPath, localData);
     } else {
       console.log('⚙️ Osmium not found. Using pbf2json fallback...');
       await importWithPbf2Json(pbfPath, localData);
+    }
+
+    if (skipHotfixes) {
+      console.log('\n⏭️  Skipping post-import hotfixes (--skip-hotfixes).');
+      console.log('   Run these manually before using the migration pipeline:');
+      console.log('     npx tsx scripts/hotfix-osm-id-index.ts');
+      console.log('     npx tsx scripts/hotfix-osm-rtree-index.ts');
+      console.log('     npx tsx scripts/hotfix-geonames-import.ts');
+    } else {
+      await runPostImportHotfixes();
     }
   }
   else if (command === '--clear-cache') {
@@ -58,12 +72,57 @@ async function main() {
 OSM Management Tool
 ===================
 Usage:
-  npx tsx scripts/manage-osm.ts --cleanup [days]    Clean old cache (default 5)
-  npx tsx scripts/manage-osm.ts --import-pbf <file> Import PBF into local DB
-  npx tsx scripts/manage-osm.ts --clear-cache      Clear all query cache
-  npx tsx scripts/manage-osm.ts --status           Check cache/local status
+  npx tsx scripts/manage-osm.ts --cleanup [days]               Clean old cache (default 5)
+  npx tsx scripts/manage-osm.ts --import-pbf <file>            Import PBF into local DB (runs hotfixes after)
+  npx tsx scripts/manage-osm.ts --import-pbf <file> --skip-hotfixes  Import PBF only, skip post-import indexes
+  npx tsx scripts/manage-osm.ts --clear-cache                  Clear all query cache
+  npx tsx scripts/manage-osm.ts --status                       Check cache/local status
     `);
   }
+}
+
+/**
+ * Run the three local_osm.db hotfixes that the migration pipeline depends on,
+ * after a fresh PBF import. Each is idempotent and self-contained — if a
+ * given index/data already exists with the right row count, it is skipped.
+ *
+ * Total wall time on a continental PBF: ~30-90 min (mostly the R-tree build
+ * on buildings, which has ~19M rows).
+ *
+ * Failures in any single hotfix are logged but do not abort the rest — the
+ * migration pipeline degrades gracefully when an index is missing.
+ */
+async function runPostImportHotfixes(): Promise<void> {
+  const hotfixes = [
+    { name: '@id expression index',  script: 'hotfix-osm-id-index.ts',     est: '~5-30 min' },
+    { name: 'R-tree spatial index',  script: 'hotfix-osm-rtree-index.ts',  est: '~25-50 min' },
+    { name: 'GeoNames reverse geocoder', script: 'hotfix-geonames-import.ts', est: '~15 sec' }
+  ];
+
+  console.log('\n' + '━'.repeat(70));
+  console.log('🛠️  Post-import hotfixes — bringing the local DB up to spec');
+  console.log('━'.repeat(70));
+  console.log('   Each is idempotent. Use --skip-hotfixes next time to opt out.');
+
+  for (let i = 0; i < hotfixes.length; i++) {
+    const h = hotfixes[i];
+    console.log(`\n▸ [${i + 1}/${hotfixes.length}] ${h.name} (${h.est})`);
+    console.log(`  npx tsx scripts/${h.script}`);
+
+    const r = spawnSync('npx', ['tsx', `scripts/${h.script}`], {
+      stdio: 'inherit',
+      cwd: process.cwd()
+    });
+
+    if (r.status !== 0) {
+      console.warn(`  ⚠️  ${h.name} exited with status ${r.status} — continuing with the next hotfix.`);
+      console.warn(`     You can re-run it later: npx tsx scripts/${h.script}`);
+    }
+  }
+
+  console.log('\n' + '━'.repeat(70));
+  console.log('✅ Post-import hotfixes complete. Local DB ready for migration pipeline.');
+  console.log('━'.repeat(70));
 }
 
 async function importWithOsmium(pbfPath: string, localData: OSMLocalDataService) {

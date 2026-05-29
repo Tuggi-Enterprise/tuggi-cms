@@ -53,6 +53,11 @@ United States" in **0 ms** — no external call, no rate limit.
 
 ## What every machine must do
 
+**Fresh PBF imports**: `scripts/manage-osm.ts --import-pbf <file>` runs this
+hotfix automatically at the end of the import. Nothing manual to do.
+
+**Existing DBs built before this commit**, run once manually:
+
 ```bash
 git pull
 
