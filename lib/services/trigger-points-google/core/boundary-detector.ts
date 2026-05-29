@@ -430,8 +430,10 @@ out geom tags;
         }
       }
       
-      // Extrair tags e processar como no fluxo normal
-      const poiHeight = this.extractOSMHeight({ tags: poiTags });
+      // Extrair tags e processar como no fluxo normal.
+      // Phase 2.E: heurística por tag preenche altura quando OSM não tem
+      // `height` / `building:levels` (caso em ~80% dos POIs Phase 0).
+      const poiHeight = this.extractOSMHeightWithHeuristic({ tags: poiTags }, poiData.name);
       
       // Buscar elevação
       const elevation = await this.elevationService.getElevation(center, undefined, { tags: poiTags }, undefined, poiData);
@@ -1828,9 +1830,10 @@ out geom tags;
                             console.warn(`⚠️ Could not retrieve POI tags - element not found in query response`);
                           }
                           
-                          // Extrair altura do POI
+                          // Extrair altura do POI (Phase 2.E: heurística por tag
+                          // fallback quando OSM não tem `height`/`building:levels`).
                           if (poiElementFromQuery) {
-                            poiHeight = this.extractOSMHeight(poiElementFromQuery);
+                            poiHeight = this.extractOSMHeightWithHeuristic(poiElementFromQuery, poiData.name);
                             if (poiHeight) {
                               console.log(`📏 POI height from OSM: ${poiHeight}m`);
                             }
@@ -2743,10 +2746,10 @@ out geom tags;
    */
   private extractOSMHeight(element: any): number | null {
     if (!element.tags) return null;
-    
+
     // Tags de altura de construções (ordenadas por prioridade)
     const heightTags = ['height', 'building:height', 'building:levels'];
-    
+
     for (const tag of heightTags) {
       if (element.tags[tag]) {
         if (tag === 'building:levels') {
@@ -2763,8 +2766,68 @@ out geom tags;
         }
       }
     }
-    
+
     return null;
+  }
+
+  /**
+   * Phase 2.E — Heuristic height fallback by OSM tag category.
+   *
+   * Use ONLY for the POI's OWN element, never for surrounding/architectural
+   * elements (those are scanned by extractHeightFromMultipleElements and adding
+   * heuristics there would assign generic 10m to every nearby building, polluting
+   * the POI's effective height).
+   *
+   * Data-driven: 80% of POIs in California had `poi_height_source =
+   * null_fallback` in Phase 0. Without a POI height, the 2.5D ray-cast in
+   * VisibilityMapBuilder uses poi_top = terrain altitude, collapsing the fan to
+   * ~200-300m. That collapse then becomes the cap for Phase 2.A. Heuristics
+   * give the fan a sensible POI height so it reaches further in line-of-sight.
+   *
+   * Returns null when no heuristic applies — caller should treat as
+   * "no information" (same as the existing null_fallback path).
+   */
+  private extractHeuristicHeight(tags: any, poiName?: string): number | null {
+    if (!tags) return null;
+
+    // Order matters — most specific first. Each rule has a `source` label that
+    // gets logged so users can audit heuristics in migration-log.
+    type Rule = { match: () => boolean; height: number; source: string };
+    const rules: Rule[] = [
+      { match: () => tags['man_made'] === 'tower',          height: 30, source: 'heuristic_tower' },
+      { match: () => tags['man_made'] === 'lighthouse',     height: 25, source: 'heuristic_lighthouse' },
+      { match: () => tags['historic'] === 'castle',         height: 20, source: 'heuristic_castle' },
+      { match: () => tags['building'] === 'cathedral',      height: 60, source: 'heuristic_cathedral' },
+      { match: () => tags['building'] === 'church',         height: 25, source: 'heuristic_church' },
+      { match: () => ['mosque', 'temple', 'synagogue'].includes(tags['building']),
+                                                            height: 20, source: 'heuristic_religious' },
+      { match: () => ['cinema', 'theatre'].includes(tags['amenity']),
+                                                            height: 12, source: 'heuristic_civic' },
+      { match: () => tags['tourism'] === 'museum',          height: 15, source: 'heuristic_civic' },
+      // Genérico: qualquer building taggeado (default 10m, mesmo do TRIGGER_POINTS_CONSTANTS.defaultHouseHeight).
+      { match: () => !!tags['building'],                    height: 10, source: 'heuristic_default_building' },
+    ];
+
+    for (const r of rules) {
+      if (r.match()) {
+        console.log(`📏 POI height heuristic: ${r.height}m (${r.source})${poiName ? ` for "${poiName}"` : ''}`);
+        return r.height;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * POI-self height extraction: tries OSM-tagged height first, falls back to
+   * heuristic-by-tag (Phase 2.E). Use this at sites where `element` is known to
+   * be the POI itself; for surrounding-element scanning, call extractOSMHeight
+   * directly without heuristics.
+   */
+  private extractOSMHeightWithHeuristic(element: any, poiName?: string): number | null {
+    const direct = this.extractOSMHeight(element);
+    if (direct !== null) return direct;
+    return this.extractHeuristicHeight(element?.tags, poiName);
   }
 
   /**
