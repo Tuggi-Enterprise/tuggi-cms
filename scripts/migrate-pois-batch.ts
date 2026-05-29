@@ -299,14 +299,14 @@ async function main() {
   }
 
   const startedAt = Date.now()
-  let completed = 0
+  // Sequential number ONLY for POIs that actually ran through the pipeline.
+  // Skipped POIs (claimed by another worker / already in core) do not consume
+  // a slot — they appear without a [N] prefix.
+  let processedSeq = 0
 
-  await runWithConcurrency(pois, concurrency, async (poi, i) => {
-    const progress = `[${i + 1}/${pois.length}]`
+  await runWithConcurrency(pois, concurrency, async (poi) => {
     const lines: string[] = []
     const push = (line: string) => lines.push(line)
-
-    push(`${progress} Processing: ${poi.name} (${poi.city}, ${poi.state})`)
 
     const poiStartedAt = Date.now()
     let poiTotalMs = 0
@@ -327,13 +327,17 @@ async function main() {
 
       if (result.skipped) {
         // POI was claimed by another worker, already migrated, or otherwise not
-        // processed by us — does NOT count as a real run-through.
+        // processed by us — does NOT consume a sequential slot.
         stats.skipped++
         const reason = result.warnings?.[0] ?? result.error ?? 'already processed'
-        push(`⏭️  ${progress} Skipped: ${poi.name} — ${reason}`)
+        push(`⏭️  Skipped: ${poi.name} — ${reason}`)
       } else if (result.success) {
+        // Assign the next sequential number only now, after we know this is a
+        // real run-through. Atomic across async workers because ++ runs on a
+        // single JS event-loop tick.
+        const num = ++processedSeq
         stats.successful++
-        push(`✅ ${progress} Success: ${poi.name} — ${(poiTotalMs / 1000).toFixed(1)}s`)
+        push(`✅ [${num}] ${poi.name} (${poi.city ?? '?'}, ${poi.state ?? '?'}) — ${(poiTotalMs / 1000).toFixed(1)}s`)
         result.steps.forEach(step => {
           const status = step.success ? '✅' : '❌'
           push(`   ${status} ${step.step}: ${step.processing_time}ms`)
@@ -342,16 +346,18 @@ async function main() {
           }
         })
       } else {
+        const num = ++processedSeq
         stats.failed++
         stats.errors.push({
           uuid_id: poi.uuid_id,
           name: poi.name,
           error: result.error || 'Unknown error'
         })
-        push(`❌ ${progress} Failed: ${poi.name} — ${(poiTotalMs / 1000).toFixed(1)}s — ${result.error}`)
+        push(`❌ [${num}] Failed: ${poi.name} — ${(poiTotalMs / 1000).toFixed(1)}s — ${result.error}`)
       }
     } catch (error) {
       poiTotalMs = Date.now() - poiStartedAt
+      const num = ++processedSeq
       stats.failed++
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
       stats.errors.push({
@@ -359,7 +365,7 @@ async function main() {
         name: poi.name,
         error: errorMsg
       })
-      push(`❌ ${progress} Error: ${poi.name} — ${(poiTotalMs / 1000).toFixed(1)}s — ${errorMsg}`)
+      push(`❌ [${num}] Error: ${poi.name} — ${(poiTotalMs / 1000).toFixed(1)}s — ${errorMsg}`)
     }
 
     stats.per_poi_timings.push({
@@ -373,14 +379,15 @@ async function main() {
       steps: poiSteps
     })
 
-    completed++
-
     if (quiet) {
       // One concise line per POI; full step breakdown stays in migration-results JSON.
       const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
       const poiSec = (poiTotalMs / 1000).toFixed(1)
-      const tag = poiSkipped ? 'skipped' : `${poiSec}s`
-      console.log(`${progress} ${stats.successful}✓ ${stats.failed}✗ ${stats.skipped}⏭ ${completed}/${pois.length} — ${poi.name}: ${tag} (wall ${elapsed}s)`)
+      if (poiSkipped) {
+        console.log(`⏭️  ${stats.successful}✓ ${stats.failed}✗ ${stats.skipped}⏭ — ${poi.name}: skipped (wall ${elapsed}s)`)
+      } else {
+        console.log(`[${processedSeq}] ${stats.successful}✓ ${stats.failed}✗ ${stats.skipped}⏭ — ${poi.name}: ${poiSec}s (wall ${elapsed}s)`)
+      }
     } else {
       // Concurrent runs interleave; flush this POI's lines together to keep them grouped.
       console.log('\n' + lines.join('\n'))
