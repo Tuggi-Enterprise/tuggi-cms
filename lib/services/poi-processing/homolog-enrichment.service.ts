@@ -10,6 +10,8 @@
 
 import { getSupabase } from '../../core/supabase-client'
 import { OSMCacheService } from '../osm-cache-service'
+import { LocalReverseGeocoder } from '../local-reverse-geocoder'
+import { LocalOSMFetcher } from '../trigger-points-google/services/local-osm-fetcher'
 
 
 // Service role client for database operations (must use 'service' for homolog schema access)
@@ -24,12 +26,19 @@ export interface HomologEnrichmentInput {
   lng?: number
 }
 
+export type EnrichmentMethod =
+  | 'local_osm_tags'     // city/state/country read straight from addr:* tags in local OSM
+  | 'geonames_offline'   // nearest GeoNames city (offline R-tree lookup)
+  | 'local_mixed'        // some fields from addr:* tags, rest from GeoNames
+  | 'osm_lookup'         // Nominatim /lookup by OSM id (legacy chain)
+  | 'reverse_geocoding'  // Nominatim /reverse or Photon (legacy chain)
+
 export interface EnrichmentResult {
   success: boolean
   uuid_id: string
   message: string
   fields_updated?: string[]
-  enrichment_method?: 'osm_lookup' | 'reverse_geocoding'
+  enrichment_method?: EnrichmentMethod
   error?: string
 }
 
@@ -41,13 +50,13 @@ export class HomologEnrichmentService {
    */
   static async enrichPOI(input: HomologEnrichmentInput): Promise<EnrichmentResult> {
     const { uuid_id, name } = input
-    
+
     console.log(`🔄 Starting Homolog enrichment for POI: ${name}`)
 
     try {
       // Step 1: Load POI data including osm_id and coordinates
       const poiData = await this.loadHomologPOI(uuid_id)
-      
+
       if (!poiData) {
         return {
           success: false,
@@ -57,11 +66,46 @@ export class HomologEnrichmentService {
         }
       }
 
-      // Step 2: Try OSM ID lookup first (more accurate)
+      // ─── Stage 0: Local-first lookup ────────────────────────────────
+      // Try OSM tags + GeoNames before any external API. Sub-millisecond
+      // when it works, no rate limits. Returns null if neither layer can
+      // provide city/state/country — in which case we fall through to the
+      // existing Nominatim/Photon chain.
       let osmData: any = null
-      let enrichmentMethod: 'osm_lookup' | 'reverse_geocoding' = 'reverse_geocoding'
+      let enrichmentMethod: 'osm_lookup' | 'reverse_geocoding' | 'local_osm_tags' | 'geonames_offline' | 'local_mixed' = 'reverse_geocoding'
 
-      if (poiData.osm_id && poiData.osm_type) {
+      const localResult = await this.tryLocalReverseGeocode(poiData)
+      if (localResult) {
+        osmData = {
+          name,
+          class: null,
+          type: null,
+          display_name: [localResult.city, localResult.state, localResult.country].filter(Boolean).join(', '),
+          address: {
+            city: localResult.city,
+            state: localResult.state,
+            country: localResult.country
+          },
+          extratags: {},
+          importance: null,
+          // Cite the source so it's debuggable downstream.
+          _local_source: localResult.source,
+          _local_distance_km: localResult.distance_km
+        }
+        enrichmentMethod =
+          localResult.source === 'osm_tags' ? 'local_osm_tags' :
+          localResult.source === 'geonames' ? 'geonames_offline' :
+          'local_mixed'
+        const distNote = localResult.distance_km != null
+          ? ` (${localResult.distance_km.toFixed(1)} km from POI)`
+          : ''
+        console.log(`🌍 Local reverse geocode (${localResult.source}): ${osmData.display_name}${distNote}`)
+      }
+
+      // Step 2: Try OSM ID lookup first (more accurate)
+      // Skip when local lookup already succeeded — saves a Nominatim call.
+
+      if (!osmData && poiData.osm_id && poiData.osm_type) {
         console.log(`🔍 Trying OSM ID lookup: ${poiData.osm_type}${poiData.osm_id}`)
         osmData = await this.fetchOSMDataByID(poiData.osm_id, poiData.osm_type)
 
@@ -180,6 +224,52 @@ export class HomologEnrichmentService {
       address.province ||
       address.county
     )
+  }
+
+  // =====================================
+  // LOCAL-FIRST REVERSE GEOCODING
+  // =====================================
+
+  /**
+   * Stage 0 of enrichment — try to answer city/state/country from data we
+   * already have on disk. Two layers:
+   *   1. POI's own addr:* tags from the local OSM dump (cheapest, exact)
+   *   2. GeoNames nearest-city lookup (sub-millisecond R-tree)
+   * Returns null when neither layer can provide at least a country, in which
+   * case the caller falls through to Nominatim/Photon.
+   */
+  private static async tryLocalReverseGeocode(
+    poiData: { osm_id?: string | number; osm_type?: 'node' | 'way' | 'relation'; lat?: number; lng?: number }
+  ): Promise<{ city: string | null; state: string | null; country: string | null; source: string; distance_km?: number } | null> {
+    const geocoder = LocalReverseGeocoder.getInstance()
+
+    // Pull the POI's own OSM tags from the local DB if we know which element it is.
+    let tags: any = null
+    if (poiData.osm_id && poiData.osm_type) {
+      try {
+        const fetcher = LocalOSMFetcher.getInstance()
+        const found = fetcher.fetchElementById(poiData.osm_type, String(poiData.osm_id))
+        const el = found?.elements?.[0]
+        if (el?.tags) tags = el.tags
+      } catch {
+        // best-effort — missing local OSM data just means we lose Stage 1.
+      }
+    }
+
+    const result = geocoder.reverseGeocode(poiData.lat, poiData.lng, tags)
+    if (!result) return null
+
+    // Require at least country before we trust the local result. State+country
+    // is enough — city can come later from Nominatim if needed.
+    if (!result.country && !result.state) return null
+
+    return {
+      city: result.city,
+      state: result.state,
+      country: result.country,
+      source: result.source,
+      distance_km: result.distance_km
+    }
   }
 
   // =====================================
