@@ -36,12 +36,13 @@
 import Database from 'better-sqlite3'
 import { spawnSync } from 'child_process'
 import {
-  existsSync, mkdirSync, statSync, readFileSync, unlinkSync, renameSync,
-  createReadStream, writeFileSync
+  existsSync, mkdirSync, statSync, rmSync,
+  createReadStream
 } from 'fs'
+import { writeFile } from 'fs/promises'
 import { createInterface } from 'readline'
-import { join, dirname, resolve } from 'path'
-import { tmpdir } from 'os'
+import { join, resolve } from 'path'
+import { tmpdir, platform } from 'os'
 
 const GEONAMES_CITIES_URL    = 'https://download.geonames.org/export/dump/cities500.zip'
 const GEONAMES_ADMIN1_URL    = 'https://download.geonames.org/export/dump/admin1CodesASCII.txt'
@@ -87,26 +88,40 @@ Options:
 function ms(start: number): string { return `${((Date.now() - start) / 1000).toFixed(1)}s` }
 function fmt(n: number): string { return n.toLocaleString('en-US') }
 
-function ensureBinary(name: string): void {
-  const r = spawnSync(name, ['--version'], { stdio: 'pipe' })
-  if (r.status !== 0 && r.error) {
-    console.error(`❌ Required binary '${name}' not found on PATH.`)
-    console.error(`   Install: brew install ${name}  (macOS)  |  apt-get install ${name}  (Debian/Ubuntu)`)
-    process.exit(1)
+/** Cross-platform HTTP download via Node's built-in fetch (Node 18+). */
+async function downloadTo(url: string, dest: string): Promise<void> {
+  const res = await fetch(url)
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`)
   }
+  await writeFile(dest, Buffer.from(await res.arrayBuffer()))
 }
 
-function downloadTo(url: string, dest: string): void {
-  const r = spawnSync('curl', ['-fsSL', '-o', dest, url], { stdio: ['ignore', 'pipe', 'inherit'] })
-  if (r.status !== 0) {
-    throw new Error(`curl failed (status ${r.status}) for ${url}`)
-  }
-}
-
+/**
+ * Cross-platform ZIP extraction. Uses `unzip` on macOS/Linux (ubiquitous)
+ * and `tar -xf` on Windows (Windows 10 1809+ ships BSD tar via libarchive,
+ * which handles ZIP). Throws if neither command is found.
+ */
 function unzipTo(zipPath: string, fileInside: string, destDir: string): string {
-  const r = spawnSync('unzip', ['-oq', zipPath, fileInside, '-d', destDir], { stdio: ['ignore', 'pipe', 'inherit'] })
+  const isWin = platform() === 'win32'
+  // On Windows, prefer the bundled tar.exe (BSD tar supports ZIP). On Unix,
+  // unzip is the universal tool. `shell: true` on Windows so we hit tar.exe
+  // through cmd's PATH resolution without needing the `.exe` extension.
+  const cmd = isWin ? 'tar' : 'unzip'
+  const args = isWin
+    ? ['-xf', zipPath, '-C', destDir, fileInside]
+    : ['-oq', zipPath, fileInside, '-d', destDir]
+  const r = spawnSync(cmd, args, {
+    stdio: ['ignore', 'pipe', 'inherit'],
+    shell: isWin
+  })
   if (r.status !== 0) {
-    throw new Error(`unzip failed (status ${r.status}) for ${zipPath}`)
+    throw new Error(
+      `${cmd} failed (status ${r.status}) for ${zipPath}. ` +
+      (isWin
+        ? 'Windows 10 1809+ ships tar.exe; on older Windows install Git Bash or 7-Zip.'
+        : 'Install via: apt-get install unzip (Debian/Ubuntu) or brew install unzip (macOS Homebrew).')
+    )
   }
   return join(destDir, fileInside)
 }
@@ -289,9 +304,6 @@ async function main() {
     return
   }
 
-  ensureBinary('curl')
-  ensureBinary('unzip')
-
   // Download into a temp dir
   const stageDir = join(tmpdir(), `geonames-hotfix-${Date.now()}`)
   mkdirSync(stageDir, { recursive: true })
@@ -302,7 +314,7 @@ async function main() {
       console.log('\n⬇️  Downloading cities500.zip from GeoNames (~25 MB)…')
       const t0 = Date.now()
       const zip = join(stageDir, 'cities500.zip')
-      downloadTo(GEONAMES_CITIES_URL, zip)
+      await downloadTo(GEONAMES_CITIES_URL, zip)
       console.log(`   downloaded in ${ms(t0)}`)
       const txt = unzipTo(zip, 'cities500.txt', stageDir)
 
@@ -319,7 +331,7 @@ async function main() {
       console.log('\n⬇️  Downloading admin1CodesASCII.txt…')
       const t0 = Date.now()
       const txt = join(stageDir, 'admin1CodesASCII.txt')
-      downloadTo(GEONAMES_ADMIN1_URL, txt)
+      await downloadTo(GEONAMES_ADMIN1_URL, txt)
       console.log(`   downloaded in ${ms(t0)}`)
       const n = await importAdmin1(db, txt)
       console.log(`   ✅ ${fmt(n)} admin1 codes`)
@@ -332,7 +344,7 @@ async function main() {
       console.log('\n⬇️  Downloading countryInfo.txt…')
       const t0 = Date.now()
       const txt = join(stageDir, 'countryInfo.txt')
-      downloadTo(GEONAMES_COUNTRIES_URL, txt)
+      await downloadTo(GEONAMES_COUNTRIES_URL, txt)
       console.log(`   downloaded in ${ms(t0)}`)
       const n = await importCountries(db, txt)
       console.log(`   ✅ ${fmt(n)} countries`)
@@ -387,7 +399,8 @@ async function main() {
   } finally {
     if (!opts.keepTemp) {
       try {
-        spawnSync('rm', ['-rf', stageDir])
+        // Cross-platform: fs.rmSync replaces `rm -rf` (Node ≥ 14.14).
+        rmSync(stageDir, { recursive: true, force: true })
       } catch { /* ignore */ }
     } else {
       console.log(`\nℹ️  Temp files kept at: ${stageDir}`)

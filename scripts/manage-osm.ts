@@ -109,9 +109,12 @@ async function runPostImportHotfixes(): Promise<void> {
     console.log(`\n▸ [${i + 1}/${hotfixes.length}] ${h.name} (${h.est})`);
     console.log(`  npx tsx scripts/${h.script}`);
 
+    // shell: true so Windows finds `npx.cmd` via cmd's PATH resolution.
+    // No security risk — the args are hardcoded script names from `hotfixes`.
     const r = spawnSync('npx', ['tsx', `scripts/${h.script}`], {
       stdio: 'inherit',
-      cwd: process.cwd()
+      cwd: process.cwd(),
+      shell: true
     });
 
     if (r.status !== 0) {
