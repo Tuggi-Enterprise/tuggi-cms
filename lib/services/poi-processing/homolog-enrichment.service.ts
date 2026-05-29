@@ -270,7 +270,7 @@ export class HomologEnrichmentService {
       const response = await fetch(lookupUrl, {
         headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
       })
-      
+
       if (response.ok) {
         const results = await response.json()
         if (Array.isArray(results) && results.length > 0) {
@@ -278,11 +278,18 @@ export class HomologEnrichmentService {
           cacheService.set(lookupUrl, results[0])
           return results[0]
         }
+        // 200 OK but empty array — POI not in Nominatim's address index
+        // (common for natural features, peaks, recent edits).
+        console.log(`   ℹ️  Nominatim /lookup returned empty for ${osmType}${osmId} (not in address index)`)
+      } else if (response.status === 429) {
+        console.warn(`   🚫 Nominatim /lookup rate-limited (HTTP 429) — Nominatim public TOS is 1 req/sec per IP. Backoff and retry, or use Photon / self-host.`)
+      } else {
+        console.warn(`   ⚠️  Nominatim /lookup HTTP ${response.status} for ${osmType}${osmId}`)
       }
-      
+
       return null
     } catch (error) {
-      console.error('❌ Error fetching OSM data by ID:', error)
+      console.error('❌ Error fetching OSM data by ID (network/exception):', error)
       return null
     }
   }
@@ -315,11 +322,16 @@ export class HomologEnrichmentService {
           cacheService.set(reverseUrl, data)
           return data
         }
+        console.log(`   ℹ️  Nominatim /reverse returned no usable data for ${lat},${lng}`)
+      } else if (response.status === 429) {
+        console.warn(`   🚫 Nominatim /reverse rate-limited (HTTP 429) — public TOS is 1 req/sec per IP.`)
+      } else {
+        console.warn(`   ⚠️  Nominatim /reverse HTTP ${response.status} for ${lat},${lng}`)
       }
 
       return null
     } catch (error) {
-      console.error('❌ Error fetching OSM data by coordinates:', error)
+      console.error('❌ Error fetching OSM data by coordinates (network/exception):', error)
       return null
     }
   }
@@ -346,7 +358,16 @@ export class HomologEnrichmentService {
         headers: { 'User-Agent': 'TuggiCMS/1.0 - Contact: leandro@tuggi.com.br' }
       })
 
-      if (response.ok) {
+      if (!response.ok) {
+        if (response.status === 429) {
+          console.warn(`   🚫 Photon rate-limited (HTTP 429)`)
+        } else {
+          console.warn(`   ⚠️  Photon HTTP ${response.status} for ${lat},${lng}`)
+        }
+        return null
+      }
+
+      {
         const data = await response.json()
         if (data?.features && data.features.length > 0) {
           const feature = data.features[0]
