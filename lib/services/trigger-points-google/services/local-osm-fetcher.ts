@@ -300,13 +300,23 @@ export class LocalOSMFetcher {
       }
 
       if (!boundary && poiData.name) {
-        const stmt = this.db.prepare(`
-          SELECT osm_id, geometry_json, tags_json FROM pois
-          WHERE json_extract(tags_json, '$.name') = ?
-            AND min_lat <= ? AND max_lat >= ?
-            AND min_lng <= ? AND max_lng >= ?
-          LIMIT 1
-        `);
+        // Caminho rápido R-tree + b-tree fallback — ver doc em queryStreets().
+        const stmt = this.rtreeAvailable.pois
+          ? this.db.prepare(`
+              SELECT p.osm_id, p.geometry_json, p.tags_json FROM pois p
+              JOIN pois_rtree r ON r.rowid = p.rowid
+              WHERE json_extract(p.tags_json, '$.name') = ?
+                AND r.min_lat <= ? AND r.max_lat >= ?
+                AND r.min_lng <= ? AND r.max_lng >= ?
+              LIMIT 1
+            `)
+          : this.db.prepare(`
+              SELECT osm_id, geometry_json, tags_json FROM pois
+              WHERE json_extract(tags_json, '$.name') = ?
+                AND min_lat <= ? AND max_lat >= ?
+                AND min_lng <= ? AND max_lng >= ?
+              LIMIT 1
+            `);
         const row = stmt.get(poiData.name, bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng) as any;
         if (row) {
           const coords = JSON.parse(row.geometry_json);
@@ -536,13 +546,24 @@ export class LocalOSMFetcher {
     if (!this.db) return null;
 
     try {
-      // Usamos LIKE em vez de json_extract para pegar qualquer valor de `entrance`
-      const stmt = this.db.prepare(`
-        SELECT geometry_json, tags_json FROM pois
-        WHERE tags_json LIKE '%"entrance"%'
-          AND min_lat <= ? AND max_lat >= ?
-          AND min_lng <= ? AND max_lng >= ?
-      `);
+      // Caminho rápido: R-tree narrows down primeiro; json_extract substitui o
+      // LIKE legado (mais correto — só casa quando a tag entrance existe de fato,
+      // não quando "entrance" aparece em qualquer outro campo do tags_json).
+      // Fallback b-tree pra máquinas que ainda não rodaram hotfix-osm-rtree-index.
+      const stmt = this.rtreeAvailable.pois
+        ? this.db.prepare(`
+            SELECT p.geometry_json, p.tags_json FROM pois p
+            JOIN pois_rtree r ON r.rowid = p.rowid
+            WHERE json_extract(p.tags_json, '$.entrance') IS NOT NULL
+              AND r.min_lat <= ? AND r.max_lat >= ?
+              AND r.min_lng <= ? AND r.max_lng >= ?
+          `)
+        : this.db.prepare(`
+            SELECT geometry_json, tags_json FROM pois
+            WHERE tags_json LIKE '%"entrance"%'
+              AND min_lat <= ? AND max_lat >= ?
+              AND min_lng <= ? AND max_lng >= ?
+          `);
       const rows = stmt.all(bbox.maxLat, bbox.minLat, bbox.maxLng, bbox.minLng) as any[];
 
       if (!rows || rows.length === 0) return null;
