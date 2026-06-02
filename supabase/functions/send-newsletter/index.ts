@@ -72,6 +72,31 @@ async function buildUnsubscribeUrl(email: string, appUrl: string, secret: string
   return `${base}/${siteLocale}/unsubscribe?e=${e}&s=${s}`;
 }
 
+// Personalização: substitui {{first_name}} / {{name}}. Sem nome → fallback por idioma.
+const FALLBACK_NAME: Record<string, string> = { pt: 'viajante', en: 'traveler', es: 'viajero' };
+
+function personalizeText(text: string | undefined, vars: Record<string, string>): string | undefined {
+  if (!text) return text;
+  return text.replace(/\{\{\s*(first_name|name)\s*\}\}/gi, (_m, k) => vars[String(k).toLowerCase()] ?? '');
+}
+
+function personalizeContent(c: NewsletterContent, name: string, lang: string): NewsletterContent {
+  const full = (name || '').trim();
+  const fallback = FALLBACK_NAME[lang] || FALLBACK_NAME.en;
+  const vars = {
+    name: full || fallback,
+    first_name: full ? full.split(/\s+/)[0] : fallback,
+  };
+  return {
+    ...c,
+    subject: personalizeText(c.subject, vars),
+    preheader: personalizeText(c.preheader, vars),
+    title: personalizeText(c.title, vars),
+    paragraphs: (c.paragraphs || []).map((p) => personalizeText(p, vars) as string),
+    cta_label: personalizeText(c.cta_label, vars),
+  };
+}
+
 // Escolhe o conteúdo do idioma do usuário com fallback para o idioma padrão.
 function pickContent(
   content: Record<string, NewsletterContent>,
@@ -106,7 +131,7 @@ Deno.serve(async (req) => {
     // ---- /preview : renderiza sem enviar (usado pelo painel) ----
     if (path === '/preview') {
       const { content, language = 'pt' } = await req.json();
-      const html = renderEmail(content || {}, {
+      const html = renderEmail(personalizeContent(content || {}, '', language), {
         unsubscribeUrl: `${APP_URL.replace(/\/$/, '')}/${language}/unsubscribe?e=preview&s=preview`,
         locale: language,
         utmCampaign: 'preview',
@@ -120,8 +145,9 @@ Deno.serve(async (req) => {
       const { content, email, language = 'pt' } = await req.json();
       if (!email || !content) return json({ error: 'email and content required' }, 400);
 
+      const pc = personalizeContent(content, '', language);
       const unsubscribeUrl = await buildUnsubscribeUrl(email, APP_URL, NEWSLETTER_SECRET, language);
-      const html = renderEmail(content, { unsubscribeUrl, locale: language, utmCampaign: 'test' });
+      const html = renderEmail(pc, { unsubscribeUrl, locale: language, utmCampaign: 'test' });
 
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -129,7 +155,7 @@ Deno.serve(async (req) => {
         body: JSON.stringify({
           from: RESEND_FROM,
           to: [email],
-          subject: `[TESTE] ${content.subject || 'Tuggi'}`,
+          subject: `[TESTE] ${pc.subject || 'Tuggi'}`,
           html,
           headers: { 'List-Unsubscribe': `<${unsubscribeUrl}>` },
         }),
@@ -154,7 +180,7 @@ Deno.serve(async (req) => {
         .rpc('get_newsletter_audience', { p_filters: campaign.audience_filters || {} });
       if (audErr) throw audErr;
 
-      const recipients: Array<{ email: string; user_id: string | null; language: string | null }> =
+      const recipients: Array<{ email: string; user_id: string | null; language: string | null; name?: string | null }> =
         audience || [];
 
       if (recipients.length === 0) {
@@ -172,7 +198,8 @@ Deno.serve(async (req) => {
         const rows: any[] = [];
 
         for (const r of group) {
-          const { content: c, lang } = pickContent(content, r.language, defaultLang);
+          const { content: cBase, lang } = pickContent(content, r.language, defaultLang);
+          const c = personalizeContent(cBase, r.name || '', lang);
           const unsubscribeUrl = await buildUnsubscribeUrl(r.email, APP_URL, NEWSLETTER_SECRET, lang);
           const html = renderEmail(c, { unsubscribeUrl, locale: lang, utmCampaign: campaign.name || campaign.id });
 

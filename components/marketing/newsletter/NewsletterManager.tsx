@@ -222,6 +222,9 @@ export function NewsletterManager() {
                   <Label>{t('compose.heading')}</Label>
                   <Input value={active.title || ''} onChange={(e) => setActiveField('title', e.target.value)} />
                 </div>
+                <p className="text-xs text-tuggi-blue bg-tuggi-blue/5 rounded-lg px-3 py-2">
+                  {t('compose.tokensHint')}
+                </p>
                 <div>
                   <Label>{t('compose.paragraphs')}</Label>
                   <Textarea
