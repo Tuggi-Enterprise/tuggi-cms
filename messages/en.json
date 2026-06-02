@@ -828,7 +828,9 @@
             "primary": "Blue",
             "accent": "Orange"
           }
-        }
+        },
+        "title": "Newsletter",
+        "subtitle": "Create, translate and send emails to your users"
       }
     },
     "Unsubscribe": {

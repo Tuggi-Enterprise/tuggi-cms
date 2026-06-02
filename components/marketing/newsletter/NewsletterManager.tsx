@@ -131,9 +131,20 @@ export function NewsletterManager() {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Sub-tabs */}
-      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-800">
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-3 tracking-tight">
+          <div className="p-2 bg-tuggi-blue/10 rounded-xl">
+            <Mail className="h-8 w-8 text-tuggi-blue" />
+          </div>
+          {t('title')}
+        </h1>
+        <p className="text-gray-500 mt-1 font-medium">{t('subtitle')}</p>
+      </div>
+
+      {/* Tabs (estilo pílula, consistente com Push) */}
+      <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800/50 p-1.5 rounded-2xl w-fit border border-gray-200 dark:border-gray-700">
         {tabs.map((tb) => {
           const Icon = tb.icon;
           return (
@@ -141,13 +152,13 @@ export function NewsletterManager() {
               key={tb.id}
               onClick={() => setTab(tb.id)}
               className={cn(
-                'flex items-center gap-2 px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors',
+                'flex items-center gap-2 px-6 py-2.5 text-sm font-bold rounded-xl transition-all duration-300',
                 tab === tb.id
-                  ? 'border-tuggi-blue text-tuggi-blue'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  ? 'bg-white dark:bg-gray-700 shadow-lg text-tuggi-blue scale-105'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
               )}
             >
-              <Icon size={16} />
+              <Icon className={cn('h-4 w-4', tab === tb.id ? 'text-tuggi-blue' : 'text-gray-400')} />
               {tb.label}
             </button>
           );

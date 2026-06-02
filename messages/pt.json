@@ -827,7 +827,9 @@
             "primary": "Azul",
             "accent": "Laranja"
           }
-        }
+        },
+        "title": "Newsletter",
+        "subtitle": "Crie, traduza e envie emails para seus usuários"
       }
     },
     "Unsubscribe": {
