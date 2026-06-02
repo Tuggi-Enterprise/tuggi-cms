@@ -9,8 +9,8 @@
 export type EmailBlock =
   | { type: 'heading'; text?: string }
   | { type: 'text'; text?: string }
-  | { type: 'image'; url?: string; alt?: string }
-  | { type: 'button'; label?: string; url?: string }
+  | { type: 'image'; url?: string; alt?: string; link?: string }
+  | { type: 'button'; label?: string; url?: string; variant?: 'primary' | 'accent' }
   | { type: 'divider' };
 
 export interface NewsletterContent {
@@ -86,16 +86,16 @@ function appendUtm(url: string | undefined, campaign?: string): string | undefin
 }
 
 // Botão "bulletproof": VML para Outlook + <a> para os demais clientes (melhora CTR).
-function bulletproofButton(href: string, label: string): string {
+function bulletproofButton(href: string, label: string, color: string = COLORS.blue): string {
   const safe = escapeHtml(label);
   return `<!--[if mso]>
-    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="50%" stroke="f" fillcolor="${COLORS.blue}">
+    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="50%" stroke="f" fillcolor="${color}">
       <w:anchorlock/>
       <center style="color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:bold;">${safe}</center>
     </v:roundrect>
     <![endif]-->
     <!--[if !mso]><!-- -->
-    <a href="${href}" target="_blank" style="display:inline-block;background:${COLORS.blue};color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;padding:14px 28px;border-radius:9999px;">${safe}</a>
+    <a href="${href}" target="_blank" style="display:inline-block;background:${color};color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;padding:14px 28px;border-radius:9999px;">${safe}</a>
     <!--<![endif]-->`;
 }
 
@@ -130,12 +130,19 @@ function renderBlocks(blocks: EmailBlock[], opts: RenderEmailOptions): string {
           return `<tr><td style="padding:0 0 16px 0;"><h2 style="margin:0;font-size:22px;line-height:1.3;font-weight:800;color:${COLORS.text};">${renderInline(b.text, opts.utmCampaign)}</h2></td></tr>`;
         case 'text':
           return `<tr><td style="padding:0 0 16px 0;"><p style="margin:0;font-size:16px;line-height:1.6;color:${COLORS.text};">${renderInline(b.text, opts.utmCampaign)}</p></td></tr>`;
-        case 'image':
+        case 'image': {
           if (!b.url) return '';
-          return `<tr><td style="padding:0 0 20px 0;background:#eef2f4;border-radius:12px;"><img src="${safeUrl(b.url)}" alt="${escapeHtml(b.alt || '')}" width="552" style="display:block;width:100%;max-width:552px;height:auto;border-radius:12px;" /></td></tr>`;
-        case 'button':
+          const img = `<img src="${safeUrl(b.url)}" alt="${escapeHtml(b.alt || '')}" width="552" style="display:block;width:100%;max-width:552px;height:auto;border-radius:12px;border:0;" />`;
+          const wrapped = b.link
+            ? `<a href="${safeUrl(appendUtm(b.link, opts.utmCampaign))}" target="_blank">${img}</a>`
+            : img;
+          return `<tr><td style="padding:0 0 20px 0;background:#eef2f4;border-radius:12px;">${wrapped}</td></tr>`;
+        }
+        case 'button': {
           if (!b.label || !b.url) return '';
-          return `<tr><td style="padding:8px 0 20px 0;">${bulletproofButton(safeUrl(appendUtm(b.url, opts.utmCampaign)), b.label)}</td></tr>`;
+          const color = b.variant === 'accent' ? COLORS.orange : COLORS.blue;
+          return `<tr><td style="padding:8px 0 20px 0;">${bulletproofButton(safeUrl(appendUtm(b.url, opts.utmCampaign)), b.label, color)}</td></tr>`;
+        }
         case 'divider':
           return `<tr><td style="padding:8px 0 20px 0;"><hr style="border:none;border-top:1px solid ${COLORS.border};margin:0;" /></td></tr>`;
         default:

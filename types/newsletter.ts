@@ -12,8 +12,8 @@ export const NEWSLETTER_LANGUAGES: NewsletterLanguage[] = ['pt', 'en', 'es'];
 export type NewsletterBlock =
   | { type: 'heading'; text: string }
   | { type: 'text'; text: string }
-  | { type: 'image'; url: string; alt?: string }
-  | { type: 'button'; label: string; url: string }
+  | { type: 'image'; url: string; alt?: string; link?: string }
+  | { type: 'button'; label: string; url: string; variant?: 'primary' | 'accent' }
   | { type: 'divider' };
 
 export type NewsletterBlockType = NewsletterBlock['type'];

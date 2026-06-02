@@ -820,6 +820,13 @@
             "image": "Image",
             "button": "Button",
             "divider": "Divider"
+          },
+          "imageUrl": "Image URL",
+          "imageLink": "Click link (optional)",
+          "buttonColor": "Color",
+          "buttonVariant": {
+            "primary": "Blue",
+            "accent": "Orange"
           }
         }
       }

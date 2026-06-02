@@ -744,6 +744,13 @@
             "image": "Imagen",
             "button": "Botón",
             "divider": "Divisor"
+          },
+          "imageUrl": "URL de la imagen",
+          "imageLink": "Enlace al hacer clic (opcional)",
+          "buttonColor": "Color",
+          "buttonVariant": {
+            "primary": "Azul",
+            "accent": "Naranja"
           }
         }
       }

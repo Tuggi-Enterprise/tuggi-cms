@@ -81,15 +81,34 @@ export function BlockEditor({ blocks, onChange }: Props) {
 
           {b.type === 'image' && (
             <div className="space-y-2">
-              <Input value={b.url} onChange={(e) => update(i, { url: e.target.value })} placeholder="https://" />
+              <Input value={b.url} onChange={(e) => update(i, { url: e.target.value })} placeholder={t('imageUrl')} />
               <Input value={b.alt || ''} onChange={(e) => update(i, { alt: e.target.value })} placeholder={t('imageAlt')} />
+              <Input value={b.link || ''} onChange={(e) => update(i, { link: e.target.value })} placeholder={t('imageLink')} />
             </div>
           )}
 
           {b.type === 'button' && (
-            <div className="grid grid-cols-2 gap-2">
-              <Input value={b.label} onChange={(e) => update(i, { label: e.target.value })} placeholder={t('buttonLabel')} />
-              <Input value={b.url} onChange={(e) => update(i, { url: e.target.value })} placeholder="https://" />
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <Input value={b.label} onChange={(e) => update(i, { label: e.target.value })} placeholder={t('buttonLabel')} />
+                <Input value={b.url} onChange={(e) => update(i, { url: e.target.value })} placeholder="https://" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">{t('buttonColor')}:</span>
+                {(['primary', 'accent'] as const).map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => update(i, { variant: v })}
+                    className={cn(
+                      'px-3 py-1 rounded-full text-xs font-semibold text-white',
+                      v === 'accent' ? 'bg-tuggi-orange' : 'bg-tuggi-blue',
+                      (b.variant || 'primary') === v ? 'ring-2 ring-offset-1 ring-gray-400' : 'opacity-60'
+                    )}
+                  >
+                    {t(`buttonVariant.${v}`)}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
