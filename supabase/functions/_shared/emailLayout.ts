@@ -30,8 +30,8 @@ const COLORS = {
   border: '#E5E7EB',
 };
 
-// Logo público da Tuggi (PNG hospedado). Ajustar se a URL canônica mudar.
-const TUGGI_LOGO_URL = 'https://tuggi.app/logo-email.png';
+// Logo público da Tuggi (versão branca, para o header azul). Asset servido pelo site.
+const TUGGI_LOGO_URL = 'https://www.tuggi.app/images/logo_tuggi_full_white.png';
 
 // Rótulos do rodapé por idioma (i18n do email é independente do i18n do painel).
 const FOOTER_LABELS: Record<string, { unsubscribe: string; rights: string }> = {
