@@ -81,7 +81,22 @@ export function ClientQrCode({ clientId, slug }: ClientQrCodeProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
         <div className="flex flex-col items-center">
           <div className="p-5 bg-white border-2 border-gray-50 rounded-3xl shadow-sm">
-            <QRCodeCanvas id={canvasId} value={finalUrl} size={220} level="H" />
+            <QRCodeCanvas
+              id={canvasId}
+              value={finalUrl}
+              size={220}
+              // Error correction H tolerates up to ~30% module damage —
+              // required for the centered logo overlay to scan reliably.
+              level="H"
+              imageSettings={{
+                src: '/tuggi-icon.png',
+                height: 44,
+                width: 44,
+                // Carve the QR modules out behind the logo so it doesn't
+                // sit on top of dark squares.
+                excavate: true,
+              }}
+            />
           </div>
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-5 text-center">
             {t('scanLabel')}

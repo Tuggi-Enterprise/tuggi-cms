@@ -1435,7 +1435,11 @@
         "approved": "Aprobado",
         "rejected": "Rechazado",
         "pending": "Pendiente"
-      }
+      },
+      "approveConfirmIntro": "Aprobar este cliente crea un CMS user vinculado a él. El nuevo usuario será:",
+      "approveMissingClientData": "Agrega el email y nombre del cliente en la pestaña Perfil antes de aprobar — el nuevo CMS user se crea a partir de ellos.",
+      "cmsUserEmailLabel": "Email del nuevo CMS user",
+      "cmsUserNameLabel": "Nombre del nuevo CMS user"
     },
     "profile": {
       "sections": {

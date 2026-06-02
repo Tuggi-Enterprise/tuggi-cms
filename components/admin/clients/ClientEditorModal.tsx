@@ -237,6 +237,8 @@ export function ClientEditorModal({
               <ApprovalHeaderControls
                 clientId={clientId}
                 status={currentStatus}
+                clientEmail={edited.email ?? client?.email}
+                clientName={edited.name ?? client?.name}
                 canEdit
                 onChanged={(next) => {
                   setClient((prev) => prev ? { ...prev, ...next } : prev)
