@@ -6,9 +6,19 @@
 // layout. A própria Edge Function usa esta função para enviar E para o preview,
 // então o painel mostra exatamente o que o usuário recebe.
 
+export type EmailBlock =
+  | { type: 'heading'; text?: string }
+  | { type: 'text'; text?: string }
+  | { type: 'image'; url?: string; alt?: string }
+  | { type: 'button'; label?: string; url?: string }
+  | { type: 'divider' };
+
 export interface NewsletterContent {
   subject?: string;
   preheader?: string; // texto de preview na inbox (não aparece no corpo)
+  // Modelo novo (composer por blocos). Se presente, substitui os campos legados.
+  blocks?: EmailBlock[];
+  // Campos legados (compat com campanhas antigas / fallback):
   title?: string;
   paragraphs?: string[];
   cta_label?: string;
@@ -75,6 +85,52 @@ function appendUtm(url: string | undefined, campaign?: string): string | undefin
   }
 }
 
+// Markdown leve inline: **negrito** e [texto](url). Escapa o texto puro, converte
+// newline em <br>, e aplica UTM aos links. Seguro (sem HTML livre do autor).
+function renderInline(raw: string | undefined, utmCampaign?: string): string {
+  const text = raw || '';
+  const re = /\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*/g;
+  let out = '';
+  let last = 0;
+  let m: RegExpExecArray | null;
+  const esc = (s: string) => escapeHtml(s).replace(/\r?\n/g, '<br/>');
+  while ((m = re.exec(text)) !== null) {
+    out += esc(text.slice(last, m.index));
+    if (m[1] !== undefined) {
+      const href = safeUrl(appendUtm(m[2], utmCampaign));
+      out += `<a href="${href}" target="_blank" style="color:${COLORS.blue};text-decoration:underline;">${escapeHtml(m[1])}</a>`;
+    } else {
+      out += `<strong>${escapeHtml(m[3])}</strong>`;
+    }
+    last = re.lastIndex;
+  }
+  out += esc(text.slice(last));
+  return out;
+}
+
+function renderBlocks(blocks: EmailBlock[], opts: RenderEmailOptions): string {
+  return blocks
+    .map((b) => {
+      switch (b.type) {
+        case 'heading':
+          return `<tr><td style="padding:0 0 16px 0;"><h2 style="margin:0;font-size:22px;line-height:1.3;font-weight:800;color:${COLORS.text};">${renderInline(b.text, opts.utmCampaign)}</h2></td></tr>`;
+        case 'text':
+          return `<tr><td style="padding:0 0 16px 0;"><p style="margin:0;font-size:16px;line-height:1.6;color:${COLORS.text};">${renderInline(b.text, opts.utmCampaign)}</p></td></tr>`;
+        case 'image':
+          if (!b.url) return '';
+          return `<tr><td style="padding:0 0 20px 0;background:#eef2f4;border-radius:12px;"><img src="${safeUrl(b.url)}" alt="${escapeHtml(b.alt || '')}" width="552" style="display:block;width:100%;max-width:552px;height:auto;border-radius:12px;" /></td></tr>`;
+        case 'button':
+          if (!b.label || !b.url) return '';
+          return `<tr><td style="padding:8px 0 20px 0;"><a href="${safeUrl(appendUtm(b.url, opts.utmCampaign))}" target="_blank" style="display:inline-block;background:${COLORS.blue};color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;padding:14px 28px;border-radius:9999px;">${escapeHtml(b.label)}</a></td></tr>`;
+        case 'divider':
+          return `<tr><td style="padding:8px 0 20px 0;"><hr style="border:none;border-top:1px solid ${COLORS.border};margin:0;" /></td></tr>`;
+        default:
+          return '';
+      }
+    })
+    .join('');
+}
+
 export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions): string {
   const locale = (opts.locale || 'pt').slice(0, 2).toLowerCase();
   const footer = FOOTER_LABELS[locale] || FOOTER_LABELS.pt;
@@ -117,6 +173,15 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
          </td></tr>`
       : '';
 
+  // Modelo novo (blocos) tem prioridade; senão, render legado (hero/título/parágrafos/cta).
+  const useBlocks = Array.isArray(content.blocks) && content.blocks.length > 0;
+  const bodyRows = useBlocks
+    ? renderBlocks(content.blocks as EmailBlock[], opts)
+    : `${hero}
+       ${title ? `<tr><td style="padding:0 0 16px 0;"><h1 style="margin:0;font-size:24px;line-height:1.3;color:${COLORS.text};font-weight:800;">${title}</h1></td></tr>` : ''}
+       <tr><td>${paragraphs}</td></tr>
+       ${cta}`;
+
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(locale)}">
 <head>
@@ -142,10 +207,7 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
           <tr>
             <td style="padding:32px 24px 8px 24px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                ${hero}
-                ${title ? `<tr><td style="padding:0 0 16px 0;"><h1 style="margin:0;font-size:24px;line-height:1.3;color:${COLORS.text};font-weight:800;">${title}</h1></td></tr>` : ''}
-                <tr><td>${paragraphs}</td></tr>
-                ${cta}
+                ${bodyRows}
               </table>
             </td>
           </tr>

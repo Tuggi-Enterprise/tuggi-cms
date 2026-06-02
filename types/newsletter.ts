@@ -8,10 +8,22 @@ export type NewsletterLanguage = 'pt' | 'en' | 'es';
 
 export const NEWSLETTER_LANGUAGES: NewsletterLanguage[] = ['pt', 'en', 'es'];
 
-/** Conteúdo de um email, por idioma (campos estruturados → layout-base). */
+/** Blocos do composer (modelo novo). */
+export type NewsletterBlock =
+  | { type: 'heading'; text: string }
+  | { type: 'text'; text: string }
+  | { type: 'image'; url: string; alt?: string }
+  | { type: 'button'; label: string; url: string }
+  | { type: 'divider' };
+
+export type NewsletterBlockType = NewsletterBlock['type'];
+
+/** Conteúdo de um email, por idioma. `blocks` é o modelo novo; demais campos = legado. */
 export interface NewsletterContent {
   subject?: string;
   preheader?: string; // texto de preview na inbox
+  blocks?: NewsletterBlock[];
+  // legado (compat):
   title?: string;
   paragraphs?: string[];
   cta_label?: string;

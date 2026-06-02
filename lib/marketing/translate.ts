@@ -92,9 +92,24 @@ export async function translateNewsletterContent(
     (source.paragraphs || []).map((p) => translateSnippet(p, targetLang, apiKey))
   );
 
+  const blocks = source.blocks
+    ? await Promise.all(
+        source.blocks.map(async (b) => {
+          if (b.type === 'heading' || b.type === 'text') {
+            return { ...b, text: await translateSnippet(b.text, targetLang, apiKey) };
+          }
+          if (b.type === 'button') {
+            return { ...b, label: await translateSnippet(b.label, targetLang, apiKey) };
+          }
+          return b; // image/divider: mantém (alt opcional)
+        })
+      )
+    : undefined;
+
   return {
     subject,
     preheader,
+    blocks,
     title,
     paragraphs,
     cta_label,

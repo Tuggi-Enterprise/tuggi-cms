@@ -781,7 +781,8 @@
           "paragraphsHelp": "Linha em branco = novo parágrafo. Enter simples = quebra de linha.",
           "heroAlt": "Texto alternativo da imagem",
           "heroAltPlaceholder": "Descreva a imagem (aparece se ela não carregar)",
-          "tokensHint": "Personalize com {{first_name}} ou {{name}} — sem nome, usamos “viajante”."
+          "tokensHint": "Personalize com {{first_name}} ou {{name}} — sem nome, usamos “viajante”.",
+          "content": "Conteúdo (blocos)"
         },
         "preview": {
           "empty": "Nada para pré-visualizar ainda.",
@@ -803,6 +804,21 @@
           "sending": "Enviando",
           "sent": "Enviada",
           "failed": "Falhou"
+        },
+        "blocks": {
+          "empty": "Nenhum bloco ainda. Adicione abaixo.",
+          "headingPlaceholder": "Título da seção",
+          "textPlaceholder": "Escreva o texto… use **negrito** e [link](https://...)",
+          "markdownHint": "Suporta **negrito** e [texto](url). Links ganham UTM automaticamente.",
+          "imageAlt": "Texto alternativo da imagem",
+          "buttonLabel": "Texto do botão",
+          "types": {
+            "heading": "Título",
+            "text": "Texto",
+            "image": "Imagem",
+            "button": "Botão",
+            "divider": "Divisor"
+          }
         }
       }
     },

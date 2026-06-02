@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Mail, Languages, Send, Clock, Eye, Pencil, History, Loader2 } from 'lucide-react';
@@ -22,17 +21,14 @@ import {
 } from '@/types/newsletter';
 import { NewsletterPreview } from './NewsletterPreview';
 import { NewsletterHistory } from './NewsletterHistory';
+import { BlockEditor } from './BlockEditor';
 
 type Tab = 'compose' | 'preview' | 'history';
 
 const emptyContent = (): NewsletterContent => ({
   subject: '',
   preheader: '',
-  title: '',
-  paragraphs: [],
-  cta_label: '',
-  cta_url: '',
-  hero_image_url: '',
+  blocks: [],
 });
 
 export function NewsletterManager() {
@@ -218,49 +214,13 @@ export function NewsletterManager() {
                   <Input value={active.preheader || ''} onChange={(e) => setActiveField('preheader', e.target.value)} placeholder={t('compose.preheaderPlaceholder')} />
                   <p className="text-xs text-gray-400 mt-1">{t('compose.preheaderHelp')}</p>
                 </div>
-                <div>
-                  <Label>{t('compose.heading')}</Label>
-                  <Input value={active.title || ''} onChange={(e) => setActiveField('title', e.target.value)} />
-                </div>
                 <p className="text-xs text-tuggi-blue bg-tuggi-blue/5 rounded-lg px-3 py-2">
                   {t('compose.tokensHint')}
                 </p>
                 <div>
-                  <Label>{t('compose.paragraphs')}</Label>
-                  <Textarea
-                    rows={8}
-                    value={(active.paragraphs || []).join('\n\n')}
-                    onChange={(e) =>
-                      setActiveField(
-                        'paragraphs',
-                        // linha em branco = novo parágrafo; Enter simples = quebra de linha (<br>)
-                        e.target.value.split(/\n{2,}/).map((p) => p.replace(/^\s+|\s+$/g, '')).filter(Boolean)
-                      )
-                    }
-                    placeholder={t('compose.paragraphsPlaceholder')}
-                  />
-                  <p className="text-xs text-gray-400 mt-1">{t('compose.paragraphsHelp')}</p>
+                  <Label>{t('compose.content')}</Label>
+                  <BlockEditor blocks={active.blocks || []} onChange={(blocks) => setActiveField('blocks', blocks)} />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>{t('compose.ctaLabel')}</Label>
-                    <Input value={active.cta_label || ''} onChange={(e) => setActiveField('cta_label', e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>{t('compose.ctaUrl')}</Label>
-                    <Input value={active.cta_url || ''} onChange={(e) => setActiveField('cta_url', e.target.value)} placeholder="https://" />
-                  </div>
-                </div>
-                <div>
-                  <Label>{t('compose.heroImage')}</Label>
-                  <Input value={active.hero_image_url || ''} onChange={(e) => setActiveField('hero_image_url', e.target.value)} placeholder="https://" />
-                </div>
-                {active.hero_image_url ? (
-                  <div>
-                    <Label>{t('compose.heroAlt')}</Label>
-                    <Input value={active.hero_alt || ''} onChange={(e) => setActiveField('hero_alt', e.target.value)} placeholder={t('compose.heroAltPlaceholder')} />
-                  </div>
-                ) : null}
 
                 <Button variant="outline" onClick={handleTranslate} disabled={busy !== null}>
                   {busy === 'translate' ? <Loader2 className="animate-spin" size={16} /> : <Languages size={16} />}

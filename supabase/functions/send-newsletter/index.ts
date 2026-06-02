@@ -94,6 +94,13 @@ function personalizeContent(c: NewsletterContent, name: string, lang: string): N
     title: personalizeText(c.title, vars),
     paragraphs: (c.paragraphs || []).map((p) => personalizeText(p, vars) as string),
     cta_label: personalizeText(c.cta_label, vars),
+    blocks: c.blocks
+      ? c.blocks.map((b: any) => {
+          if (b.type === 'heading' || b.type === 'text') return { ...b, text: personalizeText(b.text, vars) };
+          if (b.type === 'button') return { ...b, label: personalizeText(b.label, vars) };
+          return b;
+        })
+      : c.blocks,
   };
 }
 

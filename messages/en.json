@@ -782,7 +782,8 @@
           "paragraphsHelp": "Blank line = new paragraph. Single Enter = line break.",
           "heroAlt": "Image alt text",
           "heroAltPlaceholder": "Describe the image (shown if it fails to load)",
-          "tokensHint": "Personalize with {{first_name}} or {{name}} — no name falls back to “traveler”."
+          "tokensHint": "Personalize with {{first_name}} or {{name}} — no name falls back to “traveler”.",
+          "content": "Content (blocks)"
         },
         "preview": {
           "empty": "Nothing to preview yet.",
@@ -804,6 +805,21 @@
           "sending": "Sending",
           "sent": "Sent",
           "failed": "Failed"
+        },
+        "blocks": {
+          "empty": "No blocks yet. Add one below.",
+          "headingPlaceholder": "Section heading",
+          "textPlaceholder": "Write your text… use **bold** and [link](https://...)",
+          "markdownHint": "Supports **bold** and [text](url). Links get UTM automatically.",
+          "imageAlt": "Image alt text",
+          "buttonLabel": "Button text",
+          "types": {
+            "heading": "Heading",
+            "text": "Text",
+            "image": "Image",
+            "button": "Button",
+            "divider": "Divider"
+          }
         }
       }
     },
