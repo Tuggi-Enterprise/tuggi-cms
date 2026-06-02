@@ -85,6 +85,20 @@ function appendUtm(url: string | undefined, campaign?: string): string | undefin
   }
 }
 
+// Botão "bulletproof": VML para Outlook + <a> para os demais clientes (melhora CTR).
+function bulletproofButton(href: string, label: string): string {
+  const safe = escapeHtml(label);
+  return `<!--[if mso]>
+    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${href}" style="height:48px;v-text-anchor:middle;width:240px;" arcsize="50%" stroke="f" fillcolor="${COLORS.blue}">
+      <w:anchorlock/>
+      <center style="color:#ffffff;font-family:sans-serif;font-size:16px;font-weight:bold;">${safe}</center>
+    </v:roundrect>
+    <![endif]-->
+    <!--[if !mso]><!-- -->
+    <a href="${href}" target="_blank" style="display:inline-block;background:${COLORS.blue};color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;padding:14px 28px;border-radius:9999px;">${safe}</a>
+    <!--<![endif]-->`;
+}
+
 // Markdown leve inline: **negrito** e [texto](url). Escapa o texto puro, converte
 // newline em <br>, e aplica UTM aos links. Seguro (sem HTML livre do autor).
 function renderInline(raw: string | undefined, utmCampaign?: string): string {
@@ -121,7 +135,7 @@ function renderBlocks(blocks: EmailBlock[], opts: RenderEmailOptions): string {
           return `<tr><td style="padding:0 0 20px 0;background:#eef2f4;border-radius:12px;"><img src="${safeUrl(b.url)}" alt="${escapeHtml(b.alt || '')}" width="552" style="display:block;width:100%;max-width:552px;height:auto;border-radius:12px;" /></td></tr>`;
         case 'button':
           if (!b.label || !b.url) return '';
-          return `<tr><td style="padding:8px 0 20px 0;"><a href="${safeUrl(appendUtm(b.url, opts.utmCampaign))}" target="_blank" style="display:inline-block;background:${COLORS.blue};color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;padding:14px 28px;border-radius:9999px;">${escapeHtml(b.label)}</a></td></tr>`;
+          return `<tr><td style="padding:8px 0 20px 0;">${bulletproofButton(safeUrl(appendUtm(b.url, opts.utmCampaign)), b.label)}</td></tr>`;
         case 'divider':
           return `<tr><td style="padding:8px 0 20px 0;"><hr style="border:none;border-top:1px solid ${COLORS.border};margin:0;" /></td></tr>`;
         default:
@@ -129,6 +143,38 @@ function renderBlocks(blocks: EmailBlock[], opts: RenderEmailOptions): string {
       }
     })
     .join('');
+}
+
+// Markdown -> texto puro (para a versão multipart text/plain).
+function inlineToText(raw: string | undefined): string {
+  return (raw || '')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '$1 ($2)') // [t](u) -> t (u)
+    .replace(/\*\*([^*]+)\*\*/g, '$1'); // **x** -> x
+}
+
+/**
+ * Versão texto-plano do email (multipart). Melhora deliverability/inbox placement.
+ * Recebe o conteúdo JÁ personalizado.
+ */
+export function renderText(content: NewsletterContent, opts: RenderEmailOptions): string {
+  const lines: string[] = [];
+  const useBlocks = Array.isArray(content.blocks) && content.blocks.length > 0;
+
+  if (useBlocks) {
+    for (const b of content.blocks as EmailBlock[]) {
+      if (b.type === 'heading') lines.push(inlineToText(b.text), '');
+      else if (b.type === 'text') lines.push(inlineToText(b.text), '');
+      else if (b.type === 'button' && b.label && b.url) lines.push(`${b.label}: ${appendUtm(b.url, opts.utmCampaign)}`, '');
+      else if (b.type === 'divider') lines.push('---', '');
+    }
+  } else {
+    if (content.title) lines.push(content.title, '');
+    for (const p of content.paragraphs || []) lines.push(inlineToText(p), '');
+    if (content.cta_label && content.cta_url) lines.push(`${content.cta_label}: ${appendUtm(content.cta_url, opts.utmCampaign)}`, '');
+  }
+
+  lines.push('—', `Tuggi · cancelar inscrição: ${opts.unsubscribeUrl}`);
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions): string {
@@ -164,13 +210,7 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
   const ctaHref = safeUrl(appendUtm(content.cta_url, opts.utmCampaign));
   const cta =
     content.cta_label && content.cta_url
-      ? `<tr><td style="padding:8px 0 8px 0;">
-           <a href="${ctaHref}" target="_blank"
-              style="display:inline-block;background:${COLORS.blue};color:#ffffff;text-decoration:none;
-                     font-size:16px;font-weight:700;padding:14px 28px;border-radius:9999px;">
-             ${escapeHtml(content.cta_label)}
-           </a>
-         </td></tr>`
+      ? `<tr><td style="padding:8px 0 8px 0;">${bulletproofButton(ctaHref, content.cta_label)}</td></tr>`
       : '';
 
   // Modelo novo (blocos) tem prioridade; senão, render legado (hero/título/parágrafos/cta).

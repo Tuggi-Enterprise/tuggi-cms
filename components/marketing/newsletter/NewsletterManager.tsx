@@ -257,6 +257,9 @@ export function NewsletterManager() {
                 </Button>
                 <div className="space-y-2">
                   <Input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+                  <p className="text-xs text-gray-400">
+                    {t('compose.scheduleTzHint', { tz: Intl.DateTimeFormat().resolvedOptions().timeZone })}
+                  </p>
                   <Button variant="outline" className="w-full" onClick={handleSchedule} disabled={!canEdit || !scheduleAt || busy !== null}>
                     {busy === 'schedule' ? <Loader2 className="animate-spin" size={16} /> : <Clock size={16} />}
                     {t('compose.schedule')}

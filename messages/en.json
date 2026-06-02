@@ -783,7 +783,8 @@
           "heroAlt": "Image alt text",
           "heroAltPlaceholder": "Describe the image (shown if it fails to load)",
           "tokensHint": "Personalize with '{{first_name}}' or '{{name}}' — no name falls back to “traveler”.",
-          "content": "Content (blocks)"
+          "content": "Content (blocks)",
+          "scheduleTzHint": "Will be sent at the chosen time, in your timezone ({tz})."
         },
         "preview": {
           "empty": "Nothing to preview yet.",

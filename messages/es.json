@@ -707,7 +707,8 @@
           "heroAlt": "Texto alternativo de la imagen",
           "heroAltPlaceholder": "Describe la imagen (se muestra si no carga)",
           "tokensHint": "Personaliza con '{{first_name}}' o '{{name}}' — sin nombre usamos “viajero”.",
-          "content": "Contenido (bloques)"
+          "content": "Contenido (bloques)",
+          "scheduleTzHint": "Se enviará a la hora elegida, en tu zona horaria ({tz})."
         },
         "preview": {
           "empty": "Nada para previsualizar todavía.",

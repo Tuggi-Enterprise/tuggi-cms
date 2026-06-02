@@ -15,7 +15,7 @@
 //   (+ TUGGI_SECRET_KEY / SUPABASE_URL já usados pelo _shared/supabase-client)
 
 import { createAdminClient } from '../_shared/supabase-client.ts';
-import { renderEmail, NewsletterContent } from '../_shared/emailLayout.ts';
+import { renderEmail, renderText, NewsletterContent } from '../_shared/emailLayout.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -154,7 +154,9 @@ Deno.serve(async (req) => {
 
       const pc = personalizeContent(content, '', language);
       const unsubscribeUrl = await buildUnsubscribeUrl(email, APP_URL, NEWSLETTER_SECRET, language);
-      const html = renderEmail(pc, { unsubscribeUrl, locale: language, utmCampaign: 'test' });
+      const testOpts = { unsubscribeUrl, locale: language, utmCampaign: 'test' };
+      const html = renderEmail(pc, testOpts);
+      const text = renderText(pc, testOpts);
 
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -164,6 +166,7 @@ Deno.serve(async (req) => {
           to: [email],
           subject: `[TESTE] ${pc.subject || 'Tuggi'}`,
           html,
+          text,
           headers: { 'List-Unsubscribe': `<${unsubscribeUrl}>` },
         }),
       });
@@ -208,13 +211,16 @@ Deno.serve(async (req) => {
           const { content: cBase, lang } = pickContent(content, r.language, defaultLang);
           const c = personalizeContent(cBase, r.name || '', lang);
           const unsubscribeUrl = await buildUnsubscribeUrl(r.email, APP_URL, NEWSLETTER_SECRET, lang);
-          const html = renderEmail(c, { unsubscribeUrl, locale: lang, utmCampaign: campaign.name || campaign.id });
+          const renderOpts = { unsubscribeUrl, locale: lang, utmCampaign: campaign.name || campaign.id };
+          const html = renderEmail(c, renderOpts);
+          const text = renderText(c, renderOpts);
 
           emails.push({
             from: RESEND_FROM,
             to: [r.email],
             subject: c.subject || campaign.name,
             html,
+            text,
             headers: {
               // URL https → provedores abrem via GET (RFC 2369). A página
               // /unsubscribe trata o clique e grava o opt-out.
