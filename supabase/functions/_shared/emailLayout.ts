@@ -8,6 +8,7 @@
 
 export interface NewsletterContent {
   subject?: string;
+  preheader?: string; // texto de preview na inbox (não aparece no corpo)
   title?: string;
   paragraphs?: string[];
   cta_label?: string;
@@ -62,15 +63,23 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
   const footer = FOOTER_LABELS[locale] || FOOTER_LABELS.pt;
 
   const title = content.title ? escapeHtml(content.title) : '';
+  // Preserva quebras de linha simples (newline -> <br>) dentro de cada parágrafo.
   const paragraphs = (content.paragraphs || [])
     .filter((p) => p && p.trim().length > 0)
     .map(
       (p) =>
         `<p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;color:${COLORS.text};">${escapeHtml(
           p
-        )}</p>`
+        ).replace(/\r?\n/g, '<br/>')}</p>`
     )
     .join('');
+
+  // Preheader: texto de preview na inbox, oculto no corpo (truque padrão de email).
+  const preheader = content.preheader
+    ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">${escapeHtml(
+        content.preheader
+      )}</div>`
+    : '';
 
   const hero = content.hero_image_url
     ? `<tr><td style="padding:0 0 24px 0;">
@@ -98,6 +107,7 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
 <title>${escapeHtml(content.subject || 'Tuggi')}</title>
 </head>
 <body style="margin:0;padding:0;background:${COLORS.background};">
+  ${preheader}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${COLORS.background};">
     <tr>
       <td align="center" style="padding:24px 12px;">

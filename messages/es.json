@@ -699,7 +699,11 @@
           "sendNow": "Enviar ahora",
           "schedule": "Programar",
           "testEmail": "Email de prueba",
-          "sendTest": "Enviar prueba"
+          "sendTest": "Enviar prueba",
+          "preheader": "Texto de vista previa (preheader)",
+          "preheaderPlaceholder": "Aparece junto al asunto en la bandeja",
+          "preheaderHelp": "~40–90 caracteres. Oculto en el cuerpo, solo como vista previa en la bandeja.",
+          "paragraphsHelp": "Línea en blanco = nuevo párrafo. Enter simple = salto de línea."
         },
         "preview": {
           "empty": "Nada para previsualizar todavía."

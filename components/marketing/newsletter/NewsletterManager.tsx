@@ -27,6 +27,7 @@ type Tab = 'compose' | 'preview' | 'history';
 
 const emptyContent = (): NewsletterContent => ({
   subject: '',
+  preheader: '',
   title: '',
   paragraphs: [],
   cta_label: '',
@@ -203,17 +204,29 @@ export function NewsletterManager() {
                   <Input value={active.subject || ''} onChange={(e) => setActiveField('subject', e.target.value)} />
                 </div>
                 <div>
+                  <Label>{t('compose.preheader')}</Label>
+                  <Input value={active.preheader || ''} onChange={(e) => setActiveField('preheader', e.target.value)} placeholder={t('compose.preheaderPlaceholder')} />
+                  <p className="text-xs text-gray-400 mt-1">{t('compose.preheaderHelp')}</p>
+                </div>
+                <div>
                   <Label>{t('compose.heading')}</Label>
                   <Input value={active.title || ''} onChange={(e) => setActiveField('title', e.target.value)} />
                 </div>
                 <div>
                   <Label>{t('compose.paragraphs')}</Label>
                   <Textarea
-                    rows={6}
+                    rows={8}
                     value={(active.paragraphs || []).join('\n\n')}
-                    onChange={(e) => setActiveField('paragraphs', e.target.value.split(/\n\n+/).map((p) => p.trim()).filter(Boolean))}
+                    onChange={(e) =>
+                      setActiveField(
+                        'paragraphs',
+                        // linha em branco = novo parágrafo; Enter simples = quebra de linha (<br>)
+                        e.target.value.split(/\n{2,}/).map((p) => p.replace(/^\s+|\s+$/g, '')).filter(Boolean)
+                      )
+                    }
                     placeholder={t('compose.paragraphsPlaceholder')}
                   />
+                  <p className="text-xs text-gray-400 mt-1">{t('compose.paragraphsHelp')}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>

@@ -775,7 +775,11 @@
           "sendNow": "Send now",
           "schedule": "Schedule",
           "testEmail": "Test email",
-          "sendTest": "Send test"
+          "sendTest": "Send test",
+          "preheader": "Preview text (preheader)",
+          "preheaderPlaceholder": "Shows next to the subject in the inbox",
+          "preheaderHelp": "~40–90 chars. Hidden in the body, shown only as the inbox preview.",
+          "paragraphsHelp": "Blank line = new paragraph. Single Enter = line break."
         },
         "preview": {
           "empty": "Nothing to preview yet."

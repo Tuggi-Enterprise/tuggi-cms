@@ -81,8 +81,9 @@ export async function translateNewsletterContent(
   targetLang: string,
   apiKey: string
 ): Promise<NewsletterContent> {
-  const [subject, title, cta_label] = await Promise.all([
+  const [subject, preheader, title, cta_label] = await Promise.all([
     translateSnippet(source.subject || '', targetLang, apiKey),
+    translateSnippet(source.preheader || '', targetLang, apiKey),
     translateSnippet(source.title || '', targetLang, apiKey),
     translateSnippet(source.cta_label || '', targetLang, apiKey),
   ]);
@@ -93,6 +94,7 @@ export async function translateNewsletterContent(
 
   return {
     subject,
+    preheader,
     title,
     paragraphs,
     cta_label,

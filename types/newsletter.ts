@@ -11,6 +11,7 @@ export const NEWSLETTER_LANGUAGES: NewsletterLanguage[] = ['pt', 'en', 'es'];
 /** Conteúdo de um email, por idioma (campos estruturados → layout-base). */
 export interface NewsletterContent {
   subject?: string;
+  preheader?: string; // texto de preview na inbox
   title?: string;
   paragraphs?: string[];
   cta_label?: string;
