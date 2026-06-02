@@ -6,6 +6,7 @@ import type { Client, ClientType } from '@/types/clients'
 import { COUNTRIES } from '@/components/admin/clients/shared/countries'
 import { EditField } from '@/components/admin/clients/shared/EditField'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
+import { ClientQrCode } from '@/components/admin/clients/shared/ClientQrCode'
 
 export interface ClientEditorTabProps {
   client: Client | null
@@ -22,11 +23,15 @@ function v<K extends keyof Client>(client: Client | null, edited: Partial<Client
   return raw == null ? '' : String(raw)
 }
 
-export function ProfileTab({ client, edited, updateField, canEdit }: ClientEditorTabProps) {
+export function ProfileTab({ client, edited, updateField, canEdit, clientId }: ClientEditorTabProps) {
   const t = useTranslations('Clients.profile')
   const isEditing = canEdit
   const currentCountry = String(edited.country ?? client?.country ?? '')
   const currentType: ClientType = (edited.client_type ?? client?.client_type ?? 'business') as ClientType
+  const currentSlug = String(edited.slug ?? client?.slug ?? '')
+  // Show the QR only once we know which client we're attributing to —
+  // create mode (no clientId yet) has nothing to point at.
+  const showQr = Boolean(clientId)
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
@@ -103,6 +108,9 @@ export function ProfileTab({ client, edited, updateField, canEdit }: ClientEdito
           <EditField label={t('fields.postalCode')} value={v(client, edited, 'postal_code')} isEditing={isEditing} onChange={(val) => updateField('postal_code', val)} />
         </div>
       </div>
+
+      {/* Revenue QR — only on saved clients (need either a slug or an id to point at). */}
+      {showQr && <ClientQrCode clientId={clientId} slug={currentSlug} />}
     </div>
   )
 }

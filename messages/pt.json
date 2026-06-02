@@ -1552,6 +1552,17 @@
         "hotel": "Hotel",
         "partner": "Parceiro",
         "creator": "Criador de conteúdo"
+      },
+      "qr": {
+        "title": "QR Code de Atribuição",
+        "subtitle": "Link universal de download com atribuição ao cliente. Imprima em banners, vouchers, cartões.",
+        "targetUrl": "URL alvo",
+        "noSlugWarning": "Sem slug definido — o QR vai usar o fallback legado /download?ID={id}. Defina um slug acima para uma URL amigável /d/{slug}.",
+        "scanLabel": "Escaneie para atribuir downloads",
+        "downloadPng": "Baixar PNG",
+        "copyImage": "Copiar imagem",
+        "copied": "Copiado",
+        "legacyLink": "Legado: /download?ID={id} (ainda funciona)"
       }
     },
     "fiscal": {

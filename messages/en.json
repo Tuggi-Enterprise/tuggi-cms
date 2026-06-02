@@ -1553,6 +1553,17 @@
         "hotel": "Hotel",
         "partner": "Partner",
         "creator": "Creator"
+      },
+      "qr": {
+        "title": "Revenue QR Code",
+        "subtitle": "Universal download link with client attribution. Print on banners, vouchers, postcards.",
+        "targetUrl": "Target URL",
+        "noSlugWarning": "No slug set — the QR will use the legacy /download?ID={id} fallback. Set a slug above for a friendly /d/{slug} URL.",
+        "scanLabel": "Scan to attribute downloads",
+        "downloadPng": "Download PNG",
+        "copyImage": "Copy image",
+        "copied": "Copied",
+        "legacyLink": "Legacy: /download?ID={id} (still works)"
       }
     },
     "fiscal": {
