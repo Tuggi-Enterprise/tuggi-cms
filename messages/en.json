@@ -782,7 +782,7 @@
           "paragraphsHelp": "Blank line = new paragraph. Single Enter = line break.",
           "heroAlt": "Image alt text",
           "heroAltPlaceholder": "Describe the image (shown if it fails to load)",
-          "tokensHint": "Personalize with {{first_name}} or {{name}} — no name falls back to “traveler”.",
+          "tokensHint": "Personalize with '{{first_name}}' or '{{name}}' — no name falls back to “traveler”.",
           "content": "Content (blocks)"
         },
         "preview": {

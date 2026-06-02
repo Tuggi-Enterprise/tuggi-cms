@@ -706,7 +706,7 @@
           "paragraphsHelp": "Línea en blanco = nuevo párrafo. Enter simple = salto de línea.",
           "heroAlt": "Texto alternativo de la imagen",
           "heroAltPlaceholder": "Describe la imagen (se muestra si no carga)",
-          "tokensHint": "Personaliza con {{first_name}} o {{name}} — sin nombre usamos “viajero”.",
+          "tokensHint": "Personaliza con '{{first_name}}' o '{{name}}' — sin nombre usamos “viajero”.",
           "content": "Contenido (bloques)"
         },
         "preview": {
