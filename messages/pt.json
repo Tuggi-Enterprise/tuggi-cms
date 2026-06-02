@@ -92,7 +92,9 @@
     "notifications": "Push Notifications",
     "admin": "Admin",
     "geofences": "Geofences",
-    "premium": "Planos Premium"
+    "premium": "Planos Premium",
+    "marketing": "Marketing",
+    "newsletter": "Newsletter"
   },
   "Pages": {
     "Login": {
@@ -733,6 +735,70 @@
         "no_tokens_found": "Atenção: A mensagem foi processada, mas não encontramos nenhum dispositivo ativo (token) para o(s) usuário(s) selecionado(s). Verifique se o cliente permitiu notificações no app.",
         "unknown_error": "Erro desconhecido"
       }
+    },
+    "Marketing": {
+      "title": "Marketing",
+      "subtitle": "Newsletters e notificações push",
+      "tabs": {
+        "newsletter": "Newsletter",
+        "push": "Push"
+      },
+      "Newsletter": {
+        "untitled": "Campanha sem título",
+        "messages": {
+          "translated": "Traduções geradas.",
+          "sent": "Enviada para {count} destinatários.",
+          "scheduled": "Campanha agendada."
+        },
+        "tabs": {
+          "compose": "Compor",
+          "preview": "Pré-visualizar",
+          "history": "Histórico"
+        },
+        "compose": {
+          "title": "Conteúdo do email",
+          "name": "Nome da campanha",
+          "namePlaceholder": "Ex.: Novidades de junho",
+          "defaultLanguage": "Idioma base",
+          "editingLanguage": "Editando idioma",
+          "subject": "Assunto",
+          "heading": "Título",
+          "paragraphs": "Parágrafos",
+          "paragraphsPlaceholder": "Separe os parágrafos com uma linha em branco",
+          "ctaLabel": "Texto do botão",
+          "ctaUrl": "Link do botão",
+          "heroImage": "Imagem de destaque (URL)",
+          "translate": "Traduzir para todos os idiomas",
+          "deliver": "Envio",
+          "sendNow": "Enviar agora",
+          "schedule": "Agendar"
+        },
+        "preview": {
+          "empty": "Nada para pré-visualizar ainda."
+        },
+        "history": {
+          "empty": "Nenhuma campanha ainda.",
+          "total": "Total",
+          "delivered": "Entregues",
+          "opened": "Abertos",
+          "clicked": "Cliques",
+          "openRate": "Taxa de abertura",
+          "loading": "Carregando..."
+        },
+        "status": {
+          "draft": "Rascunho",
+          "scheduled": "Agendada",
+          "sending": "Enviando",
+          "sent": "Enviada",
+          "failed": "Falhou"
+        }
+      }
+    },
+    "Unsubscribe": {
+      "okTitle": "Inscrição cancelada",
+      "okBody": "Você não receberá mais nossos emails. Sentiremos sua falta!",
+      "errorTitle": "Link inválido",
+      "errorBody": "Não foi possível processar o cancelamento. O link pode ter expirado."
     }
   },
   "Modals": {

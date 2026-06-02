@@ -13,9 +13,15 @@ import { cn } from '@/lib/utils';
 interface AudienceFilterProps {
   filters: AudienceFilters;
   onChange: (filters: AudienceFilters) => void;
+  /**
+   * Função de estimativa de audiência. Default = push (NotificationService).
+   * A newsletter passa NewsletterService.estimateAudience (exclui opt-out).
+   */
+  estimateFn?: (filters: AudienceFilters) => Promise<number>;
 }
 
-export function AudienceFilter({ filters, onChange }: AudienceFilterProps) {
+export function AudienceFilter({ filters, onChange, estimateFn }: AudienceFilterProps) {
+  const estimateAudience = estimateFn ?? NotificationService.estimateAudience;
   const [estimate, setEstimate] = useState<number | null>(null);
   const [totalBase, setTotalBase] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -24,7 +30,7 @@ export function AudienceFilter({ filters, onChange }: AudienceFilterProps) {
   useEffect(() => {
     const fetchTotalBase = async () => {
       try {
-        const count = await NotificationService.estimateAudience({});
+        const count = await estimateAudience({});
         setTotalBase(count);
       } catch (e) {
         console.error('Failed to fetch total base', e);
@@ -38,7 +44,7 @@ export function AudienceFilter({ filters, onChange }: AudienceFilterProps) {
     const fetchEstimate = async () => {
       setLoading(true);
       try {
-        const count = await NotificationService.estimateAudience(filters);
+        const count = await estimateAudience(filters);
         setEstimate(count);
       } catch (error) {
         console.error('Failed to estimate audience', error);

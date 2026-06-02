@@ -92,7 +92,9 @@
     "notifications": "Notificaciones",
     "admin": "Admin",
     "geofences": "Geofences",
-    "premium": "Planes Premium"
+    "premium": "Planes Premium",
+    "marketing": "Marketing",
+    "newsletter": "Newsletter"
   },
   "Pages": {
     "Login": {
@@ -658,6 +660,70 @@
         "duration": "Duración",
         "days_unit": "días"
       }
+    },
+    "Marketing": {
+      "title": "Marketing",
+      "subtitle": "Newsletters y notificaciones push",
+      "tabs": {
+        "newsletter": "Newsletter",
+        "push": "Push"
+      },
+      "Newsletter": {
+        "untitled": "Campaña sin título",
+        "messages": {
+          "translated": "Traducciones generadas.",
+          "sent": "Enviada a {count} destinatarios.",
+          "scheduled": "Campaña programada."
+        },
+        "tabs": {
+          "compose": "Componer",
+          "preview": "Vista previa",
+          "history": "Historial"
+        },
+        "compose": {
+          "title": "Contenido del email",
+          "name": "Nombre de la campaña",
+          "namePlaceholder": "Ej.: Novedades de junio",
+          "defaultLanguage": "Idioma base",
+          "editingLanguage": "Editando idioma",
+          "subject": "Asunto",
+          "heading": "Título",
+          "paragraphs": "Párrafos",
+          "paragraphsPlaceholder": "Separa los párrafos con una línea en blanco",
+          "ctaLabel": "Texto del botón",
+          "ctaUrl": "Enlace del botón",
+          "heroImage": "Imagen destacada (URL)",
+          "translate": "Traducir a todos los idiomas",
+          "deliver": "Envío",
+          "sendNow": "Enviar ahora",
+          "schedule": "Programar"
+        },
+        "preview": {
+          "empty": "Nada para previsualizar todavía."
+        },
+        "history": {
+          "empty": "Aún no hay campañas.",
+          "total": "Total",
+          "delivered": "Entregados",
+          "opened": "Abiertos",
+          "clicked": "Clics",
+          "openRate": "Tasa de apertura",
+          "loading": "Cargando..."
+        },
+        "status": {
+          "draft": "Borrador",
+          "scheduled": "Programada",
+          "sending": "Enviando",
+          "sent": "Enviada",
+          "failed": "Falló"
+        }
+      }
+    },
+    "Unsubscribe": {
+      "okTitle": "Suscripción cancelada",
+      "okBody": "Ya no recibirás nuestros emails. ¡Te echaremos de menos!",
+      "errorTitle": "Enlace inválido",
+      "errorBody": "No pudimos procesar tu solicitud. El enlace puede haber caducado."
     }
   },
   "Modals": {

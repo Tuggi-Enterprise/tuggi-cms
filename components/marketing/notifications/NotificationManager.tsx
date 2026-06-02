@@ -11,7 +11,7 @@ import { Bell, Send, Layout, History, Sparkles, Clock, Target, Eye, User, Search
 import { Checkbox } from '@/components/ui/checkbox';
 import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
-import { AudienceFilter } from './AudienceFilter';
+import { AudienceFilter } from '../shared/AudienceFilter';
 import { TemplateManager } from './TemplateManager';
 import { NotificationHistory } from './NotificationHistory';
 import { useCmsUser } from '@/lib/hooks/useCmsUser';

@@ -34,9 +34,11 @@ import {
   Globe,
   Bell,
   Crown,
-  Gift
+  Gift,
+  Mail
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isMarketingEnabled } from '@/lib/modules/marketing'
 import { TuggiLogo } from './TuggiLogo'
 import { LanguageSwitcher } from './LanguageSwitcher'
 
@@ -72,8 +74,12 @@ export function Header({ className }: { className?: string }) {
     { name: t('users'), href: '/admin/users', icon: Users, category: 'admin' },
     { name: t('poi_trigger_map'), href: '/admin/poi-trigger-map', icon: Map, category: 'admin' },
     { name: 'Audit Logs', href: '/admin/audit-logs', icon: Activity, category: 'admin' },
-    { name: t('notifications'), href: '/dashboard/notifications', icon: Bell, category: 'admin' },
     { name: 'Coupons', href: '/admin/coupons', icon: Gift, category: 'admin' },
+    // Módulo Marketing (gated). Push migrou de /dashboard/notifications.
+    ...(isMarketingEnabled() ? [
+      { name: t('newsletter'), href: '/dashboard/marketing/newsletter', icon: Mail, category: 'marketing' },
+      { name: t('notifications'), href: '/dashboard/marketing/notifications', icon: Bell, category: 'marketing' },
+    ] : []),
   ]
 
   useEffect(() => {
@@ -214,6 +220,7 @@ export function Header({ className }: { className?: string }) {
             {renderDropdown('reports', navigation.filter(item => item.category === 'reports'), t('reports'))}
             {renderDropdown('users', navigation.filter(item => item.category === 'users'), t('users'))}
             {isAdmin && renderDropdown('admin', navigation.filter(item => item.category === 'admin'), t('admin'))}
+            {isAdmin && isMarketingEnabled() && renderDropdown('marketing', navigation.filter(item => item.category === 'marketing'), t('marketing'))}
           </nav>
 
           <div className="flex items-center space-x-1">
@@ -233,8 +240,9 @@ export function Header({ className }: { className?: string }) {
         {isMobileMenuOpen && (
           <div className="lg:hidden border-t border-tuggi-border/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm animate-in slide-in-from-top-2 duration-300">
             <nav className="px-2 pt-2 pb-3 space-y-4">
-              {['dashboard', 'pois', 'poi_management', 'users', 'admin'].map(cat => {
+              {['dashboard', 'pois', 'poi_management', 'users', 'admin', 'marketing'].map(cat => {
                 if (cat === 'admin' && !isAdmin) return null
+                if (cat === 'marketing' && (!isAdmin || !isMarketingEnabled())) return null
                 return (
                   <div key={cat}>
                     <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t(cat) || cat}</h4>

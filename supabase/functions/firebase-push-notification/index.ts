@@ -216,7 +216,7 @@ Deno.serve(async (req) => {
 
     // Logging helper
     const logResult = async (type: string, notification: any, userIds: string[], topic: string | undefined, status: string, stats: any) => {
-      console.log(`[${requestId}] 📝 Logging result to core.notification_logs...`);
+      console.log(`[${requestId}] 📝 Logging result to marketing.notification_logs...`);
       try {
         // Ensure userIds are valid UUIDs to avoid DB errors
         const validUserIds = (userIds || []).filter(id => 
@@ -237,7 +237,7 @@ Deno.serve(async (req) => {
         console.log(`[${requestId}] 📄 Log payload:`, JSON.stringify(logData));
 
         const { data: insertData, error } = await supabase
-          .schema('core')
+          .schema('marketing')
           .from('notification_logs')
           .insert(logData)
           .select();
@@ -311,7 +311,7 @@ Deno.serve(async (req) => {
       
       // 1. Fetch pending notifications scheduled for NOW or earlier
       const { data: pending, error: fetchError } = await supabase
-        .schema('core')
+        .schema('marketing')
         .from('scheduled_notifications')
         .select('*')
         .eq('status', 'pending')
@@ -333,7 +333,7 @@ Deno.serve(async (req) => {
         let stats;
 
         // Mark as processing to avoid double-spend
-        await supabase.schema('core').from('scheduled_notifications')
+        await supabase.schema('marketing').from('scheduled_notifications')
             .update({ status: 'processing', updated_at: new Date().toISOString() })
             .eq('id', item.id);
 
@@ -356,8 +356,8 @@ Deno.serve(async (req) => {
             stats = await sendNotification(tokens, { title: item.title, body: item.body, data: item.data }, item.priority || 'normal', item.ttl || 3600);
             
             // Mark as sent
-            await supabase.schema('core').from('scheduled_notifications')
-                .update({ 
+            await supabase.schema('marketing').from('scheduled_notifications')
+                .update({
                     status: stats.success > 0 ? 'sent' : 'failed', 
                     processed_at: new Date().toISOString(),
                     error_details: stats.failure > 0 ? stats.errors.join(', ') : null
@@ -370,7 +370,7 @@ Deno.serve(async (req) => {
 
         } catch (e) {
             console.error(`[${requestId}] ⚠️ Failed processing notification ${item.id}:`, e.message);
-            await supabase.schema('core').from('scheduled_notifications')
+            await supabase.schema('marketing').from('scheduled_notifications')
                 .update({ status: 'failed', error_details: e.message })
                 .eq('id', item.id);
         }

@@ -92,7 +92,9 @@
     "notifications": "Push Notifications",
     "admin": "Admin",
     "geofences": "Geofences",
-    "premium": "Premium Plans"
+    "premium": "Premium Plans",
+    "marketing": "Marketing",
+    "newsletter": "Newsletter"
   },
   "Pages": {
     "Login": {
@@ -734,6 +736,70 @@
         "error_send": "Failed to send notification. Please check your configuration.",
         "no_tokens_found": "Warning: The message was processed, but we couldn't find any active devices (tokens) for the selected user(s). Check if the client has enabled notifications in the app."
       }
+    },
+    "Marketing": {
+      "title": "Marketing",
+      "subtitle": "Newsletters and push notifications",
+      "tabs": {
+        "newsletter": "Newsletter",
+        "push": "Push"
+      },
+      "Newsletter": {
+        "untitled": "Untitled campaign",
+        "messages": {
+          "translated": "Translations generated.",
+          "sent": "Sent to {count} recipients.",
+          "scheduled": "Campaign scheduled."
+        },
+        "tabs": {
+          "compose": "Compose",
+          "preview": "Preview",
+          "history": "History"
+        },
+        "compose": {
+          "title": "Email content",
+          "name": "Campaign name",
+          "namePlaceholder": "e.g. June news",
+          "defaultLanguage": "Base language",
+          "editingLanguage": "Editing language",
+          "subject": "Subject",
+          "heading": "Heading",
+          "paragraphs": "Paragraphs",
+          "paragraphsPlaceholder": "Separate paragraphs with a blank line",
+          "ctaLabel": "Button text",
+          "ctaUrl": "Button link",
+          "heroImage": "Hero image (URL)",
+          "translate": "Translate to all languages",
+          "deliver": "Delivery",
+          "sendNow": "Send now",
+          "schedule": "Schedule"
+        },
+        "preview": {
+          "empty": "Nothing to preview yet."
+        },
+        "history": {
+          "empty": "No campaigns yet.",
+          "total": "Total",
+          "delivered": "Delivered",
+          "opened": "Opened",
+          "clicked": "Clicks",
+          "openRate": "Open rate",
+          "loading": "Loading..."
+        },
+        "status": {
+          "draft": "Draft",
+          "scheduled": "Scheduled",
+          "sending": "Sending",
+          "sent": "Sent",
+          "failed": "Failed"
+        }
+      }
+    },
+    "Unsubscribe": {
+      "okTitle": "Unsubscribed",
+      "okBody": "You will not receive our emails anymore. We will miss you!",
+      "errorTitle": "Invalid link",
+      "errorBody": "We could not process your request. The link may have expired."
     }
   },
   "Modals": {

@@ -1,12 +1,14 @@
-
 'use client';
 
-import { NotificationManager } from '@/components/notifications/NotificationManager';
+// Push notifications migrou para o Módulo Marketing.
+// Mantemos esta rota como redirect para não quebrar links/bookmarks.
+import { useEffect } from 'react';
+import { useRouter } from '@/navigation';
 
-export default function NotificationsPage() {
-  return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 p-6 lg:p-8 flex flex-col">
-      <NotificationManager />
-    </div>
-  );
+export default function NotificationsRedirectPage() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/dashboard/marketing/notifications');
+  }, [router]);
+  return null;
 }

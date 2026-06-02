@@ -54,10 +54,10 @@ export async function middleware(req: NextRequest) {
   // Since we are inside the middleware, req.nextUrl.pathname already includes locale if resolved
   
   // Clean path for checking allowed lists
-  const isPublicPath = 
-    pathWithoutLocale === '/login' || 
-    pathWithoutLocale === '/client-signup' || 
-    pathWithoutLocale === '/debug' || 
+  const isPublicPath =
+    pathWithoutLocale === '/login' ||
+    pathWithoutLocale === '/client-signup' ||
+    pathWithoutLocale === '/debug' ||
     pathWithoutLocale === '/unauthorized';
 
   // Protect routes
