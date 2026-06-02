@@ -51,6 +51,7 @@ const FOOTER_LABELS: Record<string, { unsubscribe: string; rights: string }> = {
   pt: { unsubscribe: 'Cancelar inscrição', rights: 'Tuggi · Todos os direitos reservados' },
   en: { unsubscribe: 'Unsubscribe', rights: 'Tuggi · All rights reserved' },
   es: { unsubscribe: 'Cancelar suscripción', rights: 'Tuggi · Todos los derechos reservados' },
+  it: { unsubscribe: 'Annulla iscrizione', rights: 'Tuggi · Tutti i diritti riservati' },
 };
 
 function escapeHtml(value: string): string {

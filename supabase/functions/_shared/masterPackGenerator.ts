@@ -1,8 +1,15 @@
 // _shared/masterPackGenerator.ts
 
+interface GeminiUsage {
+    input_tokens: number;
+    output_tokens: number;
+    model: string;
+}
+
 interface MasterPackResult {
     description: string;
     facts_pack_json: any;
+    usage: GeminiUsage | null;
 }
 
 const getLanguageName = (code: string): string => {
@@ -250,11 +257,19 @@ export const generateMasterPack = async (
 
                 const finalDescription = description.replace(/\[cite: \d+\]/g, "").replace(/\[\d+\]/g, "");
 
-                console.log(`[Master Generator][Trace:${traceId}] SUCCESS with ${model} (${modeLabel}). Score candidate ready.`);
-                
+                const usageMeta = result.usageMetadata || {};
+                const usage: GeminiUsage = {
+                    input_tokens: usageMeta.promptTokenCount ?? 0,
+                    output_tokens: usageMeta.candidatesTokenCount ?? 0,
+                    model,
+                };
+
+                console.log(`[Master Generator][Trace:${traceId}] SUCCESS with ${model} (${modeLabel}). Score candidate ready. Tokens: in=${usage.input_tokens} out=${usage.output_tokens}`);
+
                 return {
                     description: finalDescription,
-                    facts_pack_json: facts_pack_json
+                    facts_pack_json: facts_pack_json,
+                    usage,
                 };
 
             } catch (error) {

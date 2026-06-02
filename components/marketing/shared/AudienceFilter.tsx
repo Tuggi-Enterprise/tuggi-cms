@@ -152,6 +152,7 @@ export function AudienceFilter({ filters, onChange, estimateFn }: AudienceFilter
                 <SelectItem value="pt-br">Portuguese</SelectItem>
                 <SelectItem value="en">English</SelectItem>
                 <SelectItem value="es">Spanish</SelectItem>
+                <SelectItem value="it">Italian</SelectItem>
                 <SelectItem value="fr">French</SelectItem>
               </Select>
           </div>

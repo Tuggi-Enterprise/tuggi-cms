@@ -2,7 +2,15 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { getSecretKey } from '../_shared/supabase-client.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateMasterPack } from "../_shared/masterPackGenerator.ts";
-import { translateWithGemini } from "../_shared/translationUtility.ts";
+import { translateWithGeminiWithUsage } from "../_shared/translationUtility.ts";
+
+type GenerationKind = "master" | "translation";
+interface CallUsage {
+    input_tokens: number;
+    output_tokens: number;
+    model: string;
+    kind: GenerationKind;
+}
 import { generateAudioWithTTS } from "../_shared/ttsGenerator.ts";
 import { calculateHeuristicScore } from "../_shared/scoring.ts";
 import {
@@ -196,6 +204,7 @@ async function processPOIItem(
     try {
         // 3. Generation Logic
         let result: { description: string; facts_pack_json: any } | null = null;
+        let callUsage: CallUsage | null = null;
         const cityName = poiDataFromDB?.city ||
             poiDataFromDB?.osm_tags?.["addr:city"] || (poiDataFromDB?.state
                 ? `${poiDataFromDB.state}, Brazil`
@@ -225,7 +234,7 @@ async function processPOIItem(
                     console.log(
                         `${LOG_PREFIX} Translating from existing ${source.language} to ${language}...`,
                     );
-                    const translated = await translateWithGemini(
+                    const { text: translated, usage: tUsage } = await translateWithGeminiWithUsage(
                         source.description,
                         language,
                         GEMINI_API_KEY,
@@ -234,6 +243,9 @@ async function processPOIItem(
                         description: translated,
                         facts_pack_json: source.facts_pack_json,
                     };
+                    if (tUsage) {
+                        callUsage = { ...tUsage, kind: "translation" };
+                    }
                 }
             }
         } else {
@@ -272,7 +284,7 @@ async function processPOIItem(
                 }
             }
 
-            result = await generateMasterPack(
+            const masterResult = await generateMasterPack(
                 poiName,
                 cityName,
                 rawContextOverride || "App Batch Generation",
@@ -283,7 +295,13 @@ async function processPOIItem(
                 memberPois,
                 poiDataFromDB?.reference_links || [], // Links de referência do CMS
             );
-
+            result = {
+                description: masterResult.description,
+                facts_pack_json: masterResult.facts_pack_json,
+            };
+            if (masterResult.usage) {
+                callUsage = { ...masterResult.usage, kind: "master" };
+            }
         }
 
         // 4. Save & Audio
@@ -354,6 +372,26 @@ async function processPOIItem(
                 console.log(`${LOG_PREFIX} ✅ Generated-by tracked: ${generatedBy.source} (${generatedBy.email})`);
             } catch (trackingErr) {
                 console.warn(`${LOG_PREFIX} ⚠️ Generated-by tracking skipped (columns may not exist yet):`, trackingErr);
+            }
+        }
+
+        // 5.2 Track Gemini token usage (non-blocking, defensive)
+        // Same pattern as generated_by: separate UPDATE so a missing migration
+        // doesn't break the main generation flow.
+        if (callUsage && finalRows?.id) {
+            try {
+                await supabaseAdmin.schema("core")
+                    .from("attraction_descriptions")
+                    .update({
+                        input_tokens: callUsage.input_tokens,
+                        output_tokens: callUsage.output_tokens,
+                        llm_model: callUsage.model,
+                        generation_kind: callUsage.kind,
+                    })
+                    .eq("id", finalRows.id);
+                console.log(`${LOG_PREFIX} ✅ Token usage tracked: kind=${callUsage.kind} model=${callUsage.model} in=${callUsage.input_tokens} out=${callUsage.output_tokens}`);
+            } catch (tokenErr) {
+                console.warn(`${LOG_PREFIX} ⚠️ Token usage tracking skipped (columns may not exist yet):`, tokenErr);
             }
         }
 

@@ -4,9 +4,9 @@
 
 import type { AudienceFilters } from '@/lib/services/marketing/audience-types';
 
-export type NewsletterLanguage = 'pt' | 'en' | 'es';
+export type NewsletterLanguage = 'pt' | 'en' | 'es' | 'it';
 
-export const NEWSLETTER_LANGUAGES: NewsletterLanguage[] = ['pt', 'en', 'es'];
+export const NEWSLETTER_LANGUAGES: NewsletterLanguage[] = ['pt', 'en', 'es', 'it'];
 
 /** Blocos do composer (modelo novo). */
 export type NewsletterBlock =

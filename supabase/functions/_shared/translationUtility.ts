@@ -21,22 +21,34 @@ const getLanguageName = (code: string): string => {
         'ru-ru': 'Russian',
         'pt': 'Brazilian Portuguese',
         'en': 'English (United States)',
-        'es': 'Spanish'
+        'es': 'Spanish',
+        'it': 'Italian'
     };
     return names[code.toLowerCase()] || code;
 };
 
+export interface GeminiUsage {
+    input_tokens: number;
+    output_tokens: number;
+    model: string;
+}
+
+export interface GeminiTextResult {
+    text: string;
+    usage: GeminiUsage | null;
+}
+
 /**
  * Shared Gemini call with model fallback (Flash-Lite -> Flash -> 1.5).
- * Both the POI narration translator and the generic text translator use this,
- * so the model list / fallback / error handling stay in one place (DRY).
+ * Returns both the text and usageMetadata for token accounting. The legacy
+ * `runGeminiPrompt` (string-returning) wraps this for backwards compatibility.
  */
-const runGeminiPrompt = async (
+const runGeminiPromptWithUsage = async (
     prompt: string,
     apiKey: string,
     maxOutputTokens = 1024,
     temperature = 0.3
-): Promise<string> => {
+): Promise<GeminiTextResult> => {
     const models = [
         'gemini-2.5-flash-lite',
         'gemini-2.5-flash',
@@ -85,8 +97,18 @@ const runGeminiPrompt = async (
                 continue;
             }
 
-            console.log(`[Translation Utility] Successfully generated using ${model}`);
-            return data.candidates[0].content.parts[0].text.trim();
+            const usageMeta = data.usageMetadata || {};
+            const usage: GeminiUsage = {
+                input_tokens: usageMeta.promptTokenCount ?? 0,
+                output_tokens: usageMeta.candidatesTokenCount ?? 0,
+                model,
+            };
+
+            console.log(`[Translation Utility] Successfully generated using ${model}. Tokens: in=${usage.input_tokens} out=${usage.output_tokens}`);
+            return {
+                text: data.candidates[0].content.parts[0].text.trim(),
+                usage,
+            };
         } catch (error) {
             console.error(`[Translation Utility] Error with model ${model}:`, error);
             lastError = error instanceof Error ? error : new Error(String(error));
@@ -97,19 +119,19 @@ const runGeminiPrompt = async (
     throw lastError || new Error('All Gemini translation models failed');
 };
 
-export const translateWithGemini = async (
-    text: string,
-    targetLanguage: string,
-    apiKey: string
+const runGeminiPrompt = async (
+    prompt: string,
+    apiKey: string,
+    maxOutputTokens = 1024,
+    temperature = 0.3
 ): Promise<string> => {
-    // Validate and sanitize input text
-    if (!text || typeof text !== 'string' || text.trim().length === 0) {
-        throw new Error('Invalid or empty text provided for translation');
-    }
+    const { text } = await runGeminiPromptWithUsage(prompt, apiKey, maxOutputTokens, temperature);
+    return text;
+};
 
+const buildPoiTranslationPrompt = (text: string, targetLanguage: string): string => {
     const langName = getLanguageName(targetLanguage);
-
-    const prompt = `You are a professional travel assistant specialized in tourism translation.
+    return `You are a professional travel assistant specialized in tourism translation.
 
 Translate the following POI (Point of Interest) tour narration and rewrite it in a natural and culturally appropriate way for tourists who speak the target language below.
 
@@ -130,8 +152,32 @@ Target Language:
 
 Expected output:
 Translated text only (no labels, no explanations, no tags).`;
+};
 
-    return runGeminiPrompt(prompt, apiKey, 1024);
+export const translateWithGemini = async (
+    text: string,
+    targetLanguage: string,
+    apiKey: string
+): Promise<string> => {
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+        throw new Error('Invalid or empty text provided for translation');
+    }
+    return runGeminiPrompt(buildPoiTranslationPrompt(text, targetLanguage), apiKey, 1024);
+};
+
+/**
+ * Same as translateWithGemini but also returns Gemini usage metadata so callers
+ * can persist token counts for analytics.
+ */
+export const translateWithGeminiWithUsage = async (
+    text: string,
+    targetLanguage: string,
+    apiKey: string
+): Promise<GeminiTextResult> => {
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+        throw new Error('Invalid or empty text provided for translation');
+    }
+    return runGeminiPromptWithUsage(buildPoiTranslationPrompt(text, targetLanguage), apiKey, 1024);
 };
 
 /**

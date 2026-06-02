@@ -62,15 +62,17 @@ async function signEmail(email: string, secret: string): Promise<string> {
 }
 
 // O unsubscribe é hospedado no site público (tuggi.app), cujos locales são
-// en/es/pt-br/pt-pt. Mapeamos o idioma do conteúdo (pt/en/es) para o locale do site.
-const SITE_LOCALE: Record<string, string> = { pt: 'pt-br', en: 'en', es: 'es' };
+// en/es/pt-br/pt-pt (sem italiano). Mapeamos o idioma do conteúdo para um locale
+// VÁLIDO do site para a rota, e passamos &lang= para a página exibir o idioma real
+// (ex.: it usa a rota /en mas mostra texto em italiano).
+const SITE_LOCALE: Record<string, string> = { pt: 'pt-br', en: 'en', es: 'es', it: 'en' };
 
 async function buildUnsubscribeUrl(email: string, appUrl: string, secret: string, lang: string): Promise<string> {
   const e = encodeEmail(email);
   const s = await signEmail(email, secret);
   const base = appUrl.replace(/\/$/, '');
   const siteLocale = SITE_LOCALE[lang] || 'en';
-  return `${base}/${siteLocale}/unsubscribe?e=${e}&s=${s}`;
+  return `${base}/${siteLocale}/unsubscribe?e=${e}&s=${s}&lang=${lang}`;
 }
 
 // Personalização: substitui {{first_name}} / {{name}}. Sem nome → fallback por idioma.
