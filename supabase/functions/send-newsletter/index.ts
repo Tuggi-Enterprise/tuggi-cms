@@ -16,6 +16,7 @@
 
 import { createAdminClient } from '../_shared/supabase-client.ts';
 import { renderEmail, renderText, NewsletterContent } from '../_shared/emailLayout.ts';
+import { translateText } from '../_shared/translationUtility.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -104,6 +105,25 @@ function personalizeContent(c: NewsletterContent, name: string, lang: string): N
   };
 }
 
+// Traduz um NewsletterContent (campos + blocos) para um idioma alvo.
+async function translateContent(source: NewsletterContent, targetLang: string, apiKey: string): Promise<NewsletterContent> {
+  const tr = (s: string | undefined) => translateText(s || '', targetLang, apiKey);
+  const [subject, preheader, title, cta_label] = await Promise.all([
+    tr(source.subject), tr(source.preheader), tr(source.title), tr(source.cta_label),
+  ]);
+  const paragraphs = await Promise.all((source.paragraphs || []).map(tr));
+  const blocks = source.blocks
+    ? await Promise.all(
+        source.blocks.map(async (b: any) => {
+          if (b.type === 'heading' || b.type === 'text') return { ...b, text: await tr(b.text) };
+          if (b.type === 'button') return { ...b, label: await tr(b.label) };
+          return b; // image/divider mantém
+        })
+      )
+    : undefined;
+  return { ...source, subject, preheader, title, paragraphs, cta_label, blocks };
+}
+
 // Escolhe o conteúdo do idioma do usuário com fallback para o idioma padrão.
 function pickContent(
   content: Record<string, NewsletterContent>,
@@ -173,6 +193,20 @@ Deno.serve(async (req) => {
       const data = await res.json();
       if (!res.ok) return json({ error: data?.message || 'Resend error', detail: data }, 502);
       return json({ success: true, id: data?.id });
+    }
+
+    // ---- /translate : traduz o conteúdo para os idiomas alvo (reusa GEMINI dos secrets) ----
+    if (path === '/translate') {
+      const GEMINI = (Deno.env.get('GEMINI_API_KEY') ?? Deno.env.get('GOOGLE_GEMINI_API_KEY') ?? '').trim();
+      if (!GEMINI) return json({ error: 'GEMINI_API_KEY ausente nos secrets' }, 500);
+      const { source, targetLanguages } = await req.json();
+      if (!source || !Array.isArray(targetLanguages) || targetLanguages.length === 0) {
+        return json({ error: 'source and targetLanguages required' }, 400);
+      }
+      const entries = await Promise.all(
+        targetLanguages.map(async (lang: string) => [lang, await translateContent(source, lang, GEMINI)] as const)
+      );
+      return json({ success: true, translations: Object.fromEntries(entries) });
     }
 
     if (path === '/health') return json({ status: 'ok' });

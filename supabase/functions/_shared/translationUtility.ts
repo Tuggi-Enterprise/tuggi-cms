@@ -18,7 +18,10 @@ const getLanguageName = (code: string): string => {
         'ja-jp': 'Japanese',
         'cmn-cn': 'Chinese (Mandarin)',
         'ko-kr': 'Korean',
-        'ru-ru': 'Russian'
+        'ru-ru': 'Russian',
+        'pt': 'Brazilian Portuguese',
+        'en': 'English (United States)',
+        'es': 'Spanish'
     };
     return names[code.toLowerCase()] || code;
 };
@@ -129,4 +132,36 @@ Expected output:
 Translated text only (no labels, no explanations, no tags).`;
 
     return runGeminiPrompt(prompt, apiKey, 1024);
+};
+
+/**
+ * Tradutor genérico de marketing/email (assunto, título, parágrafos, CTA).
+ * Tom neutro, preserva intenção, URLs e placeholders {{ }}. Reusa o mesmo
+ * fallback de modelos do tradutor de POI (DRY).
+ */
+export const translateText = async (
+    text: string,
+    targetLanguage: string,
+    apiKey: string
+): Promise<string> => {
+    if (!text || typeof text !== 'string' || text.trim().length === 0) return '';
+
+    const langName = getLanguageName(targetLanguage);
+    const prompt = `You are a professional marketing copy translator for a travel app called Tuggi.
+
+Translate the marketing/email snippet below into the target language.
+
+Rules:
+- Keep the marketing tone: clear, friendly and engaging.
+- Preserve meaning, intent and any call-to-action.
+- Do NOT translate brand names, URLs, or placeholders wrapped in {{ }}.
+- Keep markdown like **bold** and [text](url) intact.
+- Output ONLY the translated snippet — no labels, quotes, or explanations.
+
+TARGET LANGUAGE: ${langName} (code: ${targetLanguage})
+
+SNIPPET:
+${text}`;
+
+    return runGeminiPrompt(prompt, apiKey, 2048);
 };

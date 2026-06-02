@@ -77,14 +77,9 @@ export const NewsletterService = {
     source: NewsletterContent,
     targetLanguages: NewsletterLanguage[]
   ): Promise<NewsletterContentByLanguage> {
-    const res = await fetch('/api/admin/marketing/translate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source, targetLanguages }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const json = await res.json();
-    return json.translations;
+    // Tradução roda na Edge Function (reusa a GEMINI_API_KEY dos secrets do Supabase).
+    const { translations } = await this._callFunctionEndpoint('/translate', { source, targetLanguages });
+    return translations;
   },
 
   // ── Envio / Agendamento / Preview (Edge Function) ────────────────────────
