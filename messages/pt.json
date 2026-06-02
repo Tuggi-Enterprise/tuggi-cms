@@ -778,10 +778,14 @@
           "preheader": "Texto de preview (preheader)",
           "preheaderPlaceholder": "Aparece ao lado do assunto na inbox",
           "preheaderHelp": "~40–90 caracteres. Não aparece no corpo, só na pré-visualização da caixa de entrada.",
-          "paragraphsHelp": "Linha em branco = novo parágrafo. Enter simples = quebra de linha."
+          "paragraphsHelp": "Linha em branco = novo parágrafo. Enter simples = quebra de linha.",
+          "heroAlt": "Texto alternativo da imagem",
+          "heroAltPlaceholder": "Descreva a imagem (aparece se ela não carregar)"
         },
         "preview": {
-          "empty": "Nada para pré-visualizar ainda."
+          "empty": "Nada para pré-visualizar ainda.",
+          "desktop": "Desktop",
+          "mobile": "Mobile"
         },
         "history": {
           "empty": "Nenhuma campanha ainda.",

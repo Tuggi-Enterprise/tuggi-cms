@@ -200,11 +200,21 @@ export function NewsletterManager() {
                 </div>
 
                 <div>
-                  <Label>{t('compose.subject')}</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>{t('compose.subject')}</Label>
+                    <span className={cn('text-xs', (active.subject?.length || 0) > 50 ? 'text-amber-500' : 'text-gray-400')}>
+                      {active.subject?.length || 0}/50
+                    </span>
+                  </div>
                   <Input value={active.subject || ''} onChange={(e) => setActiveField('subject', e.target.value)} />
                 </div>
                 <div>
-                  <Label>{t('compose.preheader')}</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>{t('compose.preheader')}</Label>
+                    <span className={cn('text-xs', (active.preheader?.length || 0) > 90 ? 'text-amber-500' : 'text-gray-400')}>
+                      {active.preheader?.length || 0}/90
+                    </span>
+                  </div>
                   <Input value={active.preheader || ''} onChange={(e) => setActiveField('preheader', e.target.value)} placeholder={t('compose.preheaderPlaceholder')} />
                   <p className="text-xs text-gray-400 mt-1">{t('compose.preheaderHelp')}</p>
                 </div>
@@ -242,6 +252,12 @@ export function NewsletterManager() {
                   <Label>{t('compose.heroImage')}</Label>
                   <Input value={active.hero_image_url || ''} onChange={(e) => setActiveField('hero_image_url', e.target.value)} placeholder="https://" />
                 </div>
+                {active.hero_image_url ? (
+                  <div>
+                    <Label>{t('compose.heroAlt')}</Label>
+                    <Input value={active.hero_alt || ''} onChange={(e) => setActiveField('hero_alt', e.target.value)} placeholder={t('compose.heroAltPlaceholder')} />
+                  </div>
+                ) : null}
 
                 <Button variant="outline" onClick={handleTranslate} disabled={busy !== null}>
                   {busy === 'translate' ? <Loader2 className="animate-spin" size={16} /> : <Languages size={16} />}

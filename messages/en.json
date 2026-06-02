@@ -779,10 +779,14 @@
           "preheader": "Preview text (preheader)",
           "preheaderPlaceholder": "Shows next to the subject in the inbox",
           "preheaderHelp": "~40–90 chars. Hidden in the body, shown only as the inbox preview.",
-          "paragraphsHelp": "Blank line = new paragraph. Single Enter = line break."
+          "paragraphsHelp": "Blank line = new paragraph. Single Enter = line break.",
+          "heroAlt": "Image alt text",
+          "heroAltPlaceholder": "Describe the image (shown if it fails to load)"
         },
         "preview": {
-          "empty": "Nothing to preview yet."
+          "empty": "Nothing to preview yet.",
+          "desktop": "Desktop",
+          "mobile": "Mobile"
         },
         "history": {
           "empty": "No campaigns yet.",

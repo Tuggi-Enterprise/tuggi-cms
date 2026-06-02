@@ -14,11 +14,13 @@ export interface NewsletterContent {
   cta_label?: string;
   cta_url?: string;
   hero_image_url?: string;
+  hero_alt?: string; // texto alternativo (acessibilidade + imagens bloqueadas)
 }
 
 export interface RenderEmailOptions {
   unsubscribeUrl: string;
   locale?: string;
+  utmCampaign?: string; // adiciona utm_* aos links (atribuição de conversão)
 }
 
 // Cores da marca (ver tailwind.config tuggi.*)
@@ -58,6 +60,21 @@ function safeUrl(url: string | undefined): string {
   return '#';
 }
 
+// Adiciona utm_* a um link http(s) para atribuição de conversão. Mantém params existentes.
+function appendUtm(url: string | undefined, campaign?: string): string | undefined {
+  if (!url || !campaign) return url;
+  try {
+    const u = new URL(url.trim());
+    if (!/^https?:$/.test(u.protocol)) return url;
+    if (!u.searchParams.has('utm_source')) u.searchParams.set('utm_source', 'newsletter');
+    if (!u.searchParams.has('utm_medium')) u.searchParams.set('utm_medium', 'email');
+    if (!u.searchParams.has('utm_campaign')) u.searchParams.set('utm_campaign', campaign);
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions): string {
   const locale = (opts.locale || 'pt').slice(0, 2).toLowerCase();
   const footer = FOOTER_LABELS[locale] || FOOTER_LABELS.pt;
@@ -81,16 +98,18 @@ export function renderEmail(content: NewsletterContent, opts: RenderEmailOptions
       )}</div>`
     : '';
 
+  const heroAlt = escapeHtml(content.hero_alt || content.title || 'Tuggi');
   const hero = content.hero_image_url
-    ? `<tr><td style="padding:0 0 24px 0;">
-         <img src="${safeUrl(content.hero_image_url)}" alt="" width="552" style="display:block;width:100%;max-width:552px;height:auto;border-radius:12px;" />
+    ? `<tr><td style="padding:0 0 24px 0;background:#eef2f4;border-radius:12px;">
+         <img src="${safeUrl(content.hero_image_url)}" alt="${heroAlt}" width="552" style="display:block;width:100%;max-width:552px;height:auto;border-radius:12px;" />
        </td></tr>`
     : '';
 
+  const ctaHref = safeUrl(appendUtm(content.cta_url, opts.utmCampaign));
   const cta =
     content.cta_label && content.cta_url
       ? `<tr><td style="padding:8px 0 8px 0;">
-           <a href="${safeUrl(content.cta_url)}" target="_blank"
+           <a href="${ctaHref}" target="_blank"
               style="display:inline-block;background:${COLORS.blue};color:#ffffff;text-decoration:none;
                      font-size:16px;font-weight:700;padding:14px 28px;border-radius:9999px;">
              ${escapeHtml(content.cta_label)}

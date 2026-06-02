@@ -18,6 +18,7 @@ import {
 export function NewsletterPreview({ contentByLang }: { contentByLang: NewsletterContentByLanguage }) {
   const t = useTranslations('Pages.Marketing.Newsletter');
   const [lang, setLang] = useState<NewsletterLanguage>('pt');
+  const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
   const [html, setHtml] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,21 +43,39 @@ export function NewsletterPreview({ contentByLang }: { contentByLang: Newsletter
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-1">
-        {availableLangs.map((l) => (
-          <button
-            key={l}
-            onClick={() => setLang(l)}
-            className={cn(
-              'px-3 py-1.5 text-sm font-semibold rounded-lg border',
-              lang === l
-                ? 'border-tuggi-blue text-tuggi-blue bg-tuggi-blue/5'
-                : 'border-gray-200 text-gray-500 hover:text-gray-700'
-            )}
-          >
-            {l.toUpperCase()}
-          </button>
-        ))}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex gap-1">
+          {availableLangs.map((l) => (
+            <button
+              key={l}
+              onClick={() => setLang(l)}
+              className={cn(
+                'px-3 py-1.5 text-sm font-semibold rounded-lg border',
+                lang === l
+                  ? 'border-tuggi-blue text-tuggi-blue bg-tuggi-blue/5'
+                  : 'border-gray-200 text-gray-500 hover:text-gray-700'
+              )}
+            >
+              {l.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          {(['desktop', 'mobile'] as const).map((d) => (
+            <button
+              key={d}
+              onClick={() => setDevice(d)}
+              className={cn(
+                'px-3 py-1.5 text-sm font-semibold rounded-lg border capitalize',
+                device === d
+                  ? 'border-tuggi-blue text-tuggi-blue bg-tuggi-blue/5'
+                  : 'border-gray-200 text-gray-500 hover:text-gray-700'
+              )}
+            >
+              {t(`preview.${d}`)}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -67,7 +86,15 @@ export function NewsletterPreview({ contentByLang }: { contentByLang: Newsletter
             <Loader2 className="animate-spin" size={24} />
           </div>
         ) : html ? (
-          <iframe title="email-preview" sandbox="" srcDoc={html} className="w-full h-[700px] bg-white" />
+          <div className="flex justify-center bg-gray-100 dark:bg-gray-900 py-4">
+            <iframe
+              title="email-preview"
+              sandbox=""
+              srcDoc={html}
+              className="h-[700px] bg-white border border-gray-200 transition-all"
+              style={{ width: device === 'mobile' ? 390 : '100%', maxWidth: device === 'mobile' ? 390 : '100%' }}
+            />
+          </div>
         ) : (
           <div className="flex items-center justify-center h-96 text-gray-400 text-sm">{t('preview.empty')}</div>
         )}

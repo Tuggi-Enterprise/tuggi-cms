@@ -100,5 +100,6 @@ export async function translateNewsletterContent(
     cta_label,
     cta_url: source.cta_url, // mantém
     hero_image_url: source.hero_image_url, // mantém
+    hero_alt: source.hero_alt, // mantém (alt curto; opcional traduzir depois)
   };
 }

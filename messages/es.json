@@ -703,10 +703,14 @@
           "preheader": "Texto de vista previa (preheader)",
           "preheaderPlaceholder": "Aparece junto al asunto en la bandeja",
           "preheaderHelp": "~40–90 caracteres. Oculto en el cuerpo, solo como vista previa en la bandeja.",
-          "paragraphsHelp": "Línea en blanco = nuevo párrafo. Enter simple = salto de línea."
+          "paragraphsHelp": "Línea en blanco = nuevo párrafo. Enter simple = salto de línea.",
+          "heroAlt": "Texto alternativo de la imagen",
+          "heroAltPlaceholder": "Describe la imagen (se muestra si no carga)"
         },
         "preview": {
-          "empty": "Nada para previsualizar todavía."
+          "empty": "Nada para previsualizar todavía.",
+          "desktop": "Desktop",
+          "mobile": "Mobile"
         },
         "history": {
           "empty": "Aún no hay campañas.",

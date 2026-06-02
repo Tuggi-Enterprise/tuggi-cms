@@ -17,6 +17,7 @@ export interface NewsletterContent {
   cta_label?: string;
   cta_url?: string;
   hero_image_url?: string;
+  hero_alt?: string;
 }
 
 /** Mapa idioma → conteúdo (ex.: { pt: {...}, en: {...} }). */

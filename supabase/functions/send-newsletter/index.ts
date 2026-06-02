@@ -109,6 +109,7 @@ Deno.serve(async (req) => {
       const html = renderEmail(content || {}, {
         unsubscribeUrl: `${APP_URL.replace(/\/$/, '')}/${language}/unsubscribe?e=preview&s=preview`,
         locale: language,
+        utmCampaign: 'preview',
       });
       return json({ success: true, html });
     }
@@ -120,7 +121,7 @@ Deno.serve(async (req) => {
       if (!email || !content) return json({ error: 'email and content required' }, 400);
 
       const unsubscribeUrl = await buildUnsubscribeUrl(email, APP_URL, NEWSLETTER_SECRET, language);
-      const html = renderEmail(content, { unsubscribeUrl, locale: language });
+      const html = renderEmail(content, { unsubscribeUrl, locale: language, utmCampaign: 'test' });
 
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -173,7 +174,7 @@ Deno.serve(async (req) => {
         for (const r of group) {
           const { content: c, lang } = pickContent(content, r.language, defaultLang);
           const unsubscribeUrl = await buildUnsubscribeUrl(r.email, APP_URL, NEWSLETTER_SECRET, lang);
-          const html = renderEmail(c, { unsubscribeUrl, locale: lang });
+          const html = renderEmail(c, { unsubscribeUrl, locale: lang, utmCampaign: campaign.name || campaign.id });
 
           emails.push({
             from: RESEND_FROM,
