@@ -101,6 +101,11 @@ export const NewsletterService = {
     return html;
   },
 
+  /** Envia 1 email de teste para um endereço específico (ignora a audiência). */
+  async sendTest(content: NewsletterContent, email: string, language: NewsletterLanguage) {
+    return this._callFunctionEndpoint('/send-test', { content, email, language });
+  },
+
   async _callFunctionEndpoint(endpoint: string, body: any) {
     const supabase = getSupabaseClient();
     const { data: { session } } = await supabase.auth.getSession();

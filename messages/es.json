@@ -673,7 +673,8 @@
         "messages": {
           "translated": "Traducciones generadas.",
           "sent": "Enviada a {count} destinatarios.",
-          "scheduled": "Campaña programada."
+          "scheduled": "Campaña programada.",
+          "testSent": "Prueba enviada a {email}."
         },
         "tabs": {
           "compose": "Componer",
@@ -696,7 +697,9 @@
           "translate": "Traducir a todos los idiomas",
           "deliver": "Envío",
           "sendNow": "Enviar ahora",
-          "schedule": "Programar"
+          "schedule": "Programar",
+          "testEmail": "Email de prueba",
+          "sendTest": "Enviar prueba"
         },
         "preview": {
           "empty": "Nada para previsualizar todavía."

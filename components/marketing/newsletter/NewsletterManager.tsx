@@ -45,6 +45,7 @@ export function NewsletterManager() {
   const [contentByLang, setContentByLang] = useState<NewsletterContentByLanguage>({ pt: emptyContent() });
   const [filters, setFilters] = useState<AudienceFilters>({});
   const [scheduleAt, setScheduleAt] = useState('');
+  const [testEmail, setTestEmail] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
@@ -90,6 +91,20 @@ export function NewsletterManager() {
       const campaign = await persist();
       const res = await NewsletterService.send(campaign.id);
       setMessage({ type: 'ok', text: t('messages.sent', { count: res.sent ?? 0 }) });
+    } catch (e: any) {
+      setMessage({ type: 'err', text: e.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleSendTest = async () => {
+    if (!testEmail) return;
+    setBusy('test');
+    setMessage(null);
+    try {
+      await NewsletterService.sendTest(active, testEmail, activeLang);
+      setMessage({ type: 'ok', text: t('messages.testSent', { email: testEmail }) });
     } catch (e: any) {
       setMessage({ type: 'err', text: e.message });
     } finally {
@@ -231,6 +246,19 @@ export function NewsletterManager() {
                 <CardTitle>{t('compose.deliver')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+                <div className="space-y-2 pb-3 border-b border-gray-100 dark:border-gray-800">
+                  <Label>{t('compose.testEmail')}</Label>
+                  <Input
+                    type="email"
+                    value={testEmail}
+                    onChange={(e) => setTestEmail(e.target.value)}
+                    placeholder="voce@exemplo.com"
+                  />
+                  <Button variant="outline" className="w-full" onClick={handleSendTest} disabled={!testEmail || busy !== null}>
+                    {busy === 'test' ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+                    {t('compose.sendTest')}
+                  </Button>
+                </div>
                 <Button className="w-full" onClick={handleSend} disabled={!canEdit || busy !== null}>
                   {busy === 'send' ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
                   {t('compose.sendNow')}

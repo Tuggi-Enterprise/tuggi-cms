@@ -113,6 +113,31 @@ Deno.serve(async (req) => {
       return json({ success: true, html });
     }
 
+    // ---- /send-test : envia 1 email para um endereço específico (ignora audiência) ----
+    if (path === '/send-test') {
+      if (!RESEND_API_KEY) return json({ error: 'RESEND_API_KEY ausente' }, 500);
+      const { content, email, language = 'pt' } = await req.json();
+      if (!email || !content) return json({ error: 'email and content required' }, 400);
+
+      const unsubscribeUrl = await buildUnsubscribeUrl(email, APP_URL, NEWSLETTER_SECRET, language);
+      const html = renderEmail(content, { unsubscribeUrl, locale: language });
+
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: RESEND_FROM,
+          to: [email],
+          subject: `[TESTE] ${content.subject || 'Tuggi'}`,
+          html,
+          headers: { 'List-Unsubscribe': `<${unsubscribeUrl}>` },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) return json({ error: data?.message || 'Resend error', detail: data }, 502);
+      return json({ success: true, id: data?.id });
+    }
+
     if (path === '/health') return json({ status: 'ok' });
 
     // Helper: envia uma campanha já carregada.
