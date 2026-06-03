@@ -20,7 +20,7 @@ import { classify, importanceScore, isNotable, ClassifyInput } from '../lib/shar
 const supabase = getSupabase('service')
 
 const SELECT_COLS = [
-  'id', 'name', 'osm_category', 'osm_tags',
+  'id', 'name', 'country', 'osm_category', 'osm_tags',
   'amenity', 'leisure', 'natural_water', 'waterway', 'man_made', 'building',
   'place', 'landuse', 'shop', 'park_type', 'monument_type', 'artwork_type',
   'information', 'type',
@@ -54,22 +54,26 @@ async function main() {
   console.log(`\n🔎 Category coverage — country="${opts.country}"  (read-only)\n`)
 
   const byMatched = new Map<string, number>()
+  const byConfidence = new Map<string, number>()
   const byGroup = new Map<string, number>()
   const bySpecific = new Map<string, number>()
   const byGroupSpecific = new Map<string, Map<string, number>>()
   const unmappedSamples: string[] = []
   const heuristicSamples: string[] = []
   const importanceBuckets = new Map<string, number>() // 0,1-29,30-59,60-100
+  const byCountry = new Map<string, number>()
+  const byCountryClassified = new Map<string, number>()
   let n = 0, classified = 0, excluded = 0, notable = 0
   let cursor = ''
   let lastId = ''
+  const allCountries = opts.country === 'all'
 
   while (true) {
     let q = supabase.schema('core').from('attractions')
       .select(SELECT_COLS)
-      .eq('country', opts.country)
       .order('id', { ascending: true })
       .limit(opts.pageSize)
+    if (!allCountries) q = q.eq('country', opts.country)
     if (cursor) q = q.gt('id', cursor)
 
     const { data, error } = await q
@@ -79,11 +83,15 @@ async function main() {
     for (const row of data as any[]) {
       n++
       lastId = row.id
+      const country = row.country ?? '∅(null)'
+      inc(byCountry, country)
       const res = classify(row as ClassifyInput)
       inc(byMatched, res.matched_by)
+      inc(byConfidence, res.confidence)
       if (res.excluded) excluded++
       if (res.primary_category) {
         classified++
+        inc(byCountryClassified, country)
         inc(bySpecific, res.primary_category)
         const g = res.category_group ?? 'null'
         inc(byGroup, g)
@@ -109,6 +117,17 @@ async function main() {
   console.log(`✅ Classified (primary_category set): ${classified} (${pct(classified, n)}%)`)
   console.log(`🚫 Excluded streets: ${excluded} (${pct(excluded, n)}%)`)
   console.log(`⭐ Notable (importance ≥ 30): ${notable} (${pct(notable, n)}%)`)
+
+  if (allCountries) {
+    console.log(`\n=== by country (top 40: count, classified%) ===  [${byCountry.size} distinct]`)
+    for (const [c, v] of sortDesc(byCountry).slice(0, 40)) {
+      const cls = byCountryClassified.get(c) || 0
+      console.log(`${String(v).padStart(8)}  ${pct(cls, v).padStart(5)}% cls  ${c}`)
+    }
+  }
+
+  console.log('\n=== confidence (Phase 1 = high, Phase 2 = low) ===')
+  for (const [k, v] of sortDesc(byConfidence)) console.log(`${String(v).padStart(8)}  ${pct(v, n).padStart(5)}%  ${k}`)
 
   console.log('\n=== matched_by ===')
   for (const [k, v] of sortDesc(byMatched)) console.log(`${String(v).padStart(8)}  ${pct(v, n).padStart(5)}%  ${k}`)

@@ -15,13 +15,15 @@
 -- 1. COLUNAS NOVAS (aditivas, idempotentes)
 -- ----------------------------------------------------------------------------
 ALTER TABLE core.attractions
-  ADD COLUMN IF NOT EXISTS category_group   text,                       -- macro-grupo (9 valores)
-  ADD COLUMN IF NOT EXISTS is_notable       boolean NOT NULL DEFAULT false, -- histórico/importante
-  ADD COLUMN IF NOT EXISTS importance_score smallint;                   -- 0..100, nulo até backfill
+  ADD COLUMN IF NOT EXISTS category_group      text,                       -- macro-grupo (10 valores)
+  ADD COLUMN IF NOT EXISTS is_notable          boolean NOT NULL DEFAULT false, -- histórico/importante
+  ADD COLUMN IF NOT EXISTS importance_score    smallint,                   -- 0..100, nulo até backfill
+  ADD COLUMN IF NOT EXISTS category_confidence text;                       -- high | pending | low | unmapped (null=não processado)
 
-COMMENT ON COLUMN core.attractions.category_group   IS 'Macro-grupo: nature/water/parks/culture/religious/civic/leisure/infrastructure/lodging/place';
-COMMENT ON COLUMN core.attractions.is_notable       IS 'Tem referência externa forte / heritage / importância nacional (importance_score >= 30)';
-COMMENT ON COLUMN core.attractions.importance_score IS 'Relevância combinada 0..100 (wiki/heritage/unesco/landmark/historic)';
+COMMENT ON COLUMN core.attractions.category_group      IS 'Macro-grupo: nature/water/parks/culture/religious/civic/leisure/infrastructure/lodging/place';
+COMMENT ON COLUMN core.attractions.is_notable          IS 'Tem referência externa forte / heritage / importância nacional (importance_score >= 30)';
+COMMENT ON COLUMN core.attractions.importance_score    IS 'Relevância combinada 0..100 (wiki/heritage/unesco/landmark/historic)';
+COMMENT ON COLUMN core.attractions.category_confidence IS 'Confiança do tagueamento: high (OSM garante, fase 1) | pending (baixa conf., aguarda fase 2) | low (fase 2, inferido por nome/palpite) | unmapped (sem sinal). null = não processado.';
 
 -- ----------------------------------------------------------------------------
 -- 2. CHECK do macro-grupo (9 valores). Separado da coluna para poder evoluir.
@@ -48,6 +50,9 @@ CREATE INDEX IF NOT EXISTS idx_attractions_is_notable
   ON core.attractions (is_notable) WHERE is_notable = true;
 CREATE INDEX IF NOT EXISTS idx_attractions_importance_score
   ON core.attractions (importance_score DESC);
+-- backfill em 2 fases filtra por este campo (fase 1: NULL; fase 2: 'pending')
+CREATE INDEX IF NOT EXISTS idx_attractions_category_confidence
+  ON core.attractions (category_confidence);
 
 -- ----------------------------------------------------------------------------
 -- 4. (Opcional) Expor as colunas novas via PostgREST. O schema `core` já é

@@ -12,22 +12,39 @@
  *    it reads/filters category_group. For PRE-DDL validation use
  *    scripts/analyze-category-coverage.ts (it needs none of the new columns).
  *
+ * TWO PHASES (--phase, default 1):
+ *   Phase 1 (high confidence): writes the category ONLY when the OSM data guarantees
+ *     it (matched_by osm_category/flattened/osm_tags_reparse/key_fallback, or a
+ *     highway-tagged street). Each row ends marked category_confidence='high'.
+ *     Low-confidence rows (name guesses, bare-key defaults, name-only streets,
+ *     no-signal) are NOT categorized — just marked category_confidence='pending'.
+ *   Phase 2 (review): processes only the 'pending' rows, applying the low-confidence
+ *     guess → category_confidence='low' (or 'unmapped' if still nothing).
+ *
  * Usage:
  *   # dry-run (no writes) — validate distribution first
- *   npx tsx --env-file=.env scripts/backfill-poi-categories.ts --country "United States" --dry-run
- *   # small live test
- *   npx tsx --env-file=.env scripts/backfill-poi-categories.ts --country "United States" --limit 5000
- *   # full run (resumable: pass --resume-after <lastId> to continue)
- *   npx tsx --env-file=.env scripts/backfill-poi-categories.ts --country "United States"
+ *   npx tsx --env-file=.env scripts/backfill-poi-categories.ts --country all --dry-run
+ *   # Phase 1 — small live test, then full (resumable via --resume-after <lastId>)
+ *   npx tsx --env-file=.env scripts/backfill-poi-categories.ts --country all --limit 5000
+ *   npx tsx --env-file=.env scripts/backfill-poi-categories.ts --country all
+ *   # Phase 2 — after Phase 1, classify the deferred rows
+ *   npx tsx --env-file=.env scripts/backfill-poi-categories.ts --country all --phase 2
+ *   # GENTLE off-peak run (won't overload prod RPCs like cms_search_pois):
+ *   npx tsx --env-file=.env scripts/backfill-poi-categories.ts --country all --concurrency 3 --batch-size 500 --throttle-ms 750
  *
  * Flags:
- *   --country <name>        default "United States"
+ *   --country <name|all>    default "United States"; "all" = whole DB
+ *   --phase <1|2>           default 1 (high-confidence); 2 = low-confidence review
  *   --dry-run               classify + tally only, no writes
- *   --batch-size <n>        rows fetched per page (default 1000)
- *   --concurrency <n>       parallel UPDATEs per batch (default 8)
+ *   --batch-size <n>        rows fetched per page (default 1000; lower for sparse countries)
+ *   --concurrency <n>       parallel UPDATEs per batch (default 8; use 2-3 to be gentle on prod)
+ *   --throttle-ms <n>       pause between batches (default 0; use 500-1000 for off-peak runs)
  *   --limit <n>             stop after N rows scanned
  *   --resume-after <id>     keyset cursor to continue a prior run
  *   --no-log-file           don't write the .log file
+ *
+ * NOTE: a heavy concurrency can overload the DB and make prod RPCs 500 (statement
+ * timeout). For a live run while the app is in use, prefer --concurrency 3 --throttle-ms 750.
  *
  * No-clobber: skips human-curated rows (source_type manual*) and rows already
  * backfilled (category_group not null). NOTE: `approved` and `import_source` are
@@ -47,7 +64,7 @@ const EXCLUDED_STREET_SENTINEL = '_excluded_street'
 const CURATED_SOURCE_TYPES = ['manual', 'manual_premium_rescue', 'manual_rescue', 'rescue_mission']
 
 const SELECT_COLS = [
-  'id', 'name', 'osm_category', 'osm_tags', 'primary_category', 'category', 'source_type', 'category_group',
+  'id', 'name', 'osm_category', 'osm_tags', 'primary_category', 'category', 'source_type', 'category_group', 'category_confidence',
   'amenity', 'leisure', 'natural_water', 'waterway', 'man_made', 'building',
   'place', 'landuse', 'shop', 'park_type', 'monument_type', 'artwork_type',
   'information', 'type',
@@ -82,12 +99,12 @@ async function runWithConcurrency<T>(items: T[], concurrency: number, task: (ite
 
 interface Opts {
   country: string; dryRun: boolean; batchSize: number; concurrency: number
-  limit?: number; resumeAfter?: string; logFile: boolean
+  limit?: number; resumeAfter?: string; logFile: boolean; phase: 1 | 2; throttleMs: number
 }
 
 function parseArgs(): Opts {
   const args = process.argv.slice(2)
-  const o: Opts = { country: 'United States', dryRun: false, batchSize: 1000, concurrency: 8, logFile: true }
+  const o: Opts = { country: 'United States', dryRun: false, batchSize: 1000, concurrency: 8, logFile: true, phase: 1, throttleMs: 0 }
   for (let i = 0; i < args.length; i++) {
     const k = args[i]?.replace(/^--/, '')
     if (k === 'dry-run') { o.dryRun = true; continue }
@@ -95,10 +112,12 @@ function parseArgs(): Opts {
     const v = args[++i]
     if (v === undefined) break
     if (k === 'country') o.country = v
+    else if (k === 'phase') o.phase = (parseInt(v, 10) === 2 ? 2 : 1)
     else if (k === 'batch-size') o.batchSize = parseInt(v, 10)
     else if (k === 'concurrency') o.concurrency = parseInt(v, 10)
     else if (k === 'limit') o.limit = parseInt(v, 10)
     else if (k === 'resume-after') o.resumeAfter = v
+    else if (k === 'throttle-ms') o.throttleMs = parseInt(v, 10)
   }
   return o
 }
@@ -111,27 +130,42 @@ async function main() {
   const logPath = opts.logFile ? path.resolve(`backfill-categories-log-${runStamp}.log`) : null
   const logger = logPath ? attachFileLogger(logPath) : null
 
-  console.log(`🚀 Backfill categories — country="${opts.country}" dryRun=${opts.dryRun} batch=${opts.batchSize} conc=${opts.concurrency}`)
+  console.log(`🚀 Backfill categories — PHASE ${opts.phase} (${opts.phase === 1 ? 'high-confidence OSM' : 'low-confidence review'}) country="${opts.country}" dryRun=${opts.dryRun} batch=${opts.batchSize} conc=${opts.concurrency}`)
   if (opts.resumeAfter) console.log(`   resume-after id > ${opts.resumeAfter}`)
 
   const byMatched = new Map<string, number>()
   const byGroup = new Map<string, number>()
-  let scanned = 0, updated = 0, skippedCurated = 0, skippedDone = 0, excluded = 0, notable = 0, failed = 0
+  let scanned = 0, updated = 0, skippedCurated = 0, skippedDone = 0, deferred = 0, excluded = 0, notable = 0, failed = 0, unmapped = 0
   let cursor = opts.resumeAfter || ''
   let lastId = cursor
   const startedAt = Date.now()
 
-  while (true) {
+  // Phase 1 scans by id PK (fast) and skips already-processed rows in JS — the
+  // `category_confidence IS NULL` filter would make the planner use the all-null
+  // index and time out. Phase 2 filters on the SELECTIVE 'pending' value (index helps).
+  const fetchPage = async (cur: string) => {
     let q = supabase.schema('core').from('attractions')
       .select(SELECT_COLS)
-      .eq('country', opts.country)
-      .is('category_group', null)            // idempotency/resume: skip already-backfilled
       .order('id', { ascending: true })
       .limit(opts.batchSize)
-    if (cursor) q = q.gt('id', cursor)
+    if (opts.phase === 2) q = q.eq('category_confidence', 'pending')
+    if (opts.country !== 'all') q = q.eq('country', opts.country)   // --country all => whole DB
+    if (cur) q = q.gt('id', cur)
+    return q
+  }
 
-    const { data, error } = await q
-    if (error) { console.error('❌ fetch error:', error.message); process.exit(1) }
+  while (true) {
+    // Self-healing: transient statement_timeouts on the read shouldn't kill a
+    // multi-hour run. Retry the page up to 5x with exponential backoff before exiting.
+    let data: any[] | null = null
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const res = await fetchPage(cursor)
+      if (!res.error) { data = res.data as any[]; break }
+      if (attempt === 5) { console.error(`❌ fetch error (gave up after 5 tries, lastId=${lastId}): ${res.error.message}`); process.exit(1) }
+      const backoff = 2000 * attempt
+      console.warn(`⚠️ fetch error (attempt ${attempt}/5): ${res.error.message} — retrying in ${backoff}ms`)
+      await new Promise(r => setTimeout(r, backoff))
+    }
     if (!data || data.length === 0) break
 
     const updates: Array<{ id: string; patch: Record<string, any> }> = []
@@ -139,6 +173,9 @@ async function main() {
     for (const row of data as any[]) {
       scanned++
       lastId = row.id
+
+      // Phase 1 resume safety: skip rows already processed in a prior run.
+      if (opts.phase === 1 && row.category_confidence != null) { skippedDone++; continue }
 
       // No-clobber: never touch human-curated rows, nor geofence POIs.
       // The app keys critical behavior on category==='geofence' (audio gen,
@@ -151,23 +188,27 @@ async function main() {
       const notableFlag = isNotable(row as ClassifyInput)
       if (notableFlag) notable++
       inc(byMatched, res.matched_by)
-      if (res.category_group) inc(byGroup, res.category_group)
 
+      // importance_score / is_notable are independent of category confidence — always set.
+      // We deliberately do NOT write the legacy `category` column (app reads it).
       const patch: Record<string, any> = { importance_score: score, is_notable: notableFlag }
 
-      // NOTE: we deliberately do NOT write the legacy `category` column — the app
-      // reads it and keys business rules on specific values (e.g. 'geofence').
-      // New taxonomy lives only in primary_category / category_group.
-      if (res.excluded) {
-        excluded++
-        patch.primary_category = EXCLUDED_STREET_SENTINEL
-        patch.category_group = null
-      } else if (res.primary_category) {
-        patch.primary_category = res.primary_category
-        patch.category_group = res.category_group
+      if (opts.phase === 1) {
+        // Phase 1: only write the category when OSM GUARANTEES it (high confidence).
+        if (res.confidence === 'high') {
+          patch.category_confidence = 'high'
+          if (res.excluded) { excluded++; patch.primary_category = EXCLUDED_STREET_SENTINEL; patch.category_group = null }
+          else if (res.primary_category) { patch.primary_category = res.primary_category; patch.category_group = res.category_group; inc(byGroup, res.category_group!) }
+        } else {
+          // low confidence (name/guess) — defer to Phase 2, just mark it.
+          deferred++
+          patch.category_confidence = 'pending'
+        }
       } else {
-        // unmapped: leave primary_category/categories as they are; record score only.
-        // category_group stays null so a future improved run reprocesses this row.
+        // Phase 2: the deferred rows. Apply the low-confidence guess now.
+        if (res.excluded) { excluded++; patch.primary_category = EXCLUDED_STREET_SENTINEL; patch.category_group = null; patch.category_confidence = 'low' }
+        else if (res.primary_category) { patch.primary_category = res.primary_category; patch.category_group = res.category_group; patch.category_confidence = 'low'; inc(byGroup, res.category_group!) }
+        else { unmapped++; patch.category_confidence = 'unmapped' }   // truly no signal anywhere
       }
 
       updates.push({ id: row.id, patch })
@@ -185,33 +226,39 @@ async function main() {
 
     cursor = lastId
     const elapsed = ((Date.now() - startedAt) / 1000).toFixed(0)
-    console.log(`… scanned=${scanned} ${opts.dryRun ? 'would-update' : 'updated'}=${updated} excluded=${excluded} curated=${skippedCurated} fail=${failed} (lastId=${lastId}, ${elapsed}s)`)
+    console.log(`… scanned=${scanned} ${opts.dryRun ? 'would-update' : 'updated'}=${updated} deferred=${deferred} excluded=${excluded} unmapped=${unmapped} done=${skippedDone} curated=${skippedCurated} fail=${failed} (lastId=${lastId}, ${elapsed}s)`)
 
     if (opts.limit && scanned >= opts.limit) break
     if (data.length < opts.batchSize) break
+    // Throttle between batches to keep production RPCs (e.g. cms_search_pois) healthy
+    // during a long live run. Use e.g. --throttle-ms 750 for an off-peak gentle run.
+    if (opts.throttleMs > 0) await new Promise(r => setTimeout(r, opts.throttleMs))
   }
 
   const sortDesc = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1])
   console.log('\n' + '='.repeat(60))
-  console.log(`📊 Backfill summary (${opts.dryRun ? 'DRY-RUN' : 'LIVE'})`)
+  console.log(`📊 Backfill summary — PHASE ${opts.phase} (${opts.dryRun ? 'DRY-RUN' : 'LIVE'})`)
   console.log('='.repeat(60))
-  console.log(`Scanned:            ${scanned}`)
-  console.log(`${opts.dryRun ? 'Would update' : 'Updated'}:       ${updated}`)
-  console.log(`Excluded streets:   ${excluded}`)
-  console.log(`Notable (≥30):      ${notable}`)
-  console.log(`Skipped curated:    ${skippedCurated}`)
-  console.log(`Failed updates:     ${failed}`)
-  console.log(`Last id processed:  ${lastId}`)
+  console.log(`Scanned:                 ${scanned}`)
+  console.log(`${opts.dryRun ? 'Would update' : 'Updated'}:            ${updated}`)
+  if (opts.phase === 1) console.log(`Deferred → Phase 2:      ${deferred}  (marked 'pending')`)
+  if (opts.phase === 2) console.log(`Still unmapped:          ${unmapped}`)
+  console.log(`Excluded streets:        ${excluded}`)
+  console.log(`Notable (≥30):           ${notable}`)
+  console.log(`Skipped curated/geofence:${skippedCurated}`)
+  console.log(`Failed updates:          ${failed}`)
+  console.log(`Last id processed:       ${lastId}`)
+  if (opts.phase === 1) console.log(`\n➡️  Next: run Phase 2 over the deferred rows:\n    npx tsx --env-file=.env scripts/backfill-poi-categories.ts --country ${opts.country === 'all' ? 'all' : `"${opts.country}"`} --phase 2`)
   console.log('\nmatched_by:')
   for (const [k, v] of sortDesc(byMatched)) console.log(`  ${String(v).padStart(8)}  ${k}`)
-  console.log('\ncategory_group:')
+  console.log('\ncategory_group (written this phase):')
   for (const [k, v] of sortDesc(byGroup)) console.log(`  ${String(v).padStart(8)}  ${k}`)
   console.log('='.repeat(60))
 
-  const resultsFile = path.resolve(`backfill-categories-results-${runStamp}.json`)
+  const resultsFile = path.resolve(`backfill-categories-results-p${opts.phase}-${runStamp}.json`)
   await (await import('fs/promises')).writeFile(resultsFile, JSON.stringify({
     timestamp: new Date().toISOString(), options: opts,
-    scanned, updated, excluded, notable, skippedCurated, skippedDone, failed, lastId,
+    scanned, updated, deferred, excluded, unmapped, notable, skippedCurated, failed, lastId,
     matched_by: Object.fromEntries(byMatched), category_group: Object.fromEntries(byGroup),
   }, null, 2))
   console.log(`💾 Results: ${resultsFile}`)

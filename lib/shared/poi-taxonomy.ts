@@ -74,8 +74,8 @@ export const SPECIFIC_TO_GROUP: Record<string, CategoryGroup> = {
   airport: 'infrastructure', windmill: 'infrastructure', pier: 'infrastructure',
   dam: 'infrastructure', aerialway: 'infrastructure', road: 'infrastructure',
   marina: 'infrastructure',
-  // --- lodging ---
-  hotel: 'lodging',
+  // --- lodging (hotéis + abrigos/refúgios de montanha) ---
+  hotel: 'lodging', mountain_hut: 'lodging', chalet: 'lodging', apartment: 'lodging',
   // --- place (administrative / settlement) ---
   city: 'place', town: 'place', village: 'place', suburb: 'place',
   neighbourhood: 'place', hamlet: 'place', locality: 'place', borough: 'place',
@@ -200,8 +200,11 @@ export const SYNONYM_TO_CATEGORY: Record<string, string> = {
   chair_lift: 'aerialway', cable_car: 'aerialway', gondola: 'aerialway',
   rope_tow: 'aerialway', magic_carpet: 'aerialway', zip_line: 'aerialway', drag_lift: 'aerialway',
   fountain: 'fountain',
-  // lodging
+  // lodging — hotéis e abrigos de montanha (huts/refúgios) e aluguel de temporada
   hotel: 'hotel', hostel: 'hotel', guest_house: 'hotel', motel: 'hotel', resort: 'hotel',
+  alpine_hut: 'mountain_hut', wilderness_hut: 'mountain_hut', mountain_hut: 'mountain_hut',
+  refuge: 'mountain_hut', refugio: 'mountain_hut', hut: 'mountain_hut',
+  chalet: 'chalet', apartment: 'apartment',
   // place (administrative / settlement)
   city: 'city', town: 'town', village: 'village', suburb: 'suburb',
   neighbourhood: 'neighbourhood', neighborhood: 'neighbourhood', hamlet: 'hamlet',
@@ -240,33 +243,41 @@ export const KEY_TO_GROUP: Record<string, CategoryGroup> = {
  * OSM signal exists. Word-boundary matched against the lowercased name. Each
  * entry: [regex, canonical category]. Order matters (first match wins).
  */
+// Multilingual (EN/PT/ES/IT/FR), accent-insensitive — matched against the
+// deburred lowercased name (see deburr()). LAST RESORT only. Order matters:
+// built/man-made first so e.g. "...Airport"/"...Ponte" wins over a water token.
 const NAME_HEURISTICS: Array<[RegExp, string]> = [
-  // built / man-made first — an "Airport" / "Bridge" name wins over a "Bay" token
   [/\bhistoric district\b/, 'historic_site'],
-  [/\b(airport|airfield|airpark)\b/, 'airport'],
-  [/\bbridge\b/, 'bridge'],
-  [/\blighthouse\b/, 'lighthouse'],
-  [/\b(church|chapel|cathedral|basilica|temple|mosque|synagogue)\b/, 'church'],
-  [/\bmuseum\b/, 'museum'],
-  [/\bcemetery\b/, 'cemetery'],
+  // built / man-made
+  [/\b(airport|airfield|airpark|aeroporto|aerodromo|aeropuerto|aeroport)\b/, 'airport'],
+  [/\b(bridge|ponte|puente|pont)\b/, 'bridge'],
+  [/\b(lighthouse|farol|faro|phare)\b/, 'lighthouse'],
+  [/\b(church|chapel|cathedral|basilica|temple|mosque|synagogue|igreja|capela|catedral|santuario|ermida|iglesia|chiesa|eglise)\b/, 'church'],
+  [/\b(museum|museu|museo|musee)\b/, 'museum'],
+  [/\b(cemetery|cemiterio|cementerio|cimetiere|cimitero)\b/, 'cemetery'],
+  [/\b(theatre|theater|teatro)\b/, 'theatre'],
+  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|chateau|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  [/\b(viewpoint|mirante|mirador|belvedere|belvedere)\b/, 'viewpoint'],
   // water
-  [/\b(lake|pond|reservoir)\b/, 'lake'],
-  [/\b(creek|brook|bayou|river|stream)\b/, 'river'],
-  [/\b(falls|waterfall)\b/, 'waterfall'],
-  [/\bsprings?\b/, 'spring'],
-  [/\bbeach\b/, 'beach'],
-  [/\b(bay|cove|inlet|harbor|harbour)\b/, 'bay'],
+  [/\b(lake|pond|reservoir|lagoa|lago|laguna|lac)\b/, 'lake'],
+  [/\b(represa|acude|embalse|barragem)\b/, 'reservoir'],
+  [/\b(falls|waterfall|cachoeira|catarata|cascata|cascada|salto|chute)\b/, 'waterfall'],
+  [/\b(creek|brook|bayou|river|stream|rio|riacho|corrego|igarape|ribeira|arroyo|riviere|fiume)\b/, 'river'],
+  [/\b(spring|springs|nascente|fonte|fuente)\b/, 'spring'],
+  [/\b(beach|praia|playa|plage|spiaggia)\b/, 'beach'],
+  [/\b(bay|cove|inlet|harbor|harbour|baia|enseada|bahia|baie)\b/, 'bay'],
   // relief / nature
-  [/\b(mountain|mount|mt\.?|peak|summit)\b/, 'peak'],
-  [/\b(hill|knob|butte|mound)\b/, 'hill'],
+  [/\b(mountain|mount|mt|peak|summit|morro|serra|pico|monte|cerro|colina|montagne|montana)\b/, 'peak'],
+  [/\b(hill|knob|butte|mound|outeiro)\b/, 'hill'],
   [/\bmesa\b/, 'plateau'],
   [/\bridge\b/, 'ridge'],
-  [/\b(canyon|gorge|valley)\b/, 'valley'],
-  [/\b(cave|cavern|grotto)\b/, 'cave'],
-  [/\b(cliff|bluff|palisade)\b/, 'cliff'],
-  [/\b(forest|woods|woodland)\b/, 'forest'],
-  [/\b(island|isle|cay)\b/, 'island'],
-  [/\b(park|gardens?)\b/, 'park'],
+  [/\b(canyon|canion|gorge|valley|vale|valle|vallee)\b/, 'valley'],
+  [/\b(cave|cavern|grotto|gruta|caverna|cueva|grotte|grotta)\b/, 'cave'],
+  [/\b(cliff|bluff|palisade|penhasco|falesia|farallon|falaise)\b/, 'cliff'],
+  [/\b(forest|woods|woodland|mata|floresta|bosque|selva|foret|bosco)\b/, 'forest'],
+  [/\b(island|isle|cay|ilha|isla|ile|isola)\b/, 'island'],
+  [/\b(park|gardens?|parque|jardim|jardin|jardins|giardino)\b/, 'park'],
+  [/\b(square|praca|plaza|piazza)\b/, 'square'],
 ]
 
 /**
@@ -314,19 +325,26 @@ export interface ClassifyInput {
 }
 
 export type MatchedBy =
-  | 'osm_category'
-  | 'flattened'
-  | 'osm_tags_reparse'
-  | 'name_heuristic'
-  | 'key_fallback'
-  | 'unmapped'
-  | 'excluded_street'
+  | 'osm_category'      // real OSM value (high confidence)
+  | 'flattened'        // real flattened-column value (high)
+  | 'osm_tags_reparse' // real tag recovered from osm_tags / Nominatim class+type (high)
+  | 'key_fallback'     // known OSM key, unknown value -> group guaranteed (high)
+  | 'name_heuristic'   // inferred from the name only (LOW confidence)
+  | 'key_default'      // bare/leaked key with no value -> guessed default (LOW)
+  | 'unmapped'         // no signal at all (deferred)
+  | 'excluded_street'  // street/road -> excluded as non-POI
 
+/**
+ * confidence:
+ *   'high' = OSM data guarantees the category/group (Phase 1 — safe to write)
+ *   'low'  = inferred/guessed (name, bare-key default, name-based street) — Phase 2 review
+ */
 export interface ClassifyResult {
   primary_category: string | null
   category_group: CategoryGroup | null
   categories: string[]
   matched_by: MatchedBy
+  confidence: 'high' | 'low'
   excluded: boolean
 }
 
@@ -342,11 +360,18 @@ const COLUMN_KEY: Record<string, string> = {
   landuse: 'landuse',
   shop: 'shop',
 }
-// Order matters: most specific / highest-signal first.
+// Order matters: most specific / highest-signal first. `amenity` BEFORE `man_made`
+// so e.g. a church with a tower (amenity=place_of_worship + man_made=tower) is a
+// church, not a tower.
 const COLUMN_PRIORITY = [
-  'natural_water', 'waterway', 'man_made', 'leisure', 'monument_type',
-  'artwork_type', 'park_type', 'amenity', 'place', 'building', 'shop', 'landuse',
+  'natural_water', 'waterway', 'amenity', 'leisure', 'monument_type',
+  'artwork_type', 'park_type', 'man_made', 'place', 'building', 'shop', 'landuse',
 ] as const
+
+/** Lowercase + strip diacritics, so PT/ES/FR/IT name tokens match unaccented. */
+function deburr(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
 
 function norm(v: unknown): string | null {
   if (v === null || v === undefined) return null
@@ -368,9 +393,9 @@ function isStreetLike(name: string | null): boolean {
   )
 }
 
-function makeResult(category: string, matched_by: MatchedBy): ClassifyResult {
+function makeResult(category: string, matched_by: MatchedBy, confidence: 'high' | 'low' = 'high'): ClassifyResult {
   const group = SPECIFIC_TO_GROUP[category] ?? null
-  return { primary_category: category, category_group: group, categories: [category], matched_by, excluded: false }
+  return { primary_category: category, category_group: group, categories: [category], matched_by, confidence, excluded: false }
 }
 
 /**
@@ -394,7 +419,7 @@ function resolveKeyed(value: string | null, key: string, matched_by: MatchedBy):
   const group = KEY_TO_GROUP[key]
   if (group) {
     const leaf = isCleanLeaf(v) ? v : `other_${group}`
-    return { primary_category: leaf, category_group: group, categories: [leaf], matched_by: 'key_fallback', excluded: false }
+    return { primary_category: leaf, category_group: group, categories: [leaf], matched_by: 'key_fallback', confidence: 'high', excluded: false }
   }
   return null
 }
@@ -435,34 +460,40 @@ export function classify(input: ClassifyInput): ClassifyResult {
     }
   }
 
-  // (4) name heuristics (last resort, only when no structured signal)
+  // --- below here is LOW confidence (Phase 2): guesses, not OSM-guaranteed ---
+
+  // (4.5) bare/leaked OSM key with no value — guess the key's sensible default
+  // (e.g. osm_category='historic' -> historic_site). Runs BEFORE name heuristics
+  // because a real (if bare) OSM key beats a name guess.
+  const tagHighway = oc === 'highway' || norm(tags?.class) === 'highway'
+  const keyDefault = GENERIC_KEY_DEFAULT[oc ?? ''] ?? GENERIC_KEY_DEFAULT[norm(tags?.class) ?? '']
+  if (keyDefault && !tagHighway) {
+    return makeResult(keyDefault, 'key_default', 'low')
+  }
+
+  // (5a) street/road by TAG (highway) — high-confidence exclusion
+  if (tagHighway) {
+    if (isNotable(input)) return makeResult('road', 'osm_tags_reparse', 'high')
+    return { primary_category: null, category_group: null, categories: [], matched_by: 'excluded_street', confidence: 'high', excluded: true }
+  }
+
+  // (6) name heuristics (last resort, only when no structured signal).
+  // Deburred so PT/ES/FR/IT tokens match regardless of accents.
   if (name) {
-    const nameLower = name.toLowerCase()
+    const nameNorm = deburr(name)
     for (const [re, cat] of NAME_HEURISTICS) {
-      if (re.test(nameLower)) return makeResult(cat, 'name_heuristic')
+      if (re.test(nameNorm)) return makeResult(cat, 'name_heuristic', 'low')
     }
   }
 
-  // (4.5) bare/leaked OSM key with no value — assign the key's sensible default
-  // (e.g. osm_category='historic' -> historic_site). Low confidence, auditable.
-  const keyDefault = GENERIC_KEY_DEFAULT[oc ?? ''] ?? GENERIC_KEY_DEFAULT[norm(tags?.class) ?? '']
-  if (keyDefault) {
-    const r = makeResult(keyDefault, 'key_fallback')
-    return r
+  // (5b) street/road by NAME only — low-confidence exclusion
+  if (isStreetLike(name)) {
+    if (isNotable(input)) return makeResult('road', 'name_heuristic', 'low')
+    return { primary_category: null, category_group: null, categories: [], matched_by: 'excluded_street', confidence: 'low', excluded: true }
   }
 
-  // (5) street/road handling: exclude plain streets, KEEP notable ones
-  const streetLike =
-    oc === 'highway' ||
-    norm(tags?.class) === 'highway' ||
-    isStreetLike(name)
-  if (streetLike) {
-    if (isNotable(input)) return makeResult('road', 'flattened')
-    return { primary_category: null, category_group: null, categories: [], matched_by: 'excluded_street', excluded: true }
-  }
-
-  // (6) nothing matched — leave for review, never invent a category
-  return { primary_category: null, category_group: null, categories: [], matched_by: 'unmapped', excluded: false }
+  // (7) nothing matched — leave for Phase 2 review, never invent a category
+  return { primary_category: null, category_group: null, categories: [], matched_by: 'unmapped', confidence: 'low', excluded: false }
 }
 
 /**

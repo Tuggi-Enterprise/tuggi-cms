@@ -445,6 +445,7 @@ export class MigrationService {
     const cls = classify(taxIn)
     mapped.importance_score = importanceScore(taxIn)
     mapped.is_notable = isNotable(taxIn)
+    mapped.category_confidence = cls.confidence   // 'high' | 'low' — same SSOT as the backfill
     if (cls.excluded) {
       mapped.primary_category = '_excluded_street'
       mapped.category_group = null
