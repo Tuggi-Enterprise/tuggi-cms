@@ -75,10 +75,10 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    // Use RPC function for efficient search
-    console.log('🔍 Using RPC cms_search_pois for POI search')
-    
-    const rpcParams = {
+    // Filtros compartilhados entre cms_list_pois (linhas) e cms_poi_facets (contadores).
+    // Os filtros complexos (content/group/score/trigger) agora são aplicados no SQL
+    // pelo RPC — não há mais pós-filtragem em JS.
+    const sharedFilters = {
       search_term: search || null,
       status_filter: status,
       country_filter: country || null,
@@ -90,10 +90,7 @@ export async function GET(request: NextRequest) {
       group_status_filter: groupStatus,
       score_filter: scoreFilter,
       trigger_points_filter: triggerPointsFilter,
-      limit_count: mapView ? 10000 : limit, // Higher limit for map view
-      offset_count: mapView ? 0 : startIndex,
-      fetch_all: mapView || all || false,
-      p_owner_id: ownerId
+      owner_id: ownerId,
     }
     
     // Try to detect logged user and, if client, restrict results to their own POIs
@@ -123,11 +120,56 @@ export async function GET(request: NextRequest) {
       console.log('🔍 POI Search: client detected; RPC will be scoped by role')
     }
 
-    console.log('🔍 RPC Parameters:', rpcParams)
-    
-    const { data: rpcData, error: rpcError } = await supabase
-      .schema('core')
-      .rpc('cms_search_pois', rpcParams)
+    // Dispatch:
+    //  - lista/cards -> cms_list_pois (linhas) + cms_poi_facets (contadores/total) em paralelo
+    //  - all=true    -> só cms_poi_facets (retorna cedo)
+    //  - mapView     -> RPC legado cms_search_pois (ajuste do mapa é etapa à parte)
+    let rpcData: any[] | null = null
+    let rpcError: any = null
+    let facetRow: any = {}
+
+    if (mapView) {
+      const res = await supabase
+        .schema('core')
+        .rpc('cms_search_pois', { ...sharedFilters, limit_count: 10000, offset_count: 0, fetch_all: true })
+      rpcData = res.data
+      rpcError = res.error
+      facetRow = rpcData?.[0] || {}
+    } else if (all) {
+      const f = await supabase.schema('core').rpc('cms_poi_facets', sharedFilters)
+      if (f.error) {
+        console.error('❌ Facets RPC Error:', f.error)
+        return NextResponse.json({ success: false, error: `RPC error: ${f.error.message}` }, { status: 500 })
+      }
+      const fr = f.data?.[0] || {}
+      const countsResult = {
+        success: true,
+        data: {
+          total: fr.total_count || 0,
+          approved: fr.approved_count || 0,
+          pending: fr.pending_count || 0,
+          withDescription: fr.with_description_count || 0,
+          withAudio: fr.with_audio_count || 0,
+          withTriggerPoints: fr.with_trigger_points_count || 0,
+          complete: fr.complete_count || 0,
+        },
+      }
+      const cacheKey = `pois-search-all:${sortedParams || 'default'}`
+      memoryCache.set(cacheKey, countsResult, 5)
+      console.log(`🔍 POI Search (all=true): Cached counts for key: ${cacheKey}`)
+      return NextResponse.json(countsResult)
+    } else {
+      const [listRes, facetsRes] = await Promise.all([
+        supabase.schema('core').rpc('cms_list_pois', {
+          ...sharedFilters, limit_count: limit, offset_count: startIndex, fetch_all: false,
+        }),
+        supabase.schema('core').rpc('cms_poi_facets', sharedFilters),
+      ])
+      rpcData = listRes.data
+      rpcError = listRes.error
+      facetRow = facetsRes.data?.[0] || {}
+      if (facetsRes.error) console.warn('🔍 POI facets error (cards ficam zerados):', facetsRes.error.message)
+    }
     
     if (rpcError) {
       console.error('❌ RPC Error:', rpcError)
@@ -148,28 +190,31 @@ export async function GET(request: NextRequest) {
     console.log('🔍 RPC Response data length:', rpcData?.length)
     
     if (!rpcData || rpcData.length === 0) {
+      const emptyTotal = facetRow.total_count || 0
+      const emptyPages = Math.ceil(emptyTotal / limit)
       return NextResponse.json({
         success: true,
         data: [],
         pagination: {
-          totalCount: 0,
-          totalPages: 0,
+          totalCount: emptyTotal,
+          totalPages: emptyPages,
           currentPage: page,
-          hasNextPage: false,
-          hasPrevPage: false
+          hasNextPage: page < emptyPages,
+          hasPrevPage: page > 1
         }
       })
     }
     
-    // Extract statistics from the first row
+    // Estatísticas vêm dos facets (MV quando sem filtro; count live quando filtrado).
+    // No mapView, facetRow vem do RPC legado (rpcData[0]).
     const stats = {
-      total: rpcData[0].total_count || 0,
-      approved: rpcData[0].approved_count || 0,
-      pending: rpcData[0].pending_count || 0,
-      withDescription: rpcData[0].with_description_count || 0,
-      withAudio: rpcData[0].with_audio_count || 0,
-      withTriggerPoints: rpcData[0].with_trigger_points_count || 0,
-      complete: rpcData[0].complete_count || 0
+      total: facetRow.total_count || 0,
+      approved: facetRow.approved_count || 0,
+      pending: facetRow.pending_count || 0,
+      withDescription: facetRow.with_description_count || 0,
+      withAudio: facetRow.with_audio_count || 0,
+      withTriggerPoints: facetRow.with_trigger_points_count || 0,
+      complete: facetRow.complete_count || 0
     }
     
     // Transform RPC data to match expected format
@@ -219,116 +264,14 @@ export async function GET(request: NextRequest) {
     const totalCount = stats.total
     const totalPages = Math.ceil(totalCount / limit)
     
-    // Apply post-processing filters if needed (for complex filters not handled by RPC)
-    let filteredPois = pois
-    
-    if (hasComplexFilters) {
-      console.log('🔍 Applying post-processing filters for complex filters')
-      
-      // Content Status filter
-      if (contentStatus !== 'all') {
-        filteredPois = filteredPois.filter((poi: any) => {
-          switch (contentStatus) {
-            case 'missing_description':
-              return !poi.has_description
-            case 'missing_audio':
-              return !poi.has_audio
-            case 'complete':
-              return poi.has_description && poi.has_audio
-            default:
-              return true
-          }
-        })
-      }
-      
-      // Group Status filter
-      if (groupStatus !== 'all') {
-        filteredPois = filteredPois.filter((poi: any) => {
-          switch (groupStatus) {
-            case 'grouped':
-              return poi.group_status?.is_in_group === true
-            case 'ungrouped':
-              return poi.group_status?.is_in_group === false
-            case 'group_main':
-              return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'main'
-            case 'group_member':
-              return poi.group_status?.is_in_group === true && poi.group_status?.group_role === 'member'
-            default:
-              return true
-          }
-        })
-      }
-      
-      // Score filter
-      if (scoreFilter !== 'all') {
-        filteredPois = filteredPois.filter((poi: any) => {
-          const ptBrDescription = poi.descriptions?.find((desc: any) => 
-            desc.language === 'pt-br'
-          )
-          
-          if (!ptBrDescription) {
-            return scoreFilter === 'no_score'
-          }
-          
-          const verificationStatus = ptBrDescription.verification_status
-          
-          switch (scoreFilter) {
-            case 'no_score':
-              return !verificationStatus
-            case 'rejected':
-              return verificationStatus === 'rejected'
-            case 'pending':
-              return verificationStatus === 'pending'
-            case 'approved':
-              return verificationStatus === 'approved'
-            default:
-              return true
-          }
-        })
-      }
-      
-      // Trigger Points filter
-      if (triggerPointsFilter !== 'all') {
-        filteredPois = filteredPois.filter((poi: any) => {
-          switch (triggerPointsFilter) {
-            case 'with_trigger_points':
-              return poi.trigger_points_count > 0
-            case 'without_trigger_points':
-              return poi.trigger_points_count === 0
-            default:
-              return true
-          }
-        })
-      }
-    }
-    
-    // If 'all=true', return only counts and cache the result
-    if (all) {
-      const countsResult = {
-        success: true,
-        data: {
-          total: totalCount,
-          approved: stats.approved,
-          pending: stats.pending,
-          withDescription: stats.withDescription,
-          withAudio: stats.withAudio,
-          withTriggerPoints: stats.withTriggerPoints,
-          complete: stats.complete
-        }
-      }
-      
-      // Cache the result for 5 minutes
-      const cacheKey = `pois-search-all:${sortedParams || 'default'}`
-      memoryCache.set(cacheKey, countsResult, 5)
-      console.log(`🔍 POI Search (all=true): Cached result for key: ${cacheKey}`)
-      
-      return NextResponse.json(countsResult)
-    }
-    
-    // Return the filtered results
+    // Sem pós-filtragem em JS: content/group/score/trigger são aplicados no SQL
+    // por cms_list_pois (e por cms_poi_facets, mantendo o total coerente).
+    // (all=true já retornou cedo no dispatch acima.)
+
+    // Return the results
     const result = {
       success: true,
-      data: filteredPois,
+      data: pois,
       pagination: {
         totalCount,
         totalPages,
@@ -345,7 +288,7 @@ export async function GET(request: NextRequest) {
       console.log(`🔍 POI Search: Cached result for key: ${searchCacheKey}`)
     }
     
-    console.log(`✅ POI Search completed: ${filteredPois.length} POIs returned`)
+    console.log(`✅ POI Search completed: ${pois.length} POIs returned`)
     return NextResponse.json(result)
   } catch (error) {
     console.error('🔍 POI Search API Error:', error)

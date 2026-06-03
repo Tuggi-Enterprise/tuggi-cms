@@ -27,30 +27,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Get POI stats via existing RPC but scoped to owner
-    const rpcParams: any = {
-      search_term: null,
-      status_filter: 'all',
-      country_filter: null,
-      state_filter: null,
-      city_filter: null,
-      google_types_filter: null,
-      category_filter: null,
-      content_status_filter: null,
-      group_status_filter: null,
-      score_filter: null,
-      trigger_points_filter: null,
-      limit_count: 1,
-      offset_count: 0,
-      fetch_all: true
-    }
-
+    // POI stats via cms_poi_facets (escopo por owner resolvido pelo JWT do caller).
+    // Lê a MV quando sem filtro — barato, sem varrer a tabela inteira.
     const { data: statsData, error: statsErr } = await supabase
       .schema('core')
-      .rpc('cms_search_pois', rpcParams)
+      .rpc('cms_poi_facets', {
+        search_term: null,
+        status_filter: 'all',
+        country_filter: null,
+        state_filter: null,
+        city_filter: null,
+        google_types_filter: null,
+        category_filter: null,
+        content_status_filter: 'all',
+        group_status_filter: 'all',
+        score_filter: 'all',
+        trigger_points_filter: 'all'
+      })
 
     if (statsErr) {
-      console.warn('Client dashboard: cms_search_pois RPC error (falling back to simple counts):', statsErr.message)
+      console.warn('Client dashboard: cms_poi_facets RPC error (falling back to simple counts):', statsErr.message)
     }
 
     // City distribution: aggregate simple select scoped to owner

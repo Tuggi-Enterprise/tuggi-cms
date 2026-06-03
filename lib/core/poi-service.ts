@@ -212,8 +212,9 @@ class POIService {
       
       const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
       
-      // Use the new RPC function for efficient search
-      const rpcParams = {
+      // Filtros compartilhados entre cms_list_pois (linhas) e cms_poi_facets (contadores).
+      // Os filtros complexos (content/group/score/trigger) são aplicados no SQL pelos RPCs.
+      const sharedFilters = {
         search_term: filters.search || null,
         status_filter: filters.status || 'all',
         country_filter: filters.country || null,
@@ -222,84 +223,95 @@ class POIService {
         google_types_filter: filters.googleTypes || null,
         category_filter: filters.category || null,
         osm_category_filter: filters.osmCategory || null,
-        content_status_filter: filters.contentStatus || null,
+        content_status_filter: filters.contentStatus || 'all',
         group_status_filter: filters.groupStatus || 'all',
         score_filter: filters.scoreFilter || 'all',
         trigger_points_filter: filters.triggerPointsFilter || 'all',
         is_active_filter: filters.isActiveFilter || 'all',
-        limit_count: filters.fetch_all ? 0 : (filters.limit || 1000),
-        offset_count: filters.fetch_all ? 0 : ((filters.page || 1) - 1) * (filters.limit || 1000),
-        fetch_all: filters.fetch_all || false,
-        p_owner_id: (filters as any).ownerId || null
+        owner_id: (filters as any).ownerId || null
       }
-      
-      
+
+      // Contadores/total via cms_poi_facets. Quando skipFacets=true (paginação: a
+      // contagem é buscada UMA vez por filtro num hook separado), pula essa chamada —
+      // virar de página não re-conta.
+      const skipFacets = (filters as any).skipFacets === true
+      const facetsPromise = skipFacets ? null : supabase.schema('core').rpc('cms_poi_facets', sharedFilters)
+
       let data: any[] = []
       let error: any = null
-      
-      if (rpcParams.fetch_all) {
-        
+
+      if (filters.fetch_all) {
+        // Puxa todas as linhas em chunks via cms_list_pois (sem stats por linha).
         let allData: any[] = []
         let currentOffset = 0
         const chunkSize = 1000
         let hasMore = true
-        
+
         while (hasMore) {
-          const chunkParams = {
-            ...rpcParams,
-            fetch_all: false, // Use pagination for chunks
-            limit_count: chunkSize,
-            offset_count: currentOffset
-          }
-          
-          
           const { data: chunkData, error: chunkError } = await supabase
             .schema('core')
-            .rpc('cms_search_pois', chunkParams)
-          
+            .rpc('cms_list_pois', {
+              ...sharedFilters,
+              fetch_all: false,
+              limit_count: chunkSize,
+              offset_count: currentOffset
+            })
+
           if (chunkError) {
             throw new Error(`RPC error: ${chunkError.message}`)
           }
-          
+
           if (!chunkData || chunkData.length === 0) {
             hasMore = false
           } else {
             allData = [...allData, ...chunkData]
             currentOffset += chunkSize
-            
-            // If we got less than chunkSize, we've reached the end
             if (chunkData.length < chunkSize) {
               hasMore = false
             }
-            
-            // Safety check to prevent infinite loops
             if (currentOffset > 100000) {
               hasMore = false
             }
           }
         }
-        
+
         data = allData
         error = null
       } else {
-        // Normal single call (not fetch_all)
-        const result = await supabase.schema('core').rpc('cms_search_pois', rpcParams)
+        // Chamada única paginada via cms_list_pois.
+        const result = await supabase.schema('core').rpc('cms_list_pois', {
+          ...sharedFilters,
+          fetch_all: false,
+          limit_count: filters.limit || 1000,
+          offset_count: ((filters.page || 1) - 1) * (filters.limit || 1000)
+        })
         data = result.data || []
         error = result.error
       }
-      
-      if (data && data.length > 0) {
-        // Extract statistics from the first row (they're the same for all rows)
-        const stats = {
-          total: data[0].total_count || 0,
-          approved: data[0].approved_count || 0,
-          pending: data[0].pending_count || 0,
-          withDescription: data[0].with_description_count || 0,
-          withAudio: data[0].with_audio_count || 0,
-          withTriggerPoints: data[0].with_trigger_points_count || 0,
-          complete: data[0].complete_count || 0
+
+      // Resolve os contadores (quando não pulados). Com data vazio em paginação
+      // profunda, ainda dá o total correto.
+      let facetRow: any = {}
+      if (facetsPromise) {
+        const facetsRes = await facetsPromise
+        facetRow = facetsRes.data?.[0] || {}
+        if (facetsRes.error) {
+          console.warn('🔍 cms_poi_facets error (cards/total ficam zerados):', facetsRes.error.message)
         }
-        
+      }
+
+      const stats = {
+        total: facetRow.total_count || 0,
+        approved: facetRow.approved_count || 0,
+        pending: facetRow.pending_count || 0,
+        withDescription: facetRow.with_description_count || 0,
+        withAudio: facetRow.with_audio_count || 0,
+        withTriggerPoints: facetRow.with_trigger_points_count || 0,
+        complete: facetRow.complete_count || 0
+      }
+
+      if (data && data.length > 0) {
+
         // Transform the data to match our POI interface
         const pois = data.map((row: any) => ({
             id: row.id,
@@ -379,15 +391,18 @@ class POIService {
         
         return searchResult
       } else {
+        const emptyTotal = stats.total
+        const emptyPages = Math.ceil(emptyTotal / (filters.limit || 1000))
+        const emptyPage = filters.page || 1
         return {
           success: true,
           data: [],
           pagination: {
-            totalCount: 0,
-            totalPages: 0,
-            currentPage: filters.page || 1,
-            hasNextPage: false,
-            hasPrevPage: false
+            totalCount: emptyTotal,
+            totalPages: emptyPages,
+            currentPage: emptyPage,
+            hasNextPage: emptyPage < emptyPages,
+            hasPrevPage: emptyPage > 1
           },
           filters,
           metadata: {
@@ -419,7 +434,51 @@ class POIService {
       }
     }
   }
-  
+
+  /**
+   * Contadores/total (paginação + cards) via cms_poi_facets.
+   * Separado de search() para ser buscado UMA vez por filtro — virar de página não re-conta.
+   */
+  static async getFacets(filters: POISearchFilters): Promise<{ success: boolean; data?: { total: number; approved: number; pending: number; withDescription: number; withAudio: number; withTriggerPoints: number; complete: number }; error?: string }> {
+    try {
+      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
+      const { data, error } = await supabase.schema('core').rpc('cms_poi_facets', {
+        search_term: filters.search || null,
+        status_filter: filters.status || 'all',
+        country_filter: filters.country || null,
+        state_filter: filters.state || null,
+        city_filter: filters.city || null,
+        google_types_filter: filters.googleTypes || null,
+        category_filter: filters.category || null,
+        osm_category_filter: filters.osmCategory || null,
+        content_status_filter: filters.contentStatus || 'all',
+        group_status_filter: filters.groupStatus || 'all',
+        score_filter: filters.scoreFilter || 'all',
+        trigger_points_filter: filters.triggerPointsFilter || 'all',
+        is_active_filter: filters.isActiveFilter || 'all',
+        owner_id: (filters as any).ownerId || null
+      })
+      if (error) {
+        return { success: false, error: error.message }
+      }
+      const f = (data && data[0]) || {}
+      return {
+        success: true,
+        data: {
+          total: f.total_count || 0,
+          approved: f.approved_count || 0,
+          pending: f.pending_count || 0,
+          withDescription: f.with_description_count || 0,
+          withAudio: f.with_audio_count || 0,
+          withTriggerPoints: f.with_trigger_points_count || 0,
+          complete: f.complete_count || 0
+        }
+      }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : 'Unknown error' }
+    }
+  }
+
   /**
    * Get POIs for processing (trigger points, descriptions, etc.)
    */
@@ -630,8 +689,9 @@ class POIService {
       
       const supabase = getSupabase('server')
       
-      // Use the RPC function with fetch_all=true to get complete statistics
-      const { data, error } = await supabase.schema('core').rpc('cms_search_pois', {
+      // Contadores via cms_poi_facets (MV quando sem filtro; count live com filtro).
+      // Mesmos nomes de coluna do RPC antigo, sem varrer a tabela inteira.
+      const { data, error } = await supabase.schema('core').rpc('cms_poi_facets', {
         search_term: filters?.search || null,
         status_filter: filters?.status || 'all',
         country_filter: filters?.country || null,
@@ -639,13 +699,10 @@ class POIService {
         city_filter: filters?.city || null,
         google_types_filter: filters?.googleTypes || null,
         category_filter: filters?.category || null,
-        content_status_filter: filters?.contentStatus || null,
-        group_status_filter: filters?.groupStatus || null,
-        score_filter: filters?.scoreFilter || null,
-        trigger_points_filter: filters?.triggerPointsFilter || null,
-        limit_count: 1, // We only need one row to get the statistics
-        offset_count: 0,
-        fetch_all: true // This ensures we get statistics for ALL matching records
+        content_status_filter: filters?.contentStatus || 'all',
+        group_status_filter: filters?.groupStatus || 'all',
+        score_filter: filters?.scoreFilter || 'all',
+        trigger_points_filter: filters?.triggerPointsFilter || 'all'
       })
       
       if (error) {
@@ -894,6 +951,7 @@ export const poiService = {
   getWithTriggers: (filters: { city: string; state?: string; country?: string }) => 
     POIService.getWithTriggers(filters),
   search: (filters: POISearchFilters) => POIService.search(filters),
+  getFacets: (filters: POISearchFilters) => POIService.getFacets(filters),
   getForProcessing: (type: 'trigger_points' | 'descriptions' | 'osm_enrichment', filters: any) => 
     POIService.getForProcessing(type, filters),
   getById: (id: string) => POIService.getById(id),

@@ -21,7 +21,7 @@ import { getThumbnailUrl } from '@/lib/imageUtils'
 import { useLocationData } from '@/lib/hooks/use-location-data'
 import { poiService, POI as POIType, POISearchFilters } from '@/lib/core/poi-service'
 import { locationService } from '@/lib/core/location-service'
-import { usePOIs } from '@/lib/hooks/use-pois'
+import { usePOIs, usePOIFacets } from '@/lib/hooks/use-pois'
 import { useTranslations } from 'next-intl'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
@@ -234,47 +234,17 @@ function POIListWithSearchParams() {
   // Determine map loading strategy based on geographic context
   const getMapLoadingStrategy = useCallback((filters: POISearchFilters) => {
 
-    // For map view, use intelligent loading strategy
+    // No modo mapa, o OptimizedPOIMap busca seus próprios pontos por bbox+zoom
+    // (cms_search_pois_map, clustering no servidor). A lista NÃO precisa puxar todos
+    // os POIs — isso só estourava o banco sem ninguém renderizar. Aqui fazemos um
+    // fetch mínimo só para o total do cabeçalho (cms_list_pois LIMIT 1 + cms_poi_facets).
     if (viewMode === 'map') {
-      // Case 1: No country filter = show country aggregation
-      if (!filters.country) {
-        return {
-          fetch_all: true,
-          limit: 0, // No pagination for map
-          page: 1,
-          map_view: true,
-          strategy: 'country_aggregation'
-        }
-      }
-      // Case 2: Country but no state = show all POIs in country
-      else if (!filters.state) {
-        return {
-          fetch_all: true,
-          limit: 0,
-          page: 1,
-          map_view: true,
-          strategy: 'country_all'
-        }
-      }
-      // Case 3: Country + state but no city = show all POIs in state
-      else if (!filters.city) {
-        return {
-          fetch_all: true,
-          limit: 0,
-          page: 1,
-          map_view: true,
-          strategy: 'state_all'
-        }
-      }
-      // Case 4: Country + state + city = show all POIs in city
-      else {
-        return {
-          fetch_all: true,
-          limit: 0,
-          page: 1,
-          map_view: true,
-          strategy: 'city_all'
-        }
+      return {
+        fetch_all: false,
+        limit: 1,
+        page: 1,
+        map_view: false,
+        strategy: 'map_count_only'
       }
     }
 
@@ -288,21 +258,8 @@ function POIListWithSearchParams() {
     }
   }, [viewMode, itemsPerPage, currentPage])
 
-  const { data: searchResult, isLoading: isQueryLoading, isFetching: isQueryFetching, refetch } = usePOIs({
-    ...getMapLoadingStrategy({
-        search: debouncedSearchTerm,
-        status: statusFilter,
-        country: countryFilter,
-        state: stateFilter,
-        city: cityFilter,
-        category: categoryFilter === 'all' ? undefined : categoryFilter,
-        osmCategory: osmCategoryFilter === 'all' ? undefined : osmCategoryFilter,
-        contentStatus: contentStatusFilter,
-        groupStatus: groupStatusFilter,
-        scoreFilter: scoreFilter,
-        triggerPointsFilter: triggerPointsFilter,
-        isActiveFilter: isActiveFilter
-    }),
+  // Filtros base (sem página) — reusados pela lista e pelo contador.
+  const baseFilters = useMemo(() => ({
     search: debouncedSearchTerm,
     status: statusFilter,
     country: countryFilter,
@@ -314,10 +271,20 @@ function POIListWithSearchParams() {
     groupStatus: groupStatusFilter,
     scoreFilter: scoreFilter,
     triggerPointsFilter: triggerPointsFilter,
-    isActiveFilter: isActiveFilter,
+    isActiveFilter: isActiveFilter
+  }), [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, categoryFilter, osmCategoryFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter])
+
+  // Lista (linhas) — re-busca a cada página, MAS sem re-contar (skipFacets).
+  const { data: searchResult, isLoading: isQueryLoading, isFetching: isQueryFetching, refetch } = usePOIs({
+    ...getMapLoadingStrategy(baseFilters),
+    ...baseFilters,
     page: currentPage,
-    limit: itemsPerPage
-  })
+    limit: itemsPerPage,
+    skipFacets: true
+  } as any)
+
+  // Contador/total — UMA chamada por filtro (chave sem página). Virar de página reusa o cache.
+  const { data: facetsResult } = usePOIFacets(baseFilters)
 
   // Listen for ?poiId= and ?new= in URL
   useEffect(() => {
@@ -395,8 +362,9 @@ function POIListWithSearchParams() {
   // Use the results directly from the backend (no more frontend-side filtering)
   const filteredPois = pois
   
-  const totalCount = searchResult?.pagination?.totalCount || 0
-  const totalPages = searchResult?.pagination?.totalPages || 1
+  // Total vem do contador (cacheado por filtro); a lista não conta mais por página.
+  const totalCount = facetsResult?.data?.total ?? (searchResult?.pagination?.totalCount || 0)
+  const totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage))
 
   const isLoading = isQueryLoading || (isQueryFetching && pois.length === 0)
   const fetchPois = useCallback(() => refetch(), [refetch])
@@ -792,8 +760,9 @@ function POIListWithSearchParams() {
     ],
     triggerPointsFilter: [
       { value: 'all', label: t('status_options.all_trigger_points') },
-      { value: 'with_trigger_points', label: t('status_options.with_trigger_points') },
-      { value: 'without_trigger_points', label: t('status_options.without_trigger_points') }
+      { value: 'with_trigger_points', label: t('status_options.with_trigger_points') }
+      // 'without_trigger_points' ocultado: filtro de nicho (anti-join esparso ~7s) e
+      // não usado na prática. Para esse workflow use /trigger-points/list-for-generation.
     ],
     isActiveFilter: [
       { value: 'all', label: t('status_options.all_active') },
