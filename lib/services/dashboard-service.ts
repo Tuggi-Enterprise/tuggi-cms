@@ -220,18 +220,18 @@ class DashboardService {
   /**
    * Carrega todos os dados do dashboard usando RPCs otimizadas
    */
-  static async getDashboardData(ownerId?: string): Promise<{
+  static async getDashboardData(ownerId?: string, force?: boolean): Promise<{
     success: boolean
     data?: DashboardStats
     error?: string
   }> {
     const startTime = Date.now()
     const cacheKey = ownerId ? `dashboard:${ownerId}` : 'dashboard:global'
-    
+
     try {
-      // Check cache
+      // Check cache (force=true fura o cache — usado pelo refresh realtime debounced)
       const cached = this.cache.get(cacheKey)
-      if (cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
+      if (!force && cached && (Date.now() - cached.timestamp) < this.CACHE_TTL) {
         return { success: true, data: { ...cached.data, source: 'cache' as const } }
       }
       
@@ -257,8 +257,11 @@ class DashboardService {
         migrationMetricsResult,
         topGeneratorsResult
       ] = await Promise.all([
-        // parameter renamed to p_owner_id to avoid naming conflict
-        supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId || null }),
+        // user_analytics: caso global (admin) lê a MV mv_user_analytics_global (~50ms);
+        // com owner específico, cai na RPC live. Mesma forma de resultado ({ data: [row] }).
+        ownerId
+          ? supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId })
+          : supabase.schema('core').from('mv_user_analytics_global').select('*').limit(1),
         supabase.schema('core').rpc('dashboard_city_stats', { p_owner_id: ownerId || null }),
         supabase.schema('core').rpc('dashboard_most_visited_cities', { limit_count: 20 }),
         supabase.schema('core').rpc('dashboard_top_visited_pois', { limit_count: 10 }),
@@ -267,7 +270,10 @@ class DashboardService {
         supabase.schema('core').rpc('dashboard_content_quality'),
         supabase.schema('core').rpc('dashboard_visits_by_language'),
         supabase.schema('core').rpc('dashboard_recent_app_users', { limit_count: 7 }),
-        supabase.schema('core').rpc('dashboard_country_stats', { p_owner_id: ownerId || null }),
+        // country_stats: global lê a MV mv_country_stats (evita GROUP BY em query); owner → live.
+        ownerId
+          ? supabase.schema('core').rpc('dashboard_country_stats', { p_owner_id: ownerId })
+          : supabase.schema('core').from('mv_country_stats').select('*'),
         supabase.schema('core').rpc('dashboard_migration_metrics'),
         supabase.schema('core').rpc('dashboard_top_generators', { limit_count: 5 })
       ])
@@ -586,7 +592,7 @@ class DashboardService {
 // ============================================================================
 
 export const dashboardService = {
-  getDashboardData: (ownerId?: string) => DashboardService.getDashboardData(ownerId),
+  getDashboardData: (ownerId?: string, force?: boolean) => DashboardService.getDashboardData(ownerId, force),
   getInventoryDetails: () => DashboardService.getInventoryDetails(),
   getHeatmapData: (sampleSize?: number) => DashboardService.getHeatmapData(sampleSize),
   getUsersWithSessions: (limit?: number) => DashboardService.getUsersWithSessions(limit),

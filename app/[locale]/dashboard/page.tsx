@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
   PieChart, Pie, Cell
@@ -56,10 +56,13 @@ export default function DashboardPage() {
     setIsMounted(true)
   }, [])
 
-  const fetchData = useCallback(async (isBackground = false) => {
+  // Timer de debounce do refresh realtime (coalesce rajadas de eventos)
+  const liveRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const fetchData = useCallback(async (isBackground = false, force = false) => {
     try {
       if (!isBackground) setIsLoading(true)
-      const result = await dashboardService.getDashboardData()
+      const result = await dashboardService.getDashboardData(undefined, force)
       if (!result.success || !result.data) throw new Error(result.error || 'Failed to load dashboard')
       setStats(result.data)
       setError(null)
@@ -74,33 +77,32 @@ export default function DashboardPage() {
     // 1. Initial Load
     fetchData(false)
 
-    // 2. Realtime Listener (as per Realtime Dashboard dynamic)
+    // 2. Realtime Listener — DEBOUNCED + force.
+    // Antes: cada INSERT chamava fetchData(true), que batia no cache de 2min e
+    // não trazia dado fresco (só gerava tráfego de websocket à toa). Agora rajadas
+    // de eventos são coalescidas em UM refresh forçado a cada 15s — atualiza de
+    // verdade sem martelar o banco.
+    const scheduleLiveRefresh = () => {
+      if (liveRefreshTimer.current) return // já agendado nesta janela — coalesce
+      liveRefreshTimer.current = setTimeout(() => {
+        liveRefreshTimer.current = null
+        fetchData(true, true) // background + força (fura o cache)
+      }, 15000)
+    }
+
     const supabase = getSupabaseClient()
     const channel = supabase.channel('dashboard_sync')
-      .on(
-        'postgres_changes', 
-        { event: 'INSERT', schema: 'drive', table: 'poi_visits' }, 
-        () => {
-          console.log('🔔 Dashboard: Live POI visit detected, syncing metrics...')
-          fetchData(true)
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'drive', table: 'route_trail' },
-        () => {
-           console.log('🔔 Dashboard: Live Trip activity detected, syncing metrics...')
-           fetchData(true)
-        }
-      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'drive', table: 'poi_visits' }, scheduleLiveRefresh)
+      .on('postgres_changes', { event: 'INSERT', schema: 'drive', table: 'route_trail' }, scheduleLiveRefresh)
       .subscribe()
 
-    // 3. Optional: Polling fallback (60s as requested)
+    // 3. Polling fallback (60s) — sem force: respeita o cache de 2min.
     const interval = setInterval(() => fetchData(true), 60 * 1000)
 
     return () => {
       supabase.removeChannel(channel)
       clearInterval(interval)
+      if (liveRefreshTimer.current) clearTimeout(liveRefreshTimer.current)
     }
   }, [fetchData])
 
