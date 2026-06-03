@@ -6,6 +6,7 @@
  */
 
 import { getSupabase } from '@/lib/core/supabase-client'
+import { classify, importanceScore, isNotable } from '@/lib/shared/poi-taxonomy'
 
 const supabase = getSupabase('service')
 
@@ -420,6 +421,36 @@ export class MigrationService {
     // Handle categories → google_types conversion
     if (poi.categories) {
       mapped.google_types = this.convertFieldValue('google_types', poi.categories)
+    }
+
+    // Canonical taxonomy (SSOT) — derive primary_category + macro group + importance.
+    // Keeps new imports clean so they never reproduce the bare-key / null-category problem.
+    const taxIn = {
+      osm_category: poi.category ?? poi.primary_category ?? null,
+      amenity: poi.amenity, leisure: poi.leisure, natural_water: poi.natural_water,
+      waterway: poi.waterway, man_made: poi.man_made, building: poi.building,
+      place: poi.place, landuse: poi.landuse, shop: poi.shop,
+      park_type: poi.park_type, monument_type: poi.monument_type, artwork_type: poi.artwork_type,
+      information: poi.information, type: poi.type,
+      osm_tags: poi.osm_properties,
+      name: poi.name,
+      is_historic: poi.is_historic, is_touristic: poi.is_touristic,
+      wikidata: poi.wikidata, wikipedia: poi.wikipedia,
+      heritage_status: poi.heritage_status, unesco_status: poi.unesco_status,
+      importance_level: poi.importance_level, landmark_level: poi.landmark_level,
+    }
+    // New taxonomy goes to primary_category/category_group only. We do NOT set
+    // the legacy `category` column — the app reads it and keys business rules on
+    // specific values (e.g. 'geofence'); keep it decoupled from the taxonomy.
+    const cls = classify(taxIn)
+    mapped.importance_score = importanceScore(taxIn)
+    mapped.is_notable = isNotable(taxIn)
+    if (cls.excluded) {
+      mapped.primary_category = '_excluded_street'
+      mapped.category_group = null
+    } else if (cls.primary_category) {
+      mapped.primary_category = cls.primary_category
+      mapped.category_group = cls.category_group
     }
 
     return mapped

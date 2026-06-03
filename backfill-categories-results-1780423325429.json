@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-06-02T18:09:14.594Z",
+  "options": {
+    "country": "United States",
+    "dryRun": true,
+    "batchSize": 1000,
+    "concurrency": 8,
+    "logFile": true
+  },
+  "scanned": 400513,
+  "updated": 400485,
+  "excluded": 2327,
+  "notable": 110239,
+  "skippedCurated": 28,
+  "skippedDone": 0,
+  "failed": 0,
+  "lastId": "fffff509-f11b-55a9-b8ef-bae356c8114b",
+  "matched_by": {
+    "osm_category": 226838,
+    "unmapped": 49361,
+    "osm_tags_reparse": 54235,
+    "excluded_street": 2327,
+    "key_fallback": 6472,
+    "flattened": 42306,
+    "name_heuristic": 18946
+  },
+  "category_group": {
+    "water": 73344,
+    "culture": 76445,
+    "nature": 64286,
+    "leisure": 96714,
+    "place": 12590,
+    "infrastructure": 11510,
+    "religious": 7502,
+    "civic": 5156,
+    "lodging": 1250
+  }
+}

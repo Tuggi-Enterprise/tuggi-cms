@@ -12,6 +12,7 @@
 
 import { SimpleOSMPOI, ImportResults } from '../types/osm-types'
 import { getSupabaseClient } from '@/lib/core/supabase-client'
+import { classify } from '@/lib/shared/poi-taxonomy'
 
 // Interface for optimized map data (matching MapPOI from poi-map-service)
 export interface MapPOI {
@@ -766,32 +767,25 @@ export class OSMService {
   }
 
   /**
-   * Get normalized category (just the value, not the type=value format)
-   * This matches the local database system behavior
+   * Get normalized category — delegates to the shared canonical taxonomy (SSOT).
+   * Returns a clean specific category (e.g. "lake", "church", "bridge") instead
+   * of a raw OSM value or a leaked bare key. See lib/shared/poi-taxonomy.ts.
    */
   static getNormalizedCategory(properties: Record<string, any> | undefined): string | null {
     if (!properties) return null
-    
     // Handle both direct properties and nested tags structure
     const tags = properties.tags || properties
-    
-    const priorityTags = ['tourism', 'amenity', 'historic', 'natural', 'leisure', 'railway', 'public_transport', 'shop', 'highway', 'building']
-    
-    // First pass: look for specific categories (not *=yes)
-    for (const tag of priorityTags) {
-      if (tags[tag] && tags[tag] !== 'yes') {
-        return tags[tag] // Just the value (e.g., "hotel", "park", "restaurant")
-      }
-    }
-    
-    // Second pass: if no specific category found, use *=yes as fallback
-    for (const tag of priorityTags) {
-      if (tags[tag] === 'yes') {
-        return tags[tag] // "yes"
-      }
-    }
-    
-    return null
+    return classify({
+      osm_tags: tags,
+      name: tags.name,
+      // pass the few flattened-style hints OSM GeoJSON props may carry directly
+      natural_water: tags.water,
+      waterway: tags.waterway,
+      man_made: tags.man_made,
+      leisure: tags.leisure,
+      amenity: tags.amenity,
+      place: tags.place,
+    }).primary_category
   }
 
   /**
