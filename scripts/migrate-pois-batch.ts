@@ -313,15 +313,17 @@ async function main() {
   const targetLimit = options.limit || batchSize
   let allPois: any[] = []
   let hasMore = true
-  let offset = 0
+  let cursor: string | null = null // keyset: último uuid_id visto
   const fetchSize = 1000 // Stay safely under Supabase 2000-row limit per request
 
-  console.log(`📥 Fetching up to ${targetLimit} POIs via pagination...`)
-  
+  console.log(`📥 Fetching up to ${targetLimit} POIs via keyset pagination...`)
+
   while (hasMore) {
-    let query = buildQuery()
-    // Using range for pagination: range is inclusive, e.g., range(0, 999) gets 1000 items
-    query = query.range(offset, offset + fetchSize - 1)
+    // Keyset em vez de OFFSET: evita re-escanear a tabela inteira a cada página
+    // (homolog.pois era o #1 reader de disk I/O) e não pula linhas quando o
+    // processing_status muda durante a migração.
+    let query = buildQuery().order('uuid_id', { ascending: true }).limit(fetchSize)
+    if (cursor) query = query.gt('uuid_id', cursor)
 
     const { data: poisChunk, error: poisError } = await query
 
@@ -334,10 +336,13 @@ async function main() {
       hasMore = false
     } else {
       allPois = allPois.concat(poisChunk)
-      offset += fetchSize
-      
+      cursor = poisChunk[poisChunk.length - 1].uuid_id // avança o cursor
+
       console.log(`   Fetched ${allPois.length} POIs so far...`)
-      
+
+      if (poisChunk.length < fetchSize) {
+        hasMore = false // última página (chunk parcial)
+      }
       if (allPois.length >= targetLimit) {
         allPois = allPois.slice(0, targetLimit)
         hasMore = false
