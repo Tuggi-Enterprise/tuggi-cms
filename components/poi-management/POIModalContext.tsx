@@ -9,7 +9,7 @@
  * As more tabs are extracted, add the values they need to POIModalContextValue.
  */
 
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, useContext, type ReactNode, type Dispatch, type SetStateAction } from 'react'
 
 export interface BoundaryLatLng {
   lat: number
@@ -20,6 +20,8 @@ export interface POIModalContextValue {
   // Shell / shared
   getPoi: () => any
   canEdit: boolean
+  isCreateMode: boolean
+  onClose: () => void
   invalidateAllPOICaches: () => void | Promise<void>
   showFeedback: (message: string, type: 'success' | 'error') => void
   requestConfirm: (message: string) => Promise<boolean>
@@ -46,6 +48,18 @@ export interface POIModalContextValue {
   handleTogglePOI: (id: string) => void
   handlePolygonComplete: (polygon: any) => void
   handleSaveGroup: () => void
+
+  // Details tab
+  setEditedPoi: Dispatch<SetStateAction<any>>
+  isSaving: boolean
+  isAdmin: boolean
+  enhancedCategories: any[]
+  clients: any[]
+  images: any[]
+  openInGoogleMaps: () => void
+  handleSaveChanges: () => void
+  handleDelete: () => void
+  handleGarbage: () => void
 
   // Shared content state (description + audio + review)
   isLoading: boolean
