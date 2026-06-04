@@ -65,15 +65,6 @@ interface MapProps extends GoogleMapComponentProps {
   apiKey: string
 }
 
-// Global registry to track which component is currently drawing
-// This ensures only the active drawing component processes polygoncomplete events
-const activeDrawingComponentRegistry = new globalThis.Map<string, {
-  componentId: string | undefined
-  drawingManager: google.maps.drawing.DrawingManager
-  map: google.maps.Map
-  callback: ((polygon: google.maps.Polygon) => void) | undefined
-}>()
-
 // The actual Google Map component
 const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className'>> = ({
   center: centerProp,
@@ -109,8 +100,22 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
-  const drawingManagerRef = useRef<google.maps.drawing.DrawingManager | null>(null)
   const currentPolygonRef = useRef<google.maps.Polygon | null>(null)
+
+  // Manual polygon drawing state (replaces the deprecated google.maps.drawing.DrawingManager,
+  // removed from the Maps JS API as of v3.65). Click to add vertices, double-click — or
+  // toggling enableDrawing off — to finish.
+  const isDrawingRef = useRef(false)
+  const drawVerticesRef = useRef<google.maps.LatLng[]>([])
+  const drawPreviewPolygonRef = useRef<google.maps.Polygon | null>(null)
+  const drawVertexMarkersRef = useRef<google.maps.Marker[]>([])
+  const drawListenersRef = useRef<google.maps.MapsEventListener[]>([])
+  const toggleDrawingRef = useRef<() => void>(() => {})
+  // Synced prop refs so map init / listeners read fresh values without re-running effects.
+  const enableDrawingRef = useRef(enableDrawing)
+  const polygonOptionsRef = useRef(polygonOptions)
+  useEffect(() => { enableDrawingRef.current = enableDrawing }, [enableDrawing])
+  useEffect(() => { polygonOptionsRef.current = polygonOptions }, [polygonOptions])
   const savedPolygonsRef = useRef<google.maps.Polygon[]>([])
   const cityBoundaryRef = useRef<google.maps.Polygon | null>(null)
   const markersRef = useRef<google.maps.Marker[]>([])
@@ -135,6 +140,134 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     onPolygonCompleteRef.current = onPolygonComplete
   }, [onPolygonComplete, componentId])
 
+  // ----- Manual polygon drawing (replaces google.maps.drawing.DrawingManager) -----
+  const clearDrawPreview = useCallback(() => {
+    drawVertexMarkersRef.current.forEach(m => m.setMap(null))
+    drawVertexMarkersRef.current = []
+    if (drawPreviewPolygonRef.current) {
+      drawPreviewPolygonRef.current.setMap(null)
+      drawPreviewPolygonRef.current = null
+    }
+    drawVerticesRef.current = []
+  }, [])
+
+  const renderDrawPreview = useCallback(() => {
+    const map = mapInstanceRef.current
+    if (!map) return
+    const verts = drawVerticesRef.current
+    const opts = polygonOptionsRef.current
+
+    // Vertex dots
+    drawVertexMarkersRef.current.forEach(m => m.setMap(null))
+    drawVertexMarkersRef.current = verts.map(v => new google.maps.Marker({
+      position: v,
+      map,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 5,
+        fillColor: opts?.strokeColor || '#FF6B35',
+        fillOpacity: 1,
+        strokeColor: '#ffffff',
+        strokeWeight: 2,
+      },
+      zIndex: 1000,
+    }))
+
+    // Live polygon outline
+    if (!drawPreviewPolygonRef.current) {
+      drawPreviewPolygonRef.current = new google.maps.Polygon({
+        map,
+        fillColor: opts?.fillColor || '#FF6B35',
+        fillOpacity: opts?.fillOpacity ?? 0.2,
+        strokeColor: opts?.strokeColor || '#FF6B35',
+        strokeWeight: opts?.strokeWeight || 3,
+        clickable: false,
+        zIndex: 999,
+      })
+    }
+    drawPreviewPolygonRef.current.setPath(verts)
+  }, [])
+
+  const stopDrawing = useCallback(() => {
+    isDrawingRef.current = false
+    drawListenersRef.current.forEach(l => l.remove())
+    drawListenersRef.current = []
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.setOptions({ disableDoubleClickZoom: false })
+    }
+    const btn = drawingButtonRef.current
+    if (btn) {
+      btn.innerHTML = '🔸 Draw Polygon'
+      btn.style.backgroundColor = '#00A8E8'
+    }
+  }, [])
+
+  const finishDrawing = useCallback(() => {
+    // Drop a trailing duplicate vertex (a double-click adds the same point twice).
+    let verts = drawVerticesRef.current.slice()
+    if (verts.length >= 2) {
+      const a = verts[verts.length - 1]
+      const b = verts[verts.length - 2]
+      if (Math.abs(a.lat() - b.lat()) < 1e-9 && Math.abs(a.lng() - b.lng()) < 1e-9) {
+        verts = verts.slice(0, -1)
+      }
+    }
+    stopDrawing()
+    clearDrawPreview()
+    if (verts.length < 3) return
+
+    const opts = polygonOptionsRef.current
+    if (currentPolygonRef.current) currentPolygonRef.current.setMap(null)
+    const polygonShape = new google.maps.Polygon({
+      paths: verts,
+      map: mapInstanceRef.current!,
+      fillColor: opts?.fillColor || '#FF6B35',
+      fillOpacity: opts?.fillOpacity ?? 0.2,
+      strokeColor: opts?.strokeColor || '#FF6B35',
+      strokeWeight: opts?.strokeWeight || 3,
+      editable: true,
+      draggable: true,
+    })
+    currentPolygonRef.current = polygonShape
+
+    const cb = onPolygonCompleteRef.current
+    if (cb) {
+      try { cb(polygonShape) } catch (error) {
+        console.error('❌ [GoogleMapComponent] onPolygonComplete callback error:', error)
+      }
+    }
+  }, [stopDrawing, clearDrawPreview])
+
+  const startDrawing = useCallback(() => {
+    const map = mapInstanceRef.current
+    if (!map || isDrawingRef.current) return
+    isDrawingRef.current = true
+    clearDrawPreview()
+    map.setOptions({ disableDoubleClickZoom: true })
+
+    const clickL = map.addListener('click', (e: google.maps.MapMouseEvent) => {
+      if (!e.latLng) return
+      drawVerticesRef.current.push(e.latLng)
+      renderDrawPreview()
+    })
+    const dblL = map.addListener('dblclick', () => finishDrawing())
+    drawListenersRef.current = [clickL, dblL]
+
+    const btn = drawingButtonRef.current
+    if (btn) {
+      btn.innerHTML = '⏹️ Finish Polygon'
+      btn.style.backgroundColor = '#FF6F00'
+    }
+  }, [clearDrawPreview, renderDrawPreview, finishDrawing])
+
+  // Toggle handler the in-map button calls (kept stable via ref).
+  useEffect(() => {
+    toggleDrawingRef.current = () => {
+      if (isDrawingRef.current) finishDrawing()
+      else startDrawing()
+    }
+  }, [startDrawing, finishDrawing])
+
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
 
@@ -150,219 +283,46 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
 
     mapInstanceRef.current = map
 
-    // Add click listener if onMapClick is provided
+    // Add click listener if onMapClick is provided.
+    // While drawing a polygon, clicks add vertices instead — don't fire onMapClick.
     if (onMapClick) {
       map.addListener('click', (e: google.maps.MapMouseEvent) => {
+        if (isDrawingRef.current) return
         if (e.latLng) {
           onMapClick(e.latLng.lat(), e.latLng.lng())
         }
       })
     }
 
-    // Initialize drawing manager (always, but control visibility)
-    if (google.maps.drawing) {
-      const drawingManager = new google.maps.drawing.DrawingManager({
-        drawingMode: null,
-        drawingControl: false, // We'll use our custom button
-        polygonOptions: {
-          fillColor: '#00A8E8',
-          fillOpacity: 0.3,
-          strokeColor: '#00A8E8',
-          strokeWeight: 3,
-          editable: true,
-          draggable: true,
-        },
-      })
-
-      console.log('Drawing Manager initialized:', drawingManager)
-
-      drawingManager.setMap(map)
-      drawingManagerRef.current = drawingManager
-
-      // Add custom drawing control button ONLY if enableDrawing is true
-      // Don't check for callback here - it may arrive later via props update
-      const controlDiv = document.createElement('div')
-      controlDiv.style.margin = '10px'
-      
-      const controlButton = document.createElement('button')
-      controlButton.style.backgroundColor = '#00A8E8'
-      controlButton.style.color = 'white'
-      controlButton.style.border = 'none'
-      controlButton.style.borderRadius = '4px'
-      controlButton.style.padding = '8px 12px'
-      controlButton.style.fontSize = '14px'
-      controlButton.style.fontWeight = 'bold'
-      controlButton.style.cursor = 'pointer'
-      controlButton.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)'
-      controlButton.innerHTML = '🔸 Draw Polygon'
-      controlButton.title = 'Click to start drawing a polygon'
-      
-      // Hide button if enableDrawing or showDrawingButton is explicitly false
-      if (enableDrawing === false || showDrawingButton === false) {
-        controlButton.style.display = 'none'
-      }
-      
-      // Store reference to button
-      drawingButtonRef.current = controlButton
-      
-      // Generate unique instance ID for this component
-      const instanceId = `${componentId || 'unknown'}-${Date.now()}-${Math.random()}`
-      
-      controlButton.addEventListener('click', () => {
-        // Toggle drawing mode
-        const isCurrentlyDrawing = drawingManager.getDrawingMode() === google.maps.drawing.OverlayType.POLYGON
-        
-        if (isCurrentlyDrawing) {
-          // Disable drawing mode
-          drawingManager.setDrawingMode(null)
-          controlButton.innerHTML = '🔸 Draw Polygon'
-          controlButton.style.backgroundColor = '#00A8E8'
-          
-          // Unregister from global registry
-          activeDrawingComponentRegistry.delete(instanceId)
-          console.log(`🔴 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Unregistered from drawing registry`)
-        } else {
-          // CRITICAL: Disable drawing on ALL other drawing managers before enabling this one
-          // Clear all other active drawing components
-          activeDrawingComponentRegistry.forEach((entry, id) => {
-            if (id !== instanceId) {
-              entry.drawingManager.setDrawingMode(null)
-              // Reset their button states if possible
-              const button = (entry.drawingManager as any).__controlButton
-              if (button) {
-                button.innerHTML = '🔸 Draw Polygon'
-                button.style.backgroundColor = '#00A8E8'
-              }
-            }
-          })
-          activeDrawingComponentRegistry.clear()
-          
-          // Warn if no callback, but allow drawing anyway (callback may arrive later)
-          if (!onPolygonCompleteRef.current) {
-            console.warn(`⚠️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] No onPolygonComplete callback yet`, {
-              hasRef: !!onPolygonCompleteRef.current,
-              refType: typeof onPolygonCompleteRef.current,
-              componentId,
-              note: 'Drawing enabled anyway - callback may arrive via props update'
-            })
-          }
-          
-          // Register THIS component as the active drawing component
-          activeDrawingComponentRegistry.set(instanceId, {
-            componentId,
-            drawingManager,
-            map,
-            callback: onPolygonCompleteRef.current
-          })
-          
-          drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
-          controlButton.innerHTML = '⏹️ Stop Drawing'
-          controlButton.style.backgroundColor = '#FF6F00'
-          
-          console.log(`🟢 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Registered as active drawing component (instanceId: ${instanceId})`, {
-            hasCallback: !!onPolygonCompleteRef.current,
-            callbackType: typeof onPolygonCompleteRef.current
-          })
-        }
-        
-        console.log(`Drawing mode toggled via button${componentId ? `:${componentId}` : ''}:`, !isCurrentlyDrawing)
-      })
-      
-      // Store reference to button in drawingManager for cleanup
-      ;(drawingManager as any).__controlButton = controlButton
-      ;(drawingManager as any).__instanceId = instanceId
-      
-      // Store reference to drawing manager for cleanup
-      ;(drawingManager as any).__componentId = componentId
-      ;(drawingManager as any).__mapInstance = map
-      // instanceId already stored above
-      
-      controlDiv.appendChild(controlButton)
-      map.controls[google.maps.ControlPosition.TOP_RIGHT].push(controlDiv)
-
-      // Handle polygon completion - use global registry to ensure only active component processes
-      google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon: google.maps.Polygon) => {
-        const instanceId = (drawingManager as any).__instanceId
-        const activeEntry = instanceId ? activeDrawingComponentRegistry.get(instanceId) : null
-        
-        console.log(`🗺️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] polygoncomplete event fired!`, {
-          componentId,
-          instanceId,
-          hasPolygon: !!polygon,
-          isActiveInRegistry: !!activeEntry,
-          registrySize: activeDrawingComponentRegistry.size,
-          hasCallback: !!onPolygonCompleteRef.current,
-          callbackFromRef: !!onPolygonCompleteRef.current,
-          callbackFromRegistry: !!activeEntry?.callback
-        })
-        
-        // CRITICAL: Only process if this component is registered as the active drawing component
-        if (!activeEntry || activeEntry.drawingManager !== drawingManager) {
-          console.log(`⚠️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Ignoring polygoncomplete - not the active drawing component`)
-          return
-        }
-        
-        // Verify the polygon is on the correct map
-        const polygonMap = polygon.getMap()
-        if (polygonMap !== map) {
-          console.log(`⚠️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Ignoring polygoncomplete - polygon is on different map`)
-          return
-        }
-        
-        // ALWAYS use the current callback from ref (most up-to-date)
-        const currentCallback = onPolygonCompleteRef.current
-        
-        if (!currentCallback) {
-          console.log(`⚠️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Ignoring polygoncomplete - no callback available in ref`, {
-            hasRef: !!onPolygonCompleteRef.current,
-            refType: typeof onPolygonCompleteRef.current,
-            registryCallback: !!activeEntry?.callback
-          })
-          return
-        }
-        
-        console.log(`✅ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Processing polygoncomplete for this component`)
-        
-        // Clear any existing polygon
-        if (currentPolygonRef.current) {
-          currentPolygonRef.current.setMap(null)
-        }
-
-        currentPolygonRef.current = polygon
-        drawingManager.setDrawingMode(null)
-        
-        // Reset button state
-        controlButton.innerHTML = '🔸 Draw Polygon'
-        controlButton.style.backgroundColor = '#00A8E8'
-        
-        // Unregister from global registry
-        activeDrawingComponentRegistry.delete(instanceId)
-        console.log(`🔴 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Unregistered from drawing registry after polygon complete`)
-
-        console.log(`🗺️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Calling onPolygonComplete callback`)
-        try {
-          currentCallback(polygon)
-          console.log(`✅ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] onPolygonComplete callback executed successfully`)
-        } catch (error) {
-          console.error(`❌ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Error in onPolygonComplete callback:`, error)
-        }
-      })
-      
-      // Cleanup: Unregister when component unmounts or drawing manager is destroyed
-      const cleanup = () => {
-        const instanceId = (drawingManager as any).__instanceId
-        if (instanceId) {
-          activeDrawingComponentRegistry.delete(instanceId)
-          console.log(`🧹 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Cleaned up from drawing registry`)
-        }
-      }
-      
-      // Store cleanup function
-      ;(drawingManager as any).__cleanup = cleanup
-    } else {
-      console.error('Google Maps Drawing library not loaded')
+    // Custom "Draw Polygon" control button (manual drawing — DrawingManager was
+    // removed from the Maps JS API in v3.65). Toggles drawing via toggleDrawingRef.
+    const controlDiv = document.createElement('div')
+    controlDiv.style.margin = '10px'
+    const controlButton = document.createElement('button')
+    controlButton.style.backgroundColor = '#00A8E8'
+    controlButton.style.color = 'white'
+    controlButton.style.border = 'none'
+    controlButton.style.borderRadius = '4px'
+    controlButton.style.padding = '8px 12px'
+    controlButton.style.fontSize = '14px'
+    controlButton.style.fontWeight = 'bold'
+    controlButton.style.cursor = 'pointer'
+    controlButton.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)'
+    controlButton.innerHTML = '🔸 Draw Polygon'
+    controlButton.title = 'Click to start drawing a polygon'
+    if (showDrawingButton === false) {
+      controlButton.style.display = 'none'
     }
-  }, [center, zoom, onMapClick])
+    controlButton.addEventListener('click', () => toggleDrawingRef.current())
+    drawingButtonRef.current = controlButton
+    controlDiv.appendChild(controlButton)
+    map.controls[google.maps.ControlPosition.TOP_RIGHT].push(controlDiv)
+
+    // If drawing was already requested (e.g. enableDrawing defaults true), start now.
+    if (enableDrawingRef.current) {
+      startDrawing()
+    }
+  }, [center, zoom, onMapClick, startDrawing])
 
   const updateMarkers = useCallback(() => {
     if (!mapInstanceRef.current) return
@@ -600,54 +560,22 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   }, [cityBoundary, cityName])
 
   const updateDrawingMode = useCallback(() => {
-    if (!drawingManagerRef.current) return
-
-    const drawingManager = drawingManagerRef.current
-    const instanceId = (drawingManager as any).__instanceId
-    const button = (drawingManager as any).__controlButton
-
-    console.log(`🗺️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] updateDrawingMode:`, {
-      enableDrawing,
-      showDrawingButton,
-      instanceId,
-      hasButton: !!button
-    })
+    if (!mapInstanceRef.current) return
 
     if (enableDrawing) {
-      // Enable drawing mode
-      drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON)
-      if (button) {
-        button.innerHTML = '⏹️ Stop Drawing'
-        button.style.backgroundColor = '#FF6F00'
-        button.style.display = showDrawingButton !== false ? 'block' : 'none'
-      }
-
-      // REGISTER in global registry if not already there
-      if (instanceId && !activeDrawingComponentRegistry.has(instanceId) && mapInstanceRef.current) {
-        activeDrawingComponentRegistry.set(instanceId, {
-          componentId: componentId || 'unknown',
-          drawingManager: drawingManager,
-          map: mapInstanceRef.current,
-          callback: onPolygonCompleteRef.current
-        })
-        console.log(`🟢 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Registered via prop update`)
-      }
-    } else {
-      // Disable drawing mode
-      drawingManager.setDrawingMode(null)
-      if (button) {
-        button.innerHTML = '🔸 Draw Polygon'
-        button.style.backgroundColor = '#00A8E8'
-        button.style.display = 'none'
-      }
-
-      // UNREGISTER if it was drawing
-      if (instanceId && activeDrawingComponentRegistry.has(instanceId)) {
-        activeDrawingComponentRegistry.delete(instanceId)
-        console.log(`🔴 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Unregistered via prop update`)
+      // Enter drawing mode (no-op if already drawing).
+      startDrawing()
+    } else if (isDrawingRef.current) {
+      // enableDrawing toggled off while drawing: commit the polygon if it has
+      // enough vertices, otherwise just stop and discard the preview.
+      if (drawVerticesRef.current.length >= 3) {
+        finishDrawing()
+      } else {
+        stopDrawing()
+        clearDrawPreview()
       }
     }
-  }, [enableDrawing, showDrawingButton, componentId])
+  }, [enableDrawing, startDrawing, finishDrawing, stopDrawing, clearDrawPreview])
 
   const updateCircle = useCallback(() => {
     if (!mapInstanceRef.current) return
@@ -702,12 +630,12 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   }, [circles])
 
   useEffect(() => {
-    if (window.google && window.google.maps && window.google.maps.drawing) {
+    if (window.google && window.google.maps) {
       initializeMap()
     } else {
-      // Wait for the drawing library to load
+      // Wait for the Maps API to load
       const checkLibraries = setInterval(() => {
-        if (window.google && window.google.maps && window.google.maps.drawing) {
+        if (window.google && window.google.maps) {
           clearInterval(checkLibraries)
           initializeMap()
         }
@@ -748,14 +676,16 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     updateCircle()
   }, [updateCircle])
 
-  // Cleanup: Remove from registry when component unmounts
+  // Cleanup drawing listeners/preview when component unmounts
   useEffect(() => {
     return () => {
-      if (drawingManagerRef.current) {
-        const cleanup = (drawingManagerRef.current as any).__cleanup
-        if (cleanup) {
-          cleanup()
-        }
+      drawListenersRef.current.forEach(l => l.remove())
+      drawListenersRef.current = []
+      drawVertexMarkersRef.current.forEach(m => m.setMap(null))
+      drawVertexMarkersRef.current = []
+      if (drawPreviewPolygonRef.current) {
+        drawPreviewPolygonRef.current.setMap(null)
+        drawPreviewPolygonRef.current = null
       }
     }
   }, [])

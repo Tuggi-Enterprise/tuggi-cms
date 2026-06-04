@@ -90,77 +90,83 @@ const MapInner = forwardRef<POIImporterMapRef, POIImporterMapProps>((props, ref)
 
     mapInstanceRef.current = map
 
-    const drawingManager = new google.maps.drawing.DrawingManager({
-      drawingMode: null,
-      drawingControl: true,
-      drawingControlOptions: {
-        position: google.maps.ControlPosition.TOP_CENTER,
-        drawingModes: [
-          google.maps.drawing.OverlayType.RECTANGLE,
-          google.maps.drawing.OverlayType.POLYGON,
-        ],
-      },
-      rectangleOptions: {
-        fillColor: '#3B82F6',
-        fillOpacity: 0.2,
-        strokeWeight: 2,
-        strokeColor: '#3B82F6',
-        editable: true,
-        draggable: true,
-      },
-      polygonOptions: {
-        fillColor: '#3B82F6',
-        fillOpacity: 0.2,
-        strokeWeight: 2,
-        strokeColor: '#3B82F6',
-        editable: true,
-        draggable: true,
-      },
-    })
+    // Area drawing requires the deprecated google.maps.drawing.DrawingManager,
+    // removed from the Maps JS API in v3.65. Degrade gracefully if absent.
+    if (google.maps.drawing) {
+          const drawingManager = new google.maps.drawing.DrawingManager({
+            drawingMode: null,
+            drawingControl: true,
+            drawingControlOptions: {
+              position: google.maps.ControlPosition.TOP_CENTER,
+              drawingModes: [
+                google.maps.drawing.OverlayType.RECTANGLE,
+                google.maps.drawing.OverlayType.POLYGON,
+              ],
+            },
+            rectangleOptions: {
+              fillColor: '#3B82F6',
+              fillOpacity: 0.2,
+              strokeWeight: 2,
+              strokeColor: '#3B82F6',
+              editable: true,
+              draggable: true,
+            },
+            polygonOptions: {
+              fillColor: '#3B82F6',
+              fillOpacity: 0.2,
+              strokeWeight: 2,
+              strokeColor: '#3B82F6',
+              editable: true,
+              draggable: true,
+            },
+          })
 
-    drawingManager.setMap(map)
-    drawingManagerRef.current = drawingManager
+          drawingManager.setMap(map)
+          drawingManagerRef.current = drawingManager
 
-    google.maps.event.addListener(drawingManager, 'overlaycomplete', (event: any) => {
-      // Clear previous shape if exists
-      if (currentShape) {
-        currentShape.setMap(null)
-      }
+          google.maps.event.addListener(drawingManager, 'overlaycomplete', (event: any) => {
+            // Clear previous shape if exists
+            if (currentShape) {
+              currentShape.setMap(null)
+            }
 
-      const newShape = event.overlay
-      drawingManager.setDrawingMode(null) // Exit drawing mode
-      setCurrentShape(newShape)
+            const newShape = event.overlay
+            drawingManager.setDrawingMode(null) // Exit drawing mode
+            setCurrentShape(newShape)
 
-      // Calculate bounds
-      if (event.type === google.maps.drawing.OverlayType.RECTANGLE) {
-        onAreaChange(newShape.getBounds())
+            // Calculate bounds
+            if (event.type === google.maps.drawing.OverlayType.RECTANGLE) {
+              onAreaChange(newShape.getBounds())
         
-        google.maps.event.addListener(newShape, 'bounds_changed', () => {
-          onAreaChange(newShape.getBounds())
-        })
-      } else if (event.type === google.maps.drawing.OverlayType.POLYGON) {
-        const bounds = new google.maps.LatLngBounds()
-        newShape.getPath().forEach((element: any) => {
-          bounds.extend(element)
-        })
-        onAreaChange(bounds)
+              google.maps.event.addListener(newShape, 'bounds_changed', () => {
+                onAreaChange(newShape.getBounds())
+              })
+            } else if (event.type === google.maps.drawing.OverlayType.POLYGON) {
+              const bounds = new google.maps.LatLngBounds()
+              newShape.getPath().forEach((element: any) => {
+                bounds.extend(element)
+              })
+              onAreaChange(bounds)
 
-        google.maps.event.addListener(newShape.getPath(), 'set_at', () => {
-          const b = new google.maps.LatLngBounds()
-          newShape.getPath().forEach((element: any) => b.extend(element))
-          onAreaChange(b)
-        })
-        google.maps.event.addListener(newShape.getPath(), 'insert_at', () => {
-          const b = new google.maps.LatLngBounds()
-          newShape.getPath().forEach((element: any) => b.extend(element))
-          onAreaChange(b)
-        })
-      }
-    })
+              google.maps.event.addListener(newShape.getPath(), 'set_at', () => {
+                const b = new google.maps.LatLngBounds()
+                newShape.getPath().forEach((element: any) => b.extend(element))
+                onAreaChange(b)
+              })
+              google.maps.event.addListener(newShape.getPath(), 'insert_at', () => {
+                const b = new google.maps.LatLngBounds()
+                newShape.getPath().forEach((element: any) => b.extend(element))
+                onAreaChange(b)
+              })
+            }
+          })
 
-    google.maps.event.addListener(drawingManager, 'drawingmode_changed', () => {
-      onDrawingModeChange(drawingManager.getDrawingMode() !== null)
-    })
+          google.maps.event.addListener(drawingManager, 'drawingmode_changed', () => {
+            onDrawingModeChange(drawingManager.getDrawingMode() !== null)
+          })
+    } else {
+      console.warn('⚠️ [POIImporterMap] Drawing tools unavailable (google.maps.drawing removed in Maps v3.65)')
+    }
   }, [onAreaChange, onDrawingModeChange, currentShape])
 
   const updateHistoryOnMap = useCallback(() => {
