@@ -65,18 +65,23 @@ export function UserLocationProvider({ children }: { children: React.ReactNode }
               return
             }
 
-            console.error('❌ [Location] Error code:', err.code, 'Message:', err.message)
             let message = 'Failed to get location'
             switch (err.code) {
               case err.PERMISSION_DENIED:
+                // User choice, not a system error — log as a warning, not an error.
+                console.warn('⚠️ [Location] Permission denied by user')
                 message = 'Location permission denied'
                 break
               case err.POSITION_UNAVAILABLE:
+                console.error('❌ [Location] Position unavailable:', err.message)
                 message = 'Location information is unavailable'
                 break
               case err.TIMEOUT:
+                console.error('❌ [Location] Request timed out:', err.message)
                 message = 'Location request timed out'
                 break
+              default:
+                console.error('❌ [Location] Error code:', err.code, 'Message:', err.message)
             }
             setError(message)
             setIsLoading(false)
