@@ -32,6 +32,11 @@ import {
   fetchGroupOfPoi,
   saveGroup as saveGroupRemote,
 } from '@/lib/core/poi-groups-service'
+import {
+  fetchDescriptions as fetchDescriptionsRemote,
+  upsertPortugueseDescription,
+} from '@/lib/core/poi-descriptions-service'
+import { fetchVerificationRaw } from '@/lib/core/poi-verification-service'
 import { POIModalProvider, type POIModalContextValue } from './POIModalContext'
 import { BoundaryTab } from './tabs/BoundaryTab'
 import { TriggerPointsTab } from './tabs/TriggerPointsTab'
@@ -694,13 +699,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     setIsLoading(true)
     try {
       // Fetch descriptions with cache busting
-      const { data: descriptionsData } = await supabase
-        .schema('core')
-        .from('attraction_descriptions')
-        .select('*')
-        .or(`attraction_id.eq.${activePoiId},group_id.in.(${groupInfo?.id || ''})`)
-        .order('updated_at', { ascending: false })
-        .order('created_at', { ascending: false })
+      const descriptionsData = await fetchDescriptionsRemote(supabase, activePoiId, groupInfo?.id)
 
       setDescriptions(descriptionsData || [])
 
@@ -870,56 +869,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // Usar a linguagem atual ou preferir pt-br para verificação
       const verificationLang = (generationLanguage === 'pt-br' || generationLanguage === 'pt-BR') ? 'pt-br' : generationLanguage
 
-      // Usar a view existente v_descriptions_with_last_score que já consolida os dados
-      // Tentar tanto lowercase quanto uppercase se necessário, ou usar a linguagem de geração
-      const { data: descData, error: descError } = await supabase
-        .schema('core')
-        .from('v_descriptions_with_last_score')
-        .select('*')
-        .eq('attraction_id', getPoi()?.id || '')
-        .ilike('language', verificationLang) // Case-insensitive search
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (descError) {
-        console.error('❌ Erro ao buscar descrição:', descError);
-        return;
-      }
+      // Usar o serviço (v_descriptions_with_last_score + description_scores/claims)
+      const { descData, scoresData } = await fetchVerificationRaw(supabase, getPoi()?.id || '', verificationLang)
 
       if (!descData) {
-        return;
-      }
-
-
-      // Agora buscar o score mais recente para esta descrição
-      const { data: scoresData, error: scoresError } = await supabase
-        .schema('core')
-        .from('description_scores')
-        .select(`
-          id,
-          description_id,
-          attraction_id,
-          score_overall,
-          subscores,
-          flags,
-          confidence,
-          created_at,
-          description_claims (
-            id,
-            value,
-            claim_type,
-            status,
-            weight
-          )
-        `)
-        .eq('description_id', descData.description_id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (scoresError) {
-        console.error('❌ Erro ao buscar scores:', scoresError);
         return;
       }
 
@@ -933,17 +886,17 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
         // Extrair fatos verificáveis das claims
         const verifiableFacts = scoresData.description_claims
-          ?.filter(claim => claim.status === 'supported')
-          .map(claim => claim.value) || [];
+          ?.filter((claim: any) => claim.status === 'supported')
+          .map((claim: any) => claim.value) || [];
 
         // Extrair datas das claims
         const detectedDates = scoresData.description_claims
-          ?.filter(claim => claim.claim_type === 'year')
-          .map(claim => claim.value) || [];
+          ?.filter((claim: any) => claim.claim_type === 'year')
+          .map((claim: any) => claim.value) || [];
 
         // Classificar datas como confiáveis ou moderadas
-        const reliableDates = detectedDates.filter(date => /^\d{4}$/.test(date)); // Anos completos são confiáveis
-        const moderateDates = detectedDates.filter(date => !/^\d{4}$/.test(date)); // Outros formatos são moderados
+        const reliableDates = detectedDates.filter((date: string) => /^\d{4}$/.test(date)); // Anos completos são confiáveis
+        const moderateDates = detectedDates.filter((date: string) => !/^\d{4}$/.test(date)); // Outros formatos são moderados
 
         // Definir resultado da verificação
         setVerificationResult({
@@ -1675,68 +1628,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
     setIsSavingDescription(true)
     try {
-      // Look for existing Portuguese description first
-      const { data: existingDescs } = await supabase
-        .schema('core')
-        .from('attraction_descriptions')
-        .select('*')
-        .eq('attraction_id', getPoi()?.id || '')
-        .eq('language', 'pt-br')
-        .maybeSingle()
-
-      if (existingDescs) {
-      }
-
-      // Check if description has changed
-      const descriptionChanged = existingDescs && existingDescs.description !== currentDescription
-
-      if (existingDescs) {
-
-        // Update existing Portuguese description
-        const { data: updateResult, error } = await supabase
-          .schema('core')
-          .from('attraction_descriptions')
-          .update({
-            description: currentDescription,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingDescs.id) // Use the specific ID instead of attraction_id + language
-          .select()
-
-        if (error) {
-          console.error('❌ Error updating description:', error)
-          throw error
-        }
-
-
-        // Verify the update by fetching the record again
-        const { data: verifyData, error: verifyError } = await supabase
-          .schema('core')
-          .from('attraction_descriptions')
-          .select('*')
-          .eq('id', existingDescs.id)
-          .single()
-
-        if (verifyError) {
-          console.error('❌ Error verifying update:', verifyError)
-        } else {
-        }
-      } else {
-        const currentPoiForDesc = getPoi()
-        if (!currentPoiForDesc) return
-        // Create new Portuguese description
-        const { error } = await supabase
-          .schema('core')
-          .from('attraction_descriptions')
-          .insert({
-            attraction_id: currentPoiForDesc.id,
-            language: 'pt-br', // Brazilian Portuguese
-            description: currentDescription,
-            play_count: 0
-          })
-
-        if (error) throw error
-      }
+      const poiIdForSave = getPoi()?.id
+      if (!poiIdForSave) return
+      const { changed: descriptionChanged } = await upsertPortugueseDescription(supabase, poiIdForSave, currentDescription)
 
       // Update original description to match current
       setOriginalDescription(currentDescription)
@@ -1801,46 +1695,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     setIsSavingDescription(true)
 
     try {
-      // First, save the description (reuse the logic from saveDescription)
-      const { data: existingDescs } = await supabase
-        .schema('core')
-        .from('attraction_descriptions')
-        .select('*')
-        .eq('attraction_id', getPoi()?.id || '')
-        .eq('language', 'pt-br')
-        .maybeSingle()
-
-      if (existingDescs) {
-        // Update existing Portuguese description
-        const { error } = await supabase
-          .schema('core')
-          .from('attraction_descriptions')
-          .update({
-            description: currentDescription,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', existingDescs.id)
-
-        if (error) throw error
-      } else {
-        // Create new Portuguese description
-        const currentPoiForAudioInsert = getPoi()
-        if (!currentPoiForAudioInsert) {
-          showFeedback('POI não encontrado. Por favor, recarregue a página.', 'error')
-          return
-        }
-        const { error } = await supabase
-          .schema('core')
-          .from('attraction_descriptions')
-          .insert({
-            attraction_id: currentPoiForAudioInsert.id,
-            language: 'pt-br',
-            description: currentDescription,
-            play_count: 0
-          })
-
-        if (error) throw error
+      // First, save the description (shared upsert logic)
+      const poiIdForSave = getPoi()?.id
+      if (!poiIdForSave) {
+        showFeedback('POI não encontrado. Por favor, recarregue a página.', 'error')
+        return
       }
+      await upsertPortugueseDescription(supabase, poiIdForSave, currentDescription)
 
       // Update original description to match current
       setOriginalDescription(currentDescription)
