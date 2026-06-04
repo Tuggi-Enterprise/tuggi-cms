@@ -26,6 +26,27 @@ export interface POIModalContextValue {
   showFeedback: (message: string, type: 'success' | 'error') => void
   requestConfirm: (message: string) => Promise<boolean>
 
+  // Create tab
+  createName: string
+  setCreateName: (value: string) => void
+  createCoordinates: { lat: number; lng: number } | null
+  setCreateCoordinates: (value: any) => void
+  createLocation: any
+  createBoundary: BoundaryLatLng[] | null
+  setCreateBoundary: (value: any) => void
+  createCategory: string
+  setCreateCategory: (value: any) => void
+  createType: string
+  setCreateType: (value: any) => void
+  createOwnerId: string
+  setCreateOwnerId: (value: any) => void
+  createBusinessStatus: string
+  setCreateBusinessStatus: (value: any) => void
+  isCreating: boolean
+  isGeocoding: boolean
+  createError: string | null
+  handleCreatePOI: () => void
+
   // Boundary tab
   boundaryPolygon: BoundaryLatLng[] | null
   setBoundaryPolygon: (polygon: BoundaryLatLng[] | null) => void
