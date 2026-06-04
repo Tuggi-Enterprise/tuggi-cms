@@ -1229,6 +1229,9 @@
         "northwest": "Noroeste",
         "southeast": "Sudeste",
         "southwest": "Sudoeste"
+      },
+      "errors": {
+        "missing_coordinates": "Não foi possível carregar as coordenadas deste POI (erro de sistema do fetch). Feche e abra novamente."
       }
     }
   },

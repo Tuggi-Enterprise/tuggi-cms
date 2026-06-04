@@ -20,6 +20,7 @@ import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getThumbnailUrl } from '@/lib/imageUtils'
 import { useLocationData } from '@/lib/hooks/use-location-data'
 import { poiService, POI as POIType, POISearchFilters } from '@/lib/core/poi-service'
+import { extractCoordinates } from '@/lib/core/poi-coordinates'
 import { locationService } from '@/lib/core/location-service'
 import { usePOIs, usePOIFacets } from '@/lib/hooks/use-pois'
 import { useTranslations } from 'next-intl'
@@ -323,6 +324,7 @@ function POIListWithSearchParams() {
               .from('attractions')
               .select(`
                 *,
+                attraction_coordinate (latitude, longitude),
                 attraction_descriptions (id, language),
                 attraction_groups (id, name)
               `)
@@ -332,7 +334,7 @@ function POIListWithSearchParams() {
             if (data && !error) {
               const transformedPoi: POIType = {
                 ...data,
-                coordinates: data.latitude && data.longitude ? { latitude: data.latitude, longitude: data.longitude } : undefined,
+                coordinates: extractCoordinates(data),
                 descriptions: data.attraction_descriptions || [],
                 group_status: data.attraction_groups?.[0] ? {
                   is_in_group: true,
@@ -488,7 +490,7 @@ function POIListWithSearchParams() {
     google_place_id: poi.google_place_id || null,
     user_id: poi.user_id || null,
     user_ratings_total: poi.user_ratings_total || null,
-    coordinates: poi.coordinates || undefined,
+    coordinates: extractCoordinates(poi),
     reference_links: poi.reference_links || [],
     descriptions: poi.descriptions || [],
     group_status: poi.group_status || undefined,
@@ -516,7 +518,7 @@ function POIListWithSearchParams() {
     google_place_id: poi.google_place_id || null,
     user_id: poi.user_id || null,
     user_ratings_total: poi.user_ratings_total || null,
-    coordinates: poi.coordinates || undefined,
+    coordinates: extractCoordinates(poi),
     reference_links: poi.reference_links || [],
     descriptions: poi.descriptions || [],
     group_status: poi.group_status || undefined,
@@ -558,7 +560,7 @@ function POIListWithSearchParams() {
       google_place_id: poi.google_place_id || undefined,
       user_id: poi.user_id || undefined,
       user_ratings_total: poi.user_ratings_total || undefined,
-      coordinates: poi.coordinates || undefined,
+      coordinates: extractCoordinates(poi),
       reference_links: poi.reference_links || [],
       descriptions: poi.descriptions || [],
       group_status: poi.group_status || undefined,

@@ -1230,6 +1230,9 @@
         "northwest": "Northwest",
         "southeast": "Southeast",
         "southwest": "Southwest"
+      },
+      "errors": {
+        "missing_coordinates": "Could not load this POI's coordinates (system fetch error). Close and reopen."
       }
     }
   },

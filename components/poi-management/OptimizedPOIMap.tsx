@@ -7,6 +7,7 @@ import { POIMapVisualization, POI, TriggerRenderGroup, PoiActionMenuLabels } fro
 import { useQuery } from '@tanstack/react-query'
 import { useTriggerPointsForPOI } from '@/lib/hooks/use-trigger-points-for-poi'
 import { useTriggerPointsInBbox } from '@/lib/hooks/use-trigger-points-in-bbox'
+import { extractCoordinates } from '@/lib/core/poi-coordinates'
 
 interface OptimizedPOIMapProps {
   searchTerm: string
@@ -87,10 +88,7 @@ export function OptimizedPOIMap({
       state: poi.state || null,
       country: poi.country || '',
       approved: poi.approved !== undefined ? poi.approved : false,
-      coordinates: {
-        latitude: poi.latitude,
-        longitude: poi.longitude
-      },
+      coordinates: extractCoordinates(poi),
       type: poi.type,
       count: poi.count,
       category: '',

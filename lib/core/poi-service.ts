@@ -13,6 +13,7 @@
  */
 
 import { getSupabase } from './supabase-client'
+import { extractCoordinates } from './poi-coordinates'
 
 // POI Data Interfaces
 export interface POI {
@@ -331,16 +332,7 @@ class POIService {
           created_by: row.created_by,
           business_status: row.business_status,
           formatted_phone_number: row.formatted_phone_number,
-          coordinates: (row.latitude && row.longitude) ? {
-            latitude: Number(row.latitude),
-            longitude: Number(row.longitude)
-          } : (row.coordinates && row.coordinates[0]) ? {
-            latitude: Number(row.coordinates[0].latitude),
-            longitude: Number(row.coordinates[0].longitude)
-          } : (row.coordinates && typeof row.coordinates === 'object') ? {
-            latitude: Number(row.coordinates.latitude),
-            longitude: Number(row.coordinates.longitude)
-          } : undefined,
+          coordinates: extractCoordinates(row),
           descriptions: row.descriptions || [],
           trigger_points: row.trigger_points || [],
           group_membership: row.group_membership || [],

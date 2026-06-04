@@ -15,6 +15,7 @@ import { DirectionSelector } from './DirectionSelector'
 import { BearingSelector } from './BearingSelector'
 
 import { cn } from '@/lib/utils'
+import { extractCoordinates } from '@/lib/core/poi-coordinates'
 import {
   TriggerPoint,
   TriggerPointsManagerProps,
@@ -59,12 +60,23 @@ export function TriggerPointsManager({
   const [suggestedTriggerPoints, setSuggestedTriggerPoints] = useState<any[]>([])
   const [isGeneratingSuggestions, setIsGeneratingSuggestions] = useState(false)
 
+  // Resolved attraction coordinate (SSOT). The `attractionCoordinates` prop is
+  // only an optimistic initial — the authoritative value is fetched below from
+  // core.attraction_coordinate. Trusting the prop (assembled across many code
+  // paths) is what caused the 0,0/ocean bug when opening from the map view.
+  const isValidLatLng = (c?: { lat: number; lng: number } | null): c is { lat: number; lng: number } =>
+    !!c && Number.isFinite(c.lat) && Number.isFinite(c.lng) && !(c.lat === 0 && c.lng === 0)
+
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
+    isValidLatLng(attractionCoordinates) ? attractionCoordinates : null
+  )
+  const [coordinateError, setCoordinateError] = useState<string | null>(null)
 
   // Form state
   const [formData, setFormData] = useState<TriggerPointFormData>({
     ...DEFAULT_TRIGGER_POINT,
-    latitude: attractionCoordinates.lat,
-    longitude: attractionCoordinates.lng,
+    latitude: coords?.lat ?? 0,
+    longitude: coords?.lng ?? 0,
   })
 
   // Load trigger points and descriptions
@@ -119,9 +131,43 @@ export function TriggerPointsManager({
     loadTriggerPoints()
   }, [loadTriggerPoints])
 
+  // SSOT: load the attraction's own coordinate from core.attraction_coordinate.
+  // Coordinates are NOT columns on core.attraction, so this is the only reliable
+  // source. If neither the prop nor the DB yields a valid coordinate, treat it as
+  // a system/fetch error — never silently fall back to 0,0.
+  useEffect(() => {
+    if (!attractionId) return
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .select('latitude, longitude')
+        .eq('attraction_id', attractionId)
+        .maybeSingle()
+      if (cancelled) return
+      const c = extractCoordinates(data)
+      if (c) {
+        setCoords({ lat: c.latitude, lng: c.longitude })
+        setCoordinateError(null)
+      } else if (!isValidLatLng(attractionCoordinates)) {
+        setCoordinateError(t('errors.missing_coordinates'))
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attractionId, supabase])
+
+  // Keep the "new trigger point" default centered on the resolved coordinate,
+  // but never clobber lat/lng while the user is actively placing/editing a TP.
+  useEffect(() => {
+    if (!coords || showForm) return
+    setFormData(prev => ({ ...prev, latitude: coords.lat, longitude: coords.lng }))
+  }, [coords, showForm])
+
   // Handle AI Trigger Point Generation
   const handleGenerateAISuggestions = useCallback(async () => {
-    if (!attractionCoordinates || !attractionCoordinates.lat || !attractionCoordinates.lng) {
+    if (!coords) {
       setError(t('errors.missing_coordinates'))
       return
     }
@@ -137,7 +183,7 @@ export function TriggerPointsManager({
           poiData: {
             id: attractionId,
             name: attractionName,
-            location: attractionCoordinates,
+            location: coords,
             type: attractionTypes?.[0] || 'tourist_attraction',
             country: 'Portugal', // Default/fallback if not strictly available
             city: 'Unknown'
@@ -177,7 +223,7 @@ export function TriggerPointsManager({
     } finally {
       setIsGeneratingSuggestions(false)
     }
-  }, [attractionId, attractionName, attractionCoordinates, attractionTypes, t])
+  }, [attractionId, attractionName, coords, attractionTypes, t])
 
   const handleSuggestionDrag = useCallback((suggestionId: string, newLat: number, newLng: number, newDistance: number, newBearing: number) => {
     setSuggestedTriggerPoints(prev => prev.map(s => 
@@ -557,11 +603,11 @@ export function TriggerPointsManager({
     setSelectedTriggerPoint(null)
     setFormData({
       ...DEFAULT_TRIGGER_POINT,
-      latitude: attractionCoordinates.lat,
-      longitude: attractionCoordinates.lng,
+      latitude: coords?.lat ?? 0,
+      longitude: coords?.lng ?? 0,
     })
     setError(null)
-  }, [attractionCoordinates])
+  }, [coords])
 
   // Filter trigger points
   const filteredTriggerPoints = triggerPoints.filter(tp =>
@@ -621,7 +667,7 @@ export function TriggerPointsManager({
           {canEdit && !isViewer && (
             <button
               onClick={handleGenerateAISuggestions}
-              disabled={isGeneratingSuggestions || isLoading}
+              disabled={isGeneratingSuggestions || isLoading || !coords}
               className={cn(
                 "flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                 "bg-gradient-to-r from-purple-500 to-indigo-600 text-white hover:from-purple-600 hover:to-indigo-700 shadow-sm border border-purple-400"
@@ -643,7 +689,7 @@ export function TriggerPointsManager({
 
           <button
             onClick={() => setIsAddingMode(!isAddingMode)}
-            disabled={isGeneratingSuggestions}
+            disabled={isGeneratingSuggestions || !coords}
             className={cn(
               "flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors",
               isAddingMode
@@ -684,6 +730,16 @@ export function TriggerPointsManager({
         </div>
       )}
 
+      {/* Coordinate fetch error — system error, not a POI without coordinates */}
+      {coordinateError && !coords && (
+        <div className="mx-4 mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+          <div className="flex items-center">
+            <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 mr-2" />
+            <p className="text-sm text-red-700 dark:text-red-300">{coordinateError}</p>
+          </div>
+        </div>
+      )}
+
       {/* Instructions */}
       {isAddingMode && (
         <div className="mx-4 mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
@@ -699,8 +755,25 @@ export function TriggerPointsManager({
       <div className="flex-1 flex min-h-0">
         {/* Map */}
         <div className="flex-1 relative">
+          {!coords ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 dark:bg-gray-900/40">
+              <div className="flex flex-col items-center text-center px-6">
+                {coordinateError ? (
+                  <>
+                    <AlertCircle className="h-6 w-6 text-red-500 mb-2" />
+                    <p className="text-sm text-red-600 dark:text-red-400 max-w-xs">{coordinateError}</p>
+                  </>
+                ) : (
+                  <>
+                    <Loader2 className="h-6 w-6 text-gray-400 mb-2 animate-spin" />
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Loading POI location…</p>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : (
           <TriggerPointsMap
-            center={attractionCoordinates}
+            center={coords}
             zoom={14}
             height="100%"
             attractionName={attractionName}
@@ -716,6 +789,7 @@ export function TriggerPointsManager({
             isAddingMode={isAddingMode}
             onPOILocationChange={handlePOILocationChange}
           />
+          )}
         </div>
 
         {/* Sidebar */}

@@ -20,6 +20,22 @@ import { useAuthenticatedFunctionCall } from '@/lib/hooks/useAuthenticatedFuncti
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { poiService } from '@/lib/core/poi-service'
 import { locationService } from '@/lib/core/location-service'
+import {
+  fetchBoundary as fetchBoundaryRemote,
+  saveBoundary as saveBoundaryRemote,
+  deleteBoundary as deleteBoundaryRemote,
+  sanitizeBoundary,
+} from '@/lib/core/poi-boundary-service'
+import { usePoiMutations } from '@/lib/hooks/usePoiMutations'
+import {
+  fetchNearbyInPolygon,
+  fetchGroupOfPoi,
+  saveGroup as saveGroupRemote,
+} from '@/lib/core/poi-groups-service'
+import { POIModalProvider, type POIModalContextValue } from './POIModalContext'
+import { BoundaryTab } from './tabs/BoundaryTab'
+import { TriggerPointsTab } from './tabs/TriggerPointsTab'
+import { GroupPoisTab } from './tabs/GroupPoisTab'
 
 export interface POI {
   id: string
@@ -105,6 +121,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   
   // Hook para chamar edge functions com autenticação
   const { callFunction } = useAuthenticatedFunctionCall()
+  const poiMutations = usePoiMutations()
 
   // Helper to get the current POI (for editing) or null (for creation)
   // Memoized to prevent infinite loops in useEffect dependencies
@@ -420,13 +437,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       if (response.ok && result.success) {
         // Refresh POI data
         if (onUpdate) onUpdate()
-        alert(t('validation.enrich_success'))
+        showFeedback(t('validation.enrich_success'), 'success')
       } else {
         throw new Error(result.error || t('validation.enrich_error'))
       }
     } catch (error) {
       console.error('Error enriching POI:', error)
-      alert(error instanceof Error ? error.message : t('validation.enrich_error'))
+      showFeedback(error instanceof Error ? error.message : t('validation.enrich_error'), 'error')
     } finally {
       setIsEnrichingOSM(false)
     }
@@ -466,6 +483,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [showErrorMessage, setShowErrorMessage] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const [confirmState, setConfirmState] = useState<{ message: string; resolve: (value: boolean) => void } | null>(null)
 
   // Add to the state
 
@@ -646,6 +664,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }
 
+  // Promise-based confirm dialog (replaces blocking native window.confirm).
+  // Renders an in-modal overlay consistent with the UI / dark mode.
+  const requestConfirm = useCallback((message: string) => {
+    return new Promise<boolean>((resolve) => {
+      setConfirmState({ message, resolve })
+    })
+  }, [])
+  const resolveConfirm = useCallback((value: boolean) => {
+    setConfirmState(prev => {
+      prev?.resolve(value)
+      return null
+    })
+  }, [])
+
   // Voice mapping for Google TTS
   const googleVoiceMap: Record<string, string> = {
     shimmer: 'pt-BR-Wavenet-B',
@@ -783,43 +815,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const fetchNearbyPOIsWithPolygon = useCallback(async (polygonCoords: Array<{ lat: number; lng: number }>) => {
     setGroupLoading(true)
     try {
-      const currentId = getPoi()?.id
-      const res = await fetch('/api/attraction-groups/nearby', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          polygon: polygonCoords,
-          poiId: currentId
-        })
-      })
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error('❌ MODAL: API error response:', errorText);
-        throw new Error(`API error ${res.status}: ${errorText}`);
-      }
-
-      const data = await res.json()
-      
-      // Filter out the current POI with aggressive check on multiple potential ID fields
-      const filteredNearby = (data.nearby || []).filter((p: any) => {
-        const pId = String(p.id || '').toLowerCase();
-        const pAttractionId = String(p.attraction_id || '').toLowerCase();
-        const currentTargetId = String(currentId || '').toLowerCase();
-        
-        return pId !== currentTargetId && pAttractionId !== currentTargetId;
-      })
-      
-      console.log('🔍 Group Search Result:', { 
-        originalCount: data.nearby?.length, 
-        filteredCount: filteredNearby.length,
-        excludedId: currentId 
-      });
-
+      const filteredNearby = await fetchNearbyInPolygon(polygonCoords, getPoi()?.id)
       setNearbyPOIs(filteredNearby)
     } catch (error) {
       console.error('❌ MODAL: Error in fetchNearbyPOIsWithPolygon:', error);
-      alert(`${t('validation.nearby_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`);
+      showFeedback(`${t('validation.nearby_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`, 'error');
     } finally {
       setGroupLoading(false)
     }
@@ -842,15 +842,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
     setGroupLoading(true)
     try {
-      const res = await fetch(`/api/attraction-groups/of-poi?poiId=${currentPoi.id}`)
-      const data = await res.json()
+      const { group, members } = await fetchGroupOfPoi(currentPoi.id)
 
-
-      setGroupInfo(data.group)
-      setGroupName(data.group?.name || currentPoi.name) // Use main POI name as default
+      setGroupInfo(group)
+      setGroupName(group?.name || currentPoi.name) // Use main POI name as default
 
       // Always include the main POI in selectedPOIs, plus any existing group members
-      const members = data.members || []
       const selectedPOIsList = members.includes(currentPoi.id) ? members : [currentPoi.id, ...members]
 
       setSelectedPOIs(selectedPOIsList)
@@ -1107,26 +1104,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     if (!currentId) return;
 
     try {
-      const response = await fetch('/api/pois/update-boundary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          poi_id: currentId,
-          get_only: true
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.boundary && Array.isArray(data.boundary)) {
-          setExistingBoundary(data.boundary);
-          setBoundaryPolygon(data.boundary);
-        } else {
-          setExistingBoundary(null);
-          setBoundaryPolygon(null);
-        }
+      const boundary = await fetchBoundaryRemote(currentId);
+      if (boundary) {
+        setExistingBoundary(boundary);
+        setBoundaryPolygon(boundary);
       } else {
-         console.error('Failed to fetch boundary via API:', await response.text());
+        setExistingBoundary(null);
+        setBoundaryPolygon(null);
       }
     } catch (error) {
       console.error('Error fetching boundary:', error);
@@ -1136,67 +1120,30 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const handleSaveBoundary = async () => {
     const currentPoi = getPoi()
     if (!currentPoi || !boundaryPolygon || boundaryPolygon.length < 3) {
-      alert('Por favor, desenhe um polígono válido (mínimo 3 pontos)')
+      showFeedback('Por favor, desenhe um polígono válido (mínimo 3 pontos)', 'error')
       return
     }
 
     // Validate coordinates before sending
-    const validCoords = boundaryPolygon.filter(coord =>
-      typeof coord.lat === 'number' &&
-      typeof coord.lng === 'number' &&
-      !isNaN(coord.lat) &&
-      !isNaN(coord.lng) &&
-      coord.lat >= -90 && coord.lat <= 90 &&
-      coord.lng >= -180 && coord.lng <= 180
-    )
+    const validCoords = sanitizeBoundary(boundaryPolygon)
 
     if (validCoords.length < 3) {
-      alert(`Polígono inválido: apenas ${validCoords.length} pontos válidos (mínimo 3)`)
+      showFeedback(`Polígono inválido: apenas ${validCoords.length} pontos válidos (mínimo 3)`, 'error')
       return
     }
 
 
     setIsSavingBoundary(true)
     try {
-      const requestBody = {
-        attractionId: currentPoi.id,
-        coordinates: validCoords // Use validated coordinates
-      }
-
-
-
-      const response = await fetch('/api/pois/update-boundary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      })
-
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error('❌ Error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
-        })
-        let error
-        try {
-          error = JSON.parse(errorText)
-        } catch {
-          error = { error: errorText }
-        }
-        throw new Error(error.error || error.message || 'Failed to save boundary')
-      }
-
-      const result = await response.json()
+      const result = await saveBoundaryRemote(currentPoi.id, validCoords)
 
       // Refresh POI data to show updated boundary
-      if (onPOIUpdated && result.data) {
+      if (onPOIUpdated && result) {
         // Update local POI state with boundary info
         const updatedPoi = {
           ...currentPoi,
-          boundary_area_m2: result.data.boundary_area_m2,
-          boundary_centroid: result.data.boundary_centroid
+          boundary_area_m2: result.boundary_area_m2,
+          boundary_centroid: result.boundary_centroid
         }
         onPOIUpdated(updatedPoi as POI)
       }
@@ -1207,10 +1154,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // Stop drawing mode
       setIsDrawingEnabled(false)
 
-      alert(t('validation.boundary_success'))
+      showFeedback(t('validation.boundary_success'), 'success')
     } catch (error) {
       console.error('Error saving boundary:', error)
-      alert(`${t('validation.boundary_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`)
+      showFeedback(`${t('validation.boundary_error')}: ${error instanceof Error ? error.message : tCommon('error.unknown')}`, 'error')
     } finally {
       setIsSavingBoundary(false)
     }
@@ -1220,34 +1167,22 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     const currentPoi = getPoi()
     if (!currentPoi) return
     
-    if (!confirm('Deseja realmente remover o polígono deste POI? Todos os dados geográficos deste local serão apagados.')) {
+    if (!(await requestConfirm('Deseja realmente remover o polígono deste POI? Todos os dados geográficos deste local serão apagados.'))) {
       return
     }
 
     setIsSavingBoundary(true)
     try {
-      const response = await fetch('/api/pois/update-boundary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          poi_id: currentPoi.id,
-          boundary: null
-        })
-      })
-
-      if (response.ok) {
-        setBoundaryPolygon(null)
-        setExistingBoundary(null)
-        setDrawnPolygon(null)
-        alert('Boundary removido com sucesso!')
-        setIsDrawingEnabled(false)
-        if (onUpdate) onUpdate()
-      } else {
-        throw new Error('Falha ao remover boundary')
-      }
+      await deleteBoundaryRemote(currentPoi.id)
+      setBoundaryPolygon(null)
+      setExistingBoundary(null)
+      setDrawnPolygon(null)
+      showFeedback('Boundary removido com sucesso!', 'success')
+      setIsDrawingEnabled(false)
+      if (onUpdate) onUpdate()
     } catch (error) {
       console.error('Error deleting boundary:', error)
-      alert('Erro ao remover boundary')
+      showFeedback('Erro ao remover boundary', 'error')
     } finally {
       setIsSavingBoundary(false)
     }
@@ -1295,7 +1230,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const handleSaveGroup = async () => {
     const currentPoi = getPoi()
     if (!currentPoi) {
-      alert('POI não encontrado')
+      showFeedback('POI não encontrado', 'error')
       return
     }
 
@@ -1307,34 +1242,19 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // Always include the main POI in the group
       const poiIds = [currentPoi.id, ...selectedPOIs.filter(id => id !== currentPoi.id)]
 
-      const requestBody = {
+      await saveGroupRemote({
         groupId: groupInfo?.id,
         name: groupName || currentPoi.name,
-        poiIds: poiIds,
-        userId: user?.id
-      }
-
-      const res = await fetch('/api/attraction-groups/group', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
+        poiIds,
+        userId: user?.id,
       })
-
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error('❌ MODAL: API error response:', errorText);
-        throw new Error(`Failed to save group: ${errorText}`)
-      }
-
-      const responseData = await res.json();
 
       await fetchGroupInfo()
       await onUpdate()
-      alert('Group saved!')
+      showFeedback('Group saved!', 'success')
     } catch (e) {
       console.error('❌ MODAL: Error in handleSaveGroup:', e);
-      alert(`Failed to save group: ${e instanceof Error ? e.message : 'Unknown error'}`)
+      showFeedback(`Failed to save group: ${e instanceof Error ? e.message : 'Unknown error'}`, 'error')
     } finally {
       setGroupLoading(false)
     }
@@ -1343,72 +1263,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const handleSaveChanges = async () => {
     setIsSaving(true)
     try {
-      // Check if this is a homolog POI (from homolog.pois table)
-      const isHomologPOI = !!poi?._homologData
-
       const currentPoi = getPoi()
       if (!currentPoi || !editedPoi) {
-        alert('POI não encontrado')
+        showFeedback('POI não encontrado', 'error')
         return
       }
 
-      if (isHomologPOI) {
-
-        // Use API route for homolog POIs
-        // Note: homolog.pois has both 'category' and 'primary_category' fields
-        // We'll update both to keep them in sync
-        const updates: any = {
-          name: editedPoi.name,
-          city: editedPoi.city,
-          country: editedPoi.country,
-          state: editedPoi.state,
-          updated_at: new Date().toISOString()
-        }
-
-        // Update category field (primary_category is the main field, but category is also used)
-        if (editedPoi.category) {
-          updates.category = editedPoi.category
-          updates.primary_category = editedPoi.category
-        } else if ((currentPoi as any)._homologData?.primary_category) {
-          // Keep existing primary_category if category is not provided
-          updates.primary_category = (currentPoi as any)._homologData.primary_category
-        }
-
-        const response = await fetch('/api/supabase/pois/update', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: currentPoi.id, updates })
-        })
-
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Update failed')
-        }
-      } else {
-        // Use direct Supabase for core.attractions POIs
-        const { error } = await supabase
-          .schema('core')
-          .from('attractions')
-          .update({
-            name: editedPoi.name,
-            // Consistent mapping: category is the 'record type' (point_of_interest/geofence)
-            category: editedPoi.record_type === 'geofence' ? 'geofence' : 'point_of_interest',
-            // osm_category is the specific category (museum, restaurant, or 'geofence' for geofences)
-            osm_category: editedPoi.category,
-            // primary_category kept for backward compatibility with search filters
-            primary_category: editedPoi.record_type === 'geofence' ? 'geofence' : (editedPoi.category || 'point_of_interest'),
-            city: editedPoi.city,
-            state: editedPoi.state,
-            country: editedPoi.country,
-            updated_at: new Date().toISOString(),
-            reference_links: referenceLinks.filter(link => !!link.trim()), // Save only non-empty links
-            owner_id: editedPoi.owner_id || null,
-            business_status: editedPoi.business_status || null
-          })
-          .eq('id', getPoi()?.id)
-
-        if (error) throw error
-      }
+      await poiMutations.savePoiChanges(currentPoi, editedPoi, referenceLinks)
 
       // Update local state instead of reloading all data
       const currentPoiData = getPoi()
@@ -1444,7 +1305,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
     } catch (error) {
       console.error('Error saving POI:', error)
-      alert(`Erro ao salvar POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
+      showFeedback(`Erro ao salvar POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`, 'error')
     } finally {
       setIsSaving(false)
     }
@@ -1453,7 +1314,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const handleApprove = async () => {
     const currentPoi = getPoi()
     if (!currentPoi) {
-      alert('POI não encontrado')
+      showFeedback('POI não encontrado', 'error')
       return
     }
 
@@ -1461,43 +1322,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     try {
       const { data: { user } } = await supabase.auth.getUser()
 
-      const isHomologPOI = !!poi?._homologData
-
-      if (isHomologPOI) {
-        // Use API route for homolog POIs
-        // Note: homolog.pois only has 'approved' field (boolean), not approved_by or approved_at
-        const updates = {
-          approved: true
-        }
-
-        const response = await fetch('/api/supabase/pois/update', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: currentPoi.id, updates })
-        })
-
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Update failed')
-        }
-      } else {
-        // Use direct Supabase for core.attractions POIs
-        const { error } = await supabase
-          .schema('core')
-          .from('attractions')
-          .update({
-            approved: true,
-            approved_by: user?.id,
-            approved_at: new Date().toISOString()
-          })
-          .eq('id', currentPoi.id)
-
-        if (error) {
-          console.error('❌ Supabase error:', error)
-          throw error
-        }
-      }
-
+      await poiMutations.approvePoi(currentPoi, user?.id)
 
       // Update local state instead of reloading all data
       if (!editedPoi || !editedPoi.id) {
@@ -1521,7 +1346,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     } catch (error) {
       console.error('Error approving POI:', error)
       // Show user-friendly error message
-      alert(`Erro ao aprovar POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
+      showFeedback(`Erro ao aprovar POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`, 'error')
     } finally {
       setIsSaving(false)
     }
@@ -1547,19 +1372,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     localUpdateRef.current = { poiId: poi.id, timestamp: Date.now() }
     
     setIsSaving(true)
-    
-    try {
-      const { error } = await supabase
-        .schema('core')
-        .from('attractions')
-        .update({
-          is_active: newIsActive,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', poi.id)
 
-      if (error) throw error
-      
+    try {
+      await poiMutations.setPoiActive(poi.id, newIsActive)
+
       // Invalidate caches
       invalidateAllPOICaches()
       
@@ -1584,45 +1400,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const handleDelete = async () => {
     const currentPoi = getPoi()
     if (!currentPoi) {
-      alert('POI não encontrado')
+      showFeedback('POI não encontrado', 'error')
       return
     }
 
-    if (!window.confirm('Are you sure you want to delete this POI? This action cannot be undone.')) {
+    if (!(await requestConfirm('Are you sure you want to delete this POI? This action cannot be undone.'))) {
       return
     }
 
     setIsSaving(true)
     try {
-      // Check if this is a homolog POI (from homolog.pois table)
-      const isHomologPOI = !!(currentPoi as any)._homologData
-
-      if (isHomologPOI) {
-        // Use API route for homolog POIs
-        const response = await fetch('/api/supabase/pois/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: [currentPoi.id] })
-        })
-
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Delete failed')
-        }
-      } else {
-        // Use direct Supabase for core.attractions POIs
-        const { error } = await supabase
-          .schema('core')
-          .from('attractions')
-          .delete()
-          .eq('id', currentPoi.id)
-
-        if (error) throw error
-      }
+      await poiMutations.deletePoi(currentPoi)
 
       // Invalidate caches for instant updates
       invalidateAllPOICaches()
-      
+
       // Notify parent component about deletion instead of reloading all data
       if (onPOIDeleted) {
         onPOIDeleted(currentPoi.id)
@@ -1632,7 +1424,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       onClose()
     } catch (error) {
       console.error('Error deleting POI:', error)
-      alert(`Erro ao excluir POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
+      showFeedback(`Erro ao excluir POI: ${error instanceof Error ? error.message : 'Erro desconhecido'}`, 'error')
     } finally {
       setIsSaving(false)
     }
@@ -1641,25 +1433,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const handleGarbage = async () => {
     const currentPoi = getPoi()
     if (!currentPoi) return
-    if (!window.confirm('Tem certeza que deseja marcar este POI como LIXO? Ele será excluído e não poderá ser re-importado.')) return
+    if (!(await requestConfirm('Tem certeza que deseja marcar este POI como LIXO? Ele será excluído e não poderá ser re-importado.'))) return
 
     setIsSaving(true)
     try {
-      const isHomologPOI = !!(currentPoi as any)._homologData
-
-      if (isHomologPOI) {
-        const response = await fetch('/api/supabase/pois/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: [currentPoi.id] })
-        })
-        if (!response.ok) throw new Error('Failed to delete homolog POI')
-      } else {
-        const response = await fetch(`/api/pois/${currentPoi.id}/garbage`, {
-          method: 'POST'
-        })
-        if (!response.ok) throw new Error('Failed to mark core POI as garbage')
-      }
+      await poiMutations.garbagePoi(currentPoi)
 
       invalidateAllPOICaches()
 
@@ -1669,7 +1447,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       onClose()
     } catch (error: any) {
       console.error('Error marking POI as garbage:', error)
-      alert(error instanceof Error ? error.message : 'Falha ao marcar como lixo')
+      showFeedback(error instanceof Error ? error.message : 'Falha ao marcar como lixo', 'error')
     } finally {
       setIsSaving(false)
     }
@@ -1694,7 +1472,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const generateDescription = async () => {
     const currentPoi = getPoi()
     if (!currentPoi) {
-      alert('POI não encontrado')
+      showFeedback('POI não encontrado', 'error')
       return
     }
 
@@ -1843,7 +1621,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       
     } catch (error) {
       console.error('Error generating description:', error)
-      alert(`Failed to generate description: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      showFeedback(`Failed to generate description: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
     } finally {
       setIsGenerating(false)
     }
@@ -1985,7 +1763,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       // If description changed and there are existing audios, offer to regenerate
       if (descriptionChanged && (currentAudioUrl || translatedDescriptions.length > 0)) {
-        const shouldRegenerate = window.confirm(
+        const shouldRegenerate = await requestConfirm(
           'A descrição foi alterada. Deseja regenerar todos os áudios (PT, EN, ES) para refletir as mudanças?\n\n' +
           'Isso irá substituir os áudios existentes com base na nova descrição.'
         )
@@ -2048,7 +1826,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         // Create new Portuguese description
         const currentPoiForAudioInsert = getPoi()
         if (!currentPoiForAudioInsert) {
-          alert('POI não encontrado. Por favor, recarregue a página.')
+          showFeedback('POI não encontrado. Por favor, recarregue a página.', 'error')
           return
         }
         const { error } = await supabase
@@ -2114,7 +1892,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         if (fallbackPoi) {
           textForAudio = `${fallbackPoi.name} é uma atração localizada em ${fallbackPoi.city}, ${fallbackPoi.country}.`
         }
-        const proceed = window.confirm(
+        const proceed = await requestConfirm(
           `No description found. Using fallback text: "${textForAudio}"\n\n` +
           'For better audio quality, please add a proper description in the Description tab first.\n\n' +
           'Do you want to continue with this basic text?'
@@ -2128,7 +1906,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
     // Show confirmation dialog if audio already exists
     if (currentAudioUrl) {
-      const confirmReplace = window.confirm(
+      const confirmReplace = await requestConfirm(
         'This will replace the existing audio narration. Are you sure you want to continue?\n\n' +
         'Note: You can adjust the voice and speed settings below before regenerating.'
       )
@@ -2172,7 +1950,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
     } catch (error) {
       console.error('Error generating audio narration:', error)
-      alert(`Failed to generate audio narration: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      showFeedback(`Failed to generate audio narration: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
     } finally {
       setIsGeneratingAudio(false)
     }
@@ -2326,7 +2104,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
   // Delete a translation
   const deleteTranslation = async (translationId: string, language: string, gender: string) => {
-    const confirmDelete = window.confirm(
+    const confirmDelete = await requestConfirm(
       `Are you sure you want to delete the ${language} (${gender}) translation? This action cannot be undone.`
     )
     if (!confirmDelete) return
@@ -2357,7 +2135,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       return
     }
 
-    const confirmRegenerate = window.confirm(
+    const confirmRegenerate = await requestConfirm(
       `Regenerar áudio para ${language} (${gender})?\n\nIsso irá substituir o áudio existente.`
     )
     if (!confirmRegenerate) return
@@ -2384,27 +2162,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const handleBoundaryPolygonComplete = useCallback((polygon: any) => {
     const coords = extractPolygonCoordinates(polygon)
 
-    // Validate coordinates
-    const validCoords = coords.filter(coord =>
-      typeof coord.lat === 'number' &&
-      typeof coord.lng === 'number' &&
-      !isNaN(coord.lat) &&
-      !isNaN(coord.lng) &&
-      coord.lat >= -90 && coord.lat <= 90 &&
-      coord.lng >= -180 && coord.lng <= 180
-    )
-
-    if (validCoords.length !== coords.length) {
-      console.error('❌ Invalid coordinates detected:', {
-        total: coords.length,
-        valid: validCoords.length,
-        invalid: coords.filter(c => !validCoords.includes(c))
-      })
-    }
+    // Validate coordinates (shared rule — see poi-boundary-service)
+    const validCoords = sanitizeBoundary(coords)
 
     if (validCoords.length < 3) {
       console.error('❌ Not enough valid coordinates:', validCoords.length)
-      alert(`Polígono inválido: apenas ${validCoords.length} pontos válidos (mínimo 3)`)
+      showFeedback(`Polígono inválido: apenas ${validCoords.length} pontos válidos (mínimo 3)`, 'error')
       return
     }
 
@@ -2467,6 +2230,36 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       <X className="h-4 w-4" />
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Confirm dialog (replaces native window.confirm) */}
+          {confirmState && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="w-full max-w-md bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 p-6">
+                <div className="flex items-start gap-3 mb-5">
+                  <div className="p-2 bg-red-50 dark:bg-red-900/20 rounded-xl flex-shrink-0">
+                    <AlertTriangle className="h-5 w-5 text-red-500" />
+                  </div>
+                  <p className="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-line leading-relaxed pt-1.5">
+                    {confirmState.message}
+                  </p>
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => resolveConfirm(false)}
+                    className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    {tCommon('actions.cancel')}
+                  </button>
+                  <button
+                    onClick={() => resolveConfirm(true)}
+                    className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  >
+                    {tCommon('actions.confirm')}
+                  </button>
                 </div>
               </div>
             </div>
@@ -2669,6 +2462,32 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
               {/* Main Content Area */}
               <main className="flex-1 bg-white dark:bg-gray-900 overflow-y-auto custom-scrollbar">
+            <POIModalProvider value={{
+              getPoi,
+              canEdit,
+              invalidateAllPOICaches,
+              showFeedback,
+              requestConfirm,
+              boundaryPolygon,
+              setBoundaryPolygon,
+              existingBoundary,
+              isDrawingEnabled,
+              setIsDrawingEnabled,
+              isSavingBoundary,
+              handleBoundaryPolygonComplete,
+              handleSaveBoundary,
+              handleDeleteBoundary,
+              groupInfo,
+              nearbyPOIs,
+              selectedPOIs,
+              drawnPolygon,
+              groupName,
+              setGroupName,
+              groupLoading,
+              handleTogglePOI,
+              handlePolygonComplete,
+              handleSaveGroup,
+            } as POIModalContextValue}>
             {activeTab === 'create' ? (
               <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
                 <div className="space-y-6">
@@ -3645,136 +3464,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </div>
                   </div>
             ) : activeTab === 'boundary' ? (
-              <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
-                <div className="space-y-6">
-                  <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-                        <MapPin className="h-5 w-5 mr-2 text-tuggi-blue" />
-                        {t('labels.geographic_boundaries')}
-                      </h3>
-                    </div>
-                    
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                      {isDrawingEnabled 
-                        ? t('labels.drawing_instruction')
-                        : t('labels.drawing_disabled_instruction')}
-                    </p>
-
-                    <div className="h-96 w-full rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600 relative">
-                     {getPoi()?.coordinates ? (
-                      <GoogleMapComponent
-                        componentId="edit-boundary-map"
-                        center={getPoi()?.coordinates ? { lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude } : undefined}
-                        zoom={18}
-                        height="100%"
-                        markers={getPoi()?.coordinates ? [{
-                          id: 'poi-location',
-                          position: { lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude },
-                          title: getPoi()?.name || '',
-                          color: '#FF6B35'
-                        }] : []}
-                        polygon={boundaryPolygon || existingBoundary || undefined}
-                        enableDrawing={isDrawingEnabled && canEdit}
-                        showDrawingButton={false}
-                        onMapClick={() => {}}
-                        onPolygonComplete={handleBoundaryPolygonComplete}
-                        onPolygonChange={(polygon) => {
-                          const coords = extractPolygonCoordinates(polygon);
-                          setBoundaryPolygon(coords);
-                        }}
-                        polygonOptions={{
-                          strokeColor: '#FF6B35',
-                          strokeOpacity: 0.8,
-                          strokeWeight: 3,
-                          fillColor: '#FF6B35',
-                          fillOpacity: 0.2
-                        }}
-                      />
-                     ) : (
-                       <div className="flex items-center justify-center h-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
-                         {t('validation.location_required')}
-                       </div>
-                     )}
-                    </div>
-
-                    {canEdit && (
-                      <div className="mt-6 flex flex-col gap-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                             <div className={cn(
-                               "px-2 py-1 rounded text-xs font-bold uppercase",
-                               boundaryPolygon && boundaryPolygon.length >= 3 
-                                 ? "bg-green-100 text-green-700" 
-                                 : "bg-amber-100 text-amber-700"
-                             )}>
-                               {boundaryPolygon && boundaryPolygon.length >= 3 
-                                 ? t('labels.boundary_defined') 
-                                 : t('labels.boundary_missing')}
-                             </div>
-                          </div>
-                          
-                          <div className="flex items-center gap-2">
-                             <button
-                               onClick={() => {
-                                 setBoundaryPolygon(existingBoundary)
-                                 setIsDrawingEnabled(false)
-                               }}
-                               className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center gap-1"
-                             >
-                               <RotateCcw className="h-3.5 w-3.5" />
-                               {tCommon('actions.reset')}
-                             </button>
-                             
-                             {(boundaryPolygon || existingBoundary) && (
-                               <button
-                                 onClick={handleDeleteBoundary}
-                                 className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 flex items-center gap-1"
-                               >
-                                 <Trash2 className="h-3.5 w-3.5" />
-                                 {tCommon('actions.delete')}
-                               </button>
-                             )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={handleSaveBoundary}
-                            disabled={isSavingBoundary || !boundaryPolygon || boundaryPolygon.length < 3}
-                            className="flex-1 px-4 py-3 bg-tuggi-blue text-white rounded-xl font-bold text-sm hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center transition-all shadow-lg shadow-blue-500/20"
-                          >
-                            {isSavingBoundary ? (
-                              <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                {t('labels.saving_boundary')}
-                              </>
-                            ) : (
-                              <>
-                                <Save className="h-4 w-4 mr-2" />
-                                {t('labels.save_boundary')}
-                              </>
-                            )}
-                          </button>
-
-                          <button
-                            onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
-                            className={cn(
-                              "px-4 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2",
-                              isDrawingEnabled 
-                                ? "bg-amber-500 text-white hover:bg-amber-600" 
-                                : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                            )}
-                          >
-                            <Sparkles className="h-4 w-4" />
-                            {isDrawingEnabled ? t('labels.stop_drawing') : t('labels.start_drawing')}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <BoundaryTab />
             ) : activeTab === 'description' ? (
               <div className="px-6 py-6 max-h-[80vh] overflow-y-auto bg-gray-50/30 dark:bg-gray-900/10">
                 {isLoading ? (
@@ -4084,15 +3774,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                 )}
               </div>
             ) : activeTab === 'trigger-points' ? (
-              <div className="h-[80vh]">
-                <TriggerPointsManager
-                  attractionId={getPoi()?.id || ''}
-                  attractionName={getPoi()?.name || ''}
-                  attractionCoordinates={getPoi()?.coordinates ? { lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude } : { lat: 0, lng: 0 }}
-                  attractionTypes={getPoi()?.google_types || []}
-                  onUpdate={invalidateAllPOICaches}
-                />
-              </div>
+              <TriggerPointsTab />
             ) : activeTab === 'narration-audio' ? (
               <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
                 {isLoading ? (
@@ -4497,279 +4179,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                 )}
               </div>
             ) : activeTab === 'group-pois' ? (
-              <div className="px-6 py-4 max-h-[80vh] overflow-y-auto">
-                {getPoi()?.coordinates ? (
-                  <div className="space-y-6">
-                    {/* Header Section */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                          <Users className="h-5 w-5 text-tuggi-blue" />
-                          {t('labels.group_management')}
-                        </h4>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                          {t('labels.group_management_description')}
-                        </p>
-                      </div>
-                      {groupInfo && (
-                        <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800">
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            {t('labels.grouped')}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Current Group Status */}
-                    {groupInfo && (
-                      <div className="bg-tuggi-blue/5 dark:bg-tuggi-blue/10 border border-tuggi-blue/20 rounded-lg p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex-shrink-0">
-                            <div className="w-10 h-10 bg-tuggi-blue/10 rounded-full flex items-center justify-center">
-                              <Users className="h-5 w-5 text-tuggi-blue" />
-                            </div>
-                          </div>
-                          <div className="flex-1">
-                            <h5 className="font-medium text-gray-900 dark:text-white">
-                               {groupInfo.name}
-                             </h5>
-                             <p className="text-sm text-gray-600 dark:text-gray-400">
-                               {t('labels.group_member_hint')}
-                             </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Map Section */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                         <h5 className="font-medium text-gray-900 dark:text-white">
-                           {t('labels.select_area_pois')}
-                         </h5>
-                        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                           <MapPin className="h-4 w-4" />
-                           {t('labels.draw_polygon_hint')}
-                         </div>
-                      </div>
-
-                      <div className="relative">
-                        <div className="w-full h-80 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm">
-                          <GoogleMapComponent
-                            center={{ lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude }}
-                            zoom={18}
-                            height="100%"
-                            markers={[
-                              { id: getPoi()!.id, position: { lat: getPoi()!.coordinates!.latitude, lng: getPoi()!.coordinates!.longitude }, title: `${getPoi()!.name} (Main POI)`, color: '#10B981' },
-                              ...nearbyPOIs.filter((p: any) => p.coordinates && p.coordinates.latitude && p.coordinates.longitude).map((p: any) => ({
-                                id: p.id,
-                                position: { lat: p.coordinates.latitude, lng: p.coordinates.longitude },
-                                title: p.name,
-                                color: selectedPOIs.includes(p.id) ? '#FF6F00' : '#888'
-                              }))
-                            ]}
-                            polygon={drawnPolygon || undefined}
-                            showDrawingButton={false}
-                            onMarkerClick={handleTogglePOI}
-                            onPolygonComplete={handlePolygonComplete}
-                          />
-                        </div>
-
-                        {/* Legend */}
-                        <div className="absolute top-3 right-3 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3">
-                          <div className="space-y-2 text-xs">
-                            <div className="flex items-center gap-2">
-                               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                               <span className="text-gray-700 dark:text-gray-300">{t('labels.main_poi')}</span>
-                             </div>
-                            <div className="flex items-center gap-2">
-                               <div className="w-3 h-3 bg-tuggi-orange rounded-full"></div>
-                               <span className="text-gray-700 dark:text-gray-300">{tCommon('status.selected')}</span>
-                             </div>
-                            <div className="flex items-center gap-2">
-                               <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
-                               <span className="text-gray-700 dark:text-gray-300">{tCommon('status.available')}</span>
-                             </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* POI Selection Section */}
-                    <div className="space-y-3">
-                       <h5 className="font-medium text-gray-900 dark:text-white">
-                         {t('labels.nearby_pois_found', { count: nearbyPOIs.length })}
-                       </h5>
-
-                      {nearbyPOIs.length > 0 ? (
-                        <div className="space-y-2">
-                          {nearbyPOIs.map((p: any) => (
-                            <div
-                              key={p.id}
-                              className={cn(
-                                "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all",
-                                selectedPOIs.includes(p.id)
-                                  ? "bg-tuggi-orange/10 border-tuggi-orange/30 shadow-sm"
-                                  : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
-                              )}
-                              onClick={() => handleTogglePOI(p.id)}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedPOIs.includes(p.id)}
-                                onChange={() => handleTogglePOI(p.id)}
-                                className="rounded border-gray-300 text-tuggi-orange focus:ring-tuggi-orange"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-gray-900 dark:text-white truncate">
-                                  {p.name}
-                                </p>
-                                {p.formatted_address && (
-                                  <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                                    {p.formatted_address}
-                                  </p>
-                                )}
-                              </div>
-                              {p.rating && (
-                                <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
-                                  <Star className="h-4 w-4 text-yellow-400" />
-                                  {p.rating.toFixed(1)}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                          <MapPin className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
-                         <p className="text-sm font-medium">{t('labels.no_nearby_pois')}</p>
-                         <p className="text-xs mt-1">{t('labels.draw_polygon_instruction')}</p>
-                       </div>
-                      )}
-                    </div>
-
-                    {/* Group Configuration */}
-                    <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                       <h5 className="font-medium text-gray-900 dark:text-white">
-                         {t('labels.group_configuration')}
-                       </h5>
-
-                      <div className="space-y-3">
-                        <div>
-                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                             {t('labels.group_name')}
-                           </label>
-                          <input
-                            type="text"
-                             value={groupName}
-                             onChange={e => setGroupName(e.target.value)}
-                             placeholder={t('placeholders.enter_group_name')}
-                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
-                           />
-                        </div>
-
-                        <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                          <div>
-                             <p className="text-sm font-medium text-gray-900 dark:text-white">
-                               {t('labels.main_poi')}: {getPoi()?.name || 'N/A'}
-                             </p>
-                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                               {t('labels.main_poi_hint')}
-                             </p>
-                          </div>
-                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300">
-                             {tCommon('status.main')}
-                           </span>
-                        </div>
-
-                        {selectedPOIs.length > 0 && (
-                          <div className="p-3 bg-tuggi-blue/5 dark:bg-tuggi-blue/10 rounded-lg">
-                             <p className="text-sm font-medium text-gray-900 dark:text-white mb-2">
-                               {tCommon('status.selected')} POIs ({selectedPOIs.length})
-                             </p>
-                            <div className="space-y-1">
-                              {selectedPOIs.map(id => {
-                                // First check if it's the main POI
-                                if (id === getPoi()?.id) {
-                                  return (
-                                    <div key={id} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                                       <Users className="h-3 w-3" />
-                                       {getPoi()?.name || 'N/A'} ({tCommon('status.main')})
-                                     </div>
-                                  )
-                                }
-                                // Then check if it's in nearbyPOIs
-                                const p = nearbyPOIs.find((nearbyPoi: any) => nearbyPoi.id === id)
-                                return p ? (
-                                  <div key={id} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                                    <Users className="h-3 w-3" />
-                                    {p.name}
-                                  </div>
-                                ) : (
-                                  <div key={id} className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-500">
-                                    <Users className="h-3 w-3" />
-                                    POI {id.substring(0, 8)}... (Loading...)
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                         {selectedPOIs.length === 0 ? (
-                           <span>{t('labels.select_poi_to_create')}</span>
-                         ) : (
-                           <span>{t('labels.ready_to_create', { action: groupInfo ? tCommon('actions.update') : tCommon('actions.create'), count: selectedPOIs.length + 1 })}</span>
-                         )}
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        {groupInfo && (
-                          <button
-                            onClick={() => {
-                               // Handle group deletion
-                               if (window.confirm(t('labels.disband_confirm'))) {
-                                // Add delete group logic here
-                              }
-                            }}
-                            className="inline-flex items-center px-3 py-2 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500"
-                          >
-                             <Trash2 className="h-4 w-4 mr-1" />
-                             {t('labels.disband_group')}
-                           </button>
-                        )}
-
-                        <button
-                          onClick={handleSaveGroup}
-                          disabled={groupLoading || selectedPOIs.length < 1}
-                          className="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-tuggi-blue border border-transparent rounded-md hover:bg-tuggi-blue/90 focus:outline-none focus:ring-2 focus:ring-tuggi-blue disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {groupLoading ? (
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          ) : groupInfo ? (
-                            <Save className="h-4 w-4 mr-2" />
-                          ) : (
-                            <Plus className="h-4 w-4 mr-2" />
-                          )}
-                          {groupLoading ? 'Saving...' : groupInfo ? 'Update Group' : 'Create Group'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                    <MapPin className="h-16 w-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
-                    <p className="text-lg font-medium">{t('labels.no_coordinates_available')}</p>
-                    <p className="text-sm mt-1">{t('labels.need_coordinates_hint')}</p>
-                  </div>
-                )}
-              </div>
+              <GroupPoisTab />
             ) : activeTab === 'review' ? (
               <div className="px-6 py-4 max-h-[60vh] overflow-y-auto">
                 <div className="space-y-4">
@@ -5046,6 +4456,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                     </div>
                   </div>
                 )}
+            </POIModalProvider>
               </main>
             </div>
       </div>

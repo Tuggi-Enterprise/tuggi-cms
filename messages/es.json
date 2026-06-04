@@ -1155,6 +1155,9 @@
         "northwest": "Noroeste",
         "southeast": "Sureste",
         "southwest": "Suroeste"
+      },
+      "errors": {
+        "missing_coordinates": "No se pudieron cargar las coordenadas de este POI (error de sistema). Cierra y vuelve a abrir."
       }
     }
   },

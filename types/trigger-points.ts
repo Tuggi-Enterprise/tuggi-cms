@@ -145,7 +145,10 @@ export interface TriggerPointCRUDResponse {
 export interface TriggerPointsManagerProps {
   attractionId: string
   attractionName: string
-  attractionCoordinates: { lat: number; lng: number }
+  // Optimistic initial only — the authoritative coordinate is fetched from
+  // core.attraction_coordinate inside TriggerPointsManager. May be absent when
+  // the opener could not assemble it (e.g. deep-link/map path).
+  attractionCoordinates?: { lat: number; lng: number } | null
   attractionTypes?: string[]
   onClose?: () => void
   onUpdate?: () => void
