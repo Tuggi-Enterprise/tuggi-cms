@@ -46,6 +46,48 @@ export interface POIModalContextValue {
   handleTogglePOI: (id: string) => void
   handlePolygonComplete: (polygon: any) => void
   handleSaveGroup: () => void
+
+  // Shared content state (description + audio + review)
+  isLoading: boolean
+  editedPoi: any
+  descriptions: any[]
+  currentDescription: string
+  setCurrentDescription: (value: string) => void
+  originalDescription: string
+  generationLanguage: string
+  setGenerationLanguage: (value: string) => void
+  verificationResult: any
+  referenceLinks: string[]
+  setReferenceLinks: (links: string[]) => void
+  isGeneratingAudio: boolean
+
+  // Description tab
+  audioDuration: number
+  setAudioDuration: (value: number) => void
+  isGenerating: boolean
+  isSavingDescription: boolean
+  isSavingReferenceLinks: boolean
+  generateDescription: () => void
+  resetDescription: () => void
+  saveDescriptionAndNextStep: () => void
+  saveReferenceLinks: () => void
+
+  // Narration-audio tab
+  currentAudioUrl: string | null
+  selectedGender: string
+  setSelectedGender: (value: any) => void
+  selectedLanguages: string[]
+  setSelectedLanguages: (value: any) => void
+  isTranslating: boolean
+  translatedDescriptions: any[]
+  audioProgress: { current: number; total: number; currentTask: string }
+  audioResults: string[]
+  showResults: boolean
+  setShowResults: (value: boolean) => void
+  regenerateAllAudios: () => void
+  regenerateTranslation: (language: string, gender: string) => void
+  deleteTranslation: (id: string, language: string, gender: string) => void
+  fetchAdditionalData: (forcePoiId?: string, forceUpdate?: boolean) => void
 }
 
 const POIModalContext = createContext<POIModalContextValue | null>(null)
