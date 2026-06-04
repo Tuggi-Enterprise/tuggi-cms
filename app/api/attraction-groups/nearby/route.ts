@@ -20,6 +20,24 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c;
 }
 
+// Ray-casting point-in-polygon test. polygon: [{ lat, lng }, ...] (lat=y, lng=x).
+function pointInPolygon(lat: number, lng: number, polygon: Array<{ lat: number; lng: number }>) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng, yi = polygon[i].lat;
+    const xj = polygon[j].lng, yj = polygon[j].lat;
+    const intersect = (yi > lat) !== (yj > lat) &&
+      lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Hard cap on candidate rows pulled for the in-memory refine step.
+const NEARBY_CANDIDATE_LIMIT = 50000;
+// Hard cap on POIs returned (group-selection UI).
+const NEARBY_RESULT_LIMIT = 500;
+
 export const GET = async function(req: NextRequest) {
   console.log('🔍 API: /api/attraction-groups/nearby GET called (no auth)');
   
@@ -88,30 +106,39 @@ export const POST = async function(req: NextRequest) {
   console.log('🔍 API: Request body:', { polygon: polygon?.length, poiId, radius });
 
   if (polygon && Array.isArray(polygon) && polygon.length >= 3) {
-    console.log('🔍 API: Using polygon search');
-    
-    // Use polygon to find POIs inside
-    // Build WKT polygon string
-    const wkt = `POLYGON((` + polygon.map((p: any) => `${p.lng} ${p.lat}`).join(', ') + `, ${polygon[0].lng} ${polygon[0].lat}))`;
-    console.log('🔍 API: WKT sent to Supabase:', wkt);
-    
-    // Use the polygon to find POIs inside
-    
-    const { data: coords, error } = await supabase
+    console.log('🔍 API: Using polygon search (bbox prefilter + point-in-polygon)');
+
+    // Bounding box of the search polygon. We prefilter candidates by a cheap
+    // lat/lng range comparison (works for any polygon size and does NOT depend
+    // on the PostGIS spatial index that pois_in_polygon relied on — that index
+    // was dropped, making ST_Contains over 640k geometries time out / 57014).
+    const lats = polygon.map((p: any) => p.lat);
+    const lngs = polygon.map((p: any) => p.lng);
+    const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+
+    const { data: candidates, error } = await supabase
       .schema('core')
-      .rpc('pois_in_polygon', { wkt_polygon: wkt });
-      
-    console.log('🔍 API: RPC result:', { coords: coords?.length, error });
-    
+      .from('attraction_coordinate')
+      .select('attraction_id, latitude, longitude')
+      .gte('latitude', minLat).lte('latitude', maxLat)
+      .gte('longitude', minLng).lte('longitude', maxLng)
+      .limit(NEARBY_CANDIDATE_LIMIT);
+
+    console.log('🔍 API: bbox candidates:', { count: candidates?.length, error });
+
     if (error) {
-      console.error('❌ API: Supabase RPC error:', error);
+      console.error('❌ API: Supabase bbox query error:', error);
       return NextResponse.json({ error: 'Failed to fetch POIs in polygon', details: error }, { status: 500 });
     }
-    
-    // Fetch POI details for these IDs
-    const ids = coords.map((c: any) => c.attraction_id);
-    console.log('🔍 API: Found POI IDs:', ids);
-    
+
+    // Refine with exact point-in-polygon, excluding the reference POI.
+    const ids = (candidates || [])
+      .filter((c: any) => c.attraction_id !== poiId && pointInPolygon(c.latitude, c.longitude, polygon))
+      .map((c: any) => c.attraction_id)
+      .slice(0, NEARBY_RESULT_LIMIT);
+    console.log('🔍 API: POIs inside polygon:', ids.length);
+
     let details: any[] = [];
     if (ids.length > 0) {
       const { data: pois, error: poisError } = await supabase
@@ -164,21 +191,27 @@ export const POST = async function(req: NextRequest) {
       return NextResponse.json({ error: 'Reference POI not found' }, { status: 404 });
     }
     
-    // Get all POIs with coordinates
+    // Bounding box around the reference point (radius in meters -> degrees).
+    // Avoids scanning/returning all 640k coordinate rows.
+    const dLat = radius / 111320;
+    const dLng = radius / (111320 * Math.cos((refCoord.latitude * Math.PI) / 180) || 1);
     const { data: allCoords, error: allError } = await supabase
       .schema('core')
       .from('attraction_coordinate')
-      .select('attraction_id, latitude, longitude');
-      
-    console.log('🔍 API: All coordinates query:', { allCoords: allCoords?.length, allError });
-    
+      .select('attraction_id, latitude, longitude')
+      .gte('latitude', refCoord.latitude - dLat).lte('latitude', refCoord.latitude + dLat)
+      .gte('longitude', refCoord.longitude - dLng).lte('longitude', refCoord.longitude + dLng)
+      .limit(NEARBY_CANDIDATE_LIMIT);
+
+    console.log('🔍 API: bbox coordinates query:', { allCoords: allCoords?.length, allError });
+
     if (allError) {
       console.log('❌ API: Failed to fetch POIs');
       return NextResponse.json({ error: 'Failed to fetch POIs' }, { status: 500 });
     }
-    
+
     // Filter POIs within radius (excluding the reference POI)
-    const nearby = allCoords.filter((coord: any) => {
+    const nearby = (allCoords || []).filter((coord: any) => {
       if (coord.attraction_id === poiId) return false;
       const dist = haversine(refCoord.latitude, refCoord.longitude, coord.latitude, coord.longitude);
       return dist <= radius;
