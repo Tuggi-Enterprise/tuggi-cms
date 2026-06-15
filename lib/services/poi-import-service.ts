@@ -184,28 +184,10 @@ export class POIImportService {
     }
   }
 
-  async createImportBatch(selectedPlaces: EnhancedPlaceResult[]): Promise<string> {
-    try {
-      const batchName = `POI Import - ${new Date().toLocaleString()}`
-      
-      const { data, error } = await this.supabase
-        .schema('core')
-        .from('import_batches')
-        .insert([{
-          name: batchName,
-          status: 'pending',
-          total_places: selectedPlaces.length,
-          processed_places: 0
-        }])
-        .select()
-        .single()
-
-      if (error) throw error
-      return data.id
-    } catch (error) {
-      console.error('Error creating import batch:', error)
-      throw error
-    }
+  async createImportBatch(_selectedPlaces: EnhancedPlaceResult[]): Promise<string> {
+    // import_batches removida (tracking de import legado). Gera um id local só
+    // para o fluxo seguir; não há mais persistência do batch.
+    return (globalThis.crypto?.randomUUID?.() ?? `batch-${Date.now()}`)
   }
 
   async importPOI(place: EnhancedPlaceResult, batchId: string): Promise<{ success: boolean; attractionId?: string; error?: string }> {
@@ -312,21 +294,7 @@ export class POIImportService {
     }
   }
 
-  async updateImportBatchProgress(batchId: string, processedCount: number, totalCount: number): Promise<void> {
-    try {
-      const status = processedCount >= totalCount ? 'completed' : 'processing'
-      
-      await this.supabase
-        .schema('core')
-        .from('import_batches')
-        .update({
-          processed_places: processedCount,
-          status,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', batchId)
-    } catch (error) {
-      console.error('Error updating import batch progress:', error)
-    }
+  async updateImportBatchProgress(_batchId: string, _processedCount: number, _totalCount: number): Promise<void> {
+    // import_batches removida — sem tracking de progresso de batch (no-op).
   }
 }
