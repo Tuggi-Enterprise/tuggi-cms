@@ -9,8 +9,9 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const PROJECT_URL = Deno.env.get("PROJECT_URL") || "";
-const SERVICE_ROLE_KEY = Deno.env.get("SERVICE_ROLE_KEY") || "";
+// Aceita os nomes custom do projeto OU os reservados (sempre injetados pelo runtime)
+const PROJECT_URL = Deno.env.get("PROJECT_URL") || Deno.env.get("SUPABASE_URL") || "";
+const SERVICE_ROLE_KEY = Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
 const BUCKET = "travel-app-audios";
 const BATCH = 1000;
@@ -25,17 +26,30 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
+// Apenas service_role pode disparar (apaga em massa — não pode ser anon/público).
+// Decodifica o JWT e checa a claim `role` — robusto a diferenças de valor da chave.
+function isServiceRole(req: Request): boolean {
+  const raw = (req.headers.get("Authorization") || req.headers.get("apikey") || "").replace(/^Bearer\s+/i, "").trim();
+  const part = raw.split(".")[1];
+  if (!part) return false;
+  try {
+    const payload = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
+    return payload?.role === "service_role";
+  } catch {
+    return false;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
-  // Apenas service role (a EF apaga em massa — não pode ser pública/anon)
-  const auth = req.headers.get("Authorization") || "";
-  if (auth !== `Bearer ${SERVICE_ROLE_KEY}`) return json({ error: "unauthorized" }, 401);
+  if (!isServiceRole(req)) return json({ error: "unauthorized" }, 401);
 
-  const supabase = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
   let deleted = 0, bytes = 0, batches = 0;
 
   try {
+    if (!PROJECT_URL || !SERVICE_ROLE_KEY) throw new Error("env ausente: PROJECT_URL/SERVICE_ROLE_KEY");
+    const supabase = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
     while (batches < MAX_BATCHES) {
       const { data: orphans, error } = await supabase
         .schema("core")
@@ -71,13 +85,17 @@ serve(async (req) => {
     return json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await supabase.schema("core").from("storage_cleanup_logs").insert({
-      operation_type: "audio_error",
-      execution_time: new Date().toISOString(),
-      files_processed: deleted,
-      size_processed_bytes: bytes,
-      details: { error: msg, deleted, batches },
-    }).catch(() => {});
+    try {
+      if (PROJECT_URL && SERVICE_ROLE_KEY) {
+        await createClient(PROJECT_URL, SERVICE_ROLE_KEY).schema("core").from("storage_cleanup_logs").insert({
+          operation_type: "audio_error",
+          execution_time: new Date().toISOString(),
+          files_processed: deleted,
+          size_processed_bytes: bytes,
+          details: { error: msg, deleted, batches },
+        });
+      }
+    } catch (_) { /* logging best-effort */ }
     return json({ ok: false, error: msg, files_deleted: deleted }, 500);
   }
 });
