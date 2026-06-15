@@ -1,0 +1,45 @@
+-- ============================================================================
+-- TUNING DE CRON — gerado a partir do diagnóstico de 2026-06-15
+-- Achado: ~10% do tempo TOTAL do banco é o Postgres ESPERANDO HTTP síncrono
+-- em dois jobs que rodam A CADA MINUTO. Revisar antes de aplicar.
+-- ============================================================================
+
+-- ─── 1. process-push-notifications (jobid 21) ──────────────────────────────
+-- core.trigger_process_scheduled_notifications() faz UMA chamada http() SÍNCRONA
+-- (extensão `http`, bloqueante) a cada minuto: 533 ms médios × 86k calls = 8,1%
+-- do tempo do banco. O custo NÃO é SQL — é o DB parado esperando a Edge Function.
+--
+-- OPÇÃO A (recomendada): trocar `http()` por `net.http_post()` (pg_net, ASSÍNCRONO
+--   — já instalado). Fire-and-forget: o cron retorna na hora, a EF processa sozinha.
+--   Editar a função no painel; trocar o bloco SELECT ... FROM http((...)) por:
+--     PERFORM net.http_post(
+--       url     := v_url,
+--       headers := jsonb_build_object('apikey', v_key,
+--                    'Authorization', 'Bearer '||v_key, 'Content-Type','application/json'),
+--       body    := '{}'::jsonb);
+--
+-- OPÇÃO B (rápida, menor ganho): reduzir a frequência de 1min → 5min:
+--   SELECT cron.alter_job(21, schedule := '*/5 * * * *');
+
+-- ─── 2. process-newsletters (jobid 41) ─────────────────────────────────────
+-- marketing.trigger_process_scheduled_newsletters() — mesmo padrão http() síncrono,
+-- 499 ms × 18k calls = 1,7%, também a cada minuto. Mesma correção (pg_net) ou:
+--   SELECT cron.alter_job(41, schedule := '*/5 * * * *');
+
+-- ─── 3. refresh_poi_list_facets (jobid 42) ─────────────────────────────────
+-- 66,7 s POR EXECUÇÃO, a cada 30 min. Custo estrutural: as MVs reagregam tabelas
+-- inteiras — em especial count(DISTINCT atp.attraction_id) sobre os 7M registros
+-- de attraction_trigger_points. index_advisor não ajuda (não há filtro seletivo).
+-- Caminhos (precisam de design, não é one-liner):
+--   a) Reduzir frequência se as facetas não precisam de 30 min:
+--        SELECT cron.alter_job(42, schedule := '0 * * * *');   -- de hora em hora
+--   b) Tornar a MV incremental / manter contadores por owner em vez de reagregar.
+--   c) Para a versão _global, manter um contador único atualizado por trigger.
+
+-- ─── 4. Jobs FOMO possivelmente duplicados (revisar) ───────────────────────
+-- jobid 28 (refresh-daily-fomo-stats @ 01:05) e jobid 30 (fomo-daily-stats-refresh
+-- @ 01:30) chamam a MESMA função drive.refresh_daily_fomo_stats(). Idem orquestrador
+-- core (29) vs drive (31), ambos de hora em hora. Confirmar se não há trabalho dobrado:
+--   SELECT jobid, jobname, schedule, command FROM cron.job
+--   WHERE jobname ILIKE '%fomo%' ORDER BY jobid;
+-- Se for redundante:  SELECT cron.unschedule(30);
