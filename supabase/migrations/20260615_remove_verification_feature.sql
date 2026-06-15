@@ -160,7 +160,9 @@ END;
 $function$;
 
 -- ── 2. FUNÇÕES MORTAS + TRIGGER ─────────────────────────────────────────────
-DROP TRIGGER IF EXISTS trg_scores_mirror ON core.description_scores;
+-- (o trigger trg_scores_mirror cai junto com o DROP TABLE description_scores na
+--  seção 4 — não dropar explicitamente: "DROP TRIGGER ... ON <tabela>" quebra se
+--  a tabela já não existir, pois o IF EXISTS cobre o trigger e não a tabela)
 DROP FUNCTION IF EXISTS core.fn_update_description_score_mirror();
 DROP FUNCTION IF EXISTS core.save_description_verification_result(uuid, uuid, text, numeric, boolean, text[], text[], text[], text, boolean);
 DROP FUNCTION IF EXISTS core.get_descriptions_for_batch_processing(integer, uuid, text);
