@@ -117,9 +117,15 @@ export class ElevationAnalysisService {
       const srtm = SRTMLocalService.getInstance();
       const validElevations: number[] = [];
       
-      // Amostragem local SRTM é tão rápida que podemos fazer em série ou Promise.all
+      // Amostragem local SRTM é tão rápida que podemos fazer em série ou Promise.all.
+      // Catch per-sample rejections so one bad tile (e.g. > 60°N) doesn't crash the worker.
       const results = await Promise.all(
-        samplePoints.map(p => srtm.getElevation(p.lat, p.lng))
+        samplePoints.map(p =>
+          srtm.getElevation(p.lat, p.lng).catch(err => {
+            console.error(`[ElevationService] sample failed at ${p.lat},${p.lng}:`, err);
+            return null;
+          })
+        )
       );
       
       for (const ele of results) {
