@@ -5,6 +5,7 @@
  *   npx tsx scripts/import-geojson-homolog.ts output/file-elite-XXXX.geojson "Country Name"
  */
 
+import 'dotenv/config';
 import { getSupabase } from '../lib/core/supabase-client';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
