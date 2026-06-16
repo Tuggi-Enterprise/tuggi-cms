@@ -5,6 +5,7 @@ import { getSupabase } from '@/lib/core/supabase-client'
 import { ReverseGeocodingService } from '@/lib/services/reverse-geocoding.service'
 import { POICreationService } from '@/lib/services/poi-creation.service'
 import { logAuditEvent } from '@/lib/services/audit-service'
+import { priorityLevel } from '@/lib/shared/poi-taxonomy'
 
 // Use service role client to bypass RLS for fetching created POI
 const supabase = getSupabase('service')
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized - Insufficient privileges' }, { status: 403 })
     }
     const body = await request.json()
-    const { name, lat, lng, boundary, category, primary_category, owner_id, business_status } = body
+    const { name, lat, lng, boundary, category, primary_category, owner_id, business_status, priority_level } = body
 
     console.log('📍 [create-manual] Received request:', {
       name,
@@ -125,9 +126,20 @@ export async function POST(request: NextRequest) {
     if (owner_id) {
       additionalFields.owner_id = owner_id
     }
-    
+
     if (business_status) {
       additionalFields.business_status = business_status
+    }
+
+    // Nível de prioridade (1/2/3): override manual do form, senão deriva da
+    // categoria (mesma regra do backfill/pipeline). Geofence é sempre nível 1.
+    const isGeofence = primary_category === 'geofence' || category === 'geofence'
+    if (priority_level != null && [1, 2, 3].includes(Number(priority_level))) {
+      additionalFields.priority_level = Number(priority_level)
+    } else if (isGeofence) {
+      additionalFields.priority_level = 1
+    } else if (primary_category) {
+      additionalFields.priority_level = priorityLevel(primary_category, {})
     }
 
     const createResult = await POICreationService.createPOIWithCoordinates({
