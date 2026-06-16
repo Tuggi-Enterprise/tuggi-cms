@@ -216,9 +216,16 @@ async function main() {
 
     if (!opts.dryRun && updates.length) {
       await runWithConcurrency(updates, opts.concurrency, async (u) => {
-        const { error: upErr } = await supabase.schema('core').from('attractions').update(u.patch).eq('id', u.id)
-        if (upErr) { failed++; console.warn(`⚠️ update ${u.id} failed: ${upErr.message}`) }
-        else updated++
+        // Retry transient pooler errors ("prepared statement does not exist",
+        // "fetch failed") — they almost always succeed on a fresh connection.
+        let lastErr: any = null
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          const { error: upErr } = await supabase.schema('core').from('attractions').update(u.patch).eq('id', u.id)
+          if (!upErr) { updated++; return }
+          lastErr = upErr
+          await new Promise(r => setTimeout(r, 300 * attempt))
+        }
+        failed++; console.warn(`⚠️ update ${u.id} failed após 3 tentativas: ${lastErr?.message}`)
       })
     } else if (opts.dryRun) {
       updated += updates.length

@@ -200,6 +200,22 @@ export function DetailsTab() {
                           </select>
                         </div>
 
+                        {/* Priority Level (1 Padrão Tuggi · 2 Complementar · 3 Adicional) */}
+                        <div>
+                          <label className="block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1">
+                            Nível / Prioridade
+                          </label>
+                          <select
+                            value={String(editedPoi?.priority_level ?? getPoi()?.priority_level ?? 3)}
+                            onChange={(e) => setEditedPoi((prev: any) => prev ? ({ ...prev, priority_level: parseInt(e.target.value, 10) }) : null)}
+                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white text-sm"
+                          >
+                            <option value="1">1 — Padrão Tuggi (imperdíveis)</option>
+                            <option value="2">2 — Complementar (média)</option>
+                            <option value="3">3 — Adicional (paisagem)</option>
+                          </select>
+                        </div>
+
                         {/* Google Types Badge Cloud */}
                         {getPoi()?.google_types && getPoi()!.google_types!.length > 0 && (
                           <div className="pt-2">

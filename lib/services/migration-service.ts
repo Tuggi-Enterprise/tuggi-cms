@@ -6,7 +6,7 @@
  */
 
 import { getSupabase } from '@/lib/core/supabase-client'
-import { classify, importanceScore, isNotable } from '@/lib/shared/poi-taxonomy'
+import { classify, importanceScore, isNotable, priorityLevel } from '@/lib/shared/poi-taxonomy'
 
 const supabase = getSupabase('service')
 
@@ -446,6 +446,8 @@ export class MigrationService {
     mapped.importance_score = importanceScore(taxIn)
     mapped.is_notable = isNotable(taxIn)
     mapped.category_confidence = cls.confidence   // 'high' | 'low' — same SSOT as the backfill
+    // Nível 1/2/3 (filtro app + prioridade de disparo) — novos imports já nascem com o nível.
+    mapped.priority_level = priorityLevel(cls.primary_category, taxIn)
     if (cls.excluded) {
       mapped.primary_category = '_excluded_street'
       mapped.category_group = null

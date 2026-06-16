@@ -57,6 +57,7 @@ export interface POI {
   osm_category?: string | null
   record_type?: string
   primary_category?: string | null
+  priority_level?: number | null  // 1 Padrão Tuggi · 2 Complementar · 3 Adicional
   approved: boolean
   approved_by: string | null
   approved_at: string | null

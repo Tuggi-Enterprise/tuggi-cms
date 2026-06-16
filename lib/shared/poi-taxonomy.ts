@@ -534,3 +534,43 @@ export const NOTABLE_THRESHOLD = 30
 export function isNotable(input: ClassifyInput): boolean {
   return importanceScore(input) >= NOTABLE_THRESHOLD
 }
+
+// ============================================================================
+// PRIORITY LEVEL (1 Padrão Tuggi · 2 Complementar · 3 Adicional)
+// Segmentação curada para FILTRO no app + PRIORIDADE de disparo (1 > 2 > 3).
+// Separado da taxonomia — deriva dela + importância. Curadoria manual prevalece.
+// IMPORTANTE: manter estas listas em sincronia com o UPDATE SQL retroativo.
+// ============================================================================
+
+/** Categorias intrinsecamente "imperdíveis" (nível 1), mesmo sem wikidata. */
+export const LEVEL_1_CATEGORIES = new Set<string>([
+  'museum', 'monument', 'memorial', 'historic_site', 'archaeological_site',
+  'cathedral', 'monastery', 'mosque', 'temple', 'synagogue',
+  'viewpoint', 'waterfall', 'volcano', 'glacier', 'canyon', 'cave',
+  'beach', 'lighthouse',
+])
+
+/** Categorias de média importância (nível 2). */
+export const LEVEL_2_CATEGORIES = new Set<string>([
+  'artwork', 'gallery', 'theatre', 'library', 'bridge', 'tower', 'windmill',
+  'stadium', 'zoo', 'amusement_park', 'marketplace', 'fountain', 'attraction',
+  'cemetery', 'pier',
+])
+
+/**
+ * Nível 1/2/3 a partir da categoria canônica + sinais de importância.
+ * Promoção: importance_score≥40 OU is_historic OU heritage/unesco → nível 1
+ * (pega aeroportos famosos, igrejas históricas, parques notáveis, etc.).
+ */
+export function priorityLevel(primaryCategory: string | null, input: ClassifyInput): 1 | 2 | 3 {
+  if (importanceScore(input) >= 40) return 1
+  if (input.is_historic === true) return 1
+  const heritage = norm(input.heritage_status)
+  if (heritage && heritage !== 'no' && heritage !== 'none') return 1
+  const unesco = norm(input.unesco_status)
+  if (unesco && unesco !== 'no' && unesco !== 'none') return 1
+  const cat = norm(primaryCategory)
+  if (cat && LEVEL_1_CATEGORIES.has(cat)) return 1
+  if (cat && LEVEL_2_CATEGORIES.has(cat)) return 2
+  return 3
+}

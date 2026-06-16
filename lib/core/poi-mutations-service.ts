@@ -86,6 +86,8 @@ export async function savePoiChanges(
       reference_links: referenceLinks.filter((link) => !!link.trim()),
       owner_id: editedPoi.owner_id || null,
       business_status: editedPoi.business_status || null,
+      // priority_level (1/2/3) — só grava se o form carregou o valor (não clobbera a auto-derivação)
+      ...(editedPoi.priority_level != null ? { priority_level: Number(editedPoi.priority_level) } : {}),
     })
     .eq('id', poi.id)
   if (error) throw error
