@@ -39,7 +39,7 @@ export interface GeminiTextResult {
 }
 
 /**
- * Shared Gemini call with model fallback (Flash-Lite -> Flash -> 1.5).
+ * Shared Gemini call with model fallback (2.5 Flash-Lite -> 2.5 Flash -> 2.0 Flash).
  * Returns both the text and usageMetadata for token accounting. The legacy
  * `runGeminiPrompt` (string-returning) wraps this for backwards compatibility.
  */
@@ -52,7 +52,7 @@ const runGeminiPromptWithUsage = async (
     const models = [
         'gemini-2.5-flash-lite',
         'gemini-2.5-flash',
-        'gemini-1.5-flash'
+        'gemini-2.0-flash'
     ];
 
     let lastError: Error | null = null;
