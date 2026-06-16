@@ -941,6 +941,10 @@
         "save_boundary": "Save Boundary",
         "saving_boundary": "Saving Boundary...",
         "google_types": "Google Types ({count})",
+        "priority_level": "Priority",
+        "priority_1": "1 — Tuggi Standard",
+        "priority_2": "2 — Complementary",
+        "priority_3": "3 — Additional",
         "content_status_title": "Content Status",
         "description_hint": "Primary Portuguese (BR) text. Save to translate and generate audios.",
         "descriptions_count": "Descriptions",
@@ -1291,7 +1295,11 @@
       "without_trigger_points": "Without Trigger Points",
       "all_active": "All POIs",
       "active": "Active",
-      "inactive": "Inactive"
+      "inactive": "Inactive",
+      "all_priority": "All Levels",
+      "priority_1": "1 — Tuggi Standard",
+      "priority_2": "2 — Complementary",
+      "priority_3": "3 — Additional"
     },
     "controls": {
       "pois_found": "{count} POIs found",

@@ -940,6 +940,10 @@
         "save_boundary": "Salvar Limite",
         "saving_boundary": "Salvando Limites...",
         "google_types": "Tipos do Google ({count})",
+        "priority_level": "Prioridade",
+        "priority_1": "1 — Padrão Tuggi",
+        "priority_2": "2 — Complementar",
+        "priority_3": "3 — Adicional",
         "content_status_title": "Status do Conteúdo",
         "description_hint": "Texto principal em Português (BR). Salve para traduzir e gerar os áudios.",
         "descriptions_count": "Descrições",
@@ -1290,7 +1294,11 @@
       "without_trigger_points": "Sem Trigger Points",
       "all_active": "Todos os POIs",
       "active": "Ativo",
-      "inactive": "Inativo"
+      "inactive": "Inativo",
+      "all_priority": "Todos os Níveis",
+      "priority_1": "1 — Padrão Tuggi",
+      "priority_2": "2 — Complementar",
+      "priority_3": "3 — Adicional"
     },
     "controls": {
       "pois_found": "{count} POIs encontrados",

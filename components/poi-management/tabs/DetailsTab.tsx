@@ -203,16 +203,16 @@ export function DetailsTab() {
                         {/* Priority Level (1 Padrão Tuggi · 2 Complementar · 3 Adicional) */}
                         <div>
                           <label className="block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1">
-                            Nível / Prioridade
+                            {t('labels.priority_level')}
                           </label>
                           <select
                             value={String(editedPoi?.priority_level ?? getPoi()?.priority_level ?? 3)}
                             onChange={(e) => setEditedPoi((prev: any) => prev ? ({ ...prev, priority_level: parseInt(e.target.value, 10) }) : null)}
                             className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white text-sm"
                           >
-                            <option value="1">1 — Padrão Tuggi (imperdíveis)</option>
-                            <option value="2">2 — Complementar (média)</option>
-                            <option value="3">3 — Adicional (paisagem)</option>
+                            <option value="1">{t('labels.priority_1')}</option>
+                            <option value="2">{t('labels.priority_2')}</option>
+                            <option value="3">{t('labels.priority_3')}</option>
                           </select>
                         </div>
 

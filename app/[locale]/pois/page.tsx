@@ -918,10 +918,10 @@ function POIListWithSearchParams() {
                       onChange={(e) => setPriorityFilter(e.target.value as any)}
                       className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
                     >
-                      <option value="all">Todos os níveis</option>
-                      <option value="1">Nível 1 — Padrão Tuggi</option>
-                      <option value="2">Nível 2 — Complementar</option>
-                      <option value="3">Nível 3 — Adicional</option>
+                      <option value="all">{t('status_options.all_priority')}</option>
+                      <option value="1">{t('status_options.priority_1')}</option>
+                      <option value="2">{t('status_options.priority_2')}</option>
+                      <option value="3">{t('status_options.priority_3')}</option>
                     </select>
 
                     <select
@@ -1260,6 +1260,19 @@ function POIListWithSearchParams() {
                                   ) : (
                                     <div className="w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700" />
                                   )}
+                                  {poi.priority_level ? (
+                                    <span
+                                      title={t(`status_options.priority_${poi.priority_level}`)}
+                                      className={cn(
+                                        "text-[10px] font-black px-2 py-1 rounded-full border",
+                                        poi.priority_level === 1 ? "text-emerald-600 bg-emerald-500/5 border-emerald-500/20"
+                                          : poi.priority_level === 2 ? "text-amber-600 bg-amber-500/5 border-amber-500/20"
+                                          : "text-gray-400 bg-gray-400/5 border-gray-300/40"
+                                      )}
+                                    >
+                                      {poi.priority_level}
+                                    </span>
+                                  ) : null}
                                 </div>
                                 <div 
                                   className="relative cursor-pointer group/checkbox"
@@ -1303,6 +1316,19 @@ function POIListWithSearchParams() {
                                       {poi.category}
                                     </span>
                                   </div>
+                                  {poi.priority_level ? (
+                                    <span
+                                      title={t(`status_options.priority_${poi.priority_level}`)}
+                                      className={cn(
+                                        "text-[10px] font-black px-2 py-1 rounded-full border",
+                                        poi.priority_level === 1 ? "text-emerald-600 bg-emerald-500/5 border-emerald-500/20"
+                                          : poi.priority_level === 2 ? "text-amber-600 bg-amber-500/5 border-amber-500/20"
+                                          : "text-gray-400 bg-gray-400/5 border-gray-300/40"
+                                      )}
+                                    >
+                                      {poi.priority_level}
+                                    </span>
+                                  ) : null}
                               </div>
                             )}
 

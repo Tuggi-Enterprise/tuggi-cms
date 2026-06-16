@@ -25,6 +25,7 @@ export interface POI {
   category: string
   osm_category?: string | null
   record_type?: string
+  priority_level?: number | null  // 1 Padrão Tuggi · 2 Complementar · 3 Adicional
   approved: boolean
   approved_by?: string
   approved_at?: string
@@ -237,7 +238,11 @@ class POIService {
       // contagem é buscada UMA vez por filtro num hook separado), pula essa chamada —
       // virar de página não re-conta.
       const skipFacets = (filters as any).skipFacets === true
-      const facetsPromise = skipFacets ? null : supabase.schema('core').rpc('cms_poi_facets', sharedFilters)
+      // Contadores também respeitam o filtro de nível (condicional p/ compat com RPC antiga).
+      const facetsArgs = filters.priorityLevel
+        ? { ...sharedFilters, priority_filter: filters.priorityLevel }
+        : sharedFilters
+      const facetsPromise = skipFacets ? null : supabase.schema('core').rpc('cms_poi_facets', facetsArgs)
 
       let data: any[] = []
       let error: any = null
@@ -453,7 +458,8 @@ class POIService {
         score_filter: filters.scoreFilter || 'all',
         trigger_points_filter: filters.triggerPointsFilter || 'all',
         is_active_filter: filters.isActiveFilter || 'all',
-        owner_id: (filters as any).ownerId || null
+        owner_id: (filters as any).ownerId || null,
+        ...(filters.priorityLevel ? { priority_filter: filters.priorityLevel } : {})
       })
       if (error) {
         return { success: false, error: error.message }
@@ -699,9 +705,10 @@ class POIService {
         content_status_filter: filters?.contentStatus || 'all',
         group_status_filter: filters?.groupStatus || 'all',
         score_filter: filters?.scoreFilter || 'all',
-        trigger_points_filter: filters?.triggerPointsFilter || 'all'
+        trigger_points_filter: filters?.triggerPointsFilter || 'all',
+        ...(filters?.priorityLevel ? { priority_filter: filters.priorityLevel } : {})
       })
-      
+
       if (error) {
         console.error('❌ POI Statistics RPC failed:', error)
         return {

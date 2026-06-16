@@ -865,6 +865,10 @@
         "save_boundary": "Guardar Límite",
         "saving_boundary": "Guardando Límites...",
         "google_types": "Tipos de Google ({count})",
+        "priority_level": "Prioridad",
+        "priority_1": "1 — Estándar Tuggi",
+        "priority_2": "2 — Complementario",
+        "priority_3": "3 — Adicional",
         "content_status_title": "Estado del Contenido",
         "description_hint": "Texto principal en Portugués (BR). Guarde para traducir y generar los audios.",
         "descriptions_count": "Descripciones",
@@ -1210,7 +1214,11 @@
       "without_trigger_points": "Sin Puntos de Activación",
       "all_active": "Todos los POIs",
       "active": "Activo",
-      "inactive": "Inactivo"
+      "inactive": "Inactivo",
+      "all_priority": "Todos los Niveles",
+      "priority_1": "1 — Estándar Tuggi",
+      "priority_2": "2 — Complementario",
+      "priority_3": "3 — Adicional"
     },
     "controls": {
       "pois_found": "{count} POIs encontrados",
