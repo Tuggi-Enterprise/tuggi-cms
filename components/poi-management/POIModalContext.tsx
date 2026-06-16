@@ -42,6 +42,8 @@ export interface POIModalContextValue {
   setCreateOwnerId: (value: any) => void
   createBusinessStatus: string
   setCreateBusinessStatus: (value: any) => void
+  createPriorityLevel: number
+  setCreatePriorityLevel: (value: any) => void
   isCreating: boolean
   isGeocoding: boolean
   createError: string | null

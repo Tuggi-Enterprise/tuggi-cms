@@ -185,6 +185,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [createType, setCreateType] = useState<'standard' | 'geofence'>('standard')
   const [createOwnerId, setCreateOwnerId] = useState<string>('')
   const [createBusinessStatus, setCreateBusinessStatus] = useState<string>('ENTER_ONLY')
+  const [createPriorityLevel, setCreatePriorityLevel] = useState<number>(3)
   const [clients, setClients] = useState<any[]>([])
 
   // compute CMS role / editing permissions for UI
@@ -376,7 +377,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           osm_category: createCategory,
           primary_category: createType === 'geofence' ? 'geofence' : 'point_of_interest',
           owner_id: createOwnerId || undefined,
-          business_status: createBusinessStatus || undefined
+          business_status: createBusinessStatus || undefined,
+          // Geofence é sempre nível 1 (decidido no servidor); só envio o nível p/ POI normal.
+          priority_level: createType === 'geofence' ? undefined : createPriorityLevel
         })
       })
       const result = await response.json()
@@ -2364,6 +2367,8 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               setCreateOwnerId,
               createBusinessStatus,
               setCreateBusinessStatus,
+              createPriorityLevel,
+              setCreatePriorityLevel,
               isCreating,
               isGeocoding,
               createError,

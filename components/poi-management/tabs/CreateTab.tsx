@@ -32,6 +32,8 @@ export function CreateTab() {
     setCreateOwnerId,
     createBusinessStatus,
     setCreateBusinessStatus,
+    createPriorityLevel,
+    setCreatePriorityLevel,
     isCreating,
     isGeocoding,
     createError,
@@ -94,6 +96,22 @@ export function CreateTab() {
                             ))}
                           </select>
                         </div>
+                        {createType !== 'geofence' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              {t('labels.priority_level')}
+                            </label>
+                            <select
+                              value={String(createPriorityLevel)}
+                              onChange={(e) => setCreatePriorityLevel(parseInt(e.target.value, 10))}
+                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-tuggi-blue dark:bg-gray-700 dark:text-white"
+                            >
+                              <option value="1">{t('labels.priority_1')}</option>
+                              <option value="2">{t('labels.priority_2')}</option>
+                              <option value="3">{t('labels.priority_3')}</option>
+                            </select>
+                          </div>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-orange-50/50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-800 rounded-lg">
