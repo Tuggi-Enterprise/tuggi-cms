@@ -169,6 +169,10 @@ export const FILTER_CONFIG = {
   ]
 };
 
+// Marcos sem valor turístico (cippi de fronteira, marcos de km, pontos geodésicos).
+// historic=boundary_stone marca hasHistoric=true, então o TAG_BLOCKLIST normal não pega.
+export const MARKER_NOISE_TAGS = ['boundary_stone', 'milestone', 'survey_point', 'geodesic', 'distance_marker'];
+
 /**
  * Centered filtering logic.
  * Handles both "tags" (Overpass) and "properties" (GeoJSON) formats.
@@ -189,6 +193,25 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
 
   // --- 1. BASIC FILTERS ---
   if (!name || name.length < 2) return { remove: true, reason: "Strict: Local sem nome" };
+
+  // Relevância "dura" p/ ruído estrutural: só wiki/wikidata/heritage contam.
+  // (hasHistoric NÃO conta aqui: historic=boundary_stone já marca hasHistoric=true,
+  //  então usar isFamous deixaria todo cippi passar.)
+  const hasHardReference = hasReference || hasHeritage;
+
+  // Nome sem nenhuma letra (ex.: "16", "1/31", "1797", "40-193-0001-29") = ruído de OSM
+  // (cippi de fronteira, marcos de km, anos/códigos soltos). Mantém só se referenciado.
+  if (!/[A-Za-zÀ-ÿ]/.test(name) && !hasHardReference) {
+    return { remove: true, reason: `NUMERIC_NAME: Nome sem contexto ('${name}')` };
+  }
+
+  // Marcos sem valor turístico (cippi de fronteira, marcos de km, pontos geodésicos).
+  // historic=boundary_stone marca hasHistoric=true, então o TAG_BLOCKLIST normal não pega.
+  const isMarkerNoise = [props.historic, props.man_made, props.highway, props.marker]
+    .some(v => v && MARKER_NOISE_TAGS.includes(String(v)));
+  if (isMarkerNoise && !hasHardReference) {
+    return { remove: true, reason: `MARKER_NOISE: Marco sem valor (${props.historic || props.man_made || props.highway || props.marker})` };
+  }
 
   if (props.route || props.type === "route") {
     return { remove: true, reason: "Category: Rota/Trajeto (não é um ponto fixo)" };
