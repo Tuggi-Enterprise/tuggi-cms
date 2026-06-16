@@ -111,6 +111,7 @@ export interface POISearchFilters {
   fetch_all?: boolean  // New parameter for map view
   map_view?: boolean   // New parameter to indicate map context
   isActiveFilter?: 'all' | 'active' | 'inactive'
+  priorityLevel?: 1 | 2 | 3  // Nível Tuggi (1 Padrão · 2 Complementar · 3 Adicional)
 }
 
 export interface POISearchResult {
@@ -253,6 +254,8 @@ class POIService {
             .schema('core')
             .rpc('cms_list_pois', {
               ...sharedFilters,
+              // condicional: só envia quando há filtro (mantém compat com a RPC antiga)
+              ...(filters.priorityLevel ? { priority_filter: filters.priorityLevel } : {}),
               fetch_all: false,
               limit_count: chunkSize,
               offset_count: currentOffset
@@ -282,6 +285,8 @@ class POIService {
         // Chamada única paginada via cms_list_pois.
         const result = await supabase.schema('core').rpc('cms_list_pois', {
           ...sharedFilters,
+          // condicional: só envia quando há filtro (mantém compat com a RPC antiga)
+          ...(filters.priorityLevel ? { priority_filter: filters.priorityLevel } : {}),
           fetch_all: false,
           limit_count: filters.limit || 1000,
           offset_count: ((filters.page || 1) - 1) * (filters.limit || 1000)

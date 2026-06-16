@@ -58,6 +58,7 @@ function POIListWithSearchParams() {
   const [scoreFilter, setScoreFilter] = useState<'all' | 'no_score' | 'rejected' | 'pending' | 'approved'>('all')
   const [triggerPointsFilter, setTriggerPointsFilter] = useState<'all' | 'with_trigger_points' | 'without_trigger_points'>('all')
   const [isActiveFilter, setIsActiveFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [priorityFilter, setPriorityFilter] = useState<'all' | '1' | '2' | '3'>('all')
   const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [countryFilter, setCountryFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
@@ -272,8 +273,9 @@ function POIListWithSearchParams() {
     groupStatus: groupStatusFilter,
     scoreFilter: scoreFilter,
     triggerPointsFilter: triggerPointsFilter,
-    isActiveFilter: isActiveFilter
-  }), [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, categoryFilter, osmCategoryFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter])
+    isActiveFilter: isActiveFilter,
+    priorityLevel: priorityFilter === 'all' ? undefined : (Number(priorityFilter) as 1 | 2 | 3)
+  }), [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, categoryFilter, osmCategoryFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, priorityFilter])
 
   // Lista (linhas) — re-busca a cada página, MAS sem re-contar (skipFacets).
   const { data: searchResult, isLoading: isQueryLoading, isFetching: isQueryFetching, refetch } = usePOIs({
@@ -713,6 +715,7 @@ function POIListWithSearchParams() {
     setScoreFilter('all')
     setTriggerPointsFilter('all')
     setIsActiveFilter('all')
+    setPriorityFilter('all')
     setCurrentPage(1)
   }
 
@@ -790,8 +793,9 @@ function POIListWithSearchParams() {
            groupStatusFilter !== 'all' || 
            scoreFilter !== 'all' || 
            triggerPointsFilter !== 'all' ||
-           isActiveFilter !== 'all'
-  }, [searchTerm, statusFilter, categoryFilter, osmCategoryFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter])
+           isActiveFilter !== 'all' ||
+           priorityFilter !== 'all'
+  }, [searchTerm, statusFilter, categoryFilter, osmCategoryFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, priorityFilter])
 
   // Memoize the transformed POI to prevent infinite loops in POIDetailsModal's useEffect
   const memoizedPoiForModal = useMemo(() => {
@@ -907,6 +911,17 @@ function POIListWithSearchParams() {
                           {status.label}
                         </option>
                       ))}
+                    </select>
+
+                    <select
+                      value={priorityFilter}
+                      onChange={(e) => setPriorityFilter(e.target.value as any)}
+                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
+                    >
+                      <option value="all">Todos os níveis</option>
+                      <option value="1">Nível 1 — Padrão Tuggi</option>
+                      <option value="2">Nível 2 — Complementar</option>
+                      <option value="3">Nível 3 — Adicional</option>
                     </select>
 
                     <select
