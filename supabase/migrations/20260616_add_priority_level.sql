@@ -40,7 +40,7 @@ BEGIN
          OR (unesco_status  IS NOT NULL AND unesco_status  NOT IN ('none','no'))
          OR primary_category IN ('museum','monument','memorial','historic_site','archaeological_site',
             'cathedral','monastery','mosque','temple','synagogue','viewpoint','waterfall','volcano',
-            'glacier','canyon','cave','beach','lighthouse'))
+            'glacier','canyon','cave','beach','lighthouse','attraction'))
       LIMIT p_batch
     )
     UPDATE core.attractions a SET priority_level = 1 FROM cte WHERE a.id = cte.id;
@@ -55,7 +55,7 @@ BEGIN
       SELECT id FROM core.attractions
       WHERE priority_level = 3
         AND primary_category IN ('artwork','gallery','theatre','library','bridge','tower','windmill',
-            'stadium','zoo','amusement_park','marketplace','fountain','attraction','cemetery','pier')
+            'stadium','zoo','amusement_park','marketplace','fountain','cemetery','pier')
       LIMIT p_batch
     )
     UPDATE core.attractions a SET priority_level = 2 FROM cte WHERE a.id = cte.id;

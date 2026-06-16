@@ -548,12 +548,15 @@ export const LEVEL_1_CATEGORIES = new Set<string>([
   'cathedral', 'monastery', 'mosque', 'temple', 'synagogue',
   'viewpoint', 'waterfall', 'volcano', 'glacier', 'canyon', 'cave',
   'beach', 'lighthouse',
+  // tourism=attraction = "atração turística" por definição (ex.: Cristo Redentor
+  // sem wikidata no banco). Famoso não pode ficar oculto no nível 2.
+  'attraction',
 ])
 
 /** Categorias de média importância (nível 2). */
 export const LEVEL_2_CATEGORIES = new Set<string>([
   'artwork', 'gallery', 'theatre', 'library', 'bridge', 'tower', 'windmill',
-  'stadium', 'zoo', 'amusement_park', 'marketplace', 'fountain', 'attraction',
+  'stadium', 'zoo', 'amusement_park', 'marketplace', 'fountain',
   'cemetery', 'pier',
 ])
 

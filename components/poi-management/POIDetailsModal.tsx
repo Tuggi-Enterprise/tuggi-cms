@@ -560,6 +560,21 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const queryClient = useQueryClient()
   const supabase = useSupabaseClient<any>()
 
+  // A RPC da lista (cms_list_pois) não retorna priority_level → o form cairia no
+  // default 3. Ao abrir um POI sem o campo, busca o valor real e injeta no estado.
+  useEffect(() => {
+    const id = poi?.id
+    if (!id || poi?.priority_level != null) return
+    let cancelled = false
+    supabase.schema('core').from('attractions').select('priority_level').eq('id', id).maybeSingle()
+      .then(({ data }: { data: { priority_level?: number | null } | null }) => {
+        if (cancelled || data?.priority_level == null) return
+        setCurrentPoi((prev) => (prev && prev.id === id ? { ...prev, priority_level: data.priority_level } : prev))
+        setEditedPoi((prev: any) => (prev && prev.id === id ? { ...prev, priority_level: data.priority_level } : prev))
+      })
+    return () => { cancelled = true }
+  }, [poi?.id, poi?.priority_level, supabase])
+
   // Ref to track current description value to prevent stale closures in async callbacks
   const currentDescriptionRef = useRef(currentDescription)
   useEffect(() => {
