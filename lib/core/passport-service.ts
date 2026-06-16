@@ -57,9 +57,10 @@ export class PassportService {
    */
   static async getTripExploration(supabase: any, tripSessionId: string, bufferMeters: number = 1000): Promise<TripExploration | null> {
     try {
-      const { data, error } = await supabase.schema('drive').rpc('get_trip_exploration_stats', { 
+      const { data, error } = await supabase.schema('drive').rpc('get_trip_exploration_stats', {
         p_trip_session_id: tripSessionId,
-        p_buffer_meters: bufferMeters
+        p_buffer_meters: bufferMeters,
+        p_include_missed: true
       })
       
       if (error) throw error
