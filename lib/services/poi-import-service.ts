@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { EnhancedPlaceResult, ImportBatch } from '@/types/poi-importer'
 import { createGooglePlacesService, type PlaceSearchResult } from '@/lib/googlePlaces'
+import { normalizeLocation } from '@/lib/shared/location-normalize'
 
 export class POIImportService {
   private placesService: ReturnType<typeof createGooglePlacesService>
@@ -198,10 +199,12 @@ export class POIImportService {
         return { success: false, error: 'Could not fetch place details' }
       }
 
-      // Extract address parts
+      // Extract address parts, then canonicalise country/state at the door (SSOT).
       const addressParts = placeDetails.formatted_address.split(', ')
-      const country = addressParts[addressParts.length - 1]
-      const state = addressParts.length > 2 ? addressParts[addressParts.length - 2] : ''
+      const { country, state } = normalizeLocation(
+        addressParts[addressParts.length - 1],
+        addressParts.length > 2 ? addressParts[addressParts.length - 2] : null,
+      )
       const city = addressParts.length > 3 ? addressParts[addressParts.length - 3] : addressParts[0]
 
       // Prepare attraction data matching new schema

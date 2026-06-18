@@ -7,6 +7,7 @@
 
 import 'dotenv/config';
 import { getSupabase } from '../lib/core/supabase-client';
+import { normalizeLocation } from '../lib/shared/location-normalize';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -157,6 +158,12 @@ async function main() {
 
       const boundaryGeom = geoJsonToWkt(geom);
 
+      // Canonicalise country/state at the door (SSOT) before staging.
+      const loc = normalizeLocation(
+        countryParam || props['addr:country'] || 'Thailand',
+        stateParam || props['addr:state'] || null,
+      )
+
       // Map properties to homolog.pois schema
       const poi = {
         uuid_id: uuid,
@@ -168,8 +175,8 @@ async function main() {
         osm_properties: props,
         category: props.tourism || props.historic || props.leisure || props.natural || props.amenity || props.aerialway,
         city: props['addr:city'],
-        state: stateParam || props['addr:state'],
-        country: countryParam || props['addr:country'] || 'Thailand',
+        state: loc.state,
+        country: loc.country,
         postal_code: props['addr:postcode'],
         street_name: props['addr:street'],
         house_number: props['addr:housenumber'],

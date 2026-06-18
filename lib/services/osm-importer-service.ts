@@ -13,6 +13,7 @@
 import { getSupabaseClient } from '@/lib/core/supabase-client'
 import { OSMFeature, EditableOSMPOI, ImportBatch, ImportResults, DuplicateMatch } from '@/types/osm-importer'
 import { shouldFilterPOI } from '@/lib/shared/poi-filter'
+import { normalizeLocation } from '@/lib/shared/location-normalize'
 
 export class OSMImporterService {
   private supabase = getSupabaseClient()
@@ -34,12 +35,19 @@ export class OSMImporterService {
     
     // Handle both direct properties and nested tags structure
     const tags = properties.tags || properties
-    
+
+    // Canonicalise country/state at the door (SSOT) so OSM's raw ISO codes /
+    // local names (e.g. "BR", "Italia", "Lombardia") never drift into the DB.
+    const { country, state } = normalizeLocation(
+      tags['addr:country'] || tags['is_in:country'] || null,
+      tags['addr:state'] || tags['is_in:state'] || tags['addr:province'] || null,
+    )
+
     const result = {
       name: tags.name || tags['name:en'] || tags['name:pt'] || null,
       city: tags['addr:city'] || tags['is_in:city'] || tags['addr:suburb'] || null,
-      state: tags['addr:state'] || tags['is_in:state'] || tags['addr:province'] || null,
-      country: tags['addr:country'] || tags['is_in:country'] || null,
+      state,
+      country,
       address: tags['addr:full'] || tags['addr:street'] || null,
       website: tags.website || tags['contact:website'] || null
     }

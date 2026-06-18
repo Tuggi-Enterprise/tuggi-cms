@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getScoreDescription, getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute'
+import { normalizeLocation } from '@/lib/shared/location-normalize'
 import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
 import { TriggerPointsManager } from './TriggerPointsManager'
@@ -1246,7 +1247,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
         return
       }
 
-      await poiMutations.savePoiChanges(currentPoi, editedPoi, referenceLinks)
+      // Canonicalise country/state on save (SSOT) so manual edits in the free-text
+      // fields never re-introduce variants ("Brasil", "Lombardia", "CA"…).
+      const loc = normalizeLocation(editedPoi.country, editedPoi.state)
+      const editedPoiNormalized = { ...editedPoi, country: loc.country ?? editedPoi.country, state: loc.state }
+
+      await poiMutations.savePoiChanges(currentPoi, editedPoiNormalized, referenceLinks)
 
       // Update local state instead of reloading all data
       const currentPoiData = getPoi()
@@ -1254,7 +1260,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       const updatedPOI: POI = {
         ...currentPoiData, // Keep original POI data
-        ...editedPoi, // Merge with edited fields
+        ...editedPoiNormalized, // Merge with edited (canonicalised) fields
         updated_at: new Date().toISOString(),
         id: currentPoiData.id // Ensure id is always present
       }

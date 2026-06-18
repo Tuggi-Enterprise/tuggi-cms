@@ -205,10 +205,13 @@ async function processPOIItem(
         // 3. Generation Logic
         let result: { description: string; facts_pack_json: any } | null = null;
         let callUsage: CallUsage | null = null;
-        const cityName = poiDataFromDB?.city ||
-            poiDataFromDB?.osm_tags?.["addr:city"] || (poiDataFromDB?.state
-                ? `${poiDataFromDB.state}, Brazil`
-                : "Brazil");
+        // Location context for grounding — use the POI's real country (canonical,
+        // English) instead of assuming Brazil. Falls back from city → state → country.
+        const cityName = [
+            poiDataFromDB?.city || poiDataFromDB?.osm_tags?.["addr:city"] || null,
+            poiDataFromDB?.state || null,
+            poiDataFromDB?.country || null,
+        ].filter(Boolean).join(", ") || "an unknown location";
         const poiName = poiDataFromDB?.name || "Unknown Point";
 
         // 3.1 Check existing descriptions for potential translation source
