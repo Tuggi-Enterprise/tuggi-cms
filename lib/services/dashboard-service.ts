@@ -344,12 +344,14 @@ class DashboardService {
         })),
 
         // Geographic - POIs por país (agregado diretamente da RPC corrigida)
-        countryDistribution: (countryStatsResult?.data || []).map((c: any) => ({
-          country: c.country,
-          poi_count: Number(c.poi_count),
-          city_count: Number(c.city_count),
-          approved_count: Number(c.approved_count)
-        })),
+        countryDistribution: (countryStatsResult?.data || [])
+          .map((c: any) => ({
+            country: c.country,
+            poi_count: Number(c.poi_count),
+            city_count: Number(c.city_count),
+            approved_count: Number(c.approved_count)
+          }))
+          .sort((a: any, b: any) => b.poi_count - a.poi_count),
         
         // Geographic - Cidades mais visitadas
         mostVisitedCities: mostVisitedCities.map((c: any) => ({
