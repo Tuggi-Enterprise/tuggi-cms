@@ -163,6 +163,7 @@ const SUFFIX_RE = /\s+(Department|Departamento|Province|Provincia|District|Distr
 // ── Per-country slug→canonical maps ──────────────────────────────────────────
 
 const ITALY: Record<string, string> = {
+  // ── 20 regions (English Natural Earth) + IT/local variants ──
   lombardia: 'Lombardy', lombardy: 'Lombardy',
   piemonte: 'Piedmont', piedmont: 'Piedmont',
   toscana: 'Tuscany', tuscany: 'Tuscany',
@@ -171,10 +172,59 @@ const ITALY: Record<string, string> = {
   puglia: 'Apulia', apulia: 'Apulia',
   marche: 'The Marches', 'the marches': 'The Marches',
   "valle d'aosta": 'Aosta Valley', "vallee d'aoste": 'Aosta Valley', 'aosta valley': 'Aosta Valley',
-  'trentino-alto adige': 'Trentino-Alto Adige/Südtirol', 'alto adige': 'Trentino-Alto Adige/Südtirol',
+  'trentino-alto adige': 'Trentino-Alto Adige/Südtirol', 'trentino alto adige': 'Trentino-Alto Adige/Südtirol',
+  'alto adige': 'Trentino-Alto Adige/Südtirol',
   trentino: 'Trentino-Alto Adige/Südtirol', sudtirol: 'Trentino-Alto Adige/Südtirol',
   'friuli-venezia giulia': 'Friuli Venezia Giulia', 'friuli venezia giulia': 'Friuli Venezia Giulia',
   basilicate: 'Basilicata', basilicata: 'Basilicata',
+  veneto: 'Veneto', lazio: 'Lazio', campania: 'Campania', liguria: 'Liguria',
+  'emilia-romagna': 'Emilia-Romagna', 'emilia romagna': 'Emilia-Romagna',
+  abruzzo: 'Abruzzo', calabria: 'Calabria', umbria: 'Umbria', molise: 'Molise',
+  // ── Provinces → parent region (full names, from the coverage map) ──
+  bologna: 'Emilia-Romagna', modena: 'Emilia-Romagna', parma: 'Emilia-Romagna',
+  "reggio nell'emilia": 'Emilia-Romagna', ravenna: 'Emilia-Romagna', rimini: 'Emilia-Romagna',
+  ferrara: 'Emilia-Romagna', 'forli-cesena': 'Emilia-Romagna', 'forli cesena': 'Emilia-Romagna', piacenza: 'Emilia-Romagna',
+  genova: 'Liguria', 'la spezia': 'Liguria', savona: 'Liguria', imperia: 'Liguria',
+  trento: 'Trentino-Alto Adige/Südtirol', bolzano: 'Trentino-Alto Adige/Südtirol', bozen: 'Trentino-Alto Adige/Südtirol',
+  milano: 'Lombardy', bergamo: 'Lombardy', brescia: 'Lombardy', como: 'Lombardy', lecco: 'Lombardy',
+  lodi: 'Lombardy', mantova: 'Lombardy', 'monza e brianza': 'Lombardy', pavia: 'Lombardy',
+  sondrio: 'Lombardy', varese: 'Lombardy', cremona: 'Lombardy',
+  venezia: 'Veneto', verona: 'Veneto', padova: 'Veneto', vicenza: 'Veneto',
+  treviso: 'Veneto', teviso: 'Veneto', rovigo: 'Veneto', belluno: 'Veneto',
+  torino: 'Piedmont', alessandria: 'Piedmont', asti: 'Piedmont', biella: 'Piedmont',
+  cuneo: 'Piedmont', novara: 'Piedmont', 'verbano-cusio-ossola': 'Piedmont', 'verbano cusio ossola': 'Piedmont', vercelli: 'Piedmont',
+  trieste: 'Friuli Venezia Giulia', udine: 'Friuli Venezia Giulia', pordenone: 'Friuli Venezia Giulia', gorizia: 'Friuli Venezia Giulia',
+  firenze: 'Tuscany', pisa: 'Tuscany', siena: 'Tuscany', arezzo: 'Tuscany', grosseto: 'Tuscany',
+  livorno: 'Tuscany', lucca: 'Tuscany', 'massa-carrara': 'Tuscany', pistoia: 'Tuscany', prato: 'Tuscany',
+  roma: 'Lazio', rome: 'Lazio', viterbo: 'Lazio', frosinone: 'Lazio', latina: 'Lazio', rieti: 'Lazio',
+  napoli: 'Campania', salerno: 'Campania', caserta: 'Campania', avellino: 'Campania', benevento: 'Campania',
+  palermo: 'Sicily', catania: 'Sicily', messina: 'Sicily', siracusa: 'Sicily', agrigento: 'Sicily',
+  trapani: 'Sicily', ragusa: 'Sicily', caltanissetta: 'Sicily', enna: 'Sicily',
+  cagliari: 'Sardinia', sassari: 'Sardinia', nuoro: 'Sardinia', oristano: 'Sardinia', 'sud sardegna': 'Sardinia',
+  bari: 'Apulia', lecce: 'Apulia', taranto: 'Apulia', foggia: 'Apulia', brindisi: 'Apulia',
+  'barletta-andria-trani': 'Apulia', bat: 'Apulia',
+  ancona: 'The Marches', macerata: 'The Marches', 'pesaro e urbino': 'The Marches', fermo: 'The Marches', 'ascoli piceno': 'The Marches',
+  aosta: 'Aosta Valley',
+  potenza: 'Basilicata', 'provincia di potenza': 'Basilicata', matera: 'Basilicata',
+  catanzaro: 'Calabria', cosenza: 'Calabria', 'reggio di calabria': 'Calabria', 'vibo valentia': 'Calabria', crotone: 'Calabria',
+  "l'aquila": 'Abruzzo', chieti: 'Abruzzo', pescara: 'Abruzzo', teramo: 'Abruzzo',
+  perugia: 'Umbria', terni: 'Umbria',
+  campobasso: 'Molise', isernia: 'Molise',
+  // ── 2-letter ISTAT province codes (present in the data) ──
+  le: 'Apulia', ta: 'Apulia', fg: 'Apulia', ba: 'Apulia', br: 'Apulia',
+  ge: 'Liguria', sp: 'Liguria', sv: 'Liguria',
+  bo: 'Emilia-Romagna', mo: 'Emilia-Romagna', ra: 'Emilia-Romagna', fe: 'Emilia-Romagna', pr: 'Emilia-Romagna',
+  tn: 'Trentino-Alto Adige/Südtirol', bz: 'Trentino-Alto Adige/Südtirol',
+  rm: 'Lazio', vt: 'Lazio', fr: 'Lazio', lt: 'Lazio', ri: 'Lazio',
+  pa: 'Sicily', ct: 'Sicily', me: 'Sicily', ag: 'Sicily', en: 'Sicily', tp: 'Sicily', rg: 'Sicily',
+  gr: 'Tuscany', si: 'Tuscany', pt: 'Tuscany', li: 'Tuscany', ar: 'Tuscany', pi: 'Tuscany',
+  aq: 'Abruzzo', ch: 'Abruzzo', pe: 'Abruzzo', te: 'Abruzzo',
+  cs: 'Calabria', cz: 'Calabria', kr: 'Calabria', vv: 'Calabria',
+  'it-cs': 'Calabria',
+  mi: 'Lombardy', bg: 'Lombardy', bs: 'Lombardy',
+  ve: 'Veneto', vr: 'Veneto', pd: 'Veneto', vi: 'Veneto', tv: 'Veneto',
+  to: 'Piedmont', na: 'Campania', sa: 'Campania', ud: 'Friuli Venezia Giulia', go: 'Friuli Venezia Giulia',
+  pg: 'Umbria', an: 'The Marches', mc: 'The Marches',
 }
 
 const SPAIN: Record<string, string> = {
@@ -344,9 +394,10 @@ export function normalizeState(
   const country = normalizeCountry(rawCountry)
   const sl = slug(s)
 
-  // Meta-regions / state==country → drop.
+  // Meta-regions / state==country / purely-numeric junk (postal codes) → drop.
   if (META_REGION_SLUGS.has(sl)) return null
   if (country && sl === slug(country)) return null
+  if (/^\d+$/.test(s)) return null
 
   // Chile: prefix-strip then map (handles "Región de Antofagasta" etc.).
   if (country === 'Chile') return normalizeChile(s)
