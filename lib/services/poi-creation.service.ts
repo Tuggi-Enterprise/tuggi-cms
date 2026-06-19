@@ -13,6 +13,7 @@
 
 import { getSupabase } from '@/lib/core/supabase-client'
 import { validateCoordinates } from '@/lib/utils/coordinate-validation'
+import { normalizeLocation } from '@/lib/shared/location-normalize'
 
 // Use service role client to bypass RLS for POI creation
 const supabase = getSupabase('service')
@@ -45,6 +46,10 @@ export class POICreationService {
    */
   static async createPOIWithCoordinates(data: CreatePOIData): Promise<CreatePOIResult> {
     try {
+      // Canonicalise country/state (SSOT) — the upstream reverse-geocode returns
+      // raw Nominatim values (local names, "X Province" suffixes).
+      const loc = normalizeLocation(data.country, data.state)
+
       // Step 1: Create attraction
       const { data: attraction, error: attractionError } = await supabase
         .schema('core')
@@ -52,8 +57,8 @@ export class POICreationService {
         .insert({
           name: data.name.trim(),
           city: data.city,
-          state: data.state || null,
-          country: data.country,
+          state: loc.state,
+          country: loc.country ?? data.country,
           formatted_address: data.formatted_address || null,
           import_source: data.import_source || 'manual',
           source_type: data.source_type || 'manual',

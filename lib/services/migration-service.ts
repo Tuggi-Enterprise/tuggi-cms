@@ -7,6 +7,7 @@
 
 import { getSupabase } from '@/lib/core/supabase-client'
 import { classify, importanceScore, isNotable, priorityLevel } from '@/lib/shared/poi-taxonomy'
+import { normalizeLocation } from '@/lib/shared/location-normalize'
 
 const supabase = getSupabase('service')
 
@@ -255,15 +256,20 @@ export class MigrationService {
    * Map POI data from homolog to core format
    */
   static mapHomologToCore(poi: any, coord: any): any {
+    // Canonicalise country/state (SSOT) on the homolog→core hop — this is the
+    // bulk migration path, so the raw OSM/Nominatim values (ISO codes, "X
+    // Department" suffixes) get normalised here instead of drifting into core.
+    const loc = normalizeLocation(poi.country || 'Brazil', poi.state)
+
     const mapped: any = {
       // Use same UUID from homolog
       id: poi.uuid_id,
-      
+
       // Basic fields (direct mapping)
       name: poi.name,
       city: poi.city,
-      state: poi.state,
-      country: poi.country || 'Brazil',
+      state: loc.state,
+      country: loc.country || 'Brazil',
       formatted_address: poi.formatted_address,
       website: poi.website,
       approved: false, // Start as not approved
