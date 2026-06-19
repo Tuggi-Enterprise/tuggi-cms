@@ -9,6 +9,7 @@ import 'dotenv/config';
 import { getSupabase } from '../lib/core/supabase-client';
 import { normalizeLocation } from '../lib/shared/location-normalize';
 import fs from 'node:fs';
+import readline from 'node:readline';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
@@ -117,22 +118,17 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`📖 Reading GeoJSON: ${filePath}`);
-  const rawData = fs.readFileSync(filePath, 'utf8');
-  const geojson = JSON.parse(rawData);
-
-  const features = geojson.features;
-  console.log(`📊 Found ${features.length} features to import`);
+  console.log(`📖 Streaming GeoJSON: ${filePath}`);
 
   const BATCH_SIZE = 100;
   let imported = 0;
   let errors = 0;
   let fileDuplicates = 0;
-  const processedUuids = new Set<string>();
+  let batchNum = 0;
 
-  for (let i = 0; i < features.length; i += BATCH_SIZE) {
-    const batch = features.slice(i, i + BATCH_SIZE);
-    
+  // Stream line-by-line: refine writes one Feature per line inside a FeatureCollection,
+  // so we never load the whole file (avoids ERR_STRING_TOO_LONG / heap OOM on big inputs).
+  async function processBatch(batch: any[]) {
     const poisMap = new Map<string, any>();
     const coordsMap = new Map<string, any>();
 
@@ -229,7 +225,7 @@ async function main() {
     const poisData = Array.from(poisMap.values());
     const coordsData = Array.from(coordsMap.values());
 
-    if (poisData.length === 0) continue;
+    if (poisData.length === 0) return;
 
     try {
       // 1. Upsert POIs
@@ -249,12 +245,27 @@ async function main() {
       if (coordError) throw coordError;
 
       imported += poisData.length;
-      process.stdout.write(`\r✅ Imported: ${imported}/${features.length} (Duplicates skipped: ${fileDuplicates})`);
+      process.stdout.write(`\r✅ Imported: ${imported} (Duplicates skipped: ${fileDuplicates})`);
     } catch (err) {
-      console.error(`\n❌ Error in batch ${i / BATCH_SIZE}:`, err);
+      console.error(`\n❌ Error in batch ${batchNum}:`, err);
       errors += batch.length;
     }
   }
+
+  // Driver: stream the file, accumulate batches of BATCH_SIZE features, flush each.
+  const rl = readline.createInterface({ input: fs.createReadStream(filePath), crlfDelay: Infinity });
+  let batch: any[] = [];
+  for await (let line of rl) {
+    line = line.trim();
+    if (!line || line.startsWith('{"type":"FeatureCollection"') || line === ']}') continue;
+    if (line.endsWith(',')) line = line.slice(0, -1);
+    if (!line.startsWith('{')) continue;
+    let feature: any;
+    try { feature = JSON.parse(line); } catch { continue; }
+    batch.push(feature);
+    if (batch.length >= BATCH_SIZE) { batchNum++; await processBatch(batch); batch = []; }
+  }
+  if (batch.length > 0) { batchNum++; await processBatch(batch); }
 
   console.log(`\n\n🏁 Import finished!`);
   console.log(`✅ Success: ${imported}`);
