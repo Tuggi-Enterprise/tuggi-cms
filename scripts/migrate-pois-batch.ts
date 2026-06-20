@@ -81,6 +81,10 @@ interface ScriptOptions {
   update_if_exists?: boolean
   limit?: number
   concurrency?: number
+  min_lon?: number
+  max_lon?: number
+  min_lat?: number
+  max_lat?: number
   quiet?: boolean
   legacy_sleep?: boolean
   log_file?: boolean
@@ -153,6 +157,18 @@ async function main() {
           break
         case 'category':
           options.category = value
+          break
+        case 'min-lon':
+          options.min_lon = parseFloat(value)
+          break
+        case 'max-lon':
+          options.max_lon = parseFloat(value)
+          break
+        case 'min-lat':
+          options.min_lat = parseFloat(value)
+          break
+        case 'max-lat':
+          options.max_lat = parseFloat(value)
           break
         case 'batch-size':
           options.batch_size = parseInt(value, 10)
@@ -306,6 +322,13 @@ async function main() {
 
     if (options.approved !== undefined) query = query.eq('approved', options.approved)
     if (options.category && options.category !== 'all') query = query.eq('category', options.category)
+
+    // Bounding-box filter (lat/lon) — usado p/ migrar por região quando state é NULL
+    // (ex.: Canadá importado sem state; recorta províncias por longitude).
+    if (options.min_lon !== undefined) query = query.gte('lon', options.min_lon)
+    if (options.max_lon !== undefined) query = query.lte('lon', options.max_lon)
+    if (options.min_lat !== undefined) query = query.gte('lat', options.min_lat)
+    if (options.max_lat !== undefined) query = query.lte('lat', options.max_lat)
 
     return query
   }
