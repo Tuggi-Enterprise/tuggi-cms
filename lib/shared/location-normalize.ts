@@ -30,12 +30,13 @@
  * potentially a Deno edge function). Mirrors lib/shared/poi-taxonomy.ts.
  */
 
-/** lowercase + strip accents + collapse whitespace. The lookup key for every map. */
+/** lowercase + strip accents + drop dots/commas + collapse whitespace. Lookup key for every map. */
 export function slug(s: string | null | undefined): string {
   return (s || '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
+    .replace(/[.,]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -79,7 +80,7 @@ const COUNTRY_ALIASES: Record<string, string> = {
   do: 'Dominican Republic', 'dominican republic': 'Dominican Republic', 'republica dominicana': 'Dominican Republic',
   jm: 'Jamaica', jamaica: 'Jamaica',
   ht: 'Haiti', haiti: 'Haiti',
-  bs: 'Bahamas', bahamas: 'Bahamas', 'the bahamas': 'Bahamas',
+  bs: 'The Bahamas', bahamas: 'The Bahamas', 'the bahamas': 'The Bahamas', 'bahamas islands': 'The Bahamas',
   pr: 'Puerto Rico', 'puerto rico': 'Puerto Rico',
   tc: 'Turks and Caicos Islands', 'turks and caicos islands': 'Turks and Caicos Islands',
   ag: 'Antigua and Barbuda', 'antigua and barbuda': 'Antigua and Barbuda',
@@ -175,7 +176,7 @@ const META_REGION_SLUGS = new Set([
 ])
 
 /** Admin suffixes stripped globally (Territory intentionally excluded → "Northern Territory"). */
-const SUFFIX_RE = /\s+(Department|Departamento|Province|Provincia|District|Distrito|Region|Región|Oblast|Prefecture|State|County|Governorate)$/i
+const SUFFIX_RE = /\s+(Department|Departamento|Province|Provincia|District|Distrito|Region|Región|Oblast|Prefecture|State|County|Governorate|Parish|Comarca)$/i
 
 // ── Per-country slug→canonical maps ──────────────────────────────────────────
 
@@ -255,7 +256,7 @@ const SPAIN: Record<string, string> = {
   'region de murcia': 'Región de Murcia',
   asturias: 'Asturias / Asturies', 'principado de asturias': 'Asturias / Asturies',
   'comunidad valenciana': 'Comunitat Valenciana', valencia: 'Comunitat Valenciana',
-  'c. valenciana': 'Comunitat Valenciana', 'comunitat valenciana': 'Comunitat Valenciana',
+  'c valenciana': 'Comunitat Valenciana', 'comunitat valenciana': 'Comunitat Valenciana',
   'islas canarias': 'Canarias', canarias: 'Canarias',
   andalucia: 'Andalucía',
   'castilla y leon': 'Castilla y León', 'castilla leon': 'Castilla y León',
@@ -322,7 +323,7 @@ const VENEZUELA: Record<string, string> = {
 const COLOMBIA: Record<string, string> = {
   bolivar: 'Bolívar', cordoba: 'Córdoba', choco: 'Chocó', boyaca: 'Boyacá',
   narino: 'Nariño', quindio: 'Quindío', vaupes: 'Vaupés', guainia: 'Guainía',
-  bogota: 'Bogota', 'bogota d.c.': 'Bogota', 'distrito capital': 'Bogota',
+  bogota: 'Bogota', 'bogota dc': 'Bogota', 'distrito capital': 'Bogota',
 }
 
 const FRANCE: Record<string, string> = {
@@ -364,6 +365,98 @@ const VATICAN: Record<string, string> = {
   'cidade do vaticano': 'Vatican', 'cite du vatican': 'Vatican', vatican: 'Vatican',
 }
 
+// ── Central America & Caribbean (batches 20/21) ──────────────────────────────
+const NICARAGUA: Record<string, string> = {
+  'north caribbean coast': 'Atlántico Norte', 'atlantico norte': 'Atlántico Norte',
+  raan: 'Atlántico Norte', 'region autonoma del atlantico norte': 'Atlántico Norte',
+  'south caribbean coast': 'Atlántico Sur', 'atlantico sur': 'Atlántico Sur',
+  raas: 'Atlántico Sur', 'region autonoma del atlantico sur': 'Atlántico Sur',
+  leon: 'León', esteli: 'Estelí', 'rio san juan': 'Río San Juan',
+}
+
+const HONDURAS: Record<string, string> = {
+  'bay islands': 'Islas de la Bahía', 'islas de la bahia': 'Islas de la Bahía',
+  'francisco morazan': 'Francisco Morazán', cortes: 'Cortés', atlantida: 'Atlántida',
+  'santa barbara': 'Santa Bárbara', copan: 'Copán', colon: 'Colón',
+  'el paraiso': 'El Paraíso', intibuca: 'Intibucá', 'gracias a dios': 'Gracias a Dios',
+}
+
+const EL_SALVADOR: Record<string, string> = {
+  ahuachapan: 'Ahuachapán', cabanas: 'Cabañas', morazan: 'Morazán',
+  usulutan: 'Usulután', 'la union': 'La Unión', cuscatlan: 'Cuscatlán',
+}
+
+const GUATEMALA: Record<string, string> = {
+  quetzaltenango: 'Quezaltenango', quezaltenango: 'Quezaltenango',
+  suchitepequez: 'Suchitepéquez', quiche: 'Quiché', peten: 'Petén', solola: 'Sololá',
+  totonicapan: 'Totonicapán', sacatepequez: 'Sacatepéquez',
+  guatemala: 'Guatemala', // Guatemala Department — legitimately shares the country name
+}
+
+const PANAMA: Record<string, string> = {
+  'bocas del toro': 'Bocas del Toro', chiriqui: 'Chiriquí', cocle: 'Coclé',
+  colon: 'Colón', darien: 'Darién', herrera: 'Herrera', 'los santos': 'Los Santos',
+  veraguas: 'Veraguas',
+  // Panamá province (2014 split "Panamá Oeste" not in Natural Earth → merge)
+  panama: 'Panamá', 'panama oeste': 'Panamá', 'panama oeste province': 'Panamá',
+  // Comarcas (indigenous regions)
+  'ngobe-bugle': 'Ngöbe Buglé', 'ngobe bugle': 'Ngöbe Buglé',
+  'kuna yala': 'Kuna Yala', 'comarca kuna yala': 'Kuna Yala', 'san blas': 'Kuna Yala', 'guna yala': 'Kuna Yala',
+  embera: 'Emberá', 'comarca embera': 'Emberá',
+}
+
+const COSTA_RICA: Record<string, string> = {
+  'san jose': 'San José', limon: 'Limón',
+}
+
+const CUBA: Record<string, string> = {
+  havana: 'Ciudad de la Habana', 'la habana': 'Ciudad de la Habana', habana: 'Ciudad de la Habana',
+  camaguey: 'Camagüey', guantanamo: 'Guantánamo', holguin: 'Holguín',
+  'sancti spiritus': 'Sancti Spíritus', 'pinar del rio': 'Pinar del Río',
+}
+
+const DOMINICAN_REPUBLIC: Record<string, string> = {
+  nacional: 'Distrito Nacional', 'distrito nacional': 'Distrito Nacional', 'national district': 'Distrito Nacional',
+  'maria trinidad sanchez': 'María Trinidad Sánchez', 'sanchez ramirez': 'Sánchez Ramírez',
+  'san cristobal': 'San Cristóbal', 'san jose de ocoa': 'San José de Ocoa',
+  'san pedro de macoris': 'San Pedro de Macorís', 'santiago rodriguez': 'Santiago Rodríguez',
+  'la vega': 'La Vega', 'el seibo': 'El Seibo', valverde: 'Valverde',
+}
+
+const HAITI: Record<string, string> = {
+  artibonite: "L'Artibonite", "l'artibonite": "L'Artibonite",
+  ouest: 'Ouest', nord: 'Nord', sud: 'Sud',
+  'nord-est': 'Nord-Est', 'nord est': 'Nord-Est', northeast: 'Nord-Est',
+  'nord-ouest': 'Nord-Ouest', 'nord ouest': 'Nord-Ouest', northwest: 'Nord-Ouest',
+  'sud-est': 'Sud-Est', 'sud est': 'Sud-Est', southeast: 'Sud-Est',
+  'grande anse': "Grand'Anse", "grande'anse": "Grand'Anse", "grand'anse": "Grand'Anse",
+  centre: 'Centre', center: 'Centre', central: 'Centre', nippes: 'Nippes',
+}
+
+const JAMAICA: Record<string, string> = {
+  'st andrew': 'Saint Andrew', 'saint andrew': 'Saint Andrew',
+  'st ann': 'Saint Ann', 'saint ann': 'Saint Ann',
+  'st catherine': 'Saint Catherine', 'saint catherine': 'Saint Catherine',
+  'st elizabeth': 'Saint Elizabeth', 'saint elizabeth': 'Saint Elizabeth',
+  'st james': 'Saint James', 'saint james': 'Saint James',
+  'st mary': 'Saint Mary', 'saint mary': 'Saint Mary',
+  'st thomas': 'Saint Thomas', 'saint thomas': 'Saint Thomas',
+}
+
+const BELIZE: Record<string, string> = {
+  'southern district': 'Stann Creek', southern: 'Stann Creek', 'stann creek': 'Stann Creek',
+  belize: 'Belize', // Belize District — legitimately shares the country name
+}
+
+const AUSTRIA: Record<string, string> = {
+  tyrol: 'Tirol', 'north tyrol': 'Tirol', tirol: 'Tirol',
+  vienna: 'Wien', wien: 'Wien', styria: 'Steiermark', steiermark: 'Steiermark',
+  'lower austria': 'Niederösterreich', niederosterreich: 'Niederösterreich',
+  'upper austria': 'Oberösterreich', oberosterreich: 'Oberösterreich',
+  carinthia: 'Kärnten', karnten: 'Kärnten',
+  salzburg: 'Salzburg', vorarlberg: 'Vorarlberg', burgenland: 'Burgenland',
+}
+
 /** US 2-letter abbreviations + common typos/aliases → full English state name. */
 const US_STATES: Record<string, string> = {
   al: 'Alabama', ak: 'Alaska', az: 'Arizona', ar: 'Arkansas', ca: 'California',
@@ -385,6 +478,10 @@ const STATE_MAPS: Record<string, Record<string, string>> = {
   Portugal: PORTUGAL, Canada: CANADA, Uruguay: URUGUAY, Peru: PERU,
   Paraguay: PARAGUAY, Bolivia: BOLIVIA, Venezuela: VENEZUELA, Colombia: COLOMBIA,
   France: FRANCE, Switzerland: SWITZERLAND, Vatican: VATICAN,
+  Nicaragua: NICARAGUA, Honduras: HONDURAS, 'El Salvador': EL_SALVADOR,
+  Guatemala: GUATEMALA, Panama: PANAMA, 'Costa Rica': COSTA_RICA,
+  Cuba: CUBA, 'Dominican Republic': DOMINICAN_REPUBLIC, Haiti: HAITI,
+  Jamaica: JAMAICA, Belize: BELIZE, Austria: AUSTRIA,
 }
 
 /** Strip a leading Spanish "Región/Estado …" administrative prefix (Chile/Venezuela). */
@@ -410,6 +507,11 @@ export function normalizeState(
 
   const country = normalizeCountry(rawCountry)
   const sl = slug(s)
+  const map = country ? STATE_MAPS[country] : undefined
+
+  // Explicit country-specific mapping wins first — e.g. Panama's "Panamá"
+  // province legitimately equals the country name and must NOT be dropped.
+  if (map && map[sl]) return map[sl]
 
   // Meta-regions / state==country / purely-numeric junk (postal codes) → drop.
   if (META_REGION_SLUGS.has(sl)) return null
@@ -418,10 +520,6 @@ export function normalizeState(
 
   // Chile: prefix-strip then map (handles "Región de Antofagasta" etc.).
   if (country === 'Chile') return normalizeChile(s)
-
-  // Country-specific exact maps.
-  const map = country ? STATE_MAPS[country] : undefined
-  if (map && map[sl]) return map[sl]
 
   if (country === 'United States') {
     if (US_STATES[sl]) return US_STATES[sl]
