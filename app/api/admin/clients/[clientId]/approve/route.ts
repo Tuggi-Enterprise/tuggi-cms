@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { ClientService } from '@/lib/services/client-service'
+import { applyPartnerApprovalEffects } from '@/lib/services/partner-approval-effects'
 
 export async function POST(
   request: NextRequest,
@@ -63,6 +64,10 @@ export async function POST(
     )
 
     console.log('✅ Client approved successfully:', { clientId: approvedClient.id })
+
+    // App-partner side-effects: grant the Pro comp + push + email the linked app
+    // user(s). Guarded internally — never blocks the approval response.
+    await applyPartnerApprovalEffects(clientId, cmsUser.id)
 
     return NextResponse.json({
       success: true,
