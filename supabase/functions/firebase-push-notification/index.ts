@@ -1,6 +1,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { getSecretKey } from '../_shared/supabase-client.ts';
+import { partnerStrings, type PartnerEvent } from '../_shared/partner-i18n.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -255,8 +256,22 @@ Deno.serve(async (req) => {
     // -------- ROUTES --------
     if (path === '/send') {
       const body = await req.json();
-      const { type, notification, userIds, topic, priority = 'normal', ttl = 3600 } = body;
-      
+      let { notification } = body;
+      const { type, userIds, topic, priority = 'normal', ttl = 3600, template, lang, data } = body;
+
+      // Localized partner-flow templates: when `template` is given and no explicit
+      // notification.title was passed, render title/body from the shared i18n map.
+      if (template && !notification?.title) {
+        const event = String(template).replace(/^partner_/, '') as PartnerEvent;
+        const s = partnerStrings(event, lang);
+        notification = {
+          title: s.push.title,
+          body: s.push.body,
+          data: notification?.data ?? data ?? {},
+        };
+        console.log(`[${requestId}] 🌐 Localized push template=${event} lang=${lang}`);
+      }
+
       let tokens = [];
       let stats;
 

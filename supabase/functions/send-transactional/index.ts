@@ -5,16 +5,25 @@
 // the single-send endpoint (api.resend.com/emails).
 //
 // Routes:
-//   POST /send   { type, to, data }
+//   POST /send   { type, to, data, lang }
 //   GET  /health
 //
 // type:
-//   'partner_new'      -> internal alert to the team (a new partner registered)
+//   'partner_new'      -> internal alert to the team (a new partner registered, pt)
+//   'partner_received' -> to the user (registration received, under review)
 //   'partner_approved' -> to the user (partnership approved)
 //   'partner_rejected' -> to the user (registration not approved + reason)
 //
+// lang: 'pt' | 'en' | 'es' | 'fr' | 'it' (normalized; defaults to 'pt'). Applies
+//       to the user-facing types; partner_new (team) is always pt.
+//
 // Secrets: RESEND_API_KEY, RESEND_FROM (default "Tuggi <news@tuggi.app>"),
 //          PARTNER_ALERT_TO (default "suporte@tuggi.app"), APP_URL (optional)
+
+import {
+  partnerStrings,
+  type PartnerEvent,
+} from '../_shared/partner-i18n.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -50,51 +59,64 @@ function shell(title: string, bodyHtml: string): string {
   </div></body></html>`;
 }
 
-function render(type: string, data: Record<string, unknown>): {
+// Internal team alert — always pt (not user-facing).
+function renderTeamAlert(data: Record<string, unknown>): {
   subject: string;
   html: string;
 } {
   const name = esc(data.partner_name ?? data.name ?? '');
   const ctype = esc(data.client_type ?? '');
-  if (type === 'partner_new') {
-    return {
-      subject: `Novo parceiro: ${name || ctype || 'cadastro'}`,
-      html: shell(
-        'Novo cadastro de parceiro',
-        `<p>Um novo parceiro se cadastrou e está aguardando análise.</p>
-         <p><b>Nome:</b> ${name || '—'}<br/>
-            <b>Tipo:</b> ${ctype || '—'}<br/>
-            <b>Email:</b> ${esc(data.email ?? '—')}<br/>
-            <b>Cidade:</b> ${esc(data.city ?? '—')}</p>
-         <p>Analise no CMS para aprovar ou rejeitar.</p>`
-      ),
-    };
-  }
-  if (type === 'partner_approved') {
-    return {
-      subject: 'Sua parceria com a Tuggi foi aprovada! 🎉',
-      html: shell(
-        'Parceria aprovada!',
-        `<p>Olá${name ? ' ' + name : ''}, sua parceria com a Tuggi foi <b>aprovada</b>!</p>
-         <p>Abra o app Tuggi para ver seu <b>QR Code</b> e começar a usar seus benefícios.</p>
-         <p style="margin-top:20px">
-           <a href="${esc(data.app_url ?? 'https://tuggi.app')}" style="background:${TUGGI_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">Abrir o Tuggi</a>
-         </p>
-         <p style="color:#5b6577">Bem-vindo(a) à rede de parceiros Tuggi.</p>`
-      ),
-    };
-  }
-  // partner_rejected
   return {
-    subject: 'Sobre seu cadastro de parceiro Tuggi',
+    subject: `Novo parceiro: ${name || ctype || 'cadastro'}`,
     html: shell(
-      'Cadastro não aprovado',
-      `<p>Olá${name ? ' ' + name : ''}, infelizmente seu cadastro de parceiro não foi aprovado desta vez.</p>
-       ${data.reason ? `<p><b>Motivo:</b> ${esc(data.reason)}</p>` : ''}
-       <p style="color:#5b6577">Se tiver dúvidas, responda este email.</p>`
+      'Novo cadastro de parceiro',
+      `<p>Um novo parceiro se cadastrou e está aguardando análise.</p>
+       <p><b>Nome:</b> ${name || '—'}<br/>
+          <b>Tipo:</b> ${ctype || '—'}<br/>
+          <b>Email:</b> ${esc(data.email ?? '—')}<br/>
+          <b>Cidade:</b> ${esc(data.city ?? '—')}</p>
+       <p>Analise no CMS para aprovar ou rejeitar.</p>`
     ),
   };
 }
+
+// User-facing, localized (received/approved/rejected).
+function renderLocalized(
+  event: PartnerEvent,
+  lang: string | undefined,
+  data: Record<string, unknown>
+): { subject: string; html: string } {
+  const s = partnerStrings(event, lang);
+  const name = esc(data.partner_name ?? data.name ?? '');
+  const namePart = name ? ' ' + name : '';
+
+  const paras = s.email.paragraphs
+    .map(p => `<p>${esc(p).replace('%NAME%', namePart)}</p>`)
+    .join('\n');
+
+  const reason =
+    event === 'rejected' && s.email.reasonLabel && data.reason
+      ? `<p><b>${esc(s.email.reasonLabel)}</b> ${esc(data.reason)}</p>`
+      : '';
+
+  const cta =
+    event === 'approved' && s.email.cta
+      ? `<p style="margin-top:20px">
+           <a href="${esc(data.app_url ?? 'https://tuggi.app')}" style="background:${TUGGI_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">${esc(s.email.cta)}</a>
+         </p>`
+      : '';
+
+  return {
+    subject: s.email.subject,
+    html: shell(s.email.heading, `${paras}\n${reason}\n${cta}`),
+  };
+}
+
+const EVENT_BY_TYPE: Record<string, PartnerEvent> = {
+  partner_received: 'received',
+  partner_approved: 'approved',
+  partner_rejected: 'rejected',
+};
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
@@ -118,15 +140,21 @@ Deno.serve(async (req: Request) => {
     if (!RESEND_API_KEY) return json({ error: 'RESEND_API_KEY missing' }, 500);
 
     const body = await req.json();
-    const { type, to, data = {} } = body ?? {};
+    const { type, to, data = {}, lang } = body ?? {};
     if (!type) return json({ error: 'type required' }, 400);
 
     // Internal alert defaults to the team address; user emails require `to`.
-    const recipient =
-      type === 'partner_new' ? to || PARTNER_ALERT_TO : to;
+    const recipient = type === 'partner_new' ? to || PARTNER_ALERT_TO : to;
     if (!recipient) return json({ error: 'to required' }, 400);
 
-    const { subject, html } = render(type, data);
+    const { subject, html } =
+      type === 'partner_new'
+        ? renderTeamAlert(data)
+        : EVENT_BY_TYPE[type]
+          ? renderLocalized(EVENT_BY_TYPE[type], lang, data)
+          : (() => {
+              throw new Error(`unknown type: ${type}`);
+            })();
 
     const res = await fetch(RESEND_URL, {
       method: 'POST',
