@@ -54,7 +54,7 @@ BEGIN
         'data', jsonb_build_object(
           'partner_name', NEW.name,
           'client_type',  NEW.client_type,
-          'email',        NEW.email,
+          'email',        COALESCE(NEW.metadata->>'contact_email', NEW.email),
           'city',         NEW.city
         )
       )::text
