@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     let query = supabaseService
       .schema('core')
       .from('clients')
-      .select('id, name, email, phone, company_name, status, cms_user_id, created_at, updated_at', { count: 'exact' })
+      .select('id, name, email, phone, company_name, status, client_type, slug, cms_user_id, created_at, updated_at', { count: 'exact' })
 
     // Filter by status
     if (status !== 'all') {

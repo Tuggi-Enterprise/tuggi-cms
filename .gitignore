@@ -83,3 +83,6 @@ scripts/test-enrichment-via-cache.ts
 lost_pois_report.md
 installed_apps.txt
 
+
+# Local DB clone dumps (contains secrets, large dumps) — never commit
+db-clone/

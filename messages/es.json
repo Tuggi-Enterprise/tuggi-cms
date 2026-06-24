@@ -658,7 +658,16 @@
         "unnamed": "Sin nombre",
         "no_nickname": "sin-nickname",
         "duration": "Duración",
-        "days_unit": "días"
+        "days_unit": "días",
+        "linked_client": "Cliente vinculado",
+        "link_client": "Vincular cliente",
+        "change_client": "Cambiar",
+        "remove_link": "Quitar vínculo",
+        "no_linked_client": "No vinculado a ningún cliente.",
+        "search_clients": "Buscar clientes...",
+        "no_clients": "No se encontraron clientes",
+        "replace_hint": "Ya vinculado a {name} — seleccionar otro lo reemplaza.",
+        "link_error": "Error al actualizar el vínculo de cliente"
       }
     },
     "Marketing": {
@@ -1504,6 +1513,7 @@
         "profile": "Perfil",
         "fiscal": "Fiscal y Pagos",
         "team": "Equipo",
+        "appusers": "Usuarios de la App",
         "pois": "POIs",
         "coupons": "Cupones",
         "configuration": "Configuración",
@@ -1596,7 +1606,7 @@
         "title": "QR Code de Atribución",
         "subtitle": "Link universal de descarga con atribución al cliente. Imprime en banners, vouchers, postales.",
         "targetUrl": "URL destino",
-        "noSlugWarning": "Sin slug definido — el QR usará el fallback legado /download?ID={id}. Define un slug arriba para una URL amigable /d/{slug}.",
+        "noSlugWarning": "Sin slug definido — el QR usará el fallback legado /download?ID={id}. Define un slug arriba para una URL amigable /d/'{slug}'.",
         "scanLabel": "Escanea para atribuir descargas",
         "downloadPng": "Descargar PNG",
         "copyImage": "Copiar imagen",
@@ -1663,6 +1673,24 @@
         "networkAvailable": "Error de red al cargar usuarios disponibles",
         "unlinkFailed": "Error al desvincular usuario",
         "networkUnlink": "Error de red al desvincular"
+      }
+    },
+    "appUsers": {
+      "section": "Usuarios de la app vinculados",
+      "linkUser": "Vincular usuario",
+      "user": "Usuario",
+      "actions": "Acciones",
+      "searchPlaceholder": "Buscar por nombre o email…",
+      "noResults": "No se encontraron usuarios de la app",
+      "noLinkedUsers": "Ningún usuario de la app vinculado a este cliente",
+      "unnamed": "Sin nombre",
+      "alreadyLinked": "vinculado a otro",
+      "cancel": "Cancelar",
+      "newHint": "Los usuarios seleccionados se vincularán justo después de crear el cliente.",
+      "errors": {
+        "loadFailed": "Error al cargar usuarios de la app",
+        "linkFailed": "Error al vincular usuario de la app",
+        "unlinkFailed": "Error al desvincular usuario de la app"
       }
     },
     "pois": {

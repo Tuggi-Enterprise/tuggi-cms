@@ -670,7 +670,16 @@
         "unnamed": "Unnamed",
         "no_nickname": "no-nickname",
         "duration": "Duration",
-        "days_unit": "days"
+        "days_unit": "days",
+        "linked_client": "Linked Client",
+        "link_client": "Link client",
+        "change_client": "Change",
+        "remove_link": "Remove link",
+        "no_linked_client": "Not linked to any client.",
+        "search_clients": "Search clients...",
+        "no_clients": "No clients found",
+        "replace_hint": "Currently linked to {name} — selecting another replaces it.",
+        "link_error": "Error updating client link"
       }
     },
     "Notifications": {
@@ -1585,6 +1594,7 @@
         "profile": "Profile",
         "fiscal": "Fiscal & Payments",
         "team": "Team",
+        "appusers": "App Users",
         "pois": "POIs",
         "coupons": "Coupons",
         "configuration": "Configuration",
@@ -1677,7 +1687,7 @@
         "title": "Revenue QR Code",
         "subtitle": "Universal download link with client attribution. Print on banners, vouchers, postcards.",
         "targetUrl": "Target URL",
-        "noSlugWarning": "No slug set — the QR will use the legacy /download?ID={id} fallback. Set a slug above for a friendly /d/{slug} URL.",
+        "noSlugWarning": "No slug set — the QR will use the legacy /download?ID={id} fallback. Set a slug above for a friendly /d/'{slug}' URL.",
         "scanLabel": "Scan to attribute downloads",
         "downloadPng": "Download PNG",
         "copyImage": "Copy image",
@@ -1744,6 +1754,24 @@
         "networkAvailable": "Network error loading available users",
         "unlinkFailed": "Failed to unlink user",
         "networkUnlink": "Network error unlinking"
+      }
+    },
+    "appUsers": {
+      "section": "Linked app users",
+      "linkUser": "Link app user",
+      "user": "User",
+      "actions": "Actions",
+      "searchPlaceholder": "Search by name or email…",
+      "noResults": "No app users found",
+      "noLinkedUsers": "No app users linked to this client",
+      "unnamed": "Unnamed",
+      "alreadyLinked": "linked elsewhere",
+      "cancel": "Cancel",
+      "newHint": "Selected users will be linked right after the client is created.",
+      "errors": {
+        "loadFailed": "Failed to load app users",
+        "linkFailed": "Failed to link app user",
+        "unlinkFailed": "Failed to unlink app user"
       }
     },
     "pois": {

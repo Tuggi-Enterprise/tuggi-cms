@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  X, Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit,
+  X, Save, Loader2, Building2, Scale, Users, MapPin, Gift, AlertTriangle, Plus, Edit, Smartphone,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { cn } from '@/lib/utils'
@@ -27,11 +27,12 @@ import { ApprovalHeaderControls } from '@/components/admin/clients/shared/Approv
 import { ProfileTab } from '@/components/admin/clients/tabs/ProfileTab'
 import { FiscalPaymentsTab } from '@/components/admin/clients/tabs/FiscalPaymentsTab'
 import { TeamTab } from '@/components/admin/clients/tabs/TeamTab'
+import { AppUsersTab, type AppUserLite } from '@/components/admin/clients/tabs/AppUsersTab'
 import { PoisTab } from '@/components/admin/clients/tabs/PoisTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import type { Client } from '@/types/clients'
 
-export type ClientEditorTab = 'profile' | 'fiscal' | 'team' | 'pois' | 'coupons'
+export type ClientEditorTab = 'profile' | 'fiscal' | 'team' | 'appusers' | 'pois' | 'coupons'
 
 interface ClientEditorModalProps {
   clientId?: string
@@ -48,6 +49,7 @@ const TABS: TabDef[] = [
   { id: 'profile', labelKey: 'profile', icon: Building2 },
   { id: 'fiscal', labelKey: 'fiscal', icon: Scale },
   { id: 'team', labelKey: 'team', icon: Users },
+  { id: 'appusers', labelKey: 'appusers', icon: Smartphone },
   { id: 'pois', labelKey: 'pois', icon: MapPin },
   { id: 'coupons', labelKey: 'coupons', icon: Gift },
 ]
@@ -70,6 +72,8 @@ export function ClientEditorModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  // App users staged for linking while creating a new client (no id yet).
+  const [stagedAppUsers, setStagedAppUsers] = useState<AppUserLite[]>([])
 
   // AbortController so that switching clients mid-fetch doesn't paint
   // the old client's data into the new client's modal.
@@ -87,6 +91,7 @@ export function ClientEditorModal({
     if (!isOpen) return
     setError(null)
     setSuccess(null)
+    setStagedAppUsers([])
     if (isEditing && clientId) {
       void fetchClient(clientId)
     } else {
@@ -187,11 +192,25 @@ export function ClientEditorModal({
           setError(data.error ?? t('errors.createFailed'))
           return
         }
+        const newId = data.client.id as string
+        // Link any app users staged while the client didn't exist yet.
+        if (stagedAppUsers.length > 0) {
+          await Promise.allSettled(
+            stagedAppUsers.map((u) =>
+              fetch(`/api/admin/users/${u.user_id}/client`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ client_id: newId }),
+              })
+            )
+          )
+          setStagedAppUsers([])
+        }
         setClient(data.client)
         setEdited(data.client)
         setSuccess(t('messages.created'))
         setTimeout(() => setSuccess(null), 2500)
-        onSaved?.(data.client.id as string)
+        onSaved?.(newId)
       }
     } catch {
       setError(t('errors.networkSave'))
@@ -348,6 +367,17 @@ export function ClientEditorModal({
             )}
             {activeTab === 'team' && (
               <TeamTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
+            )}
+            {activeTab === 'appusers' && (
+              <AppUsersTab
+                client={client}
+                edited={edited}
+                updateField={updateField}
+                canEdit
+                clientId={clientId}
+                stagedUsers={stagedAppUsers}
+                onStageChange={setStagedAppUsers}
+              />
             )}
             {activeTab === 'pois' && (
               <PoisTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
