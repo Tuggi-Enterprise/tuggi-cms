@@ -316,6 +316,34 @@ Deno.serve(async (req) => {
           }
         }
 
+        // ✅ BADGE (default, SSOT = inbox): for a SINGLE recipient, set the
+        // app-icon badge to their current unread count so the Tuggi icon shows
+        // the number and draws attention. Absolute value → aps.badge (iOS) /
+        // notificationCount (Android); the app clears it on foreground. A
+        // multi-user send shares one FCM message, so a per-user badge isn't
+        // possible there. An explicit caller-provided badge is respected.
+        if (
+          Array.isArray(userIds) &&
+          userIds.length === 1 &&
+          notification &&
+          notification.badge === undefined
+        ) {
+          try {
+            const { count, error: cErr } = await supabase
+              .schema('drive')
+              .from('user_notifications')
+              .select('id', { count: 'exact', head: true })
+              .eq('user_id', userIds[0])
+              .is('read_at', null);
+            if (!cErr && typeof count === 'number' && count > 0) {
+              notification = { ...notification, badge: count };
+              console.log(`[${requestId}] 🔢 badge set to ${count} (unread)`);
+            }
+          } catch (e) {
+            console.warn(`[${requestId}] ⚠️ badge count failed:`, (e as Error).message);
+          }
+        }
+
         // Fetch from both tables to ensure we have the latest "organized" token too
         const [fcmResult, profileResult] = await Promise.all([
           supabase.schema('drive').from('fcm_tokens').select('fcm_token').in('user_id', userIds).eq('is_active', true),
