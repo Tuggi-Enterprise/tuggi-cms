@@ -276,6 +276,46 @@ Deno.serve(async (req) => {
       let stats;
 
       if (type === 'user') {
+        // Persist one inbox row per recipient — the Notification Center mirrors
+        // every user-targeted push. `persist` defaults true; routes never reach
+        // this EF (in-app toasts) so they're naturally excluded. For a single
+        // recipient we embed the row id in the FCM data so the device can ack
+        // delivery (ack_notification_delivered).
+        if (body.persist !== false && Array.isArray(userIds) && userIds.length && notification?.title) {
+          const notifType = template
+            ? `partner_${String(template).replace(/^partner_/, '')}`
+            : (notification?.data?.type ?? data?.type ?? 'generic');
+          const deeplink = notification?.data?.deeplink ?? data?.deeplink ?? null;
+          const rows = userIds.map((uid: string) => ({
+            user_id: uid,
+            type: notifType,
+            title: notification.title,
+            body: notification.body ?? null,
+            data: notification.data ?? {},
+            deeplink,
+          }));
+          try {
+            const { data: inserted, error: insErr } = await supabase
+              .schema('drive')
+              .from('user_notifications')
+              .insert(rows)
+              .select('id');
+            if (insErr) {
+              console.error(`[${requestId}] ⚠️ inbox persist failed:`, JSON.stringify(insErr));
+            } else if (inserted?.length === 1) {
+              notification = {
+                ...notification,
+                data: { ...(notification.data || {}), notification_id: inserted[0].id },
+              };
+              console.log(`[${requestId}] 📥 inbox row ${inserted[0].id} persisted`);
+            } else {
+              console.log(`[${requestId}] 📥 ${inserted?.length ?? 0} inbox rows persisted`);
+            }
+          } catch (e) {
+            console.error(`[${requestId}] ⚠️ inbox persist exception:`, (e as Error).message);
+          }
+        }
+
         // Fetch from both tables to ensure we have the latest "organized" token too
         const [fcmResult, profileResult] = await Promise.all([
           supabase.schema('drive').from('fcm_tokens').select('fcm_token').in('user_id', userIds).eq('is_active', true),
