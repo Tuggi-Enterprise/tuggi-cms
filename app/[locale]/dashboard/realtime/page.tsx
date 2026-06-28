@@ -26,7 +26,7 @@ export default function RealtimeDashboard() {
     try {
       if (!isBackground) setIsLoading(true)
       
-      const result = await dashboardService.getRealtimeActivity(10) // Last 10 minutes
+      const result = await dashboardService.getRealtimeActivity(600) // janela em segundos = 10 min (radar operacional)
       
       if (!result.success || !result.data) {
         throw new Error(result.error || 'Failed to load realtime dashboard')
@@ -61,20 +61,16 @@ export default function RealtimeDashboard() {
     // 3. Setup Supabase Realtime Listener
     const supabase = getSupabaseClient()
     const channel = supabase.channel('realtime_interactions')
+      // ⚠️ Só poi_visits no Realtime (evento raro). NÃO assinar route_trail/user_location_history:
+      // são pings de GPS de alta frequência e estourariam a cota do Supabase Realtime.
+      // A presença dos usuários no mapa vem do polling de 30s (getRealtimeActivity).
       .on(
-        'postgres_changes', 
-        { event: 'INSERT', schema: 'drive', table: 'poi_visits' }, 
+        'postgres_changes',
+        { event: 'INSERT', schema: 'drive', table: 'poi_visits' },
         (payload: any) => {
           console.log('🔔 Realtime New Visit Detected!', payload)
           // Trigger immediate background refresh to grab full data (joined names, etc)
           fetchRealtimeData(true)
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'drive', table: 'route_trail' },
-        () => {
-           // We could listen to trails too, but that might be noisy. Limit to visits for now.
         }
       )
       .subscribe((status: string) => {

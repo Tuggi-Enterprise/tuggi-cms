@@ -22,6 +22,8 @@ interface GoogleMapComponentProps {
     title: string
     description?: string
     color?: string
+    /** Marca o usuário como ativo agora — pin maior, cor de destaque e animação (pulse). */
+    active?: boolean
   }>
   polygon?: Array<{ lat: number; lng: number }>
   savedPolygons?: Array<{
@@ -333,21 +335,38 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
 
     // Add new markers
     markers.forEach(markerData => {
-      const markerColor = markerData.color || '#FF6F00' // Default to Tuggi orange
-      
+      const isActive = markerData.active === true
+      // Ativos recebem cor de destaque (verde Tuggi) e ícone maior; base usa a cor passada.
+      const markerColor = isActive ? '#10B981' : (markerData.color || '#FF6F00')
+      // Ativo: pino circular com halo (sinaliza "ao vivo"); base: pino padrão de gota.
+      const activeSvg = `
+        <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="13" fill="${markerColor}" fill-opacity="0.25"/>
+          <circle cx="16" cy="16" r="7" fill="${markerColor}" stroke="#ffffff" stroke-width="2.5"/>
+        </svg>`
+      const baseSvg = `
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="${markerColor}"/>
+        </svg>`
+
       const marker = new google.maps.Marker({
         position: markerData.position,
         map: mapInstanceRef.current!,
         title: markerData.title,
-        icon: {
-          url: 'data:image/svg+xml;base64,' + btoa(`
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="${markerColor}"/>
-            </svg>
-          `),
-          scaledSize: new google.maps.Size(24, 24),
-          anchor: new google.maps.Point(12, 24)
-        }
+        // Ativos por cima da base instalada + animação contínua que sinaliza "ao vivo".
+        zIndex: isActive ? 1000 : 1,
+        animation: isActive ? google.maps.Animation.BOUNCE : undefined,
+        icon: isActive
+          ? {
+              url: 'data:image/svg+xml;base64,' + btoa(activeSvg),
+              scaledSize: new google.maps.Size(32, 32),
+              anchor: new google.maps.Point(16, 16),
+            }
+          : {
+              url: 'data:image/svg+xml;base64,' + btoa(baseSvg),
+              scaledSize: new google.maps.Size(24, 24),
+              anchor: new google.maps.Point(12, 24),
+            },
       })
 
       // Add click listener

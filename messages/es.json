@@ -94,7 +94,9 @@
     "geofences": "Geofences",
     "premium": "Planes Premium",
     "marketing": "Marketing",
-    "newsletter": "Newsletter"
+    "newsletter": "Newsletter",
+    "geography": "Demanda",
+    "catalog": "Catálogo"
   },
   "Pages": {
     "Login": {
@@ -137,7 +139,13 @@
         "inventory": "Inventario",
         "users": "Usuarios",
         "territorial": "Territorial",
-        "heatmap": "Mapa de Calor"
+        "heatmap": "Mapa de Calor",
+        "quality": "Calidad",
+        "all_users": "Todos",
+        "premium": "Premium",
+        "demand": "Demanda",
+        "coverage": "Cobertura",
+        "density": "Densidad"
       },
       "kpi": {
         "total_inventory": "Total del Inventario",
@@ -225,7 +233,45 @@
         "migration_speed": "Velocidad de Migración",
         "global_average": "Promedio Global",
         "top_generators": "Top Generadores de Contenido",
-        "content_generated": "contenidos"
+        "content_generated": "contenidos",
+        "view_details": "ver detalles",
+        "user_map": "Mapa de Usuarios",
+        "user_locations": "Dónde accedieron los usuarios",
+        "active_now": "activos ahora",
+        "pois_listened": "POIs escuchados ahora",
+        "view_full_radar": "ver radar completo",
+        "demand": "Demanda",
+        "demand_pending": "Demanda (Waitlist)",
+        "demand_by_country": "Demanda por País",
+        "pending": "Pendientes",
+        "notified": "Notificados",
+        "base_users": "base",
+        "no_demand": "Sin demanda pendiente",
+        "no_users_located": "Sin usuarios localizados",
+        "both": "Ambos",
+        "new_subscriptions_7d": "Nuevos (7d)",
+        "churned_7d": "Churn (7d)",
+        "subscription_provider": "Proveedor de Suscripción",
+        "tiers_breakdown": "Planes",
+        "audio_playthrough": "Reproducción de Audio",
+        "visits_per_user": "Visitas / Usuario Activo",
+        "onboarding_completed": "Onboarding Completo",
+        "search_user": "Buscar usuario...",
+        "tier": "Plan",
+        "all": "Todos",
+        "user_detail": "Detalle del Usuario",
+        "logins": "Logins",
+        "member_since": "Miembro desde",
+        "subscription_history": "Historial de Suscripción",
+        "no_subscription_history": "Sin historial de suscripción",
+        "start": "Inicio",
+        "expiration": "Vencimiento",
+        "status": "Estado",
+        "active": "Activo",
+        "inactive": "Inactivo",
+        "pois_per_trip": "POIs / Viaje",
+        "km_per_trip": "Km / Viaje",
+        "demand_points": "Puntos de Demanda"
       },
       "charts": {
         "mau": "Usuarios Activos (Últimos 30 Días)",
@@ -275,6 +321,14 @@
         "content_coverage": {
           "title": "Cobertura de Contenido",
           "subtitle": "Estado de disponibilidad de idiomas y medios"
+        },
+        "geography": {
+          "title": "Demanda Regional",
+          "subtitle": "Dónde los usuarios piden cobertura y dónde ya llegamos"
+        },
+        "catalog": {
+          "title": "Catálogo",
+          "subtitle": "Inventario de POIs, calidad de contenido y autores"
         }
       }
     },

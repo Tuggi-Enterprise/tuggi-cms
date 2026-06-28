@@ -274,6 +274,7 @@ Deno.serve(async (req) => {
 
       let tokens = [];
       let stats;
+      let broadcastUserIds: string[] = [];
 
       if (type === 'user') {
         // Persist one inbox row per recipient — the Notification Center mirrors
@@ -367,6 +368,33 @@ Deno.serve(async (req) => {
 
         tokens = audienceTokens || [];
         console.log(`[${requestId}] 🎯 broadcast audience=${tokens.length} filters=${JSON.stringify(filters ?? {})}`);
+
+        // Mirror the broadcast into the inbox (drive.user_notifications) — the SSOT
+        // the app's Notification Center + unread badge read from. One row per
+        // audience user, inserted set-based in SQL; returns the user_ids so the
+        // log records who was targeted. Same audience/filter as the token resolver.
+        if (body.persist !== false && notification?.title) {
+          const notifType = notification?.data?.type ?? data?.type ?? 'generic';
+          const deeplink =
+            notification?.data?.deeplink ?? notification?.data?.url ?? data?.deeplink ?? null;
+          const { data: inboxIds, error: inboxErr } = await supabase
+            .schema('core')
+            .rpc('broadcast_persist_inbox', {
+              p_filters: filters ?? {},
+              p_type: notifType,
+              p_title: notification.title,
+              p_body: notification.body ?? null,
+              p_data: notification.data ?? {},
+              p_deeplink: deeplink,
+            });
+          if (inboxErr) {
+            console.error(`[${requestId}] ⚠️ broadcast inbox persist failed:`, JSON.stringify(inboxErr));
+          } else {
+            broadcastUserIds = inboxIds || [];
+            console.log(`[${requestId}] 📥 ${broadcastUserIds.length} broadcast inbox rows persisted`);
+          }
+        }
+
         stats = await sendNotification(tokens, notification, priority, ttl);
       } else if (type === 'topic') {
         // Topic send (direct call to FCM)
@@ -384,7 +412,8 @@ Deno.serve(async (req) => {
         }
       }
 
-      await logResult(type, notification, userIds, topic, stats.success > 0 ? 'sent' : 'failed', stats);
+      const logUserIds = type === 'broadcast' ? broadcastUserIds : userIds;
+      await logResult(type, notification, logUserIds, topic, stats.success > 0 ? 'sent' : 'failed', stats);
       
       return new Response(JSON.stringify({ success: true, result: stats }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -466,6 +495,7 @@ Deno.serve(async (req) => {
       for (const item of pending) {
         let tokens = [];
         let stats;
+        let scheduledBroadcastIds: string[] = [];
 
         // Mark as processing to avoid double-spend
         await supabase.schema('marketing').from('scheduled_notifications')
@@ -489,6 +519,28 @@ Deno.serve(async (req) => {
                 if (audienceErr) throw audienceErr;
                 tokens = audienceTokens || [];
                 console.log(`[${requestId}] 🎯 scheduled broadcast ${item.id} audience=${tokens.length}`);
+
+                // Mirror into the inbox (SSOT for the in-app Notification Center).
+                if (item.title) {
+                    const notifType = item.data?.type ?? 'generic';
+                    const deeplink = item.data?.deeplink ?? item.data?.url ?? null;
+                    const { data: inboxIds, error: inboxErr } = await supabase
+                        .schema('core')
+                        .rpc('broadcast_persist_inbox', {
+                            p_filters: item.audience_filters ?? {},
+                            p_type: notifType,
+                            p_title: item.title,
+                            p_body: item.body ?? null,
+                            p_data: item.data ?? {},
+                            p_deeplink: deeplink,
+                        });
+                    if (inboxErr) {
+                        console.error(`[${requestId}] ⚠️ scheduled broadcast inbox persist failed:`, JSON.stringify(inboxErr));
+                    } else {
+                        scheduledBroadcastIds = inboxIds || [];
+                        console.log(`[${requestId}] 📥 ${scheduledBroadcastIds.length} scheduled broadcast inbox rows persisted`);
+                    }
+                }
             } else if (item.type === 'topic') {
                 // Topic send (direct call to FCM in sendNotification helper if topic is provided)
                 // For simplicity, we handle it as topic in sendNotification logic if type is topic
@@ -508,7 +560,8 @@ Deno.serve(async (req) => {
                 .eq('id', item.id);
 
             // Log the result
-            await logResult(item.type, { title: item.title, body: item.body, data: item.data }, item.user_ids, item.topic, stats.success > 0 ? 'sent' : 'failed', stats);
+            const schedLogUserIds = item.type === 'broadcast' ? scheduledBroadcastIds : item.user_ids;
+            await logResult(item.type, { title: item.title, body: item.body, data: item.data }, schedLogUserIds, item.topic, stats.success > 0 ? 'sent' : 'failed', stats);
             results.push({ id: item.id, status: stats.success > 0 ? 'sent' : 'failed' });
 
         } catch (e) {

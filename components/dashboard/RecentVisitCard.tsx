@@ -1,4 +1,7 @@
+'use client'
+
 import { Headphones, Eye, Clock } from 'lucide-react'
+import { Link } from '@/navigation'
 
 export interface RecentVisit {
   visit_id: string
@@ -15,8 +18,9 @@ export interface RecentVisit {
 }
 
 export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale: string }) => (
-  <div 
-    className="group relative flex items-center p-3 mb-2 bg-gray-50/50 dark:bg-gray-800/30 border border-transparent hover:border-gray-100 dark:hover:border-gray-700 rounded-xl transition-all duration-300"
+  <Link
+    href={`/pois?poiId=${visit.poi_id}`}
+    className="group relative flex items-center p-3 mb-2 bg-gray-50/50 dark:bg-gray-800/30 border border-transparent hover:border-gray-100 dark:hover:border-gray-700 hover:shadow-sm rounded-xl transition-all duration-300 cursor-pointer"
   >
     {/* STATUS INDICATOR */}
     <div className="flex-shrink-0 mr-3 relative">
@@ -66,5 +70,5 @@ export const RecentVisitCard = ({ visit, locale }: { visit: RecentVisit, locale:
         </span>
       </div>
     </div>
-  </div>
+  </Link>
 )

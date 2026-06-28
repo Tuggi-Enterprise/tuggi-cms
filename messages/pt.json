@@ -94,7 +94,9 @@
     "geofences": "Geofences",
     "premium": "Planos Premium",
     "marketing": "Marketing",
-    "newsletter": "Newsletter"
+    "newsletter": "Newsletter",
+    "geography": "Demanda",
+    "catalog": "Catálogo"
   },
   "Pages": {
     "Login": {
@@ -137,7 +139,13 @@
         "inventory": "Inventário",
         "users": "Usuários",
         "territorial": "Territorial",
-        "heatmap": "Mapa de Calor"
+        "heatmap": "Mapa de Calor",
+        "quality": "Qualidade",
+        "all_users": "Todos",
+        "premium": "Premium",
+        "demand": "Demanda",
+        "coverage": "Cobertura",
+        "density": "Densidade"
       },
       "kpi": {
         "total_inventory": "Total do Inventário",
@@ -254,7 +262,45 @@
         "migration_speed": "Velocidade de Migração",
         "global_average": "Média Global",
         "top_generators": "Top Geradores de Conteúdo",
-        "content_generated": "conteúdos"
+        "content_generated": "conteúdos",
+        "view_details": "ver detalhes",
+        "user_map": "Mapa de Usuários",
+        "user_locations": "Onde os usuários acessaram",
+        "active_now": "ativos agora",
+        "pois_listened": "POIs ouvidas agora",
+        "view_full_radar": "ver radar completo",
+        "demand": "Demanda",
+        "demand_pending": "Demanda (Waitlist)",
+        "demand_by_country": "Demanda por País",
+        "pending": "Pendentes",
+        "notified": "Notificados",
+        "base_users": "base",
+        "no_demand": "Nenhuma demanda pendente",
+        "no_users_located": "Nenhum usuário localizado",
+        "both": "Ambos",
+        "new_subscriptions_7d": "Novos (7d)",
+        "churned_7d": "Churn (7d)",
+        "subscription_provider": "Provedor de Assinatura",
+        "tiers_breakdown": "Planos",
+        "audio_playthrough": "Play-through de Áudio",
+        "visits_per_user": "Visitas / Usuário Ativo",
+        "onboarding_completed": "Onboarding Completo",
+        "search_user": "Buscar usuário...",
+        "tier": "Plano",
+        "all": "Todos",
+        "user_detail": "Detalhe do Usuário",
+        "logins": "Logins",
+        "member_since": "Membro desde",
+        "subscription_history": "Histórico de Assinatura",
+        "no_subscription_history": "Sem histórico de assinatura",
+        "start": "Início",
+        "expiration": "Vencimento",
+        "status": "Status",
+        "active": "Ativo",
+        "inactive": "Inativo",
+        "pois_per_trip": "POIs / Viagem",
+        "km_per_trip": "Km / Viagem",
+        "demand_points": "Pontos de Demanda"
       },
       "reports": {
         "inventory": {
@@ -284,6 +330,14 @@
         "premium": {
           "title": "Usuários Premium",
           "subtitle": "Gestão de licenças e expirações"
+        },
+        "geography": {
+          "title": "Demanda Regional",
+          "subtitle": "Onde os usuários pedem cobertura e onde já chegamos"
+        },
+        "catalog": {
+          "title": "Catálogo",
+          "subtitle": "Inventário de POIs, qualidade de conteúdo e autores"
         }
       }
     },

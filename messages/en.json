@@ -94,7 +94,9 @@
     "geofences": "Geofences",
     "premium": "Premium Plans",
     "marketing": "Marketing",
-    "newsletter": "Newsletter"
+    "newsletter": "Newsletter",
+    "geography": "Demand",
+    "catalog": "Catalog"
   },
   "Pages": {
     "Login": {
@@ -137,7 +139,13 @@
         "inventory": "Inventory",
         "users": "Users",
         "territorial": "Territorial",
-        "heatmap": "Heatmap"
+        "heatmap": "Heatmap",
+        "quality": "Quality",
+        "all_users": "All",
+        "premium": "Premium",
+        "demand": "Demand",
+        "coverage": "Coverage",
+        "density": "Density"
       },
       "kpi": {
         "total_inventory": "Total Inventory",
@@ -253,7 +261,45 @@
         "migration_speed": "Migration Speed",
         "global_average": "Global Average",
         "top_generators": "Top Content Generators",
-        "content_generated": "contents"
+        "content_generated": "contents",
+        "view_details": "view details",
+        "user_map": "User Map",
+        "user_locations": "Where users accessed",
+        "active_now": "active now",
+        "pois_listened": "POIs listened now",
+        "view_full_radar": "view full radar",
+        "demand": "Demand",
+        "demand_pending": "Demand (Waitlist)",
+        "demand_by_country": "Demand by Country",
+        "pending": "Pending",
+        "notified": "Notified",
+        "base_users": "base",
+        "no_demand": "No pending demand",
+        "no_users_located": "No located users",
+        "both": "Both",
+        "new_subscriptions_7d": "New (7d)",
+        "churned_7d": "Churn (7d)",
+        "subscription_provider": "Subscription Provider",
+        "tiers_breakdown": "Plans",
+        "audio_playthrough": "Audio Play-through",
+        "visits_per_user": "Visits / Active User",
+        "onboarding_completed": "Onboarding Complete",
+        "search_user": "Search user...",
+        "tier": "Plan",
+        "all": "All",
+        "user_detail": "User Detail",
+        "logins": "Logins",
+        "member_since": "Member since",
+        "subscription_history": "Subscription History",
+        "no_subscription_history": "No subscription history",
+        "start": "Start",
+        "expiration": "Expiration",
+        "status": "Status",
+        "active": "Active",
+        "inactive": "Inactive",
+        "pois_per_trip": "POIs / Trip",
+        "km_per_trip": "Km / Trip",
+        "demand_points": "Demand Points"
       },
       "footer": {
         "copyright": "© 2026 Tuggi - Territorial Intelligence"
@@ -286,6 +332,14 @@
         "premium": {
           "title": "Premium Users",
           "subtitle": "License management and expirations"
+        },
+        "geography": {
+          "title": "Regional Demand",
+          "subtitle": "Where users request coverage and where we already arrived"
+        },
+        "catalog": {
+          "title": "Catalog",
+          "subtitle": "POI inventory, content quality and authors"
         }
       }
     },
