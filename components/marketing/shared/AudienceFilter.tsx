@@ -149,7 +149,10 @@ export function AudienceFilter({ filters, onChange, estimateFn }: AudienceFilter
                 onValueChange={(val) => updateFilter('language', val)}
               >
                 <SelectItem value="all">Any Language</SelectItem>
-                <SelectItem value="pt-br">Portuguese</SelectItem>
+                {/* Valores = código de 2 letras (languageCode do app). O match é
+                    por prefixo case-insensitive no SQL, então "pt" cobre
+                    pt / pt-br / pt-BR / pt-PT. SSOT: core.build_audience_filter. */}
+                <SelectItem value="pt">Portuguese</SelectItem>
                 <SelectItem value="en">English</SelectItem>
                 <SelectItem value="es">Spanish</SelectItem>
                 <SelectItem value="it">Italian</SelectItem>

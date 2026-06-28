@@ -20,6 +20,7 @@ export interface ScheduleRequest {
   scheduleAt?: string; // Optional for immediate send
   priority?: 'high' | 'normal';
   ttl?: number;
+  filters?: AudienceFilters; // broadcast audience segmentation (SSOT: audience-types)
 }
 
 export interface NotificationTemplate {

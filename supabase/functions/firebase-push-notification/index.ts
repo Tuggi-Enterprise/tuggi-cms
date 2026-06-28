@@ -257,7 +257,7 @@ Deno.serve(async (req) => {
     if (path === '/send') {
       const body = await req.json();
       let { notification } = body;
-      const { type, userIds, topic, priority = 'normal', ttl = 3600, template, lang, data } = body;
+      const { type, userIds, topic, priority = 'normal', ttl = 3600, template, lang, data, filters } = body;
 
       // Localized partner-flow templates: when `template` is given and no explicit
       // notification.title was passed, render title/body from the shared i18n map.
@@ -356,15 +356,17 @@ Deno.serve(async (req) => {
         tokens = Array.from(new Set([...fcmTokens, ...profileTokens]));
         stats = await sendNotification(tokens, notification, priority, ttl);
       } else if (type === 'broadcast') {
-        const [fcmResult, profileResult] = await Promise.all([
-          supabase.schema('drive').from('fcm_tokens').select('fcm_token').eq('is_active', true),
-          supabase.schema('drive').from('profiles').select('push_token').not('push_token', 'is', null)
-        ]);
+        // Audience is resolved in SQL (core.get_audience_push_tokens) so platform/
+        // language/tier filters are applied via the profiles JOIN — fcm_tokens has
+        // no platform column. Empty filters → whole base. SSOT shared with the
+        // estimate + newsletter RPCs (core.build_audience_filter).
+        const { data: audienceTokens, error: audienceErr } = await supabase
+          .schema('core')
+          .rpc('get_audience_push_tokens', { p_filters: filters ?? {} });
+        if (audienceErr) throw audienceErr;
 
-        const fcmTokens = fcmResult.data?.map(t => t.fcm_token) || [];
-        const profileTokens = profileResult.data?.map(p => p.push_token) || [];
-        
-        tokens = Array.from(new Set([...fcmTokens, ...profileTokens]));
+        tokens = audienceTokens || [];
+        console.log(`[${requestId}] 🎯 broadcast audience=${tokens.length} filters=${JSON.stringify(filters ?? {})}`);
         stats = await sendNotification(tokens, notification, priority, ttl);
       } else if (type === 'topic') {
         // Topic send (direct call to FCM)
@@ -385,6 +387,56 @@ Deno.serve(async (req) => {
       await logResult(type, notification, userIds, topic, stats.success > 0 ? 'sent' : 'failed', stats);
       
       return new Response(JSON.stringify({ success: true, result: stats }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (path === '/schedule') {
+      const body = await req.json();
+      const {
+        type,
+        notification,
+        userIds = [],
+        topic = null,
+        priority = 'normal',
+        ttl = 3600,
+        scheduleAt,
+        filters,
+      } = body;
+
+      if (!scheduleAt) {
+        return new Response(JSON.stringify({ error: 'scheduleAt is required' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { data: inserted, error: schedErr } = await supabase
+        .schema('marketing')
+        .from('scheduled_notifications')
+        .insert({
+          type,
+          title: notification?.title ?? '',
+          body: notification?.body ?? '',
+          data: notification?.data ?? {},
+          image_url: notification?.imageUrl ?? null,
+          user_ids: userIds,
+          topic,
+          priority,
+          ttl,
+          scheduled_for: scheduleAt,
+          status: 'pending',
+          audience_filters: filters ?? {},
+        })
+        .select('id')
+        .single();
+
+      if (schedErr) {
+        console.error(`[${requestId}] ❌ schedule insert error:`, JSON.stringify(schedErr));
+        throw schedErr;
+      }
+
+      console.log(`[${requestId}] ⏰ scheduled ${type} ${inserted?.id} for ${scheduleAt}`);
+      return new Response(JSON.stringify({ success: true, id: inserted?.id }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -429,6 +481,14 @@ Deno.serve(async (req) => {
                 const fcmTokens = fcmResult.data?.map(t => t.fcm_token) || [];
                 const profileTokens = profileResult.data?.map(p => p.push_token).filter(Boolean) || [];
                 tokens = Array.from(new Set([...fcmTokens, ...profileTokens]));
+            } else if (item.type === 'broadcast') {
+                // Same SSOT audience resolver as the immediate /send broadcast path.
+                const { data: audienceTokens, error: audienceErr } = await supabase
+                    .schema('core')
+                    .rpc('get_audience_push_tokens', { p_filters: item.audience_filters ?? {} });
+                if (audienceErr) throw audienceErr;
+                tokens = audienceTokens || [];
+                console.log(`[${requestId}] 🎯 scheduled broadcast ${item.id} audience=${tokens.length}`);
             } else if (item.type === 'topic') {
                 // Topic send (direct call to FCM in sendNotification helper if topic is provided)
                 // For simplicity, we handle it as topic in sendNotification logic if type is topic

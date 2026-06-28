@@ -97,6 +97,13 @@ export function NotificationManager() {
         payload.userIds = selectedUsers.map(u => u.id); // Kept original mapping to IDs
       }
 
+      // Broadcast: carry the audience filters (platform/language/tier/...) so the
+      // Edge Function resolves recipients via core.get_audience_push_tokens.
+      // Direct push targets explicit userIds, so filters don't apply there.
+      if (activeTab !== 'direct') {
+        payload.filters = filters;
+      }
+
       if (isScheduled) {
         await NotificationService.schedule({
           ...payload,
