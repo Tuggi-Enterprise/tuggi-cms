@@ -92,7 +92,7 @@ NARRATIVE GUIDELINES:
 
     // 2. USER CONTENT (Dynamic)
     const userPrompt = `
-TARGET LANGUAGE: ${context.language}
+TARGET LANGUAGE: ${getLanguageName(context.language)} (code: ${context.language}) — write in its native script
 
 CURRENT DESTINATION: "${context.target_details.name}"
 Position relative to traveler: ${currentRelPos}
@@ -147,7 +147,7 @@ NOW, CREATE YOUR NARRATION:
     return result.candidates[0].content.parts[0].text;
 };
 
-import { translateWithGemini } from './translationUtility.ts';
+import { translateWithGemini, getLanguageName } from './translationUtility.ts';
 
 /**
  * Translation Utility

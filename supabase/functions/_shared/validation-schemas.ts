@@ -214,6 +214,7 @@ export const GenerateTranslatedAudioSchema = z.object({
   routeId: AttractionId.optional(),
   originalName: z.string().max(500).optional(),   // route name to translate
   generateAudio: z.boolean().optional(),           // default true; false = text only
+  nameOnly: z.boolean().optional(),                // POI mode: translate only the name (no audio)
 
   // ─── Common ─────────────────────────────────────────────
   targetLanguage: Language,

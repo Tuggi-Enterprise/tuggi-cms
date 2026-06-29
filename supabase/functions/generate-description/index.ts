@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { getSecretKey } from '../_shared/supabase-client.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateMasterPack } from "../_shared/masterPackGenerator.ts";
-import { translateWithGeminiWithUsage } from "../_shared/translationUtility.ts";
+import { translateWithGeminiWithUsage, translatePoiNameWithUsage } from "../_shared/translationUtility.ts";
 
 type GenerationKind = "master" | "translation";
 interface CallUsage {
@@ -205,6 +205,12 @@ async function processPOIItem(
         // 3. Generation Logic
         let result: { description: string; facts_pack_json: any } | null = null;
         let callUsage: CallUsage | null = null;
+        // Confiança factual: true por padrão (tradução herda do master vetado).
+        // Vira false quando a geração fresca caiu no SAFE MODE (sem grounding) →
+        // marca needs_review pra um humano conferir antes de "aprovar".
+        let groundedOk = true;
+        // Trilha de procedência da descrição (gravada de forma defensiva no fim).
+        let generationMeta: Record<string, unknown> | null = null;
         // Location context for grounding — use the POI's real country (canonical,
         // English) instead of assuming Brazil. Falls back from city → state → country.
         const cityName = [
@@ -249,6 +255,12 @@ async function processPOIItem(
                     if (tUsage) {
                         callUsage = { ...tUsage, kind: "translation" };
                     }
+                    // Trilha: traduzido de outro idioma (grounding herdado do master).
+                    generationMeta = {
+                        kind: "translation",
+                        source_language: source.language,
+                        grounded: null,
+                    };
                 }
             }
         } else {
@@ -302,6 +314,19 @@ async function processPOIItem(
                 description: masterResult.description,
                 facts_pack_json: masterResult.facts_pack_json,
             };
+            // Geração fresca sem fontes (SAFE MODE) → baixa confiança factual.
+            groundedOk = masterResult.grounded !== false;
+            // Trilha: gerado via RAG 2 passos.
+            generationMeta = {
+                kind: "master_2step",
+                grounded: masterResult.grounded ?? null,
+                sources: masterResult.sourceCount ?? 0,
+                models: masterResult.modelUsed ?? null,
+                safe_mode: masterResult.grounded === false,
+            };
+            if (!groundedOk) {
+                console.warn(`${LOG_PREFIX} SAFE MODE (sem grounding) — marcando needs_review.`);
+            }
             if (masterResult.usage) {
                 callUsage = { ...masterResult.usage, kind: "master" };
             }
@@ -316,7 +341,29 @@ async function processPOIItem(
         );
         console.log(`${LOG_PREFIX} Heuristic Score calculated:`, scoreResult.score_overall);
         const descHash = await hashDescription(result.description);
-        const isApproved = true; // Auto-approve so it plays immediately. Score is for analytics.
+        // Auto-aprova só quando há base factual (grounded ou tradução de master vetado).
+        // SAFE MODE (sem fontes) → needs_review, pra um humano conferir.
+        const isApproved = groundedOk;
+
+        // 4.1 Translate the POI name into the target language (proper-noun aware:
+        // exonym, else transliterate). Gender-independent; uses the generated
+        // description as disambiguation context. Best-effort — a name failure
+        // must not block the description/audio package.
+        let translatedName: string | null = null;
+        if (poiName && poiName !== "Unknown Point") {
+            try {
+                const { text: nameText } = await translatePoiNameWithUsage(
+                    poiName,
+                    language,
+                    GEMINI_API_KEY,
+                    result.description.slice(0, 200),
+                );
+                translatedName = nameText;
+                console.log(`${LOG_PREFIX} Name translated="${translatedName}"`);
+            } catch (nameErr) {
+                console.warn(`${LOG_PREFIX} ⚠️ Name translation skipped:`, nameErr);
+            }
+        }
 
         let publicUrl: string | null = null;
         if (shouldGenerateAudio && GOOGLE_TTS_API_KEY) {
@@ -357,6 +404,8 @@ async function processPOIItem(
             last_score_overall: scoreResult.score_overall,
             last_score_version: "v2-flash-heuristic",
             facts_version: 2,
+            // Gender-independent translated name (null only if translation failed).
+            ...(translatedName ? { name: translatedName } : {}),
         }, { onConflict: "attraction_id,language,gender" }).select().single();
 
         // 5.1 Track who generated this description (non-blocking, defensive)
@@ -395,6 +444,24 @@ async function processPOIItem(
                 console.log(`${LOG_PREFIX} ✅ Token usage tracked: kind=${callUsage.kind} model=${callUsage.model} in=${callUsage.input_tokens} out=${callUsage.output_tokens}`);
             } catch (tokenErr) {
                 console.warn(`${LOG_PREFIX} ⚠️ Token usage tracking skipped (columns may not exist yet):`, tokenErr);
+            }
+        }
+
+        // 5.3 Track grounding provenance (trilha de criação) — defensivo: UPDATE
+        // separado pra não quebrar se as colunas (grounded/generation_meta) ainda
+        // não existirem no banco. Co-localizado p/ análise futura sem fetch extra.
+        if (generationMeta && finalRows?.id) {
+            try {
+                const groundedVal = (generationMeta.grounded === true || generationMeta.grounded === false)
+                    ? generationMeta.grounded
+                    : null;
+                await supabaseAdmin.schema("core")
+                    .from("attraction_descriptions")
+                    .update({ grounded: groundedVal, generation_meta: generationMeta })
+                    .eq("id", finalRows.id);
+                console.log(`${LOG_PREFIX} ✅ Grounding trail tracked:`, JSON.stringify(generationMeta));
+            } catch (gErr) {
+                console.warn(`${LOG_PREFIX} ⚠️ Grounding trail skipped (columns may not exist yet):`, gErr);
             }
         }
 

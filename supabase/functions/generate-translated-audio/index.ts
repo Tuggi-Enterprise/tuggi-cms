@@ -33,13 +33,17 @@ interface RequestBody {
   // ─── POI mode (existing) ─────────────────────────────────────────────
   attractionId?: string;
   originalDescription?: string; // pass text directly, skips DB fetch
+  // POI mode: translate ONLY the POI name (no audio, preserves description).
+  // Used by the app for legacy POIs that already have description+audio in the
+  // target language but no translated name yet (lazy backfill, scenario 1).
+  nameOnly?: boolean;
 
   // ─── Route mode (new) ─────────────────────────────────────────────────
   // Mutually exclusive with attractionId.
   // Translates BOTH name + description of a custom route.
   // Writes to core.custom_route_descriptions (no FK conflict with attractions).
   routeId?: string;
-  originalName?: string;    // route name to translate
+  originalName?: string;    // route name to translate (route mode) / override (POI mode)
   generateAudio?: boolean;  // default: true
 
   // ─── Common ───────────────────────────────────────────────────────────
@@ -75,11 +79,59 @@ const getOriginalDescription = async (attractionId: string): Promise<{ descripti
   throw new Error(`No description found for attraction ${attractionId}.`);
 };
 
-import { translateWithGemini as sharedTranslateWithGemini } from '../_shared/translationUtility.ts';
+import {
+  translateWithGemini as sharedTranslateWithGemini,
+  translatePoiNameWithUsage,
+} from '../_shared/translationUtility.ts';
 
 // Translate text using shared utility
 const translateWithGemini = async (text: string, targetLanguage: string): Promise<string> => {
   return sharedTranslateWithGemini(text, targetLanguage, GEMINI_API_KEY);
+};
+
+// Translate a POI name (proper-noun aware: exonym, else transliterate).
+const translatePoiName = async (
+  name: string,
+  targetLanguage: string,
+  context?: string,
+): Promise<string> => {
+  const { text } = await translatePoiNameWithUsage(name, targetLanguage, GEMINI_API_KEY, context);
+  return text;
+};
+
+// Fetch the canonical (original) POI name from core.attractions.
+const getAttractionName = async (attractionId: string): Promise<string> => {
+  const { data, error } = await supabaseAdmin
+    .schema('core')
+    .from('attractions')
+    .select('name')
+    .eq('id', attractionId)
+    .maybeSingle();
+
+  if (error || !data?.name) {
+    throw new Error(`Attraction not found or missing name: ${attractionId}`);
+  }
+  return data.name;
+};
+
+// Persist the translated name onto EVERY existing description row for this
+// (attraction_id, language) — the name does not vary by gender. Returns the
+// number of rows touched (0 means no description exists yet for this language).
+const updateAttractionName = async (
+  attractionId: string,
+  language: string,
+  translatedName: string,
+): Promise<number> => {
+  const { data, error } = await supabaseAdmin
+    .schema('core')
+    .from('attraction_descriptions')
+    .update({ name: translatedName, updated_at: new Date().toISOString() })
+    .eq('attraction_id', attractionId)
+    .eq('language', language)
+    .select('id');
+
+  if (error) throw new Error(`Failed to update POI name: ${error.message}`);
+  return data?.length ?? 0;
 };
 
 
@@ -133,24 +185,29 @@ const upsertAttractionDescription = async (
   language: string,
   translatedText: string,
   audioUrl: string,
-  voiceGender: 'male' | 'female'
+  voiceGender: 'male' | 'female',
+  translatedName?: string
 ): Promise<void> => {
-  // Use upsert with the unique constraint (attraction_id, language)
+  // Use upsert with the unique constraint (attraction_id, language, gender)
   // This will either insert a new record or update existing one
+  const row: Record<string, unknown> = {
+    attraction_id: attractionId,
+    language: language,
+    description: translatedText,
+    audio_url: audioUrl,
+    gender: voiceGender,
+    updated_at: new Date().toISOString(),
+    // For new records, set defaults
+    play_count: 0,
+    created_at: new Date().toISOString()
+  };
+  // Name is gender-independent; only set it when we translated one.
+  if (translatedName) row.name = translatedName;
+
   const { error: upsertError } = await supabaseAdmin
     .schema('core')
     .from('attraction_descriptions')
-    .upsert({
-      attraction_id: attractionId,
-      language: language,
-      description: translatedText,
-      audio_url: audioUrl,
-      gender: voiceGender,
-      updated_at: new Date().toISOString(),
-      // For new records, set defaults
-      play_count: 0,
-      created_at: new Date().toISOString()
-    }, {
+    .upsert(row, {
       onConflict: 'attraction_id,language,gender'
     });
 
@@ -398,22 +455,54 @@ serve(async (req) => {
       }
     }
 
-    // ── POI MODE (existing, unchanged) ───────────────────────────────────────
+    // ── POI MODE: NAME-ONLY (lazy backfill, scenario 1) ──────────────────────
+    // Legacy POI already has description+audio in the target language but no
+    // translated name. Translate just the name and stamp it onto the existing
+    // rows. No audio, no description rewrite.
+    if (attractionId && body.nameOnly === true) {
+      console.log(`[${requestId}] POI NAME-ONLY: attractionId=${attractionId} language=${targetLanguage}`);
+
+      const originalName = body.originalName ?? await getAttractionName(attractionId);
+
+      // Use the existing translated description (if any) as disambiguation context.
+      let nameContext: string | undefined;
+      try {
+        const { description } = await getOriginalDescription(attractionId);
+        nameContext = description.slice(0, 200);
+      } catch {
+        nameContext = undefined; // no description yet — name still translatable
+      }
+
+      const translatedName = await translatePoiName(originalName, targetLanguage, nameContext);
+      const rowsUpdated = await updateAttractionName(attractionId, targetLanguage, translatedName);
+      console.log(`[${requestId}] Name translated="${translatedName}" rowsUpdated=${rowsUpdated}`);
+
+      return new Response(
+        JSON.stringify({ success: true, data: { name: translatedName, rowsUpdated } }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ── POI MODE (full package: description + audio + name) ───────────────────
     console.log(`[${requestId}] POI MODE: attractionId=${attractionId} language=${targetLanguage} gender=${voiceGender}`);
 
     // Step 1: Fetch original description (any language)
     const { description: sourceText, language: sourceLang } = await getOriginalDescription(attractionId!);
     console.log(`[${requestId}] Fetched source description in ${sourceLang} (${sourceText.length} chars)`);
 
-    // Step 2: Translate using Gemini only if languages differ
-    let translatedText = sourceText;
-    if (sourceLang.toLowerCase() !== targetLanguage.toLowerCase()) {
-      console.log(`[${requestId}] Translating from ${sourceLang} to ${targetLanguage}`);
-      translatedText = await translateWithGemini(sourceText, targetLanguage);
-      console.log(`[${requestId}] Translation completed (${translatedText.length} chars)`);
-    } else {
-      console.log(`[${requestId}] Source language matches target language. Skipping translation.`);
-    }
+    // Step 2: Translate description + name in parallel.
+    // Name always localizes to the target language (proper-noun aware), even
+    // when the source description already matches the target language.
+    const originalName = body.originalName ?? await getAttractionName(attractionId!);
+    const needsDescTranslation = sourceLang.toLowerCase() !== targetLanguage.toLowerCase();
+
+    const [translatedText, translatedName] = await Promise.all([
+      needsDescTranslation
+        ? translateWithGemini(sourceText, targetLanguage)
+        : Promise.resolve(sourceText),
+      translatePoiName(originalName, targetLanguage, sourceText.slice(0, 200)),
+    ]);
+    console.log(`[${requestId}] Translated name="${translatedName}" desc=${translatedText.length}chars (descTranslated=${needsDescTranslation})`);
 
     // Step 3: Generate audio using Google TTS
     const audioBuffer = await generateAudioWithTTS(translatedText, targetLanguage, voiceGender, GOOGLE_CLOUD_API_KEY);
@@ -423,13 +512,14 @@ serve(async (req) => {
     const audioUrl = await uploadAudioToStorage(audioBuffer, attractionId!, targetLanguage, voiceGender);
     console.log(`[${requestId}] Audio uploaded to: ${audioUrl}`);
 
-    // Step 5: Update database
-    await upsertAttractionDescription(attractionId!, targetLanguage, translatedText, audioUrl, voiceGender);
+    // Step 5: Update database (includes translated name)
+    await upsertAttractionDescription(attractionId!, targetLanguage, translatedText, audioUrl, voiceGender, translatedName);
     console.log(`[${requestId}] Database updated successfully`);
 
-    const result: GeneratedAudio = {
+    const result: GeneratedAudio & { name: string } = {
       audioUrl,
-      translatedText
+      translatedText,
+      name: translatedName,
     };
 
     return new Response(

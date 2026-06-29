@@ -91,6 +91,14 @@ export interface POIModalContextValue {
   currentDescription: string
   setCurrentDescription: (value: string) => void
   originalDescription: string
+  // Translated POI name (per language, gender-independent) + canonical name.
+  currentName: string
+  setCurrentName: (value: string) => void
+  originalName: string
+  isSavingName: boolean
+  isTranslatingName: boolean
+  translateName: () => void
+  savePoiName: () => void
   generationLanguage: string
   setGenerationLanguage: (value: string) => void
   verificationResult: any

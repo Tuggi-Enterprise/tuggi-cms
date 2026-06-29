@@ -8,7 +8,7 @@
  */
 
 import { useTranslations } from 'next-intl'
-import { FileText, CheckCircle, RotateCcw, Loader2, Sparkles, ArrowRight, Globe, Plus, Save } from 'lucide-react'
+import { FileText, CheckCircle, RotateCcw, Loader2, Sparkles, ArrowRight, Globe, Plus, Save, Languages } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import { getScoreColor, getScoreBackgroundColor } from '@/lib/score/compute'
@@ -25,6 +25,13 @@ export function DescriptionTab() {
     currentDescription,
     setCurrentDescription,
     originalDescription,
+    currentName,
+    setCurrentName,
+    originalName,
+    isSavingName,
+    isTranslatingName,
+    translateName,
+    savePoiName,
     generationLanguage,
     setGenerationLanguage,
     verificationResult,
@@ -93,6 +100,53 @@ export function DescriptionTab() {
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                       {/* MAIN COLUMN: Editor */}
                       <div className="lg:col-span-2 space-y-6">
+                        {/* Translated Name Card — POI name in the selected language (SSOT: attraction_descriptions.name) */}
+                        <div className="bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+                          <div className="px-6 py-4 border-b border-gray-50 dark:border-gray-700 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/20">
+                            <div className="flex items-center gap-3">
+                              <div className="bg-tuggi-orange/10 p-2 rounded-xl">
+                                <Languages className="h-4 w-4 text-tuggi-orange" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-black text-gray-900 dark:text-white uppercase tracking-tight">
+                                  {generationLanguage.split('-')[0].toUpperCase()} Name
+                                </h4>
+                                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                                  Original: <span className="text-gray-500 normal-case">{originalName || '—'}</span>
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={translateName}
+                                disabled={isTranslatingName || isSavingName}
+                                className="inline-flex items-center px-3 py-2 bg-tuggi-orange/10 hover:bg-tuggi-orange/20 text-tuggi-orange text-[10px] font-black rounded-xl transition-all disabled:opacity-50 uppercase tracking-widest"
+                                title="Translate name with AI (exonym or transliteration)"
+                              >
+                                {isTranslatingName ? <Loader2 className="h-3 w-3 mr-2 animate-spin" /> : <Sparkles className="h-3 w-3 mr-2" />}
+                                Translate
+                              </button>
+                              <button
+                                onClick={savePoiName}
+                                disabled={isSavingName || isTranslatingName || !currentName.trim()}
+                                className="inline-flex items-center px-3 py-2 bg-tuggi-blue hover:bg-tuggi-blue/90 text-white text-[10px] font-black rounded-xl transition-all disabled:opacity-50 uppercase tracking-widest"
+                              >
+                                {isSavingName ? <Loader2 className="h-3 w-3 mr-2 animate-spin" /> : <Save className="h-3 w-3 mr-2" />}
+                                {tCommon('actions.save')}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="p-4">
+                            <input
+                              type="text"
+                              value={currentName}
+                              onChange={(e) => setCurrentName(e.target.value)}
+                              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border-transparent rounded-xl focus:bg-white focus:ring-1 focus:ring-tuggi-orange transition-all text-sm font-bold text-gray-800 dark:text-gray-100 placeholder:italic placeholder:font-medium placeholder:text-gray-300"
+                              placeholder={`Translated name in ${generationLanguage.split('-')[0].toUpperCase()} (e.g. exonym or transliteration)`}
+                            />
+                          </div>
+                        </div>
+
                         <div className="bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-xl shadow-gray-200/20 overflow-hidden">
                           {/* Editor Header */}
                           <div className="px-6 py-4 border-b border-gray-50 dark:border-gray-700 flex items-center justify-between bg-gray-50/50 dark:bg-gray-900/20">

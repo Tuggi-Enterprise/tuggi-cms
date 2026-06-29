@@ -36,6 +36,7 @@ import {
 import {
   fetchDescriptions as fetchDescriptionsRemote,
   upsertPortugueseDescription,
+  upsertPoiName,
 } from '@/lib/core/poi-descriptions-service'
 import { fetchVerificationRaw } from '@/lib/core/poi-verification-service'
 import { POIModalProvider, type POIModalContextValue } from './POIModalContext'
@@ -468,6 +469,12 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [currentDescription, setCurrentDescription] = useState('')
   const [originalDescription, setOriginalDescription] = useState('')
   const [generationLanguage, setGenerationLanguage] = useState('pt-br')
+  // Translated POI name for the selected language (mirrors currentDescription).
+  // currentName is gender-independent; originalName is the canonical POI name.
+  const [currentName, setCurrentName] = useState('')
+  const [originalName, setOriginalName] = useState('')
+  const [isSavingName, setIsSavingName] = useState(false)
+  const [isTranslatingName, setIsTranslatingName] = useState(false)
   const [audioDuration, setAudioDuration] = useState<number>(20)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSavingDescription, setIsSavingDescription] = useState(false)
@@ -756,6 +763,11 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
       // Track if this is a new POI being loaded to force update
       const isNewPoi = lastLoadedPoiId.current !== activePoiId
       lastLoadedPoiId.current = activePoiId
+
+      // Canonical (original) name + translated name for the selected language.
+      // Name is gender-independent — read it off whichever language row matched.
+      setOriginalName(getPoi()?.name || '')
+      setCurrentName(currentDesc?.name || '')
 
       if (currentDesc && currentDesc.description) {
         // Force update if it's a new POI, or if it's explicitly requested, or if editor is empty
@@ -2019,6 +2031,50 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     }
   }
 
+  // Translate the POI name for the current language via the EF (name-only mode:
+  // no audio, preserves description). Loads the result back into the editor.
+  const translateName = async () => {
+    const poiForName = getPoi()
+    if (!poiForName?.id) return
+    setIsTranslatingName(true)
+    try {
+      const { data: result, error: invokeError } = await callFunction('generate-translated-audio', {
+        attractionId: poiForName.id,
+        targetLanguage: generationLanguage,
+        voiceGender: selectedGender,
+        nameOnly: true,
+      })
+      if (invokeError) throw new Error(invokeError.message || 'Failed to translate name')
+      if (!result?.success) throw new Error(result?.error || 'Failed to translate name')
+      setCurrentName(result.data?.name || '')
+      showFeedback('Name translated successfully!', 'success')
+      setTimeout(() => fetchAdditionalData(), 1000)
+    } catch (error) {
+      console.error('Error translating name:', error)
+      showFeedback(`Failed to translate name: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
+    } finally {
+      setIsTranslatingName(false)
+    }
+  }
+
+  // Save a manual edit of the translated name for the current language.
+  // Gender-independent: writes to all rows of (attraction_id, language).
+  const savePoiName = async () => {
+    const poiForName = getPoi()
+    if (!poiForName?.id) return
+    setIsSavingName(true)
+    try {
+      await upsertPoiName(supabase, poiForName.id, generationLanguage, currentName.trim())
+      showFeedback('Name saved successfully!', 'success')
+      setTimeout(() => fetchAdditionalData(), 500)
+    } catch (error) {
+      console.error('Error saving name:', error)
+      showFeedback(`Failed to save name: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error')
+    } finally {
+      setIsSavingName(false)
+    }
+  }
+
   // Regenerate a single translation
   const regenerateTranslation = async (language: string, gender: 'male' | 'female') => {
     if (!currentDescription.trim()) {
@@ -2417,6 +2473,13 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               currentDescription,
               setCurrentDescription,
               originalDescription,
+              currentName,
+              setCurrentName,
+              originalName,
+              isSavingName,
+              isTranslatingName,
+              translateName,
+              savePoiName,
               generationLanguage,
               setGenerationLanguage,
               verificationResult,
