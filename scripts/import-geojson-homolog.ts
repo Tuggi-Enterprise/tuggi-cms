@@ -158,6 +158,7 @@ async function main() {
       const loc = normalizeLocation(
         countryParam || props['addr:country'] || 'Thailand',
         stateParam || props['addr:state'] || null,
+        props['addr:city'] || null,
       )
 
       // Map properties to homolog.pois schema

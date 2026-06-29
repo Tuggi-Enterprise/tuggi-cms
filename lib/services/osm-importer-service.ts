@@ -41,6 +41,7 @@ export class OSMImporterService {
     const { country, state } = normalizeLocation(
       tags['addr:country'] || tags['is_in:country'] || null,
       tags['addr:state'] || tags['is_in:state'] || tags['addr:province'] || null,
+      tags['addr:city'] || tags['is_in:city'] || tags['addr:suburb'] || null,
     )
 
     const result = {

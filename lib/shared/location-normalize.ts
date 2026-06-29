@@ -293,7 +293,15 @@ const PORTUGAL: Record<string, string> = {
   evora: 'Évora', setubal: 'Setúbal', 'viana do castelo': 'Viana do Castelo', braganca: 'Bragança',
 }
 
-const CANADA: Record<string, string> = { quebec: 'Québec' }
+const CANADA: Record<string, string> = {
+  on: 'Ontario', qc: 'Québec', pq: 'Québec', quebec: 'Québec', 'province of quebec': 'Québec',
+  bc: 'British Columbia', ab: 'Alberta', mb: 'Manitoba', sk: 'Saskatchewan',
+  ns: 'Nova Scotia', nb: 'New Brunswick',
+  nl: 'Newfoundland and Labrador', nf: 'Newfoundland and Labrador',
+  newfoundland: 'Newfoundland and Labrador', 'newfoundland & labrador': 'Newfoundland and Labrador',
+  pe: 'Prince Edward Island', pei: 'Prince Edward Island',
+  nt: 'Northwest Territories', yt: 'Yukon', yk: 'Yukon', nu: 'Nunavut',
+}
 
 const URUGUAY: Record<string, string> = {
   paysandu: 'Paysandú', tacuarembo: 'Tacuarembó', 'rio negro': 'Río Negro', 'san jose': 'San José',
@@ -500,6 +508,7 @@ function stripAdminPrefix(s: string): string {
 export function normalizeState(
   rawCountry: string | null | undefined,
   rawState: string | null | undefined,
+  rawCity?: string | null | undefined,
 ): string | null {
   if (rawState == null) return null
   let s = String(rawState).replace(/[\r\n]+/g, ' ').trim()
@@ -513,6 +522,10 @@ export function normalizeState(
   // province legitimately equals the country name and must NOT be dropped.
   if (map && map[sl]) return map[sl]
 
+  // City-dependent countries get full control (nation/province → council/county).
+  if (country === 'Ireland') return normalizeIreland(s, rawCity)
+  if (country === 'United Kingdom') return normalizeUK(s, rawCity)
+
   // Meta-regions / state==country / purely-numeric junk (postal codes) → drop.
   if (META_REGION_SLUGS.has(sl)) return null
   if (country && sl === slug(country)) return null
@@ -524,6 +537,11 @@ export function normalizeState(
   if (country === 'United States') {
     if (US_STATES[sl]) return US_STATES[sl]
     return s // already a full name
+  }
+
+  if (country === 'Canada') {
+    if (/nunavut/i.test(s)) return 'Nunavut'          // "ᓄᓇᕗᑦ Nunavut" syllabics prefix
+    if (sl === 'mi') return null                       // US Michigan misclassified under Canada
   }
 
   // Venezuela: strip "Estado de…" then re-check the map.
@@ -582,13 +600,125 @@ function normalizeChile(raw: string): string | null {
   return CHILE[slug(core)] ?? CHILE[slug(raw)] ?? core.trim() ?? null
 }
 
-/** Convenience: normalise both fields together. */
+/** Title-case for promoted city→region names (map matching is case-insensitive). */
+function titleCase(s: string): string {
+  return s.trim().toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase())
+}
+
+// ── IRELAND (batch 23) — county-level, city-aware Dublin/Tipperary splits ────
+const IRELAND_SIMPLE: Record<string, string> = {
+  laois: 'Laoighis', laoigh: 'Laoighis', laoighis: 'Laoighis', laoigis: 'Laoighis', laouis: 'Laoighis',
+  limerick: 'Limerick', 'limerick city': 'Limerick',
+  cork: 'Cork', 'cork city': 'Cork', galway: 'Galway', 'galway city': 'Galway',
+  waterford: 'Waterford', 'waterford city': 'Waterford',
+  'dun laoghaire-rathdown': 'Dún Laoghaire–Rathdown', 'dun laoghaire rathdown': 'Dún Laoghaire–Rathdown', dlr: 'Dún Laoghaire–Rathdown',
+}
+const TIPP_SOUTH = new Set(['clonmel', 'cahir', 'cashel', 'tipperary', 'carrick-on-suir', 'fethard', 'thurles', 'roscrea'])
+const DUB_FINGAL = new Set(['swords', 'balbriggan', 'malahide', 'donabate', 'rush', 'lusk', 'skerries', 'howth', 'blanchardstown', 'mulhuddart'])
+const DUB_DLR = new Set(['dun laoghaire', 'rathdown', 'blackrock', 'stillorgan', 'dundrum', 'glenageary', 'dalkey', 'killiney', 'foxrock'])
+const DUB_SOUTH = new Set(['tallaght', 'clondalkin', 'lucan', 'rathcoole', 'saggart', 'newcastle', 'clonskeagh', 'terenure', 'rathfarnham'])
+
+function normalizeIreland(state: string, city?: string | null): string | null {
+  const bare = state.replace(/^(County|Co\.?)\s+/i, '').trim()
+  const sl = slug(bare)
+  const cl = slug(city)
+  if (sl === 'tipperary') return TIPP_SOUTH.has(cl) ? 'South Tipperary' : 'North Tipperary'
+  if (sl === 'dublin' || sl === 'dublin city') {
+    if (DUB_FINGAL.has(cl)) return 'Fingal'
+    if (DUB_DLR.has(cl)) return 'Dún Laoghaire–Rathdown'
+    if (DUB_SOUTH.has(cl)) return 'South Dublin'
+    return 'Dublin'
+  }
+  return IRELAND_SIMPLE[sl] ?? bare.trim() ?? null
+}
+
+// ── UNITED KINGDOM (batch 24) — promote city→council; nation-level → null ────
+const UK_NATIONS = new Set(['england', 'scotland', 'wales', 'northern ireland', 'great britain', 'gb', 'uk', 'britain'])
+const UK_COUNCILS = new Set([
+  // Scotland
+  'aberdeen', 'aberdeenshire', 'angus', 'argyll and bute', 'clackmannanshire', 'dumfries and galloway',
+  'dundee', 'east ayrshire', 'east dunbartonshire', 'east lothian', 'east renfrewshire', 'edinburgh',
+  'eilean siar', 'falkirk', 'fife', 'glasgow', 'highland', 'inverclyde', 'midlothian', 'moray',
+  'north ayrshire', 'north lanarkshire', 'orkney', 'renfrewshire', 'scottish borders', 'shetland islands',
+  'south ayrshire', 'south lanarkshire', 'stirling', 'west dunbartonshire', 'west lothian', 'perthshire and kinross',
+  // Wales
+  'anglesey', 'blaenau gwent', 'bridgend', 'caerphilly', 'cardiff', 'carmarthenshire', 'ceredigion', 'conwy',
+  'denbighshire', 'flintshire', 'gwynedd', 'merthyr tydfil', 'monmouthshire', 'neath port talbot', 'newport',
+  'pembrokeshire', 'powys', 'rhondda cynon taff', 'swansea', 'torfaen', 'vale of glamorgan', 'wrexham',
+  // Northern Ireland
+  'antrim', 'ards', 'armagh', 'ballymena', 'ballymoney', 'banbridge', 'belfast', 'carrickfergus', 'castlereagh',
+  'coleraine', 'craigavon', 'derry', 'down', 'dungannon', 'fermanagh', 'larne', 'limavady', 'lisburn',
+  'magherafelt', 'moyle', 'newry and mourne', 'newtownabbey', 'north down', 'omagh', 'strabane', 'mid ulster',
+  // England
+  'barnsley', 'bath and north east somerset', 'bedford', 'birmingham', 'blackburn with darwen', 'blackpool',
+  'bolton', 'bournemouth', 'bracknell forest', 'bradford', 'brighton and hove', 'bristol', 'buckinghamshire',
+  'bury', 'calderdale', 'cambridgeshire', 'cheshire east', 'cheshire west and chester', 'cornwall', 'coventry',
+  'cumbria', 'darlington', 'derby', 'derbyshire', 'devon', 'doncaster', 'dorset', 'dudley', 'durham',
+  'east riding of yorkshire', 'east sussex', 'essex', 'gateshead', 'gloucestershire', 'hampshire', 'hartlepool',
+  'herefordshire', 'hertfordshire', 'isle of wight', 'isles of scilly', 'kent', 'kirklees', 'knowsley',
+  'lancashire', 'leeds', 'leicester', 'leicestershire', 'lincolnshire', 'liverpool', 'luton', 'manchester',
+  'medway', 'merseyside', 'middlesbrough', 'milton keynes', 'newcastle upon tyne', 'norfolk',
+  'north east lincolnshire', 'north lincolnshire', 'north somerset', 'north tyneside', 'north yorkshire',
+  'northamptonshire', 'northumberland', 'nottingham', 'nottinghamshire', 'oldham', 'oxfordshire', 'peterborough',
+  'plymouth', 'poole', 'portsmouth', 'reading', 'redcar and cleveland', 'rochdale', 'rotherham', 'rutland',
+  'salford', 'sandwell', 'sefton', 'sheffield', 'shropshire', 'slough', 'solihull', 'somerset',
+  'south gloucestershire', 'south tyneside', 'southampton', 'southend-on-sea', 'staffordshire', 'stockport',
+  'stockton-on-tees', 'stoke-on-trent', 'suffolk', 'sunderland', 'surrey', 'swindon', 'tameside',
+  'telford and wrekin', 'thurrock', 'torbay', 'trafford', 'wakefield', 'walsall', 'warrington', 'warwickshire',
+  'west berkshire', 'west sussex', 'wigan', 'wiltshire', 'wokingham', 'wolverhampton', 'worcestershire', 'york',
+])
+const LONDON_BOROUGHS = new Set([
+  'barking and dagenham', 'barnet', 'bexley', 'brent', 'bromley', 'camden', 'croydon', 'ealing', 'enfield',
+  'greenwich', 'hackney', 'hammersmith and fulham', 'haringey', 'harrow', 'havering', 'hillingdon', 'hounslow',
+  'islington', 'kensington and chelsea', 'kingston upon thames', 'lambeth', 'lewisham', 'merton', 'newham',
+  'redbridge', 'richmond upon thames', 'southwark', 'sutton', 'tower hamlets', 'waltham forest', 'wandsworth', 'westminster',
+])
+const YORK_NORTH = new Set(['york', 'harrogate', 'scarborough', 'northallerton', 'richmond', 'skipton', 'thirsk', 'pickering', 'whitby', 'ripon', 'knaresborough', 'boroughbridge', 'settle'])
+const YORK_EAST = new Set(['beverley', 'hull', 'bridlington', 'hornsea', 'driffield', 'goole', 'market weighton', 'pocklington'])
+const YORK_WEST = new Set(['leeds', 'bradford', 'wakefield', 'huddersfield', 'halifax', 'dewsbury', 'batley', 'morley', 'keighley', 'castleford', 'pontefract'])
+
+function normalizeUK(state: string, city?: string | null): string | null {
+  const sl = slug(state)
+  const cl = slug(city)
+  // City→council special remaps (city name ≠ council name)
+  if (cl === 'perth' && (sl === 'scotland' || sl === 'perth' || sl === 'perth and kinross' || sl === 'perthshire and kinross')) return 'Perthshire and Kinross'
+  if (['inverness', 'fort william', 'aviemore', 'nairn'].includes(cl) && (sl === 'scotland' || sl === 'highland' || sl === 'highlands')) return 'Highland'
+  if (['paisley', 'renfrew', 'johnstone'].includes(cl) && (sl === 'scotland' || sl === 'renfrewshire')) return 'Renfrewshire'
+  if (['st andrews', 'saint andrews', 'kirkcaldy', 'dunfermline', 'glenrothes'].includes(cl) && (sl === 'scotland' || sl === 'fife')) return 'Fife'
+  if (sl === 'hull' || sl === 'kingston upon hull') return 'Kingston upon Hull'
+  if (['newcastle', 'newcastle upon tyne'].includes(sl) && ['newcastle', 'newcastle upon tyne', 'gosforth', 'jesmond', 'byker', 'walker'].includes(cl)) return 'Newcastle upon Tyne'
+  // Yorkshire → riding by city
+  if (['yorkshire', 'yorks', 'north yorkshire', 'north yorks', 'east riding of yorkshire', 'east yorkshire', 'east riding', 'west yorkshire'].includes(sl)) {
+    if (YORK_EAST.has(cl)) return 'East Riding of Yorkshire'
+    if (YORK_WEST.has(cl)) return 'West Yorkshire'
+    if (sl === 'west yorkshire') return 'West Yorkshire'
+    if (sl === 'east riding of yorkshire' || sl === 'east yorkshire' || sl === 'east riding') return 'East Riding of Yorkshire'
+    return 'North Yorkshire' // North list + default
+  }
+  // London boroughs (city = borough name)
+  if ((sl === 'london' || sl === 'greater london' || sl === 'england') && LONDON_BOROUGHS.has(cl)) return titleCase(city!)
+  if ((sl === 'london' || sl === 'greater london') && cl === 'london') return 'Westminster'
+  // Nation-level: promote city→council if recognised; else KEEP the nation
+  // (England/Scotland/Wales/NI) so it stays a useful filter. gb/uk/britain noise → null.
+  if (UK_NATIONS.has(sl)) {
+    if (UK_COUNCILS.has(cl)) return titleCase(city!)
+    return UK_NATION_NAMES[sl] ?? null
+  }
+  return state.trim() || null // already a council
+}
+const UK_NATION_NAMES: Record<string, string> = {
+  england: 'England', scotland: 'Scotland', wales: 'Wales', 'northern ireland': 'Northern Ireland',
+}
+
+/** Convenience: normalise both fields together. `city` helps city-dependent
+ *  countries (UK/Ireland) resolve nation/province → council/county. */
 export function normalizeLocation(
   country: string | null | undefined,
   state: string | null | undefined,
+  city?: string | null | undefined,
 ): { country: string | null; state: string | null } {
   let c = normalizeCountry(country)
-  let s = normalizeState(country, state)
+  let s = normalizeState(country, state, city)
   // French Guiana POIs are sometimes filed under France (state "Guyane").
   // Reclassify to the standalone territory — matches the existing DB convention
   // (country "French Guiana", state "Guyane").

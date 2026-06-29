@@ -201,11 +201,12 @@ export class POIImportService {
 
       // Extract address parts, then canonicalise country/state at the door (SSOT).
       const addressParts = placeDetails.formatted_address.split(', ')
+      const city = addressParts.length > 3 ? addressParts[addressParts.length - 3] : addressParts[0]
       const { country, state } = normalizeLocation(
         addressParts[addressParts.length - 1],
         addressParts.length > 2 ? addressParts[addressParts.length - 2] : null,
+        city,
       )
-      const city = addressParts.length > 3 ? addressParts[addressParts.length - 3] : addressParts[0]
 
       // Prepare attraction data matching new schema
       const attractionData = {

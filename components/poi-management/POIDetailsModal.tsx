@@ -1249,7 +1249,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
       // Canonicalise country/state on save (SSOT) so manual edits in the free-text
       // fields never re-introduce variants ("Brasil", "Lombardia", "CA"…).
-      const loc = normalizeLocation(editedPoi.country, editedPoi.state)
+      const loc = normalizeLocation(editedPoi.country, editedPoi.state, editedPoi.city)
       const editedPoiNormalized = { ...editedPoi, country: loc.country ?? editedPoi.country, state: loc.state }
 
       await poiMutations.savePoiChanges(currentPoi, editedPoiNormalized, referenceLinks)

@@ -259,7 +259,7 @@ export class MigrationService {
     // Canonicalise country/state (SSOT) on the homolog→core hop — this is the
     // bulk migration path, so the raw OSM/Nominatim values (ISO codes, "X
     // Department" suffixes) get normalised here instead of drifting into core.
-    const loc = normalizeLocation(poi.country || 'Brazil', poi.state)
+    const loc = normalizeLocation(poi.country || 'Brazil', poi.state, poi.city)
 
     const mapped: any = {
       // Use same UUID from homolog

@@ -48,7 +48,7 @@ export class POICreationService {
     try {
       // Canonicalise country/state (SSOT) — the upstream reverse-geocode returns
       // raw Nominatim values (local names, "X Province" suffixes).
-      const loc = normalizeLocation(data.country, data.state)
+      const loc = normalizeLocation(data.country, data.state, data.city)
 
       // Step 1: Create attraction
       const { data: attraction, error: attractionError } = await supabase
