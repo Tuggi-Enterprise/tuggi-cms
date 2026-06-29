@@ -89,7 +89,13 @@ export const generateMasterPack = async (
 ): Promise<MasterPackResult> => {
 
     const audioTarget = `${audioDuration}s`;
-    const maxChars = Math.floor(audioDuration * 18);
+    // Caracteres por segundo de fala variam MUITO por script: no latino/cirílico
+    // ~18 chars/s, mas em CJK (ja/ko/zh) cada caractere carrega uma sílaba/palavra,
+    // então ~18 geraria áudio 2–3x mais longo que o alvo. Alvo de chars por script.
+    const lc = language.toLowerCase();
+    const isCJK = /^(ja|ko|zh|cmn|yue)(-|$)/.test(lc);
+    const charsPerSecond = isCJK ? 7 : 18;
+    const maxChars = Math.floor(audioDuration * charsPerSecond);
     const langName = getLanguageName(language);
 
     const isComplex = memberPois && memberPois.length > 0;

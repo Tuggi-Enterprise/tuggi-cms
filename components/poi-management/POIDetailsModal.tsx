@@ -1918,8 +1918,10 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           'fr-fr': 'French',
           'it-it': 'Italian',
           'ja-jp': 'Japanese',
-          'cmn-cn': 'Chinese',
+          'cmn-cn': 'Mandarin (Simplified)',
+          'zh-tw': 'Mandarin (Traditional)',
           'ko-kr': 'Korean',
+          'ru-ru': 'Russian',
         }[langCode] || langCode.toUpperCase()
 
         setAudioProgress({

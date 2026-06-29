@@ -74,6 +74,11 @@ export function DescriptionTab() {
                             { code: 'fr-fr', label: 'French (FR)' },
                             { code: 'de-de', label: 'German (DE)' },
                             { code: 'it-it', label: 'Italian (IT)' },
+                            { code: 'ja-jp', label: 'Japanese (JP)' },
+                            { code: 'ko-kr', label: 'Korean (KR)' },
+                            { code: 'cmn-cn', label: 'Mandarin (Simplified)' },
+                            { code: 'zh-tw', label: 'Mandarin (Traditional)' },
+                            { code: 'ru-ru', label: 'Russian (RU)' },
                           ].map((lang) => (
                             <button
                               key={lang.code}

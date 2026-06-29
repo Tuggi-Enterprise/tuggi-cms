@@ -144,7 +144,8 @@ export function NarrationAudioTab() {
                             { code: 'fr-fr', name: 'French', flag: '🇫🇷' },
                             { code: 'it-it', name: 'Italian', flag: '🇮🇹' },
                             { code: 'ja-jp', name: 'Japanese', flag: '🇯🇵' },
-                            { code: 'cmn-cn', name: 'Mandarin', flag: '🇨🇳' },
+                            { code: 'cmn-cn', name: 'Mandarin', sub: 'Simplified', flag: '🇨🇳' },
+                            { code: 'zh-tw', name: 'Mandarin', sub: 'Traditional', flag: '🇹🇼' },
                             { code: 'ko-kr', name: 'Korean', flag: '🇰🇷' },
                             { code: 'ru-ru', name: 'Russian', flag: '🇷🇺' },
                           ].map((lang) => (
