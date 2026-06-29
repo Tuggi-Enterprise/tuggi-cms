@@ -53,7 +53,7 @@ export function Header({ className }: { className?: string }) {
 
   const navigation = [
     { name: t('overview'), href: '/dashboard', icon: LayoutDashboard, category: 'main' },
-    { name: t('realtime'), href: '/dashboard/realtime', icon: Activity, category: 'main' },
+    { name: t('realtime'), href: '/dashboard/realtime', icon: Activity, category: 'reports' },
     { name: t('pois'), href: '/pois', icon: MapPin, category: 'pois' },
     { name: t('custom_routes'), href: '/routes', icon: Route, category: 'pois' },
     { name: t('catalog'), href: '/dashboard/reports/catalog', icon: Database, category: 'reports' },
@@ -237,7 +237,7 @@ export function Header({ className }: { className?: string }) {
         {isMobileMenuOpen && (
           <div className="lg:hidden border-t border-tuggi-border/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm animate-in slide-in-from-top-2 duration-300">
             <nav className="px-2 pt-2 pb-3 space-y-4">
-              {['dashboard', 'pois', 'poi_management', 'users', 'admin', 'marketing'].map(cat => {
+              {['dashboard', 'reports', 'pois', 'poi_management', 'users', 'admin', 'marketing'].map(cat => {
                 if (cat === 'admin' && !isAdmin) return null
                 if (cat === 'marketing' && (!isAdmin || !isMarketingEnabled())) return null
                 return (
