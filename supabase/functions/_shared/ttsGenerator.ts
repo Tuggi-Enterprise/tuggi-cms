@@ -119,11 +119,21 @@ export const generateAudioWithTTS = async (
       ssmlGender: gender.toUpperCase(),
     },
     audioConfig: {
+      // MP3 (32kbps fixo no Google — MP3_64_KBPS não existe no enum v1). Tocável
+      // nativamente em iOS+Android. (Bitrate maior só via OGG_OPUS/LINEAR16 — ver nota.)
       audioEncoding: 'MP3',
-      speakingRate: 1.2,
-      volumeGainDb: 4.0,
-      // Leaving sampleRateHertz empty allows Google to use the highest native rate 
-      // supported by the voice and output format (max 24k for MP3 Neural2)
+      // 1.1 (não 1.2): um pouco mais lento = mais claro (idosos/não-nativos/CJK).
+      speakingRate: 1.1,
+      // ⚠️ volumeGainDb é IGNORADO quando há effectsProfileId — o perfil normaliza
+      // a saída (medido: ganho 0 == ganho +8 com o perfil; pico −2 dBFS / RMS −19).
+      // Mantido 0 por honestidade. Pra ficar MAIS alto precisaria normalização LUFS
+      // pós-processo (~-16), não dá pra fazer pelo volumeGainDb com o perfil ligado.
+      volumeGainDb: 0.0,
+      // Perfil automotivo (Tuggi = guia de carro): EQ/dinâmica p/ som de carro e
+      // normaliza a loudness pra um nível consistente. Confirmado: "Car speakers".
+      effectsProfileId: ['large-automotive-class-device'],
+      // sampleRateHertz omitido de propósito → rate NATIVO da voz (24kHz), o ótimo.
+      // Setar Hz só converteria e pioraria (doc do Google).
     },
   };
 
