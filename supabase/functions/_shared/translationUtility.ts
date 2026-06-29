@@ -25,7 +25,6 @@ export const getLanguageName = (code: string): string => {
         'ja-jp': 'Japanese (Japanese script: kanji/kana)',
         'ko-kr': 'Korean (Hangul script)',
         'zh-cn': 'Chinese (Mandarin, Simplified script)',
-        'zh-tw': 'Chinese (Mandarin, Traditional script)',
         'cmn-cn': 'Chinese (Mandarin, Simplified script)',
         'ru-ru': 'Russian (Cyrillic script)',
         'th-th': 'Thai (Thai script)',

@@ -76,8 +76,7 @@ export function DescriptionTab() {
                             { code: 'it-it', label: 'Italian (IT)' },
                             { code: 'ja-jp', label: 'Japanese (JP)' },
                             { code: 'ko-kr', label: 'Korean (KR)' },
-                            { code: 'cmn-cn', label: 'Mandarin (Simplified)' },
-                            { code: 'zh-tw', label: 'Mandarin (Traditional)' },
+                            { code: 'cmn-cn', label: 'Mandarin (CN)' },
                             { code: 'ru-ru', label: 'Russian (RU)' },
                           ].map((lang) => (
                             <button

@@ -87,8 +87,7 @@ const LANGUAGES = [
   { code: 'fr-fr', label: 'Français', flag: '🇫🇷' },
   { code: 'it-it', label: 'Italiano', flag: '🇮🇹' },
   { code: 'ja-jp', label: '日本語', flag: '🇯🇵' },
-  { code: 'zh-cn', label: '中文 (简体)', flag: '🇨🇳' },
-  { code: 'zh-tw', label: '中文 (繁體)', flag: '🇹🇼' },
+  { code: 'cmn-cn', label: '中文', flag: '🇨🇳' },
   { code: 'ko-kr', label: '한국어', flag: '🇰🇷' },
   { code: 'ru-ru', label: 'Русский', flag: '🇷🇺' }
 ]

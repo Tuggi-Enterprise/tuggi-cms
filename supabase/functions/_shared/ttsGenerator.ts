@@ -36,14 +36,12 @@ export const getVoiceConfig = (language: string, gender: 'male' | 'female') => {
     'ja': { male: 'ja-JP-Neural2-C', female: 'ja-JP-Neural2-B', languageCode: 'ja-JP' },
     'ja-jp': { male: 'ja-JP-Neural2-C', female: 'ja-JP-Neural2-B', languageCode: 'ja-JP' },
     
-    // Chinese (Mandarin) — Simplified (cmn-CN, Neural2)
-    'zh': { male: 'cmn-CN-Neural2-C', female: 'cmn-CN-Neural2-A', languageCode: 'cmn-CN' },
-    'cmn-cn': { male: 'cmn-CN-Neural2-C', female: 'cmn-CN-Neural2-A', languageCode: 'cmn-CN' },
-    'zh-cn': { male: 'cmn-CN-Neural2-C', female: 'cmn-CN-Neural2-A', languageCode: 'cmn-CN' },
-    // Chinese (Mandarin) — Traditional / Taiwan (cmn-TW só tem Standard/WaveNet, sem
-    // Neural2). WaveNet aceita SSML, entra no caminho atual. Antes caía em voz inglesa.
-    'zh-tw': { male: 'cmn-TW-Wavenet-B', female: 'cmn-TW-Wavenet-A', languageCode: 'cmn-TW' },
-    'cmn-tw': { male: 'cmn-TW-Wavenet-B', female: 'cmn-TW-Wavenet-A', languageCode: 'cmn-TW' },
+    // Chinese (Mandarin) — Simplified (cmn-CN). ⚠️ cmn-CN NÃO tem Neural2 no Google
+    // (só Standard/WaveNet) — o antigo cmn-CN-Neural2-C dava 400 "voice does not exist".
+    // WaveNet existe e aceita SSML.
+    'zh': { male: 'cmn-CN-Wavenet-B', female: 'cmn-CN-Wavenet-A', languageCode: 'cmn-CN' },
+    'cmn-cn': { male: 'cmn-CN-Wavenet-B', female: 'cmn-CN-Wavenet-A', languageCode: 'cmn-CN' },
+    'zh-cn': { male: 'cmn-CN-Wavenet-B', female: 'cmn-CN-Wavenet-A', languageCode: 'cmn-CN' },
     
     // Korean
     'ko': { male: 'ko-KR-Neural2-C', female: 'ko-KR-Neural2-A', languageCode: 'ko-KR' },
