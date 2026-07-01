@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
             score_factors: tp.score_factors || null,
             generation_method: tp.generation_method,
             validation_notes: tp.validation_notes,
-            access: tp.access || 'both'
+            access: tp.access || 'car'
           }))
 
           const { TriggerPointSavingService } = await import('@/lib/services/trigger-point-saving')
@@ -341,7 +341,7 @@ export async function POST(request: NextRequest) {
           type: tp.type,
           priority: tp.priority || 1,
           is_active: true,
-          access: 'both' as 'walk' | 'car' | 'both',
+          access: 'car' as 'walk' | 'car' | 'both',
           confidence: tp.confidence || 0.5,
           generation_method: tp.generationMethod || 'local_osm',
           geometry_geojson: tp.geometryGeoJson || null,

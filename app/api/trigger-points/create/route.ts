@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       type = 'primary',
       priority = 1,
       is_active = true,
-      access = 'both',
+      access = 'car',
       custom_description_id
     } = body
 

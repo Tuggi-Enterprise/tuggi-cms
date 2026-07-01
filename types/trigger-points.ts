@@ -180,7 +180,8 @@ export const DEFAULT_TRIGGER_POINT: TriggerPointFormData = {
   priority: 1,
   custom_description_id: null,
   is_active: true,
-  direction: null
+  direction: null,
+  access: 'car'
 }
 
 export const TRIGGER_POINT_CONSTRAINTS = {

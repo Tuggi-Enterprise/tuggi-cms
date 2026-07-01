@@ -441,7 +441,7 @@ export function TriggerPointsManager({
             priority: formData.priority,
             is_active: formData.is_active,
             direction: formData.direction,
-            access: 'both',
+            access: formData.access ?? 'car',
             name: `Manual - ${formData.type}`,
             description: `Manually updated trigger point by ${user?.email || 'unknown user'}`
           })
@@ -476,7 +476,7 @@ export function TriggerPointsManager({
             priority: formData.priority,
             is_active: formData.is_active,
             direction: formData.direction,
-            access: 'both',
+            access: formData.access ?? 'car',
             name: `Manual - ${formData.type}`,
             description: `Manually created trigger point by ${user?.email || 'unknown user'}`
           })
@@ -895,9 +895,22 @@ export function TriggerPointsManager({
                     </select>
                   </div>
                 </div>
-  
 
-  
+                {/* Access mode: quando o TP dispara (drive-only vs walk+drive) */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    {t('labels.access', 'Modo')}
+                  </label>
+                  <select
+                    value={formData.access || 'car'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, access: e.target.value as 'car' | 'both' }))}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                  >
+                    <option value="car">🚗 Sobre rodas (drive)</option>
+                    <option value="both">🚶🚗 A pé + Sobre rodas (both)</option>
+                  </select>
+                </div>
+
                 {/* Bearing (Collapsible) */}
                 <div>
                   <button
