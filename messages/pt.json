@@ -905,7 +905,85 @@
       "errorBody": "Não foi possível processar o cancelamento. O link pode ter expirado."
     }
   },
+  "EventManagement": {
+    "title": "Eventos",
+    "subtitle": "Gerencie eventos que acontecem nos locais",
+    "new_event": "Novo Evento",
+    "search_placeholder": "Buscar eventos...",
+    "count": "{count} eventos",
+    "filters": {
+      "title": "Filtros",
+      "status_all": "Todos os status",
+      "status_approved": "Aprovados",
+      "status_pending": "Pendentes",
+      "time_all": "Todas as datas",
+      "time_upcoming": "Próximos",
+      "time_past": "Passados"
+    },
+    "stats": { "total": "Total", "upcoming": "Próximos", "approved": "Aprovados", "pending": "Pendentes" },
+    "columns": { "name": "Nome", "when": "Quando", "location": "Local", "status": "Status", "content": "Conteúdo" },
+    "badges": { "approved": "Aprovado", "pending": "Pendente" },
+    "content_summary": "{desc} desc · {tp} TP",
+    "empty": "Nenhum evento encontrado."
+  },
+  "PlaceManagement": {
+    "title": "Locais",
+    "subtitle": "Gerencie comércios, restaurantes, hotéis e serviços",
+    "new_place": "Novo Local",
+    "search_placeholder": "Buscar locais...",
+    "count": "{count} locais",
+    "filters": {
+      "title": "Filtros",
+      "status_all": "Todos os status",
+      "status_approved": "Aprovados",
+      "status_pending": "Pendentes"
+    },
+    "stats": { "total": "Total", "with_hours": "Com horário", "approved": "Aprovados", "pending": "Pendentes" },
+    "columns": { "name": "Nome", "type": "Tipo", "location": "Local", "status": "Status", "content": "Conteúdo" },
+    "badges": { "approved": "Aprovado", "pending": "Pendente", "hours": "horário" },
+    "content_summary": "{desc} desc · {tp} TP",
+    "empty": "Nenhum local encontrado."
+  },
   "Modals": {
+    "EventDetails": {
+      "title_new": "Novo Evento",
+      "title_edit": "Editar Evento",
+      "sections": { "identity": "Identidade", "schedule": "Agenda", "tickets": "Ingressos e Organizador", "publish": "Publicação" },
+      "labels": {
+        "name": "Nome", "country": "País", "state": "Estado", "city": "Cidade",
+        "latitude": "Latitude", "longitude": "Longitude",
+        "starts_at": "Início", "ends_at": "Fim", "timezone": "Fuso horário", "all_day": "Dia inteiro",
+        "status": "Status", "category": "Categoria", "tags": "Tags",
+        "is_free": "Entrada gratuita", "price_min": "Preço mín.", "price_max": "Preço máx.",
+        "capacity": "Capacidade", "age_restriction": "Faixa etária",
+        "organizer_name": "Organizador", "organizer_url": "URL do organizador",
+        "ticket_url": "URL de ingressos", "poster_url": "URL do cartaz",
+        "approved": "Aprovado", "active": "Ativo", "priority": "Prioridade"
+      },
+      "tags_hint": "separadas por vírgula",
+      "reused_note": "Boundary, Trigger Points e Descrição/Áudio reusam os editores de POI (por attraction_id) — a plugar em seguida.",
+      "validation_required": "Nome, cidade, país e data de início são obrigatórios.",
+      "error_save": "Falha ao salvar o evento"
+    },
+    "PlaceDetails": {
+      "title_new": "Novo Local",
+      "title_edit": "Editar Local",
+      "sections": { "identity": "Identidade", "commerce": "Comércio", "amenities": "Comodidades", "publish": "Publicação" },
+      "labels": {
+        "name": "Nome", "country": "País", "state": "Estado", "city": "Cidade",
+        "latitude": "Latitude", "longitude": "Longitude", "type": "Tipo",
+        "price_range": "Faixa de preço", "cuisine": "Culinária",
+        "reservation_url": "URL de reserva", "menu_url": "URL do cardápio",
+        "delivery_url": "URL de delivery", "order_online_url": "URL de pedido online",
+        "tags": "Tags", "approved": "Aprovado", "active": "Ativo", "priority": "Prioridade"
+      },
+      "amenities": { "wifi": "Wi-Fi", "outdoor": "Mesas ao ar livre", "delivery": "Delivery", "takeaway": "Para viagem", "alcohol": "Serve álcool", "reservations": "Reservas" },
+      "tags_hint": "separadas por vírgula",
+      "cuisine_hint": "separadas por vírgula",
+      "reused_note": "Horário, acessibilidade, boundary, trigger points e descrição/áudio reusam os editores de POI (por attraction_id) — a plugar em seguida.",
+      "validation_required": "Nome, cidade e país são obrigatórios.",
+      "error_save": "Falha ao salvar o local"
+    },
     "POIDetails": {
       "tabs": {
         "create": "Criar",

@@ -5,12 +5,14 @@
  * (core.attractions base + core.event_details). Localização/boundary, trigger
  * points e descrições+áudio reusam os satélites de attractions via attraction_id;
  * o wiring dessas abas reaproveita os componentes de POI (POIModalContext) e é a
- * próxima sub-tarefa — o seam está marcado abaixo em "Reused POI tabs".
+ * próxima sub-tarefa — o seam está marcado abaixo em "reused_note".
  */
 import { useEffect, useState } from 'react'
-import { X, Save, Loader2 } from 'lucide-react'
+import { useTranslations } from 'next-intl'
+import { CalendarDays, X, Save, Loader2, Info, CalendarClock, Ticket, Send } from 'lucide-react'
 import { eventService } from '@/lib/core/event-service'
 import { useEventDetails } from '@/lib/hooks/use-events'
+import { cn } from '@/lib/utils'
 
 interface EventFormModalProps {
   eventId?: string | null // null/undefined => create mode
@@ -22,11 +24,15 @@ interface EventFormModalProps {
 const EVENT_STATUSES = ['scheduled', 'rescheduled', 'cancelled', 'postponed', 'sold_out', 'completed']
 const EVENT_CATEGORIES = ['music', 'sports', 'festival', 'theatre', 'conference', 'fair', 'other']
 
+const fieldLabel = 'block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1'
+const fieldInput = 'w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent rounded-xl focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white font-medium outline-none'
+const sectionCard = 'bg-white dark:bg-gray-800/40 rounded-2xl p-6 border border-gray-100 dark:border-gray-700/50 shadow-sm'
+const sectionTitle = 'text-xs font-black text-gray-400 uppercase tracking-widest mb-5 flex items-center gap-2'
+
 function toDatetimeLocal(iso?: string | null): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
-  // yyyy-MM-ddThh:mm in local time
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
@@ -37,6 +43,8 @@ function fromDatetimeLocal(val: string): string | null {
 }
 
 export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormModalProps) {
+  const t = useTranslations('Modals.EventDetails')
+  const tc = useTranslations('Common')
   const isEdit = !!eventId
   const { data: details, isLoading: loadingDetails, refetch } = useEventDetails(eventId ?? null, isOpen && isEdit)
 
@@ -44,7 +52,6 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Hydrate the form when a detail row loads (edit) or reset (create).
   useEffect(() => {
     if (!isOpen) return
     if (isEdit && details) {
@@ -94,7 +101,7 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
     try {
       if (!isEdit) {
         if (!form.name || !form.city || !form.country || !form.starts_at) {
-          throw new Error('Name, city, country and start date are required')
+          throw new Error(t('validation_required'))
         }
         const id = await eventService.create({
           name: form.name,
@@ -113,7 +120,6 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
         return
       }
 
-      // Edit: split the patch across the two tables.
       await eventService.updateAttraction(eventId as string, {
         name: form.name,
         city: form.city,
@@ -130,7 +136,7 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
         all_day: !!form.all_day,
         status: form.status,
         event_category: form.event_category || null,
-        tags: String(form.tags || '').split(',').map((t: string) => t.trim()).filter(Boolean),
+        tags: String(form.tags || '').split(',').map((s: string) => s.trim()).filter(Boolean),
         is_free: !!form.is_free,
         price_min: form.price_min === '' ? null : Number(form.price_min),
         price_max: form.price_max === '' ? null : Number(form.price_max),
@@ -146,188 +152,206 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
       onSaved?.(eventId as string)
       onClose()
     } catch (e: any) {
-      setError(e?.message || 'Failed to save event')
+      setError(e?.message || t('error_save'))
     } finally {
       setSaving(false)
     }
   }
 
-  const input = 'w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 focus:ring-2 focus:ring-tuggi-blue'
-  const label = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'
+  const L = (k: string) => t(`labels.${k}`)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white dark:bg-gray-950 rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-800">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-            {isEdit ? 'Edit Event' : 'New Event'}
-          </h2>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
-            <X className="w-5 h-5" />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-900 rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <header className="px-8 py-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-tuggi-blue/10 rounded-2xl"><CalendarDays className="h-6 w-6 text-tuggi-blue" /></div>
+            <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">
+              {isEdit ? t('title_edit') : t('title_new')}
+            </h2>
+          </div>
+          <button onClick={onClose} className="p-3 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5 rounded-2xl transition-all">
+            <X className="h-6 w-6" />
           </button>
-        </div>
+        </header>
 
-        <div className="p-5 space-y-4">
+        {/* Body */}
+        <div className="p-8 overflow-y-auto space-y-6">
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-sm">{error}</div>
           )}
+
           {isEdit && loadingDetails ? (
-            <div className="flex items-center justify-center py-12 text-gray-500">
-              <Loader2 className="w-6 h-6 animate-spin" />
-            </div>
+            <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-tuggi-blue" /></div>
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="md:col-span-2">
-                  <label className={label}>Name *</label>
-                  <input className={input} value={form.name || ''} onChange={(e) => set('name', e.target.value)} />
+              {/* Identity */}
+              <section className={sectionCard}>
+                <h4 className={sectionTitle}><Info className="h-4 w-4 text-tuggi-blue" />{t('sections.identity')}</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-3">
+                    <label className={fieldLabel}>{L('name')} *</label>
+                    <input className={fieldInput} value={form.name || ''} onChange={(e) => set('name', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className={fieldLabel}>{L('country')} *</label>
+                    <input className={fieldInput} value={form.country || ''} onChange={(e) => set('country', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className={fieldLabel}>{L('state')}</label>
+                    <input className={fieldInput} value={form.state || ''} onChange={(e) => set('state', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className={fieldLabel}>{L('city')} *</label>
+                    <input className={fieldInput} value={form.city || ''} onChange={(e) => set('city', e.target.value)} />
+                  </div>
+                  {!isEdit && (
+                    <>
+                      <div>
+                        <label className={fieldLabel}>{L('latitude')}</label>
+                        <input className={fieldInput} value={form.latitude || ''} onChange={(e) => set('latitude', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>{L('longitude')}</label>
+                        <input className={fieldInput} value={form.longitude || ''} onChange={(e) => set('longitude', e.target.value)} />
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div>
-                  <label className={label}>Country *</label>
-                  <input className={input} value={form.country || ''} onChange={(e) => set('country', e.target.value)} />
-                </div>
-                <div>
-                  <label className={label}>State</label>
-                  <input className={input} value={form.state || ''} onChange={(e) => set('state', e.target.value)} />
-                </div>
-                <div>
-                  <label className={label}>City *</label>
-                  <input className={input} value={form.city || ''} onChange={(e) => set('city', e.target.value)} />
-                </div>
-                {!isEdit && (
-                  <>
-                    <div>
-                      <label className={label}>Latitude</label>
-                      <input className={input} value={form.latitude || ''} onChange={(e) => set('latitude', e.target.value)} />
-                    </div>
-                    <div>
-                      <label className={label}>Longitude</label>
-                      <input className={input} value={form.longitude || ''} onChange={(e) => set('longitude', e.target.value)} />
-                    </div>
-                  </>
-                )}
-              </div>
+              </section>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-                <div>
-                  <label className={label}>Starts at *</label>
-                  <input type="datetime-local" className={input} value={form.starts_at || ''} onChange={(e) => set('starts_at', e.target.value)} />
+              {/* Schedule */}
+              <section className={sectionCard}>
+                <h4 className={sectionTitle}><CalendarClock className="h-4 w-4 text-tuggi-blue" />{t('sections.schedule')}</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className={fieldLabel}>{L('starts_at')} *</label>
+                    <input type="datetime-local" className={fieldInput} value={form.starts_at || ''} onChange={(e) => set('starts_at', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className={fieldLabel}>{L('ends_at')}</label>
+                    <input type="datetime-local" className={fieldInput} value={form.ends_at || ''} onChange={(e) => set('ends_at', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className={fieldLabel}>{L('timezone')}</label>
+                    <input className={fieldInput} value={form.timezone || ''} onChange={(e) => set('timezone', e.target.value)} />
+                  </div>
+                  <label className="flex items-center gap-2 mt-6 cursor-pointer">
+                    <input type="checkbox" checked={!!form.all_day} onChange={(e) => set('all_day', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('all_day')}</span>
+                  </label>
                 </div>
-                <div>
-                  <label className={label}>Ends at</label>
-                  <input type="datetime-local" className={input} value={form.ends_at || ''} onChange={(e) => set('ends_at', e.target.value)} />
-                </div>
-                <div>
-                  <label className={label}>Timezone (IANA)</label>
-                  <input className={input} value={form.timezone || ''} onChange={(e) => set('timezone', e.target.value)} />
-                </div>
-                <label className="flex items-center gap-2 mt-6 cursor-pointer">
-                  <input type="checkbox" checked={!!form.all_day} onChange={(e) => set('all_day', e.target.checked)} className="w-4 h-4" />
-                  <span className="text-sm">All day</span>
-                </label>
-              </div>
+              </section>
 
               {isEdit && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-                  <div>
-                    <label className={label}>Status</label>
-                    <select className={input} value={form.status || 'scheduled'} onChange={(e) => set('status', e.target.value)}>
-                      {EVENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className={label}>Category</label>
-                    <select className={input} value={form.event_category || ''} onChange={(e) => set('event_category', e.target.value)}>
-                      <option value="">—</option>
-                      {EVENT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className={label}>Tags (comma-separated)</label>
-                    <input className={input} value={form.tags || ''} onChange={(e) => set('tags', e.target.value)} />
-                  </div>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={!!form.is_free} onChange={(e) => set('is_free', e.target.checked)} className="w-4 h-4" />
-                    <span className="text-sm">Free entry</span>
-                  </label>
-                  <div />
-                  <div>
-                    <label className={label}>Price min</label>
-                    <input className={input} value={form.price_min ?? ''} onChange={(e) => set('price_min', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={label}>Price max</label>
-                    <input className={input} value={form.price_max ?? ''} onChange={(e) => set('price_max', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={label}>Capacity</label>
-                    <input className={input} value={form.capacity ?? ''} onChange={(e) => set('capacity', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={label}>Age restriction</label>
-                    <input className={input} value={form.age_restriction || ''} onChange={(e) => set('age_restriction', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={label}>Organizer name</label>
-                    <input className={input} value={form.organizer_name || ''} onChange={(e) => set('organizer_name', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={label}>Organizer URL</label>
-                    <input className={input} value={form.organizer_url || ''} onChange={(e) => set('organizer_url', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={label}>Ticket URL</label>
-                    <input className={input} value={form.ticket_url || ''} onChange={(e) => set('ticket_url', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={label}>Poster URL</label>
-                    <input className={input} value={form.poster_url || ''} onChange={(e) => set('poster_url', e.target.value)} />
-                  </div>
-
-                  <div className="md:col-span-2 flex flex-wrap gap-6 border-t border-gray-100 dark:border-gray-800 pt-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={!!form.approved} onChange={(e) => set('approved', e.target.checked)} className="w-4 h-4" />
-                      <span className="text-sm font-medium">Approved</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={!!form.is_active} onChange={(e) => set('is_active', e.target.checked)} className="w-4 h-4" />
-                      <span className="text-sm font-medium">Active</span>
-                    </label>
-                    <div>
-                      <span className="text-sm font-medium mr-2">Priority</span>
-                      <select value={form.priority_level ?? 3} onChange={(e) => set('priority_level', e.target.value)} className="px-2 py-1 border border-gray-300 dark:border-gray-700 rounded">
-                        <option value={1}>1</option>
-                        <option value={2}>2</option>
-                        <option value={3}>3</option>
-                      </select>
+                <>
+                  {/* Tickets & Organizer */}
+                  <section className={sectionCard}>
+                    <h4 className={sectionTitle}><Ticket className="h-4 w-4 text-tuggi-blue" />{t('sections.tickets')}</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className={fieldLabel}>{L('status')}</label>
+                        <select className={fieldInput} value={form.status || 'scheduled'} onChange={(e) => set('status', e.target.value)}>
+                          {EVENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>{L('category')}</label>
+                        <select className={fieldInput} value={form.event_category || ''} onChange={(e) => set('event_category', e.target.value)}>
+                          <option value="">—</option>
+                          {EVENT_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className={fieldLabel}>{L('tags')} <span className="text-gray-400 normal-case tracking-normal font-medium">({t('tags_hint')})</span></label>
+                        <input className={fieldInput} value={form.tags || ''} onChange={(e) => set('tags', e.target.value)} />
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={!!form.is_free} onChange={(e) => set('is_free', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('is_free')}</span>
+                      </label>
+                      <div />
+                      <div>
+                        <label className={fieldLabel}>{L('price_min')}</label>
+                        <input className={fieldInput} value={form.price_min ?? ''} onChange={(e) => set('price_min', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>{L('price_max')}</label>
+                        <input className={fieldInput} value={form.price_max ?? ''} onChange={(e) => set('price_max', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>{L('capacity')}</label>
+                        <input className={fieldInput} value={form.capacity ?? ''} onChange={(e) => set('capacity', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>{L('age_restriction')}</label>
+                        <input className={fieldInput} value={form.age_restriction || ''} onChange={(e) => set('age_restriction', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>{L('organizer_name')}</label>
+                        <input className={fieldInput} value={form.organizer_name || ''} onChange={(e) => set('organizer_name', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>{L('organizer_url')}</label>
+                        <input className={fieldInput} value={form.organizer_url || ''} onChange={(e) => set('organizer_url', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>{L('ticket_url')}</label>
+                        <input className={fieldInput} value={form.ticket_url || ''} onChange={(e) => set('ticket_url', e.target.value)} />
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>{L('poster_url')}</label>
+                        <input className={fieldInput} value={form.poster_url || ''} onChange={(e) => set('poster_url', e.target.value)} />
+                      </div>
                     </div>
-                  </div>
+                  </section>
 
-                  {/* Reused POI tabs (next sub-task): Boundary, Trigger Points,
-                      Description + Audio — all key on this event's attraction_id. */}
-                  <div className="md:col-span-2 mt-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-900 text-xs text-gray-500">
-                    Boundary, Trigger Points and Description/Audio reuse the POI editors
-                    (keyed by attraction_id) — wired in a follow-up.
-                  </div>
-                </div>
+                  {/* Publishing */}
+                  <section className={sectionCard}>
+                    <h4 className={sectionTitle}><Send className="h-4 w-4 text-tuggi-blue" />{t('sections.publish')}</h4>
+                    <div className="flex flex-wrap items-center gap-6">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={!!form.approved} onChange={(e) => set('approved', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('approved')}</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={!!form.is_active} onChange={(e) => set('is_active', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('active')}</span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('priority')}</span>
+                        <select value={form.priority_level ?? 3} onChange={(e) => set('priority_level', e.target.value)} className="px-3 py-1.5 bg-gray-50 dark:bg-gray-900/50 border border-transparent rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue">
+                          <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
+                        </select>
+                      </div>
+                    </div>
+                  </section>
+
+                  <p className="text-xs text-gray-400 px-1">{t('reused_note')}</p>
+                </>
               )}
             </>
           )}
         </div>
 
-        <div className="flex justify-end gap-3 p-5 border-t border-gray-200 dark:border-gray-800">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200">
-            Cancel
+        {/* Footer */}
+        <footer className="px-8 py-5 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-xl text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+            {tc('actions.cancel')}
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-2 rounded-lg bg-tuggi-blue text-white font-medium flex items-center gap-2 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-xl text-white bg-tuggi-blue hover:bg-tuggi-blue/90 shadow-lg shadow-tuggi-blue/20 disabled:opacity-50 transition-all"
           >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {isEdit ? 'Save' : 'Create'}
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {saving ? tc('actions.saving') : (isEdit ? tc('actions.save') : tc('actions.create'))}
           </button>
-        </div>
+        </footer>
       </div>
     </div>
   )
