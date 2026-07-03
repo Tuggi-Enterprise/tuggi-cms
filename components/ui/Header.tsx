@@ -56,7 +56,6 @@ export function Header({ className }: { className?: string }) {
   const { theme, toggleTheme } = useTheme()
 
   const navigation = [
-    { name: t('overview'), href: '/dashboard', icon: LayoutDashboard, category: 'main' },
     { name: t('realtime'), href: '/dashboard/realtime', icon: Activity, category: 'reports' },
     { name: t('pois'), href: '/pois', icon: MapPin, category: 'points' },
     { name: t('custom_routes'), href: '/routes', icon: Route, category: 'points' },
@@ -219,7 +218,7 @@ export function Header({ className }: { className?: string }) {
           </div>
 
           <nav className="hidden lg:flex items-center space-x-2">
-            {renderDropdown('main', navigation.filter(item => item.category === 'main'), t('dashboard'))}
+            {renderNavItem({ name: t('dashboard'), href: '/dashboard', icon: LayoutDashboard, category: 'main' }, pathname === '/dashboard')}
             {renderDropdown('points', [
               ...navigation.filter(item => item.category === 'points' && item.href === '/pois'),
               ...(hasEvents ? [{ name: t('events'), href: '/events', icon: CalendarDays, category: 'points' }] : []),
@@ -250,6 +249,9 @@ export function Header({ className }: { className?: string }) {
         {isMobileMenuOpen && (
           <div className="lg:hidden border-t border-tuggi-border/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm animate-in slide-in-from-top-2 duration-300">
             <nav className="px-2 pt-2 pb-3 space-y-4">
+              <div className="space-y-1">
+                {renderNavItem({ name: t('dashboard'), href: '/dashboard', icon: LayoutDashboard, category: 'main' }, pathname === '/dashboard', () => setIsMobileMenuOpen(false))}
+              </div>
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('points_management')}</h4>
                 <div className="space-y-1">
@@ -259,7 +261,7 @@ export function Header({ className }: { className?: string }) {
                   {navigation.filter(item => item.category === 'points' && item.href !== '/pois').map(item => renderNavItem(item, pathname.startsWith(item.href), () => setIsMobileMenuOpen(false)))}
                 </div>
               </div>
-              {['dashboard', 'reports', 'users', 'admin', 'marketing'].map(cat => {
+              {['reports', 'users', 'admin', 'marketing'].map(cat => {
                 if (cat === 'admin' && !isAdmin) return null
                 if (cat === 'marketing' && (!isAdmin || !isMarketingEnabled())) return null
                 return (
