@@ -75,7 +75,7 @@ export function Header({ className }: { className?: string }) {
     { name: t('users'), href: '/admin/users', icon: Users, category: 'admin' },
     { name: t('poi_trigger_map'), href: '/admin/poi-trigger-map', icon: Map, category: 'admin' },
     { name: 'Audit Logs', href: '/admin/audit-logs', icon: Activity, category: 'admin' },
-    { name: 'Coupons', href: '/admin/coupons', icon: Gift, category: 'admin' },
+    { name: 'Coupons', href: '/admin/coupons', icon: Gift, category: 'marketing' },
     // Módulo Marketing (gated). Push migrou de /dashboard/notifications.
     ...(isMarketingEnabled() ? [
       { name: t('newsletter'), href: '/dashboard/marketing/newsletter', icon: Mail, category: 'marketing' },
