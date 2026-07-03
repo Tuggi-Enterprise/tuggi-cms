@@ -64,10 +64,10 @@ export function Header({ className }: { className?: string }) {
     { name: t('geography'), href: '/dashboard/reports/geography', icon: MapPin, category: 'reports' },
     { name: t('users'), href: '/dashboard/reports/users', icon: Users, category: 'reports' },
     { name: t('engagement'), href: '/dashboard/reports/engagement', icon: Activity, category: 'reports' },
-    { name: t('poi_migration'), href: '/poi-processing', icon: ArrowRightLeft, category: 'poi_management' },
-    { name: t('osm_importer'), href: '/osm-importer', icon: Database, category: 'poi_management' },
-    { name: t('poi_fetching'), href: '/poi-importer', icon: Upload, category: 'poi_management' },
-    { name: t('tp_single_test'), href: '/trigger-points-single', icon: Target, category: 'poi_management' },
+    { name: t('poi_migration'), href: '/poi-processing', icon: ArrowRightLeft, category: 'admin' },
+    { name: t('osm_importer'), href: '/osm-importer', icon: Database, category: 'admin' },
+    { name: t('poi_fetching'), href: '/poi-importer', icon: Upload, category: 'admin' },
+    { name: t('tp_single_test'), href: '/trigger-points-single', icon: Target, category: 'admin' },
     { name: t('cms_team'), href: '/users/cms', icon: UserCog, category: 'users' },
     { name: t('app_users'), href: '/users/app', icon: Smartphone, category: 'users' },
     { name: t('trail_map'), href: '/trail-visualization', icon: Route, category: 'points' },
@@ -226,7 +226,6 @@ export function Header({ className }: { className?: string }) {
               ...(hasPlaces ? [{ name: t('places'), href: '/places', icon: Store, category: 'points' }] : []),
               ...navigation.filter(item => item.category === 'points' && item.href !== '/pois'),
             ], t('points_management'))}
-            {renderDropdown('poi_management', navigation.filter(item => item.category === 'poi_management'), t('poi_management'))}
             <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-2" />
             {renderDropdown('reports', navigation.filter(item => item.category === 'reports'), t('reports'))}
             {renderDropdown('users', navigation.filter(item => item.category === 'users'), t('users'))}
@@ -260,7 +259,7 @@ export function Header({ className }: { className?: string }) {
                   {navigation.filter(item => item.category === 'points' && item.href !== '/pois').map(item => renderNavItem(item, pathname.startsWith(item.href), () => setIsMobileMenuOpen(false)))}
                 </div>
               </div>
-              {['dashboard', 'reports', 'poi_management', 'users', 'admin', 'marketing'].map(cat => {
+              {['dashboard', 'reports', 'users', 'admin', 'marketing'].map(cat => {
                 if (cat === 'admin' && !isAdmin) return null
                 if (cat === 'marketing' && (!isAdmin || !isMarketingEnabled())) return null
                 return (
