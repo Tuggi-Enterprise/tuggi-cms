@@ -29,10 +29,11 @@ export async function middleware(req: NextRequest) {
     }
   )
 
-  // 3. Auth Logic
+  // 3. Auth Logic — getUser() revalidates the JWT with the Auth server; getSession() only
+  // decodes the cookie locally and must not be trusted in server code (middleware).
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
+    data: { user },
+  } = await supabase.auth.getUser()
 
   // Extract locale from path to construct correct redirect URLs
   // Path is like /en/dashboard or /pt/login
@@ -61,18 +62,18 @@ export async function middleware(req: NextRequest) {
     pathWithoutLocale === '/unauthorized';
 
   // Protect routes
-  if (!session && !isPublicPath) {
+  if (!user && !isPublicPath) {
     // Redirect to login preserving locale
     return NextResponse.redirect(new URL(`/${locale}/login`, req.url));
   }
 
   // Redirect to dashboard if logged in and trying to access login
-  if (session && pathWithoutLocale === '/login') {
+  if (user && pathWithoutLocale === '/login') {
     return NextResponse.redirect(new URL(`/${locale}/dashboard`, req.url));
   }
 
   // 4. Role Authorization (if logged in and not on public path)
-  if (session && !isPublicPath) {
+  if (user && !isPublicPath) {
     try {
       let cmsUser: any = null
       try {
@@ -80,7 +81,7 @@ export async function middleware(req: NextRequest) {
           .schema('core')
           .from('cms_users')
           .select('id, role, is_active')
-          .eq('email', session.user.email)
+          .eq('email', user.email)
           .single()
         cmsUser = ans.data
         if (cmsUser && cmsUser.is_active === false && cmsUser.role !== 'client') cmsUser = null
@@ -88,15 +89,11 @@ export async function middleware(req: NextRequest) {
         console.warn('Middleware: CMS user lookup error', err)
       }
 
-      // Fallback to metadata
+      // DB is the sole source of authorization. No user_metadata/app_metadata fallback:
+      // user_metadata is client-writable (auth.updateUser), so trusting it for the role was a
+      // privilege-escalation hole — any signed-in user could self-grant admin.
       if (!cmsUser) {
-        const sessionUser = session.user
-        const metaRole = (sessionUser?.app_metadata?.role) || (sessionUser?.user_metadata?.role)
-        if (metaRole) {
-           cmsUser = { id: sessionUser.id, role: metaRole, is_active: true }
-        } else {
-           return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url))
-        }
+        return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url))
       }
 
       // Admin check

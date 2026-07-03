@@ -101,8 +101,10 @@ export default function LoginPage() {
         return
       }
 
-      // Step 2: Check authorization in cms_users table
+      // Step 2 + 3: Authorization. Every failure returns ONE generic message so we never leak
+      // DB internals or let an attacker enumerate which emails are valid CMS accounts.
       console.log('👤 LOGIN: Step 2 - Checking CMS user authorization...')
+      const ACCESS_ERROR = 'Invalid credentials or access denied.'
       const { data: cmsUser, error: cmsError } = await supabase
         .schema('core')
         .from('cms_users')
@@ -111,37 +113,15 @@ export default function LoginPage() {
         .eq('is_active', true)
         .single()
 
-      console.log('👤 LOGIN: CMS user check result:', {
-        hasCmsUser: !!cmsUser,
-        hasError: !!cmsError,
-        error: cmsError?.message,
-        role: cmsUser?.role,
-        isActive: cmsUser?.is_active
-      })
+      const authorized =
+        !cmsError && !!cmsUser && ['admin', 'editor', 'client'].includes(cmsUser.role)
 
-      if (cmsError) {
-        console.error('❌ LOGIN: CMS user error:', cmsError)
+      if (!authorized) {
+        // Detailed reason stays server/console-side only; the user sees a generic message.
+        console.error('❌ LOGIN: authorization denied', { hasError: !!cmsError, role: cmsUser?.role })
         await supabase.auth.signOut()
-        setError(`Database error: ${cmsError.message}`)
-        await logAuthEvent('LOGIN_FAILURE', `CMS access check failed: ${cmsError.message}`)
-        return
-      }
-
-      if (!cmsUser) {
-        console.error('❌ LOGIN: CMS user not found or inactive - session metadata:', authData.user?.app_metadata, authData.user?.user_metadata)
-        await supabase.auth.signOut()
-        setError('Access denied. You are not authorized to use this CMS.')
-        await logAuthEvent('LOGIN_FAILURE', 'CMS access denied: user not found or inactive')
-        return
-      }
-
-      // Step 3: Check role authorization (allow admin, editor, and client)
-      console.log('🔑 LOGIN: Step 3 - Checking role authorization...')
-      if (!['admin', 'editor', 'client'].includes(cmsUser.role)) {
-        console.error('❌ LOGIN: Insufficient privileges:', cmsUser.role)
-        await supabase.auth.signOut()
-        setError('Access denied. Insufficient privileges.')
-        await logAuthEvent('LOGIN_FAILURE', `CMS access denied: role ${cmsUser.role}`)
+        setError(ACCESS_ERROR)
+        await logAuthEvent('LOGIN_FAILURE', 'CMS access denied')
         return
       }
 
