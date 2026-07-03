@@ -23,6 +23,8 @@ export interface CmsUser {
   /** FK to clients table - only populated for users with role='client' */
   client_id?: string
   updated_at?: string
+  /** Módulos do CMS habilitados (core.cms_users.enabled_modules). Admin ignora (vê tudo). */
+  enabled_modules?: string[]
 
   /** Optional: populated by admin endpoints for UI */
   clients?: Array<{ id: string; name?: string; client_role?: string }>

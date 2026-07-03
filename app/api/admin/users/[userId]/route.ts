@@ -105,8 +105,9 @@ export async function PATCH(
       )
     }
 
-    // Allowed fields to update
-    const allowedFields = ['email', 'full_name', 'is_active']
+    // Allowed fields to update (role and client_id stay immutable; enabled_modules
+    // is the per-user module entitlement toggled by admins — see lib/modules).
+    const allowedFields = ['email', 'full_name', 'is_active', 'enabled_modules']
     const updateData: any = {}
 
     for (const field of allowedFields) {

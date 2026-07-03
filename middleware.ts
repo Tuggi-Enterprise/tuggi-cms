@@ -88,7 +88,7 @@ export async function middleware(req: NextRequest) {
         const ans = await supabase
           .schema('core')
           .from('cms_users')
-          .select('id, role, is_active')
+          .select('id, role, is_active, enabled_modules')
           .eq('email', user.email)
           .single()
         cmsUser = ans.data
@@ -107,6 +107,19 @@ export async function middleware(req: NextRequest) {
       // Admin check
       if (isAdmin(cmsUser.role)) {
         return res;
+      }
+
+      // Module-gated routes (/eventos, /locais): any non-admin whose account has
+      // the module enabled may enter, regardless of role. Entitlement lives in
+      // core.cms_users.enabled_modules (admins already returned above and see all).
+      const MODULE_PREFIXES: Record<string, string> = { '/eventos': 'events', '/locais': 'places' }
+      const gatedPrefix = Object.keys(MODULE_PREFIXES).find(p => pathWithoutLocale.startsWith(p))
+      if (gatedPrefix) {
+        const mods: string[] = cmsUser.enabled_modules || []
+        if (mods.includes(MODULE_PREFIXES[gatedPrefix])) {
+          return res;
+        }
+        return NextResponse.redirect(new URL(`/${locale}/unauthorized`, req.url));
       }
 
       // Client check

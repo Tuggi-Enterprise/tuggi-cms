@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     const { data: cmsUser, error: cmsError } = await supabase
       .schema('core')
       .from('cms_users')
-      .select('role, is_active, client_id')
+      .select('role, is_active, client_id, enabled_modules')
       .eq('email', user.email)
       .eq('is_active', true)
       .single()
@@ -91,7 +91,8 @@ export async function GET(request: NextRequest) {
         email: user.email,
         role: cmsUser.role,
         isActive: cmsUser.is_active,
-        clientId: cmsUser.client_id
+        clientId: cmsUser.client_id,
+        enabledModules: cmsUser.enabled_modules || []
       }
     })
 

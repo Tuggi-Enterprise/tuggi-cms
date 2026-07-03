@@ -4,6 +4,12 @@ import { useEffect, useState } from 'react'
 import { AlertCircle, Check } from 'lucide-react'
 import { CmsUser } from '@/lib/supabase'
 import { Client } from '@/types/clients'
+import { TOGGLEABLE_MODULES, MODULES } from '@/lib/modules'
+
+const MODULE_LABELS: Record<string, string> = {
+  [MODULES.EVENTS]: 'Events',
+  [MODULES.PLACES]: 'Places',
+}
 
 interface UserFormAdminProps {
   user?: CmsUser
@@ -19,7 +25,8 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
     password: '', // Only for new users or password reset
     role: user?.role || 'viewer',
     is_active: user?.is_active ?? true,
-    client_id: user?.client_id || ''
+    client_id: user?.client_id || '',
+    enabled_modules: (user?.enabled_modules || []) as string[]
   })
 
   const [clients, setClients] = useState<Client[]>([])
@@ -85,7 +92,8 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
       const payload = user ? {
         email: formData.email,
         full_name: formData.full_name,
-        is_active: formData.is_active
+        is_active: formData.is_active,
+        enabled_modules: formData.enabled_modules
       } : formData
 
       const response = await fetch(endpoint, {
@@ -124,6 +132,18 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }))
     }
+  }
+
+  const toggleModule = (mod: string) => {
+    setFormData(prev => {
+      const has = prev.enabled_modules.includes(mod)
+      return {
+        ...prev,
+        enabled_modules: has
+          ? prev.enabled_modules.filter(m => m !== mod)
+          : [...prev.enabled_modules, mod],
+      }
+    })
   }
 
   return (
@@ -256,6 +276,30 @@ export function UserFormAdmin({ user, onSubmit, onCancel, isLoading = false }: U
             />
             <span className="text-sm font-medium text-gray-700">Active User</span>
           </label>
+        </div>
+      </div>
+
+      {/* Modules (per-user entitlements). Admins have all modules automatically. */}
+      <div className="border-t border-gray-200 pt-6">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Modules
+        </label>
+        <p className="text-sm text-gray-500 mb-3">
+          Enable CMS sections for this user. Admins have access to all modules automatically.
+        </p>
+        <div className="flex flex-wrap gap-6">
+          {TOGGLEABLE_MODULES.map((mod) => (
+            <label key={mod} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.role === 'admin' || formData.enabled_modules.includes(mod)}
+                onChange={() => toggleModule(mod)}
+                className="w-4 h-4 rounded border-gray-300"
+                disabled={isLoading || formData.role === 'admin'}
+              />
+              <span className="text-sm font-medium text-gray-700">{MODULE_LABELS[mod] || mod}</span>
+            </label>
+          ))}
         </div>
       </div>
 

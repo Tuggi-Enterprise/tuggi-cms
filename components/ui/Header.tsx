@@ -35,10 +35,14 @@ import {
   Bell,
   Crown,
   Gift,
-  Mail
+  Mail,
+  CalendarDays,
+  Store
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isMarketingEnabled } from '@/lib/modules/marketing'
+import { isEventsEnabled } from '@/lib/modules/events'
+import { isPlacesEnabled } from '@/lib/modules/places'
 import { TuggiLogo } from './TuggiLogo'
 import { LanguageSwitcher } from './LanguageSwitcher'
 
@@ -91,7 +95,11 @@ export function Header({ className }: { className?: string }) {
 
   const [userRole, setUserRole] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
-  const isAdmin = mounted && (userRole === 'admin' || userRole === 'super_admin' || true) // Forced true for dev
+  const [enabledModules, setEnabledModules] = useState<string[]>([])
+  const isAdmin = mounted && (userRole === 'admin' || userRole === 'super_admin')
+  // Module entitlements (mounted-gated to avoid hydration mismatch).
+  const hasEvents = mounted && isEventsEnabled({ role: userRole, enabledModules })
+  const hasPlaces = mounted && isPlacesEnabled({ role: userRole, enabledModules })
 
   useEffect(() => {
     setMounted(true)
@@ -101,6 +109,7 @@ export function Header({ className }: { className?: string }) {
         if (res.ok) {
           const data = await res.json()
           setUserRole(data.user?.role || null)
+          setEnabledModules(data.user?.enabledModules || [])
         }
       } catch (err) {
         console.error('Failed to fetch user role for header:', err)
@@ -218,6 +227,8 @@ export function Header({ className }: { className?: string }) {
             {renderDropdown('users', navigation.filter(item => item.category === 'users'), t('users'))}
             {isAdmin && renderDropdown('admin', navigation.filter(item => item.category === 'admin'), t('admin'))}
             {isAdmin && isMarketingEnabled() && renderDropdown('marketing', navigation.filter(item => item.category === 'marketing'), t('marketing'))}
+            {hasEvents && renderNavItem({ name: t('events'), href: '/eventos', icon: CalendarDays, category: 'events' }, pathname === '/eventos' || pathname.startsWith('/eventos/'))}
+            {hasPlaces && renderNavItem({ name: t('places'), href: '/locais', icon: Store, category: 'places' }, pathname === '/locais' || pathname.startsWith('/locais/'))}
           </nav>
 
           <div className="flex items-center space-x-1">
@@ -249,6 +260,15 @@ export function Header({ className }: { className?: string }) {
                   </div>
                 )
               })}
+              {(hasEvents || hasPlaces) && (
+                <div>
+                  <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('content') || 'Content'}</h4>
+                  <div className="space-y-1">
+                    {hasEvents && renderNavItem({ name: t('events'), href: '/eventos', icon: CalendarDays, category: 'events' }, pathname.startsWith('/eventos'), () => setIsMobileMenuOpen(false))}
+                    {hasPlaces && renderNavItem({ name: t('places'), href: '/locais', icon: Store, category: 'places' }, pathname.startsWith('/locais'), () => setIsMobileMenuOpen(false))}
+                  </div>
+                </div>
+              )}
             </nav>
           </div>
         )}
