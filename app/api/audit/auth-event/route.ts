@@ -30,15 +30,16 @@ export async function POST(request: NextRequest) {
 
     const cookieStore = await cookies()
     const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-    const { data: { session } } = await supabaseAuth.auth.getSession()
+    // getUser() revalidates the token server-side; getSession() must not be trusted here.
+    const { data: { user } } = await supabaseAuth.auth.getUser()
 
     await logAuditEvent({
       request,
       action: body.action,
       entity: 'AUTH',
-      entityId: session?.user?.id ?? null,
-      userId: session?.user?.id ?? null,
-      userEmail: session?.user?.email ?? body.user_email ?? null,
+      entityId: user?.id ?? null,
+      userId: user?.id ?? null,
+      userEmail: user?.email ?? body.user_email ?? null,
       description: body.description || 'Auth event'
     })
 

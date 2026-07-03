@@ -15,9 +15,9 @@ export default async function ClientApprovalsPage() {
       supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
     }
   )
-  const { data: { session } } = await supabase.auth.getSession()
+  const { data: { user } } = await supabase.auth.getUser()
 
-  if (!session) {
+  if (!user) {
     redirect('/login')
   }
 
@@ -26,7 +26,7 @@ export default async function ClientApprovalsPage() {
     .schema('core')
     .from('cms_users')
     .select('role')
-    .eq('email', session.user.email)
+    .eq('email', user.email)
     .single()
 
   if (cmsUser?.role !== 'admin') {
