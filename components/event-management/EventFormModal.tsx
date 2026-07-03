@@ -14,6 +14,7 @@ import { eventService } from '@/lib/core/event-service'
 import { useEventDetails } from '@/lib/hooks/use-events'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
+import { LocationPicker } from '@/components/entity-management/LocationPicker'
 
 interface EventFormModalProps {
   eventId?: string | null // null/undefined => create mode
@@ -211,18 +212,16 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
             <label className={fieldLabel}>{L('city')} *</label>
             <input className={fieldInput} value={form.city || ''} onChange={(e) => set('city', e.target.value)} />
           </div>
-          {!isEdit && (
-            <>
-              <div>
-                <label className={fieldLabel}>{L('latitude')}</label>
-                <input className={fieldInput} value={form.latitude || ''} onChange={(e) => set('latitude', e.target.value)} />
-              </div>
-              <div>
-                <label className={fieldLabel}>{L('longitude')}</label>
-                <input className={fieldInput} value={form.longitude || ''} onChange={(e) => set('longitude', e.target.value)} />
-              </div>
-            </>
-          )}
+          <div className="md:col-span-3">
+            <label className={fieldLabel}>{L('location')}{!isEdit && ' *'}</label>
+            <LocationPicker
+              editable={!isEdit}
+              latitude={!isEdit ? (form.latitude ? Number(form.latitude) : null) : (coordinates?.latitude ?? null)}
+              longitude={!isEdit ? (form.longitude ? Number(form.longitude) : null) : (coordinates?.longitude ?? null)}
+              name={form.name}
+              onChange={(lat, lng) => { set('latitude', lat); set('longitude', lng) }}
+            />
+          </div>
         </div>
       </section>
 

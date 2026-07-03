@@ -6,7 +6,7 @@ import { Header } from '@/components/ui/Header';
 import { useCmsUser } from '@/lib/hooks/useCmsUser';
 
 // Layout do Módulo Eventos: gate por entitlement (espelha o layout do Marketing)
-// + Header. Defesa em profundidade — o middleware.ts também bloqueia /eventos para
+// + Header. Defesa em profundidade — o middleware.ts também bloqueia /events para
 // quem não tem o módulo; aqui escondemos a UI de imediato no cliente.
 export default function EventosLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();

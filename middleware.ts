@@ -109,10 +109,10 @@ export async function middleware(req: NextRequest) {
         return res;
       }
 
-      // Module-gated routes (/eventos, /locais): any non-admin whose account has
+      // Module-gated routes (/events, /places): any non-admin whose account has
       // the module enabled may enter, regardless of role. Entitlement lives in
       // core.cms_users.enabled_modules (admins already returned above and see all).
-      const MODULE_PREFIXES: Record<string, string> = { '/eventos': 'events', '/locais': 'places' }
+      const MODULE_PREFIXES: Record<string, string> = { '/events': 'events', '/places': 'places' }
       const gatedPrefix = Object.keys(MODULE_PREFIXES).find(p => pathWithoutLocale.startsWith(p))
       if (gatedPrefix) {
         const mods: string[] = cmsUser.enabled_modules || []

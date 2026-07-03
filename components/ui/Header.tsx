@@ -58,8 +58,8 @@ export function Header({ className }: { className?: string }) {
   const navigation = [
     { name: t('overview'), href: '/dashboard', icon: LayoutDashboard, category: 'main' },
     { name: t('realtime'), href: '/dashboard/realtime', icon: Activity, category: 'reports' },
-    { name: t('pois'), href: '/pois', icon: MapPin, category: 'pois' },
-    { name: t('custom_routes'), href: '/routes', icon: Route, category: 'pois' },
+    { name: t('pois'), href: '/pois', icon: MapPin, category: 'points' },
+    { name: t('custom_routes'), href: '/routes', icon: Route, category: 'poi_management' },
     { name: t('catalog'), href: '/dashboard/reports/catalog', icon: Database, category: 'reports' },
     { name: t('geography'), href: '/dashboard/reports/geography', icon: MapPin, category: 'reports' },
     { name: t('users'), href: '/dashboard/reports/users', icon: Users, category: 'reports' },
@@ -70,7 +70,7 @@ export function Header({ className }: { className?: string }) {
     { name: t('tp_single_test'), href: '/trigger-points-single', icon: Target, category: 'poi_management' },
     { name: t('cms_team'), href: '/users/cms', icon: UserCog, category: 'users' },
     { name: t('app_users'), href: '/users/app', icon: Smartphone, category: 'users' },
-    { name: t('trail_map'), href: '/trail-visualization', icon: Route, category: 'pois' },
+    { name: t('trail_map'), href: '/trail-visualization', icon: Route, category: 'poi_management' },
     { name: t('clients'), href: '/admin/clients', icon: Settings, category: 'admin' },
     { name: t('users'), href: '/admin/users', icon: Users, category: 'admin' },
     { name: t('poi_trigger_map'), href: '/admin/poi-trigger-map', icon: Map, category: 'admin' },
@@ -220,15 +220,17 @@ export function Header({ className }: { className?: string }) {
 
           <nav className="hidden lg:flex items-center space-x-2">
             {renderDropdown('main', navigation.filter(item => item.category === 'main'), t('dashboard'))}
-            {renderDropdown('pois', navigation.filter(item => item.category === 'pois'), t('pois'))}
+            {renderDropdown('points', [
+              ...navigation.filter(item => item.category === 'points'),
+              ...(hasEvents ? [{ name: t('events'), href: '/events', icon: CalendarDays, category: 'points' }] : []),
+              ...(hasPlaces ? [{ name: t('places'), href: '/places', icon: Store, category: 'points' }] : []),
+            ], t('points_management'))}
             {renderDropdown('poi_management', navigation.filter(item => item.category === 'poi_management'), t('poi_management'))}
             <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-2" />
             {renderDropdown('reports', navigation.filter(item => item.category === 'reports'), t('reports'))}
             {renderDropdown('users', navigation.filter(item => item.category === 'users'), t('users'))}
             {isAdmin && renderDropdown('admin', navigation.filter(item => item.category === 'admin'), t('admin'))}
             {isAdmin && isMarketingEnabled() && renderDropdown('marketing', navigation.filter(item => item.category === 'marketing'), t('marketing'))}
-            {hasEvents && renderNavItem({ name: t('events'), href: '/eventos', icon: CalendarDays, category: 'events' }, pathname === '/eventos' || pathname.startsWith('/eventos/'))}
-            {hasPlaces && renderNavItem({ name: t('places'), href: '/locais', icon: Store, category: 'places' }, pathname === '/locais' || pathname.startsWith('/locais/'))}
           </nav>
 
           <div className="flex items-center space-x-1">
@@ -248,7 +250,15 @@ export function Header({ className }: { className?: string }) {
         {isMobileMenuOpen && (
           <div className="lg:hidden border-t border-tuggi-border/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm animate-in slide-in-from-top-2 duration-300">
             <nav className="px-2 pt-2 pb-3 space-y-4">
-              {['dashboard', 'reports', 'pois', 'poi_management', 'users', 'admin', 'marketing'].map(cat => {
+              <div>
+                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('points_management')}</h4>
+                <div className="space-y-1">
+                  {renderNavItem({ name: t('pois'), href: '/pois', icon: MapPin, category: 'points' }, pathname.startsWith('/pois'), () => setIsMobileMenuOpen(false))}
+                  {hasEvents && renderNavItem({ name: t('events'), href: '/events', icon: CalendarDays, category: 'points' }, pathname.startsWith('/events'), () => setIsMobileMenuOpen(false))}
+                  {hasPlaces && renderNavItem({ name: t('places'), href: '/places', icon: Store, category: 'points' }, pathname.startsWith('/places'), () => setIsMobileMenuOpen(false))}
+                </div>
+              </div>
+              {['dashboard', 'reports', 'poi_management', 'users', 'admin', 'marketing'].map(cat => {
                 if (cat === 'admin' && !isAdmin) return null
                 if (cat === 'marketing' && (!isAdmin || !isMarketingEnabled())) return null
                 return (
@@ -260,15 +270,6 @@ export function Header({ className }: { className?: string }) {
                   </div>
                 )
               })}
-              {(hasEvents || hasPlaces) && (
-                <div>
-                  <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('content') || 'Content'}</h4>
-                  <div className="space-y-1">
-                    {hasEvents && renderNavItem({ name: t('events'), href: '/eventos', icon: CalendarDays, category: 'events' }, pathname.startsWith('/eventos'), () => setIsMobileMenuOpen(false))}
-                    {hasPlaces && renderNavItem({ name: t('places'), href: '/locais', icon: Store, category: 'places' }, pathname.startsWith('/locais'), () => setIsMobileMenuOpen(false))}
-                  </div>
-                </div>
-              )}
             </nav>
           </div>
         )}

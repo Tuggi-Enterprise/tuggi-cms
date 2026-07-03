@@ -63,7 +63,7 @@ export function EntityManagementDrawer({
   return (
     <div className="fixed inset-0 z-[100] flex justify-end bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-[85vw] max-w-5xl bg-white dark:bg-gray-900 h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-300"
+        className="w-[85vw] bg-white dark:bg-gray-900 h-full flex flex-col shadow-2xl animate-in slide-in-from-right duration-300"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -80,7 +80,7 @@ export function EntityManagementDrawer({
         {/* Body */}
         <div className="flex overflow-hidden flex-1">
           {/* Tab nav */}
-          <aside className="w-64 flex-shrink-0 border-r border-gray-100 dark:border-gray-800 p-6 flex flex-col gap-2 bg-gray-50/50 dark:bg-gray-950/30">
+          <aside className="w-72 flex-shrink-0 border-r border-gray-100 dark:border-gray-800 p-6 flex flex-col gap-2 bg-gray-50/50 dark:bg-gray-950/30">
             <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-1">{t('sidebar.navigation')}</span>
             {tabs.map((tab) => (
               <button

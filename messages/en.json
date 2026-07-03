@@ -97,6 +97,7 @@
     "events": "Events",
     "places": "Places",
     "content": "Content",
+    "points_management": "Points Management",
     "newsletter": "Newsletter",
     "geography": "Demand",
     "catalog": "Catalog"
@@ -951,6 +952,7 @@
       "title_edit": "Edit Event",
       "sections": { "identity": "Identity", "schedule": "Schedule", "tickets": "Tickets & Organizer", "publish": "Publishing" },
       "labels": {
+        "location": "Location",
         "name": "Name", "country": "Country", "state": "State", "city": "City",
         "latitude": "Latitude", "longitude": "Longitude",
         "starts_at": "Starts at", "ends_at": "Ends at", "timezone": "Timezone", "all_day": "All day",
@@ -971,6 +973,7 @@
       "title_edit": "Edit Place",
       "sections": { "identity": "Identity", "commerce": "Commerce", "amenities": "Amenities", "publish": "Publishing" },
       "labels": {
+        "location": "Location",
         "name": "Name", "country": "Country", "state": "State", "city": "City",
         "latitude": "Latitude", "longitude": "Longitude", "type": "Type",
         "price_range": "Price range", "cuisine": "Cuisine",

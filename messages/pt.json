@@ -97,6 +97,7 @@
     "events": "Eventos",
     "places": "Locais",
     "content": "Conteúdo",
+    "points_management": "Gestão de Pontos",
     "newsletter": "Newsletter",
     "geography": "Demanda",
     "catalog": "Catálogo"
@@ -950,6 +951,7 @@
       "title_edit": "Editar Evento",
       "sections": { "identity": "Identidade", "schedule": "Agenda", "tickets": "Ingressos e Organizador", "publish": "Publicação" },
       "labels": {
+        "location": "Localização",
         "name": "Nome", "country": "País", "state": "Estado", "city": "Cidade",
         "latitude": "Latitude", "longitude": "Longitude",
         "starts_at": "Início", "ends_at": "Fim", "timezone": "Fuso horário", "all_day": "Dia inteiro",
@@ -970,6 +972,7 @@
       "title_edit": "Editar Local",
       "sections": { "identity": "Identidade", "commerce": "Comércio", "amenities": "Comodidades", "publish": "Publicação" },
       "labels": {
+        "location": "Localização",
         "name": "Nome", "country": "País", "state": "Estado", "city": "Cidade",
         "latitude": "Latitude", "longitude": "Longitude", "type": "Tipo",
         "price_range": "Faixa de preço", "cuisine": "Culinária",

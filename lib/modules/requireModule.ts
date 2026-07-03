@@ -1,8 +1,8 @@
 /**
  * requireModule — guard de módulo para API routes.
  *
- * O middleware NÃO cobre /api/*, então cada route de /api/eventos/* e
- * /api/locais/* chama isto no topo. Usa getUser() (revalida o JWT), lê role +
+ * O middleware NÃO cobre /api/*, então cada route de /api/events/* e
+ * /api/places/* chama isto no topo. Usa getUser() (revalida o JWT), lê role +
  * enabled_modules de core.cms_users e aplica o SSOT isModuleEnabled().
  *
  * Uso:
