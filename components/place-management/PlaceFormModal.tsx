@@ -1,17 +1,19 @@
 'use client'
 
 /**
- * PlaceFormModal — criação/edição dos dados específicos de local/comércio
- * (core.attractions base + core.place_details). Horário de funcionamento
- * (attractions.opening_hours + is_poi_open_now), acessibilidade, localização,
- * boundary, trigger points e descrições+áudio reusam os satélites/campos de
- * attractions via attraction_id — wiring dessas abas é a próxima sub-tarefa.
+ * PlaceFormModal — gestão de Locais/Comércios no "modal de POI management" (drawer
+ * com abas). Aba Details = campos específicos (core.attractions + core.place_details;
+ * horário/acessibilidade reusam attractions). Boundary e Trigger Points vêm do
+ * EntityManagementDrawer (keyed por attraction_id). Descrição/Áudio: próximo incremento.
  */
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Store, X, Save, Loader2, Info, Sparkles, Send } from 'lucide-react'
+import { Store, Info, Sparkles, Send } from 'lucide-react'
 import { placeService } from '@/lib/core/place-service'
 import { usePlaceDetails } from '@/lib/hooks/use-places'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
+import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
 
 interface PlaceFormModalProps {
   placeId?: string | null
@@ -37,7 +39,8 @@ const sectionTitle = 'text-xs font-black text-gray-400 uppercase tracking-widest
 
 export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormModalProps) {
   const t = useTranslations('Modals.PlaceDetails')
-  const tc = useTranslations('Common')
+  const queryClient = useQueryClient()
+  const { canEdit } = useCmsUser()
   const isEdit = !!placeId
   const { data: details, isLoading: loadingDetails, refetch } = usePlaceDetails(placeId ?? null, isOpen && isEdit)
 
@@ -80,7 +83,11 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
 
   const set = (k: string, v: any) => setForm((p) => ({ ...p, [k]: v }))
 
-  if (!isOpen) return null
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['places'] })
+    queryClient.invalidateQueries({ queryKey: ['places-facets'] })
+    if (placeId) queryClient.invalidateQueries({ queryKey: ['place-details', placeId] })
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -99,6 +106,7 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
           longitude: form.longitude ? Number(form.longitude) : null,
           place_type: form.place_type || null,
         })
+        invalidate()
         onSaved?.(id)
         onClose()
         return
@@ -130,6 +138,7 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
         accepts_reservations: !!form.accepts_reservations,
       })
       await refetch()
+      invalidate()
       onSaved?.(placeId as string)
       onClose()
     } catch (e: any) {
@@ -140,174 +149,147 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
   }
 
   const L = (k: string) => t(`labels.${k}`)
+  const coordinates = details?.latitude != null && details?.longitude != null
+    ? { latitude: details.latitude, longitude: details.longitude }
+    : undefined
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
-      <div
-        className="bg-white dark:bg-gray-900 rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <header className="px-8 py-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-tuggi-blue/10 rounded-2xl"><Store className="h-6 w-6 text-tuggi-blue" /></div>
-            <h2 className="text-2xl font-extrabold text-gray-900 dark:text-white tracking-tight">
-              {isEdit ? t('title_edit') : t('title_new')}
-            </h2>
+    <EntityManagementDrawer
+      isOpen={isOpen}
+      isEdit={isEdit}
+      entityId={(placeId as string) || ''}
+      name={form.name || ''}
+      coordinates={coordinates}
+      canEdit={canEdit}
+      loading={isEdit && loadingDetails}
+      saving={saving}
+      title={isEdit ? t('title_edit') : t('title_new')}
+      HeaderIcon={Store}
+      onClose={onClose}
+      onSave={handleSave}
+      invalidate={invalidate}
+    >
+      {error && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-sm">{error}</div>
+      )}
+
+      {/* Identity */}
+      <section className={sectionCard}>
+        <h4 className={sectionTitle}><Info className="h-4 w-4 text-tuggi-blue" />{t('sections.identity')}</h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="md:col-span-3">
+            <label className={fieldLabel}>{L('name')} *</label>
+            <input className={fieldInput} value={form.name || ''} onChange={(e) => set('name', e.target.value)} />
           </div>
-          <button onClick={onClose} className="p-3 text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5 rounded-2xl transition-all">
-            <X className="h-6 w-6" />
-          </button>
-        </header>
-
-        {/* Body */}
-        <div className="p-8 overflow-y-auto space-y-6">
-          {error && (
-            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400 text-sm">{error}</div>
-          )}
-
-          {isEdit && loadingDetails ? (
-            <div className="flex items-center justify-center py-16"><Loader2 className="w-8 h-8 animate-spin text-tuggi-blue" /></div>
-          ) : (
+          <div>
+            <label className={fieldLabel}>{L('country')} *</label>
+            <input className={fieldInput} value={form.country || ''} onChange={(e) => set('country', e.target.value)} />
+          </div>
+          <div>
+            <label className={fieldLabel}>{L('state')}</label>
+            <input className={fieldInput} value={form.state || ''} onChange={(e) => set('state', e.target.value)} />
+          </div>
+          <div>
+            <label className={fieldLabel}>{L('city')} *</label>
+            <input className={fieldInput} value={form.city || ''} onChange={(e) => set('city', e.target.value)} />
+          </div>
+          <div>
+            <label className={fieldLabel}>{L('type')}</label>
+            <select className={fieldInput} value={form.place_type || ''} onChange={(e) => set('place_type', e.target.value)}>
+              <option value="">—</option>
+              {PLACE_TYPES.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
+            </select>
+          </div>
+          {!isEdit && (
             <>
-              {/* Identity */}
-              <section className={sectionCard}>
-                <h4 className={sectionTitle}><Info className="h-4 w-4 text-tuggi-blue" />{t('sections.identity')}</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="md:col-span-3">
-                    <label className={fieldLabel}>{L('name')} *</label>
-                    <input className={fieldInput} value={form.name || ''} onChange={(e) => set('name', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={fieldLabel}>{L('country')} *</label>
-                    <input className={fieldInput} value={form.country || ''} onChange={(e) => set('country', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={fieldLabel}>{L('state')}</label>
-                    <input className={fieldInput} value={form.state || ''} onChange={(e) => set('state', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={fieldLabel}>{L('city')} *</label>
-                    <input className={fieldInput} value={form.city || ''} onChange={(e) => set('city', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className={fieldLabel}>{L('type')}</label>
-                    <select className={fieldInput} value={form.place_type || ''} onChange={(e) => set('place_type', e.target.value)}>
-                      <option value="">—</option>
-                      {PLACE_TYPES.map((ty) => <option key={ty} value={ty}>{ty}</option>)}
-                    </select>
-                  </div>
-                  {!isEdit && (
-                    <>
-                      <div>
-                        <label className={fieldLabel}>{L('latitude')}</label>
-                        <input className={fieldInput} value={form.latitude || ''} onChange={(e) => set('latitude', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className={fieldLabel}>{L('longitude')}</label>
-                        <input className={fieldInput} value={form.longitude || ''} onChange={(e) => set('longitude', e.target.value)} />
-                      </div>
-                    </>
-                  )}
-                </div>
-              </section>
-
-              {isEdit && (
-                <>
-                  {/* Commerce */}
-                  <section className={sectionCard}>
-                    <h4 className={sectionTitle}><Store className="h-4 w-4 text-tuggi-blue" />{t('sections.commerce')}</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className={fieldLabel}>{L('price_range')}</label>
-                        <select className={fieldInput} value={form.price_range ?? ''} onChange={(e) => set('price_range', e.target.value)}>
-                          <option value="">—</option>
-                          {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{'$'.repeat(n)}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className={fieldLabel}>{L('cuisine')} <span className="text-gray-400 normal-case tracking-normal font-medium">({t('cuisine_hint')})</span></label>
-                        <input className={fieldInput} value={form.cuisine || ''} onChange={(e) => set('cuisine', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className={fieldLabel}>{L('reservation_url')}</label>
-                        <input className={fieldInput} value={form.reservation_url || ''} onChange={(e) => set('reservation_url', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className={fieldLabel}>{L('menu_url')}</label>
-                        <input className={fieldInput} value={form.menu_url || ''} onChange={(e) => set('menu_url', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className={fieldLabel}>{L('delivery_url')}</label>
-                        <input className={fieldInput} value={form.delivery_url || ''} onChange={(e) => set('delivery_url', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className={fieldLabel}>{L('order_online_url')}</label>
-                        <input className={fieldInput} value={form.order_online_url || ''} onChange={(e) => set('order_online_url', e.target.value)} />
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className={fieldLabel}>{L('tags')} <span className="text-gray-400 normal-case tracking-normal font-medium">({t('tags_hint')})</span></label>
-                        <input className={fieldInput} value={form.tags || ''} onChange={(e) => set('tags', e.target.value)} />
-                      </div>
-                    </div>
-                  </section>
-
-                  {/* Amenities */}
-                  <section className={sectionCard}>
-                    <h4 className={sectionTitle}><Sparkles className="h-4 w-4 text-tuggi-blue" />{t('sections.amenities')}</h4>
-                    <div className="flex flex-wrap gap-x-6 gap-y-3">
-                      {AMENITIES.map((a) => (
-                        <label key={a.key} className="flex items-center gap-2 cursor-pointer">
-                          <input type="checkbox" checked={!!form[a.key]} onChange={(e) => set(a.key, e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t(`amenities.${a.t}`)}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </section>
-
-                  {/* Publishing */}
-                  <section className={sectionCard}>
-                    <h4 className={sectionTitle}><Send className="h-4 w-4 text-tuggi-blue" />{t('sections.publish')}</h4>
-                    <div className="flex flex-wrap items-center gap-6">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={!!form.approved} onChange={(e) => set('approved', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('approved')}</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={!!form.is_active} onChange={(e) => set('is_active', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('active')}</span>
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('priority')}</span>
-                        <select value={form.priority_level ?? 3} onChange={(e) => set('priority_level', e.target.value)} className="px-3 py-1.5 bg-gray-50 dark:bg-gray-900/50 border border-transparent rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue">
-                          <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
-                        </select>
-                      </div>
-                    </div>
-                  </section>
-
-                  <p className="text-xs text-gray-400 px-1">{t('reused_note')}</p>
-                </>
-              )}
+              <div>
+                <label className={fieldLabel}>{L('latitude')}</label>
+                <input className={fieldInput} value={form.latitude || ''} onChange={(e) => set('latitude', e.target.value)} />
+              </div>
+              <div>
+                <label className={fieldLabel}>{L('longitude')}</label>
+                <input className={fieldInput} value={form.longitude || ''} onChange={(e) => set('longitude', e.target.value)} />
+              </div>
             </>
           )}
         </div>
+      </section>
 
-        {/* Footer */}
-        <footer className="px-8 py-5 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-xl text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-            {tc('actions.cancel')}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-xl text-white bg-tuggi-blue hover:bg-tuggi-blue/90 shadow-lg shadow-tuggi-blue/20 disabled:opacity-50 transition-all"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? tc('actions.saving') : (isEdit ? tc('actions.save') : tc('actions.create'))}
-          </button>
-        </footer>
-      </div>
-    </div>
+      {isEdit && (
+        <>
+          {/* Commerce */}
+          <section className={sectionCard}>
+            <h4 className={sectionTitle}><Store className="h-4 w-4 text-tuggi-blue" />{t('sections.commerce')}</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className={fieldLabel}>{L('price_range')}</label>
+                <select className={fieldInput} value={form.price_range ?? ''} onChange={(e) => set('price_range', e.target.value)}>
+                  <option value="">—</option>
+                  {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{'$'.repeat(n)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={fieldLabel}>{L('cuisine')} <span className="text-gray-400 normal-case tracking-normal font-medium">({t('cuisine_hint')})</span></label>
+                <input className={fieldInput} value={form.cuisine || ''} onChange={(e) => set('cuisine', e.target.value)} />
+              </div>
+              <div>
+                <label className={fieldLabel}>{L('reservation_url')}</label>
+                <input className={fieldInput} value={form.reservation_url || ''} onChange={(e) => set('reservation_url', e.target.value)} />
+              </div>
+              <div>
+                <label className={fieldLabel}>{L('menu_url')}</label>
+                <input className={fieldInput} value={form.menu_url || ''} onChange={(e) => set('menu_url', e.target.value)} />
+              </div>
+              <div>
+                <label className={fieldLabel}>{L('delivery_url')}</label>
+                <input className={fieldInput} value={form.delivery_url || ''} onChange={(e) => set('delivery_url', e.target.value)} />
+              </div>
+              <div>
+                <label className={fieldLabel}>{L('order_online_url')}</label>
+                <input className={fieldInput} value={form.order_online_url || ''} onChange={(e) => set('order_online_url', e.target.value)} />
+              </div>
+              <div className="md:col-span-2">
+                <label className={fieldLabel}>{L('tags')} <span className="text-gray-400 normal-case tracking-normal font-medium">({t('tags_hint')})</span></label>
+                <input className={fieldInput} value={form.tags || ''} onChange={(e) => set('tags', e.target.value)} />
+              </div>
+            </div>
+          </section>
+
+          {/* Amenities */}
+          <section className={sectionCard}>
+            <h4 className={sectionTitle}><Sparkles className="h-4 w-4 text-tuggi-blue" />{t('sections.amenities')}</h4>
+            <div className="flex flex-wrap gap-x-6 gap-y-3">
+              {AMENITIES.map((a) => (
+                <label key={a.key} className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={!!form[a.key]} onChange={(e) => set(a.key, e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t(`amenities.${a.t}`)}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          {/* Publishing */}
+          <section className={sectionCard}>
+            <h4 className={sectionTitle}><Send className="h-4 w-4 text-tuggi-blue" />{t('sections.publish')}</h4>
+            <div className="flex flex-wrap items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={!!form.approved} onChange={(e) => set('approved', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('approved')}</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={!!form.is_active} onChange={(e) => set('is_active', e.target.checked)} className="w-4 h-4 rounded accent-tuggi-blue" />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('active')}</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{L('priority')}</span>
+                <select value={form.priority_level ?? 3} onChange={(e) => set('priority_level', e.target.value)} className="px-3 py-1.5 bg-gray-50 dark:bg-gray-900/50 border border-transparent rounded-lg text-sm dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue">
+                  <option value={1}>1</option><option value={2}>2</option><option value={3}>3</option>
+                </select>
+              </div>
+            </div>
+          </section>
+        </>
+      )}
+    </EntityManagementDrawer>
   )
 }
