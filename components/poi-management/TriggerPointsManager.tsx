@@ -899,7 +899,7 @@ export function TriggerPointsManager({
                 {/* Access mode: quando o TP dispara (drive-only vs walk+drive) */}
                 <div>
                   <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    {t('labels.access', 'Modo')}
+                    {'Modo'}
                   </label>
                   <select
                     value={formData.access || 'car'}
