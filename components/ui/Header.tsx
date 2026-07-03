@@ -225,11 +225,11 @@ export function Header({ className }: { className?: string }) {
               ...(hasPlaces ? [{ name: t('places'), href: '/places', icon: Store, category: 'points' }] : []),
               ...navigation.filter(item => item.category === 'points' && item.href !== '/pois'),
             ], t('points_management'))}
+            {isAdmin && isMarketingEnabled() && renderDropdown('marketing', navigation.filter(item => item.category === 'marketing'), t('marketing'))}
             <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-2" />
             {renderDropdown('reports', navigation.filter(item => item.category === 'reports'), t('reports'))}
             {renderDropdown('users', navigation.filter(item => item.category === 'users'), t('users'))}
             {isAdmin && renderDropdown('admin', navigation.filter(item => item.category === 'admin'), t('admin'))}
-            {isAdmin && isMarketingEnabled() && renderDropdown('marketing', navigation.filter(item => item.category === 'marketing'), t('marketing'))}
           </nav>
 
           <div className="flex items-center space-x-1">
@@ -261,7 +261,7 @@ export function Header({ className }: { className?: string }) {
                   {navigation.filter(item => item.category === 'points' && item.href !== '/pois').map(item => renderNavItem(item, pathname.startsWith(item.href), () => setIsMobileMenuOpen(false)))}
                 </div>
               </div>
-              {['reports', 'users', 'admin', 'marketing'].map(cat => {
+              {['marketing', 'reports', 'users', 'admin'].map(cat => {
                 if (cat === 'admin' && !isAdmin) return null
                 if (cat === 'marketing' && (!isAdmin || !isMarketingEnabled())) return null
                 return (
