@@ -38,11 +38,7 @@ if (typeof process !== 'undefined' && process.env) {
   }
 }
 
-import { 
-  createClientComponentClient,
-  createRouteHandlerClient,
-  createServerComponentClient
-} from '@supabase/auth-helpers-nextjs'
+import { createBrowserClient, createServerClient } from '@supabase/ssr'
 
 // Environment configuration
 interface SupabaseConfig {
@@ -64,6 +60,7 @@ export class SupabaseClientManager {
   private serverClient: SupabaseClient | null = null
   private serviceClient: any = null
   private edgeClient: SupabaseClient | null = null
+  private clientComponent: any = null
   
   private constructor() {
     // Private constructor for singleton pattern
@@ -139,22 +136,44 @@ export class SupabaseClientManager {
    * Get client component client (for React components)
    */
   getClientComponent(): any {
-    return createClientComponentClient({
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    })
+    // Singleton per browser context. @supabase/ssr's browser client persists the session in
+    // cookies and attaches the user's access token to PostgREST/RPC requests. (The old
+    // auth-helpers client did NOT attach the token with sb_publishable_ keys, so authenticated
+    // queries could silently run as anon.) Memoize so sign-in and later queries share one
+    // session and we don't spawn "Multiple GoTrueClient instances".
+    if (!this.clientComponent) {
+      this.clientComponent = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+      )
+    }
+    return this.clientComponent
+  }
+
+  /**
+   * Cookie adapter shared by route-handler and server-component clients.
+   * setAll is a no-op when the caller can't write cookies (e.g. Server Components); the
+   * try/catch swallows the Next.js "cookies can only be modified..." error in that context.
+   */
+  private cookieAdapter(cookieStore: any) {
+    return {
+      getAll: () => cookieStore.getAll(),
+      setAll: (cookiesToSet: { name: string; value: string; options?: any }[]) => {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
+        } catch { /* read-only cookie context (RSC) */ }
+      },
+    }
   }
 
   /**
    * Get route handler client (for Next.js API Routes/Route Handlers)
    */
   getRouteHandler(cookies: any): any {
-    return createRouteHandlerClient(
-      { cookies: () => cookies },
-      {
-        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      }
+    return createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+      { cookies: this.cookieAdapter(cookies) }
     )
   }
 
@@ -162,12 +181,10 @@ export class SupabaseClientManager {
    * Get server component client (for Next.js Server Components)
    */
   getServerComponent(cookies: any): any {
-    return createServerComponentClient(
-      { cookies: () => cookies },
-      {
-        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-      }
+    return createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+      { cookies: this.cookieAdapter(cookies) }
     )
   }
   
@@ -252,6 +269,7 @@ export class SupabaseClientManager {
     this.serverClient = null
     this.serviceClient = null
     this.edgeClient = null
+    this.clientComponent = null
   }
   
   /**

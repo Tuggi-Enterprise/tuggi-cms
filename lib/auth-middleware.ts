@@ -1,4 +1,4 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseRouteHandler } from './core/supabase-client'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -7,18 +7,18 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
     try {
       console.log('🔐 AUTH MIDDLEWARE: Starting authentication check...')
       
-      const supabase = createRouteHandlerClient({ cookies })
-      
-      const { data: { session }, error } = await supabase.auth.getSession()
-      
-      console.log('🔐 AUTH MIDDLEWARE: Session check:', {
-        hasSession: !!session,
+      const supabase = getSupabaseRouteHandler(await cookies())
+
+      const { data: { user }, error } = await supabase.auth.getUser()
+
+      console.log('🔐 AUTH MIDDLEWARE: User check:', {
+        hasUser: !!user,
         hasError: !!error,
         error: error?.message,
-        userEmail: session?.user?.email
+        userEmail: user?.email
       })
-      
-      if (error || !session) {
+
+      if (error || !user) {
         console.log('❌ AUTH MIDDLEWARE: No authenticated user')
         return NextResponse.json(
           { error: 'Unauthorized - Authentication required' },
@@ -33,7 +33,7 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
         .schema('core')
         .from('cms_users')
         .select('role, is_active')
-        .eq('email', session.user.email)
+        .eq('email', user.email)
         .eq('is_active', true)
         .single()
 
@@ -65,7 +65,7 @@ export async function withAuth(handler: (req: NextRequest) => Promise<NextRespon
       console.log('✅ AUTH MIDDLEWARE: Authentication successful, calling handler...')
 
       // Add user info to request for use in handler
-      ;(req as any).user = session.user
+      ;(req as any).user = user
       ;(req as any).cmsUser = cmsUser
 
       const result = await handler(req)

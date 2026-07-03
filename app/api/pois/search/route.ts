@@ -98,15 +98,14 @@ export async function GET(request: NextRequest) {
     try {
       const cookieStore = await cookies()
       if (cookieStore) {
-        const createRouteHandlerClient = (await import('@supabase/auth-helpers-nextjs')).createRouteHandlerClient
         const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-        const { data: { session } } = await supabaseAuth.auth.getSession()
-        if (session) {
+        const { data: { user } } = await supabaseAuth.auth.getUser()
+        if (user) {
           const { data, error } = await supabaseAuth
             .schema('core')
             .from('cms_users')
             .select('id, role')
-            .eq('email', session.user.email)
+            .eq('email', user.email)
             .single()
           if (!error && data) cmsUser = data
         }

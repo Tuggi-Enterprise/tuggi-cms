@@ -1,5 +1,4 @@
-import { getSupabase } from './core/supabase-client'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabase, getSupabaseClient } from './core/supabase-client'
 import { SupabaseClient } from '@supabase/supabase-js'
 
 // Server-side Supabase client
@@ -10,10 +9,7 @@ export const supabase = new Proxy({} as SupabaseClient, {
 })
 
 // Client-side Supabase client for auth helpers
-export const createClientComponent = () => createClientComponentClient({
-  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-  supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-})
+export const createClientComponent = () => getSupabaseClient()
 
 // Database types
 export interface CmsUser {

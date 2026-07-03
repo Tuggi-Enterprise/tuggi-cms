@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs'
+import { getSupabaseServerComponent } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { ClientApprovalPanel } from '@/components/clients/ClientApprovalPanel'
 
@@ -8,13 +8,7 @@ export const metadata = {
 }
 
 export default async function ClientApprovalsPage() {
-  const supabase = createServerComponentClient(
-    { cookies },
-    {
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-    }
-  )
+  const supabase = getSupabaseServerComponent(await cookies())
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {

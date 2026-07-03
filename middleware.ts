@@ -1,4 +1,4 @@
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import createMiddleware from 'next-intl/middleware';
@@ -21,11 +21,19 @@ export async function middleware(req: NextRequest) {
   // 2. Setup Supabase Auth
   // We need to pass the request and response to Supabase to manage cookies
   const res = intlResponse; // Use the response from intl middleware as base
-  const supabase = createMiddlewareClient(
-    { req, res },
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
     {
-      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+      cookies: {
+        getAll: () => req.cookies.getAll(),
+        setAll: (cookiesToSet: { name: string; value: string; options?: any }[]) => {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            req.cookies.set(name, value)
+            res.cookies.set(name, value, options)
+          })
+        },
+      },
     }
   )
 
