@@ -77,7 +77,9 @@ export function UserLocationProvider({ children }: { children: React.ReactNode }
                 message = 'Location information is unavailable'
                 break
               case err.TIMEOUT:
-                console.error('❌ [Location] Request timed out:', err.message)
+                // Ambiental (GPS lento/indisponível no device), não é bug de código —
+                // já tentamos alta e baixa precisão. Loga como aviso, não erro.
+                console.warn('⚠️ [Location] Request timed out:', err.message)
                 message = 'Location request timed out'
                 break
               default:

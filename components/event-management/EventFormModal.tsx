@@ -67,6 +67,8 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
         approved: !!details.approved,
         is_active: details.is_active !== false,
         priority_level: details.priority_level ?? 3,
+        latitude: details.latitude ?? '',
+        longitude: details.longitude ?? '',
         starts_at: toDatetimeLocal(ed.starts_at),
         ends_at: toDatetimeLocal(ed.ends_at),
         timezone: ed.timezone || 'America/Sao_Paulo',
@@ -107,7 +109,7 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
     setError(null)
     try {
       if (!isEdit) {
-        if (!form.name || !form.city || !form.country || !form.starts_at) {
+        if (!form.name || !form.city || !form.country || !form.starts_at || !form.latitude || !form.longitude) {
           throw new Error(t('validation_required'))
         }
         const id = await eventService.create({
@@ -126,6 +128,10 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
         onSaved?.(id)
         onClose()
         return
+      }
+
+      if (!form.name || !form.city || !form.country || !form.latitude || !form.longitude) {
+        throw new Error(t('validation_required'))
       }
 
       await eventService.updateAttraction(eventId as string, {
@@ -156,6 +162,7 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
         ticket_url: form.ticket_url || null,
         poster_url: form.poster_url || null,
       })
+      await eventService.setCoordinate(eventId as string, Number(form.latitude), Number(form.longitude))
       await refetch()
       invalidate()
       onSaved?.(eventId as string)
@@ -213,11 +220,11 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
             <input className={fieldInput} value={form.city || ''} onChange={(e) => set('city', e.target.value)} />
           </div>
           <div className="md:col-span-3">
-            <label className={fieldLabel}>{L('location')}{!isEdit && ' *'}</label>
+            <label className={fieldLabel}>{L('location')} *</label>
             <LocationPicker
-              editable={!isEdit}
-              latitude={!isEdit ? (form.latitude ? Number(form.latitude) : null) : (coordinates?.latitude ?? null)}
-              longitude={!isEdit ? (form.longitude ? Number(form.longitude) : null) : (coordinates?.longitude ?? null)}
+              editable={canEdit}
+              latitude={form.latitude !== '' && form.latitude != null ? Number(form.latitude) : null}
+              longitude={form.longitude !== '' && form.longitude != null ? Number(form.longitude) : null}
               name={form.name}
               onChange={(lat, lng) => { set('latitude', lat); set('longitude', lng) }}
             />

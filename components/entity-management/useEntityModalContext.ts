@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { POIModalContextValue, BoundaryLatLng } from '@/components/poi-management/POIModalContext'
 import { extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
 import { fetchBoundary, saveBoundary, deleteBoundary, sanitizeBoundary } from '@/lib/core/poi-boundary-service'
+import { useEntityContent } from './useEntityContent'
 
 interface Options {
   entityId: string
@@ -58,6 +59,9 @@ export function useEntityModalContext(opts: Options): POIModalContextValue {
     async (message: string) => (typeof window !== 'undefined' ? window.confirm(message) : true),
     []
   )
+
+  // Conteúdo real (descrição / áudio / tradução) reusando o substrato de attractions.
+  const content = useEntityContent({ entityId, name, showFeedback, requestConfirm, invalidate })
 
   const getPoi = useCallback(
     () => ({
@@ -143,27 +147,16 @@ export function useEntityModalContext(opts: Options): POIModalContextValue {
     setEditedPoi: noop, isSaving: false, isAdmin: canEdit, enhancedCategories: [], clients: [], images: [],
     openInGoogleMaps: noop, handleSaveChanges: noop, handleDelete: noop, handleGarbage: noop,
 
-    // Shared content (stub)
-    isLoading: false, editedPoi: null, descriptions: [], currentDescription: '', setCurrentDescription: noop,
-    originalDescription: '', currentName: '', setCurrentName: noop, originalName: '', isSavingName: false,
-    isTranslatingName: false, translateName: noop, savePoiName: noop, generationLanguage: 'pt-br',
-    setGenerationLanguage: noop, verificationResult: null, referenceLinks: [], setReferenceLinks: noop,
-    isGeneratingAudio: false,
+    // editedPoi não vem do content (só fallback de categoria na DescriptionTab)
+    editedPoi: null,
 
-    // Description tab (stub)
-    audioDuration: 0, setAudioDuration: noop, isGenerating: false, isSavingDescription: false,
-    isSavingReferenceLinks: false, generateDescription: noop, resetDescription: noop,
-    saveDescriptionAndNextStep: noop, saveReferenceLinks: noop,
-
-    // Narration-audio tab (stub)
-    currentAudioUrl: null, selectedGender: 'male', setSelectedGender: noop, selectedLanguages: [],
-    setSelectedLanguages: noop, isTranslating: false, translatedDescriptions: [],
-    audioProgress: { current: 0, total: 0, currentTask: '' }, audioResults: [], showResults: false,
-    setShowResults: noop, regenerateAllAudios: noop, regenerateTranslation: noop, deleteTranslation: noop,
-    fetchAdditionalData: noop,
+    // Conteúdo REAL: descrição, áudio, tradução do nome, tradução da descrição,
+    // áudio por idioma — via useEntityContent (substrato attraction_descriptions).
+    ...content,
   }), [
     getPoi, canEdit, onClose, invalidate, showFeedback, requestConfirm,
     boundaryPolygon, existingBoundary, isDrawingEnabled, isSavingBoundary,
     handleBoundaryPolygonComplete, handleSaveBoundary, handleDeleteBoundary,
+    content,
   ])
 }

@@ -11,14 +11,16 @@
  */
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { X, Info, MapPin, Target, Save, Loader2 } from 'lucide-react'
+import { X, Info, MapPin, Target, Save, Loader2, FileText, Volume2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { POIModalProvider } from '@/components/poi-management/POIModalContext'
 import { BoundaryTab } from '@/components/poi-management/tabs/BoundaryTab'
 import { TriggerPointsTab } from '@/components/poi-management/tabs/TriggerPointsTab'
+import { DescriptionTab } from '@/components/poi-management/tabs/DescriptionTab'
+import { NarrationAudioTab } from '@/components/poi-management/tabs/NarrationAudioTab'
 import { useEntityModalContext } from './useEntityModalContext'
 
-type Tab = 'details' | 'boundary' | 'trigger-points'
+type Tab = 'details' | 'description' | 'narration-audio' | 'boundary' | 'trigger-points'
 
 interface Props {
   isOpen: boolean
@@ -55,6 +57,8 @@ export function EntityManagementDrawer({
   const tabs: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'details', label: t('tabs.details'), icon: Info },
     ...(isEdit ? [
+      { id: 'description' as Tab, label: t('tabs.description'), icon: FileText },
+      { id: 'narration-audio' as Tab, label: t('tabs.narration'), icon: Volume2 },
       { id: 'boundary' as Tab, label: t('labels.geographic_boundaries'), icon: MapPin },
       { id: 'trigger-points' as Tab, label: t('tabs.trigger_points'), icon: Target },
     ] : []),
@@ -110,6 +114,12 @@ export function EntityManagementDrawer({
               ) : (
                 <div className="p-8 space-y-6">{children}</div>
               )
+            )}
+            {activeTab === 'description' && (
+              <POIModalProvider value={ctx}><DescriptionTab /></POIModalProvider>
+            )}
+            {activeTab === 'narration-audio' && (
+              <POIModalProvider value={ctx}><NarrationAudioTab /></POIModalProvider>
             )}
             {activeTab === 'boundary' && (
               <POIModalProvider value={ctx}><BoundaryTab /></POIModalProvider>
