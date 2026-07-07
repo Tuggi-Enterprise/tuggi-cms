@@ -61,6 +61,8 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
         approved: !!details.approved,
         is_active: details.is_active !== false,
         priority_level: details.priority_level ?? 3,
+        latitude: details.latitude ?? '',
+        longitude: details.longitude ?? '',
         place_type: pd.place_type || '',
         cuisine: (pd.cuisine || []).join(', '),
         price_range: pd.price_range ?? '',
@@ -95,7 +97,7 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
     setError(null)
     try {
       if (!isEdit) {
-        if (!form.name || !form.city || !form.country) {
+        if (!form.name || !form.city || !form.country || !form.latitude || !form.longitude) {
           throw new Error(t('validation_required'))
         }
         const id = await placeService.create({
@@ -111,6 +113,10 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
         onSaved?.(id)
         onClose()
         return
+      }
+
+      if (!form.name || !form.city || !form.country || !form.latitude || !form.longitude) {
+        throw new Error(t('validation_required'))
       }
 
       await placeService.updateAttraction(placeId as string, {
@@ -138,6 +144,7 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
         serves_alcohol: !!form.serves_alcohol,
         accepts_reservations: !!form.accepts_reservations,
       })
+      await placeService.setCoordinate(placeId as string, Number(form.latitude), Number(form.longitude))
       await refetch()
       invalidate()
       onSaved?.(placeId as string)
@@ -202,11 +209,11 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
             </select>
           </div>
           <div className="md:col-span-3">
-            <label className={fieldLabel}>{L('location')}{!isEdit && ' *'}</label>
+            <label className={fieldLabel}>{L('location')} *</label>
             <LocationPicker
-              editable={!isEdit}
-              latitude={!isEdit ? (form.latitude ? Number(form.latitude) : null) : (coordinates?.latitude ?? null)}
-              longitude={!isEdit ? (form.longitude ? Number(form.longitude) : null) : (coordinates?.longitude ?? null)}
+              editable={canEdit}
+              latitude={form.latitude !== '' && form.latitude != null ? Number(form.latitude) : null}
+              longitude={form.longitude !== '' && form.longitude != null ? Number(form.longitude) : null}
               name={form.name}
               onChange={(lat, lng) => { set('latitude', lat); set('longitude', lng) }}
             />

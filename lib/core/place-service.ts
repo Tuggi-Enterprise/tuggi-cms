@@ -141,4 +141,16 @@ export const placeService = {
     const { error } = await client().schema('core').from('attractions').update(patch).eq('id', attractionId)
     if (error) throw new Error(error.message)
   },
+
+  /** Set/edit the place's coordinate (upsert in core.attraction_coordinate). */
+  async setCoordinate(attractionId: string, latitude: number, longitude: number) {
+    const { error } = await client()
+      .schema('core')
+      .rpc('cms_set_attraction_coordinate', {
+        p_attraction_id: attractionId,
+        p_latitude: latitude,
+        p_longitude: longitude,
+      })
+    if (error) throw new Error(error.message)
+  },
 }
