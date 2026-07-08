@@ -246,15 +246,21 @@ const ITALY: Record<string, string> = {
 }
 
 const SPAIN: Record<string, string> = {
-  madrid: 'Comunidad de Madrid', 'comunidad de madrid': 'Comunidad de Madrid',
-  'region de madrid': 'Comunidad de Madrid',
+  // Canonical values follow the DB/CMS standard (migration batches 26/28): Castilian
+  // short forms (Madrid / País Vasco / Asturias / Murcia). NOTE: the marketing coverage
+  // map (tuggi-enterprise CoverageMap.tsx) labels these communities Euskadi / Comunidad
+  // de Madrid / "Asturias / Asturies" — a display-only difference; that map colours by
+  // point-in-polygon on coordinates, not this state string, so the two never need to match.
+  madrid: 'Madrid', 'comunidad de madrid': 'Madrid', 'region de madrid': 'Madrid',
   cataluna: 'Catalunya', catalonia: 'Catalunya', catalunya: 'Catalunya',
-  'pais vasco': 'Euskadi', 'basque country': 'Euskadi', basque: 'Euskadi', euskadi: 'Euskadi',
+  // Catalan provinces → community (keep community-level granularity)
+  barcelona: 'Catalunya', tarragona: 'Catalunya', lleida: 'Catalunya', girona: 'Catalunya', gerona: 'Catalunya',
+  'pais vasco': 'País Vasco', 'basque country': 'País Vasco', basque: 'País Vasco', euskadi: 'País Vasco',
   aragon: 'Aragón',
   'islas baleares': 'Illes Balears', baleares: 'Illes Balears', 'balearic islands': 'Illes Balears',
   'illes balears': 'Illes Balears',
-  'region de murcia': 'Región de Murcia',
-  asturias: 'Asturias / Asturies', 'principado de asturias': 'Asturias / Asturies',
+  murcia: 'Murcia', 'region de murcia': 'Murcia',
+  asturias: 'Asturias', 'principado de asturias': 'Asturias', 'asturias / asturies': 'Asturias',
   'comunidad valenciana': 'Comunitat Valenciana', valencia: 'Comunitat Valenciana',
   'c valenciana': 'Comunitat Valenciana', 'comunitat valenciana': 'Comunitat Valenciana',
   'islas canarias': 'Canarias', canarias: 'Canarias',
