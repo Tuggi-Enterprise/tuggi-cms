@@ -169,7 +169,7 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // ✅ FEATURE FLAG (HARDCODED)
-    const isEnabled = false; // Desligado por enquanto
+    const isEnabled = true; // Ligado: áudio contextual on-demand (play ao se mover)
 
     if (!isEnabled) {
         return new Response(

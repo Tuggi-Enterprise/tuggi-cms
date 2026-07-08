@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { rebuildReadModel } from '../_shared/read-model.ts';
 import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
 import { createSecureMediaHeaders } from '../_shared/security-headers.ts';
 import {
@@ -120,6 +121,9 @@ const updateAttractionDescription = async (
       throw new Error(`Failed to create description: ${insertError.message}`);
     }
   }
+
+  // Passo (c): tornar o áudio visível ao caminho de disparo (app_poi_read) na hora.
+  await rebuildReadModel(supabaseAdmin, attractionId);
 };
 
 serve(async (req) => {

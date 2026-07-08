@@ -25,6 +25,7 @@ import {
 import { createSecureHeaders } from "../_shared/security-headers.ts";
 // Validation schemas removidos - aceitamos qualquer idioma agora
 import { createAuditLogger } from "../_shared/audit-logger.ts";
+import { rebuildReadModel } from "../_shared/read-model.ts";
 
 // --- Types ---
 interface GeneratedByInfo {
@@ -407,6 +408,11 @@ async function processPOIItem(
             // Gender-independent translated name (null only if translation failed).
             ...(translatedName ? { name: translatedName } : {}),
         }, { onConflict: "attraction_id,language,gender" }).select().single();
+
+        // 5.0.1 Passo (c): reconstruir a linha do POI no read-model app_poi_read
+        // logo após gravar description/audio_url, senão o guia (app_get_pois_by_cone)
+        // não enxerga o conteúdo novo até o cron rodar. Best-effort (não bloqueia).
+        await rebuildReadModel(supabaseAdmin, poi_id);
 
         // 5.1 Track who generated this description (non-blocking, defensive)
         // Runs as a separate UPDATE so that if the generated_by columns don't exist
