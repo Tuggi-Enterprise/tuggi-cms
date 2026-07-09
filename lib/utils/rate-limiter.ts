@@ -11,6 +11,17 @@ const RATE_LIMITS = {
     requestsPerMinute: 20, // Flash-Lite permite ainda mais requests
     requestsPerHour: 2000,
     cooldownMs: 3000
+  },
+  // Modelos 3.x (2.5 aposentado). Mesmos limites por tier.
+  'gemini-3.5-flash': {
+    requestsPerMinute: 15,
+    requestsPerHour: 1500,
+    cooldownMs: 4000
+  },
+  'gemini-3.1-flash-lite': {
+    requestsPerMinute: 20,
+    requestsPerHour: 2000,
+    cooldownMs: 3000
   }
 }
 

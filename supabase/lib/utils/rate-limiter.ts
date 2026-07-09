@@ -90,6 +90,17 @@ export const GEMINI_RATE_LIMITS = {
     capacity: 15,
     refillRate: 15 / 60, // 15 tokens por minuto = 0.25 tokens/segundo
     cacheTTL: 24 * 60 * 60 * 1000 // 24 horas
+  },
+  // Modelos 3.x (2.5 aposentado/flapping)
+  'gemini-3.5-flash': {
+    capacity: 10,
+    refillRate: 10 / 60,
+    cacheTTL: 24 * 60 * 60 * 1000
+  },
+  'gemini-3.1-flash-lite': {
+    capacity: 15,
+    refillRate: 15 / 60,
+    cacheTTL: 24 * 60 * 60 * 1000
   }
 };
 

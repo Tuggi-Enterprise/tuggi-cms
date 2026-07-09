@@ -219,7 +219,7 @@ export class GeminiEnhancedPOVService {
       const prompt = this.buildGeminiPrompt(request, existingSuggestions, context)
       
       // Chamar Gemini API
-      const geminiResponse = await callGeminiAPI('gemini-2.5-flash-lite', prompt, 'pov_enhancement')
+      const geminiResponse = await callGeminiAPI('gemini-3.1-flash-lite', prompt, 'pov_enhancement')
       
       // Processar resposta
       return this.processGeminiResponse(geminiResponse, request)

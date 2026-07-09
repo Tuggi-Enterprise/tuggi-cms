@@ -38,7 +38,7 @@ Texto para avaliação:
 
 export async function evaluateText(text: string): Promise<TextEvaluationResult> {
   try {
-    const model = 'gemini-2.5-flash-lite';
+    const model = 'gemini-3.1-flash-lite';
     const prompt = `${EVALUATE_TEXT_PROMPT}\n\n"${text}"`;
     
     // Usar rate limiter e cache

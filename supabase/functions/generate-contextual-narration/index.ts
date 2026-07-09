@@ -169,17 +169,20 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // ✅ FEATURE FLAG (HARDCODED)
-    const isEnabled = true; // Ligado: áudio contextual on-demand (play ao se mover)
+    // DESLIGADO: narração contextual em tempo real fora do ar. A única geração de
+    // texto/tradução ativa é a do master-description. Qualquer chamada aqui é
+    // curto-circuitada ANTES de auth/rate-limit/modelo → nada é gerado.
+    const isEnabled = false;
 
     if (!isEnabled) {
         return new Response(
             JSON.stringify({
                 success: false,
-                code: "FEATURE_DISABLED",
-                message: "Áudio contextual desabilitado no momento.",
+                code: "SERVICE_UNAVAILABLE",
+                message: "Narração contextual indisponível no momento.",
             }),
             {
-                status: 200,
+                status: 503,
                 headers: createSecureHeaders(corsHeaders),
             },
         );

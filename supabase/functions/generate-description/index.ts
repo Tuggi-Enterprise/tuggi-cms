@@ -409,6 +409,25 @@ async function processPOIItem(
             ...(translatedName ? { name: translatedName } : {}),
         }, { onConflict: "attraction_id,language,gender" }).select().single();
 
+        // 5.0.0 REGRA (invariante de áudio): texto novo NUNCA pode ficar pareado com
+        // áudio antigo. Quando não geramos áudio novo (text-only, ou TTS falhou),
+        // publicUrl é null → apagamos o mp3 antigo do storage. Assim `audio_url null`
+        // ⟺ nenhum arquivo existe, e o app não baixa/toca áudio velho — nem por URL
+        // cacheada, nem por reconstrução determinística do path. O áudio será regerado
+        // limpo no futuro. Roda DEPOIS do upsert (que já gravou audio_url=null): se a
+        // remoção falhar, o banco já não aponta pro arquivo, então nada é servido.
+        // (Quando geramos áudio, o TTS já sobrescreve o mesmo path via upsert:true.)
+        if (!publicUrl) {
+            const stalePath = `master_audio/${poi_id}/${poi_id}-${language}-${gender}.mp3`;
+            const { error: rmErr } = await supabaseAdmin.storage
+                .from("travel-app-audios").remove([stalePath]);
+            if (rmErr) {
+                console.warn(`${LOG_PREFIX} ⚠️ Falha ao remover áudio antigo ${stalePath}: ${rmErr.message}`);
+            } else {
+                console.log(`${LOG_PREFIX} 🗑️ Áudio antigo removido (texto novo sem áudio novo): ${stalePath}`);
+            }
+        }
+
         // 5.0.1 Passo (c): reconstruir a linha do POI no read-model app_poi_read
         // logo após gravar description/audio_url, senão o guia (app_get_pois_by_cone)
         // não enxerga o conteúdo novo até o cron rodar. Best-effort (não bloqueia).

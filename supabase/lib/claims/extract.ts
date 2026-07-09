@@ -132,7 +132,7 @@ export async function extractClaims(description: string): Promise<ExtractClaimsR
       throw new Error('GEMINI_API_KEY not configured');
     }
 
-    const model = 'gemini-2.5-flash-lite';
+    const model = 'gemini-3.1-flash-lite';
     const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
     
     // Sanitize input - menos agressivo

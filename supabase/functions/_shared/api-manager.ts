@@ -405,7 +405,7 @@ export class APIManager {
   }
   
   // AI APIs
-  async getGeminiResponse(prompt: string, model: string = 'gemini-2.5-flash-lite') {
+  async getGeminiResponse(prompt: string, model: string = 'gemini-3.1-flash-lite') {
     return this.request('google-gemini', `models/${model}:generateContent`, {
       method: 'POST',
       body: {
