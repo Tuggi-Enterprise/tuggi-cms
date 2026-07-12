@@ -166,6 +166,8 @@ export const FILTER_CONFIG = {
       "kale ", "kalea ", "etorbidea ", "errepidea ", // EUS
       "acceso ", "accés ", // acesso/via de acesso
       "via ", "viale ", "corso ", "strada ", // IT
+      // IT extra — endereços/vias que vazavam (via/viale/corso já cobertos acima)
+      "contrada ", "rione ", "vicolo ", "salita ", "calata ", "fondamenta ", "traversa ", "largo ", "piazzale ", "ciclovia ", // IT
       // FR — "rue"/"route"/"chemin" respondem por ~24k de ruído sem esses prefixos (boulevard/avenue já cobertos pelo EN)
       "rue ", "route ", "chemin ", "ruelle ", "impasse ", "voie ", "quai ", "cours ", "sentier ", "passage ", "allée ", "allee ", "promenade ", "chaussée ", "chaussee ", "faubourg ", "montée ", "montee ", "rond-point ", "ancienne route ", // FR
       "street ", "avenue ", "st. ", "ave. ", "road ", "rd. ", "lane ", "way ", "drive ", "dr. ", "boulevard ", "blvd. ", "highway " // EN

@@ -252,16 +252,17 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(airport|airfield|airpark|aeroporto|aerodromo|aeropuerto|aeroport)\b/, 'airport'],
   [/\b(bridge|ponte|puente|pont)\b/, 'bridge'],
   [/\b(lighthouse|farol|faro|phare)\b/, 'lighthouse'],
+  [/\b(tower|torre|campanile|beffroi|belfry)\b/, 'tower'],
   // religioso: catedral/basílica e abadia/mosteiro ANTES da igreja genérica (senão viram 'church')
-  [/\b(cathedrale|cattedrale|catedral|basilique|basilica)\b/, 'cathedral'],
+  [/\b(cathedrale|cattedrale|catedral|duomo|basilique|basilica)\b/, 'cathedral'],
   [/\b(abbaye|abbey|abadia|abbazia|prieure|priory|monastere|monasterio|monestir|monastery)\b/, 'monastery'],
-  [/\b(church|chapel|chapelle|cappella|temple|mosque|synagogue|igreja|capela|ermita|ermida|santuario|santuari|iglesia|chiesa|eglise|esglesia|collegiale)\b/, 'church'],
+  [/\b(church|chapel|chapelle|cappella|temple|mosque|synagogue|igreja|capela|ermita|ermida|eremo|pieve|santuario|santuari|iglesia|chiesa|eglise|esglesia|collegiale)\b/, 'church'],
   [/\b(museum|museu|museo|musee)\b/, 'museum'],
   [/\b(cemetery|cemiterio|cementerio|cimetiere|cimitero)\b/, 'cemetery'],
   [/\b(theatre|theater|teatro)\b/, 'theatre'],
   // sítios arqueológicos (dolmen/menhir/oppidum…) e fortificações/aquedutos
   [/\b(dolmen|menhir|tumulus|cromlech|oppidum|cairn|nuraghe)\b/, 'archaeological_site'],
-  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|chateau|chateaux|citadelle|donjon|manoir|manor|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|castello|rocca|chateau|chateaux|citadelle|donjon|manoir|manor|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
   [/\b(aqueduc|aqueduct|acueducto|acquedotto)\b/, 'bridge'],
   [/\b(viewpoint|mirante|mirador|belvedere|belvedere)\b/, 'viewpoint'],
   // water
