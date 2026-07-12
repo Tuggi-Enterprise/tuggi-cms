@@ -252,16 +252,22 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(airport|airfield|airpark|aeroporto|aerodromo|aeropuerto|aeroport)\b/, 'airport'],
   [/\b(bridge|ponte|puente|pont)\b/, 'bridge'],
   [/\b(lighthouse|farol|faro|phare)\b/, 'lighthouse'],
-  [/\b(church|chapel|cathedral|basilica|temple|mosque|synagogue|igreja|capela|catedral|santuario|ermida|iglesia|chiesa|eglise)\b/, 'church'],
+  // religioso: catedral/basílica e abadia/mosteiro ANTES da igreja genérica (senão viram 'church')
+  [/\b(cathedrale|cattedrale|basilique)\b/, 'cathedral'],
+  [/\b(abbaye|abbey|abadia|abbazia|prieure|priory|monastere|monasterio|monastery)\b/, 'monastery'],
+  [/\b(church|chapel|chapelle|cappella|cathedral|basilica|temple|mosque|synagogue|igreja|capela|catedral|santuario|ermida|iglesia|chiesa|eglise|collegiale)\b/, 'church'],
   [/\b(museum|museu|museo|musee)\b/, 'museum'],
   [/\b(cemetery|cemiterio|cementerio|cimetiere|cimitero)\b/, 'cemetery'],
   [/\b(theatre|theater|teatro)\b/, 'theatre'],
-  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|chateau|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  // sítios arqueológicos (dolmen/menhir/oppidum…) e fortificações/aquedutos
+  [/\b(dolmen|menhir|tumulus|cromlech|oppidum|cairn|nuraghe)\b/, 'archaeological_site'],
+  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|chateau|chateaux|citadelle|donjon|manoir|manor|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  [/\b(aqueduc|aqueduct|acueducto|acquedotto)\b/, 'bridge'],
   [/\b(viewpoint|mirante|mirador|belvedere|belvedere)\b/, 'viewpoint'],
   // water
   [/\b(lake|pond|reservoir|lagoa|lago|laguna|lac)\b/, 'lake'],
   [/\b(represa|acude|embalse|barragem)\b/, 'reservoir'],
-  [/\b(falls|waterfall|cachoeira|catarata|cascata|cascada|salto|chute)\b/, 'waterfall'],
+  [/\b(falls|waterfall|cachoeira|catarata|cascata|cascada|cascade|salto|chute)\b/, 'waterfall'],
   [/\b(creek|brook|bayou|river|stream|rio|riacho|corrego|igarape|ribeira|arroyo|riviere|fiume)\b/, 'river'],
   [/\b(spring|springs|nascente|fonte|fuente)\b/, 'spring'],
   [/\b(beach|praia|playa|plage|spiaggia)\b/, 'beach'],
@@ -272,7 +278,7 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\bmesa\b/, 'plateau'],
   [/\bridge\b/, 'ridge'],
   [/\b(canyon|canion|gorge|valley|vale|valle|vallee)\b/, 'valley'],
-  [/\b(cave|cavern|grotto|gruta|caverna|cueva|grotte|grotta)\b/, 'cave'],
+  [/\b(cave|cavern|grotto|gruta|caverna|cueva|grotte|grotta|gouffre)\b/, 'cave'],
   [/\b(cliff|bluff|palisade|penhasco|falesia|farallon|falaise)\b/, 'cliff'],
   [/\b(forest|woods|woodland|mata|floresta|bosque|selva|foret|bosco)\b/, 'forest'],
   [/\b(island|isle|cay|ilha|isla|ile|isola)\b/, 'island'],
@@ -562,6 +568,9 @@ export const LEVEL_2_CATEGORIES = new Set<string>([
   'artwork', 'gallery', 'theatre', 'library', 'bridge', 'tower', 'windmill',
   'stadium', 'zoo', 'amusement_park', 'marketplace', 'fountain',
   'cemetery', 'pier', 'memorial',
+  // igrejas/capelas (mesmo sem wikidata) e corpos d'água nomeados = complementar,
+  // não devem cair no nível 3 (Adicional) por não terem referência externa.
+  'church', 'chapel', 'lake', 'pond', 'reservoir', 'lagoon',
 ])
 
 /**
