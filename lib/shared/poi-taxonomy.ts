@@ -544,7 +544,7 @@ export function isNotable(input: ClassifyInput): boolean {
 
 /** Categorias intrinsecamente "imperdíveis" (nível 1), mesmo sem wikidata. */
 export const LEVEL_1_CATEGORIES = new Set<string>([
-  'museum', 'monument', 'memorial', 'historic_site', 'archaeological_site',
+  'museum', 'monument', 'historic_site', 'archaeological_site',
   'cathedral', 'monastery', 'mosque', 'temple', 'synagogue',
   'viewpoint', 'waterfall', 'volcano', 'glacier', 'canyon', 'cave',
   'beach', 'lighthouse',
@@ -553,27 +553,50 @@ export const LEVEL_1_CATEGORIES = new Set<string>([
   'attraction',
 ])
 
-/** Categorias de média importância (nível 2). */
+/**
+ * Categorias de média importância (nível 2). `memorial` desceu do nível 1 pra cá:
+ * o grosso são Monuments aux Morts / placas de vila — landmark cívico complementar,
+ * não "must-see". Um memorial nacional (heritage/wikidata) ainda sobe pra 1/2.
+ */
 export const LEVEL_2_CATEGORIES = new Set<string>([
   'artwork', 'gallery', 'theatre', 'library', 'bridge', 'tower', 'windmill',
   'stadium', 'zoo', 'amusement_park', 'marketplace', 'fountain',
-  'cemetery', 'pier',
+  'cemetery', 'pier', 'memorial',
 ])
 
 /**
  * Nível 1/2/3 a partir da categoria canônica + sinais de importância.
- * Promoção: importance_score≥40 OU is_historic OU heritage/unesco → nível 1
- * (pega aeroportos famosos, igrejas históricas, parques notáveis, etc.).
+ *
+ * Nível 1 (Padrão Tuggi / must-see): patrimônio oficial (UNESCO/heritage) OU
+ * importância alta (importance_score≥40: wikidata+wikipedia, nacional/internacional)
+ * OU categoria intrinsecamente imperdível.
+ * Nível 2 (Complementar): referência externa (wikidata) — promove igreja/pico notável
+ * que a categoria sozinha deixaria no fundo — OU categoria de média importância.
+ * Nível 3 (Adicional): o resto.
+ *
+ * ⚠️ `is_historic` NÃO promove mais sozinho: o OSM `historic=*` inclui cruzeiros
+ * (calvaires/shrine), placas e marcos de km/fronteira (memorial) e linhas sem
+ * categoria — que inflavam o "must-see" com micro-marcos rurais. Um sítio/edifício
+ * histórico de verdade sobe pela CATEGORIA (historic_site, museum…) ou pelo heritage.
  */
 export function priorityLevel(primaryCategory: string | null, input: ClassifyInput): 1 | 2 | 3 {
-  if (importanceScore(input) >= 40) return 1
-  if (input.is_historic === true) return 1
   const heritage = norm(input.heritage_status)
-  if (heritage && heritage !== 'no' && heritage !== 'none') return 1
+  const hasHeritage = !!(heritage && heritage !== 'no' && heritage !== 'none')
   const unesco = norm(input.unesco_status)
-  if (unesco && unesco !== 'no' && unesco !== 'none') return 1
+  const hasUnesco = !!(unesco && unesco !== 'no' && unesco !== 'none')
+
+  // (1) patrimônio oficial ou importância alta → nível 1
+  if (hasUnesco || hasHeritage || importanceScore(input) >= 40) return 1
+
+  // (2) categorias intrinsecamente imperdíveis → nível 1
   const cat = norm(primaryCategory)
   if (cat && LEVEL_1_CATEGORIES.has(cat)) return 1
+
+  // (3) referência externa (wikidata) → pelo menos nível 2 (igrejas/picos notáveis)
+  if (input.wikidata) return 2
+
+  // (4) categorias de média importância → nível 2
   if (cat && LEVEL_2_CATEGORIES.has(cat)) return 2
+
   return 3
 }
