@@ -124,6 +124,7 @@ export const FILTER_CONFIG = {
     "academia", "fitness", "crossfit", "estacionamento", "parking",
     "edifício", "edificio", "condomínio", "condominio", "residencial",
     "lotissement", "résidence", "residence ", // FR — loteamentos/condomínios (entram como place=neighbourhood)
+    "urbanización", "urbanització", "polígono industrial", "polígon industrial", "polígono empresarial", // ES — loteamentos/zonas
     "farmácia", "drogaria", "pharmacy", "oxxo", "7-eleven",
     "mercado", "supermercado", "panificadora", "padaria", "lavanderia",
     "auto center", "borracharia", "oficina",
@@ -157,7 +158,13 @@ export const FILTER_CONFIG = {
   STREET_KEYWORDS: {
     PREFIXES: [
       "rua ", "avenida ", "av. ", "travessa ", "viela ", "alameda ", "rodovia ", "estrada ", "beira mar ", "beiramar ", // PT
-      "calle ", "avenida ", "av. ", "paseo ", "camino ", "carretera ", // ES
+      "calle ", "avenida ", "av. ", "paseo ", "camino ", "carretera ", // ES (castelhano)
+      // ES regional — vazavam por só ter castelhano: catalão/galego/asturiano/basco
+      "carrer ", "avinguda ", "passeig ", "camí ", "carreró ", "ronda ", "travessera ", "travessia ", // CAT
+      "rúa ", "camiño ", "corredoira ", "travesía ", // GAL
+      "camín ", // AST
+      "kale ", "kalea ", "etorbidea ", "errepidea ", // EUS
+      "acceso ", "accés ", // acesso/via de acesso
       "via ", "viale ", "corso ", "strada ", // IT
       // FR — "rue"/"route"/"chemin" respondem por ~24k de ruído sem esses prefixos (boulevard/avenue já cobertos pelo EN)
       "rue ", "route ", "chemin ", "ruelle ", "impasse ", "voie ", "quai ", "cours ", "sentier ", "passage ", "allée ", "allee ", "promenade ", "chaussée ", "chaussee ", "faubourg ", "montée ", "montee ", "rond-point ", "ancienne route ", // FR

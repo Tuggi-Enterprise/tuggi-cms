@@ -253,15 +253,15 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(bridge|ponte|puente|pont)\b/, 'bridge'],
   [/\b(lighthouse|farol|faro|phare)\b/, 'lighthouse'],
   // religioso: catedral/basílica e abadia/mosteiro ANTES da igreja genérica (senão viram 'church')
-  [/\b(cathedrale|cattedrale|basilique)\b/, 'cathedral'],
-  [/\b(abbaye|abbey|abadia|abbazia|prieure|priory|monastere|monasterio|monastery)\b/, 'monastery'],
-  [/\b(church|chapel|chapelle|cappella|cathedral|basilica|temple|mosque|synagogue|igreja|capela|catedral|santuario|ermida|iglesia|chiesa|eglise|collegiale)\b/, 'church'],
+  [/\b(cathedrale|cattedrale|catedral|basilique|basilica)\b/, 'cathedral'],
+  [/\b(abbaye|abbey|abadia|abbazia|prieure|priory|monastere|monasterio|monestir|monastery)\b/, 'monastery'],
+  [/\b(church|chapel|chapelle|cappella|temple|mosque|synagogue|igreja|capela|ermita|ermida|santuario|santuari|iglesia|chiesa|eglise|esglesia|collegiale)\b/, 'church'],
   [/\b(museum|museu|museo|musee)\b/, 'museum'],
   [/\b(cemetery|cemiterio|cementerio|cimetiere|cimitero)\b/, 'cemetery'],
   [/\b(theatre|theater|teatro)\b/, 'theatre'],
   // sítios arqueológicos (dolmen/menhir/oppidum…) e fortificações/aquedutos
   [/\b(dolmen|menhir|tumulus|cromlech|oppidum|cairn|nuraghe)\b/, 'archaeological_site'],
-  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|chateau|chateaux|citadelle|donjon|manoir|manor|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|chateau|chateaux|citadelle|donjon|manoir|manor|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
   [/\b(aqueduc|aqueduct|acueducto|acquedotto)\b/, 'bridge'],
   [/\b(viewpoint|mirante|mirador|belvedere|belvedere)\b/, 'viewpoint'],
   // water
@@ -270,7 +270,7 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(falls|waterfall|cachoeira|catarata|cascata|cascada|cascade|salto|chute)\b/, 'waterfall'],
   [/\b(creek|brook|bayou|river|stream|rio|riacho|corrego|igarape|ribeira|arroyo|riviere|fiume)\b/, 'river'],
   [/\b(spring|springs|nascente|fonte|fuente)\b/, 'spring'],
-  [/\b(beach|praia|playa|plage|spiaggia)\b/, 'beach'],
+  [/\b(beach|praia|playa|plage|spiaggia|cala|calanque)\b/, 'beach'],
   [/\b(bay|cove|inlet|harbor|harbour|baia|enseada|bahia|baie)\b/, 'bay'],
   // relief / nature
   [/\b(mountain|mount|mt|peak|summit|morro|serra|pico|monte|cerro|colina|montagne|montana)\b/, 'peak'],
@@ -571,6 +571,10 @@ export const LEVEL_2_CATEGORIES = new Set<string>([
   // igrejas/capelas (mesmo sem wikidata) e corpos d'água nomeados = complementar,
   // não devem cair no nível 3 (Adicional) por não terem referência externa.
   'church', 'chapel', 'lake', 'pond', 'reservoir', 'lagoon',
+  // natureza/água "destino" (curadoria seletiva — NÃO promovemos park/garden/spring/
+  // hill/cliff genéricos, que são o long tail de baixa relevância = praças de vila,
+  // fontes, cerros menores). Um pico/lago/rio/baía nomeado é ponto de interesse.
+  'nature_reserve', 'mountain', 'peak', 'river', 'bay',
 ])
 
 /**
