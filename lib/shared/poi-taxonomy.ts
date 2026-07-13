@@ -261,9 +261,15 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(cemetery|cemiterio|cementerio|cimetiere|cimitero)\b/, 'cemetery'],
   [/\b(theatre|theater|teatro|anfiteatro)\b/, 'theatre'],
   [/\b(library|biblioteca|bibliotheque)\b/, 'library'],
+  [/\b(monumento|monument)\b/, 'monument'],
+  [/\b(memorial)\b/, 'memorial'],
+  [/\b(estadio|stadium|stadio)\b/, 'stadium'],
+  [/\b(mercadao|mercado municipal|mercado central|mercat)\b/, 'marketplace'],
+  [/\b(chafariz)\b/, 'fountain'],
   // sítios arqueológicos (dolmen/menhir/oppidum…) e fortificações/aquedutos
   [/\b(dolmen|menhir|tumulus|cromlech|oppidum|cairn|nuraghe)\b/, 'archaeological_site'],
-  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|castello|rocca|chateau|chateaux|citadelle|donjon|manoir|manor|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  // fortificações + palácios/solares/sobrados (casarões históricos PT-BR)
+  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|castello|rocca|chateau|chateaux|citadelle|donjon|manoir|manor|palacio|palazzo|palais|solar|sobrado|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
   [/\b(aqueduc|aqueduct|acueducto|acquedotto)\b/, 'bridge'],
   [/\b(viewpoint|mirante|mirador|belvedere|belvedere)\b/, 'viewpoint'],
   // water
