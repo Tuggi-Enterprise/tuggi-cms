@@ -359,6 +359,14 @@ const FRANCE: Record<string, string> = {
   'ile-de-france': 'Île-de-France', 'ile de france': 'Île-de-France',
   'provence-alpes-cote d\'azur': 'Provence-Alpes-Côte d\'Azur',
   'provence alpes cote d\'azur': 'Provence-Alpes-Côte d\'Azur', paca: 'Provence-Alpes-Côte d\'Azur',
+  'provence-alpes-cote-d\'azur': 'Provence-Alpes-Côte d\'Azur',
+  // Nomes ingleses que vazaram de alguns imports → canônico francês moderno.
+  'new aquitaine': 'Nouvelle-Aquitaine',
+  brittany: 'Bretagne', bretagne: 'Bretagne',
+  normandy: 'Normandie',
+  corsica: 'Corse', corse: 'Corse',
+  'pays de la loire': 'Pays de la Loire', 'pays-de-la-loire': 'Pays de la Loire',
+  'la plagne-tarentaise': 'Auvergne-Rhône-Alpes', // comuna (Savoie) → região
 }
 
 const SWITZERLAND: Record<string, string> = {
