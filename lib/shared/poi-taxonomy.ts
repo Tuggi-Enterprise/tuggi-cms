@@ -255,8 +255,8 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(tower|torre|campanile|beffroi|belfry)\b/, 'tower'],
   // religioso: catedral/basílica e abadia/mosteiro ANTES da igreja genérica (senão viram 'church')
   [/\b(cathedrale|cattedrale|catedral|duomo|basilique|basilica)\b/, 'cathedral'],
-  [/\b(abbaye|abbey|abadia|abbazia|prieure|priory|monastere|monasterio|monestir|monastery)\b/, 'monastery'],
-  [/\b(church|chapel|chapelle|cappella|temple|mosque|synagogue|igreja|capela|ermita|ermida|eremo|pieve|santuario|santuari|iglesia|chiesa|eglise|esglesia|collegiale)\b/, 'church'],
+  [/\b(abbaye|abbey|abadia|abbazia|prieure|priory|monastere|monasterio|monestir|monastery|convento|convent)\b/, 'monastery'],
+  [/\b(church|chapel|chapelle|cappella|capilla|parroquia|temple|mosque|synagogue|igreja|capela|ermita|ermida|eremo|pieve|santuario|santuari|iglesia|chiesa|eglise|esglesia|collegiale)\b/, 'church'],
   [/\b(museum|museu|museo|musee)\b/, 'museum'],
   [/\b(cemetery|cemiterio|cementerio|cimetiere|cimitero)\b/, 'cemetery'],
   [/\b(theatre|theater|teatro|anfiteatro)\b/, 'theatre'],
@@ -269,7 +269,7 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   // sítios arqueológicos (dolmen/menhir/oppidum…) e fortificações/aquedutos
   [/\b(dolmen|menhir|tumulus|cromlech|oppidum|cairn|nuraghe)\b/, 'archaeological_site'],
   // fortificações + palácios/solares/sobrados (casarões históricos PT-BR)
-  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|castello|rocca|chateau|chateaux|citadelle|donjon|manoir|manor|palacio|palazzo|palais|solar|sobrado|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|castello|rocca|chateau|chateaux|citadelle|donjon|manoir|manor|palacio|palazzo|palais|solar|sobrado|hacienda|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
   [/\b(aqueduc|aqueduct|acueducto|acquedotto)\b/, 'bridge'],
   [/\b(viewpoint|mirante|mirador|belvedere|belvedere)\b/, 'viewpoint'],
   // water
