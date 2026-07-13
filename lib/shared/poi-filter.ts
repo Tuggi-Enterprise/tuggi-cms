@@ -173,7 +173,9 @@ export const FILTER_CONFIG = {
       "street ", "avenue ", "st. ", "ave. ", "road ", "rd. ", "lane ", "way ", "drive ", "dr. ", "boulevard ", "blvd. ", "highway " // EN
     ],
     SUFFIXES: [
-      " street", " avenue", " st.", " ave", " road", " rd.", " lane", " way", " drive", " dr.", " boulevard", " blvd." // EN
+      " street", " avenue", " st.", " ave", " road", " rd.", " lane", " way", " drive", " dr.", " boulevard", " blvd.", // EN
+      // EN/UK/IE tipos residenciais que vazavam (o tipo vem no fim: "Baker Close", "X Terrace")
+      " close", " court", " crescent", " terrace", " grove", " mews", " row", " rise", " parade", " estate", " roundabout", " cottages", " wharf" // EN/UK/IE
     ]
   },
 
