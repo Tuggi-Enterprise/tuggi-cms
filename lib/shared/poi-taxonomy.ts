@@ -46,7 +46,7 @@ export const SPECIFIC_TO_GROUP: Record<string, CategoryGroup> = {
   forest: 'nature', island: 'nature', desert: 'nature',
   dune: 'nature', rock_formation: 'nature', peninsula: 'nature', viewpoint: 'nature',
   // --- parks / green space (parks, gardens, protected reserves) ---
-  park: 'parks', garden: 'parks', nature_reserve: 'parks',
+  park: 'parks', garden: 'parks', nature_reserve: 'parks', national_park: 'parks',
   // --- water (granular: subtipos distintos p/ filtro fino) ---
   lake: 'water', pond: 'water', reservoir: 'water', lagoon: 'water',
   basin: 'water', oxbow: 'water', moat: 'water',
@@ -143,7 +143,7 @@ export const SYNONYM_TO_CATEGORY: Record<string, string> = {
   island: 'island', islet: 'island', archipelago: 'island', reef: 'island', key: 'island',
   // parks / gardens
   park: 'park', recreation_ground: 'park', dog_park: 'park', common: 'park',
-  village_green: 'park', greenfield: 'park', national_park: 'park',
+  village_green: 'park', greenfield: 'park', national_park: 'national_park', provincial_park: 'national_park',
   garden: 'garden', botanical_garden: 'garden',
   square: 'square',
   // sports / recreation
@@ -290,6 +290,7 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(cliff|bluff|palisade|penhasco|falesia|farallon|falaise)\b/, 'cliff'],
   [/\b(forest|woods|woodland|mata|floresta|bosque|selva|foret|bosco)\b/, 'forest'],
   [/\b(island|isle|cay|ilha|isla|ile|isola)\b/, 'island'],
+  [/\b(national park|provincial park|parc national|parc provincial|state park)\b/, 'national_park'],
   [/\b(park|gardens?|parque|jardim|jardin|jardins|giardino)\b/, 'park'],
   [/\b(square|praca|plaza|piazza)\b/, 'square'],
 ]
@@ -562,6 +563,8 @@ export const LEVEL_1_CATEGORIES = new Set<string>([
   'cathedral', 'monastery', 'mosque', 'temple', 'synagogue',
   'viewpoint', 'waterfall', 'volcano', 'glacier', 'canyon', 'cave',
   'beach', 'lighthouse',
+  // parque nacional/provincial = destino turístico must-see (Banff, Jasper, Algonquin)
+  'national_park',
   // tourism=attraction = "atração turística" por definição (ex.: Cristo Redentor
   // sem wikidata no banco). Famoso não pode ficar oculto no nível 2.
   'attraction',
