@@ -263,7 +263,7 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(library|biblioteca|bibliotheque)\b/, 'library'],
   [/\b(monumento|monument)\b/, 'monument'],
   [/\b(memorial)\b/, 'memorial'],
-  [/\b(estadio|stadium|stadio)\b/, 'stadium'],
+  [/\b(estadio|stadium|stadio|arena|ginasio|autodromo)\b/, 'stadium'],
   [/\b(mercadao|mercado municipal|mercado central|mercat)\b/, 'marketplace'],
   [/\b(chafariz)\b/, 'fountain'],
   // sítios arqueológicos (dolmen/menhir/oppidum…) e fortificações/aquedutos
