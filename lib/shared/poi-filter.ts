@@ -175,7 +175,9 @@ export const FILTER_CONFIG = {
     SUFFIXES: [
       " street", " avenue", " st.", " ave", " road", " rd.", " lane", " way", " drive", " dr.", " boulevard", " blvd.", // EN
       // EN/UK/IE tipos residenciais que vazavam (o tipo vem no fim: "Baker Close", "X Terrace")
-      " close", " court", " crescent", " terrace", " grove", " mews", " row", " rise", " parade", " estate", " roundabout", " cottages", " wharf" // EN/UK/IE
+      " close", " court", " crescent", " terrace", " grove", " mews", " row", " rise", " parade", " estate", " roundabout", " cottages", " wharf", // EN/UK/IE
+      // US — subdivisões/loteamentos (o clássico naming americano); famosos (wikidata) são preservados
+      " estates", " subdivision", " acres", " meadows", " oaks", " crossing", " pointe", " addition", " villas", " landing", " farms", " run", " heights", " hills", " shores", " glen" // US
     ]
   },
 
