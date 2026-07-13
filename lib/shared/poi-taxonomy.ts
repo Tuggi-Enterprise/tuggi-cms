@@ -259,7 +259,8 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(church|chapel|chapelle|cappella|temple|mosque|synagogue|igreja|capela|ermita|ermida|eremo|pieve|santuario|santuari|iglesia|chiesa|eglise|esglesia|collegiale)\b/, 'church'],
   [/\b(museum|museu|museo|musee)\b/, 'museum'],
   [/\b(cemetery|cemiterio|cementerio|cimetiere|cimitero)\b/, 'cemetery'],
-  [/\b(theatre|theater|teatro)\b/, 'theatre'],
+  [/\b(theatre|theater|teatro|anfiteatro)\b/, 'theatre'],
+  [/\b(library|biblioteca|bibliotheque)\b/, 'library'],
   // sítios arqueológicos (dolmen/menhir/oppidum…) e fortificações/aquedutos
   [/\b(dolmen|menhir|tumulus|cromlech|oppidum|cairn|nuraghe)\b/, 'archaeological_site'],
   [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|castello|rocca|chateau|chateaux|citadelle|donjon|manoir|manor|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
@@ -267,11 +268,11 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(viewpoint|mirante|mirador|belvedere|belvedere)\b/, 'viewpoint'],
   // water
   [/\b(lake|pond|reservoir|lagoa|lago|laguna|lac)\b/, 'lake'],
-  [/\b(represa|acude|embalse|barragem)\b/, 'reservoir'],
+  [/\b(represa|acude|reservatorio|embalse|barragem)\b/, 'reservoir'],
   [/\b(falls|waterfall|cachoeira|catarata|cascata|cascada|cascade|salto|chute)\b/, 'waterfall'],
-  [/\b(creek|brook|bayou|river|stream|rio|riacho|corrego|igarape|ribeira|arroyo|riviere|fiume)\b/, 'river'],
+  [/\b(creek|brook|bayou|river|stream|rio|riacho|corrego|igarape|ribeira|ribeirao|arroio|arroyo|riviere|fiume)\b/, 'river'],
   [/\b(spring|springs|nascente|fonte|fuente)\b/, 'spring'],
-  [/\b(beach|praia|playa|plage|spiaggia|cala|calanque)\b/, 'beach'],
+  [/\b(beach|praia|prainha|playa|plage|spiaggia|cala|calanque)\b/, 'beach'],
   [/\b(bay|cove|inlet|harbor|harbour|baia|enseada|bahia|baie)\b/, 'bay'],
   // relief / nature
   [/\b(mountain|mount|mt|peak|summit|morro|serra|pico|monte|cerro|colina|montagne|montana)\b/, 'peak'],
