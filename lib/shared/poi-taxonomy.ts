@@ -286,7 +286,7 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\bmesa\b/, 'plateau'],
   [/\bridge\b/, 'ridge'],
   [/\b(canyon|canion|gorge|valley|vale|valle|vallee)\b/, 'valley'],
-  [/\b(cave|cavern|grotto|gruta|caverna|cueva|grotte|grotta|gouffre)\b/, 'cave'],
+  [/\b(cave|cavern|grotto|gruta|caverna|cueva|grotte|grotta|gouffre|cenote)\b/, 'cave'],
   [/\b(cliff|bluff|palisade|penhasco|falesia|farallon|falaise)\b/, 'cliff'],
   [/\b(forest|woods|woodland|mata|floresta|bosque|selva|foret|bosco)\b/, 'forest'],
   [/\b(island|isle|cay|ilha|isla|ile|isola)\b/, 'island'],
