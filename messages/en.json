@@ -1914,7 +1914,7 @@
     },
     "pois": {
       "section": "Reference POI (Welcome POI)",
-      "help": "POI played when the user accesses the partner page (tuggi.app/d/<slug>) — its description and audio serve as welcome content. Paste the UUID, validate, and attach. Changes take effect after the modal's Save.",
+      "help": "POI played when the user accesses the partner page (tuggi.app/d/[slug]) — its description and audio serve as welcome content. Paste the UUID, validate, and attach. Changes take effect after the modal's Save.",
       "uuidPlaceholder": "Paste POI UUID...",
       "validate": "Validate",
       "attach": "Attach",

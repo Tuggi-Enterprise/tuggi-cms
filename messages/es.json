@@ -1833,7 +1833,7 @@
     },
     "pois": {
       "section": "POI de referencia (Welcome POI)",
-      "help": "POI reproducido cuando el usuario accede a la página del socio (tuggi.app/d/<slug>) — su descripción y audio sirven como contenido de bienvenida. Pega el UUID, valida y asigna. Los cambios se aplican tras guardar el modal.",
+      "help": "POI reproducido cuando el usuario accede a la página del socio (tuggi.app/d/[slug]) — su descripción y audio sirven como contenido de bienvenida. Pega el UUID, valida y asigna. Los cambios se aplican tras guardar el modal.",
       "uuidPlaceholder": "Pega el UUID del POI...",
       "validate": "Validar",
       "attach": "Asignar",
