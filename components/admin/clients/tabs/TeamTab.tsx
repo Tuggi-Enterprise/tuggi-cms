@@ -58,6 +58,21 @@ export function TeamTab({ client, edited, updateField, clientId, canEdit }: Clie
   // `edited` e persiste no Salvar do modal (PATCH), como os demais campos do editor.
   const isCoordinator = Boolean(edited.is_coordinator ?? client?.is_coordinator)
 
+  // Vincular ESTA empresa a um coordenador (parent_client_id). Só admin (esta aba só
+  // existe no editor admin). Staged em `edited`, persiste no Salvar.
+  const parentId = (edited.parent_client_id ?? client?.parent_client_id ?? '') || ''
+  const [coordinators, setCoordinators] = useState<Array<{ id: string; company_name: string | null; slug: string | null }>>([])
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/coordinator/roots')
+        const data = await res.json()
+        if (res.ok) setCoordinators(data.roots ?? [])
+      } catch { /* seletor fica vazio; não bloqueia a aba */ }
+    })()
+  }, [])
+
   const fetchLinked = useCallback(async () => {
     if (!clientId) return
     setLoading(true)
@@ -201,6 +216,28 @@ export function TeamTab({ client, edited, updateField, clientId, canEdit }: Clie
           />
           <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t('isCoordinator')}</span>
         </label>
+
+        {/* Vincular esta empresa SOB um coordenador. Só admin. Uma empresa que já é
+            coordenadora (tem filhas) não pode virar filha — a trava do banco recusa. */}
+        {clientId && !isCoordinator && (
+          <div className="mt-5 space-y-1 max-w-md">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('parentCoordinator')}</p>
+            <select
+              value={parentId}
+              disabled={!canEdit}
+              onChange={(e) => updateField('parent_client_id', e.target.value || null)}
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30"
+            >
+              <option value="">{t('noParent')}</option>
+              {coordinators
+                .filter((c) => c.id !== clientId)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>{c.company_name || c.slug || c.id}</option>
+                ))}
+            </select>
+            <p className="text-[10px] text-gray-400">{t('parentCoordinatorHelp')}</p>
+          </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 p-8 shadow-sm">

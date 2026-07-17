@@ -110,7 +110,7 @@ export async function PATCH(
       'name', 'email', 'phone', 'company_name', 'address', 'city', 'state', 'country', 'postal_code', 'industry', 'website', 'status', 'rejection_reason', 'notes', 'slug',
       'tax_id', 'tax_id_type', 'legal_representative_name', 'legal_representative_role',
       'billing_email', 'iban', 'bic_swift', 'bank_account_number', 'bank_routing_number', 'bank_name',
-      'commission_rate', 'is_platform_owner', 'welcome_poi_id', 'is_coordinator'
+      'commission_rate', 'is_platform_owner', 'welcome_poi_id', 'is_coordinator', 'parent_client_id'
     ]
     const updateData: any = {}
 
@@ -122,6 +122,27 @@ export async function PATCH(
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
+    }
+
+    // Vincular a um coordenador: o pai PRECISA ser um client is_coordinator (você pendura
+    // uma empresa sob um COORDENADOR, não sob qualquer client). A trava de 2 níveis
+    // (self-parent / 3º nível / inversão) é garantida pelo trigger no banco → 23514 abaixo.
+    if ('parent_client_id' in updateData && updateData.parent_client_id) {
+      if (updateData.parent_client_id === clientId) {
+        return NextResponse.json({ error: 'Um cliente não pode ser coordenador de si mesmo' }, { status: 400 })
+      }
+      const { data: parent } = await supabaseService
+        .schema('core')
+        .from('clients')
+        .select('id, is_coordinator')
+        .eq('id', updateData.parent_client_id)
+        .maybeSingle()
+      if (!parent) {
+        return NextResponse.json({ error: 'Coordenador não encontrado' }, { status: 400 })
+      }
+      if (!parent.is_coordinator) {
+        return NextResponse.json({ error: 'O cliente escolhido não é um coordenador' }, { status: 400 })
+      }
     }
 
     // Update client
@@ -144,6 +165,11 @@ export async function PATCH(
           return NextResponse.json({ error: 'Slug already in use' }, { status: 409 })
         }
         return NextResponse.json({ error: 'Email already exists' }, { status: 409 })
+      }
+      // 23514 = trigger core.enforce_client_hierarchy_depth (2 níveis / ciclo).
+      // Ex.: a empresa já tem filhas, ou o coordenador escolhido já é filho de outro.
+      if (updateError.code === '23514') {
+        return NextResponse.json({ error: updateError.message }, { status: 409 })
       }
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
