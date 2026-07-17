@@ -23,12 +23,14 @@ import type { Client } from '@/types/clients'
 interface Props {
   /** undefined = criar; id = editar. */
   childId?: string
+  /** Sob qual coordenador criar (só admin). Coordenador ignora — o servidor infere da sessão. */
+  parentId?: string | null
   isOpen: boolean
   onClose: () => void
   onSaved: () => void
 }
 
-export function CoordinatorChildModal({ childId, isOpen, onClose, onSaved }: Props) {
+export function CoordinatorChildModal({ childId, parentId, isOpen, onClose, onSaved }: Props) {
   const isEditing = Boolean(childId)
   const [client, setClient] = useState<Client | null>(null)
   const [edited, setEdited] = useState<Partial<Client>>({})
@@ -102,11 +104,13 @@ export function CoordinatorChildModal({ childId, isOpen, onClose, onSaved }: Pro
         setSuccess('Salvo')
         onSaved()
       } else {
-        // Sem parent_client_id no body de propósito: o servidor força o pai pela sessão.
+        // parent_client_id só é usado quando um ADMIN cria (o servidor exige explícito).
+        // Para um coordenador, o servidor infere o pai da sessão e ignora este campo —
+        // e ainda valida que um parent enviado pertence ao escopo do caller.
         const res = await fetch('/api/coordinator/children', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(edited),
+          body: JSON.stringify(parentId ? { ...edited, parent_client_id: parentId } : edited),
         })
         const data = await res.json()
         if (!res.ok) { setError(data.error ?? 'Falha ao criar'); return }

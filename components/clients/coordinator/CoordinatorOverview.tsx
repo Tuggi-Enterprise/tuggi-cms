@@ -25,8 +25,12 @@ interface ChildRow {
 }
 
 interface SeriesPoint { month: string; signups: number; cumulative: number }
+interface Root { id: string; company_name: string | null; slug: string | null }
 
 export function CoordinatorOverview() {
+  const [roots, setRoots] = useState<Root[]>([])
+  const [rootId, setRootId] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [children, setChildren] = useState<ChildRow[]>([])
   const [series, setSeries] = useState<SeriesPoint[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -36,10 +40,29 @@ export function CoordinatorOverview() {
   // undefined = fechado; null = criar; string = editar aquele childId.
   const [editModal, setEditModal] = useState<string | null | undefined>(undefined)
 
+  // Descobre os guarda-chuvas visíveis. Coordenador: o seu. Admin: todos (com seletor).
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/coordinator/roots')
+        const json = await res.json()
+        if (!res.ok) throw new Error(json?.error || 'Falha ao carregar')
+        setIsAdmin(Boolean(json.isAdmin))
+        setRoots(json.roots || [])
+        setRootId(json.roots?.[0]?.id ?? null)
+        if (!json.roots || json.roots.length === 0) setIsLoading(false)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro desconhecido')
+        setIsLoading(false)
+      }
+    })()
+  }, [])
+
   const load = useCallback(async () => {
+    if (!rootId) return
     setIsLoading(true)
     try {
-      const res = await fetch('/api/coordinator/children')
+      const res = await fetch(`/api/coordinator/children?root=${encodeURIComponent(rootId)}`)
       const json = await res.json()
       if (!res.ok) throw new Error(json?.error || 'Falha ao carregar')
       setChildren(json.children || [])
@@ -50,7 +73,7 @@ export function CoordinatorOverview() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [rootId])
 
   useEffect(() => { load() }, [load])
 
@@ -75,6 +98,8 @@ export function CoordinatorOverview() {
     } catch { /* clipboard indisponível — o link segue visível na tela */ }
   }
 
+  const selectedRoot = roots.find(r => r.id === rootId) ?? null
+
   if (error) {
     return (
       <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -82,6 +107,24 @@ export function CoordinatorOverview() {
         <div>
           <p className="font-semibold">Não foi possível carregar seu painel</p>
           <p className="mt-1 text-xs">{error}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Nenhum coordenador visível: admin sem clients marcados is_coordinator, ou usuário
+  // que não é coordenador (a página só chega aqui via /clients/coordinator).
+  if (!isLoading && roots.length === 0) {
+    return (
+      <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <p className="font-semibold">Nenhum guarda-chuva de afiliados configurado</p>
+          <p className="mt-1 text-xs">
+            {isAdmin
+              ? 'Marque um cliente como coordenador (core.clients.is_coordinator = true) para gerenciar a rede dele aqui.'
+              : 'Sua conta ainda não é um coordenador de afiliados. Fale com a Tuggi.'}
+          </p>
         </div>
       </div>
     )
@@ -96,7 +139,19 @@ export function CoordinatorOverview() {
             Cadastros no app atribuídos às empresas do seu guarda-chuva
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {/* Admin dá suporte a várias redes → seletor. Coordenador tem uma só → sem seletor. */}
+          {roots.length > 1 && (
+            <select
+              value={rootId ?? ''}
+              onChange={e => setRootId(e.target.value)}
+              className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 outline-none focus:ring-2 focus:ring-tuggi-blue/30 dark:bg-gray-900"
+            >
+              {roots.map(r => (
+                <option key={r.id} value={r.id}>{r.company_name || r.slug || r.id}</option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             onClick={load}
@@ -256,6 +311,9 @@ export function CoordinatorOverview() {
       {editModal !== undefined && (
         <CoordinatorChildModal
           childId={editModal ?? undefined}
+          // Admin precisa dizer sob qual coordenador a filha nasce; o coordenador tem
+          // o pai inferido pela sessão no servidor e ignora este valor.
+          parentId={isAdmin ? rootId : null}
           isOpen
           onClose={() => setEditModal(undefined)}
           onSaved={() => { load() }}
