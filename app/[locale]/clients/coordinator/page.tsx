@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { getSupabaseServerComponent, getSupabaseService } from '@/lib/core/supabase-client'
+import { getCallerRootClientIds, filterCoordinatorClientIds } from '@/lib/services/coordinator-service'
 import { CoordinatorOverview } from '@/components/clients/coordinator/CoordinatorOverview'
 
 export const metadata = { title: 'Minha rede - Tuggi CMS' }
@@ -33,33 +34,13 @@ export default async function CoordinatorPage() {
 
   if (!cmsUser) redirect('/unauthorized')
 
-  // Admin da Tuggi entra sempre (dá suporte a qualquer guarda-chuva).
+  // Admin da Tuggi entra sempre (dá suporte a qualquer guarda-chuva). Demais: precisam ser
+  // coordenador (capacidade is_coordinator). Resolução via SSOT do coordinator-service.
   if (cmsUser.role !== 'admin') {
-    // Vínculo real: client_cms_users (+ clients.cms_user_id legado).
-    // NUNCA cms_users.client_id — está NULL em 9/9 dos usuários role='client'.
-    const [{ data: links }, { data: owned }] = await Promise.all([
-      service.schema('core').from('client_cms_users').select('client_id').eq('cms_user_id', cmsUser.id),
-      service.schema('core').from('clients').select('id').eq('cms_user_id', cmsUser.id),
-    ])
-
-    const clientIds = Array.from(new Set([
-      ...(links ?? []).map((l: any) => l.client_id),
-      ...(owned ?? []).map((c: any) => c.id),
-    ].filter(Boolean)))
-
+    const clientIds = await getCallerRootClientIds(cmsUser.id)
     if (clientIds.length === 0) redirect('/unauthorized')
-
-    // Capacidade explícita (core.clients.is_coordinator), setada por admin Tuggi —
-    // não derivada de "tem filhas", senão um coordenador novo (zero filhas) nunca entraria.
-    const { data: coord } = await service
-      .schema('core')
-      .from('clients')
-      .select('id')
-      .in('id', clientIds)
-      .eq('is_coordinator', true)
-      .limit(1)
-
-    if (!coord || coord.length === 0) redirect('/clients/dashboard')
+    const coordinatorIds = await filterCoordinatorClientIds(clientIds)
+    if (coordinatorIds.length === 0) redirect('/clients/dashboard')
   }
 
   return <CoordinatorOverview />

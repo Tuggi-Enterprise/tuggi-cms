@@ -30,6 +30,55 @@ export type CoordinatorResult =
   | { ok: true; ctx: CoordinatorContext }
   | { ok: false; status: number; error: string }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SSOT das resoluções de escopo em TypeScript. Espelham as funções do banco
+// (core.caller_client_ids / core.client_scope_ids), reimplementadas aqui só porque
+// as rotas usam SERVICE ROLE e precisam dos arrays em JS para filtrar. Nenhuma outra
+// parte do código deve refazer estes joins — importar destes helpers.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Os clients-raiz que um cms_user controla: client_cms_users (vínculo VIVO) +
+ * clients.cms_user_id (legado). NUNCA cms_users.client_id — está NULL em todos os
+ * usuários role='client' e, sendo escalar, não representa o N:N real.
+ */
+export async function getCallerRootClientIds(cmsUserId: string): Promise<string[]> {
+  const service = getSupabaseService()
+  const [{ data: links }, { data: owned }] = await Promise.all([
+    service.schema('core').from('client_cms_users').select('client_id').eq('cms_user_id', cmsUserId),
+    service.schema('core').from('clients').select('id').eq('cms_user_id', cmsUserId),
+  ])
+  return Array.from(new Set([
+    ...(links ?? []).map((l: any) => l.client_id),
+    ...(owned ?? []).map((c: any) => c.id),
+  ].filter(Boolean)))
+}
+
+/** Dentre estes clients, quais são coordenadores (is_coordinator = true). */
+export async function filterCoordinatorClientIds(clientIds: string[]): Promise<string[]> {
+  if (clientIds.length === 0) return []
+  const service = getSupabaseService()
+  const { data } = await service
+    .schema('core')
+    .from('clients')
+    .select('id')
+    .in('id', clientIds)
+    .eq('is_coordinator', true)
+  return (data ?? []).map((c: any) => c.id)
+}
+
+/** Escopo completo: raízes + descendentes diretos. Espelha core.client_scope_ids(). */
+export async function getScopeClientIds(rootClientIds: string[]): Promise<string[]> {
+  if (rootClientIds.length === 0) return []
+  const service = getSupabaseService()
+  const { data: children } = await service
+    .schema('core')
+    .from('clients')
+    .select('id')
+    .in('parent_client_id', rootClientIds)
+  return Array.from(new Set([...rootClientIds, ...(children ?? []).map((c: any) => c.id)]))
+}
+
 /**
  * Resolve o contexto do caller a partir da SESSÃO (nunca do body).
  *
@@ -61,39 +110,14 @@ export async function resolveCoordinator(): Promise<CoordinatorResult> {
   }
 
   const isAdmin = cmsUser.role === 'admin'
-
-  // Raízes: client_cms_users (vínculo VIVO) + clients.cms_user_id (legado).
-  // NUNCA cms_users.client_id — está NULL em 9/9 dos usuários role='client' e, sendo
-  // escalar, não representa o N:N real.
-  const [{ data: links }, { data: owned }] = await Promise.all([
-    service.schema('core').from('client_cms_users').select('client_id').eq('cms_user_id', cmsUser.id),
-    service.schema('core').from('clients').select('id').eq('cms_user_id', cmsUser.id),
-  ])
-
-  const rootClientIds = Array.from(new Set([
-    ...(links ?? []).map((l: any) => l.client_id),
-    ...(owned ?? []).map((c: any) => c.id),
-  ].filter(Boolean)))
+  const rootClientIds = await getCallerRootClientIds(cmsUser.id)
 
   if (!isAdmin && rootClientIds.length === 0) {
     // FAIL CLOSED. Sem escopo não é "vê tudo" — é 403.
     return { ok: false, status: 403, error: 'Forbidden: no client scope' }
   }
 
-  // Escopo = raízes + filhas. Espelha core.client_scope_ids() (SSOT no banco); aqui em JS
-  // porque a rota usa service role e precisa do array para filtrar as queries.
-  let scopeClientIds = rootClientIds
-  if (rootClientIds.length > 0) {
-    const { data: children } = await service
-      .schema('core')
-      .from('clients')
-      .select('id')
-      .in('parent_client_id', rootClientIds)
-    scopeClientIds = Array.from(new Set([
-      ...rootClientIds,
-      ...(children ?? []).map((c: any) => c.id),
-    ]))
-  }
+  const scopeClientIds = await getScopeClientIds(rootClientIds)
 
   return {
     ok: true,
@@ -118,25 +142,8 @@ export function canTouchClient(ctx: CoordinatorContext, clientId: string): boole
  * Recebe o cms_user.id (as rotas já o resolvem) em vez de reabrir a sessão.
  */
 export async function callerIsCoordinator(cmsUserId: string): Promise<boolean> {
-  const service = getSupabaseService()
-  const [{ data: links }, { data: owned }] = await Promise.all([
-    service.schema('core').from('client_cms_users').select('client_id').eq('cms_user_id', cmsUserId),
-    service.schema('core').from('clients').select('id').eq('cms_user_id', cmsUserId),
-  ])
-  const ids = Array.from(new Set([
-    ...(links ?? []).map((l: any) => l.client_id),
-    ...(owned ?? []).map((c: any) => c.id),
-  ].filter(Boolean)))
-  if (ids.length === 0) return false
-
-  const { data: coord } = await service
-    .schema('core')
-    .from('clients')
-    .select('id')
-    .in('id', ids)
-    .eq('is_coordinator', true)
-    .limit(1)
-  return (coord?.length ?? 0) > 0
+  const roots = await getCallerRootClientIds(cmsUserId)
+  return (await filterCoordinatorClientIds(roots)).length > 0
 }
 
 /**
