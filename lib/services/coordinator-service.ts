@@ -111,6 +111,35 @@ export function canTouchClient(ctx: CoordinatorContext, clientId: string): boole
 }
 
 /**
+ * O cms_user é um coordenador? (Está vinculado a algum client is_coordinator = true.)
+ *
+ * Usado pelas rotas de ESCRITA de POI/rota para bloquear coordenadores: por decisão de
+ * produto, coordenador gerencia afiliados, não POIs — não pode criar/editar/excluir POI.
+ * Recebe o cms_user.id (as rotas já o resolvem) em vez de reabrir a sessão.
+ */
+export async function callerIsCoordinator(cmsUserId: string): Promise<boolean> {
+  const service = getSupabaseService()
+  const [{ data: links }, { data: owned }] = await Promise.all([
+    service.schema('core').from('client_cms_users').select('client_id').eq('cms_user_id', cmsUserId),
+    service.schema('core').from('clients').select('id').eq('cms_user_id', cmsUserId),
+  ])
+  const ids = Array.from(new Set([
+    ...(links ?? []).map((l: any) => l.client_id),
+    ...(owned ?? []).map((c: any) => c.id),
+  ].filter(Boolean)))
+  if (ids.length === 0) return false
+
+  const { data: coord } = await service
+    .schema('core')
+    .from('clients')
+    .select('id')
+    .in('id', ids)
+    .eq('is_coordinator', true)
+    .limit(1)
+  return (coord?.length ?? 0) > 0
+}
+
+/**
  * Sob qual coordenador uma filha nova deve nascer.
  * Admin pode informar explicitamente; coordenador é SEMPRE forçado à própria raiz —
  * um parent_client_id vindo do body jamais é aceito de um não-admin.

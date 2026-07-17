@@ -6,6 +6,7 @@ import { ReverseGeocodingService } from '@/lib/services/reverse-geocoding.servic
 import { POICreationService } from '@/lib/services/poi-creation.service'
 import { logAuditEvent } from '@/lib/services/audit-service'
 import { priorityLevel } from '@/lib/shared/poi-taxonomy'
+import { callerIsCoordinator } from '@/lib/services/coordinator-service'
 
 // Use service role client to bypass RLS for fetching created POI
 const supabase = getSupabase('service')
@@ -32,6 +33,12 @@ export async function POST(request: NextRequest) {
     }
     if (!['admin', 'client', 'editor'].includes(cmsUser.role)) {
       return NextResponse.json({ error: 'Unauthorized - Insufficient privileges' }, { status: 403 })
+    }
+    // Coordenador (client vinculado a um client is_coordinator) NÃO cria POI — por decisão
+    // de produto gerencia afiliados, não POIs. Único caminho de criação aberto a 'client';
+    // editar/excluir POI existente já é barrado por RLS + checagem de dono.
+    if (cmsUser.role !== 'admin' && await callerIsCoordinator(cmsUser.id)) {
+      return NextResponse.json({ error: 'Coordenadores não gerenciam POIs' }, { status: 403 })
     }
     const body = await request.json()
     const { name, lat, lng, boundary, category, primary_category, owner_id, business_status, priority_level } = body

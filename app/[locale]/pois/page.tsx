@@ -71,7 +71,7 @@ function POIListWithSearchParams() {
   const supabase = useSupabaseClient()
   const queryClient = useQueryClient()
   const t = useTranslations('POIManagement')
-  const { role: cmsUserRole, isAdmin, canEdit } = useCmsUser()
+  const { role: cmsUserRole, isAdmin, canEdit, canManagePois } = useCmsUser()
 
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -1094,7 +1094,7 @@ function POIListWithSearchParams() {
                 
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
-                    {canEdit && (
+                    {canManagePois && (
                       <button
                         onClick={() => {
                           setSelectedPoi(null)

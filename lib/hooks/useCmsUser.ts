@@ -48,6 +48,9 @@ export function useCmsUser() {
   // ('admin','editor','viewer','client'). Mantido só para não mudar comportamento aqui.
   const isAdmin = role === 'admin' || role === 'super_admin'
   const canEdit = !!role && !isViewer
+  // Coordenador NÃO gerencia POIs (decisão de produto): pode no máximo visualizar, nunca
+  // criar/editar/excluir. Gate de escrita de POI usa isto no lugar de canEdit.
+  const canManagePois = canEdit && !isCoordinator
 
   // Module entitlements (admin is omnipotent — decided by the SSOT in lib/modules).
   const entitlements = { role, enabledModules }
@@ -61,6 +64,8 @@ export function useCmsUser() {
     isClient,
     isAdmin,
     canEdit,
+    /** canEdit exceto para coordenadores — usar para gatear escrita de POI. */
+    canManagePois,
     isLoading,
     /** @deprecated cms_users.client_id está NULL em todo client — use clientIds. */
     clientId,

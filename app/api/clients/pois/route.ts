@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
 import { cookies } from 'next/headers'
 import { getSupabase } from '@/lib/core/supabase-client'
+import { callerIsCoordinator } from '@/lib/services/coordinator-service'
 
 const supabaseService = getSupabase('service')
 
@@ -221,6 +222,11 @@ export async function POST(request: NextRequest) {
 
     if (cmsErr || !cmsUser) {
       return NextResponse.json({ error: 'CMS access denied' }, { status: 403 })
+    }
+
+    // Coordenador não cria POI (gerencia afiliados, não POIs).
+    if (cmsUser.role !== 'admin' && await callerIsCoordinator(cmsUser.id)) {
+      return NextResponse.json({ error: 'Coordenadores não gerenciam POIs' }, { status: 403 })
     }
 
     // Parse request body

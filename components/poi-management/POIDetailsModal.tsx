@@ -191,7 +191,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [clients, setClients] = useState<any[]>([])
 
   // compute CMS role / editing permissions for UI
-  const { role: cmsUserRole, isViewer, isAdmin, canEdit } = useCmsUser()
+  const { role: cmsUserRole, isViewer, isAdmin, canEdit, canManagePois } = useCmsUser()
 
   // Boundary drawing state
   const [boundaryPolygon, setBoundaryPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
@@ -2412,7 +2412,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               <main className="flex-1 bg-white dark:bg-gray-900 overflow-y-auto custom-scrollbar">
             <POIModalProvider value={{
               getPoi,
-              canEdit,
+              // Coordenador é read-only em POI: todos os controles de edição abaixo
+              // derivam deste canEdit, então basta rebaixá-lo aqui.
+              canEdit: canManagePois,
               isCreateMode,
               onClose,
               createName,
