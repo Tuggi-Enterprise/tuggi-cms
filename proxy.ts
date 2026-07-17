@@ -8,7 +8,7 @@ import { routing } from './navigation';
 
 const intlMiddleware = createMiddleware(routing);
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   // 1. Run next-intl middleware first to handle locale resolution and redirects
   // This will rewrite /dashboard to /en/dashboard (or similar)
   const intlResponse = intlMiddleware(req);
