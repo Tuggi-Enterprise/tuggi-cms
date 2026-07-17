@@ -124,12 +124,15 @@ NOW, CREATE YOUR NARRATION:
         generationConfig: {
             temperature: 0.8,
             topP: 0.95,
-            maxOutputTokens: 200
+            maxOutputTokens: 200,
+            // gemini-3.x pensa por padrão; sem isto o thinking consome os 200 tokens
+            // e a resposta volta vazia (MAX_TOKENS). Desliga p/ preservar o output.
+            thinkingConfig: { thinkingBudget: 0 }
         }
     };
 
     const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${apiKey}`,
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

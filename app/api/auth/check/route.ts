@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
+import { getCallerRootClientIds, filterCoordinatorClientIds } from '@/lib/services/coordinator-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     const { data: cmsUser, error: cmsError } = await supabase
       .schema('core')
       .from('cms_users')
-      .select('role, is_active, client_id, enabled_modules')
+      .select('id, role, is_active, client_id, enabled_modules')
       .eq('email', user.email)
       .eq('is_active', true)
       .single()
@@ -80,6 +81,13 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Vínculo REAL usuário→client + capacidade de coordenador. Resolvido pelo SSOT em
+    // coordinator-service (client_cms_users + clients.cms_user_id, NUNCA o cms_users.client_id
+    // morto). Coordenador = capacidade explícita is_coordinator, setada por admin — NÃO
+    // derivada de "ter filhas" (um coordenador novo tem zero e nunca criaria a primeira).
+    const clientIds = await getCallerRootClientIds(cmsUser.id)
+    const coordinatorClientIds = await filterCoordinatorClientIds(clientIds)
+
     console.log('✅ User authenticated and authorized:', {
       email: user.email,
       role: cmsUser.role
@@ -91,7 +99,12 @@ export async function GET(request: NextRequest) {
         email: user.email,
         role: cmsUser.role,
         isActive: cmsUser.is_active,
+        // Mantido por compatibilidade (useCmsUser e chamadas antigas leem isto),
+        // mas é NULL para todo client — prefira clientIds.
         clientId: cmsUser.client_id,
+        clientIds,
+        isCoordinator: coordinatorClientIds.length > 0,
+        coordinatorClientId: coordinatorClientIds[0] ?? null,
         enabledModules: cmsUser.enabled_modules || []
       }
     })

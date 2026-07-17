@@ -11,6 +11,7 @@ import {
   GenerateTranslatedAudioSchema,
 } from '../_shared/validation-schemas.ts';
 import { createAuditLogger } from '../_shared/audit-logger.ts';
+import { rebuildReadModel } from '../_shared/read-model.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -214,6 +215,9 @@ const upsertAttractionDescription = async (
   if (upsertError) {
     throw new Error(`Failed to upsert description: ${upsertError.message}`);
   }
+
+  // Passo (c): tornar áudio/tradução visível ao caminho de disparo (app_poi_read) na hora.
+  await rebuildReadModel(supabaseAdmin, attractionId);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

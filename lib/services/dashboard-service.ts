@@ -348,11 +348,14 @@ class DashboardService {
         migrationMetricsResult,
         topGeneratorsResult
       ] = await Promise.all([
-        // user_analytics: caso global (admin) lê a MV mv_user_analytics_global (~50ms);
-        // com owner específico, cai na RPC live. Mesma forma de resultado ({ data: [row] }).
+        // user_analytics: caso global (admin) lê a MV mv_user_analytics_global (~50ms) via
+        // wrapper; com owner específico, cai na RPC live. Mesma forma ({ data: [row] }).
+        // O wrapper existe porque MV não suporta RLS: antes o frontend lia a MV direto e ela
+        // tinha GRANT para anon/authenticated — qualquer client logado via /dashboard
+        // enxergava os totais da plataforma. O gate agora é core.is_caller_platform_admin().
         ownerId
           ? supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId })
-          : supabase.schema('core').from('mv_user_analytics_global').select('*').limit(1),
+          : supabase.schema('core').rpc('dashboard_user_analytics_global'),
         supabase.schema('core').rpc('dashboard_city_stats', { p_owner_id: ownerId || null }),
         supabase.schema('core').rpc('dashboard_most_visited_cities', { limit_count: 20 }),
         supabase.schema('core').rpc('dashboard_top_visited_pois', { limit_count: 10 }),
@@ -361,10 +364,11 @@ class DashboardService {
         supabase.schema('core').rpc('dashboard_content_quality'),
         supabase.schema('core').rpc('dashboard_visits_by_language'),
         supabase.schema('core').rpc('dashboard_recent_app_users', { limit_count: 7 }),
-        // country_stats: global lê a MV mv_country_stats (evita GROUP BY em query); owner → live.
+        // country_stats: global lê a MV mv_country_stats via wrapper (evita GROUP BY em
+        // query); owner → live. Ver a nota do wrapper em user_analytics acima.
         ownerId
           ? supabase.schema('core').rpc('dashboard_country_stats', { p_owner_id: ownerId })
-          : supabase.schema('core').from('mv_country_stats').select('*'),
+          : supabase.schema('core').rpc('dashboard_country_stats_global'),
         supabase.schema('core').rpc('dashboard_migration_metrics'),
         supabase.schema('core').rpc('dashboard_top_generators', { limit_count: 5 })
       ])
@@ -840,7 +844,7 @@ class DashboardService {
       const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
       const res = ownerId
         ? await supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId })
-        : await supabase.schema('core').from('mv_user_analytics_global').select('*').limit(1)
+        : await supabase.schema('core').rpc('dashboard_user_analytics_global')
       if (res.error) throw res.error
       const row = (res.data?.[0] || {}) as any
       return {

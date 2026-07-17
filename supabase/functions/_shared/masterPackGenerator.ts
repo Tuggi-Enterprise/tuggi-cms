@@ -111,20 +111,36 @@ export const generateMasterPack = async (
     // ─────────────────────────────────────────────────────────────────────────
     // PASSO 1 — BUSCAR (grounded). Framing de LOOKUP força a busca de verdade.
     // ─────────────────────────────────────────────────────────────────────────
+    // Lista de compras EXPANDIDA: além de datas, busca personagem/conflito/sensorial/
+    // por-que-importa/curiosidade/lenda — a matéria-prima de uma HISTÓRIA, não de um
+    // almanaque. Continua 100% grounded (só o que as fontes dizem). Bullets etiquetados
+    // por tipo p/ o compose escolher o melhor fio.
     const retrievalPrompt = [
         `Using Google Search, research this SPECIFIC place: "${poiName}", near ${city}.`,
-        `Find ONLY verified facts that the sources state about THIS EXACT place: what it is (its type), founding/opening year, founder(s) or architect, key historical dates, size/capacity, and ONE genuine surprising curiosity if the sources mention one.`,
+        `Your goal is to gather raw material for a ~${audioTarget} spoken story a great tour guide would tell — so look BEYOND dry data.`,
+        `Find ONLY what the sources actually state about THIS EXACT place. Gather, when available:`,
+        `- [type] What it is, plus core dates/numbers (founding/opening year, size/capacity) — briefly.`,
+        `- [character] A real person tied to this place (founder, architect, resident, someone who changed it) and something human about them.`,
+        `- [conflict] A struggle, controversy, disaster, transformation, rivalry, or surprising change in its history.`,
+        `- [sensory] Concrete visible/audible detail the sources describe — what you notice standing here.`,
+        `- [why] What makes it significant, unusual, or a "first / only / largest".`,
+        `- [curiosity] ONE genuinely surprising detail, if the sources mention one.`,
+        `- [legend] A local legend or folklore — ONLY if the sources present it as lore/myth (keep the [legend] tag so it is never told as fact). Do NOT tag uncertain-but-real history as [legend].`,
         `Rules:`,
-        `- Use ONLY what the sources actually say. Never invent, guess or approximate.`,
+        `- Use ONLY what the sources actually say. Never invent, guess, approximate or embellish. If a category has nothing in the sources, SKIP it — do not fill it with generic filler.`,
         `- This is one specific place. If the sources are about the surrounding town, resort, region or a different nearby place, do NOT include those facts.`,
         hasReferenceLinks ? `- The provided reference URLs are your PRIORITY source — read them first; use Google Search to complement.` : ``,
         isComplex ? `- If supported by sources, note its key internal highlights: ${membersSummary}` : ``,
         rawContext ? `- Additional hint (verify against sources): ${rawContext}` : ``,
-        `Output: a short plain bullet list of factual statements in English. No intro, no narration.`,
+        `Output: a short plain bullet list in English. Start each bullet with its tag in brackets, e.g. "[character] ...". No intro, no narration.`,
         `If you cannot find reliable sources specifically about THIS place, reply with exactly: NONE`,
     ].filter(Boolean).join('\n');
 
-    const retrievalModels = ['gemini-3.1-flash-lite', 'gemini-2.5-flash'];
+    // Retrieval PRECISA buscar de verdade. gemini-2.5-flash busca de forma confiável e
+    // puxa mais fontes/retrieval (preferido p/ qualidade de grounding). Testado:
+    // gemini-3.1-flash-lite NÃO dispara o google_search em POIs obscuros. 3.5-flash
+    // como fallback vivo p/ quando o 2.5-flash flapar (404 de aposentadoria em rollout).
+    const retrievalModels = ['gemini-2.5-flash', 'gemini-3.5-flash'];
     let facts: string | null = null;
     let sourceCount = 0;
     let retrievalModelUsed = '';
@@ -165,49 +181,78 @@ export const generateMasterPack = async (
     // ─────────────────────────────────────────────────────────────────────────
     // PASSO 2 — ESCREVER (sem busca). Usa SÓ os fatos do passo 1, no idioma/formato.
     // ─────────────────────────────────────────────────────────────────────────
+    // Data de hoje p/ o modelo não narrar evento passado (ex.: 2025) no futuro.
+    const todayStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const systemInstruction = [
+        `You are Tuggi, a charismatic local guide speaking through the traveler's earphones. The listener is standing in front of this place RIGHT NOW. In about ${audioTarget} of speech, make them see it with new eyes.`,
+        ``,
+        `Today's date is ${todayStr}. Any date before today is in the PAST — narrate it in the past tense.`,
+        ``,
         `LANGUAGE RULE (mandatory): Write ALL output exclusively in ${langName}, using its native script (kanji/kana, Hangul, Hanzi, Cyrillic, Thai script, etc.). Do not use English, do not romanize, do not use any other language.`,
-        `You are a friendly, knowledgeable tour guide who must communicate with EVERYONE — from teenagers to senior citizens.`,
-        `Your style is warm, clear, and conversational. Avoid complex vocabulary, long subordinate clauses, or academic jargon.`,
-        `Imagine you are speaking to a curious 15-year-old who wants to learn and have fun.`,
         ``,
-        `FACTUAL INTEGRITY (overrides everything): use ONLY the VERIFIED FACTS given to you below. Never add, invent or approximate any date, number, founder, statistic or legend that is not in that list.`,
+        `FACTUAL GROUNDING (overrides everything): You are strictly limited to the facts inside <verified_facts>. Rely ONLY on facts directly mentioned there. Never add, invent, adjust or approximate any date, number, name, statistic or event. Preserve each fact exactly — its tense, its quantities, and what each number counts. Rounding a number for speech is fine; changing its meaning is not.`,
+        `- A bullet tagged [legend] is folklore. ONLY then may you frame it as lore ("reza a lenda que...", "conta a lenda...", "legend says..."). NEVER apply legend framing to real history. If a historical fact is merely uncertain, hedge honestly instead ("segundo historiadores", "reportedly"), never call it a legend.`,
+        `- Treat sensitive history — slavery, death, tragedy — with respect and directness. Never present it as a fun "legend" or a light "curiosity".`,
+        `- You MAY use a universal comparison to make a number vivid, but never introduce a new claim about this place.`,
         ``,
-        `OUTPUT FORMAT — use these exact XML tags. Do NOT use Markdown tables or headers inside the tags:`,
+        `HOW TO TELL IT — you are telling ONE story, not reading a timeline:`,
+        `1. HARD RULE — the narration's literal first words are the POI name. No warm-up before it ("Olha só", "This is", "Imagine", "Este é").`,
+        `2. SELECT ONE THREAD: You will receive MORE facts than fit in ${audioTarget}. Do NOT summarize them all. Choose the single strongest thread — a character and what they wanted, a conflict or reversal, or the one most surprising fact — and tell only THAT, well. A tight story beats a rushed inventory. (The unused facts still go into <master_facts>.)`,
+        `3. OPEN A LOOP: right after the name, hook them with that thread — an intriguing person, a tension, or an implied question. Never open with a flat definition like "X is a Y".`,
+        `4. CLOSE THE LOOP LAST: land the resolution or the surprise at the very end — never announce it ("A fun fact is", "Uma curiosidade é que", "Interestingly", "Sabia que", "Você sabia"). If there is no real surprise, end cleanly.`,
+        `5. SUBSTANCE OVER PRAISE: lead with the surprising and specific, never generic beauty. Words like "paraíso", "lugar especial", "cristalino", "deslumbrante", "special place", "stunning" are NOT content — if you catch yourself praising, replace it with a concrete fact.`,
+        `6. IMAGE OVER NUMBER: tie a bare number to something the listener can picture or feel, or leave it out. Do not recite a chain of dates.`,
+        `7. Vary the rhythm — mix short punches with longer flowing sentences. Warm and conversational, clear for a curious 15-year-old.`,
+        `8. If the facts are thin (fewer than 3 substantive facts, or no character/conflict), tell a SHORTER, honest story. Never pad, never gush.`,
+        ``,
+        `VOICE & TTS:`,
+        `- No greetings, no "welcome". Do NOT mention standalone city or state names.`,
+        `- This text will be synthesized by TTS — no abbreviations, no acronyms, no symbols.`,
+        `- HARD LENGTH LIMIT: keep the narration UNDER ${maxChars} characters (~${audioTarget}). If your draft runs longer, cut the weakest thread — never compress by dropping words or articles.`,
+        ``,
+        `OUTPUT FORMAT — use these exact XML tags, nothing outside them. Do NOT use Markdown tables or headers inside the tags:`,
         `<master_description>`,
-        `[Follow this narrative structure:]`,
-        `1. OPEN with the POI name as the very first words (the listener just heard a directional cue, so they must immediately know WHAT it is).`,
-        `2. HISTORICAL CONTEXT: weave in the verified dates/milestones from the facts. Omit anything not in the facts.`,
-        `3. CURIOSITY: IF the facts contain a genuine surprising detail, end with it naturally (NEVER announce it with "A fun fact is", "Uma curiosidade é que", "Interestingly"). If there is none, end without one.`,
-        ``,
-        `CONSTRAINTS:`,
-        `- Target: ~${maxChars} characters (~${audioTarget} of natural speech).`,
-        `- Do NOT mention standalone city or state names.`,
-        `- Use SHORT sentences. Prefer active voice. Avoid subordinate clause chains.`,
-        `- This text will be synthesized by TTS — avoid abbreviations, acronyms, or symbols.`,
+        `[the narration — one thread, under ${maxChars} characters]`,
         `</master_description>`,
-        ``,
         `<master_facts>`,
-        `[UP TO 5 lines — only facts from the verified list. Fewer is fine; never pad. Format each line: Category|Fact — no Markdown, no table headers, no pipes except as separator]`,
-        `Example line: Fundação|Inaugurado em 1991`,
-        `Example line: Arquitetura|Estilo colonial com fachada de pedra`,
+        `[UP TO 5 lines — only facts from <verified_facts>. Fewer is fine; never pad. Format each line: Category|Fact — no Markdown, no table headers, no pipes except as separator]`,
         `</master_facts>`,
+        ``,
+        `EXAMPLE (illustrative only — it shows the craft, not the language; YOUR output must be entirely in ${langName}):`,
+        `<example_verified_facts>`,
+        `- [type] Crêperie, opened in 1983`,
+        `- [character] Founded by Michelle Faure, a French woman known as "Michou"`,
+        `- [conflict] Started as a tiny window on Rua das Pedras; grew and moved to a bigger house in 1986`,
+        `- [curiosity] The 1986 move was celebrated with a "chocolate war" among the staff`,
+        `</example_verified_facts>`,
+        `<example_output>`,
+        `<master_description>Chez Michou started as nothing more than a little crepe window on Rua das Pedras, run by a French woman everyone called Michou. It got so popular there was no room to breathe — so she took over the house next door. And the day they moved in, the staff didn't cut a ribbon. They threw chocolate at each other, in an all out chocolate war.</master_description>`,
+        `<master_facts>`,
+        `Type|Crêperie, opened in 1983`,
+        `Founder|Michelle "Michou" Faure`,
+        `Milestone|Moved to the current house in 1986`,
+        `Curiosity|The move was celebrated with a "chocolate war"`,
+        `</master_facts>`,
+        `</example_output>`,
         ``,
         `REMINDER: All text inside the XML tags must be in ${langName}.`,
     ].join('\n');
 
     const composeUser = facts
-        ? `VERIFIED FACTS about "${poiName}" (use ONLY these — you may omit weak ones, but add nothing new):\n${facts}\n\nNow write <master_description> and <master_facts> following the format and language rules.`
+        ? `<verified_facts poi="${poiName}">\n${facts}\n</verified_facts>\n\nBased only on the facts above, write <master_description> and <master_facts> in ${langName}.`
         : `No verified facts were found for "${poiName}". Write a SHORT, generic, atmospheric description based ONLY on its name and category — include NO date, number, founder, statistic, legend or specific claim. For <master_facts> give at most 2 generic facts, or leave it minimal.`;
 
-    const composeModels = ['gemini-2.5-flash-lite', 'gemini-3.1-flash-lite'];
+    // Primeira descrição (compose) no gemini-2.5-flash, como o grounding. Fallback vivo
+    // no 3.1-flash-lite p/ quando o 2.5-flash flapar (404 de aposentadoria em rollout).
+    const composeModels = ['gemini-2.5-flash', 'gemini-3.1-flash-lite'];
     let lastError: Error | null = null;
 
     for (const model of composeModels) {
         const body: any = {
             system_instruction: { parts: [{ text: systemInstruction }] },
             contents: [{ parts: [{ text: composeUser }] }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 4096, ...(buildThinkingConfig(model) ? { thinkingConfig: buildThinkingConfig(model) } : {}) },
+            // 0.7: storytelling precisa de variação (0.1 achatava em lista de fatos).
+            generationConfig: { temperature: 0.7, maxOutputTokens: 4096, ...(buildThinkingConfig(model) ? { thinkingConfig: buildThinkingConfig(model) } : {}) },
         };
 
         const res = await callGemini(model, body, apiKey);

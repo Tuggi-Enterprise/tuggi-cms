@@ -106,6 +106,7 @@ export const FILTER_CONFIG = {
     'school', 'university', 'college', 'kindergarten', 'childcare',
     'hospital', 'clinic', 'doctors', 'social_facility', 'community_centre', 'social_centre',
     'police', 'fire_station', 'post_office', 'government', 'office', 'courthouse', 'townhall_legacy',
+    'townhall', 'marketplace', // prefeituras/mercados comuns não são POI turístico (Mairie/Marché genéricos) — passam só com historic/heritage/wiki/descrição ou via exemção nomeada (isGovernmentExemption/isMajorMarket)
     'public_building', 'bureau_de_change', 'bank', 'pharmacy', 'atm',
     'research_institute', 'golf_course', 'sports_centre', 'monastery',
     'church', 'tomb', 'biergarten', 'village_hall', 'hotel', 'watermill', 'alpine_hut', 
@@ -122,6 +123,8 @@ export const FILTER_CONFIG = {
     "banco", "caixa", "atm", "lotérica", "loterica", "correio", "post office",
     "academia", "fitness", "crossfit", "estacionamento", "parking",
     "edifício", "edificio", "condomínio", "condominio", "residencial",
+    "lotissement", "résidence", "residence ", // FR — loteamentos/condomínios (entram como place=neighbourhood)
+    "urbanización", "urbanització", "polígono industrial", "polígon industrial", "polígono empresarial", // ES — loteamentos/zonas
     "farmácia", "drogaria", "pharmacy", "oxxo", "7-eleven",
     "mercado", "supermercado", "panificadora", "padaria", "lavanderia",
     "auto center", "borracharia", "oficina",
@@ -155,12 +158,26 @@ export const FILTER_CONFIG = {
   STREET_KEYWORDS: {
     PREFIXES: [
       "rua ", "avenida ", "av. ", "travessa ", "viela ", "alameda ", "rodovia ", "estrada ", "beira mar ", "beiramar ", // PT
-      "calle ", "avenida ", "av. ", "paseo ", "camino ", "carretera ", // ES
+      "calle ", "avenida ", "av. ", "paseo ", "camino ", "carretera ", // ES (castelhano)
+      // ES regional — vazavam por só ter castelhano: catalão/galego/asturiano/basco
+      "carrer ", "avinguda ", "passeig ", "camí ", "carreró ", "ronda ", "travessera ", "travessia ", // CAT
+      "rúa ", "camiño ", "corredoira ", "travesía ", // GAL
+      "camín ", // AST
+      "kale ", "kalea ", "etorbidea ", "errepidea ", // EUS
+      "acceso ", "accés ", // acesso/via de acesso
       "via ", "viale ", "corso ", "strada ", // IT
+      // IT extra — endereços/vias que vazavam (via/viale/corso já cobertos acima)
+      "contrada ", "rione ", "vicolo ", "salita ", "calata ", "fondamenta ", "traversa ", "largo ", "piazzale ", "ciclovia ", // IT
+      // FR — "rue"/"route"/"chemin" respondem por ~24k de ruído sem esses prefixos (boulevard/avenue já cobertos pelo EN)
+      "rue ", "route ", "chemin ", "ruelle ", "impasse ", "voie ", "quai ", "cours ", "sentier ", "passage ", "allée ", "allee ", "promenade ", "chaussée ", "chaussee ", "faubourg ", "montée ", "montee ", "rond-point ", "ancienne route ", // FR
       "street ", "avenue ", "st. ", "ave. ", "road ", "rd. ", "lane ", "way ", "drive ", "dr. ", "boulevard ", "blvd. ", "highway " // EN
     ],
     SUFFIXES: [
-      " street", " avenue", " st.", " ave", " road", " rd.", " lane", " way", " drive", " dr.", " boulevard", " blvd." // EN
+      " street", " avenue", " st.", " ave", " road", " rd.", " lane", " way", " drive", " dr.", " boulevard", " blvd.", // EN
+      // EN/UK/IE tipos residenciais que vazavam (o tipo vem no fim: "Baker Close", "X Terrace")
+      " close", " court", " crescent", " terrace", " grove", " mews", " row", " rise", " parade", " estate", " roundabout", " cottages", " wharf", // EN/UK/IE
+      // US — subdivisões/loteamentos (o clássico naming americano); famosos (wikidata) são preservados
+      " estates", " subdivision", " acres", " meadows", " oaks", " crossing", " pointe", " addition", " villas", " landing", " farms", " run", " heights", " hills", " shores", " glen" // US
     ]
   },
 
@@ -256,7 +273,15 @@ export function shouldFilterPOI(poi: any): POIFilterResult {
   const isEliteSquare = (props.amenity === "plaza" || props.place === "square") && 
     ["mayor", "real", "ayuntamiento", "virgen", "constitucion", "pau", "reina", "seu"].some(t => nameLower.includes(t));
 
-  if (isCulturalExemption || isGovernmentExemption || isTransportLandmark || isMajorMarket || isEliteSquare || hasHeritage) {
+  // Landmarks explicitamente nomeados (Prefeitura/Paço Municipal/Ayuntamiento, Mercado
+  // Municipal/Mercadão, Plaza Mayor/Real…) são mantidos mesmo sem descrição — o nome já é o
+  // sinal. Preserva BR/ES agora que townhall/marketplace entraram no RESTRICTED_UTILITY;
+  // "Mairie"/"Marché" genéricos (FR) não casam essas exemções e caem no filtro.
+  if (isGovernmentExemption || isMajorMarket || isEliteSquare) {
+    isFamous = true;
+  }
+
+  if (isCulturalExemption || isTransportLandmark || hasHeritage) {
     if (hasDescription && !props.description.includes('http')) {
       isFamous = true;
     }

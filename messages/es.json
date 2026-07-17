@@ -1797,6 +1797,20 @@
       "emptyTitle": "Cliente aún no guardado",
       "emptyDesc": "Guarda el cliente primero para vincular usuarios CMS.",
       "noLinkedUsers": "Ningún usuario vinculado a este cliente",
+      "coordinatorTitle": "Programa de afiliados",
+      "coordinatorHelp": "Un coordinador gestiona empresas-hijas y ve los registros atribuidos a ellas.",
+      "isCoordinator": "Es coordinador de afiliados",
+      "parentCoordinator": "Coordinador (paraguas)",
+      "parentCoordinatorHelp": "Vincula esta empresa bajo un coordinador. Solo admin.",
+      "noParent": "Ninguno (empresa independiente)",
+      "createLogin": "Crear acceso",
+      "createLoginTitle": "Nuevo acceso",
+      "fullName": "Nombre",
+      "email": "Correo",
+      "password": "Contraseña",
+      "passwordHint": "Mínimo 8 caracteres",
+      "createLoginSubmit": "Crear y vincular",
+      "loginCreated": "Acceso creado y vinculado",
       "roles": {
         "viewer": "Visualizador",
         "manager": "Gerente",
@@ -1810,7 +1824,9 @@
         "loadAvailableFailed": "Error al cargar usuarios disponibles",
         "networkAvailable": "Error de red al cargar usuarios disponibles",
         "unlinkFailed": "Error al desvincular usuario",
-        "networkUnlink": "Error de red al desvincular"
+        "networkUnlink": "Error de red al desvincular",
+        "createLoginFailed": "Error al crear el acceso",
+        "networkCreateLogin": "Error de red al crear el acceso"
       }
     },
     "appUsers": {
@@ -1833,7 +1849,7 @@
     },
     "pois": {
       "section": "POI de referencia (Welcome POI)",
-      "help": "POI reproducido cuando el usuario accede a la página del socio (tuggi.app/d/<slug>) — su descripción y audio sirven como contenido de bienvenida. Pega el UUID, valida y asigna. Los cambios se aplican tras guardar el modal.",
+      "help": "POI reproducido cuando el usuario accede a la página del socio (tuggi.app/d/[slug]) — su descripción y audio sirven como contenido de bienvenida. Pega el UUID, valida y asigna. Los cambios se aplican tras guardar el modal.",
       "uuidPlaceholder": "Pega el UUID del POI...",
       "validate": "Validar",
       "attach": "Asignar",

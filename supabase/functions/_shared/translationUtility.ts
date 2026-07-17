@@ -83,8 +83,8 @@ const runGeminiPromptWithUsage = async (
     maxOutputTokens = 2048,
     temperature = 0.3
 ): Promise<GeminiTextResult> => {
-    // Só modelos STABLE (preview gemini-3-flash-preview abandonado: thinking HIGH
-    // por padrão causava MAX_TOKENS, e preview pode ser removido como o 2.0-flash).
+    // Tradução no gemini-2.5-flash-lite (barato: $0.10/$0.40, testado ativo e OK em
+    // multiscript). Fallback vivo no 3.1-flash-lite se o 2.5-flash-lite flapar.
     const models = [
         'gemini-2.5-flash-lite',
         'gemini-3.1-flash-lite'

@@ -57,22 +57,18 @@ export function CouponsTab({ clientId }: ClientEditorTabProps) {
     )
   }
 
-  // The scopedBanner key uses <link>…</link> markers so the translated
-  // string can keep the link inline. We split on the markers and render
-  // the link in between.
-  const bannerRaw = t('scopedBanner')
-  const bannerParts = bannerRaw.split(/<link>|<\/link>/)
-  // Expected shape: [before, linkText, after]
+  // scopedBanner usa <link>…</link> como rich-text do next-intl. t.rich() fornece o
+  // handler da tag (renderiza o <Link>) — sem isso, t() parseia a ICU e quebra com
+  // FORMATTING_ERROR ("context variable link was not provided").
+  const banner = t.rich('scopedBanner', {
+    link: (chunks) => <Link href="/admin/coupons" className="font-bold underline">{chunks}</Link>,
+  })
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div className="flex items-center gap-2 rounded-xl border border-tuggi-blue/20 bg-tuggi-blue/5 px-4 py-3 text-xs text-tuggi-blue">
         <AlertCircle className="w-4 h-4 shrink-0" />
-        <p>
-          {bannerParts[0]}
-          <Link href="/admin/coupons" className="font-bold underline">{bannerParts[1]}</Link>
-          {bannerParts[2]}
-        </p>
+        <p>{banner}</p>
       </div>
 
       <CouponsListAdmin

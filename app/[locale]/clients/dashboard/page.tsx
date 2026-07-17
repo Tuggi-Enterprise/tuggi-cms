@@ -3,13 +3,25 @@
 import { useEffect, useState } from 'react'
 import { MapPin, Users } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from '@/navigation'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
 
 export default function ClientDashboardPage() {
   const [data, setData] = useState<any | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const router = useRouter()
+  const { isCoordinator, isLoading: userLoading } = useCmsUser()
+
+  // Coordenador não gerencia POIs (decisão de produto) → mandar para "Minha rede".
+  // Evita cair neste painel de POIs, que além de irrelevante para ele mostra o
+  // catálogo da plataforma enquanto o escopo de POI não é corrigido.
+  useEffect(() => {
+    if (!userLoading && isCoordinator) router.replace('/clients/coordinator')
+  }, [userLoading, isCoordinator, router])
 
   useEffect(() => {
+    if (userLoading || isCoordinator) return
     async function load() {
       setLoading(true)
       try {
@@ -28,8 +40,9 @@ export default function ClientDashboardPage() {
       }
     }
     load()
-  }, [])
+  }, [userLoading, isCoordinator])
 
+  if (userLoading || isCoordinator) return <div className="p-6">Redirecionando…</div>
   if (loading) return <div className="p-6">Loading...</div>
   if (error) return <div className="p-6 text-red-600">Error: {error}</div>
   if (!data) return <div className="p-6">No data</div>

@@ -46,7 +46,7 @@ export const SPECIFIC_TO_GROUP: Record<string, CategoryGroup> = {
   forest: 'nature', island: 'nature', desert: 'nature',
   dune: 'nature', rock_formation: 'nature', peninsula: 'nature', viewpoint: 'nature',
   // --- parks / green space (parks, gardens, protected reserves) ---
-  park: 'parks', garden: 'parks', nature_reserve: 'parks',
+  park: 'parks', garden: 'parks', nature_reserve: 'parks', national_park: 'parks',
   // --- water (granular: subtipos distintos p/ filtro fino) ---
   lake: 'water', pond: 'water', reservoir: 'water', lagoon: 'water',
   basin: 'water', oxbow: 'water', moat: 'water',
@@ -143,7 +143,7 @@ export const SYNONYM_TO_CATEGORY: Record<string, string> = {
   island: 'island', islet: 'island', archipelago: 'island', reef: 'island', key: 'island',
   // parks / gardens
   park: 'park', recreation_ground: 'park', dog_park: 'park', common: 'park',
-  village_green: 'park', greenfield: 'park', national_park: 'park',
+  village_green: 'park', greenfield: 'park', national_park: 'national_park', provincial_park: 'national_park',
   garden: 'garden', botanical_garden: 'garden',
   square: 'square',
   // sports / recreation
@@ -252,19 +252,33 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(airport|airfield|airpark|aeroporto|aerodromo|aeropuerto|aeroport)\b/, 'airport'],
   [/\b(bridge|ponte|puente|pont)\b/, 'bridge'],
   [/\b(lighthouse|farol|faro|phare)\b/, 'lighthouse'],
-  [/\b(church|chapel|cathedral|basilica|temple|mosque|synagogue|igreja|capela|catedral|santuario|ermida|iglesia|chiesa|eglise)\b/, 'church'],
+  [/\b(tower|torre|campanile|beffroi|belfry)\b/, 'tower'],
+  // religioso: catedral/basílica e abadia/mosteiro ANTES da igreja genérica (senão viram 'church')
+  [/\b(cathedrale|cattedrale|catedral|duomo|basilique|basilica)\b/, 'cathedral'],
+  [/\b(abbaye|abbey|abadia|abbazia|prieure|priory|monastere|monasterio|monestir|monastery|convento|convent)\b/, 'monastery'],
+  [/\b(church|chapel|chapelle|cappella|capilla|parroquia|temple|mosque|synagogue|igreja|capela|ermita|ermida|eremo|pieve|santuario|santuari|iglesia|chiesa|eglise|esglesia|collegiale)\b/, 'church'],
   [/\b(museum|museu|museo|musee)\b/, 'museum'],
   [/\b(cemetery|cemiterio|cementerio|cimetiere|cimitero)\b/, 'cemetery'],
-  [/\b(theatre|theater|teatro)\b/, 'theatre'],
-  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|chateau|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  [/\b(theatre|theater|teatro|anfiteatro)\b/, 'theatre'],
+  [/\b(library|biblioteca|bibliotheque)\b/, 'library'],
+  [/\b(monumento|monument)\b/, 'monument'],
+  [/\b(memorial)\b/, 'memorial'],
+  [/\b(estadio|stadium|stadio|arena|ginasio|autodromo)\b/, 'stadium'],
+  [/\b(mercadao|mercado municipal|mercado central|mercat)\b/, 'marketplace'],
+  [/\b(chafariz)\b/, 'fountain'],
+  // sítios arqueológicos (dolmen/menhir/oppidum…) e fortificações/aquedutos
+  [/\b(dolmen|menhir|tumulus|cromlech|oppidum|cairn|nuraghe)\b/, 'archaeological_site'],
+  // fortificações + palácios/solares/sobrados (casarões históricos PT-BR)
+  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|castello|rocca|chateau|chateaux|citadelle|donjon|manoir|manor|palacio|palazzo|palais|solar|sobrado|hacienda|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  [/\b(aqueduc|aqueduct|acueducto|acquedotto)\b/, 'bridge'],
   [/\b(viewpoint|mirante|mirador|belvedere|belvedere)\b/, 'viewpoint'],
   // water
   [/\b(lake|pond|reservoir|lagoa|lago|laguna|lac)\b/, 'lake'],
-  [/\b(represa|acude|embalse|barragem)\b/, 'reservoir'],
-  [/\b(falls|waterfall|cachoeira|catarata|cascata|cascada|salto|chute)\b/, 'waterfall'],
-  [/\b(creek|brook|bayou|river|stream|rio|riacho|corrego|igarape|ribeira|arroyo|riviere|fiume)\b/, 'river'],
+  [/\b(represa|acude|reservatorio|embalse|barragem)\b/, 'reservoir'],
+  [/\b(falls|waterfall|cachoeira|catarata|cascata|cascada|cascade|salto|chute)\b/, 'waterfall'],
+  [/\b(creek|brook|bayou|river|stream|rio|riacho|corrego|igarape|ribeira|ribeirao|arroio|arroyo|riviere|fiume)\b/, 'river'],
   [/\b(spring|springs|nascente|fonte|fuente)\b/, 'spring'],
-  [/\b(beach|praia|playa|plage|spiaggia)\b/, 'beach'],
+  [/\b(beach|praia|prainha|playa|plage|spiaggia|cala|calanque)\b/, 'beach'],
   [/\b(bay|cove|inlet|harbor|harbour|baia|enseada|bahia|baie)\b/, 'bay'],
   // relief / nature
   [/\b(mountain|mount|mt|peak|summit|morro|serra|pico|monte|cerro|colina|montagne|montana)\b/, 'peak'],
@@ -272,10 +286,11 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\bmesa\b/, 'plateau'],
   [/\bridge\b/, 'ridge'],
   [/\b(canyon|canion|gorge|valley|vale|valle|vallee)\b/, 'valley'],
-  [/\b(cave|cavern|grotto|gruta|caverna|cueva|grotte|grotta)\b/, 'cave'],
+  [/\b(cave|cavern|grotto|gruta|caverna|cueva|grotte|grotta|gouffre|cenote)\b/, 'cave'],
   [/\b(cliff|bluff|palisade|penhasco|falesia|farallon|falaise)\b/, 'cliff'],
   [/\b(forest|woods|woodland|mata|floresta|bosque|selva|foret|bosco)\b/, 'forest'],
   [/\b(island|isle|cay|ilha|isla|ile|isola)\b/, 'island'],
+  [/\b(national park|provincial park|parc national|parc provincial|state park)\b/, 'national_park'],
   [/\b(park|gardens?|parque|jardim|jardin|jardins|giardino)\b/, 'park'],
   [/\b(square|praca|plaza|piazza)\b/, 'square'],
 ]
@@ -544,36 +559,68 @@ export function isNotable(input: ClassifyInput): boolean {
 
 /** Categorias intrinsecamente "imperdíveis" (nível 1), mesmo sem wikidata. */
 export const LEVEL_1_CATEGORIES = new Set<string>([
-  'museum', 'monument', 'memorial', 'historic_site', 'archaeological_site',
+  'museum', 'monument', 'historic_site', 'archaeological_site',
   'cathedral', 'monastery', 'mosque', 'temple', 'synagogue',
   'viewpoint', 'waterfall', 'volcano', 'glacier', 'canyon', 'cave',
   'beach', 'lighthouse',
+  // parque nacional/provincial = destino turístico must-see (Banff, Jasper, Algonquin)
+  'national_park',
   // tourism=attraction = "atração turística" por definição (ex.: Cristo Redentor
   // sem wikidata no banco). Famoso não pode ficar oculto no nível 2.
   'attraction',
 ])
 
-/** Categorias de média importância (nível 2). */
+/**
+ * Categorias de média importância (nível 2). `memorial` desceu do nível 1 pra cá:
+ * o grosso são Monuments aux Morts / placas de vila — landmark cívico complementar,
+ * não "must-see". Um memorial nacional (heritage/wikidata) ainda sobe pra 1/2.
+ */
 export const LEVEL_2_CATEGORIES = new Set<string>([
   'artwork', 'gallery', 'theatre', 'library', 'bridge', 'tower', 'windmill',
   'stadium', 'zoo', 'amusement_park', 'marketplace', 'fountain',
-  'cemetery', 'pier',
+  'cemetery', 'pier', 'memorial',
+  // igrejas/capelas (mesmo sem wikidata) e corpos d'água nomeados = complementar,
+  // não devem cair no nível 3 (Adicional) por não terem referência externa.
+  'church', 'chapel', 'lake', 'pond', 'reservoir', 'lagoon',
+  // natureza/água "destino" (curadoria seletiva — NÃO promovemos park/garden/spring/
+  // hill/cliff genéricos, que são o long tail de baixa relevância = praças de vila,
+  // fontes, cerros menores). Um pico/lago/rio/baía nomeado é ponto de interesse.
+  'nature_reserve', 'mountain', 'peak', 'river', 'bay',
 ])
 
 /**
  * Nível 1/2/3 a partir da categoria canônica + sinais de importância.
- * Promoção: importance_score≥40 OU is_historic OU heritage/unesco → nível 1
- * (pega aeroportos famosos, igrejas históricas, parques notáveis, etc.).
+ *
+ * Nível 1 (Padrão Tuggi / must-see): patrimônio oficial (UNESCO/heritage) OU
+ * importância alta (importance_score≥40: wikidata+wikipedia, nacional/internacional)
+ * OU categoria intrinsecamente imperdível.
+ * Nível 2 (Complementar): referência externa (wikidata) — promove igreja/pico notável
+ * que a categoria sozinha deixaria no fundo — OU categoria de média importância.
+ * Nível 3 (Adicional): o resto.
+ *
+ * ⚠️ `is_historic` NÃO promove mais sozinho: o OSM `historic=*` inclui cruzeiros
+ * (calvaires/shrine), placas e marcos de km/fronteira (memorial) e linhas sem
+ * categoria — que inflavam o "must-see" com micro-marcos rurais. Um sítio/edifício
+ * histórico de verdade sobe pela CATEGORIA (historic_site, museum…) ou pelo heritage.
  */
 export function priorityLevel(primaryCategory: string | null, input: ClassifyInput): 1 | 2 | 3 {
-  if (importanceScore(input) >= 40) return 1
-  if (input.is_historic === true) return 1
   const heritage = norm(input.heritage_status)
-  if (heritage && heritage !== 'no' && heritage !== 'none') return 1
+  const hasHeritage = !!(heritage && heritage !== 'no' && heritage !== 'none')
   const unesco = norm(input.unesco_status)
-  if (unesco && unesco !== 'no' && unesco !== 'none') return 1
+  const hasUnesco = !!(unesco && unesco !== 'no' && unesco !== 'none')
+
+  // (1) patrimônio oficial ou importância alta → nível 1
+  if (hasUnesco || hasHeritage || importanceScore(input) >= 40) return 1
+
+  // (2) categorias intrinsecamente imperdíveis → nível 1
   const cat = norm(primaryCategory)
   if (cat && LEVEL_1_CATEGORIES.has(cat)) return 1
+
+  // (3) referência externa (wikidata) → pelo menos nível 2 (igrejas/picos notáveis)
+  if (input.wikidata) return 2
+
+  // (4) categorias de média importância → nível 2
   if (cat && LEVEL_2_CATEGORIES.has(cat)) return 2
+
   return 3
 }
