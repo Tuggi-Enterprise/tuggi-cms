@@ -25,6 +25,7 @@ import { locationService } from '@/lib/core/location-service'
 import { usePOIs, usePOIFacets } from '@/lib/hooks/use-pois'
 import { useTranslations } from 'next-intl'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
+import { useRouter as useLocalizedRouter } from '@/navigation'
 
 // Custom hook for debouncing
 function useDebounce<T>(value: T, delay: number): T {
@@ -67,11 +68,21 @@ function POIListWithSearchParams() {
   const [osmCategoryFilter, setOsmCategoryFilter] = useState<string>('all')
   
   const router = useRouter()
+  const localizedRouter = useLocalizedRouter()
   const searchParams = useSearchParams()
   const supabase = useSupabaseClient()
   const queryClient = useQueryClient()
   const t = useTranslations('POIManagement')
-  const { role: cmsUserRole, isAdmin, canEdit, canManagePois } = useCmsUser()
+  const { role: cmsUserRole, isAdmin, canEdit, canManagePois, isCoordinator, isLoading: cmsUserLoading } = useCmsUser()
+
+  // Coordenador não acessa POIs (gerencia afiliados) → manda para "Minha rede".
+  // Mantém o menu escondido e o acesso por URL consistentes. useLocalizedRouter resolve
+  // o prefixo de locale sozinho (o router de next/navigation acima é só para query params).
+  useEffect(() => {
+    if (!cmsUserLoading && isCoordinator) {
+      localizedRouter.replace('/clients/coordinator')
+    }
+  }, [cmsUserLoading, isCoordinator, localizedRouter])
 
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)

@@ -233,10 +233,10 @@ export function Header({ className }: { className?: string }) {
               { name: 'Minha rede', href: '/clients/coordinator', icon: Network, category: 'main' },
               pathname.startsWith('/clients/coordinator')
             )}
-            {/* Pontos: /pois e /routes são acessíveis a clientes; /trail-visualization é
-                admin-only no middleware, então some para não-admin. events/places já são
-                gated por módulo. */}
-            {renderDropdown('points', [
+            {/* Gestão de Pontos (POIs/Rotas): coordenador gerencia afiliados, não POIs —
+                some inteiro para ele. Cliente comum gerencia POIs e continua vendo.
+                /trail-visualization é admin-only; events/places seguem gated por módulo. */}
+            {!isCoordinator && renderDropdown('points', [
               ...navigation.filter(item => item.category === 'points' && item.href === '/pois'),
               ...(hasEvents ? [{ name: t('events'), href: '/events', icon: CalendarDays, category: 'points' }] : []),
               ...(hasPlaces ? [{ name: t('places'), href: '/places', icon: Store, category: 'points' }] : []),
@@ -275,16 +275,18 @@ export function Header({ className }: { className?: string }) {
                   : (!isCoordinator && renderNavItem({ name: t('dashboard'), href: '/clients/dashboard', icon: LayoutDashboard, category: 'main' }, pathname.startsWith('/clients/dashboard'), () => setIsMobileMenuOpen(false)))}
                 {(isCoordinator || isAdmin) && renderNavItem({ name: 'Minha rede', href: '/clients/coordinator', icon: Network, category: 'main' }, pathname.startsWith('/clients/coordinator'), () => setIsMobileMenuOpen(false))}
               </div>
-              <div>
-                <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('points_management')}</h4>
-                <div className="space-y-1">
-                  {renderNavItem({ name: t('pois'), href: '/pois', icon: MapPin, category: 'points' }, pathname.startsWith('/pois'), () => setIsMobileMenuOpen(false))}
-                  {hasEvents && renderNavItem({ name: t('events'), href: '/events', icon: CalendarDays, category: 'points' }, pathname.startsWith('/events'), () => setIsMobileMenuOpen(false))}
-                  {hasPlaces && renderNavItem({ name: t('places'), href: '/places', icon: Store, category: 'points' }, pathname.startsWith('/places'), () => setIsMobileMenuOpen(false))}
-                  {navigation.filter(item => item.category === 'points' && item.href !== '/pois'
-                    && (isAdmin || item.href === '/routes')).map(item => renderNavItem(item, pathname.startsWith(item.href), () => setIsMobileMenuOpen(false)))}
+              {!isCoordinator && (
+                <div>
+                  <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('points_management')}</h4>
+                  <div className="space-y-1">
+                    {renderNavItem({ name: t('pois'), href: '/pois', icon: MapPin, category: 'points' }, pathname.startsWith('/pois'), () => setIsMobileMenuOpen(false))}
+                    {hasEvents && renderNavItem({ name: t('events'), href: '/events', icon: CalendarDays, category: 'points' }, pathname.startsWith('/events'), () => setIsMobileMenuOpen(false))}
+                    {hasPlaces && renderNavItem({ name: t('places'), href: '/places', icon: Store, category: 'points' }, pathname.startsWith('/places'), () => setIsMobileMenuOpen(false))}
+                    {navigation.filter(item => item.category === 'points' && item.href !== '/pois'
+                      && (isAdmin || item.href === '/routes')).map(item => renderNavItem(item, pathname.startsWith(item.href), () => setIsMobileMenuOpen(false)))}
+                  </div>
                 </div>
-              </div>
+              )}
               {['marketing', 'reports', 'users', 'admin'].map(cat => {
                 // reports/users/admin/marketing são todos admin-only (middleware bloqueia
                 // não-admin em /dashboard/*, /users/*, /admin/*).

@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { RouteEditorModal } from '@/components/routes/RouteEditorModal'
+import { useCmsUser } from '@/lib/hooks/useCmsUser'
+import { useRouter as useLocalizedRouter } from '@/navigation'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -59,6 +61,13 @@ export default function RoutesPage() {
   const searchParams = useSearchParams()
   const router      = useRouter()
   const pathname    = usePathname()
+  const localizedRouter = useLocalizedRouter()
+  const { isCoordinator, isLoading: cmsUserLoading } = useCmsUser()
+
+  // Coordenador não acessa gestão de pontos (POIs/Rotas) → "Minha rede".
+  useEffect(() => {
+    if (!cmsUserLoading && isCoordinator) localizedRouter.replace('/clients/coordinator')
+  }, [cmsUserLoading, isCoordinator, localizedRouter])
 
   // ── Routes state ────────────────────────────────────────────────────────
   const [routes,    setRoutes]    = useState<Route[]>([])
