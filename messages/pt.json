@@ -1877,6 +1877,17 @@
       "emptyTitle": "Cliente ainda não salvo",
       "emptyDesc": "Salve o cliente primeiro para vincular usuários CMS.",
       "noLinkedUsers": "Nenhum usuário vinculado a este cliente",
+      "coordinatorTitle": "Programa de afiliados",
+      "coordinatorHelp": "Um coordenador gerencia empresas-filhas e vê os cadastros atribuídos a elas.",
+      "isCoordinator": "É coordenador de afiliados",
+      "createLogin": "Criar login",
+      "createLoginTitle": "Novo login de acesso",
+      "fullName": "Nome",
+      "email": "E-mail",
+      "password": "Senha",
+      "passwordHint": "Mínimo 8 caracteres",
+      "createLoginSubmit": "Criar e vincular",
+      "loginCreated": "Login criado e vinculado",
       "roles": {
         "viewer": "Visualizador",
         "manager": "Gerente",
@@ -1890,7 +1901,9 @@
         "loadAvailableFailed": "Falha ao carregar usuários disponíveis",
         "networkAvailable": "Erro de rede ao carregar usuários disponíveis",
         "unlinkFailed": "Falha ao desvincular usuário",
-        "networkUnlink": "Erro de rede ao desvincular"
+        "networkUnlink": "Erro de rede ao desvincular",
+        "createLoginFailed": "Falha ao criar login",
+        "networkCreateLogin": "Erro de rede ao criar login"
       }
     },
     "appUsers": {

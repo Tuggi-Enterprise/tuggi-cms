@@ -1878,6 +1878,17 @@
       "emptyTitle": "Client not yet saved",
       "emptyDesc": "Save the client first to link CMS users.",
       "noLinkedUsers": "No users linked to this client",
+      "coordinatorTitle": "Affiliate program",
+      "coordinatorHelp": "A coordinator manages sub-companies and sees the signups attributed to them.",
+      "isCoordinator": "Is affiliate coordinator",
+      "createLogin": "Create login",
+      "createLoginTitle": "New access login",
+      "fullName": "Name",
+      "email": "Email",
+      "password": "Password",
+      "passwordHint": "At least 8 characters",
+      "createLoginSubmit": "Create and link",
+      "loginCreated": "Login created and linked",
       "roles": {
         "viewer": "Viewer",
         "manager": "Manager",
@@ -1891,7 +1902,9 @@
         "loadAvailableFailed": "Failed to load available users",
         "networkAvailable": "Network error loading available users",
         "unlinkFailed": "Failed to unlink user",
-        "networkUnlink": "Network error unlinking"
+        "networkUnlink": "Network error unlinking",
+        "createLoginFailed": "Failed to create login",
+        "networkCreateLogin": "Network error creating login"
       }
     },
     "appUsers": {

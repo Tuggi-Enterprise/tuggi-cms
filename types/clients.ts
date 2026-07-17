@@ -60,6 +60,9 @@ export interface Client {
   avatar_url?: string
   social_handle?: string
   bio_one_line?: string
+  // Afiliados (20260717_06_client_hierarchy): coordenador gerencia empresas-filhas.
+  is_coordinator?: boolean
+  parent_client_id?: string | null
 }
 
 export type TaxIdType = 'cnpj' | 'nipc' | 'nif' | 'vat' | 'ein' | 'other'
