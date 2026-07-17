@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
+import { getSupabaseRouteHandler, getSupabaseService } from '@/lib/core/supabase-client'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     const { data: cmsUser, error: cmsError } = await supabase
       .schema('core')
       .from('cms_users')
-      .select('role, is_active, client_id, enabled_modules')
+      .select('id, role, is_active, client_id, enabled_modules')
       .eq('email', user.email)
       .eq('is_active', true)
       .single()
@@ -80,6 +80,35 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Vínculo REAL usuário→client. cms_users.client_id está NULL em 9/9 dos usuários
+    // role='client' e, sendo escalar, não representa o N:N — o vínculo vivo é
+    // core.client_cms_users (+ clients.cms_user_id, legado). Service role porque
+    // client_cms_users tem RLS e o JWT do caller não necessariamente a enxerga.
+    const service = getSupabaseService()
+    const [{ data: links }, { data: owned }] = await Promise.all([
+      service.schema('core').from('client_cms_users').select('client_id').eq('cms_user_id', cmsUser.id),
+      service.schema('core').from('clients').select('id').eq('cms_user_id', cmsUser.id),
+    ])
+
+    const clientIds: string[] = Array.from(new Set([
+      ...(links ?? []).map((l: any) => l.client_id),
+      ...(owned ?? []).map((c: any) => c.id),
+    ].filter(Boolean)))
+
+    // Coordenador = capacidade explícita em core.clients.is_coordinator, setada por admin
+    // Tuggi. NÃO derivar de "tem filhas": um coordenador recém-criado tem zero filhas e
+    // nunca veria o botão de criar a primeira.
+    let coordinatorClientIds: string[] = []
+    if (clientIds.length > 0) {
+      const { data: coords } = await service
+        .schema('core')
+        .from('clients')
+        .select('id')
+        .in('id', clientIds)
+        .eq('is_coordinator', true)
+      coordinatorClientIds = (coords ?? []).map((c: any) => c.id)
+    }
+
     console.log('✅ User authenticated and authorized:', {
       email: user.email,
       role: cmsUser.role
@@ -91,7 +120,12 @@ export async function GET(request: NextRequest) {
         email: user.email,
         role: cmsUser.role,
         isActive: cmsUser.is_active,
+        // Mantido por compatibilidade (useCmsUser e chamadas antigas leem isto),
+        // mas é NULL para todo client — prefira clientIds.
         clientId: cmsUser.client_id,
+        clientIds,
+        isCoordinator: coordinatorClientIds.length > 0,
+        coordinatorClientId: coordinatorClientIds[0] ?? null,
         enabledModules: cmsUser.enabled_modules || []
       }
     })

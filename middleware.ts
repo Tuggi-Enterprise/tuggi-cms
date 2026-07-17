@@ -124,6 +124,13 @@ export async function middleware(req: NextRequest) {
 
       // Client check
       if (isClient(cmsUser.role)) {
+        // A Overview (/dashboard e /dashboard/reports/*) é GLOBAL por construção: das 14
+        // chamadas que dispara, 10 não têm parâmetro de dono (inventory_funnel,
+        // recent_app_users, top_visited_pois...). Client não entra — vai para o painel dele.
+        // Redirect em vez de /unauthorized porque isto não é falta de permissão, é lugar errado.
+        if (pathWithoutLocale === '/dashboard' || pathWithoutLocale.startsWith('/dashboard/')) {
+          return NextResponse.redirect(new URL(`/${locale}/clients/dashboard`, req.url));
+        }
         // Check allowed paths for client
         if (pathWithoutLocale.startsWith('/pois') || pathWithoutLocale.startsWith('/clients') || pathWithoutLocale.startsWith('/routes') || ALLOWED_CLIENT_PATHS.includes(pathWithoutLocale)) {
           return res;

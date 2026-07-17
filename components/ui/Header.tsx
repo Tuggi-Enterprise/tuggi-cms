@@ -37,7 +37,8 @@ import {
   Gift,
   Mail,
   CalendarDays,
-  Store
+  Store,
+  Network
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isMarketingEnabled } from '@/lib/modules/marketing'
@@ -95,6 +96,7 @@ export function Header({ className }: { className?: string }) {
   const [userRole, setUserRole] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
   const [enabledModules, setEnabledModules] = useState<string[]>([])
+  const [isCoordinator, setIsCoordinator] = useState(false)
   const isAdmin = mounted && (userRole === 'admin' || userRole === 'super_admin')
   // Module entitlements (mounted-gated to avoid hydration mismatch).
   const hasEvents = mounted && isEventsEnabled({ role: userRole, enabledModules })
@@ -109,6 +111,7 @@ export function Header({ className }: { className?: string }) {
           const data = await res.json()
           setUserRole(data.user?.role || null)
           setEnabledModules(data.user?.enabledModules || [])
+          setIsCoordinator(Boolean(data.user?.isCoordinator))
         }
       } catch (err) {
         console.error('Failed to fetch user role for header:', err)
@@ -219,6 +222,12 @@ export function Header({ className }: { className?: string }) {
 
           <nav className="hidden lg:flex items-center space-x-2">
             {renderNavItem({ name: t('dashboard'), href: '/dashboard', icon: LayoutDashboard, category: 'main' }, pathname === '/dashboard')}
+            {/* Painel de afiliados. Coordenador (client com is_coordinator) sempre vê; admin
+                também, para dar suporte a qualquer guarda-chuva. */}
+            {(isCoordinator || isAdmin) && renderNavItem(
+              { name: 'Minha rede', href: '/clients/coordinator', icon: Network, category: 'main' },
+              pathname.startsWith('/clients/coordinator')
+            )}
             {renderDropdown('points', [
               ...navigation.filter(item => item.category === 'points' && item.href === '/pois'),
               ...(hasEvents ? [{ name: t('events'), href: '/events', icon: CalendarDays, category: 'points' }] : []),

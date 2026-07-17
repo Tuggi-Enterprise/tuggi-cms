@@ -1,0 +1,51 @@
+-- ============================================================================
+-- Migration: remover coordinator_city_breakdown (o dado não existe)
+-- Date: 2026-07-17
+-- Corrige: 20260717_07_coordinator_rpcs.sql
+--
+-- POR QUE REMOVER EM VEZ DE CONSERTAR
+-- ----------------------------------
+-- A função quebrava em runtime:
+--   ERROR: 42703: column p.city does not exist
+--
+-- Erro de premissa minha: drive.profiles NÃO tem `city`. Só `country` (+ latitude/longitude).
+-- A confusão veio de core.dashboard_city_stats, que agrupa por cidade — mas ela lê
+-- core.mv_geographic_stats, que agrega core.attractions: cidade dos POIs, não dos usuários.
+--
+-- E trocar `city` por `country` não salva a função. O dado não existe:
+--
+--   SELECT coalesce(nullif(trim(country),''),'(vazio)'), count(*)
+--     FROM drive.profiles WHERE partner_id IS NOT NULL GROUP BY 1;
+--   -- (vazio) → 22
+--   -- Brazil  →  1
+--
+-- Ou seja: 22 dos 23 perfis atribuídos têm country vazio. Com o piso de k-anonimato (k=5),
+-- a função devolveria sempre um único bucket "Outras: 23" — uma caixa vazia com aparência
+-- de recurso no painel do coordenador. Melhor não existir.
+--
+-- QUANDO ISTO VOLTA A FAZER SENTIDO
+-- ---------------------------------
+-- Só depois de haver dado geográfico de usuário confiável. Dois caminhos possíveis:
+--   (a) o app passar a preencher profiles.country no signup/onboarding; ou
+--   (b) derivar de profiles.latitude/longitude (96 dos 224 perfis têm) por reverse geocoding
+--       — o que é um trabalho próprio, não um detalhe deste RPC.
+-- Quando voltar, o piso de k-anonimato continua obrigatório: 1 cadastro + região + mês
+-- identifica uma pessoa, e a decisão de produto é "só agregado/anônimo".
+--
+-- As outras duas RPCs da 07 seguem válidas e verificadas:
+--   coordinator_child_breakdown('<tuggi>')      → 18 signups, 7 mau_30d, 4 premium, qr_url ok
+--   coordinator_signup_timeseries('<tuggi>',12) → curva mensal, cumulative = 18 ✓
+--
+-- ⚠️ APLICAR MANUALMENTE NO PAINEL. NUNCA DDL via CLI.
+-- ============================================================================
+
+DROP FUNCTION IF EXISTS core.coordinator_city_breakdown(uuid, integer);
+
+NOTIFY pgrst, 'reload schema';
+
+-- Verificação:
+--   SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+--    WHERE n.nspname='core' AND p.proname LIKE 'coordinator_%' ORDER BY 1;
+--   -- devem restar apenas:
+--   --   coordinator_child_breakdown
+--   --   coordinator_signup_timeseries

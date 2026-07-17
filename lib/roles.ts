@@ -29,11 +29,24 @@ export const ALLOWED_CLIENT_PATHS = [
   '/clients',
   '/clients/my-pois',
   '/clients/my-pois/',
-  '/dashboard'
+  '/clients/dashboard',
+  // Painel do coordenador (afiliados). Mora sob /clients/ de propósito: o middleware
+  // libera não-admin por startsWith('/clients') — '/admin/*' bounça para /unauthorized.
+  '/clients/coordinator',
 ]
 
-// NOTE: '/dashboard' is allowed for clients, but the UI will load a scoped
-// client dashboard (only the client's own metrics) by calling
-// `/api/clients/dashboard`. Global admin dashboard data remains restricted
-// to admins only.
+// '/dashboard' foi REMOVIDO daqui (2026-07-17).
+//
+// O comentário anterior afirmava que a UI carregaria um dashboard escopado via
+// `/api/clients/dashboard` — isso NUNCA foi implementado. app/[locale]/dashboard/page.tsx
+// chama `getDashboardData(undefined)`, e com ownerId falsy o dashboard-service lê
+// core.mv_user_analytics_global / core.mv_country_stats direto (GRANT ... TO authenticated).
+// Resultado: todo client logado via /dashboard enxergava os totais da PLATAFORMA.
+//
+// A Overview é global por construção e não dá para escopar barato: das 14 chamadas que ela
+// dispara, só 4 aceitam p_owner_id. As outras 10 (dashboard_inventory_funnel,
+// dashboard_recent_app_users, dashboard_top_visited_pois, ...) não têm parâmetro de dono.
+// Escopar tudo aquilo é um projeto; remover o acesso é uma linha.
+//
+// Client agora vai para /clients/dashboard; coordenador, para /clients/coordinator.
 
