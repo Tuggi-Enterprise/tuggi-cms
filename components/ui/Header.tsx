@@ -221,23 +221,34 @@ export function Header({ className }: { className?: string }) {
           </div>
 
           <nav className="hidden lg:flex items-center space-x-2">
-            {renderNavItem({ name: t('dashboard'), href: '/dashboard', icon: LayoutDashboard, category: 'main' }, pathname === '/dashboard')}
+            {/* Dashboard: admin vê a Overview global; cliente comum vê o painel dele; o
+                coordenador não vê (usa "Minha rede"). O middleware bloqueia /dashboard*
+                para não-admin, então mostrar o link genérico só confundiria. */}
+            {isAdmin
+              ? renderNavItem({ name: t('dashboard'), href: '/dashboard', icon: LayoutDashboard, category: 'main' }, pathname === '/dashboard')
+              : (!isCoordinator && renderNavItem({ name: t('dashboard'), href: '/clients/dashboard', icon: LayoutDashboard, category: 'main' }, pathname.startsWith('/clients/dashboard')))}
             {/* Painel de afiliados. Coordenador (client com is_coordinator) sempre vê; admin
                 também, para dar suporte a qualquer guarda-chuva. */}
             {(isCoordinator || isAdmin) && renderNavItem(
               { name: 'Minha rede', href: '/clients/coordinator', icon: Network, category: 'main' },
               pathname.startsWith('/clients/coordinator')
             )}
+            {/* Pontos: /pois e /routes são acessíveis a clientes; /trail-visualization é
+                admin-only no middleware, então some para não-admin. events/places já são
+                gated por módulo. */}
             {renderDropdown('points', [
               ...navigation.filter(item => item.category === 'points' && item.href === '/pois'),
               ...(hasEvents ? [{ name: t('events'), href: '/events', icon: CalendarDays, category: 'points' }] : []),
               ...(hasPlaces ? [{ name: t('places'), href: '/places', icon: Store, category: 'points' }] : []),
-              ...navigation.filter(item => item.category === 'points' && item.href !== '/pois'),
+              ...navigation.filter(item => item.category === 'points' && item.href !== '/pois'
+                && (isAdmin || item.href === '/routes')),
             ], t('points_management'))}
             {isAdmin && isMarketingEnabled() && renderDropdown('marketing', navigation.filter(item => item.category === 'marketing'), t('marketing'))}
-            <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-2" />
-            {renderDropdown('reports', navigation.filter(item => item.category === 'reports'), t('reports'))}
-            {renderDropdown('users', navigation.filter(item => item.category === 'users'), t('users'))}
+            {/* reports e users são inteiramente /dashboard/* e /users/* — bloqueados para
+                não-admin pelo middleware. Só admin. */}
+            {isAdmin && <div className="h-6 w-px bg-gray-200 dark:bg-gray-800 mx-2" />}
+            {isAdmin && renderDropdown('reports', navigation.filter(item => item.category === 'reports'), t('reports'))}
+            {isAdmin && renderDropdown('users', navigation.filter(item => item.category === 'users'), t('users'))}
             {isAdmin && renderDropdown('admin', navigation.filter(item => item.category === 'admin'), t('admin'))}
           </nav>
 
@@ -259,7 +270,10 @@ export function Header({ className }: { className?: string }) {
           <div className="lg:hidden border-t border-tuggi-border/50 dark:border-gray-700/50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm animate-in slide-in-from-top-2 duration-300">
             <nav className="px-2 pt-2 pb-3 space-y-4">
               <div className="space-y-1">
-                {renderNavItem({ name: t('dashboard'), href: '/dashboard', icon: LayoutDashboard, category: 'main' }, pathname === '/dashboard', () => setIsMobileMenuOpen(false))}
+                {isAdmin
+                  ? renderNavItem({ name: t('dashboard'), href: '/dashboard', icon: LayoutDashboard, category: 'main' }, pathname === '/dashboard', () => setIsMobileMenuOpen(false))
+                  : (!isCoordinator && renderNavItem({ name: t('dashboard'), href: '/clients/dashboard', icon: LayoutDashboard, category: 'main' }, pathname.startsWith('/clients/dashboard'), () => setIsMobileMenuOpen(false)))}
+                {(isCoordinator || isAdmin) && renderNavItem({ name: 'Minha rede', href: '/clients/coordinator', icon: Network, category: 'main' }, pathname.startsWith('/clients/coordinator'), () => setIsMobileMenuOpen(false))}
               </div>
               <div>
                 <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('points_management')}</h4>
@@ -267,12 +281,15 @@ export function Header({ className }: { className?: string }) {
                   {renderNavItem({ name: t('pois'), href: '/pois', icon: MapPin, category: 'points' }, pathname.startsWith('/pois'), () => setIsMobileMenuOpen(false))}
                   {hasEvents && renderNavItem({ name: t('events'), href: '/events', icon: CalendarDays, category: 'points' }, pathname.startsWith('/events'), () => setIsMobileMenuOpen(false))}
                   {hasPlaces && renderNavItem({ name: t('places'), href: '/places', icon: Store, category: 'points' }, pathname.startsWith('/places'), () => setIsMobileMenuOpen(false))}
-                  {navigation.filter(item => item.category === 'points' && item.href !== '/pois').map(item => renderNavItem(item, pathname.startsWith(item.href), () => setIsMobileMenuOpen(false)))}
+                  {navigation.filter(item => item.category === 'points' && item.href !== '/pois'
+                    && (isAdmin || item.href === '/routes')).map(item => renderNavItem(item, pathname.startsWith(item.href), () => setIsMobileMenuOpen(false)))}
                 </div>
               </div>
               {['marketing', 'reports', 'users', 'admin'].map(cat => {
-                if (cat === 'admin' && !isAdmin) return null
-                if (cat === 'marketing' && (!isAdmin || !isMarketingEnabled())) return null
+                // reports/users/admin/marketing são todos admin-only (middleware bloqueia
+                // não-admin em /dashboard/*, /users/*, /admin/*).
+                if (!isAdmin) return null
+                if (cat === 'marketing' && !isMarketingEnabled()) return null
                 return (
                   <div key={cat}>
                     <h4 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t(cat) || cat}</h4>
