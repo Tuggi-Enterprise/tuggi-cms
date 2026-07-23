@@ -112,7 +112,9 @@ export interface POISearchFilters {
   fetch_all?: boolean  // New parameter for map view
   map_view?: boolean   // New parameter to indicate map context
   isActiveFilter?: 'all' | 'active' | 'inactive'
-  priorityLevel?: 1 | 2 | 3  // Nível Tuggi (1 Padrão · 2 Complementar · 3 Adicional)
+  // Multi-select de nível Tuggi (1 Padrão · 2 Complementar · 3 Adicional). Subconjunto a
+  // mostrar; undefined/todos = sem filtro. Enviado à RPC como priority_levels (= ANY(array)).
+  priorityLevels?: number[]
 }
 
 export interface POISearchResult {
@@ -238,10 +240,13 @@ class POIService {
       // contagem é buscada UMA vez por filtro num hook separado), pula essa chamada —
       // virar de página não re-conta.
       const skipFacets = (filters as any).skipFacets === true
-      // Contadores também respeitam o filtro de nível (condicional p/ compat com RPC antiga).
-      const facetsArgs = filters.priorityLevel
-        ? { ...sharedFilters, priority_filter: filters.priorityLevel }
-        : sharedFilters
+      // Só envia priority_levels quando há subconjunto real (evita mandar param à RPC antiga
+      // sem necessidade). A RPC nova filtra com a.priority_level = ANY(priority_levels).
+      const prioritySubset = Array.isArray(filters.priorityLevels)
+        && filters.priorityLevels.length > 0 && filters.priorityLevels.length < 3
+      const priorityArg = prioritySubset ? { priority_levels: filters.priorityLevels } : {}
+      // Contadores também respeitam o filtro de nível.
+      const facetsArgs = { ...sharedFilters, ...priorityArg }
       const facetsPromise = skipFacets ? null : supabase.schema('core').rpc('cms_poi_facets', facetsArgs)
 
       let data: any[] = []
@@ -259,8 +264,7 @@ class POIService {
             .schema('core')
             .rpc('cms_list_pois', {
               ...sharedFilters,
-              // condicional: só envia quando há filtro (mantém compat com a RPC antiga)
-              ...(filters.priorityLevel ? { priority_filter: filters.priorityLevel } : {}),
+              ...priorityArg,
               fetch_all: false,
               limit_count: chunkSize,
               offset_count: currentOffset
@@ -288,14 +292,21 @@ class POIService {
         error = null
       } else {
         // Chamada única paginada via cms_list_pois.
-        const result = await supabase.schema('core').rpc('cms_list_pois', {
+        const callList = (extra: any) => supabase.schema('core').rpc('cms_list_pois', {
           ...sharedFilters,
-          // condicional: só envia quando há filtro (mantém compat com a RPC antiga)
-          ...(filters.priorityLevel ? { priority_filter: filters.priorityLevel } : {}),
+          ...extra,
           fetch_all: false,
           limit_count: filters.limit || 1000,
           offset_count: ((filters.page || 1) - 1) * (filters.limit || 1000)
         })
+        let result = await callList(priorityArg)
+        // Fail-soft: se a RPC ainda não conhece priority_levels (migration
+        // 20260723_pois_priority_multiselect.sql pendente), NÃO esvazia a lista —
+        // refaz sem o filtro de prioridade (ele só passa a valer após a migration).
+        if (result.error && Object.keys(priorityArg).length > 0) {
+          console.warn('⚠️ cms_list_pois não conhece priority_levels — rode a migration 20260723_pois_priority_multiselect.sql. Ignorando o filtro de prioridade por ora.')
+          result = await callList({})
+        }
         data = result.data || []
         error = result.error
       }
@@ -304,7 +315,11 @@ class POIService {
       // profunda, ainda dá o total correto.
       let facetRow: any = {}
       if (facetsPromise) {
-        const facetsRes = await facetsPromise
+        let facetsRes = await facetsPromise
+        // Mesmo fail-soft dos contadores: sem priority_levels na RPC, refaz sem o filtro.
+        if (facetsRes.error && prioritySubset) {
+          facetsRes = await supabase.schema('core').rpc('cms_poi_facets', sharedFilters)
+        }
         facetRow = facetsRes.data?.[0] || {}
         if (facetsRes.error) {
           console.warn('🔍 cms_poi_facets error (cards/total ficam zerados):', facetsRes.error.message)
@@ -334,6 +349,9 @@ class POIService {
             osm_category: row.osm_category,
             record_type: row.category,
             approved: row.approved,
+            // Nível de prioridade (1 Padrão Tuggi · 2 Complementar · 3 Adicional). Sem esta
+            // linha o badge de prioridade em card/lista nunca renderiza (poi.priority_level undefined).
+            priority_level: row.priority_level ?? null,
             is_active: row.is_active ?? true,
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -444,7 +462,7 @@ class POIService {
   static async getFacets(filters: POISearchFilters): Promise<{ success: boolean; data?: { total: number; approved: number; pending: number; withDescription: number; withAudio: number; withTriggerPoints: number; complete: number }; error?: string }> {
     try {
       const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
-      const { data, error } = await supabase.schema('core').rpc('cms_poi_facets', {
+      const baseArgs = {
         search_term: filters.search || null,
         status_filter: filters.status || 'all',
         country_filter: filters.country || null,
@@ -459,8 +477,15 @@ class POIService {
         trigger_points_filter: filters.triggerPointsFilter || 'all',
         is_active_filter: filters.isActiveFilter || 'all',
         owner_id: (filters as any).ownerId || null,
-        ...(filters.priorityLevel ? { priority_filter: filters.priorityLevel } : {})
-      })
+      }
+      const prioritySubset = Array.isArray(filters.priorityLevels)
+        && filters.priorityLevels.length > 0 && filters.priorityLevels.length < 3
+      let { data, error } = await supabase.schema('core').rpc('cms_poi_facets',
+        prioritySubset ? { ...baseArgs, priority_levels: filters.priorityLevels } : baseArgs)
+      // Fail-soft: RPC sem priority_levels (migration pendente) → refaz sem o filtro.
+      if (error && prioritySubset) {
+        ({ data, error } = await supabase.schema('core').rpc('cms_poi_facets', baseArgs))
+      }
       if (error) {
         return { success: false, error: error.message }
       }
@@ -706,7 +731,8 @@ class POIService {
         group_status_filter: filters?.groupStatus || 'all',
         score_filter: filters?.scoreFilter || 'all',
         trigger_points_filter: filters?.triggerPointsFilter || 'all',
-        ...(filters?.priorityLevel ? { priority_filter: filters.priorityLevel } : {})
+        ...((Array.isArray(filters?.priorityLevels) && filters!.priorityLevels!.length > 0 && filters!.priorityLevels!.length < 3)
+          ? { priority_levels: filters!.priorityLevels } : {})
       })
 
       if (error) {

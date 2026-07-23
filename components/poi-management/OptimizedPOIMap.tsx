@@ -19,6 +19,7 @@ interface OptimizedPOIMapProps {
   contentStatusFilter: string
   groupStatusFilter?: string
   triggerPointsFilter?: string
+  priorityLevels?: number[]
   showTriggers?: boolean
   onPOIClick: (poi: any) => void
   onPOIDelete?: (poi: any) => void
@@ -42,6 +43,7 @@ export function OptimizedPOIMap({
   contentStatusFilter,
   groupStatusFilter,
   triggerPointsFilter,
+  priorityLevels,
   showTriggers = false,
   onPOIClick,
   onPOIDelete,
@@ -61,7 +63,8 @@ export function OptimizedPOIMap({
     state: stateFilter || undefined,
     city: cityFilter || undefined,
     status: statusFilter,
-    search: searchTerm || undefined
+    search: searchTerm || undefined,
+    priorityLevels
   }
 
   // Fetch POIs using React Query
@@ -105,6 +108,7 @@ export function OptimizedPOIMap({
       user_id: null,
       has_description: poi.has_description !== undefined ? poi.has_description : false,
       has_audio: poi.has_audio !== undefined ? poi.has_audio : false,
+      priority_level: poi.priority_level ?? null,
       description_count: 0,
       audio_count: 0,
       available_languages: [],

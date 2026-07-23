@@ -59,7 +59,8 @@ function POIListWithSearchParams() {
   const [scoreFilter, setScoreFilter] = useState<'all' | 'no_score' | 'rejected' | 'pending' | 'approved'>('all')
   const [triggerPointsFilter, setTriggerPointsFilter] = useState<'all' | 'with_trigger_points' | 'without_trigger_points'>('all')
   const [isActiveFilter, setIsActiveFilter] = useState<'all' | 'active' | 'inactive'>('all')
-  const [priorityFilter, setPriorityFilter] = useState<'all' | '1' | '2' | '3'>('all')
+  // Multi-select de prioridade: níveis a MOSTRAR. [1,2,3] = todos (sem filtro).
+  const [priorityLevels, setPriorityLevels] = useState<number[]>([1, 2, 3])
   const [selectedPois, setSelectedPois] = useState<string[]>([])
   const [countryFilter, setCountryFilter] = useState('')
   const [stateFilter, setStateFilter] = useState('')
@@ -285,8 +286,9 @@ function POIListWithSearchParams() {
     scoreFilter: scoreFilter,
     triggerPointsFilter: triggerPointsFilter,
     isActiveFilter: isActiveFilter,
-    priorityLevel: priorityFilter === 'all' ? undefined : (Number(priorityFilter) as 1 | 2 | 3)
-  }), [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, categoryFilter, osmCategoryFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, priorityFilter])
+    // Só filtra quando é subconjunto real (1 ou 2 níveis). Todos (3) ou nenhum = sem filtro.
+    priorityLevels: (priorityLevels.length > 0 && priorityLevels.length < 3) ? priorityLevels : undefined
+  }), [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, categoryFilter, osmCategoryFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, priorityLevels])
 
   // Lista (linhas) — re-busca a cada página, MAS sem re-contar (skipFacets).
   const { data: searchResult, isLoading: isQueryLoading, isFetching: isQueryFetching, refetch } = usePOIs({
@@ -726,7 +728,7 @@ function POIListWithSearchParams() {
     setScoreFilter('all')
     setTriggerPointsFilter('all')
     setIsActiveFilter('all')
-    setPriorityFilter('all')
+    setPriorityLevels([1, 2, 3])
     setCurrentPage(1)
   }
 
@@ -805,8 +807,8 @@ function POIListWithSearchParams() {
            scoreFilter !== 'all' || 
            triggerPointsFilter !== 'all' ||
            isActiveFilter !== 'all' ||
-           priorityFilter !== 'all'
-  }, [searchTerm, statusFilter, categoryFilter, osmCategoryFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, priorityFilter])
+           (priorityLevels.length > 0 && priorityLevels.length < 3)
+  }, [searchTerm, statusFilter, categoryFilter, osmCategoryFilter, cityFilter, countryFilter, stateFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, priorityLevels])
 
   // Memoize the transformed POI to prevent infinite loops in POIDetailsModal's useEffect
   const memoizedPoiForModal = useMemo(() => {
@@ -924,16 +926,41 @@ function POIListWithSearchParams() {
                       ))}
                     </select>
 
-                    <select
-                      value={priorityFilter}
-                      onChange={(e) => setPriorityFilter(e.target.value as any)}
-                      className="w-full px-3 py-2.5 bg-gray-50/50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm outline-none focus:ring-2 focus:ring-tuggi-blue transition-all"
-                    >
-                      <option value="all">{t('status_options.all_priority')}</option>
-                      <option value="1">{t('status_options.priority_1')}</option>
-                      <option value="2">{t('status_options.priority_2')}</option>
-                      <option value="3">{t('status_options.priority_3')}</option>
-                    </select>
+                    {/* Prioridade — multi-select (somar níveis). Cores = mesmas dos badges. */}
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">
+                        {t('status_options.priority_label')}
+                      </label>
+                      <div className="flex gap-1.5">
+                        {([1, 2, 3] as const).map((lvl) => {
+                          const on = priorityLevels.includes(lvl)
+                          const activeCls = lvl === 1
+                            ? 'text-emerald-600 bg-emerald-500/10 border-emerald-500/40'
+                            : lvl === 2
+                            ? 'text-amber-600 bg-amber-500/10 border-amber-500/40'
+                            : 'text-gray-500 bg-gray-400/10 border-gray-400/40'
+                          return (
+                            <button
+                              key={lvl}
+                              type="button"
+                              aria-pressed={on}
+                              title={t(`status_options.priority_${lvl}`)}
+                              onClick={() => setPriorityLevels((prev) =>
+                                prev.includes(lvl) ? prev.filter((x) => x !== lvl) : [...prev, lvl].sort()
+                              )}
+                              className={cn(
+                                'flex-1 px-2 py-2 rounded-xl text-sm font-black border transition-all',
+                                on
+                                  ? activeCls
+                                  : 'text-gray-300 dark:text-gray-600 bg-gray-50/50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-700 hover:border-gray-300'
+                              )}
+                            >
+                              {lvl}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
 
                     <select
                       value={contentStatusFilter}
@@ -1192,6 +1219,7 @@ function POIListWithSearchParams() {
                   contentStatusFilter={contentStatusFilter}
                   groupStatusFilter={groupStatusFilter}
                   triggerPointsFilter={triggerPointsFilter}
+                  priorityLevels={(priorityLevels.length > 0 && priorityLevels.length < 3) ? priorityLevels : undefined}
                   showTriggers={showTriggers}
                   onPOIClick={handleSelectPoiForMap}
                   onPOIDelete={(poi) => handleDeletePoi(poi.id)}
@@ -1202,7 +1230,8 @@ function POIListWithSearchParams() {
                     delete: t('map_actions.delete'),
                     garbage: t('map_actions.garbage'),
                     approved: t('map_actions.approved'),
-                    pending: t('map_actions.pending')
+                    pending: t('map_actions.pending'),
+                    priority: t('status_options.priority_label')
                   }}
                   height="70vh"
                   className="w-full"

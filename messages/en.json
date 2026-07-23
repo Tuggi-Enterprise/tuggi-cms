@@ -1444,6 +1444,7 @@
       "active": "Active",
       "inactive": "Inactive",
       "all_priority": "All Levels",
+      "priority_label": "Priority",
       "priority_1": "1 — Tuggi Standard",
       "priority_2": "2 — Complementary",
       "priority_3": "3 — Additional"

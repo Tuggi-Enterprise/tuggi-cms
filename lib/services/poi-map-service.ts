@@ -18,6 +18,8 @@ export interface MapPOI {
   type: 'cluster' | 'poi'
   count: number
   metadata?: any
+  // Nível de prioridade (1/2/3) — vem de metadata.priority_level (só POI individual, não cluster).
+  priority_level?: number | null
   // Legacy compatibility fields (optional)
   city?: string
   state?: string
@@ -36,6 +38,8 @@ export interface MapSearchFilters {
   status?: 'all' | 'approved' | 'pending'
   search?: string
   isActiveFilter?: 'all' | 'active' | 'inactive'
+  // Subconjunto de níveis a mostrar; undefined/todos = sem filtro.
+  priorityLevels?: number[]
 }
 
 export interface MapSearchOptions {
@@ -94,6 +98,11 @@ export async function fetchPOIsForMap(
     is_active_filter: filters.isActiveFilter || 'all'
   }
 
+  // Só envia quando é subconjunto real (1 ou 2 níveis) — mantém compat com a RPC antiga.
+  if (Array.isArray(filters.priorityLevels) && filters.priorityLevels.length > 0 && filters.priorityLevels.length < 3) {
+    rpcParams.priority_levels = filters.priorityLevels
+  }
+
   if (ownerId) rpcParams.p_owner_id = ownerId
 
   const { data, error } = await supabase.schema('core').rpc('cms_search_pois_map', rpcParams)
@@ -112,6 +121,7 @@ export async function fetchPOIsForMap(
     type: row.type as 'cluster' | 'poi',
     count: row.count,
     metadata: row.metadata,
+    priority_level: row.metadata?.priority_level ?? null,
     // Map metadata to legacy fields if available (for individual POIs)
     city: row.metadata?.city,
     state: row.metadata?.state,

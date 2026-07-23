@@ -1363,6 +1363,7 @@
       "active": "Activo",
       "inactive": "Inactivo",
       "all_priority": "Todos los Niveles",
+      "priority_label": "Prioridad",
       "priority_1": "1 — Estándar Tuggi",
       "priority_2": "2 — Complementario",
       "priority_3": "3 — Adicional"

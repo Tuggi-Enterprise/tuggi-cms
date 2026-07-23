@@ -39,6 +39,8 @@ export interface POI {
   }
   has_description: boolean
   has_audio: boolean
+  // Nível de prioridade (1 Padrão · 2 Complementar · 3 Adicional) — mostrado no pino.
+  priority_level?: number | null
   description_count: number
   audio_count: number
   reference_links?: string[]
@@ -160,16 +162,20 @@ function getStatusColor(status: POIStatus): string {
   }
 }
 
-// Create DOM elements for AdvancedMarkerElement
-function createAdvancedMarkerElement(status: POIStatus, isSelected: boolean = false): HTMLElement {
+// Create DOM elements for AdvancedMarkerElement.
+// Cor = STATUS de conteúdo; NÚMERO central = prioridade (1/2/3). Sem prioridade → ponto branco.
+function createAdvancedMarkerElement(status: POIStatus, isSelected: boolean = false, priorityLevel?: number | null): HTMLElement {
   const color = getStatusColor(status)
   const size = isSelected ? 28 : 24
-  
+  const center = priorityLevel
+    ? `<text x="12" y="12" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="900" fill="white" font-family="system-ui, -apple-system, sans-serif">${priorityLevel}</text>`
+    : `<circle cx="12" cy="12" r="4" fill="white"/>`
+
   const div = document.createElement('div')
   div.innerHTML = `
     <svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.3));">
       <circle cx="12" cy="12" r="10" fill="${color}" stroke="white" stroke-width="2"/>
-      <circle cx="12" cy="12" r="4" fill="white"/>
+      ${center}
     </svg>
   `
   // Center alignment for AdvancedMarkerElement
@@ -213,6 +219,7 @@ export interface PoiActionMenuLabels {
   garbage: string
   approved: string
   pending: string
+  priority?: string
 }
 
 function buildPoiActionMenu(
@@ -236,6 +243,17 @@ function buildPoiActionMenu(
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!
   ))
 
+  // Badge de prioridade (mesmas cores do card/lista: 1 esmeralda · 2 âmbar · 3 cinza).
+  const prioColors: Record<number, { bg: string; fg: string }> = {
+    1: { bg: '#D1FAE5', fg: '#047857' },
+    2: { bg: '#FEF3C7', fg: '#B45309' },
+    3: { bg: '#F3F4F6', fg: '#6B7280' },
+  }
+  const prio = poi.priority_level ? prioColors[poi.priority_level] : null
+  const priorityChip = (poi.priority_level && prio)
+    ? `<span style="display:inline-block; margin-left:6px; padding:2px 8px; border-radius:9999px; font-size:11px; font-weight:700; background:${prio.bg}; color:${prio.fg};">${opts.labels.priority ? escape(opts.labels.priority) + ' ' : ''}${poi.priority_level}</span>`
+    : ''
+
   // Visual identity mirrors POIDetailsModal.tsx:3607-3627 (Edit primary, Delete red-50/red-700/red-300, Garbage gray-900/white).
   const btnBase = 'display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:500; cursor:pointer; transition:background 0.15s;'
   const btnEdit = `${btnBase} background:#00A8E8; color:white; border:1px solid #00A8E8;`
@@ -246,7 +264,7 @@ function buildPoiActionMenu(
     <div style="margin-bottom:10px;">
       <h3 style="margin:0 0 4px 0; font-size:14px; font-weight:600; color:#111827;">${escape(poi.name)}</h3>
       <p style="margin:0 0 6px 0; font-size:12px; color:#6B7280;">${escape(poi.city)}${poi.country ? ', ' + escape(poi.country) : ''}</p>
-      <span style="display:inline-block; padding:2px 8px; border-radius:9999px; font-size:11px; font-weight:500; background:${statusBg}; color:${statusColor};">${escape(statusLabel)}</span>
+      <span style="display:inline-block; padding:2px 8px; border-radius:9999px; font-size:11px; font-weight:500; background:${statusBg}; color:${statusColor};">${escape(statusLabel)}</span>${priorityChip}
     </div>
     <div style="display:flex; flex-direction:column; gap:6px;">
       <button data-action="edit" style="${btnEdit}">${ICON_EDIT_SVG}<span>${escape(opts.labels.edit)}</span></button>
@@ -611,8 +629,8 @@ function POIMapInner({
           if (isCluster) {
             content = createClusterMarkerElement(count)
           } else {
-            content = createAdvancedMarkerElement(poiStatus, isSelected)
-            
+            content = createAdvancedMarkerElement(poiStatus, isSelected, poi.priority_level)
+
             // Append name label if zoomed in
             if (isZoomedIn) {
               const label = document.createElement('div')
@@ -649,7 +667,8 @@ function POIMapInner({
             count,
             poiStatus,
             isSelected,
-            isZoomedIn
+            isZoomedIn,
+            priorityLevel: poi.priority_level ?? null
           }
 
           if (isCluster) {
@@ -711,16 +730,17 @@ function POIMapInner({
           }
           
           if (
-            s.isCluster !== isCluster || 
-            s.count !== count || 
-            s.poiStatus !== poiStatus || 
-            s.isSelected !== isSelected || 
-            s.isZoomedIn !== isZoomedIn
+            s.isCluster !== isCluster ||
+            s.count !== count ||
+            s.poiStatus !== poiStatus ||
+            s.isSelected !== isSelected ||
+            s.isZoomedIn !== isZoomedIn ||
+            s.priorityLevel !== (poi.priority_level ?? null)
           ) {
             if (isCluster) {
               marker.content = createClusterMarkerElement(count)
             } else {
-              const newContent = createAdvancedMarkerElement(poiStatus, isSelected)
+              const newContent = createAdvancedMarkerElement(poiStatus, isSelected, poi.priority_level)
               if (isZoomedIn) {
                 const label = document.createElement('div')
                 label.textContent = poi.name
@@ -745,6 +765,7 @@ function POIMapInner({
             s.poiStatus = poiStatus
             s.isSelected = isSelected
             s.isZoomedIn = isZoomedIn
+            s.priorityLevel = poi.priority_level ?? null
           }
         }
 
