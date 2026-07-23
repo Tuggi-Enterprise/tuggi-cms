@@ -91,15 +91,6 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   const center = centerProp && typeof centerProp === 'object' && 'lat' in centerProp && 'lng' in centerProp
     ? centerProp
     : { lat: 40.7128, lng: -74.0060 }
-  console.log(`🗺️ [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Map component rendered with onPolygonComplete:`, {
-    componentId,
-    hasOnPolygonComplete: !!onPolygonComplete,
-    type: typeof onPolygonComplete,
-    isFunction: typeof onPolygonComplete === 'function',
-    enableDrawing,
-    showDrawingButton
-  })
-  
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const currentPolygonRef = useRef<google.maps.Polygon | null>(null)
@@ -120,7 +111,14 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   useEffect(() => { polygonOptionsRef.current = polygonOptions }, [polygonOptions])
   const savedPolygonsRef = useRef<google.maps.Polygon[]>([])
   const cityBoundaryRef = useRef<google.maps.Polygon | null>(null)
-  const markersRef = useRef<google.maps.Marker[]>([])
+  // Marcadores indexados por id — permite reconciliar (reusar/mover/remover) em vez de
+  // destruir e recriar tudo a cada render. Sem isto, pins de posições antigas ficavam
+  // "fantasmas" no mapa (ex.: usuário ao vivo continuava aparecendo na origem).
+  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map())
+  // requestAnimationFrame em voo por marcador, para o pin deslizar até a nova posição.
+  const markerAnimRef = useRef<Map<string, number>>(new Map())
+  // Último center/zoom aplicado — evita reescrever a câmera (e o zoom do operador) a cada poll.
+  const lastViewRef = useRef<{ lat: number; lng: number; zoom: number } | null>(null)
 
   const drawingButtonRef = useRef<HTMLButtonElement | null>(null)
   const circleRef = useRef<google.maps.Circle | null>(null)
@@ -132,13 +130,6 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   
   // Update ref whenever onPolygonComplete changes
   useEffect(() => {
-    console.log(`🔄 [GoogleMapComponent${componentId ? `:${componentId}` : ''}] Updating onPolygonCompleteRef:`, {
-      componentId,
-      old: !!onPolygonCompleteRef.current,
-      new: !!onPolygonComplete,
-      type: typeof onPolygonComplete,
-      isFunction: typeof onPolygonComplete === 'function'
-    })
     onPolygonCompleteRef.current = onPolygonComplete
   }, [onPolygonComplete, componentId])
 
@@ -273,6 +264,11 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
 
+    // Limpa qualquer conteúdo residual de uma instância anterior antes de criar o mapa.
+    // Sem isto, remount/Fast Refresh empilha um novo google.maps.Map por cima do antigo no
+    // mesmo <div> — camadas sobrepostas, com pin fantasma travado numa delas.
+    if (mapRef.current.firstChild) mapRef.current.innerHTML = ''
+
     // Create the map
     const map = new google.maps.Map(mapRef.current, {
       center,
@@ -328,17 +324,12 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
 
   const updateMarkers = useCallback(() => {
     if (!mapInstanceRef.current) return
+    const map = mapInstanceRef.current
+    const store = markersRef.current
 
-    // Clear existing markers
-    markersRef.current.forEach(marker => marker.setMap(null))
-    markersRef.current = []
-
-    // Add new markers
-    markers.forEach(markerData => {
-      const isActive = markerData.active === true
-      // Ativos recebem cor de destaque (verde Tuggi) e ícone maior; base usa a cor passada.
-      const markerColor = isActive ? '#10B981' : (markerData.color || '#FF6F00')
-      // Ativo: pino circular com halo (sinaliza "ao vivo"); base: pino padrão de gota.
+    // Ícone (data-URI SVG) para o estado atual do marcador.
+    const buildIcon = (isActive: boolean, color?: string): google.maps.Icon => {
+      const markerColor = isActive ? '#10B981' : (color || '#FF6F00')
       const activeSvg = `
         <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
           <circle cx="16" cy="16" r="13" fill="${markerColor}" fill-opacity="0.25"/>
@@ -348,57 +339,100 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="${markerColor}"/>
         </svg>`
+      return isActive
+        ? { url: 'data:image/svg+xml;base64,' + btoa(activeSvg), scaledSize: new google.maps.Size(32, 32), anchor: new google.maps.Point(16, 16) }
+        : { url: 'data:image/svg+xml;base64,' + btoa(baseSvg), scaledSize: new google.maps.Size(24, 24), anchor: new google.maps.Point(12, 24) }
+    }
 
-      const marker = new google.maps.Marker({
-        position: markerData.position,
-        map: mapInstanceRef.current!,
-        title: markerData.title,
-        // Ativos por cima da base instalada + animação contínua que sinaliza "ao vivo".
-        zIndex: isActive ? 1000 : 1,
-        animation: isActive ? google.maps.Animation.BOUNCE : undefined,
-        icon: isActive
-          ? {
-              url: 'data:image/svg+xml;base64,' + btoa(activeSvg),
-              scaledSize: new google.maps.Size(32, 32),
-              anchor: new google.maps.Point(16, 16),
-            }
-          : {
-              url: 'data:image/svg+xml;base64,' + btoa(baseSvg),
-              scaledSize: new google.maps.Size(24, 24),
-              anchor: new google.maps.Point(12, 24),
-            },
-      })
-
-      // Add click listener
-      if (onMarkerClick) {
-        marker.addListener('click', () => onMarkerClick(markerData.id))
+    // Desliza o pin da posição atual até a nova (ease-out ~700ms). Snap em micro-movimento
+    // ou salto grande (> ~1°, ex. troca de usuário) para não "voar" pela tela.
+    const glideTo = (id: string, marker: google.maps.Marker, to: { lat: number; lng: number }) => {
+      const from = marker.getPosition()
+      const running = markerAnimRef.current.get(id)
+      if (running) { cancelAnimationFrame(running); markerAnimRef.current.delete(id) }
+      if (!from) { marker.setPosition(to); return }
+      const fromLat = from.lat(), fromLng = from.lng()
+      const dLat = to.lat - fromLat, dLng = to.lng - fromLng
+      if ((Math.abs(dLat) < 1e-6 && Math.abs(dLng) < 1e-6) || Math.abs(dLat) > 1 || Math.abs(dLng) > 1) {
+        marker.setPosition(to); return
       }
+      const start = performance.now()
+      const DURATION = 700
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / DURATION)
+        const e = 1 - (1 - t) * (1 - t) // easeOutQuad
+        marker.setPosition({ lat: fromLat + dLat * e, lng: fromLng + dLng * e })
+        if (t < 1) markerAnimRef.current.set(id, requestAnimationFrame(step))
+        else markerAnimRef.current.delete(id)
+      }
+      markerAnimRef.current.set(id, requestAnimationFrame(step))
+    }
 
-      // Add info window
-      if (markerData.description) {
-        const infoWindow = new google.maps.InfoWindow({
-          content: `
+    // 1) Remove marcadores que sumiram do conjunto atual (mata pins fantasmas).
+    const incoming = new Set(markers.map(m => m.id))
+    store.forEach((marker, id) => {
+      if (!incoming.has(id)) {
+        const anim = markerAnimRef.current.get(id)
+        if (anim) { cancelAnimationFrame(anim); markerAnimRef.current.delete(id) }
+        marker.setMap(null)
+        store.delete(id)
+      }
+    })
+
+    // 2) Cria os novos; reaproveita e move os que já existem.
+    markers.forEach(markerData => {
+      const isActive = markerData.active === true
+      const icon = buildIcon(isActive, markerData.color)
+      const existing = store.get(markerData.id)
+
+      if (!existing) {
+        const marker = new google.maps.Marker({
+          position: markerData.position,
+          map,
+          title: markerData.title,
+          zIndex: isActive ? 1000 : 1,
+          animation: isActive ? google.maps.Animation.BOUNCE : undefined,
+          icon,
+        })
+        if (onMarkerClick) {
+          marker.addListener('click', () => onMarkerClick(markerData.id))
+        }
+        if (markerData.description) {
+          const infoWindow = new google.maps.InfoWindow({
+            content: `
             <div>
               <h3 style="margin: 0 0 8px 0; font-weight: 600;">${markerData.title}</h3>
               <p style="margin: 0; font-size: 12px; color: #666;">${markerData.description}</p>
             </div>
           `
-        })
-
-        marker.addListener('click', () => {
-          infoWindow.open(mapInstanceRef.current!, marker)
-        })
+          })
+          marker.addListener('click', () => infoWindow.open(map, marker))
+        }
+        store.set(markerData.id, marker)
+      } else {
+        // Mesmo id → é o mesmo alvo: desliza até a nova posição e atualiza o visual.
+        glideTo(markerData.id, existing, markerData.position)
+        existing.setIcon(icon)
+        existing.setZIndex(isActive ? 1000 : 1)
+        existing.setTitle(markerData.title)
+        existing.setAnimation(isActive ? google.maps.Animation.BOUNCE : null)
       }
-
-      markersRef.current.push(marker)
     })
   }, [markers, onMarkerClick])
 
   const updateMapView = useCallback(() => {
     if (!mapInstanceRef.current) return
-    
-    mapInstanceRef.current.setCenter(center)
-    mapInstanceRef.current.setZoom(zoom)
+    // Só reaplica quando o VALOR muda. Sem isto, o polling ao vivo (novo center/zoom a cada
+    // render) reescrevia o zoom a cada 30s e desfazia o zoom manual do operador. Assim o
+    // centro segue o usuário, mas o zoom do operador é preservado (só muda se o prop mudar).
+    const last = lastViewRef.current
+    if (!last || last.lat !== center.lat || last.lng !== center.lng) {
+      mapInstanceRef.current.setCenter(center)
+    }
+    if (!last || last.zoom !== zoom) {
+      mapInstanceRef.current.setZoom(zoom)
+    }
+    lastViewRef.current = { lat: center.lat, lng: center.lng, zoom }
   }, [center, zoom])
 
   const updatePolygon = useCallback(() => {
@@ -706,6 +740,18 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
         drawPreviewPolygonRef.current.setMap(null)
         drawPreviewPolygonRef.current = null
       }
+      // Cancela glides em voo e solta os marcadores (evita setPosition em marker destruído).
+      markerAnimRef.current.forEach(frame => cancelAnimationFrame(frame))
+      markerAnimRef.current.clear()
+      markersRef.current.forEach(marker => marker.setMap(null))
+      markersRef.current.clear()
+      // Solta a instância do mapa — evita empilhar mapas sobrepostos ao remontar (Fast Refresh).
+      if (mapInstanceRef.current && typeof google !== 'undefined') {
+        google.maps.event.clearInstanceListeners(mapInstanceRef.current)
+      }
+      mapInstanceRef.current = null
+      lastViewRef.current = null
+      if (mapRef.current) mapRef.current.innerHTML = ''
     }
   }, [])
 

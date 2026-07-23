@@ -120,19 +120,25 @@ export default function DashboardPage() {
     }
   }, [fetchData, fetchRealtime])
 
-  // Set de user_ids ativos agora (para o pin piscar).
-  const activeIds = useMemo(() => new Set(activeUsers.map(u => u.user_id)), [activeUsers])
-
   // Markers do mapa, com cores distintas por tipo:
   //   🔵 usuário · 🟠 premium · 🟢 ativo agora · 🔴 demanda (waitlist)
   const mapMarkers = useMemo(() => {
-    const markers = userPins.map(p => ({
-      id: `u-${p.user_id}`,
-      position: { lat: p.latitude, lng: p.longitude },
-      title: p.nickname || 'User',
-      color: p.is_premium ? TUGGI_COLORS.orange : TUGGI_COLORS.blue,
-      active: activeIds.has(p.user_id),
-    }))
+    // Índice dos ativos AGORA → posição AO VIVO (RPC de presença). Para um usuário ativo, essa é
+    // a FONTE DA VERDADE da posição; o snapshot em userPins (última localização salva) envelhece
+    // enquanto ele se move. Sem isto o pin trava na última posição salva (ex.: Atlanta) mesmo com
+    // o usuário já a centenas de km — e "volta" pra lá quando userPins chega depois do realtime.
+    const liveById = new Map(activeUsers.map(u => [u.user_id, u]))
+
+    const markers = userPins.map(p => {
+      const live = liveById.get(p.user_id)
+      return {
+        id: `u-${p.user_id}`,
+        position: live ? { lat: live.lat, lng: live.lng } : { lat: p.latitude, lng: p.longitude },
+        title: p.nickname || 'User',
+        color: p.is_premium ? TUGGI_COLORS.orange : TUGGI_COLORS.blue,
+        active: !!live,
+      }
+    })
     // Ativos sem pin de base (têm trail mas profiles.lat/lng nulo)
     const known = new Set(userPins.map(p => p.user_id))
     for (const u of activeUsers) {
@@ -157,7 +163,7 @@ export default function DashboardPage() {
       })
     }
     return markers
-  }, [userPins, activeUsers, activeIds, waitlistPins, t])
+  }, [userPins, activeUsers, waitlistPins, t])
 
   const mapCenter = useMemo(() => {
     if (activeUsers.length > 0) return { lat: activeUsers[0].lat, lng: activeUsers[0].lng }
