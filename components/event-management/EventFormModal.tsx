@@ -9,12 +9,13 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { CalendarDays, Info, CalendarClock, Ticket, Send } from 'lucide-react'
+import { CalendarDays, Info, CalendarClock, Ticket, Send, Link2 } from 'lucide-react'
 import { eventService } from '@/lib/core/event-service'
 import { useEventDetails } from '@/lib/hooks/use-events'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
 import { LocationPicker } from '@/components/entity-management/LocationPicker'
+import { VenuePicker } from '@/components/entity-management/VenuePicker'
 
 interface EventFormModalProps {
   eventId?: string | null // null/undefined => create mode
@@ -86,6 +87,8 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
         organizer_url: ed.organizer_url || '',
         ticket_url: ed.ticket_url || '',
         poster_url: ed.poster_url || '',
+        venue_attraction_id: ed.venue_attraction_id || null,
+        venue_name: ed.venue_name || null,
       })
     } else if (!isEdit) {
       setForm({
@@ -161,6 +164,7 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
         organizer_url: form.organizer_url || null,
         ticket_url: form.ticket_url || null,
         poster_url: form.poster_url || null,
+        venue_attraction_id: form.venue_attraction_id || null,
       })
       await eventService.setCoordinate(eventId as string, Number(form.latitude), Number(form.longitude))
       await refetch()
@@ -191,6 +195,8 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
       saving={saving}
       title={isEdit ? t('title_edit') : t('title_new')}
       HeaderIcon={CalendarDays}
+      venueLinked={!!form.venue_attraction_id}
+      venueName={form.venue_name || undefined}
       onClose={onClose}
       onSave={handleSave}
       invalidate={invalidate}
@@ -257,6 +263,20 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
 
       {isEdit && (
         <>
+          {/* Host POI (vínculo) */}
+          <section className={sectionCard}>
+            <h4 className={sectionTitle}><Link2 className="h-4 w-4 text-tuggi-blue" />{t('sections.host')}</h4>
+            <label className={fieldLabel}>{L('venue')}</label>
+            <VenuePicker
+              value={form.venue_attraction_id ? { id: form.venue_attraction_id, name: form.venue_name || '', city: form.city } : null}
+              onChange={(v) => { set('venue_attraction_id', v?.id || null); set('venue_name', v?.name || null) }}
+              disabled={!canEdit}
+            />
+            <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">
+              {form.venue_attraction_id ? t('venue_linked_hint') : t('venue_hint')}
+            </p>
+          </section>
+
           {/* Tickets & Organizer */}
           <section className={sectionCard}>
             <h4 className={sectionTitle}><Ticket className="h-4 w-4 text-tuggi-blue" />{t('sections.tickets')}</h4>

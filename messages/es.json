@@ -874,7 +874,7 @@
     "EventDetails": {
       "title_new": "Nuevo Evento",
       "title_edit": "Editar Evento",
-      "sections": { "identity": "Identidad", "schedule": "Agenda", "tickets": "Entradas y Organizador", "publish": "Publicación" },
+      "sections": { "identity": "Identidad", "schedule": "Agenda", "host": "Anfitrión", "tickets": "Entradas y Organizador", "publish": "Publicación" },
       "labels": {
         "location": "Ubicación",
         "name": "Nombre", "country": "País", "state": "Estado", "city": "Ciudad",
@@ -885,9 +885,12 @@
         "capacity": "Capacidad", "age_restriction": "Restricción de edad",
         "organizer_name": "Organizador", "organizer_url": "URL del organizador",
         "ticket_url": "URL de entradas", "poster_url": "URL del cartel",
+        "venue": "POI anfitrión", "venue_search_placeholder": "Buscar POI por nombre…", "venue_no_results": "Ningún POI encontrado", "venue_remove": "Quitar vínculo",
         "approved": "Aprobado", "active": "Activo", "priority": "Prioridad"
       },
       "tags_hint": "separadas por comas",
+      "venue_hint": "Vincula este evento al POI donde ocurre — el POI pasa a narrarlo.",
+      "venue_linked_hint": "Vinculado. Los trigger points propios del evento se desactivaron: quien narra es el POI anfitrión.",
       "reused_note": "Boundary, Trigger Points y Descripción/Audio reutilizan los editores de POI (por attraction_id) — se conectan a continuación.",
       "validation_required": "Nombre, ciudad, país y fecha de inicio son obligatorios.",
       "error_save": "Error al guardar el evento"
@@ -913,6 +916,10 @@
       "error_save": "Error al guardar el lugar"
     },
     "POIDetails": {
+      "trigger_disabled": {
+        "title": "Trigger points deshabilitados",
+        "body": "Este evento está vinculado a su POI anfitrión {venue}, que es quien narra. Los trigger points no aplican."
+      },
       "tabs": {
         "create": "Crear",
         "details": "Detalles",

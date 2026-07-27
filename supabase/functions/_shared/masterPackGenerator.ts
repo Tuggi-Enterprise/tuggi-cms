@@ -76,6 +76,30 @@ const callGemini = async (model: string, fetchBody: any, apiKey: string): Promis
  *   PASSO 2 (ESCREVER): compõe a narração no idioma/formato usando SÓ os fatos do
  *           passo 1 (sem busca) → não tem como alucinar. Se NONE → genérico curto.
  */
+/**
+ * Contexto de TIPO da entidade narrada.
+ *
+ * core.attractions guarda POI, evento e local na mesma tabela (entity_kind), e
+ * até aqui o gerador tratava os três como "lugar": o prompt pede ano de fundação,
+ * fala em "standing in front of this place" e busca história. Isso é certo para
+ * um POI e errado para um show que acontece em três semanas ou para um hotel.
+ *
+ * `kind: 'poi'` (o default) mantém o prompt EXATAMENTE como sempre foi — nenhuma
+ * string muda. Só event/place entram nos ramos novos.
+ */
+export type EntityContext = {
+    kind: 'poi' | 'event' | 'place';
+    startsAt?: string | null;   // evento: ISO
+    endsAt?: string | null;     // evento: ISO
+    category?: string | null;   // evento: music, sports, festival…
+    placeType?: string | null;  // local: hotel, restaurant, guesthouse…
+    // evento vinculado a um POI anfitrião (cenário 1): compõe "POI + evento
+    // contextual". `facts` = narração JÁ existente do POI, usada como contexto
+    // (sem re-pesquisar). Só definido para eventos vinculados; ausente = comportamento
+    // de sempre, byte a byte.
+    venue?: { name: string; facts?: string | null } | null;
+};
+
 export const generateMasterPack = async (
     poiName: string,
     city: string,
@@ -85,7 +109,8 @@ export const generateMasterPack = async (
     poiData: any = {},
     audioDuration: number = 25,
     memberPois: any[] = [],
-    referenceLinks: string[] = [] // Links de referência do CMS (Wikipedia, sites oficiais, etc.)
+    referenceLinks: string[] = [], // Links de referência do CMS (Wikipedia, sites oficiais, etc.)
+    entity: EntityContext = { kind: 'poi' }
 ): Promise<MasterPackResult> => {
 
     const audioTarget = `${audioDuration}s`;
@@ -115,20 +140,76 @@ export const generateMasterPack = async (
     // por-que-importa/curiosidade/lenda — a matéria-prima de uma HISTÓRIA, não de um
     // almanaque. Continua 100% grounded (só o que as fontes dizem). Bullets etiquetados
     // por tipo p/ o compose escolher o melhor fio.
+    // ── Ramos por tipo de entidade ────────────────────────────────────────────
+    // POI mantém o texto original palavra por palavra (regressão zero).
+    const isEvent = entity.kind === 'event';
+    const isPlace = entity.kind === 'place';
+    // Evento COM POI anfitrião. Gate de tudo que é do cenário 1 — nulo para POI,
+    // local e evento-sem-vínculo, então esses caminhos ficam idênticos.
+    const venue = isEvent && entity.venue && entity.venue.name ? entity.venue : null;
+
+    const fmtDate = (iso?: string | null): string | null => {
+        if (!iso) return null;
+        const d = new Date(iso);
+        return isNaN(d.getTime())
+            ? null
+            : d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    };
+    const eventStart = fmtDate(entity.startsAt);
+    const eventEnd = fmtDate(entity.endsAt);
+    const eventWhen = eventStart
+        ? (eventEnd && eventEnd !== eventStart ? `${eventStart} to ${eventEnd}` : eventStart)
+        : null;
+
+    const subjectLine = isEvent
+        ? `Using Google Search, research this SPECIFIC event: "${poiName}", held near ${city}${eventWhen ? `, scheduled for ${eventWhen}` : ''}${entity.category ? ` (category: ${entity.category})` : ''}.`
+        : isPlace
+            ? `Using Google Search, research this SPECIFIC establishment: "${poiName}", in ${city}${entity.placeType ? ` (a ${entity.placeType})` : ''}.`
+            : `Using Google Search, research this SPECIFIC place: "${poiName}", near ${city}.`;
+
+    // O que colher muda com o tipo: um evento não tem "ano de fundação", e um
+    // hotel não tem "história de conflito" — insistir nisso empurra o modelo a
+    // inventar. Cada ramo pede o que realmente existe para aquele tipo.
+    const gatherBullets = isEvent
+        ? [
+            `Find ONLY what the sources actually state about THIS EXACT event. Gather, when available:`,
+            `- [type] What the event is, its edition/number, and how long it has existed.`,
+            `- [character] A real person tied to it (founder, organizer, headline performer, a recurring figure) and something human about them.`,
+            `- [conflict] A memorable edition, a turning point, a controversy, a year it nearly did not happen.`,
+            `- [sensory] What the event actually looks/sounds/smells like according to the sources.`,
+            `- [why] Why it matters to this city — scale, tradition, what it is known for.`,
+            `- [curiosity] ONE genuinely surprising detail about the event, if the sources mention one.`,
+        ]
+        : isPlace
+            ? [
+                `Find ONLY what the sources actually state about THIS EXACT establishment. Gather, when available:`,
+                `- [type] What it is, when it opened, and what it is known for.`,
+                `- [character] A real person tied to it (founder, chef, owner, a notable guest) and something human about them.`,
+                `- [conflict] A transformation, a reinvention, a hard period, a change of hands.`,
+                `- [sensory] Concrete visible/audible detail the sources describe — what you notice on arriving.`,
+                `- [why] What sets it apart from others of its kind nearby.`,
+                `- [curiosity] ONE genuinely surprising detail, if the sources mention one.`,
+            ]
+            : [
+                `Find ONLY what the sources actually state about THIS EXACT place. Gather, when available:`,
+                `- [type] What it is, plus core dates/numbers (founding/opening year, size/capacity) — briefly.`,
+                `- [character] A real person tied to this place (founder, architect, resident, someone who changed it) and something human about them.`,
+                `- [conflict] A struggle, controversy, disaster, transformation, rivalry, or surprising change in its history.`,
+                `- [sensory] Concrete visible/audible detail the sources describe — what you notice standing here.`,
+                `- [why] What makes it significant, unusual, or a "first / only / largest".`,
+                `- [curiosity] ONE genuinely surprising detail, if the sources mention one.`,
+            ];
+
     const retrievalPrompt = [
-        `Using Google Search, research this SPECIFIC place: "${poiName}", near ${city}.`,
+        subjectLine,
         `Your goal is to gather raw material for a ~${audioTarget} spoken story a great tour guide would tell — so look BEYOND dry data.`,
-        `Find ONLY what the sources actually state about THIS EXACT place. Gather, when available:`,
-        `- [type] What it is, plus core dates/numbers (founding/opening year, size/capacity) — briefly.`,
-        `- [character] A real person tied to this place (founder, architect, resident, someone who changed it) and something human about them.`,
-        `- [conflict] A struggle, controversy, disaster, transformation, rivalry, or surprising change in its history.`,
-        `- [sensory] Concrete visible/audible detail the sources describe — what you notice standing here.`,
-        `- [why] What makes it significant, unusual, or a "first / only / largest".`,
-        `- [curiosity] ONE genuinely surprising detail, if the sources mention one.`,
+        ...gatherBullets,
         `- [legend] A local legend or folklore — ONLY if the sources present it as lore/myth (keep the [legend] tag so it is never told as fact). Do NOT tag uncertain-but-real history as [legend].`,
         `Rules:`,
         `- Use ONLY what the sources actually say. Never invent, guess, approximate or embellish. If a category has nothing in the sources, SKIP it — do not fill it with generic filler.`,
-        `- This is one specific place. If the sources are about the surrounding town, resort, region or a different nearby place, do NOT include those facts.`,
+        isEvent
+            ? `- This is one specific event. If the sources are about the venue, the city, or a different event, do NOT include those facts. Do not confuse this edition with other editions unless the source ties them together.`
+            : `- This is one specific place. If the sources are about the surrounding town, resort, region or a different nearby place, do NOT include those facts.`,
         hasReferenceLinks ? `- The provided reference URLs are your PRIORITY source — read them first; use Google Search to complement.` : ``,
         isComplex ? `- If supported by sources, note its key internal highlights: ${membersSummary}` : ``,
         rawContext ? `- Additional hint (verify against sources): ${rawContext}` : ``,
@@ -184,19 +265,37 @@ export const generateMasterPack = async (
     // Data de hoje p/ o modelo não narrar evento passado (ex.: 2025) no futuro.
     const todayStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const systemInstruction = [
-        `You are Tuggi, a charismatic local guide speaking through the traveler's earphones. The listener is standing in front of this place RIGHT NOW. In about ${audioTarget} of speech, make them see it with new eyes.`,
+        venue
+            ? `You are Tuggi, a charismatic local guide speaking through the traveler's earphones. The listener is standing at ${venue.name} RIGHT NOW. Ground them in ${venue.name} in ONE short brushstroke, then make the EVENT the heart of it: what happens, why it is special, why to come. Do NOT dwell on the venue's history — the event is the point. In about ${audioTarget} of speech, make them not want to miss it.`
+            : isEvent
+            ? `You are Tuggi, a charismatic local guide speaking through the traveler's earphones. The listener is passing RIGHT NOW by the place where this event happens. In about ${audioTarget} of speech, make them want to come back for it.`
+            : isPlace
+                ? `You are Tuggi, a charismatic local guide speaking through the traveler's earphones. The listener is passing in front of this establishment RIGHT NOW. In about ${audioTarget} of speech, make them curious about what is inside.`
+                : `You are Tuggi, a charismatic local guide speaking through the traveler's earphones. The listener is standing in front of this place RIGHT NOW. In about ${audioTarget} of speech, make them see it with new eyes.`,
         ``,
         `Today's date is ${todayStr}. Any date before today is in the PAST — narrate it in the past tense.`,
+        // O evento é a ÚNICA entidade com data futura: sem esta regra o modelo
+        // narra "acontece o festival" para algo que só ocorre em três semanas, e
+        // o ouvinte que está passando ali agora não entende que precisa voltar.
+        //
+        // Spread (e não string vazia): este array é unido com .join('\n') SEM
+        // filter(Boolean), porque as strings vazias dele são separadores de
+        // parágrafo intencionais. Um `''` condicional aqui inseriria uma linha em
+        // branco no prompt de POI — que precisa ficar idêntico ao de sempre.
+        ...(isEvent && eventWhen
+            ? [`This event is scheduled for ${eventWhen}. State WHEN it happens, in natural spoken form, and use the tense that matches today's date — future if it has not started, present if it is happening now. Never imply it is happening at this moment if it is not.`]
+            : []),
         ``,
         `LANGUAGE RULE (mandatory): Write ALL output exclusively in ${langName}, using its native script (kanji/kana, Hangul, Hanzi, Cyrillic, Thai script, etc.). Do not use English, do not romanize, do not use any other language.`,
         ``,
         `FACTUAL GROUNDING (overrides everything): You are strictly limited to the facts inside <verified_facts>. Rely ONLY on facts directly mentioned there. Never add, invent, adjust or approximate any date, number, name, statistic or event. Preserve each fact exactly — its tense, its quantities, and what each number counts. Rounding a number for speech is fine; changing its meaning is not.`,
         `- A bullet tagged [legend] is folklore. ONLY then may you frame it as lore ("reza a lenda que...", "conta a lenda...", "legend says..."). NEVER apply legend framing to real history. If a historical fact is merely uncertain, hedge honestly instead ("segundo historiadores", "reportedly"), never call it a legend.`,
         `- Treat sensitive history — slavery, death, tragedy — with respect and directness. Never present it as a fun "legend" or a light "curiosity".`,
+        `- DARK OR PAINFUL HISTORY — decide by the place's IDENTITY, not by shock value. If people come here BECAUSE of that history — the place IS a site of it (a battlefield, catacombs, a memorial, a haunted or dark-tourism landmark) — then it is the point: tell it, with gravity and respect. But if the place's real identity is something else (a park, church, beach, market, square, restaurant) and the dark event is an incidental crime or misfortune that merely happened there, do NOT make it the story. Lead with what the place IS and why someone enjoys being here, and in a short narration LEAVE the incidental dark event OUT — include it only if it is genuinely the single most interesting thing about the place, and even then briefly and never as the opening. A one-off theft at a church whose story is faith and community is a footnote to drop, not a beat to spend. Never spend a beat that dampens the desire to be here — or, for an event, the desire to attend. The test: would a visitor seek this place OUT for that story, or are they simply here for the place itself? Either way never invent — stay inside the facts; you are only choosing whether the dark thread is the place's identity or a footnote.`,
         `- You MAY use a universal comparison to make a number vivid, but never introduce a new claim about this place.`,
         ``,
         `HOW TO TELL IT — you are telling ONE story, not reading a timeline:`,
-        `1. HARD RULE — the narration's literal first words are the POI name. No warm-up before it ("Olha só", "This is", "Imagine", "Este é").`,
+        `1. HARD RULE — the narration's literal first words are ${venue ? `"${venue.name}" (the place the listener is standing at)` : 'the POI name'}. No warm-up before it ("Olha só", "This is", "Imagine", "Este é").`,
         `2. SELECT ONE THREAD: You will receive MORE facts than fit in ${audioTarget}. Do NOT summarize them all. Choose the single strongest thread — a character and what they wanted, a conflict or reversal, or the one most surprising fact — and tell only THAT, well. A tight story beats a rushed inventory. (The unused facts still go into <master_facts>.)`,
         `3. OPEN A LOOP: right after the name, hook them with that thread — an intriguing person, a tension, or an implied question. Never open with a flat definition like "X is a Y".`,
         `4. CLOSE THE LOOP LAST: land the resolution or the surprise at the very end — never announce it ("A fun fact is", "Uma curiosidade é que", "Interestingly", "Sabia que", "Você sabia"). If there is no real surprise, end cleanly.`,
@@ -238,9 +337,19 @@ export const generateMasterPack = async (
         `REMINDER: All text inside the XML tags must be in ${langName}.`,
     ].join('\n');
 
-    const composeUser = facts
+    // Cenário 1: bloco de contexto do POI anfitrião, anexado ao compose. Vazio
+    // (não interfere) quando não há venue. Usa a narração existente do POI como
+    // contexto — nunca re-pesquisa nem inventa sobre o POI.
+    const venueBlock = venue
+        ? (venue.facts
+            ? `\n\n<venue_context name="${venue.name}">\n${venue.facts}\n</venue_context>\nThe listener is standing at ${venue.name}. OPEN the narration at ${venue.name} using ONE thread from venue_context, THEN pivot to the event above happening HERE, stating its dates. Use ONLY venue_context for the venue — never research or invent about it.`
+            : `\n\nThe listener is standing at "${venue.name}" (the event's venue). OPEN by grounding them at ${venue.name} by name, THEN present the event above happening HERE, with its dates. Do not invent facts about the venue.`)
+        : '';
+
+    const composeUser = (facts
         ? `<verified_facts poi="${poiName}">\n${facts}\n</verified_facts>\n\nBased only on the facts above, write <master_description> and <master_facts> in ${langName}.`
-        : `No verified facts were found for "${poiName}". Write a SHORT, generic, atmospheric description based ONLY on its name and category — include NO date, number, founder, statistic, legend or specific claim. For <master_facts> give at most 2 generic facts, or leave it minimal.`;
+        : `No verified facts were found for "${poiName}". Write a SHORT, generic, atmospheric description based ONLY on its name and category — include NO date, number, founder, statistic, legend or specific claim. For <master_facts> give at most 2 generic facts, or leave it minimal.`)
+        + venueBlock;
 
     // Primeira descrição (compose) no gemini-2.5-flash, como o grounding. Fallback vivo
     // no 3.1-flash-lite p/ quando o 2.5-flash flapar (404 de aposentadoria em rollout).

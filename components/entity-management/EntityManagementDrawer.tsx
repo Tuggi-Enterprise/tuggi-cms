@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { X, Info, Target, Save, Loader2, FileText, Volume2 } from 'lucide-react'
+import { X, Info, Target, Save, Loader2, FileText, Volume2, Link2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { POIModalProvider } from '@/components/poi-management/POIModalContext'
 import { TriggerPointsTab } from '@/components/poi-management/tabs/TriggerPointsTab'
@@ -32,6 +32,10 @@ interface Props {
   saving?: boolean
   title: string
   HeaderIcon: React.ComponentType<{ className?: string }>
+  /** Evento vinculado a um POI anfitrião: desabilita a autoria de trigger points
+   *  (quem narra é o POI). Só eventos passam isso; POI/local ficam undefined. */
+  venueLinked?: boolean
+  venueName?: string
   onClose: () => void
   onSave: () => void
   invalidate: () => void
@@ -41,6 +45,7 @@ interface Props {
 export function EntityManagementDrawer({
   isOpen, isEdit, entityId, name, coordinates, canEdit,
   loading = false, saving = false, title, HeaderIcon,
+  venueLinked = false, venueName,
   onClose, onSave, invalidate, children,
 }: Props) {
   const t = useTranslations('Modals.POIDetails')
@@ -120,7 +125,19 @@ export function EntityManagementDrawer({
               <POIModalProvider value={ctx}><NarrationAudioTab /></POIModalProvider>
             )}
             {activeTab === 'trigger-points' && (
-              <POIModalProvider value={ctx}><TriggerPointsTab /></POIModalProvider>
+              venueLinked ? (
+                <div className="p-8">
+                  <div className="max-w-xl mx-auto text-center py-16">
+                    <div className="inline-flex p-4 bg-amber-100 dark:bg-amber-900/20 rounded-2xl mb-5">
+                      <Link2 className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{t('trigger_disabled.title')}</h3>
+                    <p className="text-sm text-gray-500 leading-relaxed">{t('trigger_disabled.body', { venue: venueName || '—' })}</p>
+                  </div>
+                </div>
+              ) : (
+                <POIModalProvider value={ctx}><TriggerPointsTab /></POIModalProvider>
+              )
             )}
           </main>
         </div>

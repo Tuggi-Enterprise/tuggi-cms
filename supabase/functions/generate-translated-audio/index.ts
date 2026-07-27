@@ -138,6 +138,20 @@ const updateAttractionName = async (
 
 
 // Upload audio to Supabase Storage
+//
+// ⚠️ O prefixo TEM que ser `master_audio/` — o mesmo que a generate-description
+// usa. O app iOS não lê `attraction_descriptions.audio_url`: ele MONTA a URL por
+// convenção em TuggiConstructMasterAudioUrl:
+//
+//   travel-app-audios/master_audio/{id}/{id}-{lang}-{gender}.mp3
+//
+// Enquanto esta função gravou em `audio/`, todo áudio produzido pelo botão de
+// "gerar áudio multi-idioma" do CMS ficava MUDO no iOS (400 no download), embora
+// funcionasse no Android, que lê a URL real do banco. Medido em jul/2026: ~6% das
+// descrições com áudio estavam em `/audio/` por causa disso.
+//
+// As linhas já gravadas guardam a URL absoluta antiga e continuam válidas para o
+// Android; elas só voltam a tocar no iOS quando o áudio for regerado por aqui.
 const uploadAudioToStorage = async (
   audioBuffer: ArrayBuffer,
   attractionId: string,
@@ -145,7 +159,7 @@ const uploadAudioToStorage = async (
   voiceGender: 'male' | 'female'
 ): Promise<string> => {
   const fileName = `${attractionId}-${language}-${voiceGender}.mp3`;
-  const storagePath = `audio/${attractionId}/${fileName}`;
+  const storagePath = `master_audio/${attractionId}/${fileName}`;
 
   // First try to upload, if it fails due to existing file, try to update
   const { error: uploadError } = await supabaseAdmin.storage

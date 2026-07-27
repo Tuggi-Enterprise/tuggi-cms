@@ -300,6 +300,54 @@ async function processPOIItem(
                 }
             }
 
+            // ✅ TIPO DA ENTIDADE: POI, evento e local vivem na mesma tabela e até
+            // aqui recebiam o mesmo prompt de "lugar" — que pede ano de fundação e
+            // fala em "standing in front of this place". Certo para um POI, errado
+            // para um show daqui a três semanas ou para um hotel.
+            //
+            // As extensões vêm como array no PostgREST (relação 1:1 declarada como
+            // to-many), daí o [0]. Ausentes = undefined, e o gerador cai no ramo
+            // 'poi', que é idêntico ao comportamento de sempre.
+            const eventDetails = Array.isArray(poiDataFromDB?.event_details)
+                ? poiDataFromDB.event_details[0]
+                : poiDataFromDB?.event_details;
+            const placeDetails = Array.isArray(poiDataFromDB?.place_details)
+                ? poiDataFromDB.place_details[0]
+                : poiDataFromDB?.place_details;
+
+            // ✅ Cenário 1 — evento vinculado a um POI anfitrião: compõe "dados do
+            // POI + evento de forma contextual". SÓ entra quando entity_kind='event'
+            // E há vínculo (venue_attraction_id). POI e evento-sem-vínculo passam
+            // por aqui com venue=null e o prompt fica idêntico ao de sempre.
+            let venue: { name: string; facts?: string | null } | null = null;
+            const venueId = eventDetails?.venue_attraction_id ?? null;
+            if (venueId && poiDataFromDB?.entity_kind === "event") {
+                const { data: venueRow } = await supabaseAdmin.schema("core")
+                    .from("attractions").select("name").eq("id", venueId).maybeSingle();
+                if (venueRow?.name) {
+                    // Usa a narração JÁ existente do POI como contexto (não re-pesquisa
+                    // o POI); se o POI ainda não tem descrição, o gerador só ancora pelo nome.
+                    // Prefere a descrição do POI na LÍNGUA-ALVO (evita mandar contexto
+                    // pt-br numa geração en-us): exata > mesma base > en > qualquer.
+                    const { data: venueDescs } = await supabaseAdmin.schema("core")
+                        .from("attraction_descriptions")
+                        .select("description, language")
+                        .eq("attraction_id", venueId)
+                        .neq("description", "[PROCESSING]")
+                        .order("updated_at", { ascending: false })
+                        .limit(8);
+                    const descs = venueDescs || [];
+                    const lc = (language || "").toLowerCase();
+                    const base = lc.split("-")[0];
+                    const chosen =
+                        descs.find((d: any) => (d.language || "").toLowerCase() === lc) ||
+                        descs.find((d: any) => (d.language || "").toLowerCase().split("-")[0] === base) ||
+                        descs.find((d: any) => ["en", "en-us"].includes((d.language || "").toLowerCase())) ||
+                        descs[0];
+                    venue = { name: venueRow.name, facts: chosen?.description ?? null };
+                }
+            }
+
             const masterResult = await generateMasterPack(
                 poiName,
                 cityName,
@@ -310,6 +358,17 @@ async function processPOIItem(
                 audioDuration,
                 memberPois,
                 poiDataFromDB?.reference_links || [], // Links de referência do CMS
+                {
+                    kind: (poiDataFromDB?.entity_kind === "event" ||
+                            poiDataFromDB?.entity_kind === "place")
+                        ? poiDataFromDB.entity_kind
+                        : "poi",
+                    startsAt: eventDetails?.starts_at ?? null,
+                    endsAt: eventDetails?.ends_at ?? null,
+                    category: eventDetails?.event_category ?? null,
+                    placeType: placeDetails?.place_type ?? null,
+                    venue,
+                },
             );
             result = {
                 description: masterResult.description,
@@ -613,7 +672,12 @@ serve(async (req) => {
             );
             const { data: poiInfos } = await supabaseAdmin.schema("core")
                 .from("attractions")
-                .select("id, name, city, state, osm_tags, website, reference_links")
+                // ✅ entity_kind + extensões 1:1 — core.attractions guarda POI,
+                // evento e local na mesma tabela, e o prompt precisa saber qual é
+                // (evento tem data e não tem "ano de fundação"; local tem tipo).
+                .select(
+                    "id, name, city, state, osm_tags, website, reference_links, entity_kind, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
+                )
 
                 .in("id", poiIds);
 
@@ -686,7 +750,11 @@ serve(async (req) => {
             // Fetch POI Data
             const { data: poiData } = await supabaseAdmin.schema("core")
                 .from("attractions")
-                .select("name, city, state, osm_tags, website, reference_links")
+                // ✅ ver o comentário no caminho de batch: o prompt ramifica por
+                // entity_kind (poi | event | place).
+                .select(
+                    "name, city, state, osm_tags, website, reference_links, entity_kind, event_details!event_details_attraction_id_fkey(starts_at, ends_at, event_category, venue_attraction_id), place_details(place_type)",
+                )
 
                 .eq("id", manual.poi_id)
                 .single();
