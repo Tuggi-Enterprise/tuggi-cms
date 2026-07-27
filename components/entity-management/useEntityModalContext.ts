@@ -2,10 +2,10 @@
 
 /**
  * useEntityModalContext — produz um POIModalContextValue completo para reusar as
- * abas de POI (BoundaryTab, TriggerPointsTab) em Eventos/Locais. Como eventos e
- * locais SÃO linhas de core.attractions, os serviços das abas (keyed por
- * attraction_id) funcionam sem mudança: boundary via /api/pois/update-boundary,
- * trigger points via /api/trigger-points/* (TriggerPointsManager).
+ * abas de POI (a aba unificada TriggerPointsTab: mapa com toggle Triggers|Boundary)
+ * em Eventos/Locais. Como eventos e locais SÃO linhas de core.attractions, os
+ * serviços das abas (keyed por attraction_id) funcionam sem mudança: boundary via
+ * /api/pois/update-boundary, trigger points via /api/trigger-points/* (TriggerPointsManager).
  *
  * Só os campos que essas abas consomem têm implementação real (getPoi, canEdit,
  * boundary state+handlers, invalidateAllPOICaches). O resto do contexto (create,

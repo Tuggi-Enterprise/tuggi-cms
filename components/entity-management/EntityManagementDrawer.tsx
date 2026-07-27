@@ -3,24 +3,23 @@
 /**
  * EntityManagementDrawer — chrome do "modal de POI management" reaproveitado para
  * Eventos e Locais. Drawer lateral (como POIDetailsModal) com navegação de abas:
- *   • Details        — form específico do módulo (passado via children)
- *   • Boundary       — reusa components/poi-management/tabs/BoundaryTab
- *   • Trigger Points — reusa components/poi-management/tabs/TriggerPointsTab
+ *   • Details              — form específico do módulo (passado via children)
+ *   • Boundary & Triggers  — reusa a aba unificada components/poi-management/tabs/TriggerPointsTab
+ *                            (um mapa com toggle Triggers|Boundary — boundary embutido)
  * As abas de POI leem tudo de POIModalContext, alimentado por useEntityModalContext
  * (keyed por attraction_id). Boundary/TP só aparecem em modo edição (precisam do id).
  */
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { X, Info, MapPin, Target, Save, Loader2, FileText, Volume2 } from 'lucide-react'
+import { X, Info, Target, Save, Loader2, FileText, Volume2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { POIModalProvider } from '@/components/poi-management/POIModalContext'
-import { BoundaryTab } from '@/components/poi-management/tabs/BoundaryTab'
 import { TriggerPointsTab } from '@/components/poi-management/tabs/TriggerPointsTab'
 import { DescriptionTab } from '@/components/poi-management/tabs/DescriptionTab'
 import { NarrationAudioTab } from '@/components/poi-management/tabs/NarrationAudioTab'
 import { useEntityModalContext } from './useEntityModalContext'
 
-type Tab = 'details' | 'description' | 'narration-audio' | 'boundary' | 'trigger-points'
+type Tab = 'details' | 'description' | 'narration-audio' | 'trigger-points'
 
 interface Props {
   isOpen: boolean
@@ -59,8 +58,7 @@ export function EntityManagementDrawer({
     ...(isEdit ? [
       { id: 'description' as Tab, label: t('tabs.description'), icon: FileText },
       { id: 'narration-audio' as Tab, label: t('tabs.narration'), icon: Volume2 },
-      { id: 'boundary' as Tab, label: t('labels.geographic_boundaries'), icon: MapPin },
-      { id: 'trigger-points' as Tab, label: t('tabs.trigger_points'), icon: Target },
+      { id: 'trigger-points' as Tab, label: t('tabs.boundary_and_triggers'), icon: Target },
     ] : []),
   ]
 
@@ -120,9 +118,6 @@ export function EntityManagementDrawer({
             )}
             {activeTab === 'narration-audio' && (
               <POIModalProvider value={ctx}><NarrationAudioTab /></POIModalProvider>
-            )}
-            {activeTab === 'boundary' && (
-              <POIModalProvider value={ctx}><BoundaryTab /></POIModalProvider>
             )}
             {activeTab === 'trigger-points' && (
               <POIModalProvider value={ctx}><TriggerPointsTab /></POIModalProvider>

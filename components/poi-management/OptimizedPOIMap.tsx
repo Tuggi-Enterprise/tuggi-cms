@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { Loader2, Map as MapIcon } from 'lucide-react'
 import { fetchPOIsForMap, MapPOI, MapSearchFilters } from '@/lib/services/poi-map-service'
-import { POIMapVisualization, POI, TriggerRenderGroup, PoiActionMenuLabels } from './POIMapVisualization'
+import { POIMapVisualization, POI, TriggerRenderGroup, PoiActionMenuLabels, buildHoverTriggerGroup } from './POIMapVisualization'
 import { useQuery } from '@tanstack/react-query'
 import { useTriggerPointsForPOI } from '@/lib/hooks/use-trigger-points-for-poi'
 import { useTriggerPointsInBbox } from '@/lib/hooks/use-trigger-points-in-bbox'
@@ -167,23 +167,10 @@ export function OptimizedPOIMap({
       }
     }
 
-    // Hover-mode group (always added; takes precedence visually via overwrite of same key)
-    if (hoveredPoi && hoveredPoi.coordinates && hoverTps && hoverTps.length > 0) {
-      const existingIdx = groups.findIndex(g => g.poiId === hoveredPoi.id)
-      const hoverGroup: TriggerRenderGroup = {
-        poiId: hoveredPoi.id,
-        poiPosition: {
-          lat: hoveredPoi.coordinates.latitude,
-          lng: hoveredPoi.coordinates.longitude
-        },
-        tps: hoverTps.map(tp => ({
-          id: tp.id,
-          latitude: tp.latitude,
-          longitude: tp.longitude,
-          bearing: tp.bearing,
-          is_active: tp.is_active
-        }))
-      }
+    // Hover-mode group (takes precedence: overwrite the same poiId if already present)
+    const hoverGroup = buildHoverTriggerGroup(hoveredPoi, hoverTps)
+    if (hoverGroup) {
+      const existingIdx = groups.findIndex(g => g.poiId === hoverGroup.poiId)
       if (existingIdx >= 0) groups[existingIdx] = hoverGroup
       else groups.push(hoverGroup)
     }

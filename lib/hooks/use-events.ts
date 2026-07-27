@@ -1,14 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
 import { eventService, type EventFilters } from '@/lib/core/event-service'
 
-/** Lista paginada de eventos (espelha usePOIs). */
-export function useEvents(filters: EventFilters) {
+/** Lista paginada de eventos (espelha usePOIs). `enabled` permite gatear (ex.: só no modo mapa). */
+export function useEvents(filters: EventFilters, enabled: boolean = true) {
   return useQuery({
     queryKey: ['events', filters],
     queryFn: () => eventService.list(filters),
     placeholderData: (previousData) => previousData,
     staleTime: 0,
     gcTime: 5 * 60 * 1000,
+    enabled,
   })
 }
 

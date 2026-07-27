@@ -5,19 +5,22 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
   CalendarDays, Plus, Search, Filter, RotateCcw, Loader2,
-  CalendarClock, Grid, List, ChevronLeft, ChevronRight,
+  CalendarClock, Grid, List, Map as MapIcon, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useEvents, useEventFacets } from '@/lib/hooks/use-events'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import type { EventFilters, EventListItem } from '@/lib/core/event-service'
 import { EventFormModal } from '@/components/event-management/EventFormModal'
+import { EntityMapView } from '@/components/entity-management/EntityMapView'
 import { cn } from '@/lib/utils'
 
 const PAGE_SIZE = 50
-type ViewMode = 'cards' | 'list'
+const MAP_PAGE_SIZE = 2000
+type ViewMode = 'cards' | 'list' | 'map'
 
 export default function EventosPage() {
   const t = useTranslations('EventManagement')
+  const tc = useTranslations('Common')
   const queryClient = useQueryClient()
   const { canEdit } = useCmsUser()
 
@@ -38,6 +41,14 @@ export default function EventosPage() {
 
   const { data, isLoading, isFetching } = useEvents(filters)
   const { data: facets } = useEventFacets(facetFilters)
+
+  // Map view: fetch ALL matching events (with coordinates) in one page — only when active.
+  const mapFilters: EventFilters = useMemo(
+    () => ({ search: search || undefined, status, time, page: 1, pageSize: MAP_PAGE_SIZE }),
+    [search, status, time]
+  )
+  const { data: mapData, isLoading: mapLoading } = useEvents(mapFilters, viewMode === 'map')
+  const mapItems = mapData?.items ?? []
 
   const items = data?.items ?? []
   const total = data?.total ?? 0
@@ -192,6 +203,7 @@ export default function EventosPage() {
                 <div className="flex items-center gap-1 p-1 bg-gray-50/50 dark:bg-gray-950/50 rounded-2xl border border-gray-100 dark:border-gray-800">
                   <button onClick={() => setViewMode('cards')} className={viewBtn(viewMode === 'cards')}><Grid className="h-3.5 w-3.5" /> Cards</button>
                   <button onClick={() => setViewMode('list')} className={viewBtn(viewMode === 'list')}><List className="h-3.5 w-3.5" /> List</button>
+                  <button onClick={() => setViewMode('map')} className={viewBtn(viewMode === 'map')}><MapIcon className="h-3.5 w-3.5" /> Map</button>
                 </div>
               </div>
 
@@ -210,30 +222,54 @@ export default function EventosPage() {
 
           {/* Content Area */}
           <div className="flex-1">
-            {isLoading ? (
-              <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 p-16 flex justify-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue" />
-              </div>
-            ) : items.length === 0 ? (
-              <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 p-16 text-center">
-                <div className="inline-flex p-4 bg-gray-100 dark:bg-gray-800 rounded-2xl mb-4"><CalendarDays className="h-8 w-8 text-gray-400" /></div>
-                <p className="text-gray-500">{t('empty')}</p>
-              </div>
+            {viewMode === 'map' ? (
+              mapLoading ? (
+                <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 p-16 flex justify-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue" />
+                </div>
+              ) : mapItems.length === 0 ? (
+                <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 p-16 text-center">
+                  <div className="inline-flex p-4 bg-gray-100 dark:bg-gray-800 rounded-2xl mb-4"><CalendarDays className="h-8 w-8 text-gray-400" /></div>
+                  <p className="text-gray-500">{t('empty')}</p>
+                </div>
+              ) : (
+                <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+                  <EntityMapView
+                    items={mapItems}
+                    onItemClick={openEdit}
+                    actionMenuLabels={{ edit: tc('actions.edit'), delete: '', garbage: '', approved: t('badges.approved'), pending: t('badges.pending') }}
+                    height="70vh"
+                  />
+                </div>
+              )
             ) : (
-              <div className={cn('transition-all duration-500',
-                viewMode === 'cards'
-                  ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6'
-                  : 'space-y-3')}>
-                {items.map(renderCard)}
-              </div>
-            )}
+              <>
+                {isLoading ? (
+                  <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 p-16 flex justify-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue" />
+                  </div>
+                ) : items.length === 0 ? (
+                  <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl rounded-3xl border border-gray-200 dark:border-gray-800 p-16 text-center">
+                    <div className="inline-flex p-4 bg-gray-100 dark:bg-gray-800 rounded-2xl mb-4"><CalendarDays className="h-8 w-8 text-gray-400" /></div>
+                    <p className="text-gray-500">{t('empty')}</p>
+                  </div>
+                ) : (
+                  <div className={cn('transition-all duration-500',
+                    viewMode === 'cards'
+                      ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6'
+                      : 'space-y-3')}>
+                    {items.map(renderCard)}
+                  </div>
+                )}
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-3 mt-8">
-                <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className={pagerBtn}><ChevronLeft className="h-4 w-4" /></button>
-                <span className="text-sm font-medium text-gray-500 min-w-[80px] text-center">{page} / {totalPages}</span>
-                <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className={pagerBtn}><ChevronRight className="h-4 w-4" /></button>
-              </div>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-center gap-3 mt-8">
+                    <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className={pagerBtn}><ChevronLeft className="h-4 w-4" /></button>
+                    <span className="text-sm font-medium text-gray-500 min-w-[80px] text-center">{page} / {totalPages}</span>
+                    <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className={pagerBtn}><ChevronRight className="h-4 w-4" /></button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

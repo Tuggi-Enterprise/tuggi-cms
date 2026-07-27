@@ -225,6 +225,7 @@ export interface PoiActionMenuLabels {
 function buildPoiActionMenu(
   poi: POI,
   opts: {
+    canDelete: boolean
     canGarbage: boolean
     labels: PoiActionMenuLabels
     onEdit: () => void
@@ -268,13 +269,15 @@ function buildPoiActionMenu(
     </div>
     <div style="display:flex; flex-direction:column; gap:6px;">
       <button data-action="edit" style="${btnEdit}">${ICON_EDIT_SVG}<span>${escape(opts.labels.edit)}</span></button>
-      <button data-action="delete" style="${btnDelete}">${ICON_TRASH2_SVG}<span>${escape(opts.labels.delete)}</span></button>
+      ${opts.canDelete ? `<button data-action="delete" style="${btnDelete}">${ICON_TRASH2_SVG}<span>${escape(opts.labels.delete)}</span></button>` : ''}
       ${opts.canGarbage ? `<button data-action="garbage" style="${btnGarbage}">${ICON_XCIRCLE_SVG}<span>${escape(opts.labels.garbage)}</span></button>` : ''}
     </div>
   `
 
   container.querySelector('[data-action="edit"]')?.addEventListener('click', opts.onEdit)
-  container.querySelector('[data-action="delete"]')?.addEventListener('click', opts.onDelete)
+  if (opts.canDelete) {
+    container.querySelector('[data-action="delete"]')?.addEventListener('click', opts.onDelete)
+  }
   if (opts.canGarbage) {
     container.querySelector('[data-action="garbage"]')?.addEventListener('click', opts.onGarbage)
   }
@@ -315,6 +318,29 @@ export interface TriggerRenderGroup {
   poiId: string
   poiPosition: { lat: number; lng: number }
   tps: MapTriggerPointInput[]
+}
+
+/**
+ * Build the hover-mode trigger group (the currently-hovered item's TPs) for the map's
+ * `triggers` prop. SSOT shared by OptimizedPOIMap (/pois) and EntityMapView (events/places).
+ * Returns null when there is nothing to render (no hover / no coords / no TPs).
+ */
+export function buildHoverTriggerGroup(
+  hoveredPoi: { id: string; coordinates?: { latitude: number; longitude: number } | null } | null,
+  hoverTps: MapTriggerPointInput[] | undefined | null,
+): TriggerRenderGroup | null {
+  if (!hoveredPoi || !hoveredPoi.coordinates || !hoverTps || hoverTps.length === 0) return null
+  return {
+    poiId: hoveredPoi.id,
+    poiPosition: { lat: hoveredPoi.coordinates.latitude, lng: hoveredPoi.coordinates.longitude },
+    tps: hoverTps.map(tp => ({
+      id: tp.id,
+      latitude: tp.latitude,
+      longitude: tp.longitude,
+      bearing: tp.bearing,
+      is_active: tp.is_active,
+    })),
+  }
 }
 
 function renderTriggers(
@@ -691,6 +717,7 @@ function POIMapInner({
                   pending: 'Pending'
                 }
                 const container = buildPoiActionMenu(poi, {
+                  canDelete: !!onPOIDelete,
                   canGarbage,
                   labels,
                   onEdit: () => {

@@ -2,9 +2,8 @@
 
 /**
  * Shared boundary-editing controls (status badge + Reset / Delete / Save / Draw).
- * SSOT for the boundary control set, reused by:
- *   - tabs/BoundaryTab (entity-management drawer)
- *   - TriggerPointsManager (POI unified map, Boundary mode)
+ * SSOT for the boundary control set, used by TriggerPointsManager's Boundary mode
+ * (the unified map workspace shared by POIs, Events and Places).
  * Purely presentational — state and handlers are passed in.
  */
 
