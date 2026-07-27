@@ -7,12 +7,13 @@ import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react'
 import {
   Plus, MapPin, Target, Trash2, Edit3, Save, X,
   Navigation, Circle, Settings, AlertTriangle,
-  Check, RotateCcw, ZoomIn, Filter, ChevronDown, ChevronUp, Loader2, AlertCircle, CheckCircle,
+  Check, ZoomIn, Filter, ChevronDown, ChevronUp, Loader2, AlertCircle, CheckCircle,
   Sparkles
 } from 'lucide-react'
 import { TriggerPointsMap } from './TriggerPointsMap'
 import { DirectionSelector } from './DirectionSelector'
 import { BearingSelector } from './BearingSelector'
+import { BoundaryControls } from './BoundaryControls'
 
 import { cn } from '@/lib/utils'
 import { extractCoordinates } from '@/lib/core/poi-coordinates'
@@ -32,17 +33,26 @@ export function TriggerPointsManager({
   attractionCoordinates,
   attractionTypes = [],
   onClose,
-  onUpdate
+  onUpdate,
+  boundary,
+  isGeofence = false
 }: TriggerPointsManagerProps) {
   const supabase = useSupabaseClient()
   const user = useUser()
   const t = useTranslations('Modals.TriggerPointsManager')
-  const tCommon = useTranslations('Common.actions')
+  // Boundary labels are owned by the POIDetails namespace — reuse them so the unified
+  // Boundary mode stays in sync with the (now-folded) standalone boundary tab.
+  const tPoi = useTranslations('Modals.POIDetails')
 
   // State
   const [triggerPoints, setTriggerPoints] = useState<TriggerPoint[]>([])
   const [selectedTriggerPoint, setSelectedTriggerPoint] = useState<TriggerPoint | null>(null)
   const [isAddingMode, setIsAddingMode] = useState(false)
+  // Unified map workspace: which layer the operator is editing. Geofence POIs (polygon
+  // triggering, no point TPs) start in — and stay locked to — Boundary mode.
+  const [viewMode, setViewMode] = useState<'trigger-points' | 'boundary'>(
+    boundary && isGeofence ? 'boundary' : 'trigger-points'
+  )
   const [isEditing, setIsEditing] = useState(false)
   const { canEdit, isViewer } = useCmsUser()
   const [isLoading, setIsLoading] = useState(false)
@@ -655,16 +665,48 @@ export function TriggerPointsManager({
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {t('labels.title')}
-          </h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            {attractionName} • {triggerPoints.length} trigger points
-          </p>
+        <div className="flex items-center gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {t('labels.title')}
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              {attractionName} • {triggerPoints.length} trigger points
+            </p>
+          </div>
+          {/* Mode toggle — kept on the LEFT so it never shifts when the mode-specific
+              action buttons on the right appear/disappear per mode. */}
+          {!!boundary && !isGeofence && (
+            <div className="flex items-center rounded-lg bg-gray-100 dark:bg-gray-800 p-0.5">
+              <button
+                onClick={() => setViewMode('trigger-points')}
+                className={cn(
+                  "flex items-center px-3 py-1.5 rounded-md text-xs font-semibold transition-colors",
+                  viewMode === 'trigger-points'
+                    ? "bg-white dark:bg-gray-700 text-tuggi-blue shadow-sm"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                )}
+              >
+                <Target className="h-3.5 w-3.5 mr-1.5" />
+                {t('mode.trigger_points')}
+              </button>
+              <button
+                onClick={() => { handleCloseForm(); setViewMode('boundary') }}
+                className={cn(
+                  "flex items-center px-3 py-1.5 rounded-md text-xs font-semibold transition-colors",
+                  viewMode === 'boundary'
+                    ? "bg-white dark:bg-gray-700 text-tuggi-blue shadow-sm"
+                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                )}
+              >
+                <MapPin className="h-3.5 w-3.5 mr-1.5" />
+                {t('mode.boundary')}
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex items-center space-x-2">
-          {canEdit && !isViewer && (
+          {viewMode === 'trigger-points' && canEdit && !isViewer && (
             <button
               onClick={handleGenerateAISuggestions}
               disabled={isGeneratingSuggestions || isLoading || !coords}
@@ -687,28 +729,30 @@ export function TriggerPointsManager({
             </button>
           )}
 
-          <button
-            onClick={() => setIsAddingMode(!isAddingMode)}
-            disabled={isGeneratingSuggestions || !coords}
-            className={cn(
-              "flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-              isAddingMode
-                ? "bg-tuggi-orange text-white hover:bg-orange-600"
-                : "bg-tuggi-blue text-white hover:bg-blue-600"
-            )}
-          >
-            {isAddingMode ? (
-              <>
-                <X className="h-4 w-4 mr-2" />
-                Cancel
-              </>
-            ) : (
-              <>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Trigger
-              </>
-            )}
-          </button>
+          {viewMode === 'trigger-points' && (
+            <button
+              onClick={() => setIsAddingMode(!isAddingMode)}
+              disabled={isGeneratingSuggestions || !coords}
+              className={cn(
+                "flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                isAddingMode
+                  ? "bg-tuggi-orange text-white hover:bg-orange-600"
+                  : "bg-tuggi-blue text-white hover:bg-blue-600"
+              )}
+            >
+              {isAddingMode ? (
+                <>
+                  <X className="h-4 w-4 mr-2" />
+                  Cancel
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Trigger
+                </>
+              )}
+            </button>
+          )}
           {onClose && (
             <button
               onClick={onClose}
@@ -777,23 +821,72 @@ export function TriggerPointsManager({
             zoom={14}
             height="100%"
             attractionName={attractionName}
-            triggerPoints={displayTriggerPoints}
-            selectedTriggerPoint={showForm ? (previewTriggerPoint as TriggerPoint) : selectedTriggerPoint}
-            suggestions={suggestedTriggerPoints}
+            triggerPoints={viewMode === 'boundary' ? triggerPoints : displayTriggerPoints}
+            selectedTriggerPoint={viewMode === 'boundary' ? null : (showForm ? (previewTriggerPoint as TriggerPoint) : selectedTriggerPoint)}
+            suggestions={viewMode === 'boundary' ? [] : suggestedTriggerPoints}
             onSuggestionDrag={handleSuggestionDrag}
             onSuggestionAccept={handleAcceptSuggestion}
             onSuggestionReject={handleRejectSuggestion}
             onMapClick={handleMapClick}
             onTriggerPointClick={handleTriggerPointClick}
             onTriggerPointDrag={handleTriggerPointDrag}
-            isAddingMode={isAddingMode}
+            isAddingMode={viewMode === 'boundary' ? false : isAddingMode}
             onPOILocationChange={handlePOILocationChange}
+            boundaryPolygon={boundary?.boundaryPolygon ?? boundary?.existingBoundary ?? null}
+            boundaryEditable={viewMode === 'boundary' && !!boundary && canEdit && !isViewer}
+            isDrawingBoundary={viewMode === 'boundary' && !!boundary?.isDrawingEnabled && canEdit && !isViewer}
+            onBoundaryChange={(coords) => boundary?.setBoundaryPolygon(coords)}
+            onBoundaryComplete={(poly) => {
+              boundary?.handleBoundaryPolygonComplete(poly)
+              boundary?.setIsDrawingEnabled(false)
+            }}
+            disableTriggerInteractions={viewMode === 'boundary'}
           />
           )}
         </div>
 
         {/* Sidebar */}
         <div className="w-80 border-l border-gray-200 dark:border-gray-700 flex flex-col h-full overflow-hidden">
+          {viewMode === 'boundary' && boundary ? (
+            <div className="flex flex-col h-full overflow-y-auto">
+              {/* Boundary editing panel — replaces the TP list while editing the boundary */}
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center">
+                <MapPin className="h-5 w-5 mr-2 text-tuggi-blue" />
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+                  {tPoi('labels.geographic_boundaries')}
+                </h3>
+              </div>
+              <div className="p-4 space-y-4">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {boundary.isDrawingEnabled
+                    ? tPoi('labels.drawing_instruction')
+                    : tPoi('labels.drawing_disabled_instruction')}
+                </p>
+
+                <BoundaryControls
+                  boundaryPolygon={boundary.boundaryPolygon}
+                  existingBoundary={boundary.existingBoundary}
+                  isDrawingEnabled={boundary.isDrawingEnabled}
+                  isSaving={boundary.isSavingBoundary}
+                  canEdit={canEdit && !isViewer}
+                  onReset={() => {
+                    boundary.setBoundaryPolygon(boundary.existingBoundary)
+                    boundary.setIsDrawingEnabled(false)
+                  }}
+                  onDelete={boundary.handleDeleteBoundary}
+                  onSave={boundary.handleSaveBoundary}
+                  onToggleDrawing={() => boundary.setIsDrawingEnabled(!boundary.isDrawingEnabled)}
+                />
+
+                {triggerPoints.length > 0 && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 pt-2 border-t border-gray-100 dark:border-gray-800">
+                    {t('mode.tp_reference_hint', { count: triggerPoints.length })}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+          <>
           {/* Header with AI Suggestions Toggle */}
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
@@ -1238,6 +1331,8 @@ export function TriggerPointsManager({
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
 

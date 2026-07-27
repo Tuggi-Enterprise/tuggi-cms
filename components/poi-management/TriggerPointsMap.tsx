@@ -5,7 +5,8 @@ import { useTranslations } from 'next-intl'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 import { TriggerPoint, TriggerPointMapProps, TRIGGER_POINT_TYPES, DIRECTION_OPTIONS } from '@/types/trigger-points'
 
-import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION, BOUNDARY_COLOR } from '@/lib/maps-config'
+import { createPolygonDrawer, type PolygonDrawer } from '@/lib/maps/polygon-draw'
 
 const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
@@ -26,7 +27,13 @@ function TriggerPointsMapContent({
   onSuggestionAccept,
   onSuggestionReject,
   onResetMapView,
-  onPOILocationChange
+  onPOILocationChange,
+  boundaryPolygon,
+  boundaryEditable = false,
+  isDrawingBoundary = false,
+  onBoundaryChange,
+  onBoundaryComplete,
+  disableTriggerInteractions = false
 }: Omit<TriggerPointMapProps, 'height' | 'className'>) {
   const t = useTranslations('Modals.TriggerPointsManager')
   const mapRef = useRef<HTMLDivElement>(null)
@@ -44,6 +51,14 @@ function TriggerPointsMapContent({
   const isCreatingRef = useRef<boolean>(false)
   const startPointRef = useRef<google.maps.LatLng | null>(null)
   const currentLineRef = useRef<google.maps.Polyline | null>(null)
+  // Boundary overlay + in-map drawing (single-map: same map used for TPs and boundary).
+  const boundaryPolygonRef = useRef<google.maps.Polygon | null>(null)
+  const boundaryEditableRef = useRef<boolean>(boundaryEditable)
+  const boundaryChangeRef = useRef(onBoundaryChange)
+  const boundaryCompleteRef = useRef(onBoundaryComplete)
+  const boundaryDrawerRef = useRef<PolygonDrawer | null>(null)
+  useEffect(() => { boundaryChangeRef.current = onBoundaryChange }, [onBoundaryChange])
+  useEffect(() => { boundaryCompleteRef.current = onBoundaryComplete }, [onBoundaryComplete])
 
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
@@ -159,12 +174,13 @@ function TriggerPointsMapContent({
       map: mapInstanceRef.current,
       title: `${attractionName || 'POI'} - Reference Point (Drag to move)`,
       icon: poiIcon,
-      draggable: true, // Make POI marker draggable
+      draggable: !disableTriggerInteractions, // Boundary mode: POI pin is reference only
       zIndex: 10000 // Ensure it's above trigger points
     })
 
     // Add info window for POI
     const poiInfoWindow = new google.maps.InfoWindow({
+      disableAutoPan: true,
       content: `
         <div style="padding: 8px; min-width: 200px; text-align: center;">
           <h3 style="margin: 0 0 8px 0; font-weight: 600; color: #FF6F00;">
@@ -234,7 +250,7 @@ function TriggerPointsMapContent({
     })
 
     poiMarkerRef.current = poiMarker
-  }, [center, attractionName, onPOILocationChange])
+  }, [center, attractionName, onPOILocationChange, disableTriggerInteractions])
 
   const updateTriggerPoints = useCallback(() => {
     if (!mapInstanceRef.current) return
@@ -262,23 +278,26 @@ function TriggerPointsMapContent({
         map: mapInstanceRef.current!,
         title: `${triggerPoint.type} trigger (Priority: ${triggerPoint.priority})`,
         icon: getMarkerIcon(triggerPoint, isSelected),
-        draggable: true,
+        draggable: !disableTriggerInteractions,
         zIndex: isSelected ? 1000 : triggerPoint.priority * 10
       })
 
-      // Add click listener
-      marker.addListener('click', () => {
-        if (onTriggerPointClick) {
-          onTriggerPointClick(triggerPoint)
-        }
-      })
+      // In Boundary mode TPs are read-only reference — skip select/drag handlers.
+      if (!disableTriggerInteractions) {
+        // Add click listener
+        marker.addListener('click', () => {
+          if (onTriggerPointClick) {
+            onTriggerPointClick(triggerPoint)
+          }
+        })
 
-      // Add drag listener
-      marker.addListener('dragend', (event: google.maps.MapMouseEvent) => {
-        if (onTriggerPointDrag && event.latLng) {
-          onTriggerPointDrag(triggerPoint, event.latLng.lat(), event.latLng.lng())
-        }
-      })
+        // Add drag listener
+        marker.addListener('dragend', (event: google.maps.MapMouseEvent) => {
+          if (onTriggerPointDrag && event.latLng) {
+            onTriggerPointDrag(triggerPoint, event.latLng.lat(), event.latLng.lng())
+          }
+        })
+      }
 
       markersRef.current.set(pointId, marker)
 
@@ -340,6 +359,8 @@ function TriggerPointsMapContent({
         })() : t('labels.not_set');
 
       const infoWindow = new google.maps.InfoWindow({
+        // Never pan the map to fit the hover popup — the map moves only when the user wants.
+        disableAutoPan: true,
         content: `
           <div style="padding: 8px; min-width: 200px;">
             <h3 style="margin: 0 0 8px 0; font-weight: 600; color: ${color};">
@@ -407,7 +428,7 @@ function TriggerPointsMapContent({
       
       initialBoundsSetRef.current = true
     }
-  }, [triggerPoints, selectedTriggerPoint, getMarkerIcon, onTriggerPointClick, onTriggerPointDrag, createBearingLine, center])
+  }, [triggerPoints, selectedTriggerPoint, getMarkerIcon, onTriggerPointClick, onTriggerPointDrag, createBearingLine, center, disableTriggerInteractions])
 
   // Manage click listener based on isAddingMode
   useEffect(() => {
@@ -797,6 +818,7 @@ function TriggerPointsMapContent({
 
       // Add info window with action buttons and color-coded access type
       const infoWindow = new google.maps.InfoWindow({
+        disableAutoPan: true,
         content: `
           <div style="font-family: Arial, sans-serif; max-width: 280px;">
             <h4 style="margin: 0 0 8px 0; color: ${suggestionStyle.color};">
@@ -902,6 +924,94 @@ function TriggerPointsMapContent({
     updateTriggerPoints()
   }, [updateTriggerPoints])
 
+  // Boundary overlay. In Trigger-Points mode it's a read-only reference (clickable:false so
+  // it never intercepts TP interactions). In Boundary mode it becomes editable — drag
+  // vertices/edges/whole polygon — reporting reshapes via onBoundaryChange. The same-shape
+  // guard avoids recreating the polygon mid-edit (which would cancel the drag).
+  useEffect(() => {
+    const map = mapInstanceRef.current
+    if (!map) return
+
+    // While drawing a fresh polygon, the drawing effect owns the map — hide the overlay.
+    if (isDrawingBoundary) {
+      if (boundaryPolygonRef.current) {
+        boundaryPolygonRef.current.setMap(null)
+        boundaryPolygonRef.current = null
+      }
+      boundaryEditableRef.current = boundaryEditable
+      return
+    }
+
+    const existing = boundaryPolygonRef.current
+    if (existing) {
+      const path = existing.getPath()
+      const sameShape = !!boundaryPolygon &&
+        path.getLength() === boundaryPolygon.length &&
+        boundaryPolygon.every((pt, i) => {
+          const v = path.getAt(i)
+          return !!v && Math.abs(v.lat() - pt.lat) < 1e-9 && Math.abs(v.lng() - pt.lng) < 1e-9
+        })
+      if (sameShape && boundaryEditableRef.current === boundaryEditable) return
+      existing.setMap(null)
+      boundaryPolygonRef.current = null
+    }
+    boundaryEditableRef.current = boundaryEditable
+
+    if (boundaryPolygon && boundaryPolygon.length >= 3) {
+      const poly = new google.maps.Polygon({
+        paths: boundaryPolygon,
+        map,
+        strokeColor: BOUNDARY_COLOR,
+        strokeOpacity: 0.9,
+        strokeWeight: 3,
+        fillColor: BOUNDARY_COLOR,
+        fillOpacity: 0.12,
+        editable: boundaryEditable,
+        draggable: boundaryEditable,
+        clickable: boundaryEditable,
+        zIndex: 1,
+      })
+      boundaryPolygonRef.current = poly
+
+      if (boundaryEditable) {
+        const emit = () => {
+          const p = poly.getPath()
+          const coords: { lat: number; lng: number }[] = []
+          for (let i = 0; i < p.getLength(); i++) {
+            const v = p.getAt(i)
+            coords.push({ lat: v.lat(), lng: v.lng() })
+          }
+          boundaryChangeRef.current?.(coords)
+        }
+        poly.getPath().addListener('set_at', emit)
+        poly.getPath().addListener('insert_at', emit)
+        poly.getPath().addListener('remove_at', emit)
+        poly.addListener('dragend', emit)
+      }
+    }
+  }, [boundaryPolygon, boundaryEditable, isDrawingBoundary])
+
+  // Boundary drawing via the shared drawer (SSOT with GoogleMapComponent). Starting/exiting
+  // draw mode is driven by isDrawingBoundary; a completed polygon is reported as a
+  // google.maps.Polygon so it flows through the same handleBoundaryPolygonComplete path.
+  useEffect(() => {
+    const map = mapInstanceRef.current
+    if (!map || !isDrawingBoundary) return
+
+    const drawer = boundaryDrawerRef.current ?? createPolygonDrawer(map, {
+      style: { strokeColor: BOUNDARY_COLOR, fillColor: BOUNDARY_COLOR, fillOpacity: 0.12, strokeWeight: 3 },
+      onComplete: (coords) => {
+        const poly = new google.maps.Polygon({ paths: coords })
+        boundaryCompleteRef.current?.(poly)
+      },
+    })
+    boundaryDrawerRef.current = drawer
+    drawer.start()
+
+    // Exiting draw mode (toggle off / mode switch): commit a usable partial, else discard.
+    return () => { drawer.finish() }
+  }, [isDrawingBoundary])
+
   useEffect(() => {
     // Don't update markers while dragging to prevent map reset
     if (!isDraggingRef.current) {
@@ -963,6 +1073,14 @@ function TriggerPointsMapContent({
         poiMarkerRef.current.setMap(null)
         poiMarkerRef.current = null
       }
+
+      if (boundaryPolygonRef.current) {
+        boundaryPolygonRef.current.setMap(null)
+        boundaryPolygonRef.current = null
+      }
+
+      boundaryDrawerRef.current?.dispose()
+      boundaryDrawerRef.current = null
       
       // Cleanup suggestion markers and lines
       suggestionMarkersRef.current.forEach(marker => {

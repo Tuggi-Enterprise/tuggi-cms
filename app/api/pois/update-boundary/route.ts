@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabase('service')
 
     const body = await request.json()
-    const { attractionId: attrId, poi_id, coordinates, get_only } = body
+    const { attractionId: attrId, poi_id, coordinates, get_only, clear_boundary } = body
 
     // Support both parameter names
     const attractionId = attrId || poi_id
@@ -171,6 +171,53 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({ boundary: null })
+    }
+
+    // Handle DELETE / CLEAR boundary mode.
+    // Contract: the client (poi-boundary-service.deleteBoundary) posts
+    // { poi_id, clear_boundary: true }. The legacy { boundary: null } shape is also
+    // accepted for backwards compatibility. There is no delete RPC, so we NULL the
+    // boundary_* columns directly — setting columns to null is a plain UPDATE (no DDL,
+    // no PostGIS parsing). The service-role client bypasses RLS. The POI's own lat/lng
+    // coordinate is preserved; only the polygon boundary is removed.
+    if (clear_boundary === true || body.boundary === null) {
+      console.log(`🧹 Clearing boundary for POI: ${attractionId}`)
+
+      const { error: clearError } = await supabase
+        .schema('core')
+        .from('attraction_coordinate')
+        .update({
+          boundary_geometry: null,
+          boundary_type: null,
+          boundary_source: null,
+          boundary_confidence: null,
+          boundary_area_m2: null,
+          boundary_centroid_lat: null,
+          boundary_centroid_lng: null,
+        })
+        .eq('attraction_id', attractionId)
+
+      if (clearError) {
+        console.error('❌ Error clearing boundary:', clearError)
+        return NextResponse.json(
+          { error: 'Failed to clear boundary', details: clearError.message },
+          { status: 500 }
+        )
+      }
+
+      await logAuditEvent({
+        request,
+        action: 'UPDATE_POI',
+        entity: 'POI',
+        entityId: attractionId,
+        userId: auditUserId,
+        userEmail: auditUserEmail,
+        description: 'Cleared POI boundary',
+      })
+
+      invalidatePOICache('POI boundary cleared')
+
+      return NextResponse.json({ success: true, cleared: true })
     }
 
     if (!coordinates || !Array.isArray(coordinates) || coordinates.length < 3) {

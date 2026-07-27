@@ -3,7 +3,7 @@
  * `/api/pois/update-boundary` endpoint, which serves three operations:
  *   - get:    { poi_id, get_only: true }      -> { boundary: LatLng[] | null }
  *   - save:   { attractionId, coordinates }    -> { data: { boundary_area_m2, boundary_centroid } }
- *   - delete: { poi_id, boundary: null }
+ *   - delete: { poi_id, clear_boundary: true }
  *
  * Mirrors the house style of lib/hooks/use-trigger-points-for-poi.ts: plain
  * async functions here, wrapped by react-query in lib/hooks/usePoiBoundary.ts.
@@ -69,10 +69,13 @@ export async function saveBoundary(
   return (result?.data ?? {}) as BoundarySaveResult
 }
 
-/** Remove a POI's boundary. */
+/** Remove a POI's boundary. Throws with the server message on failure. */
 export async function deleteBoundary(poiId: string): Promise<void> {
-  const response = await postBoundary({ poi_id: poiId, boundary: null })
+  const response = await postBoundary({ poi_id: poiId, clear_boundary: true })
   if (!response.ok) {
-    throw new Error('Falha ao remover boundary')
+    const errorText = await response.text().catch(() => '')
+    let parsed: { error?: string; message?: string } = {}
+    try { parsed = JSON.parse(errorText) } catch { parsed = { error: errorText } }
+    throw new Error(parsed.error || parsed.message || 'Falha ao remover boundary')
   }
 }

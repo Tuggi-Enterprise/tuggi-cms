@@ -10,6 +10,7 @@
 import { useTranslations } from 'next-intl'
 import { CheckCircle, Loader2, Plus } from 'lucide-react'
 import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
+import { BOUNDARY_COLOR, BOUNDARY_POLYGON_OPTIONS } from '@/lib/maps-config'
 import { cn } from '@/lib/utils'
 import { usePOIModalContext } from '../POIModalContext'
 
@@ -170,7 +171,7 @@ export function CreateTab() {
                               id: 'poi-location',
                               position: createCoordinates,
                               title: createName || tCommon('labels.new_location'),
-                              color: '#FF6B35'
+                              color: BOUNDARY_COLOR
                             }] : []}
                             polygon={createBoundary || undefined}
                             enableDrawing={isDrawingEnabled}
@@ -183,13 +184,7 @@ export function CreateTab() {
                               setCreateBoundary(coords)
                               setIsDrawingEnabled(false) // Disable drawing after polygon is complete
                             }}
-                            polygonOptions={{
-                              strokeColor: '#FF6B35',
-                              strokeOpacity: 0.8,
-                              strokeWeight: 3,
-                              fillColor: '#FF6B35',
-                              fillOpacity: 0.2
-                            }}
+                            polygonOptions={BOUNDARY_POLYGON_OPTIONS}
                           />
                         </div>
                         {createBoundary && createBoundary.length >= 3 && (

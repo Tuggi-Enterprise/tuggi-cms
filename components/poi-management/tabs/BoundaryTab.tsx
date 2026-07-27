@@ -3,18 +3,19 @@
 /**
  * Boundary tab — geographic polygon drawing & management.
  * Extracted from POIDetailsModal; reads shared POI/boundary state and handlers
- * from POIModalContext. Boundary data access lives in lib/core/poi-boundary-service.
+ * from POIModalContext. The control set is the shared <BoundaryControls>; boundary
+ * data access lives in lib/core/poi-boundary-service.
  */
 
 import { useTranslations } from 'next-intl'
-import { MapPin, RotateCcw, Trash2, Loader2, Save, Sparkles } from 'lucide-react'
+import { MapPin } from 'lucide-react'
 import { GoogleMapComponent, extractPolygonCoordinates } from '@/components/ui/GoogleMapComponent'
-import { cn } from '@/lib/utils'
+import { BOUNDARY_COLOR, BOUNDARY_POLYGON_OPTIONS } from '@/lib/maps-config'
 import { usePOIModalContext } from '../POIModalContext'
+import { BoundaryControls } from '../BoundaryControls'
 
 export function BoundaryTab() {
   const t = useTranslations('Modals.POIDetails')
-  const tCommon = useTranslations('Common')
   const {
     getPoi,
     canEdit,
@@ -60,7 +61,7 @@ export function BoundaryTab() {
                   id: 'poi-location',
                   position: { lat: coordinates.latitude, lng: coordinates.longitude },
                   title: poi?.name || '',
-                  color: '#FF6B35'
+                  color: BOUNDARY_COLOR
                 }]}
                 polygon={boundaryPolygon || existingBoundary || undefined}
                 enableDrawing={isDrawingEnabled && canEdit}
@@ -71,13 +72,7 @@ export function BoundaryTab() {
                   const coords = extractPolygonCoordinates(polygon)
                   setBoundaryPolygon(coords)
                 }}
-                polygonOptions={{
-                  strokeColor: '#FF6B35',
-                  strokeOpacity: 0.8,
-                  strokeWeight: 3,
-                  fillColor: '#FF6B35',
-                  fillOpacity: 0.2
-                }}
+                polygonOptions={BOUNDARY_POLYGON_OPTIONS}
               />
             ) : (
               <div className="flex items-center justify-center h-full bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
@@ -86,80 +81,21 @@ export function BoundaryTab() {
             )}
           </div>
 
-          {canEdit && (
-            <div className="mt-6 flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className={cn(
-                    "px-2 py-1 rounded text-xs font-bold uppercase",
-                    boundaryPolygon && boundaryPolygon.length >= 3
-                      ? "bg-green-100 text-green-700"
-                      : "bg-amber-100 text-amber-700"
-                  )}>
-                    {boundaryPolygon && boundaryPolygon.length >= 3
-                      ? t('labels.boundary_defined')
-                      : t('labels.boundary_missing')}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setBoundaryPolygon(existingBoundary)
-                      setIsDrawingEnabled(false)
-                    }}
-                    className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 flex items-center gap-1"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    {tCommon('actions.reset')}
-                  </button>
-
-                  {(boundaryPolygon || existingBoundary) && (
-                    <button
-                      onClick={handleDeleteBoundary}
-                      className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 flex items-center gap-1"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      {tCommon('actions.delete')}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleSaveBoundary}
-                  disabled={isSavingBoundary || !boundaryPolygon || boundaryPolygon.length < 3}
-                  className="flex-1 px-4 py-3 bg-tuggi-blue text-white rounded-xl font-bold text-sm hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center transition-all shadow-lg shadow-blue-500/20"
-                >
-                  {isSavingBoundary ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      {t('labels.saving_boundary')}
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4 mr-2" />
-                      {t('labels.save_boundary')}
-                    </>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => setIsDrawingEnabled(!isDrawingEnabled)}
-                  className={cn(
-                    "px-4 py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2",
-                    isDrawingEnabled
-                      ? "bg-amber-500 text-white hover:bg-amber-600"
-                      : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
-                  )}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  {isDrawingEnabled ? t('labels.stop_drawing') : t('labels.start_drawing')}
-                </button>
-              </div>
-            </div>
-          )}
+          <BoundaryControls
+            className="mt-6"
+            boundaryPolygon={boundaryPolygon}
+            existingBoundary={existingBoundary}
+            isDrawingEnabled={isDrawingEnabled}
+            isSaving={isSavingBoundary}
+            canEdit={canEdit}
+            onReset={() => {
+              setBoundaryPolygon(existingBoundary)
+              setIsDrawingEnabled(false)
+            }}
+            onDelete={handleDeleteBoundary}
+            onSave={handleSaveBoundary}
+            onToggleDrawing={() => setIsDrawingEnabled(!isDrawingEnabled)}
+          />
         </div>
       </div>
     </div>

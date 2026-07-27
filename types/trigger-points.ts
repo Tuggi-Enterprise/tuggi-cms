@@ -102,6 +102,23 @@ export interface TriggerPointMapProps {
   onSuggestionReject?: (suggestion: any) => void
   onResetMapView?: () => void
   onPOILocationChange?: (newLat: number, newLng: number) => void
+  /**
+   * Optional geographic boundary polygon rendered as an overlay so the operator can
+   * see the POI's boundary while creating/editing trigger points. Read-only by default
+   * (non-clickable, so it never intercepts TP interactions); becomes editable/drawable
+   * in Boundary mode via the flags below.
+   */
+  boundaryPolygon?: { lat: number; lng: number }[] | null
+  /** Boundary mode: make the overlay editable (drag vertices/edges) and report changes. */
+  boundaryEditable?: boolean
+  /** Boundary mode: click-to-add-vertex drawing of a new boundary polygon. */
+  isDrawingBoundary?: boolean
+  /** Fired when the editable boundary overlay is reshaped (drag vertex / edge / whole polygon). */
+  onBoundaryChange?: (coords: { lat: number; lng: number }[]) => void
+  /** Fired when a freshly drawn boundary polygon is completed (>= 3 vertices). */
+  onBoundaryComplete?: (polygon: google.maps.Polygon) => void
+  /** Boundary mode: TP markers/POI pin become non-interactive reference only. */
+  disableTriggerInteractions?: boolean
 }
 
 // Database types
@@ -141,6 +158,22 @@ export interface TriggerPointCRUDResponse {
   error?: string
 }
 
+// Geographic-boundary editing controls, wired from POIModalContext and passed into
+// TriggerPointsManager so the unified map workspace can edit the boundary in-place
+// (via a mode toggle) instead of a separate tab. Absent when the manager is used
+// standalone (e.g. the admin test page) — then only trigger-point editing is shown.
+export interface TriggerPointsBoundaryControls {
+  existingBoundary: { lat: number; lng: number }[] | null
+  boundaryPolygon: { lat: number; lng: number }[] | null
+  setBoundaryPolygon: (polygon: { lat: number; lng: number }[] | null) => void
+  isDrawingEnabled: boolean
+  setIsDrawingEnabled: (value: boolean) => void
+  isSavingBoundary: boolean
+  handleBoundaryPolygonComplete: (polygon: google.maps.Polygon) => void
+  handleSaveBoundary: () => void
+  handleDeleteBoundary: () => void
+}
+
 // Manager component props
 export interface TriggerPointsManagerProps {
   attractionId: string
@@ -152,6 +185,11 @@ export interface TriggerPointsManagerProps {
   attractionTypes?: string[]
   onClose?: () => void
   onUpdate?: () => void
+  // When provided, the manager renders a [Trigger Points | Boundary] mode toggle and
+  // lets the operator edit the boundary on the same map. Omit for TP-only usage.
+  boundary?: TriggerPointsBoundaryControls
+  // Geofence POIs use polygon-based triggering, not point TPs: lock to Boundary mode.
+  isGeofence?: boolean
 }
 
 // Helper function types

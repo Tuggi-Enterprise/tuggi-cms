@@ -3,7 +3,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { Wrapper, Status } from '@googlemaps/react-wrapper'
 
-import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION, BOUNDARY_COLOR } from '@/lib/maps-config'
+import { createPolygonDrawer, type PolygonDrawer } from '@/lib/maps/polygon-draw'
 
 const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
@@ -95,15 +96,10 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   const mapInstanceRef = useRef<google.maps.Map | null>(null)
   const currentPolygonRef = useRef<google.maps.Polygon | null>(null)
 
-  // Manual polygon drawing state (replaces the deprecated google.maps.drawing.DrawingManager,
-  // removed from the Maps JS API as of v3.65). Click to add vertices, double-click — or
-  // toggling enableDrawing off — to finish.
-  const isDrawingRef = useRef(false)
-  const drawVerticesRef = useRef<google.maps.LatLng[]>([])
-  const drawPreviewPolygonRef = useRef<google.maps.Polygon | null>(null)
-  const drawVertexMarkersRef = useRef<google.maps.Marker[]>([])
-  const drawListenersRef = useRef<google.maps.MapsEventListener[]>([])
-  const toggleDrawingRef = useRef<() => void>(() => {})
+  // Manual polygon drawing (click to add vertices, double-click — or toggling enableDrawing
+  // off — to finish). Mechanics live in the shared lib/maps/polygon-draw helper (SSOT);
+  // this component owns only the toggle button and the resulting editable polygon.
+  const drawerRef = useRef<PolygonDrawer | null>(null)
   // Synced prop refs so map init / listeners read fresh values without re-running effects.
   const enableDrawingRef = useRef(enableDrawing)
   const polygonOptionsRef = useRef(polygonOptions)
@@ -133,90 +129,18 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     onPolygonCompleteRef.current = onPolygonComplete
   }, [onPolygonComplete, componentId])
 
-  // ----- Manual polygon drawing (replaces google.maps.drawing.DrawingManager) -----
-  const clearDrawPreview = useCallback(() => {
-    drawVertexMarkersRef.current.forEach(m => m.setMap(null))
-    drawVertexMarkersRef.current = []
-    if (drawPreviewPolygonRef.current) {
-      drawPreviewPolygonRef.current.setMap(null)
-      drawPreviewPolygonRef.current = null
-    }
-    drawVerticesRef.current = []
-  }, [])
-
-  const renderDrawPreview = useCallback(() => {
+  // Build the editable polygon once drawing completes, then notify the parent.
+  const handleDrawComplete = useCallback((coords: Array<{ lat: number; lng: number }>) => {
     const map = mapInstanceRef.current
     if (!map) return
-    const verts = drawVerticesRef.current
-    const opts = polygonOptionsRef.current
-
-    // Vertex dots
-    drawVertexMarkersRef.current.forEach(m => m.setMap(null))
-    drawVertexMarkersRef.current = verts.map(v => new google.maps.Marker({
-      position: v,
-      map,
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 5,
-        fillColor: opts?.strokeColor || '#FF6B35',
-        fillOpacity: 1,
-        strokeColor: '#ffffff',
-        strokeWeight: 2,
-      },
-      zIndex: 1000,
-    }))
-
-    // Live polygon outline
-    if (!drawPreviewPolygonRef.current) {
-      drawPreviewPolygonRef.current = new google.maps.Polygon({
-        map,
-        fillColor: opts?.fillColor || '#FF6B35',
-        fillOpacity: opts?.fillOpacity ?? 0.2,
-        strokeColor: opts?.strokeColor || '#FF6B35',
-        strokeWeight: opts?.strokeWeight || 3,
-        clickable: false,
-        zIndex: 999,
-      })
-    }
-    drawPreviewPolygonRef.current.setPath(verts)
-  }, [])
-
-  const stopDrawing = useCallback(() => {
-    isDrawingRef.current = false
-    drawListenersRef.current.forEach(l => l.remove())
-    drawListenersRef.current = []
-    if (mapInstanceRef.current) {
-      mapInstanceRef.current.setOptions({ disableDoubleClickZoom: false })
-    }
-    const btn = drawingButtonRef.current
-    if (btn) {
-      btn.innerHTML = '🔸 Draw Polygon'
-      btn.style.backgroundColor = '#00A8E8'
-    }
-  }, [])
-
-  const finishDrawing = useCallback(() => {
-    // Drop a trailing duplicate vertex (a double-click adds the same point twice).
-    let verts = drawVerticesRef.current.slice()
-    if (verts.length >= 2) {
-      const a = verts[verts.length - 1]
-      const b = verts[verts.length - 2]
-      if (Math.abs(a.lat() - b.lat()) < 1e-9 && Math.abs(a.lng() - b.lng()) < 1e-9) {
-        verts = verts.slice(0, -1)
-      }
-    }
-    stopDrawing()
-    clearDrawPreview()
-    if (verts.length < 3) return
-
     const opts = polygonOptionsRef.current
     if (currentPolygonRef.current) currentPolygonRef.current.setMap(null)
     const polygonShape = new google.maps.Polygon({
-      paths: verts,
-      map: mapInstanceRef.current!,
-      fillColor: opts?.fillColor || '#FF6B35',
+      paths: coords,
+      map,
+      fillColor: opts?.fillColor || BOUNDARY_COLOR,
       fillOpacity: opts?.fillOpacity ?? 0.2,
-      strokeColor: opts?.strokeColor || '#FF6B35',
+      strokeColor: opts?.strokeColor || BOUNDARY_COLOR,
       strokeWeight: opts?.strokeWeight || 3,
       editable: true,
       draggable: true,
@@ -229,37 +153,7 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
         console.error('❌ [GoogleMapComponent] onPolygonComplete callback error:', error)
       }
     }
-  }, [stopDrawing, clearDrawPreview])
-
-  const startDrawing = useCallback(() => {
-    const map = mapInstanceRef.current
-    if (!map || isDrawingRef.current) return
-    isDrawingRef.current = true
-    clearDrawPreview()
-    map.setOptions({ disableDoubleClickZoom: true })
-
-    const clickL = map.addListener('click', (e: google.maps.MapMouseEvent) => {
-      if (!e.latLng) return
-      drawVerticesRef.current.push(e.latLng)
-      renderDrawPreview()
-    })
-    const dblL = map.addListener('dblclick', () => finishDrawing())
-    drawListenersRef.current = [clickL, dblL]
-
-    const btn = drawingButtonRef.current
-    if (btn) {
-      btn.innerHTML = '⏹️ Finish Polygon'
-      btn.style.backgroundColor = '#FF6F00'
-    }
-  }, [clearDrawPreview, renderDrawPreview, finishDrawing])
-
-  // Toggle handler the in-map button calls (kept stable via ref).
-  useEffect(() => {
-    toggleDrawingRef.current = () => {
-      if (isDrawingRef.current) finishDrawing()
-      else startDrawing()
-    }
-  }, [startDrawing, finishDrawing])
+  }, [])
 
   const initializeMap = useCallback(() => {
     if (!mapRef.current || mapInstanceRef.current) return
@@ -285,15 +179,29 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     // While drawing a polygon, clicks add vertices instead — don't fire onMapClick.
     if (onMapClick) {
       map.addListener('click', (e: google.maps.MapMouseEvent) => {
-        if (isDrawingRef.current) return
+        if (drawerRef.current?.isDrawing()) return
         if (e.latLng) {
           onMapClick(e.latLng.lat(), e.latLng.lng())
         }
       })
     }
 
+    // Shared polygon drawer (SSOT for the draw interaction). Owns vertices/preview/commit;
+    // this component only styles the resulting polygon and drives the toggle button.
+    drawerRef.current = createPolygonDrawer(map, {
+      style: polygonOptionsRef.current,
+      onComplete: handleDrawComplete,
+      onStateChange: (isDrawing) => {
+        const btn = drawingButtonRef.current
+        if (btn) {
+          btn.innerHTML = isDrawing ? '⏹️ Finish Polygon' : '🔸 Draw Polygon'
+          btn.style.backgroundColor = isDrawing ? '#FF6F00' : '#00A8E8'
+        }
+      },
+    })
+
     // Custom "Draw Polygon" control button (manual drawing — DrawingManager was
-    // removed from the Maps JS API in v3.65). Toggles drawing via toggleDrawingRef.
+    // removed from the Maps JS API in v3.65). Toggles the shared drawer.
     const controlDiv = document.createElement('div')
     controlDiv.style.margin = '10px'
     const controlButton = document.createElement('button')
@@ -311,16 +219,20 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
     if (showDrawingButton === false) {
       controlButton.style.display = 'none'
     }
-    controlButton.addEventListener('click', () => toggleDrawingRef.current())
+    controlButton.addEventListener('click', () => {
+      const d = drawerRef.current
+      if (!d) return
+      d.isDrawing() ? d.finish() : d.start()
+    })
     drawingButtonRef.current = controlButton
     controlDiv.appendChild(controlButton)
     map.controls[google.maps.ControlPosition.TOP_RIGHT].push(controlDiv)
 
     // If drawing was already requested (e.g. enableDrawing defaults true), start now.
     if (enableDrawingRef.current) {
-      startDrawing()
+      drawerRef.current.start()
     }
-  }, [center, zoom, onMapClick, startDrawing])
+  }, [center, zoom, onMapClick, handleDrawComplete])
 
   const updateMarkers = useCallback(() => {
     if (!mapInstanceRef.current) return
@@ -613,22 +525,18 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   }, [cityBoundary, cityName])
 
   const updateDrawingMode = useCallback(() => {
-    if (!mapInstanceRef.current) return
+    const drawer = drawerRef.current
+    if (!drawer) return
 
     if (enableDrawing) {
       // Enter drawing mode (no-op if already drawing).
-      startDrawing()
-    } else if (isDrawingRef.current) {
+      drawer.start()
+    } else if (drawer.isDrawing()) {
       // enableDrawing toggled off while drawing: commit the polygon if it has
-      // enough vertices, otherwise just stop and discard the preview.
-      if (drawVerticesRef.current.length >= 3) {
-        finishDrawing()
-      } else {
-        stopDrawing()
-        clearDrawPreview()
-      }
+      // enough vertices, otherwise discard the preview (drawer.finish handles both).
+      drawer.finish()
     }
-  }, [enableDrawing, startDrawing, finishDrawing, stopDrawing, clearDrawPreview])
+  }, [enableDrawing])
 
   const updateCircle = useCallback(() => {
     if (!mapInstanceRef.current) return
@@ -732,14 +640,8 @@ const MapComponent: React.FC<Omit<GoogleMapComponentProps, 'height' | 'className
   // Cleanup drawing listeners/preview when component unmounts
   useEffect(() => {
     return () => {
-      drawListenersRef.current.forEach(l => l.remove())
-      drawListenersRef.current = []
-      drawVertexMarkersRef.current.forEach(m => m.setMap(null))
-      drawVertexMarkersRef.current = []
-      if (drawPreviewPolygonRef.current) {
-        drawPreviewPolygonRef.current.setMap(null)
-        drawPreviewPolygonRef.current = null
-      }
+      drawerRef.current?.dispose()
+      drawerRef.current = null
       // Cancela glides em voo e solta os marcadores (evita setPosition em marker destruído).
       markerAnimRef.current.forEach(frame => cancelAnimationFrame(frame))
       markerAnimRef.current.clear()

@@ -994,6 +994,7 @@
         "details": "Details",
         "description": "Description & Media",
         "trigger_points": "Trigger Points",
+        "boundary_and_triggers": "Boundary & Triggers",
         "narration": "Narration & Audio",
         "audio": "Audio",
         "group_pois": "Group POIs",
@@ -1013,7 +1014,7 @@
         "enrich_osm": "Enrich with OSM",
         "creating": "Creating...",
         "view_on_google_maps": "View on Google Maps",
-        "save_boundary": "Save Boundary",
+        "save_boundary": "Save",
         "reset": "Reset",
         "regenerate": "Regenerate",
         "preview": "Preview",
@@ -1085,7 +1086,7 @@
         "start_drawing": "Start Drawing",
         "stop_drawing": "Stop Drawing",
         "valid_polygon_ready": "Valid polygon ready to save.",
-        "save_boundary": "Save Boundary",
+        "save_boundary": "Save",
         "saving_boundary": "Saving Boundary...",
         "google_types": "Google Types ({count})",
         "priority_level": "Priority",
@@ -1317,6 +1318,11 @@
       }
     },
     "TriggerPointsManager": {
+      "mode": {
+        "trigger_points": "Triggers",
+        "boundary": "Boundary",
+        "tp_reference_hint": "{count} trigger point(s) shown for reference"
+      },
       "labels": {
         "expected_bearing": "Expected Bearing",
         "radius": "Radius",

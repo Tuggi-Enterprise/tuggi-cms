@@ -40,7 +40,6 @@ import {
 } from '@/lib/core/poi-descriptions-service'
 import { fetchVerificationRaw } from '@/lib/core/poi-verification-service'
 import { POIModalProvider, type POIModalContextValue } from './POIModalContext'
-import { BoundaryTab } from './tabs/BoundaryTab'
 import { TriggerPointsTab } from './tabs/TriggerPointsTab'
 import { GroupPoisTab } from './tabs/GroupPoisTab'
 import { DescriptionTab } from './tabs/DescriptionTab'
@@ -153,7 +152,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [isSaving, setIsSaving] = useState(false)
   const [descriptions, setDescriptions] = useState<any[]>([])
   const [images, setImages] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'create' | 'details' | 'boundary' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois' | 'review'>(isCreateMode ? 'create' : 'details')
+  const [activeTab, setActiveTab] = useState<'create' | 'details' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois' | 'review'>(isCreateMode ? 'create' : 'details')
 
   // Smooth unmounting state
   const [shouldRender, setShouldRender] = useState(isOpen)
@@ -2314,33 +2313,20 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
                       {t('tabs.details')}
                     </button>
                     
+                    {/* Unified Boundary + Trigger Points workspace (mode toggle lives inside the tab).
+                        Always shown — geofence POIs need boundary editing and are locked to Boundary mode. */}
                     <button
-                      onClick={() => setActiveTab('boundary')}
+                      onClick={() => setActiveTab('trigger-points')}
                       className={cn(
                         'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
-                        activeTab === 'boundary' 
-                          ? 'bg-tuggi-blue text-white' 
+                        activeTab === 'trigger-points'
+                          ? 'bg-tuggi-blue text-white'
                           : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
                       )}
                     >
-                      <MapPin className={cn("h-5 w-5", activeTab === 'boundary' && "animate-pulse")} />
-                      {t('labels.geographic_boundaries')}
+                      <Target className={cn("h-5 w-5", activeTab === 'trigger-points' && "animate-pulse")} />
+                      {t('tabs.boundary_and_triggers')}
                     </button>
-                    
-                    {!(editedPoi?.record_type === 'geofence' || editedPoi?.category === 'geofence') && (
-                      <button
-                        onClick={() => setActiveTab('trigger-points')}
-                        className={cn(
-                          'flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all duration-300 text-left w-full',
-                          activeTab === 'trigger-points' 
-                            ? 'bg-tuggi-blue text-white' 
-                            : 'text-gray-500 dark:text-gray-400 hover:text-tuggi-blue hover:bg-tuggi-blue/5'
-                        )}
-                      >
-                        <Target className={cn("h-5 w-5", activeTab === 'trigger-points' && "animate-pulse")} />
-                        {t('tabs.trigger_points')}
-                      </button>
-                    )}
 
                     <button
                       onClick={() => setActiveTab('group-pois')}
@@ -2518,8 +2504,6 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               <CreateTab />
             ) : activeTab === 'details' ? (
               <DetailsTab />
-            ) : activeTab === 'boundary' ? (
-              <BoundaryTab />
             ) : activeTab === 'description' ? (
               <DescriptionTab />
             ) : activeTab === 'trigger-points' ? (

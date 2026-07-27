@@ -993,6 +993,7 @@
         "details": "Detalhes",
         "description": "Descrição e Mídia",
         "trigger_points": "Trigger Points",
+        "boundary_and_triggers": "Limite & Triggers",
         "narration": "Narração e Áudio",
         "audio": "Áudio",
         "group_pois": "Agrupamento de POIs",
@@ -1316,6 +1317,11 @@
       }
     },
     "TriggerPointsManager": {
+      "mode": {
+        "trigger_points": "Triggers",
+        "boundary": "Limite",
+        "tp_reference_hint": "{count} trigger point(s) exibido(s) como referência"
+      },
       "labels": {
         "expected_bearing": "Direção Esperada",
         "radius": "Raio",
