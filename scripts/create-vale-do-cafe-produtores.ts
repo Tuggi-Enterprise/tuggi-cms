@@ -28,8 +28,8 @@ const PRODUCERS: P[] = [
     desc: 'Alambique na estrada da Fazenda União (RJ-135), em Rio das Flores, que produz cachaça de cana própria cultivada sem adubo químico, com destilação lenta. Oferece visita gratuita com degustação.' },
   { name: 'Cachaça Pindorama - Fazenda das Palmas', city: 'Engenheiro Paulo de Frontin', neighborhood: 'Barão do Amparo', type: 'cachaca', kind: 'place', place_type: 'producer',
     desc: 'Cachaça branca orgânica produzida na histórica Fazenda das Palmas, em Barão do Amparo, com alambique de 1855 restaurado e premiado. A cana é cortada e moída no mesmo dia. Visita com agendamento.' },
-  { name: 'Cachaça Magnífica - Alambique Alegria', city: 'Miguel Pereira', neighborhood: 'divisa com Vassouras', type: 'cachaca', kind: 'place', place_type: 'producer',
-    desc: 'Alambique artesanal na serra entre Miguel Pereira e Vassouras, com alambique de cobre de três estágios e cana própria. Produção aberta a visitas de turistas.' },
+  { name: 'Cachaça Magnífica - Alambique Alegria', city: 'Vassouras', neighborhood: 'Divisa', type: 'cachaca', kind: 'place', place_type: 'producer',
+    desc: 'Alambique artesanal na Fazenda do Anil, no distrito da Divisa, em Vassouras (na fronteira com Miguel Pereira), com alambique de cobre de três estágios e cana própria. Produção aberta a visitas de turistas.' },
   { name: 'Museu da Cachaça de Paty do Alferes', city: 'Paty do Alferes', neighborhood: 'Mantiquira', type: 'cachaca', kind: 'museu', place_type: 'museum',
     desc: 'Primeiro museu da cachaça do país, inaugurado em 1991, no distrito de Mantiquira, em Paty do Alferes. Reúne alambique artesanal, duas caves e bar de degustação. Aberto de terça a domingo.' },
   { name: 'Hotel Fazenda Vilarejo', city: 'Conservatória', neighborhood: 'Conservatória', type: 'cachaca', kind: 'place', place_type: 'producer',
@@ -45,9 +45,9 @@ const PRODUCERS: P[] = [
     desc: 'Produtor do Queijo Prato Valenciano, com tradição de família dinamarquesa desde os anos 1920, na Fazenda Vista Alegre, em Valença. Oferece visitação rural e gastronômica.' },
   { name: 'Capril do Lago', city: 'Valença', neighborhood: 'RJ-145', type: 'queijo', kind: 'place', place_type: 'producer',
     desc: 'Produtor de queijos de leite de cabra com maturação de no mínimo um ano, às margens da RJ-145, em Valença. Na visita é possível ordenhar as cabras.' },
-  // hold: Google devolveu coordenada idêntica para os dois (geocode não-confiável) → coord manual
-  { name: 'Rancho Latte Buono', city: 'Valença', neighborhood: 'zona rural', type: 'queijo', kind: 'place', place_type: 'producer', hold: true,
+  { name: 'Rancho Latte Buono', city: 'Valença', neighborhood: 'Sítio Boa Esperança', type: 'queijo', kind: 'place', place_type: 'producer',
     desc: 'Produtor de laticínios de leite de búfala — queijos, iogurte, manteiga, doce de leite e sorvete — em Valença. O visitante pode fazer o próprio queijo de búfala.' },
+  // hold: Google geocodou no ponto do Latte Buono (coord errada) → coord manual pendente
   { name: 'Ecoleite', city: 'Valença', neighborhood: 'zona rural', type: 'queijo', kind: 'place', place_type: 'producer', hold: true,
     desc: 'Produtor de queijos premiados e laticínios agroecológicos, em Valença. Visitas com agendamento prévio.' },
 ]
@@ -57,6 +57,8 @@ const COORD_OVERRIDE: Record<string, { lat: number; lng: number }> = {
   'Hotel Fazenda Vilarejo|Conservatória': { lat: -22.288499, lng: -43.915075 },                       // = Cachaçaria Vilarejo (Estr. Rosinha de Valença)
   'Cachaça Pindorama - Fazenda das Palmas|Engenheiro Paulo de Frontin': { lat: -22.478365, lng: -43.651610 }, // = Fazenda das Palmas
   'Ateliê du Leite|Valença': { lat: -22.296747, lng: -43.779711 },                                    // = Fazenda Vista Alegre
+  'Cachaça Magnífica - Alambique Alegria|Vassouras': { lat: -22.421725, lng: -43.519789 },            // Fazenda do Anil, Estrada do Anil 4000, Divisa
+  'Rancho Latte Buono|Valença': { lat: -22.310645, lng: -43.721271 },                                 // Rua Sítio Boa Esperança 1000
 }
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, '').trim()
