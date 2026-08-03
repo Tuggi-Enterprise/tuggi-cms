@@ -86,3 +86,7 @@ installed_apps.txt
 
 # Local DB clone dumps (contains secrets, large dumps) — never commit
 db-clone/
+
+# Memória dos agentes vive no workspace (../.claude/agent-memory/), não no repo do projeto.
+.claude/agent-memory/
+.claude/settings.local.json
