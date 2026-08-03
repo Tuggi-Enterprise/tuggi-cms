@@ -34,6 +34,8 @@ const ITEMS: F[] = [
   { name: 'Fazenda Alliança', city: 'Barra do Piraí', neighborhood: 'RJ-145', kind: 'fazenda', vis: 'eventos', desc: 'Sede cafeeira de 1863 restaurada a partir de 2007, na estrada Barra do Piraí–Valença. Hoje é fazenda orgânica certificada, com café especial e búfalas, e circuito histórico e agroecológico.' },
   { name: 'Fazenda Ponte Alta', city: 'Barra do Piraí', kind: 'fazenda', vis: 'eventos', desc: 'Fazenda do século XIX ligada a encontros políticos de Getúlio Vargas nos anos 1950. Hoje sedia eventos culturais, como o Sarau Getúlio Vargas.' },
   { name: 'Fazenda da Bocaina', city: 'Barra do Piraí', kind: 'fazenda', vis: 'nao', desc: 'Propriedade rural com cerca de 160 a 180 anos, restaurada e mantida pela família proprietária, testemunho da arquitetura rural do ciclo do café.' },
+  // Sapucaia (município vizinho do Vale do Paraíba fluminense) — indicada pelo operador
+  { name: 'Fazenda da Bocaina', city: 'Sapucaia', neighborhood: 'Nossa Senhora da Aparecida', kind: 'fazenda', vis: 'desconhecido', desc: 'Fazenda histórica no distrito de Nossa Senhora da Aparecida, em Sapucaia, na região serrana do Vale do Paraíba fluminense ligada ao ciclo do café.' },
   // Engenheiro Paulo de Frontin
   { name: 'Fazenda das Palmas', city: 'Engenheiro Paulo de Frontin', neighborhood: 'Sacra Família do Tinguá', kind: 'fazenda', vis: 'desconhecido', desc: 'Fazenda do ciclo do café surgida entre o fim do século XVIII e o início do XIX, fundada por Bento Luiz de Oliveira Braga, em Sacra Família do Tinguá.' },
   // Mendes
@@ -100,6 +102,7 @@ const COORD_OVERRIDE: Record<string, { lat: number; lng: number }> = {
   'Fazenda São José do Pinheiro|Pinheiral': { lat: -22.518444, lng: -43.995083 }, // = IFRJ Campus Pinheiral
   'Fazenda Bemposta|Três Rios': { lat: -22.161160, lng: -43.098722 },              // distrito de Bemposta
   'Fazenda das Palmas|Engenheiro Paulo de Frontin': { lat: -22.478365, lng: -43.651610 },
+  'Fazenda da Bocaina|Sapucaia': { lat: -21.970801, lng: -42.792058 },             // Nossa Sra. da Aparecida, Sapucaia
 }
 // Sem coordenada confiável (homônimos em outros municípios) — geocode manual pendente:
 //   Fazenda da Taquara (Mendes), Fazenda da Bocaina (Barra do Piraí)
