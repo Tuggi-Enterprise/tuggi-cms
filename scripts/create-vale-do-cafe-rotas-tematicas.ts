@@ -28,8 +28,8 @@ interface Theme {
 const THEMES: Theme[] = [
   {
     key: 'cafe',
-    name: 'Rota do Café do Vale do Café',
-    description: 'Circuito pelas fazendas históricas do ciclo do café no Vale do Paraíba fluminense, de Vassouras a Rio das Flores. Sedes neoclássicas, terreiros, senzalas e museus contam a era em que o café movia o Império — muitas hoje abertas a visitas guiadas, hospedagem e degustação.',
+    name: 'Rota do Café',
+    description: 'As fazendas que enriqueceram com o café no século XIX ainda estão de pé, espalhadas entre Vassouras, Barra do Piraí, Valença e Rio das Flores. Este circuito de estrada liga as principais, com suas casas-sede neoclássicas, terreiros de secagem, antigas senzalas e museus do café. Boa parte recebe visita guiada e algumas viraram hotel-fazenda, onde dá para dormir e provar o café da casa. É um roteiro longo, para fazer com calma em mais de um dia.',
     start: { lat: -22.4072, lng: -43.6583 }, // Vassouras (Casa da Hera)
     scenic: ['historical', 'cultural', 'rural', 'scenic'],
     waypoints: [
@@ -54,8 +54,8 @@ const THEMES: Theme[] = [
   },
   {
     key: 'cachaca',
-    name: 'Rota da Cachaça do Vale do Café',
-    description: 'Circuito pelos alambiques e cachaçarias artesanais do Vale do Café fluminense, de Paty do Alferes a Conservatória. Cana orgânica, alambiques de cobre centenários e cachaças premiadas — muitos produtores abertos a visita e degustação, além do primeiro museu da cachaça do país.',
+    name: 'Rota da Cachaça',
+    description: 'Entre Paty do Alferes e Conservatória, os alambiques do Vale do Café ainda destilam cachaça de cana própria em tachos de cobre, alguns com mais de cem anos. A rota passa por cachaçarias premiadas, pela Fazenda das Palmas e pelo primeiro museu da cachaça do país. Vários produtores abrem para visita e degustação; em alguns convém agendar antes.',
     start: { lat: -22.289553, lng: -43.927002 }, // Conservatória
     scenic: ['gastronomic', 'rural', 'cultural'],
     waypoints: [
@@ -70,8 +70,8 @@ const THEMES: Theme[] = [
   },
   {
     key: 'queijo',
-    name: 'Rota do Queijo do Vale do Café',
-    description: 'Roteiro pelas queijarias artesanais de Valença, coração da Rota do Queijo do Vale do Café. Do Empório Rural, que reúne dezenas de produtores, às caves de cura na rocha e aos queijos de leite de cabra e de búfala — tradições que rendem prêmios nacionais e internacionais.',
+    name: 'Rota do Queijo de Valença',
+    description: 'Valença é o centro da produção de queijo artesanal do Vale do Café. A rota começa no Empório Rural, que reúne dezenas de produtores num só balcão, e segue pelas queijarias da região: queijo de leite cru curado em caves na rocha, queijo de cabra de maturação longa e laticínios de búfala. É um passeio curto, todo dentro do município, bom para uma manhã.',
     start: { lat: -22.278834, lng: -43.739256 }, // Empório Rural de Valença
     scenic: ['gastronomic', 'rural', 'cultural'],
     waypoints: [

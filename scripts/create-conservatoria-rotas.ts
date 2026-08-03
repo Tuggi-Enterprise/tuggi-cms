@@ -109,8 +109,8 @@ async function main() {
   console.log(`  estabelecimentos com tag: ${festPlaces.length}`)
   const gOrdered = nnOrder(festPlaces, PRACA)
   await buildRoute({
-    name: 'Rota Gastronômica de Conservatória — Delícias do Vale do Café',
-    description: 'Roteiro gastronômico pelos estabelecimentos participantes do Festival Delícias do Vale do Café 2026, em Conservatória. Do centro histórico, na Rua Luiz de Almeida Pinto e na praça das serestas, aos sabores da cozinha de fazenda do Vale do Café.',
+    name: 'Rota Gastronômica de Conservatória',
+    description: 'Os doze restaurantes e produtores do Festival Delícias do Vale do Café ficam quase todos a poucos passos uns dos outros, no centro histórico de Conservatória. A rota liga todos, da praça das serestas e da Rua Luiz de Almeida Pinto à cozinha de fazenda que dá o tom do festival. Dá para fazer o trajeto a pé, com um prato em cada parada.',
     ordered: gOrdered, theme: 'gastronomic', mode: 'walking',
     scenic: ['gastronomic', 'cultural', 'historical'], drivability: 'easy', accessibility: 'partial',
   }, admin)
@@ -123,8 +123,8 @@ async function main() {
   const missing = TOURIST_ORDER.filter(n => !byName.get(n.toLowerCase()))
   if (missing.length) console.log(`  ⚠ não encontrados: ${missing.join(', ')}`)
   await buildRoute({
-    name: 'Rota Turística de Conservatória — Capital da Seresta',
-    description: 'Roteiro pelos principais pontos de Conservatória, a Capital da Seresta, no Vale do Café: da praça e da Casa da Cultura (Museu da Seresta) ao Túnel que Chora, à antiga estação ferroviária, à Ponte dos Arcos e ao Mirante da Serra da Beleza.',
+    name: 'Conservatória, a Capital da Seresta',
+    description: 'Conservatória mantém o costume das serestas de rua e um centro histórico pequeno, de percorrer a pé. A rota passa pela praça e pela Casa da Cultura, onde fica o Museu da Seresta, segue até o Túnel que Chora, a antiga estação de trem e a Ponte dos Arcos, e sobe ao Mirante da Serra da Beleza para ver o vale de cima.',
     ordered: tOrdered, theme: 'historical', mode: 'driving',
     scenic: ['historical', 'cultural', 'scenic'], drivability: 'moderate', accessibility: 'partial',
   }, admin)
