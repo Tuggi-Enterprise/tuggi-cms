@@ -49,6 +49,38 @@ UPDATE core.attractions SET state = 'Navarra'
   WHERE country = 'Spain'
     AND state IN ('Navarre', 'Comunidad Foral de Navarra');
 
+-- ---- France ----
+UPDATE core.attractions SET country = 'France'
+  WHERE trim(country) IN ('FR', 'fr');
+
+UPDATE core.attractions SET state = 'Nouvelle-Aquitaine'
+  WHERE country = 'France'
+    AND state IN ('New Aquitaine', 'Nouvelle Aquitaine');
+
+UPDATE core.attractions SET state = 'Auvergne-Rhône-Alpes'
+  WHERE country = 'France'
+    AND state IN ('Rhône-Alpes', 'Auvergne');
+
+UPDATE core.attractions SET state = 'Bretagne'
+  WHERE country = 'France'
+    AND state IN ('Brittany');
+
+UPDATE core.attractions SET state = 'Normandie'
+  WHERE country = 'France'
+    AND state IN ('Normandy', 'Haute-Normandie', 'Basse-Normandie');
+
+UPDATE core.attractions SET state = 'Bourgogne-Franche-Comté'
+  WHERE country = 'France'
+    AND state IN ('Bourgogne', 'Franche-Comté', 'Burgundy');
+
+UPDATE core.attractions SET state = 'Corse'
+  WHERE country = 'France'
+    AND state IN ('Corsica');
+
+UPDATE core.attractions SET state = 'Centre-Val de Loire'
+  WHERE country = 'France'
+    AND state IN ('Centre');
+
 -- Verify
 SELECT 'Canada' as country, state, count(*)
   FROM core.attractions WHERE country = 'Canada' GROUP BY state ORDER BY count DESC LIMIT 15;

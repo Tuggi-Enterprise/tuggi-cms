@@ -113,7 +113,10 @@ Deno.serve(async (req) => {
           notification: {
             title: i18n.title,
             body: messageBody,
-            data: { source: 'daily-fomo', date: new Date().toISOString().split('T')[0] }
+            // deeplink → app opens the Explore/Discover sheet on nearby
+            // attractions so the tap lands somewhere actionable (was: no
+            // deeplink → fell into the inbox and went nowhere on tap).
+            data: { source: 'daily-fomo', date: new Date().toISOString().split('T')[0], deeplink: 'tuggi://map' }
           },
           priority: 'high',
           ttl: 86400

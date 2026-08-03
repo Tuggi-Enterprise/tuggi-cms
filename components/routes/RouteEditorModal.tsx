@@ -46,6 +46,10 @@ interface WaypointMetadata {
   restrooms?: 'yes' | 'no' | 'unknown'
   rest_areas?: 'yes' | 'no' | 'unknown'
   photogenic_rating?: 'low' | 'medium' | 'high' | 'unknown'
+  /** O que fazer nesta parada — tags curtas p/ ícone (ex.: 'sunset', 'photo', 'swim', 'dive'). */
+  activities?: string[]
+  /** O que fazer nesta parada — dicas em texto (ex.: 'Pôr do sol na orla'). */
+  tips?: string[]
 }
 
 interface Waypoint extends LatLng {

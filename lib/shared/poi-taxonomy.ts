@@ -255,21 +255,24 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(tower|torre|campanile|beffroi|belfry)\b/, 'tower'],
   // religioso: catedral/basílica e abadia/mosteiro ANTES da igreja genérica (senão viram 'church')
   [/\b(cathedrale|cattedrale|catedral|duomo|basilique|basilica)\b/, 'cathedral'],
-  [/\b(abbaye|abbey|abadia|abbazia|prieure|priory|monastere|monasterio|monestir|monastery|convento|convent)\b/, 'monastery'],
-  [/\b(church|chapel|chapelle|cappella|capilla|parroquia|temple|mosque|synagogue|igreja|capela|ermita|ermida|eremo|pieve|santuario|santuari|iglesia|chiesa|eglise|esglesia|collegiale)\b/, 'church'],
+  [/\b(abbaye|abbey|abadia|abbazia|prieure|priory|monastere|monasterio|monestir|monastery|mosteiro|convento|convent)\b/, 'monastery'],
+  [/\b(church|chapel|chapelle|cappella|capilla|parroquia|paroquia|temple|mosque|synagogue|igreja|capela|ermita|ermida|eremo|pieve|santuario|santuari|iglesia|chiesa|eglise|esglesia|collegiale)\b/, 'church'],
   [/\b(museum|museu|museo|musee)\b/, 'museum'],
   [/\b(cemetery|cemiterio|cementerio|cimetiere|cimitero)\b/, 'cemetery'],
   [/\b(theatre|theater|teatro|anfiteatro)\b/, 'theatre'],
   [/\b(library|biblioteca|bibliotheque)\b/, 'library'],
   [/\b(monumento|monument)\b/, 'monument'],
   [/\b(memorial)\b/, 'memorial'],
+  [/\b(escultura|sculpture|scultura|busto|estatua|statue|statua)\b/, 'artwork'],
   [/\b(estadio|stadium|stadio|arena|ginasio|autodromo)\b/, 'stadium'],
   [/\b(mercadao|mercado municipal|mercado central|mercat)\b/, 'marketplace'],
   [/\b(chafariz)\b/, 'fountain'],
+  // reserva natural ANTES de relief/forest/park (senão "Reserva Natural da Serra" vira peak)
+  [/\b(reserva natural|reserva ecologica|reserva biologica|reserva florestal|reserva da biosfera|nature reserve|reserve naturelle|reserva nacional)\b/, 'nature_reserve'],
   // sítios arqueológicos (dolmen/menhir/oppidum…) e fortificações/aquedutos
   [/\b(dolmen|menhir|tumulus|cromlech|oppidum|cairn|nuraghe)\b/, 'archaeological_site'],
   // fortificações + palácios/solares/sobrados (casarões históricos PT-BR)
-  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|castello|rocca|chateau|chateaux|citadelle|donjon|manoir|manor|palacio|palazzo|palais|solar|sobrado|hacienda|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
+  [/\b(fort|fortress|fortaleza|forte|castle|castelo|castillo|castell|castello|rocca|chateau|chateaux|citadelle|donjon|manoir|manor|palacio|palazzo|palais|solar|sobrado|casarao|hacienda|pelourinho|ruinas?|ruins)\b/, 'historic_site'],
   [/\b(aqueduc|aqueduct|acueducto|acquedotto)\b/, 'bridge'],
   [/\b(viewpoint|mirante|mirador|belvedere|belvedere)\b/, 'viewpoint'],
   // water
@@ -281,7 +284,7 @@ const NAME_HEURISTICS: Array<[RegExp, string]> = [
   [/\b(beach|praia|prainha|playa|plage|spiaggia|cala|calanque)\b/, 'beach'],
   [/\b(bay|cove|inlet|harbor|harbour|baia|enseada|bahia|baie)\b/, 'bay'],
   // relief / nature
-  [/\b(mountain|mount|mt|peak|summit|morro|serra|pico|monte|cerro|colina|montagne|montana)\b/, 'peak'],
+  [/\b(mountain|mount|mt|peak|summit|morro|serra|serrote|macico|contraforte|pedra|pico|monte|cerro|colina|montagne|montana)\b/, 'peak'],
   [/\b(hill|knob|butte|mound|outeiro)\b/, 'hill'],
   [/\bmesa\b/, 'plateau'],
   [/\bridge\b/, 'ridge'],
@@ -486,9 +489,20 @@ export function classify(input: ClassifyInput): ClassifyResult {
     return makeResult(keyDefault, 'key_default', 'low')
   }
 
-  // (5a) street/road by TAG (highway) — high-confidence exclusion
+  // (5a) street/road by TAG (highway) — high-confidence exclusion.
   if (tagHighway) {
     if (isNotable(input)) return makeResult('road', 'osm_tags_reparse', 'high')
+    // A `highway` class frequently comes from reverse-geocode contamination: the
+    // POI's coordinate resolved to a nearby road/trail (Nominatim `reverse`), not
+    // to the POI itself. If the stored name is clearly a non-street POI (matches a
+    // heuristic and is not street-like), trust the name over the polluted class —
+    // recovers churches/peaks/beaches/waterfalls wrongly buried as `_excluded_street`.
+    if (name && !isStreetLike(name)) {
+      const nameNorm = deburr(name)
+      for (const [re, cat] of NAME_HEURISTICS) {
+        if (re.test(nameNorm)) return makeResult(cat, 'name_heuristic', 'low')
+      }
+    }
     return { primary_category: null, category_group: null, categories: [], matched_by: 'excluded_street', confidence: 'high', excluded: true }
   }
 

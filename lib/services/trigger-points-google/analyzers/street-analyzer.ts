@@ -34,19 +34,19 @@ export class StreetAnalyzer {
   ): Promise<Response> {
     // Lista de mirrors do Overpass API para resiliência
     const mirrors = [
+      'https://overpass.openstreetmap.fr/api/interpreter',  // 1º: cobertura global verificada 6/6 (PT/IE/BR/US/JP/AU) e ~2s
       'https://overpass-api.de/api/interpreter',
       'https://lz4.overpass-api.de/api/interpreter',
       'https://z.overpass-api.de/api/interpreter',
-      'https://overpass.kumi.systems/api/interpreter',
       'https://overpass.osm.ch/api/interpreter',
       'https://overpass.be/api/interpreter',
       'https://overpass-api.enit.it/api/interpreter'
     ];
     
     let lastError: Error | null = null;
-    
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      // Rotacionar mirror a cada tentativa
+      // Rotacionar mirror a cada tentativa (mirror[0] = o estável)
       const mirror = mirrors[(attempt - 1) % mirrors.length];
       
       try {

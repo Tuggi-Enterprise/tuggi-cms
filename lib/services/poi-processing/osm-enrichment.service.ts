@@ -392,8 +392,12 @@ export class OSMEnrichmentService {
     // This is a simplified version - the full implementation would include
     // all the extraction functions from the original route
     const extractedData: EnrichedPOIData = {
-      // Basic OSM data
-      osm_category: nominatim?.class || reverse?.class,
+      // Basic OSM data.
+      // `reverse` is a reverse-geocode of the POI's coordinate: it returns the
+      // NEAREST feature, which for most POIs is the road/trail beside them. A
+      // `class=highway` from reverse is never the POI's own category — using it
+      // buried churches/peaks/beaches as `_excluded_street` (see classify()).
+      osm_category: nominatim?.class || (reverse?.class === 'highway' ? undefined : reverse?.class),
       osm_tags: {
         ...nominatim?.extratags,
         ...reverse?.extratags,

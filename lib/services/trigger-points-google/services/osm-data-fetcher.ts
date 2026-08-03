@@ -175,8 +175,8 @@ export class OSMDataFetcher {
    */
   private async executeQuery(query: string): Promise<any> {
     const servers = [
+      'https://overpass.openstreetmap.fr/api/interpreter',  // 1º: cobertura global verificada 6/6 (PT/IE/BR/US/JP/AU) e ~2s
       'https://overpass-api.de/api/interpreter',
-      'https://overpass.kumi.systems/api/interpreter',
       'https://lz4.overpass-api.de/api/interpreter'
     ];
 
