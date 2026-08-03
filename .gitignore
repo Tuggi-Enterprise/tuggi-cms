@@ -73,6 +73,13 @@ data/*.geojsonseq
 # SRTM elevation cache (binary HGT tiles, downloaded on demand)
 data/srtm-cache/
 
+# Dado pessoal de terceiros e material de prospecção NÃO entram neste repo.
+# Lugar deles é ../Tuggi-negocio/, fora do alcance dos agentes (CLAUDE.md).
+# Os CSVs do Cadastur trazem CPF e telefone de pessoa física; Connections.csv
+# é exportação de contatos. Uma vez no histórico do git, só saem reescrevendo-o.
+data/*.csv
+linkedin/
+
 # Ad-hoc investigation/migration scripts (not part of core pipeline)
 scripts/probe-nominatim-stuck-pois.ts
 scripts/recover-cities-proximity.ts

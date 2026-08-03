@@ -1,5 +1,18 @@
 {
   "permissions": {
+    "deny": [
+      "Bash(npx supabase db reset*)",
+      "Bash(supabase db reset*)",
+      "Bash(pnpm supabase db reset*)",
+      "Bash(yarn supabase db reset*)",
+      "Bash(bunx supabase db reset*)",
+      "Bash(npx supabase projects delete*)",
+      "Bash(supabase projects delete*)",
+      "Bash(npx supabase branches delete*)",
+      "Bash(supabase branches delete*)",
+      "Bash(npx supabase storage rm*)",
+      "Bash(supabase storage rm*)"
+    ],
     "allow": [
       "Bash(npx tsx *)",
       "Bash(sqlite3 /Users/leandroramos/Documents/work/Tuggi/tuggi-cms/data/osm_cache.db \"SELECT response FROM overpass_cache WHERE query_text LIKE 'https://nominatim.openstreetmap.org/reverse?lat=42.8984503%' LIMIT 1;\")",
@@ -194,6 +207,21 @@
     ],
     "additionalDirectories": [
       "/private/tmp"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|mcp__supabase.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive-db.sh\"",
+            "timeout": 10,
+            "statusMessage": "Verificando operação destrutiva..."
+          }
+        ]
+      }
     ]
   }
 }
