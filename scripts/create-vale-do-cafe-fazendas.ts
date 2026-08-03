@@ -104,8 +104,9 @@ const COORD_OVERRIDE: Record<string, { lat: number; lng: number }> = {
   'Fazenda das Palmas|Engenheiro Paulo de Frontin': { lat: -22.478365, lng: -43.651610 },
   'Fazenda da Bocaina|Sapucaia': { lat: -21.970801, lng: -42.792058 },             // Nossa Sra. da Aparecida, Sapucaia
 }
-// Sem coordenada confiável (homônimos em outros municípios) — geocode manual pendente:
-//   Fazenda da Taquara (Mendes), Fazenda da Bocaina (Barra do Piraí)
+// HOLD: nunca geocodar/criar sem coord verificada (Google devolve resultado errado —
+// ex.: Bocaina/Barra do Piraí colou no ponto da Fazenda Alliança). Geocode manual pendente.
+const HOLD = new Set(['Fazenda da Bocaina|Barra do Piraí', 'Fazenda da Taquara|Mendes'])
 
 async function geocode(f: F): Promise<{ lat: number; lng: number; matched: boolean } | null> {
   const ov = COORD_OVERRIDE[`${f.name}|${f.city}`]
@@ -138,6 +139,7 @@ async function main() {
   for (const f of ITEMS) {
     const ex = existing.get(f.city) || []
     if (ex.find(e => norm(e.name) === norm(f.name))) { console.log(`  ↷ existe — ${f.name} (${f.city})`); skipped++; continue }
+    if (HOLD.has(`${f.name}|${f.city}`)) { console.log(`  ⏸ HOLD (coord manual) — ${f.name} (${f.city})`); noCoordList.push(`${f.name} (${f.city})`); nocoord++; continue }
     const geo = await geocode(f)
     await new Promise(r => setTimeout(r, 350))
     if (!geo) { console.log(`  ⚠ SEM COORD — ${f.name} (${f.city})`); noCoordList.push(`${f.name} (${f.city})`); nocoord++; continue }
