@@ -9,22 +9,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { resolveCoordinator, canTouchClient } from '@/lib/services/coordinator-service'
+import {
+  CLIENT_COORDINATOR_EDITABLE_FIELDS,
+  pickEditableFields,
+  validateAvatarUrl,
+} from '@/lib/services/client-editable-fields'
 
 export const dynamic = 'force-dynamic'
-
-// Campos que o coordenador pode editar numa filha.
-// Deliberadamente FORA da lista:
-//   parent_client_id  → mover uma filha de guarda-chuva não é edição de perfil
-//   is_coordinator    → promover alguém a coordenador é decisão comercial da Tuggi
-//   is_platform_owner → só a Tuggi é dona da plataforma
-//   commission_rate   → dinheiro; a Tuggi define (a aba Fiscal é admin-only)
-//   status            → nasce 'approved' e só a Tuggi rebaixa
-//   slug              → muda a URL do QR já impresso/distribuído; exige decisão explícita
-const EDITABLE_FIELDS = [
-  'name', 'email', 'phone', 'company_name', 'address', 'city', 'state',
-  'country', 'postal_code', 'industry', 'website', 'client_type',
-  'avatar_url', 'social_handle', 'bio_one_line',
-] as const
 
 export async function GET(
   _request: NextRequest,
@@ -73,15 +64,22 @@ export async function PATCH(
 
     const body = await request.json()
 
-    // Allowlist, não denylist: campo novo em core.clients não vira editável por acidente.
-    const updates: Record<string, any> = {}
-    for (const field of EDITABLE_FIELDS) {
-      if (field in body) updates[field] = body[field] ?? null
-    }
+    // Escopo de coordenador = só o bloco de perfil; dinheiro, hierarquia e slug
+    // ficam com o admin (ver lib/services/client-editable-fields.ts).
+    const updates = pickEditableFields(body, CLIENT_COORDINATOR_EDITABLE_FIELDS)
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No editable fields provided' }, { status: 400 })
     }
+
+    if ('avatar_url' in updates) {
+      const avatarUrl = validateAvatarUrl(updates.avatar_url)
+      if (!avatarUrl.ok) {
+        return NextResponse.json({ error: avatarUrl.error }, { status: 400 })
+      }
+      updates.avatar_url = avatarUrl.value
+    }
+
     updates.updated_at = new Date().toISOString()
 
     const service = getSupabaseService()

@@ -10,6 +10,11 @@ import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
+import {
+  CLIENT_ADMIN_EDITABLE_FIELDS,
+  pickEditableFields,
+  validateAvatarUrl,
+} from '@/lib/services/client-editable-fields'
 
 async function getAdminUser(request: NextRequest) {
   const cookieStore = await cookies()
@@ -106,22 +111,18 @@ export async function PATCH(
       return NextResponse.json({ error: 'Client not found' }, { status: 404 })
     }
 
-    const allowedFields = [
-      'name', 'email', 'phone', 'company_name', 'address', 'city', 'state', 'country', 'postal_code', 'industry', 'website', 'status', 'rejection_reason', 'notes', 'slug',
-      'tax_id', 'tax_id_type', 'legal_representative_name', 'legal_representative_role',
-      'billing_email', 'iban', 'bic_swift', 'bank_account_number', 'bank_routing_number', 'bank_name',
-      'commission_rate', 'is_platform_owner', 'welcome_poi_id', 'is_coordinator', 'parent_client_id'
-    ]
-    const updateData: any = {}
-
-    for (const field of allowedFields) {
-      if (field in body) {
-        updateData[field] = body[field]
-      }
-    }
+    const updateData = pickEditableFields(body, CLIENT_ADMIN_EDITABLE_FIELDS)
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
+    }
+
+    if ('avatar_url' in updateData) {
+      const avatarUrl = validateAvatarUrl(updateData.avatar_url)
+      if (!avatarUrl.ok) {
+        return NextResponse.json({ error: avatarUrl.error }, { status: 400 })
+      }
+      updateData.avatar_url = avatarUrl.value
     }
 
     // Vincular a um coordenador: o pai PRECISA ser um client is_coordinator (você pendura
