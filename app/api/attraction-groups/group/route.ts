@@ -1,22 +1,23 @@
+/**
+ * POST /api/attraction-groups/group — create or update a POI group and its members.
+ *
+ * Gated by CARD-CMS-01. Roles are the ones that can sign into the CMS at all
+ * (app/[locale]/login/page.tsx); who may curate groups specifically is CARD-CMS-25.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
-;
-import { cookies } from 'next/headers';
-// import { withAuth, withRateLimit } from '@/lib/auth-middleware';
+import { withAuth } from '@/lib/auth-middleware';
 
-export const POST = async function(req: NextRequest) {
-  console.log('🔍 API: /api/attraction-groups/group POST called (no auth)');
-  
+export const POST = withAuth({ roles: ['admin', 'client', 'editor'] }, async function (req: NextRequest, _ctx, auth) {
   try {
-    const cookieStore = await cookies();
-    const supabase = getSupabaseRouteHandler(cookieStore);
+    const supabase = auth.supabase;
     const body = await req.json();
-    const { groupId, name, poiIds, userId } = body;
+    const { groupId, name, poiIds } = body;
+    // `created_by` comes from the proven session, never from the body: a client-sent
+    // user id would let any caller attribute a group to someone else.
+    const userId = auth.user.id;
 
-    console.log('Group API called with:', { groupId, name, poiIds, userId });
-
-    if (!name || !Array.isArray(poiIds) || poiIds.length === 0 || !userId) {
-      console.error('Missing required fields:', { name, poiIds, userId });
+    if (!name || !Array.isArray(poiIds) || poiIds.length === 0) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -92,4 +93,4 @@ export const POST = async function(req: NextRequest) {
     console.error('Unexpected error in group API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-}
+})

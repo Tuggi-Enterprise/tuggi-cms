@@ -1,5 +1,12 @@
-// Centralized role definitions and helpers
-export type Role = 'admin' | 'client'
+// Centralized role definitions and helpers.
+//
+// SSOT for the vocabulary of `core.cms_users.role`. The four values below are the
+// ones the CMS itself accepts when creating a user (app/api/admin/users/route.ts)
+// and the ones the user editor offers (app/[locale]/users/cms/page.tsx).
+// `lib/auth-middleware.ts` reads the vocabulary from here — do not restate it.
+export const CMS_ROLES = ['admin', 'client', 'editor', 'viewer'] as const
+
+export type Role = (typeof CMS_ROLES)[number]
 
 export const ROLE_ADMIN: Role = 'admin'
 export const ROLE_CLIENT: Role = 'client'

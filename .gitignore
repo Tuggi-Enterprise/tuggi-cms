@@ -102,3 +102,7 @@ db-clone/
 .dedupe-out/
 .merge-out/
 .demote-out/
+
+# Credenciais das contas de teste do CARD-CMS-01 (scripts/qa) — nunca commitar senha, mesmo de
+# conta de teste em domínio fake.
+scripts/qa/*.local.json

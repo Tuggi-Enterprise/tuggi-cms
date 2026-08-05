@@ -1,8 +1,12 @@
+/**
+ * GET|POST /api/attraction-groups/nearby — POIs near a reference POI or inside a polygon.
+ *
+ * Gated by CARD-CMS-01. Roles are the ones that can sign into the CMS at all
+ * (app/[locale]/login/page.tsx); who may curate groups specifically is CARD-CMS-25.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
-;
-import { cookies } from 'next/headers';
-// import { withAuth, withRateLimit } from '@/lib/auth-middleware';
+import { withAuth } from '@/lib/auth-middleware';
 
 // Helper to calculate distance in meters between two lat/lng points
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -38,11 +42,8 @@ const NEARBY_CANDIDATE_LIMIT = 50000;
 // Hard cap on POIs returned (group-selection UI).
 const NEARBY_RESULT_LIMIT = 500;
 
-export const GET = async function(req: NextRequest) {
-  console.log('🔍 API: /api/attraction-groups/nearby GET called (no auth)');
-  
-  const cookieStore = await cookies();
-  const supabase = getSupabaseRouteHandler(cookieStore);
+export const GET = withAuth({ roles: ['admin', 'client', 'editor'] }, async function (req: NextRequest, _ctx, auth) {
+  const supabase = auth.supabase;
   const { searchParams } = new URL(req.url);
   const poiId = searchParams.get('poiId');
   const radius = Number(searchParams.get('radius') || 50);
@@ -93,13 +94,10 @@ export const GET = async function(req: NextRequest) {
   }
 
   return NextResponse.json({ nearby: details });
-}
+})
 
-export const POST = async function(req: NextRequest) {
-  console.log('🔍 API: /api/attraction-groups/nearby POST called (no auth)');
-  
-  const cookieStore = await cookies();
-  const supabase = getSupabaseRouteHandler(cookieStore);
+export const POST = withAuth({ roles: ['admin', 'client', 'editor'] }, async function (req: NextRequest, _ctx, auth) {
+  const supabase = auth.supabase;
   const body = await req.json();
   const { polygon, poiId, radius = 50 } = body;
 
@@ -247,4 +245,4 @@ export const POST = async function(req: NextRequest) {
     console.log('✅ API: Returning nearby POIs (radius):', details.length);
     return NextResponse.json({ nearby: details });
   }
-}
+})

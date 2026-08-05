@@ -3,7 +3,7 @@
  * Single source of truth for the `/api/attraction-groups/*` endpoints:
  *   - nearby:  POST /api/attraction-groups/nearby   { polygon, poiId } -> nearby POIs in polygon
  *   - of-poi:  GET  /api/attraction-groups/of-poi?poiId=...           -> { group, members }
- *   - group:   POST /api/attraction-groups/group     { groupId, name, poiIds, userId }
+ *   - group:   POST /api/attraction-groups/group     { groupId, name, poiIds }
  *
  * Plain async functions (house style: lib/hooks/use-trigger-points-for-poi.ts).
  * UI side-effects (state, feedback) stay in the caller.
@@ -24,7 +24,6 @@ export interface SaveGroupInput {
   groupId?: string
   name: string
   poiIds: string[]
-  userId?: string
 }
 
 /** Find POIs inside a polygon, excluding the current POI by id/attraction_id. */

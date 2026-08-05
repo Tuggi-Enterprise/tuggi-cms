@@ -1230,16 +1230,14 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
 
     setGroupLoading(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-
       // Always include the main POI in the group
       const poiIds = [currentPoi.id, ...selectedPOIs.filter(id => id !== currentPoi.id)]
 
+      // No userId here: the route derives `created_by` from the proven session (CARD-CMS-01).
       await saveGroupRemote({
         groupId: groupInfo?.id,
         name: groupName || currentPoi.name,
         poiIds,
-        userId: user?.id,
       })
 
       await fetchGroupInfo()

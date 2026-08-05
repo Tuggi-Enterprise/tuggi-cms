@@ -12,6 +12,7 @@
     "check-all": "npm run type-check:app && npm run lint",
     "pre-build": "npm run check-all",
     "check-errors": "tsx scripts/check-errors.ts",
+    "check:routes": "tsx scripts/check-route-policies.ts",
     "test:api": "tsx --experimental-test-module-mocks --test tests/api/*.test.ts",
     "security:audit": "tsx scripts/security-audit.ts",
     "security:fix": "npm audit fix",
