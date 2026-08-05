@@ -162,8 +162,13 @@ export function withAuth<P extends RouteParams = RouteParams>(
  *
  * It authenticates nothing — its whole job is to make "public" a statement in the
  * code instead of the absence of code. A public route that writes to the database
- * still needs `withRateLimit` and input validation, because `service_role` ignores
- * RLS and the route is the only barrier left.
+ * still needs `withRateLimit` and input validation, because the route is the only
+ * barrier left.
+ *
+ * It cannot be combined with `service_role`: `scripts/check-route-policies.ts` fails
+ * when a route file that reaches the service client exports a `withPublicRoute`
+ * method. `service_role` ignores RLS, so that pair hands the whole database to an
+ * anonymous caller — and the check is what keeps this paragraph from being advice.
  */
 export function withPublicRoute<P extends RouteParams = RouteParams>(
   policy: PublicPolicy,
@@ -188,22 +193,38 @@ function assertRoles(roles: readonly Role[]): void {
   }
 }
 
-// Rate limiting helper
-const rateLimitMap = new Map()
+/**
+ * What `withAuth` and `withPublicRoute` return, and therefore what a composer such
+ * as `withRateLimit` receives and has to hand back unchanged in shape.
+ */
+export type GatedRouteHandler<P extends RouteParams = RouteParams> = (
+  req: NextRequest,
+  ctx?: RouteContext<P>
+) => Promise<Response>
 
+// Rate limiting helper
+const rateLimitMap = new Map<string, number[]>()
+
+/**
+ * Caps requests per IP, per window. Composes over a gate:
+ *
+ * ```ts
+ * export const POST = withRateLimit(10, 60_000)(withAuth({ roles: ['admin'] }, handler))
+ * ```
+ *
+ * It forwards `(req, ctx)` — dropping `ctx` here would hand `{}` to every handler on
+ * a dynamic segment, so `/api/pois/[id]` would lose its `id` the moment it got a
+ * rate limit. The composition is also the only one `scripts/check-route-policies.ts`
+ * accepts around a gate; adding another wrapper means adding it there too.
+ */
 export function withRateLimit(maxRequests: number = 100, windowMs: number = 60000) {
-  return (handler: (req: NextRequest) => Promise<NextResponse>) => {
-    return async (req: NextRequest) => {
+  return <P extends RouteParams = RouteParams>(handler: GatedRouteHandler<P>): GatedRouteHandler<P> => {
+    return async (req: NextRequest, ctx?: RouteContext<P>): Promise<Response> => {
       const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown'
       const now = Date.now()
       const windowStart = now - windowMs
 
-      if (!rateLimitMap.has(ip)) {
-        rateLimitMap.set(ip, [])
-      }
-
-      const requests = rateLimitMap.get(ip)
-      const validRequests = requests.filter((time: number) => time > windowStart)
+      const validRequests = (rateLimitMap.get(ip) ?? []).filter((time) => time > windowStart)
 
       if (validRequests.length >= maxRequests) {
         console.warn('⚠️ AUTH MIDDLEWARE: Rate limit exceeded for IP:', ip)
@@ -216,7 +237,7 @@ export function withRateLimit(maxRequests: number = 100, windowMs: number = 6000
       validRequests.push(now)
       rateLimitMap.set(ip, validRequests)
 
-      return handler(req)
+      return handler(req, ctx)
     }
   }
 }

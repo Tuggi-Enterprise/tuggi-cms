@@ -271,21 +271,12 @@ if (!validStatuses.includes(status)) {
 
 **Solutions**:
 
-#### 1. Check API Endpoints
-```bash
-# Test countries endpoint
-curl "/api/locations/countries-cities"
-
-# Test states endpoint  
-curl "/api/states?country=Brazil"
-```
-
-#### 2. Verify Network Connectivity
-```javascript
-// Check if API is reachable
-const response = await fetch('/api/locations/countries-cities');
-console.log('API Status:', response.status);
-```
+#### 1. Check the location source
+The location dropdowns do not go through an API route: they call the
+`cms_get_countries` / `cms_get_states` / `cms_get_cities` RPCs via
+`lib/core/location-service.ts`. The old `/api/locations/countries-cities` and
+`/api/states` routes were removed in CARD-CMS-01 (2026-08-05). Check the RPC in the
+Supabase logs, and the service cache, before suspecting the network.
 
 #### 3. Clear Browser Cache
 - Hard refresh (Ctrl+F5)

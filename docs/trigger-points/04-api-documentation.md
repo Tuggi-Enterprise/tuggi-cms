@@ -310,64 +310,12 @@ interface ByPOIResponse {
 
 ## 🌍 Location Endpoints
 
-### 7. Get Countries and Cities
+### 7. Countries, states and cities — removed (CARD-CMS-01, 2026-08-05)
 
-Get available countries and cities for filtering.
-
-**Endpoint**: `GET /api/locations/countries-cities`
-
-**Query Parameters**:
-```typescript
-interface LocationParams {
-  country?: string; // Get cities for specific country
-  state?: string;   // Get cities for specific state
-}
-```
-
-**Response**:
-```typescript
-// Without country parameter - returns all countries
-interface CountriesResponse {
-  success: true;
-  countries: Array<{
-    country: string;
-    cityCount: number;
-    totalPOIs: number;
-  }>;
-  totalCountries: number;
-}
-
-// With country parameter - returns cities
-interface CitiesResponse {
-  success: true;
-  cities: string[];
-  count: number;
-}
-```
-
-### 8. Get States
-
-Get available states for a country.
-
-**Endpoint**: `GET /api/states`
-
-**Query Parameters**:
-```typescript
-interface StatesParams {
-  country: string; // Required
-}
-```
-
-**Response**:
-```typescript
-interface StatesResponse {
-  success: boolean;
-  data: Array<{
-    value: string;
-    label: string;
-  }>;
-}
-```
+`GET /api/locations/countries-cities` and `GET /api/states` no longer exist. They had
+no caller: the CMS reads the location taxonomy through the `cms_get_countries`,
+`cms_get_states` and `cms_get_cities` RPCs, wrapped by
+`lib/core/location-service.ts`. Use that service.
 
 ## 🔧 Utility Endpoints
 

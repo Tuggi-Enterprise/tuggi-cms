@@ -28,9 +28,10 @@ export const ALLOWED_CLIENT_PATHS = [
   '/api/pois/create-manual',
   '/api/pois/reverse-geocode',
   '/api/pois/enrich-osm',
-  '/api/pois/countries',
+  // '/api/pois/countries' was removed with the route itself (CARD-CMS-01): it had no
+  // caller — the UI reads countries/states/cities through the `cms_get_*` RPCs in
+  // `lib/core/location-service.ts`.
   '/api/pois/cities',
-  '/api/pois/reverse-geocode',
 
   // Client pages
   '/clients',
