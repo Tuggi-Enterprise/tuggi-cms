@@ -1,15 +1,20 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
-} from 'recharts'
+import dynamic from 'next/dynamic'
 import {
   Database, CheckCircle, Clock, Layers, Volume2, FileText, Globe, Flag, Users,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { StatCard } from '@/components/ui/StatCard'
 import { dashboardService, ContentQuality, DashboardStats } from '@/lib/services/dashboard-service'
+
+// recharts out of the initial JS: a single widget on this report needs it. See the same
+// pattern on the dashboard page.
+const MigrationSpeedChart = dynamic(
+  () => import('@/components/dashboard/reports/MigrationSpeedChart').then(m => m.MigrationSpeedChart),
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800/60" /> }
+)
 
 const TUGGI_COLORS = { blue: '#00A8E8', orange: '#FF6F00', green: '#10B981', purple: '#8B5CF6', red: '#EF4444' }
 
@@ -158,18 +163,7 @@ export default function CatalogReportPage() {
           </span>
         </div>
         <div className="flex-1 min-h-0 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={migration2026} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
-              <XAxis dataKey="month" tick={{ fill: '#9ca3af', fontSize: 10, fontWeight: 700 }} axisLine={false} tickLine={false}
-                tickFormatter={(val) => val ? `${val.split('-')[1]}/${val.split('-')[0].slice(2)}` : ''} />
-              <YAxis hide domain={[0, 'dataMax']} />
-              <Tooltip cursor={{ fill: 'rgba(16,185,129,0.05)' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', fontSize: '11px', fontWeight: '900' }} />
-              <Bar dataKey="volume" fill={TUGGI_COLORS.green} radius={[4, 4, 0, 0]} barSize={28}>
-                <LabelList dataKey="avg_seconds" position="top" formatter={(val: any) => `${val}s`} style={{ fill: '#9ca3af', fontSize: 10, fontWeight: '800' }} offset={6} />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <MigrationSpeedChart data={migration2026} color={TUGGI_COLORS.green} />
         </div>
       </div>
     </div>

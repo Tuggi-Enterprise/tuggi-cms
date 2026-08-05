@@ -9,6 +9,7 @@
 'use client'
 
 import { useState, Suspense } from 'react'
+import dynamic from 'next/dynamic'
 import { Upload, Trash2, Download, RefreshCw, CheckSquare, Square, X, Loader2, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
@@ -26,9 +27,27 @@ import { ViewModeToggle } from '@/components/shared/ViewModeToggle'
 
 // Local Components
 import { POITable } from './POITable'
-import { OptimizedOSMMap } from './OptimizedOSMMap'
 import { FileUpload } from './FileUpload'
-import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
+import type { POI } from '@/components/poi-management/POIDetailsModal'
+
+// Both are opt-in: the map only renders in map mode, the modal only after a POI is picked.
+// Statically imported they were the bulk of this route's initial JS (map + 2.5k-line modal).
+const OptimizedOSMMap = dynamic(
+  () => import('./OptimizedOSMMap').then(m => m.OptimizedOSMMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full min-h-[400px] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-tuggi-blue" />
+      </div>
+    )
+  }
+)
+
+const POIDetailsModal = dynamic(
+  () => import('@/components/poi-management/POIDetailsModal').then(m => m.POIDetailsModal),
+  { ssr: false }
+)
 
 interface OSMImporterOptimizedProps {
   initialHasData?: boolean

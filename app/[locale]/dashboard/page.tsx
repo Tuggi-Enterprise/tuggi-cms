@@ -1,9 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
-} from 'recharts'
+import dynamic from 'next/dynamic'
 import {
   CheckCircle, TrendingUp, AlertCircle, RefreshCw, Clock, Play, Users, ShieldCheck,
   Database, Zap, MapPin, Globe, Radar,
@@ -21,6 +19,14 @@ import { RecentVisitCard } from '@/components/dashboard/RecentVisitCard'
 import { UpcomingExpirationsCard } from '@/components/dashboard/UpcomingExpirationsCard'
 import { WaitlistDemandList } from '@/components/dashboard/WaitlistDemandList'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
+
+// recharts is the single heaviest dependency of this route's initial JS and only one widget
+// uses it. ssr: false keeps it out of the server render too — the chart has no SEO value in an
+// authenticated CMS. The placeholder fills the same box, so nothing below it moves.
+const UserGrowthChart = dynamic(
+  () => import('@/components/dashboard/UserGrowthChart').then(m => m.UserGrowthChart),
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800/60" /> }
+)
 
 const TUGGI_COLORS = {
   blue: '#00A8E8',
@@ -300,17 +306,7 @@ export default function DashboardPage() {
         <WidgetCard className="lg:col-span-5 h-[360px]">
           <SectionHeader title={t('labels.active_base')} icon={TrendingUp} iconColor={TUGGI_COLORS.blue} href="/dashboard/reports/users" linkLabel={t('labels.view_details')} />
           <div className="flex-1 min-h-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stats.userGrowth}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.4} />
-                <XAxis dataKey="month" tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 700 }} axisLine={false} tickLine={false} width={30} />
-                <Tooltip cursor={{ fill: 'rgba(0,168,232,0.03)' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }} />
-                <Bar dataKey="count" fill={TUGGI_COLORS.blue} radius={[8, 8, 0, 0]} barSize={28}>
-                  <LabelList dataKey="count" position="top" style={{ fill: TUGGI_COLORS.blue, fontSize: 10, fontWeight: '900' }} offset={8} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <UserGrowthChart data={stats.userGrowth} color={TUGGI_COLORS.blue} />
           </div>
         </WidgetCard>
 

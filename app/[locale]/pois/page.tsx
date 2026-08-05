@@ -8,14 +8,13 @@ import {
   Trash2, Eye, ChevronLeft, ChevronRight, RotateCcw, Target, Volume2, Clock, Edit, XCircle, Calendar, Users, X
 } from 'lucide-react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/utils'
 import { POI_CATEGORIES } from '@/constants/poi-importer'
-import { POIDetailsModal, type POI } from '@/components/poi-management/POIDetailsModal'
-import { POIMapVisualization } from '@/components/poi-management/POIMapVisualization'
-import { OptimizedPOIMap } from '@/components/poi-management/OptimizedPOIMap'
+import type { POI } from '@/components/poi-management/POIDetailsModal'
 import { VerificationBadge } from '@/components/verification/VerificationBadge'
 import { getThumbnailUrl } from '@/lib/imageUtils'
 import { useLocationData } from '@/lib/hooks/use-location-data'
@@ -26,6 +25,27 @@ import { usePOIs, usePOIFacets } from '@/lib/hooks/use-pois'
 import { useTranslations } from 'next-intl'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { useRouter as useLocalizedRouter } from '@/navigation'
+
+// Code-splitting: the two heaviest components on this screen (details modal and map) are only
+// downloaded once the operator actually opens one of them. In cards mode with the modal closed
+// — the initial state of the most used CMS screen — neither is part of the initial JS.
+const POIDetailsModal = dynamic(
+  () => import('@/components/poi-management/POIDetailsModal').then(m => m.POIDetailsModal),
+  { ssr: false }
+)
+
+const OptimizedPOIMap = dynamic(
+  () => import('@/components/poi-management/OptimizedPOIMap').then(m => m.OptimizedPOIMap),
+  {
+    ssr: false,
+    // Same height as the map (height="70vh") so switching view mode causes no layout shift.
+    loading: () => (
+      <div className="h-[70vh] w-full flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue" />
+      </div>
+    )
+  }
+)
 
 // Custom hook for debouncing
 function useDebounce<T>(value: T, delay: number): T {
@@ -87,6 +107,14 @@ function POIListWithSearchParams() {
 
   const [selectedPoi, setSelectedPoi] = useState<POIType | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+
+  // The modal is dynamically imported: mounting it only after the first open is what keeps its
+  // chunk out of cards mode. Once mounted it is NEVER unmounted — that is what keeps the exit
+  // animation (shouldRender/animateClosing, 300ms inside POIDetailsModal) and its state intact.
+  const [hasOpenedModal, setHasOpenedModal] = useState(false)
+  useEffect(() => {
+    if (isModalOpen) setHasOpenedModal(true)
+  }, [isModalOpen])
 
 
 
@@ -291,12 +319,13 @@ function POIListWithSearchParams() {
   }), [debouncedSearchTerm, statusFilter, countryFilter, stateFilter, cityFilter, categoryFilter, osmCategoryFilter, contentStatusFilter, groupStatusFilter, scoreFilter, triggerPointsFilter, isActiveFilter, priorityLevels])
 
   // Lista (linhas) — re-busca a cada página, MAS sem re-contar (skipFacets).
+  // The strategy spread comes LAST on purpose: it owns page/limit. When it came first,
+  // the explicit page/limit below overwrote the map strategy and the "map_count_only"
+  // path silently fetched a full page of rows nobody renders.
   const { data: searchResult, isLoading: isQueryLoading, isFetching: isQueryFetching, refetch } = usePOIs({
-    ...getMapLoadingStrategy(baseFilters),
     ...baseFilters,
-    page: currentPage,
-    limit: itemsPerPage,
-    skipFacets: true
+    skipFacets: true,
+    ...getMapLoadingStrategy(baseFilters)
   } as any)
 
   // Contador/total — UMA chamada por filtro (chave sem página). Virar de página reusa o cache.
@@ -1190,18 +1219,25 @@ function POIListWithSearchParams() {
                     </button>
                   </div>
                 )}
-                <button
-                  onClick={handleSelectAll}
-                  className="px-4 py-2 bg-tuggi-blue/10 text-tuggi-blue font-bold text-xs rounded-xl hover:bg-tuggi-blue/20 transition-all"
-                >
-                  {t('controls.select_all')}
-                </button>
-                <button
-                  onClick={() => setSelectedPois([])}
-                  className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-bold text-xs rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
-                >
-                  {t('controls.deselect_all')}
-                </button>
+                {/* Selection acts on the loaded rows, and map mode renders no rows (it fetches
+                    its own points by bbox). Showing "select all" there would select whatever
+                    the count-only query happened to return — and feed bulk delete with it. */}
+                {viewMode !== 'map' && (
+                  <>
+                    <button
+                      onClick={handleSelectAll}
+                      className="px-4 py-2 bg-tuggi-blue/10 text-tuggi-blue font-bold text-xs rounded-xl hover:bg-tuggi-blue/20 transition-all"
+                    >
+                      {t('controls.select_all')}
+                    </button>
+                    <button
+                      onClick={() => setSelectedPois([])}
+                      className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 font-bold text-xs rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
+                    >
+                      {t('controls.deselect_all')}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -1556,7 +1592,8 @@ function POIListWithSearchParams() {
       </div>
 
       {/* POI Details Modal */}
-      <POIDetailsModal
+      {hasOpenedModal && (
+        <POIDetailsModal
         mode={selectedPoi ? 'view' : 'create'}
         poi={memoizedPoiForModal}
         isOpen={isModalOpen}
@@ -1630,6 +1667,7 @@ function POIListWithSearchParams() {
           }}
 
         />
+      )}
     </div>
   )
 }

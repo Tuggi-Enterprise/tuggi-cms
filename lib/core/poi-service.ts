@@ -277,7 +277,9 @@ class POIService {
           if (!chunkData || chunkData.length === 0) {
             hasMore = false
           } else {
-            allData = [...allData, ...chunkData]
+            // push, not [...allData, ...chunk]: the spread re-copied the whole accumulator on
+            // every iteration, which is O(n²) over the 100k-row safety ceiling below.
+            allData.push(...chunkData)
             currentOffset += chunkSize
             if (chunkData.length < chunkSize) {
               hasMore = false

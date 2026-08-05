@@ -1,6 +1,4 @@
+# Block all search engine crawlers from indexing this CMS.
+# This is a private content management system: there is no public content and no sitemap.
 User-agent: *
 Disallow: /
-
-# Block all search engine crawlers from indexing this CMS
-# This is a private content management system
-Sitemap:

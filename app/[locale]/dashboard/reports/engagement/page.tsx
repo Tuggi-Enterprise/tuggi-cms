@@ -1,13 +1,20 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import dynamic from 'next/dynamic'
 import {
   Activity, Globe, Smartphone, Download, Zap, Route, Headphones, Eye, Navigation, Users, Gauge,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { dashboardService, DashboardStats, EMPTY_DASHBOARD_STATS } from '@/lib/services/dashboard-service'
 import { StatCard } from '@/components/ui/StatCard'
+
+// recharts out of the initial JS: a single donut on this report needs it. See the same
+// pattern on the dashboard page.
+const PlatformPieChart = dynamic(
+  () => import('@/components/dashboard/reports/PlatformPieChart').then(m => m.PlatformPieChart),
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800/60" /> }
+)
 
 const TUGGI_COLORS = { blue: '#00A8E8', orange: '#FF6F00', green: '#10B981', purple: '#8B5CF6', red: '#EF4444' }
 
@@ -91,15 +98,7 @@ export default function EngagementReportPage() {
             {t('labels.device_access')}
           </h3>
           <div className="h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
-                <Pie data={platformData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                  {platformData.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} />))}
-                </Pie>
-                <Tooltip />
-                <Legend layout="vertical" verticalAlign="middle" align="right" />
-              </PieChart>
-            </ResponsiveContainer>
+            <PlatformPieChart data={platformData} />
           </div>
         </div>
 

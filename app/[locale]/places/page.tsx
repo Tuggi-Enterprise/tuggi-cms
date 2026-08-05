@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
@@ -11,8 +12,21 @@ import { usePlaces, usePlaceFacets } from '@/lib/hooks/use-places'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import type { PlaceFilters, PlaceListItem } from '@/lib/core/place-service'
 import { PlaceFormModal } from '@/components/place-management/PlaceFormModal'
-import { EntityMapView } from '@/components/entity-management/EntityMapView'
 import { cn } from '@/lib/utils'
+
+// Map mode is opt-in, so the Google Maps view (POIMapVisualization underneath) stays out of the
+// initial JS of the cards mode this screen opens in.
+const EntityMapView = dynamic(
+  () => import('@/components/entity-management/EntityMapView').then(m => m.EntityMapView),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[70vh] w-full flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-tuggi-blue" />
+      </div>
+    )
+  }
+)
 
 const PAGE_SIZE = 50
 const MAP_PAGE_SIZE = 2000

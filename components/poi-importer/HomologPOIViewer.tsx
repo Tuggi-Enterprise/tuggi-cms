@@ -9,13 +9,26 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import { Table2, Map, CheckSquare, Square, Trash2, Database, RefreshCw, Search, Filter } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from 'next-intl'
 import { useHomologPOIViewer } from '@/lib/hooks/use-homolog-poi-viewer'
 import { POITable } from './POITable'
-import { OptimizedOSMMap } from '@/components/osm-importer/OptimizedOSMMap'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
+
+// Table is the default view; the map only loads if the operator switches to it.
+const OptimizedOSMMap = dynamic(
+  () => import('@/components/osm-importer/OptimizedOSMMap').then(m => m.OptimizedOSMMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full w-full min-h-[400px] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-tuggi-blue" />
+      </div>
+    )
+  }
+)
 
 export function HomologPOIViewer() {
   const t = useTranslations('Pages.POIImporter.viewer')
