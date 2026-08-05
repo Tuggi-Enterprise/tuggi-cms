@@ -265,6 +265,8 @@ const SPAIN: Record<string, string> = {
   'c valenciana': 'Comunitat Valenciana', 'comunitat valenciana': 'Comunitat Valenciana',
   'islas canarias': 'Canarias', canarias: 'Canarias',
   andalucia: 'Andalucía',
+  // English exonym had no entry, so "Navarre" survived normalization untouched (92 rows).
+  navarre: 'Navarra', 'comunidad foral de navarra': 'Navarra',
   'castilla y leon': 'Castilla y León', 'castilla leon': 'Castilla y León',
   'castilla la mancha': 'Castilla-La Mancha', 'castilla-la mancha': 'Castilla-La Mancha',
 }

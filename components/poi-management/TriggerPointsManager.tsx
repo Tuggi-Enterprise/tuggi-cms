@@ -833,6 +833,7 @@ export function TriggerPointsManager({
             isAddingMode={viewMode === 'boundary' ? false : isAddingMode}
             onPOILocationChange={handlePOILocationChange}
             boundaryPolygon={boundary?.boundaryPolygon ?? boundary?.existingBoundary ?? null}
+            boundaryExtraRings={boundary?.boundaryExtraRings ?? null}
             boundaryEditable={viewMode === 'boundary' && !!boundary && canEdit && !isViewer}
             isDrawingBoundary={viewMode === 'boundary' && !!boundary?.isDrawingEnabled && canEdit && !isViewer}
             onBoundaryChange={(coords) => boundary?.setBoundaryPolygon(coords)}

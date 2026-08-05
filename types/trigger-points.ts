@@ -109,6 +109,12 @@ export interface TriggerPointMapProps {
    * in Boundary mode via the flags below.
    */
   boundaryPolygon?: { lat: number; lng: number }[] | null
+  /**
+   * Remaining rings of a multi-part boundary, drawn read-only beside the editable one.
+   * boundaryPolygon holds the single ring the drawing flow can reshape; without this the
+   * other parts of a MultiPolygon simply would not appear.
+   */
+  boundaryExtraRings?: { lat: number; lng: number }[][] | null
   /** Boundary mode: make the overlay editable (drag vertices/edges) and report changes. */
   boundaryEditable?: boolean
   /** Boundary mode: click-to-add-vertex drawing of a new boundary polygon. */
@@ -165,6 +171,8 @@ export interface TriggerPointCRUDResponse {
 export interface TriggerPointsBoundaryControls {
   existingBoundary: { lat: number; lng: number }[] | null
   boundaryPolygon: { lat: number; lng: number }[] | null
+  /** Rings of a multi-part boundary other than the editable one; display only. */
+  boundaryExtraRings?: { lat: number; lng: number }[][] | null
   setBoundaryPolygon: (polygon: { lat: number; lng: number }[] | null) => void
   isDrawingEnabled: boolean
   setIsDrawingEnabled: (value: boolean) => void

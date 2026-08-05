@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { MapState } from '@/types/poi-importer'
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM } from '@/constants/poi-importer'
+import { geoJSONToPaths } from '@/lib/maps/geojson-paths'
 
 export function useMapState() {
   // State
@@ -100,23 +101,13 @@ export function useMapState() {
       if (data && data.length > 0 && data[0].geojson) {
         const geojson = data[0].geojson
         
-        if (geojson.type === 'Polygon' && geojson.coordinates && geojson.coordinates[0]) {
-          const coordinates = geojson.coordinates[0].map((coord: number[]) => ({
-            lat: coord[1],
-            lng: coord[0]
-          }))
-          
-          setCityBoundary(coordinates)
-          setCurrentCityName(data[0].display_name || cityName || 'Unknown City')
-          return true
-        } else if (geojson.type === 'MultiPolygon' && geojson.coordinates && geojson.coordinates[0]) {
-          // Use the first polygon for MultiPolygon
-          const coordinates = geojson.coordinates[0][0].map((coord: number[]) => ({
-            lat: coord[1],
-            lng: coord[0]
-          }))
-          
-          setCityBoundary(coordinates)
+        // Polygon and MultiPolygon alike. cityBoundary is a single ring, so a multi-part
+        // boundary contributes its largest ring -- the previous code took part [0], which is
+        // arbitrary and often a sliver.
+        const paths = geoJSONToPaths(geojson)
+        if (paths.length > 0) {
+          const largest = paths.reduce((a, b) => (b.length > a.length ? b : a))
+          setCityBoundary(largest)
           setCurrentCityName(data[0].display_name || cityName || 'Unknown City')
           return true
         }

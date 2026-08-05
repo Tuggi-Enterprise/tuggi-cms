@@ -8,6 +8,7 @@ import {
 import { cn } from '@/lib/utils'
 
 import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+import { geoJSONToPaths } from '@/lib/maps/geojson-paths'
 
 const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
@@ -914,13 +915,11 @@ function POIMapInner({
     boundariesRef.current = []
 
     cityBoundaries.forEach((boundary) => {
-      let paths: google.maps.LatLng[] = []
-      // ... boundary parsing logic simplified ...
-      if (boundary.coordinates) {
-         paths = boundary.coordinates.map(c => new google.maps.LatLng(c.lat, c.lng))
-      } else if (boundary.geojson?.type === 'Polygon') {
-         paths = boundary.geojson.coordinates[0].map((c: number[]) => new google.maps.LatLng(c[1], c[0]))
-      }
+      // Every ring of the geometry: MultiPolygon was not handled here at all, so those
+      // boundaries drew nothing.
+      const paths: google.maps.LatLngLiteral[][] = boundary.coordinates
+        ? [boundary.coordinates.map(c => ({ lat: c.lat, lng: c.lng }))]
+        : geoJSONToPaths(boundary.geojson)
 
       if (paths.length === 0) return
 
@@ -938,8 +937,9 @@ function POIMapInner({
 
       // Auto-focus on city boundary
       if (paths.length > 0 && mapInstanceRef.current && cityFilter) {
+        // paths is now an array of RINGS, so the fit has to walk every point of every ring.
         const bounds = new google.maps.LatLngBounds()
-        paths.forEach(p => bounds.extend(p))
+        paths.forEach(ring => ring.forEach(p => bounds.extend(p)))
         mapInstanceRef.current.fitBounds(bounds)
       }
     })

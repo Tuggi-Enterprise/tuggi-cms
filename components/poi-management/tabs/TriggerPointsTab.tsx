@@ -17,6 +17,7 @@ export function TriggerPointsTab() {
     invalidateAllPOICaches,
     existingBoundary,
     boundaryPolygon,
+    boundaryExtraRings,
     setBoundaryPolygon,
     isDrawingEnabled,
     setIsDrawingEnabled,
@@ -41,6 +42,7 @@ export function TriggerPointsTab() {
         boundary={{
           existingBoundary,
           boundaryPolygon,
+          boundaryExtraRings,
           setBoundaryPolygon,
           isDrawingEnabled,
           setIsDrawingEnabled,

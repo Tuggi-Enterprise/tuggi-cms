@@ -97,3 +97,8 @@ db-clone/
 # Memória dos agentes vive no workspace (../.claude/agent-memory/), não no repo do projeto.
 .claude/agent-memory/
 .claude/settings.local.json
+
+# Backups locais dos scripts de curadoria (merge/dedupe/demote) — dados, não código
+.dedupe-out/
+.merge-out/
+.demote-out/

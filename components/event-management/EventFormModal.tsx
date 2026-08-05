@@ -25,7 +25,9 @@ interface EventFormModalProps {
 }
 
 const EVENT_STATUSES = ['scheduled', 'rescheduled', 'cancelled', 'postponed', 'sold_out', 'completed']
-const EVENT_CATEGORIES = ['music', 'sports', 'festival', 'theatre', 'conference', 'fair', 'other']
+const EVENT_CATEGORIES = ['music', 'sports', 'festival', 'theatre', 'exhibition', 'kids', 'conference', 'fair', 'other']
+// core.event_details.currency is char(3): ISO 4217 codes only.
+const CURRENCIES = ['BRL', 'EUR', 'USD', 'GBP', 'ARS', 'CLP', 'MXN', 'JPY']
 
 const fieldLabel = 'block text-[10px] font-black text-gray-500 uppercase tracking-tighter mb-1.5 ml-1'
 const fieldInput = 'w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent rounded-xl focus:bg-white dark:focus:bg-gray-900 focus:ring-2 focus:ring-tuggi-blue transition-all dark:text-white font-medium outline-none'
@@ -310,6 +312,12 @@ export function EventFormModal({ eventId, isOpen, onClose, onSaved }: EventFormM
               <div>
                 <label className={fieldLabel}>{L('price_max')}</label>
                 <input className={fieldInput} value={form.price_max ?? ''} onChange={(e) => set('price_max', e.target.value)} />
+              </div>
+              <div>
+                <label className={fieldLabel}>{L('currency')}</label>
+                <select className={fieldInput} value={form.currency || 'BRL'} onChange={(e) => set('currency', e.target.value)}>
+                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
               </div>
               <div>
                 <label className={fieldLabel}>{L('capacity')}</label>

@@ -41,7 +41,10 @@
     "osm:analyze": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts analyze",
     "osm:filter": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts filter",
     "osm:config": "deno run --allow-read --allow-write plugins/osm-geojson-filter/filter-geojson.ts config",
-    "osm:filter-tourism": "deno run --allow-read --allow-write scripts/filter-pbf-tourism.ts"
+    "osm:filter-tourism": "deno run --allow-read --allow-write scripts/filter-pbf-tourism.ts",
+    "poi:merge-duplicates": "tsx --env-file=.env scripts/merge-duplicate-pois.ts",
+    "poi:dedupe-tps": "tsx --env-file=.env scripts/dedupe-trigger-points.ts",
+    "poi:enrich-osm": "tsx --env-file=.env scripts/enrich-poi-from-osm.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

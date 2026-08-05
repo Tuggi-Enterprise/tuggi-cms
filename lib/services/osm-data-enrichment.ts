@@ -1,7 +1,10 @@
 import { getSupabase } from '../core/supabase-client'
 
-// Use service role for database operations (has full access)
-const supabase = getSupabase('server')
+// Precisa mesmo do service role: saveEnrichmentData escreve em core.attractions e o
+// cliente 'server' carrega a anon key, então toda gravação morria no RLS com
+// "permission denied for function is_active_cms_admin". O comentário antigo dizia
+// service role; o código pedia 'server'.
+const supabase = getSupabase('service')
 
 export interface OSMEnrichmentData {
   // Basic OSM data
@@ -110,8 +113,26 @@ export class OSMDataEnrichmentService {
       
       // UNESCO data
       if (tags.wikidata && tags.wikidata.includes('Q')) enrichmentData.osm_wikidata_id = tags.wikidata
-      if (tags.wikipedia) enrichmentData.osm_wikipedia_url = `https://en.wikipedia.org/wiki/${tags.wikipedia.replace('en:', '')}`
+      // OSM writes wikipedia as "<lang>:<title>". Hardcoding en.wikipedia.org produced dead
+      // links for every non-English POI (e.g. "ca:Temple Expiatori de la Sagrada Família"),
+      // so the language prefix has to become the subdomain.
+      if (tags.wikipedia) {
+        const m = String(tags.wikipedia).match(/^([a-z-]{2,10}):(.+)$/)
+        const lang = m ? m[1] : 'en'
+        const title = m ? m[2] : String(tags.wikipedia)
+        enrichmentData.osm_wikipedia_url = `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`
+      }
       if (tags['heritage:website']) enrichmentData.unesco_reference = tags['heritage:website']
+      // World Heritage sites carry the WHC list reference, not a website: ref:whc=320-005
+      // on the Sagrada Família. Without this the UNESCO columns stayed empty on every site.
+      if (tags['ref:whc']) {
+        enrichmentData.unesco_reference = tags['ref:whc']
+        enrichmentData.unesco_status = 'world_heritage_site'
+      }
+      if (tags['whc:inscription_date']) {
+        const y = this.extractYear(String(tags['whc:inscription_date']))
+        if (y) enrichmentData.unesco_inscription_date = `${y}-01-01`
+      }
       
       // Accessibility
       if (tags.wheelchair) enrichmentData.wheelchair_accessible = tags.wheelchair === 'yes'
@@ -327,6 +348,9 @@ export class OSMDataEnrichmentService {
    */
   private static mapHeritageStatus(heritage: string): string {
     const heritageLower = heritage.toLowerCase()
+    // "whc" is how OSM abbreviates the World Heritage Convention in heritage:operator.
+    // It used to fall through to 'local_heritage', downgrading actual World Heritage sites.
+    if (heritageLower === 'whc') return 'unesco_world_heritage'
     if (heritageLower.includes('unesco') || heritageLower.includes('world')) return 'unesco_world_heritage'
     if (heritageLower.includes('national')) return 'national_heritage'
     if (heritageLower.includes('regional')) return 'regional_heritage'

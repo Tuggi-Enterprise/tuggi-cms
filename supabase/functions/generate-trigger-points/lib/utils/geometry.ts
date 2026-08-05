@@ -19,21 +19,25 @@ export interface GeoPoint {
  * @returns Area in square meters
  */
 export function calculatePolygonArea(coordinates: GeoPoint[]): number {
-  let area = 0;
-  const n = coordinates.length;
-  
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n;
-    const xi = coordinates[i].lng * Math.PI / 180;
-    const yi = coordinates[i].lat * Math.PI / 180;
-    const xj = coordinates[j].lng * Math.PI / 180;
-    const yj = coordinates[j].lat * Math.PI / 180;
-    area += xi * yj - xj * yi;
-  }
-  
-  area = Math.abs(area) / 2;
+  if (coordinates.length < 3) return 0;
+
+  // Spherical excess. Must stay identical to lib/utils/geometry.ts -- Deno and Next cannot
+  // share a module, so parity is enforced by tests/api/geometry-area.test.ts.
+  //
+  // The previous version summed (lng, lat) in radians as a flat Cartesian plane and
+  // overestimated by exactly 1/cos(latitude): 33% in Barcelona, double near the polar circle.
   const R = 6371000; // Earth's radius in meters
-  return area * R * R;
+  const rad = Math.PI / 180;
+  const n = coordinates.length;
+  let total = 0;
+
+  for (let i = 0; i < n; i++) {
+    const p1 = coordinates[i];
+    const p2 = coordinates[(i + 1) % n];
+    total += (p2.lng - p1.lng) * rad * (2 + Math.sin(p1.lat * rad) + Math.sin(p2.lat * rad));
+  }
+
+  return Math.abs((total * R * R) / 2);
 }
 
 /**

@@ -29,6 +29,7 @@ function TriggerPointsMapContent({
   onResetMapView,
   onPOILocationChange,
   boundaryPolygon,
+  boundaryExtraRings,
   boundaryEditable = false,
   isDrawingBoundary = false,
   onBoundaryChange,
@@ -53,6 +54,8 @@ function TriggerPointsMapContent({
   const currentLineRef = useRef<google.maps.Polyline | null>(null)
   // Boundary overlay + in-map drawing (single-map: same map used for TPs and boundary).
   const boundaryPolygonRef = useRef<google.maps.Polygon | null>(null)
+  // Parts of a multi-part boundary other than the editable one.
+  const boundaryExtraRef = useRef<google.maps.Polygon | null>(null)
   const boundaryEditableRef = useRef<boolean>(boundaryEditable)
   const boundaryChangeRef = useRef(onBoundaryChange)
   const boundaryCompleteRef = useRef(onBoundaryComplete)
@@ -990,6 +993,41 @@ function TriggerPointsMapContent({
       }
     }
   }, [boundaryPolygon, boundaryEditable, isDrawingBoundary])
+
+  // The remaining parts of a multi-part boundary, read-only.
+  //
+  // The editable overlay above owns exactly one ring, because that is what the drawing flow
+  // can reshape. A boundary stored as MultiPolygon — the wall of Segovia has 39 parts — would
+  // otherwise show only that one ring and look like the rest of the boundary does not exist.
+  // Drawn as a separate, non-clickable polygon so it can never intercept a trigger-point drag.
+  useEffect(() => {
+    const map = mapInstanceRef.current
+    if (!map) return
+
+    boundaryExtraRef.current?.setMap(null)
+    boundaryExtraRef.current = null
+
+    if (isDrawingBoundary || !boundaryExtraRings?.length) return
+
+    boundaryExtraRef.current = new google.maps.Polygon({
+      paths: boundaryExtraRings,
+      strokeColor: '#8B5CF6',
+      strokeOpacity: 0.7,
+      strokeWeight: 2,
+      fillColor: '#8B5CF6',
+      fillOpacity: 0.08,
+      clickable: false,
+      editable: false,
+      draggable: false,
+      zIndex: 1,
+      map,
+    })
+
+    return () => {
+      boundaryExtraRef.current?.setMap(null)
+      boundaryExtraRef.current = null
+    }
+  }, [boundaryExtraRings, isDrawingBoundary])
 
   // Boundary drawing via the shared drawer (SSOT with GoogleMapComponent). Starting/exiting
   // draw mode is driven by isDrawingBoundary; a completed polygon is reported as a

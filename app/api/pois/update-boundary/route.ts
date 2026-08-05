@@ -5,29 +5,9 @@ import { invalidatePOICache } from '@/lib/cache/poi-cache-invalidator'
 import { getSupabase } from '@/lib/core/supabase-client'
 import { logAuditEvent } from '@/lib/services/audit-service'
 
-/**
- * Calculate polygon area using spherical geometry (reused from existing implementations)
- * Based on supabase/functions/generate-trigger-points/lib/utils/geometry.ts
- */
-function calculatePolygonArea(coordinates: Array<{ lat: number; lng: number }>): number {
-  if (coordinates.length < 3) return 0
-
-  let area = 0
-  const n = coordinates.length
-  
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n
-    const xi = coordinates[i].lng * Math.PI / 180
-    const yi = coordinates[i].lat * Math.PI / 180
-    const xj = coordinates[j].lng * Math.PI / 180
-    const yj = coordinates[j].lat * Math.PI / 180
-    area += xi * yj - xj * yi
-  }
-  
-  area = Math.abs(area) / 2
-  const R = 6371000 // Earth's radius in meters
-  return Math.round(area * R * R)
-}
+// A área do polígono tem um dono: lib/utils/geometry.ts. Esta rota mantinha a terceira
+// cópia da mesma conta — e as três estavam erradas do mesmo jeito.
+import { calculatePolygonArea } from '@/lib/utils/geometry'
 
 /**
  * Calculate polygon center (centroid) - reused from existing implementations
@@ -152,19 +132,39 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ boundary: null })
       }
 
-      // Transform GeoJSON to coordinate array
+      // Transform GeoJSON to coordinate arrays.
+      //
+      // This branch used to accept ONLY type === 'Polygon'; a MultiPolygon fell through to
+      // `boundary: null`, so the CMS showed no boundary at all for the 74k POIs stored as
+      // multi-part — the wall of Segovia (39 parts), any POI whose OSM relation has annexes.
+      //
+      // The response keeps `boundary` as the flat outer ring it always was, because the
+      // drawing/editing flow edits exactly one ring, and adds `boundaryRings` with every ring
+      // for whoever only needs to display it. Old callers keep working untouched.
       try {
         const geojson = typeof data === 'string' ? JSON.parse(data) : data
-        
-        if (geojson.type === 'Polygon' && geojson.coordinates?.[0]) {
-          const coords = geojson.coordinates[0].map((c: [number, number]) => ({
-            lat: c[1],
-            lng: c[0]
-          }))
-          // Remove the closing point (which is same as first point in GeoJSON)
-          if (coords.length > 1) coords.pop()
-          
-          return NextResponse.json({ boundary: coords })
+        const rings: Array<Array<[number, number]>> =
+          geojson?.type === 'MultiPolygon' ? geojson.coordinates.flat()
+            : geojson?.type === 'Polygon' ? geojson.coordinates
+              : []
+
+        const toPoints = (ring: Array<[number, number]>) => {
+          const pts = ring.map((c) => ({ lat: c[1], lng: c[0] }))
+          // GeoJSON repeats the first point to close the ring; Google Maps closes on its own.
+          if (pts.length > 1) pts.pop()
+          return pts
+        }
+
+        const boundaryRings = rings.map(toPoints).filter((r) => r.length >= 3)
+        if (boundaryRings.length > 0) {
+          // Largest ring first: it is the one worth editing, and part [0] of a MultiPolygon is
+          // often a sliver rather than the main shape.
+          const largest = boundaryRings.reduce((a, b) => (b.length > a.length ? b : a))
+          return NextResponse.json({
+            boundary: largest,
+            boundaryRings,
+            partCount: geojson?.type === 'MultiPolygon' ? geojson.coordinates.length : 1,
+          })
         }
       } catch (e) {
         console.error('Error parsing boundary geometry from RPC:', e)

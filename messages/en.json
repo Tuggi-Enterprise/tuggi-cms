@@ -957,7 +957,7 @@
         "latitude": "Latitude", "longitude": "Longitude",
         "starts_at": "Starts at", "ends_at": "Ends at", "timezone": "Timezone", "all_day": "All day",
         "status": "Status", "category": "Category", "tags": "Tags",
-        "is_free": "Free entry", "price_min": "Price min", "price_max": "Price max",
+        "is_free": "Free entry", "price_min": "Price min", "price_max": "Price max", "currency": "Currency",
         "capacity": "Capacity", "age_restriction": "Age restriction",
         "organizer_name": "Organizer name", "organizer_url": "Organizer URL",
         "ticket_url": "Ticket URL", "poster_url": "Poster URL",

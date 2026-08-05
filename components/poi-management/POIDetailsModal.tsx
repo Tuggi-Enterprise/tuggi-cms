@@ -22,7 +22,7 @@ import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { poiService } from '@/lib/core/poi-service'
 import { locationService } from '@/lib/core/location-service'
 import {
-  fetchBoundary as fetchBoundaryRemote,
+  fetchBoundaryRings as fetchBoundaryRingsRemote,
   saveBoundary as saveBoundaryRemote,
   deleteBoundary as deleteBoundaryRemote,
   sanitizeBoundary,
@@ -196,6 +196,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [boundaryPolygon, setBoundaryPolygon] = useState<Array<{ lat: number; lng: number }> | null>(null)
   const [isSavingBoundary, setIsSavingBoundary] = useState(false)
   const [existingBoundary, setExistingBoundary] = useState<Array<{ lat: number; lng: number }> | null>(null)
+  const [boundaryExtraRings, setBoundaryExtraRings] = useState<Array<Array<{ lat: number; lng: number }>> | null>(null)
   const [isDrawingEnabled, setIsDrawingEnabled] = useState(false) // Drawing mode OFF by default
 
   // Fetch clients for Geofence owner selection
@@ -1093,13 +1094,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
     if (!currentId) return;
 
     try {
-      const boundary = await fetchBoundaryRemote(currentId);
-      if (boundary) {
-        setExistingBoundary(boundary);
-        setBoundaryPolygon(boundary);
+      const full = await fetchBoundaryRingsRemote(currentId);
+      if (full) {
+        setExistingBoundary(full.boundary);
+        setBoundaryPolygon(full.boundary);
+        // Everything except the ring being edited, so a multi-part boundary shows whole.
+        setBoundaryExtraRings(full.rings.filter(r => r !== full.boundary));
       } else {
         setExistingBoundary(null);
         setBoundaryPolygon(null);
+        setBoundaryExtraRings(null);
       }
     } catch (error) {
       console.error('Error fetching boundary:', error);
@@ -2430,6 +2434,7 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
               boundaryPolygon,
               setBoundaryPolygon,
               existingBoundary,
+              boundaryExtraRings,
               isDrawingEnabled,
               setIsDrawingEnabled,
               isSavingBoundary,

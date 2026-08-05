@@ -956,7 +956,7 @@
         "latitude": "Latitude", "longitude": "Longitude",
         "starts_at": "Início", "ends_at": "Fim", "timezone": "Fuso horário", "all_day": "Dia inteiro",
         "status": "Status", "category": "Categoria", "tags": "Tags",
-        "is_free": "Entrada gratuita", "price_min": "Preço mín.", "price_max": "Preço máx.",
+        "is_free": "Entrada gratuita", "price_min": "Preço mín.", "price_max": "Preço máx.", "currency": "Moeda",
         "capacity": "Capacidade", "age_restriction": "Faixa etária",
         "organizer_name": "Organizador", "organizer_url": "URL do organizador",
         "ticket_url": "URL de ingressos", "poster_url": "URL do cartaz",

@@ -51,6 +51,7 @@ export interface POIModalContextValue {
 
   // Boundary tab
   boundaryPolygon: BoundaryLatLng[] | null
+  boundaryExtraRings?: BoundaryLatLng[][] | null
   setBoundaryPolygon: (polygon: BoundaryLatLng[] | null) => void
   existingBoundary: BoundaryLatLng[] | null
   isDrawingEnabled: boolean

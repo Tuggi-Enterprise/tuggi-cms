@@ -31,13 +31,38 @@ async function postBoundary(body: Record<string, unknown>): Promise<Response> {
 
 /** Fetch the persisted boundary for a POI. Returns null when none exists. */
 export async function fetchBoundary(poiId: string): Promise<BoundaryPoint[] | null> {
+  const full = await fetchBoundaryRings(poiId)
+  return full?.boundary ?? null
+}
+
+export interface BoundaryRings {
+  /** Largest ring. What the drawing/editing flow works on -- it edits one ring. */
+  boundary: BoundaryPoint[]
+  /** Every ring, so a multi-part boundary can be DISPLAYED whole. */
+  rings: BoundaryPoint[][]
+  /** Number of polygons in the stored geometry; > 1 means MultiPolygon. */
+  partCount: number
+}
+
+/**
+ * Boundary with all of its rings.
+ *
+ * A stored MultiPolygon used to come back as null from the API, so the map drew nothing for
+ * the 74k POIs saved that way. Display needs every ring; editing still needs just one, which
+ * is why the two live side by side instead of one replacing the other.
+ */
+export async function fetchBoundaryRings(poiId: string): Promise<BoundaryRings | null> {
   const response = await postBoundary({ poi_id: poiId, get_only: true })
   if (!response.ok) {
     const text = await response.text().catch(() => '')
     throw new Error(text || `Failed to fetch boundary (${response.status})`)
   }
   const data = await response.json().catch(() => ({}))
-  return Array.isArray(data?.boundary) ? (data.boundary as BoundaryPoint[]) : null
+  if (!Array.isArray(data?.boundary)) return null
+  const rings: BoundaryPoint[][] = Array.isArray(data?.boundaryRings) && data.boundaryRings.length
+    ? data.boundaryRings
+    : [data.boundary]
+  return { boundary: data.boundary as BoundaryPoint[], rings, partCount: Number(data?.partCount ?? 1) }
 }
 
 /** Keep only points that are valid finite lat/lng within range. */

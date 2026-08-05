@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { GOOGLE_MAPS_LIBRARIES, GOOGLE_MAPS_VERSION } from '@/lib/maps-config'
+import { geoJSONToPaths, geoJSONToPoints } from '@/lib/maps/geojson-paths'
 
 const LIBRARIES = GOOGLE_MAPS_LIBRARIES
 
@@ -181,16 +182,7 @@ function POITriggerMapInner({
             const boundary = result.data[0]
             const bounds = new google.maps.LatLngBounds()
             
-            let coords = []
-            if (boundary.coordinates) {
-              coords = boundary.coordinates
-            } else if (boundary.geojson?.type === 'Polygon') {
-              coords = boundary.geojson.coordinates[0].map((c: any) => ({ lat: c[1], lng: c[0] }))
-            } else if (boundary.geojson?.type === 'MultiPolygon') {
-              // Simplification: use the first polygon of multipolygon
-              coords = boundary.geojson.coordinates[0][0].map((c: any) => ({ lat: c[1], lng: c[0] }))
-            }
-
+            const coords = boundary.coordinates ?? geoJSONToPoints(boundary.geojson)
             coords.forEach((c: any) => bounds.extend(new google.maps.LatLng(c.lat, c.lng)))
             mapInstanceRef.current.fitBounds(bounds)
           }
@@ -211,15 +203,11 @@ function POITriggerMapInner({
     boundariesRef.current = []
 
     cityBoundaries.forEach(boundary => {
-      let paths: google.maps.LatLng[] = []
-      
-      if (boundary.coordinates) {
-        paths = boundary.coordinates.map(c => new google.maps.LatLng(c.lat, c.lng))
-      } else if (boundary.geojson?.type === 'Polygon') {
-        paths = boundary.geojson.coordinates[0].map((c: any) => new google.maps.LatLng(c[1], c[0]))
-      } else if (boundary.geojson?.type === 'MultiPolygon') {
-        paths = boundary.geojson.coordinates[0][0].map((c: any) => new google.maps.LatLng(c[1], c[0]))
-      }
+      // google.maps.Polygon takes an array of rings, so every part of a MultiPolygon draws
+      // from one object. The old code kept only coordinates[0][0] -- one part out of N.
+      const paths: google.maps.LatLngLiteral[][] = boundary.coordinates
+        ? [boundary.coordinates.map(c => ({ lat: c.lat, lng: c.lng }))]
+        : geoJSONToPaths(boundary.geojson)
 
       if (paths.length === 0) return
 
