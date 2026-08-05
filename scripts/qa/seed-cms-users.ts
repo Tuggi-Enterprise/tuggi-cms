@@ -85,39 +85,56 @@ async function seed(): Promise<void> {
   }
 }
 
+/**
+ * Cleanup revokes the privilege; it does not DELETE the row, and that is a
+ * measured constraint, not a preference.
+ *
+ * `DELETE FROM core.cms_users` fires ON DELETE SET NULL on
+ * `core.attraction_trigger_points.created_by` and `.updated_by` (20.1M rows, both
+ * unindexed) plus `core.poi_exclusions.excluded_by` (2.5M, unindexed), so it is
+ * cancelled by `statement_timeout` (measured 2026-08-05: 9.2s, error 57014).
+ * `is_active = false` is a plain UPDATE on the primary key — instant — and the
+ * gate (`lib/auth-middleware.ts`) filters on `is_active`, so a deactivated row
+ * authorizes exactly nothing. The hard DELETE is an operator step with the
+ * timeout raised; see the message this prints.
+ */
 async function cleanup(): Promise<void> {
-  // Always filtered by the test domain; a DELETE without WHERE on this table is a
-  // destructive action the operator executes, never an agent (CLAUDE.md §3).
   const { data, error } = await service
     .schema('core')
     .from('cms_users')
-    .delete()
+    .update({ is_active: false })
     .ilike('email', `%@${TEST_ACCOUNT_DOMAIN}`)
-    .select('email')
+    .select('email, role, is_active')
   if (error) {
-    console.error(`❌ delete core.cms_users: ${error.message}`)
+    console.error(`❌ desativação em core.cms_users: ${error.message}`)
     process.exit(1)
   }
-  const removed = (data ?? []).map((r: { email: string }) => r.email)
-  if (removed.some((e) => !isTestAccountEmail(e))) {
-    throw new Error(`filtro de cleanup pegou linha fora do domínio de teste: ${removed.join(', ')}`)
+  const touched = (data ?? []) as { email: string; role: string; is_active: boolean }[]
+  if (touched.some((r) => !isTestAccountEmail(r.email))) {
+    throw new Error(`filtro de cleanup pegou linha fora do domínio de teste: ${touched.map((r) => r.email).join(', ')}`)
   }
-  console.log(removed.length ? `🧹 removidas: ${removed.join(', ')}` : '🧹 nada a remover')
 
-  const { data: left, error: leftError } = await service
+  const { data: active, error: activeError } = await service
     .schema('core')
     .from('cms_users')
-    .select('email')
+    .select('email, role')
     .ilike('email', `%@${TEST_ACCOUNT_DOMAIN}`)
-  if (leftError) {
-    console.error(`❌ verificação pós-cleanup falhou: ${leftError.message}`)
+    .eq('is_active', true)
+  if (activeError) {
+    console.error(`❌ verificação pós-cleanup falhou: ${activeError.message}`)
     process.exit(1)
   }
-  if ((left ?? []).length > 0) {
-    console.error(`❌ cleanup não provado: ainda há ${left!.length} linha(s).`)
+  if ((active ?? []).length > 0) {
+    console.error(`❌ cleanup não provado: ${active!.length} persona(s) ainda ativa(s).`)
     process.exit(1)
   }
-  console.log('✅ cleanup provado: 0 linhas de teste em core.cms_users.')
+
+  console.log(`🧹 desativadas: ${touched.map((r) => `${r.email} (${r.role})`).join(', ') || 'nenhuma'}`)
+  console.log('✅ cleanup provado: 0 linhas de teste ATIVAS em core.cms_users — nenhuma autoriza rota.')
+  console.log(
+    '\nDELETE definitivo é passo do operador (CLAUDE.md §3), porque precisa de timeout maior:\n' +
+      "  psql \"$DB_URL\" -c \"SET statement_timeout='120s'; DELETE FROM core.cms_users WHERE email ILIKE '%@qa-test.tuggi.app';\""
+  )
 }
 
 const main = process.argv.includes('--cleanup') ? cleanup : seed
