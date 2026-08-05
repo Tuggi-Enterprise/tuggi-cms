@@ -47,7 +47,11 @@ export async function POST(request: NextRequest) {
       auto_approve_if_satisfactory: options.auto_approve_if_satisfactory ?? false,
       skip_if_exists: options.skip_if_exists ?? true,
       update_if_exists: options.update_if_exists ?? false,
-      mode: options.mode || 'full'
+      mode: options.mode || 'full',
+      // Forwarded, not rebuilt: this handler used to list the options one by one and silently
+      // drop these two, so the operator's language and voice choices died here (#157).
+      languages: options.languages ?? ['pt-br'],
+      voice_gender: options.voice_gender ?? 'male'
     })
 
     if (!result.success) {

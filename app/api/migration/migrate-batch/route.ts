@@ -25,6 +25,9 @@ interface BatchMigrationRequest {
     auto_approve_if_satisfactory?: boolean
     skip_if_exists?: boolean
     update_if_exists?: boolean
+    /** Content languages to generate, from the catalogue in BR-IDIOMA-001. */
+    languages?: string[]
+    voice_gender?: 'male' | 'female'
   }
   poi_uuid_ids?: string[] // Optional: specific POI UUIDs to migrate
 }
@@ -69,7 +72,9 @@ export async function POST(request: NextRequest) {
       auto_generate_audio = true,
       auto_approve_if_satisfactory = false,
       skip_if_exists = true,
-      update_if_exists = false
+      update_if_exists = false,
+      languages = ['pt-br'],
+      voice_gender = 'male'
     } = options
 
     console.log(`🚀 Starting batch migration:`, { filters, batch_size, mode })
@@ -192,7 +197,9 @@ export async function POST(request: NextRequest) {
       auto_approve_if_satisfactory,
       skip_if_exists,
       update_if_exists,
-      mode
+      mode,
+      languages,
+      voice_gender
     }
 
     // Process POIs SEQUENTIALLY (1 at a time) - CRITICAL for timeout prevention

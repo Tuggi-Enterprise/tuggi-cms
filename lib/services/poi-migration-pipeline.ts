@@ -11,6 +11,14 @@ import { HomologEnrichmentService } from './poi-processing/homolog-enrichment.se
 
 const supabase = getSupabase('service')
 
+/**
+ * Language the POI description is authored in. Translations always start from it, and the
+ * audio step upstream already produces its narration — so it is never a translation target.
+ * The catalogue of languages a POI may exist in belongs to BR-IDIOMA-001 and is chosen by the
+ * operator; this file must not restate it.
+ */
+const SOURCE_LANGUAGE_TAGS = ['pt-br', 'pt']
+
 // Get Supabase URL and anon key for Edge Functions (same as frontend)
 const getSupabaseConfig = () => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -295,12 +303,12 @@ export class PoiMigrationPipeline {
           const audioStep = await this.checkAudioStep(attraction_id)
           steps.push(audioStep)
 
-          // Step 3b: Generate multi-language audios (en-us, es-es)
+          // Step 3b: Generate audio for every language the operator selected (BR-IDIOMA-001)
           if (audioStep.success && auto_generate_audio) {
             console.log(`⏳ Waiting 500ms before generating multi-language audios...`)
             await new Promise(resolve => setTimeout(resolve, 500))
-            
-            const multiLanguageAudioStep = await this.executeMultiLanguageAudioStep(attraction_id)
+
+            const multiLanguageAudioStep = await this.executeMultiLanguageAudioStep(attraction_id, languages, voice_gender)
             steps.push(multiLanguageAudioStep)
             if (!multiLanguageAudioStep.success) {
               warnings.push(`Multi-language audio generation failed: ${multiLanguageAudioStep.error}`)
@@ -1185,10 +1193,41 @@ export class PoiMigrationPipeline {
   }
 
   /**
-   * Step 3b: Generate multi-language audios (en-us, es-es)
+   * Step 3b: Generate narration for the languages the caller selected.
+   *
+   * The list is the caller's (BR-IDIOMA-001 owns the catalogue the operator picks from); this
+   * step neither restates it nor narrows it. It used to declare `['en-us', 'es-es']` locally,
+   * shadowing the parameter — the selector offered 12 languages and the pipeline produced 2,
+   * with no type or lint error to show for it (#157).
+   *
+   * @param languages Selected content languages; the source language is dropped, since its
+   *                  narration comes from the audio step above.
+   * @param voiceGender Voice gender selected by the operator.
    */
-  private static async executeMultiLanguageAudioStep(attraction_id: string): Promise<PipelineStepResult> {
+  private static async executeMultiLanguageAudioStep(
+    attraction_id: string,
+    languages: string[],
+    voiceGender: 'male' | 'female'
+  ): Promise<PipelineStepResult> {
     const stepStart = Date.now()
+
+    // Deduplicate and drop the source language: asking for it here would re-spend TTS budget
+    // on narration that already exists.
+    const targetLanguages = Array.from(
+      new Set((languages || []).map(lang => lang.trim().toLowerCase()).filter(Boolean))
+    ).filter(lang => !SOURCE_LANGUAGE_TAGS.includes(lang))
+
+    if (targetLanguages.length === 0) {
+      console.log(`⏭️  No translation language selected — skipping multi-language audio`)
+      return {
+        step: 'multi_language_audio',
+        success: true,
+        data: { results: [], skipped: true, reason: 'No translation language selected' },
+        processing_time: Date.now() - stepStart
+      }
+    }
+
+    console.log(`🌍 Languages selected for ${attraction_id}: ${targetLanguages.join(', ')} (voice: ${voiceGender})`)
 
     try {
       // CRITICAL: Verify that pt-br description exists before generating translations
@@ -1203,7 +1242,7 @@ export class PoiMigrationPipeline {
           .from('attraction_descriptions')
           .select('description, language')
           .eq('attraction_id', attraction_id)
-          .in('language', ['pt-br', 'pt'])
+          .in('language', SOURCE_LANGUAGE_TAGS)
           .order('language', { ascending: true }) // Prefer pt-br over pt
           .limit(1)
           .maybeSingle()
@@ -1232,11 +1271,10 @@ export class PoiMigrationPipeline {
         throw new Error(errorMsg)
       }
 
-      const languages = ['en-us', 'es-es']
       const results: string[] = []
       const { supabaseUrl, supabaseKey: anonKey } = getSupabaseConfig()
 
-      for (const lang of languages) {
+      for (const [index, lang] of targetLanguages.entries()) {
         try {
           console.log(`🎙️  Generating ${lang} audio for attraction: ${attraction_id}`)
           
@@ -1249,7 +1287,7 @@ export class PoiMigrationPipeline {
             body: JSON.stringify({
               attractionId: attraction_id,
               targetLanguage: lang,
-              voiceGender: 'male'
+              voiceGender
             })
           })
 
@@ -1274,7 +1312,7 @@ export class PoiMigrationPipeline {
           results.push(`✅ ${lang}: generated successfully`)
           
           // Add small delay between languages to avoid rate limiting
-          if (lang === 'en-us' && languages.indexOf('es-es') > -1) {
+          if (index < targetLanguages.length - 1) {
             console.log(`   ⏳ Waiting 500ms before generating next language...`)
             await new Promise(resolve => setTimeout(resolve, 500))
           }

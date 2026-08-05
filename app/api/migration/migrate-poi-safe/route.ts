@@ -68,7 +68,11 @@ export async function POST(request: NextRequest) {
       auto_approve_if_satisfactory: options.auto_approve_if_satisfactory ?? false,
       skip_if_exists: options.skip_if_exists ?? true,
       update_if_exists: options.update_if_exists ?? false,
-      mode: options.mode || 'full'
+      mode: options.mode || 'full',
+      // Same silent drop as migrate-poi (#157): the caller's language/voice choice has to
+      // reach the pipeline, otherwise the audio step falls back to no translation at all.
+      languages: options.languages ?? ['pt-br'],
+      voice_gender: options.voice_gender ?? 'male'
     })
 
     if (!result.success) {

@@ -81,7 +81,11 @@ const LANGUAGES = [
   { code: 'pt-br', label: 'Português (BR)', flag: '🇧🇷' },
   { code: 'pt-pt', label: 'Português (PT)', flag: '🇵🇹' },
   { code: 'en-us', label: 'English (US)', flag: '🇺🇸' },
-  { code: 'en-uk', label: 'English (UK)', flag: '🇬🇧' },
+  // BCP 47 (RFC 5646 §2.2.4): the region subtag is the ISO 3166-1 alpha-2 code, so British
+  // English is `en-gb`. `UK` is a reserved synonym of `GB`, absent from the IANA registry; the
+  // tag this screen used to send was rejected with 400 by the Edge Function zod gate and the
+  // operator saw only "failed". BR-IDIOMA-001.
+  { code: 'en-gb', label: 'English (UK)', flag: '🇬🇧' },
   { code: 'es-es', label: 'Español', flag: '🇪🇸' },
   { code: 'de-de', label: 'Deutsch', flag: '🇩🇪' },
   { code: 'fr-fr', label: 'Français', flag: '🇫🇷' },
