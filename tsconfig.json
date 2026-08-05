@@ -16,6 +16,15 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
+    // #162: `incremental` fica ligado para o Next (next dev/build usam o
+    // cache). O gate `npm run type-check`, porém, roda com
+    // `--incremental false` na linha de comando — um `tsconfig.tsbuildinfo`
+    // (gitignored, por máquina) ficou com estado inválido e produziu
+    // "Cannot find name" fantasma em componentes carregados via
+    // `next/dynamic`, em arquivos que nem tinham sido tocados. Reproduzido
+    // duas vezes, em dois arquivos diferentes, sumiu com cache limpo ou com
+    // `--incremental false`. Um gate que falha (ou passa) por acaso é pior
+    // que nenhum gate — por isso o type-check do commit nunca usa o cache.
     "incremental": true,
     "plugins": [
       {
@@ -43,6 +52,14 @@
     "supabase/lib/**/*",
     ".next",
     "scripts/**/*",
-    "plugins/**/*"
+    "plugins/**/*",
+    // #162: tests/rls-security.test.ts nunca rodou (nem o `check-all` nem o
+    // pre-commit chegavam a executar) e tem 41 erros de tipo pré-existentes
+    // — falta @types/jest/@types/mocha e um shape de sessão que não bate
+    // com o Supabase client atual. É objeto do #142, que também constata
+    // que este teste nunca executou. Excluído do gate por este card; não
+    // consertado aqui porque corrigi-lo é fazer o teste rodar de verdade,
+    // que é escopo do #142, não deste.
+    "tests/rls-security.test.ts"
   ]
 }

@@ -1,19 +1,8 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 echo "🔍 Verificando erros de TypeScript e ESLint..."
 
-# Verificar TypeScript
-npm run type-check:app
+npm run check-all
 if [ $? -ne 0 ]; then
-  echo "❌ Erros de TypeScript encontrados. Commit cancelado."
-  exit 1
-fi
-
-# Verificar ESLint
-npm run lint
-if [ $? -ne 0 ]; then
-  echo "❌ Erros de ESLint encontrados. Commit cancelado."
+  echo "❌ check-all falhou (TypeScript ou ESLint). Commit cancelado."
   exit 1
 fi
 
