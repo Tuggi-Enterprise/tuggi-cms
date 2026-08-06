@@ -1,6 +1,14 @@
 
 import { getSupabaseClient } from '@/lib/core/supabase-client';
 
+// Every notification RPC below lives in `core` (core.get_notification_templates,
+// core.create_notification_template, …). The browser client has no `db.schema`, so an
+// unqualified .rpc() resolves against `public`: create/update/delete answered PGRST202
+// (404) because no wrapper was ever created there, and read only worked through the
+// `SELECT core.<same_name>(...)` wrappers added by
+// supabase/migrations/20260628_audience_filter_ssot.sql. Pinning the schema on every call
+// is also what stops the CMS from depending on `public` being an exposed API schema.
+
 export type NotificationType = 'user' | 'topic' | 'broadcast';
 export type NotificationStatus = 'sent' | 'pending' | 'processing' | 'failed';
 
@@ -47,7 +55,7 @@ export const NotificationService = {
    */
   async estimateAudience(filters: AudienceFilters): Promise<number> {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase.rpc('estimate_notification_audience', {
+    const { data, error } = await supabase.schema('core').rpc('estimate_notification_audience', {
       p_filters: filters,
     });
 
@@ -123,14 +131,14 @@ export const NotificationService = {
   // Template Management (RPC Based)
   async getTemplates() {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase.rpc('get_notification_templates');
+    const { data, error } = await supabase.schema('core').rpc('get_notification_templates');
     if (error) throw error;
     return data as NotificationTemplate[];
   },
 
   async createTemplate(template: Omit<NotificationTemplate, 'id' | 'created_at'>) {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase.rpc('create_notification_template', {
+    const { data, error } = await supabase.schema('core').rpc('create_notification_template', {
       p_template: template
     });
     if (error) throw error;
@@ -139,7 +147,7 @@ export const NotificationService = {
   
   async updateTemplate(id: string, updates: Partial<NotificationTemplate>) {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase.rpc('update_notification_template', {
+    const { data, error } = await supabase.schema('core').rpc('update_notification_template', {
       p_id: id,
       p_updates: updates
     });
@@ -149,7 +157,7 @@ export const NotificationService = {
 
   async deleteTemplate(id: string) {
     const supabase = getSupabaseClient();
-    const { error } = await supabase.rpc('delete_notification_template', {
+    const { error } = await supabase.schema('core').rpc('delete_notification_template', {
       p_id: id
     });
     if (error) throw error;
@@ -158,7 +166,7 @@ export const NotificationService = {
   // Log Management (RPC Based)
   async getLogs() {
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase.rpc('get_notification_logs', {
+    const { data, error } = await supabase.schema('core').rpc('get_notification_logs', {
       p_limit: 50
     });
     if (error) throw error;
