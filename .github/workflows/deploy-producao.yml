@@ -51,6 +51,13 @@ jobs:
       - name: Suíte de testes de API (npm run test:api)
         run: npm run test:api
 
+      # #179 — uma Function de 2,88 GB barrou o deploy de produção porque o `@vercel/nft`
+      # arrastou um cache local de tiles para dentro de nove rotas. Esta régua mede cada
+      # `.nft.json` e falha acima de 250 MB. Ela builda, por isso é o passo mais caro do
+      # portão — e é o único que pega a classe de defeito que só aparece no deploy.
+      - name: Tamanho das Functions (npm run test:bundle)
+        run: npm run test:bundle
+
   deploy:
     name: Build + deploy de produção (Vercel)
     needs: suite
