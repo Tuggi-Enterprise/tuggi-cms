@@ -4,9 +4,11 @@
  *
  * The legacy `SUPABASE_SERVICE_ROLE_KEY` leaked and still authenticates, so the
  * project has to move onto `SUPABASE_SECRET_KEYS` — a JSON object indexed by key
- * NAME. The real name is not known yet, which is why the fallback exists and why
- * it has to shout: the `console.error` asserted below is what will tell us, from
- * the production logs, which names the runtime actually injects.
+ * NAME. The project holds four secret keys and only `ef_secret_key` belongs to
+ * the Edge Functions, so the name is asserted here as a literal: picking any of
+ * the other three resolves fine and fails silently, which no other assertion in
+ * this file would catch. The fallback still has to shout, and the
+ * `console.error` asserted below still must never carry a key value.
  *
  * The helper is Deno source (`.ts` specifiers, `Deno.env`), so it is loaded
  * through a path built at run time — a static import would end in `.ts` and fail
@@ -59,6 +61,34 @@ function resolveKey(): { key: string; errors: string[] } {
 before(async () => {
   setDenoEnv({})
   helper = (await import(pathToFileURL(HELPER_PATH).href)) as SecretKeyModule
+})
+
+test('#155: the configured name is `ef_secret_key`, the secret created for the Edge Functions', () => {
+  assert.equal(
+    helper.SECRET_KEY_NAME,
+    'ef_secret_key',
+    'the project also holds `default`, `cms_secret_key` and `app_secret_key`, ' +
+      'and each belongs to another consumer'
+  )
+})
+
+test('#155: `default` exists in this project and must never be the one picked', () => {
+  // The whole map, as the runtime injects it. `default` resolving is exactly the
+  // failure this test exists for: it would answer 200 with the wrong identity.
+  setDenoEnv({
+    SUPABASE_SECRET_KEYS: JSON.stringify({
+      default: 'sb_secret_THE_WRONG_ONE',
+      cms_secret_key: 'sb_secret_BELONGS_TO_THE_CMS',
+      app_secret_key: 'sb_secret_BELONGS_TO_THE_APP',
+      ef_secret_key: NEW_KEY,
+    }),
+    SUPABASE_SERVICE_ROLE_KEY: LEGACY_KEY,
+  })
+
+  const { key, errors } = resolveKey()
+
+  assert.equal(key, NEW_KEY, 'any other entry of the map is a silent wrong-identity bug')
+  assert.deepEqual(errors, [], 'the configured name resolved: there is nothing to warn about')
 })
 
 test('#155: the configured name in SUPABASE_SECRET_KEYS wins, silently', () => {
