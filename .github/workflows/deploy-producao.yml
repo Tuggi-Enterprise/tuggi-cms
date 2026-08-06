@@ -1,0 +1,95 @@
+name: Deploy de produção
+
+# #178 — a integração nativa Vercel↔GitHub parou de disparar build quando os repositórios
+# ficaram privados (#155). Este workflow substitui `npx vercel@latest --prod` rodado à mão
+# na máquina do operador: todo push na `main` roda a suíte como portão e só publica em
+# produção se ela passar. Ver docs/dev/2026-08-06-tuggi-cms-deploy-producao-actions-178.md.
+
+on:
+  push:
+    branches: [main]
+  # Permite ao operador rodar este workflow manualmente a partir de qualquer branch antes de
+  # mergear na `main` — recomendação da própria Vercel, já que um workflow só dispara por
+  # `push` quando o arquivo existe na branch padrão. Continua publicando em produção; não é
+  # deploy de preview.
+  workflow_dispatch: {}
+
+# Evita duas publicações de produção correndo ao mesmo tempo se dois pushes caírem em
+# sequência rápida; a segunda espera a primeira terminar em vez de cancelá-la no meio.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Next 16 exige Node >= 20.9. 22 é a versão usada no ambiente onde a suíte e o build deste
+  # commit foram conferidos antes deste workflow existir.
+  NODE_VERSION: '22'
+
+jobs:
+  suite:
+    name: Suíte + type-check (portão)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configura Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Instala dependências
+        run: npm ci --include=dev
+
+      - name: Type-check + lint (npm run check-all)
+        run: npm run check-all
+
+      - name: Suíte de testes de API (npm run test:api)
+        run: npm run test:api
+
+  deploy:
+    name: Build + deploy de produção (Vercel)
+    needs: suite
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configura Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Instala a Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Puxa a configuração de ambiente de produção
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Builda os artefatos de produção
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Publica em produção (--prebuilt, sem rebuildar na Vercel)
+        id: deploy
+        run: |
+          url=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Deploy de produção"
+            echo "$url"
+          } >> "$GITHUB_STEP_SUMMARY"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
