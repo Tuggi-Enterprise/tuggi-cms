@@ -29,10 +29,10 @@ import { buildSessionCookieHeader } from './lib/session-cookie'
 import { withRetry } from './lib/retry'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SECRET_KEY) {
+if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY || !SUPABASE_SECRET_KEY) {
   console.error(
     '❌ Faltam variáveis de ambiente. Precisa de NEXT_PUBLIC_SUPABASE_URL, ' +
       'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY e SUPABASE_SECRET_KEY (.env).'
@@ -140,7 +140,7 @@ async function main() {
     // silently in the middle of the fase-2 run.
     await buildSessionCookieHeader(email, password, {
       supabaseUrl: SUPABASE_URL!,
-      supabaseAnonKey: SUPABASE_ANON_KEY!,
+      supabaseAnonKey: SUPABASE_PUBLISHABLE_KEY!,
     })
 
     results.push({ persona, email, userId, password, createdAt: new Date().toISOString() })

@@ -14,6 +14,7 @@
     "check-errors": "tsx scripts/check-errors.ts",
     "check:routes": "tsx scripts/check-route-policies.ts",
     "test:api": "tsx --experimental-test-module-mocks --test tests/api/*.test.ts",
+    "test:bundle": "next build && tsx --test tests/bundle/*.test.ts",
     "security:audit": "tsx scripts/security-audit.ts",
     "security:fix": "npm audit fix",
     "security:check": "npm audit --audit-level=high",

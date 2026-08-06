@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { getSecretKey } from '../_shared/supabase-client.ts';
+import { getSecretKey } from '../_shared/secret-key.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { generateMasterPack } from "../_shared/masterPackGenerator.ts";
 import { translateWithGeminiWithUsage, translatePoiNameWithUsage } from "../_shared/translationUtility.ts";
@@ -69,14 +69,13 @@ const corsHeaders = {
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
-const SERVICE_ROLE_KEY = getSecretKey() ||
-    getSecretKey() || "";
+const SECRET_KEY = getSecretKey();
 const GEMINI_API_KEY = Deno.env.get("GOOGLE_GEMINI_API_KEY") ||
     Deno.env.get("GEMINI_API_KEY") || "";
 const GOOGLE_TTS_API_KEY = Deno.env.get("GOOGLE_TTS_API_KEY") ||
     Deno.env.get("GOOGLE_CLOUD_API_KEY") || "";
 
-const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+const supabaseAdmin = createClient(SUPABASE_URL, SECRET_KEY);
 
 // --- Helpers ---
 function calculateDistance(

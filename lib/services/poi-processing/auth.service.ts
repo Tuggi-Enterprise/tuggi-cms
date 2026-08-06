@@ -5,7 +5,7 @@
  * Compatible with Supabase Edge Functions
  */
 
-import { getSupabase } from '../../core/supabase-client'
+import { getSupabaseService } from '../../core/supabase-client'
 
 // =====================================
 // INTERFACES AND TYPES
@@ -42,7 +42,7 @@ export class AuthService {
       throw new Error('Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY')
     }
     
-    return getSupabase('server')
+    return getSupabaseService()
   }
 
   /**

@@ -1,11 +1,22 @@
+/**
+ * POST /api/pois/enrich-osm — fills a POI from OpenStreetMap.
+ *
+ * SEC-37 + CARD-CMS-01. It updated `core.attractions` as `anon` with no gate, and
+ * the two module constants naming `SUPABASE_SECRET_KEY` were never used — a grep
+ * classified it as service_role while the writes were anonymous. The gate comes
+ * first now; the write itself keeps `service_role`, which is the shape the other
+ * POI-writing routes already use.
+ *
+ * Roles: the three that can edit a POI. `/api/pois/enrich-osm` is in
+ * `ALLOWED_CLIENT_PATHS`, so `client` has to stay.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabase } from '../../../../lib/core/supabase-client';
+import { withAuth } from '@/lib/auth-middleware';
+import { getSupabaseService } from '@/lib/core/supabase-client';
 import { invalidatePOICache } from '@/lib/cache/poi-cache-invalidator';
 
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY!;
-const supabase = getSupabase('server');
+const supabase = getSupabaseService();
 
 interface EnrichmentRequest {
   poi_id: string;
@@ -21,7 +32,7 @@ interface OSMData {
   overpass?: any;
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withAuth({ roles: ['admin', 'client', 'editor'] }, async (request: NextRequest) => {
   try {
     const body: EnrichmentRequest = await request.json();
     const { poi_id, name, city, country, google_place_id } = body;
@@ -106,7 +117,7 @@ export async function POST(request: NextRequest) {
       errors: [error instanceof Error ? error.message : 'Unknown error']
     }, { status: 500 });
   }
-}
+});
 
 async function getPOICoordinates(poi_id: string): Promise<{lat: number, lng: number} | null> {
   try {

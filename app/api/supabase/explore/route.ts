@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabase } from '@/lib/core/supabase-client'
+import { withAuth } from '@/lib/auth-middleware'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * API route to explore Supabase database schema and data
- * READ-ONLY operations for database inspection
+ * GET /api/supabase/explore — read-only schema/table inspection.
+ *
+ * SEC-37 + CARD-CMS-01. An ungated route that dumped rows of any table it was
+ * asked for, as `anon`. Admin only now, and it reads with the operator's own JWT.
  */
-export async function GET(request: NextRequest) {
+export const GET = withAuth({ roles: ['admin'] }, async (request: NextRequest, _ctx, auth) => {
   try {
     // Verify environment variables are loaded
     const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -30,7 +32,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const supabase = getSupabase('server')
+    const supabase = auth.supabase
     const { searchParams } = new URL(request.url)
     const action = searchParams.get('action') || 'schemas'
     const schema = searchParams.get('schema') || 'core'
@@ -238,5 +240,5 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
 

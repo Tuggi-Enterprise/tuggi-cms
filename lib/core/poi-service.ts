@@ -12,7 +12,7 @@
  * - Edge Functions compatibility
  */
 
-import { getSupabase } from './supabase-client'
+import { getSupabaseClient } from './supabase-client'
 import { extractCoordinates } from './poi-coordinates'
 
 // POI Data Interfaces
@@ -177,7 +177,7 @@ class POIService {
    * Search POIs with Trigger Point coordinates (Optimized for Map Visualization)
    */
   static async getWithTriggers(filters: { city: string; state?: string; country?: string }): Promise<POI[]> {
-    const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server');
+    const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .schema('core')
       .rpc('get_pois_with_trigger_coords', {
@@ -215,7 +215,7 @@ class POIService {
       }
       
       
-      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
+      const supabase = getSupabaseClient()
       
       // Filtros compartilhados entre cms_list_pois (linhas) e cms_poi_facets (contadores).
       // Os filtros complexos (content/group/score/trigger) são aplicados no SQL pelos RPCs.
@@ -463,7 +463,7 @@ class POIService {
    */
   static async getFacets(filters: POISearchFilters): Promise<{ success: boolean; data?: { total: number; approved: number; pending: number; withDescription: number; withAudio: number; withTriggerPoints: number; complete: number }; error?: string }> {
     try {
-      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
+      const supabase = getSupabaseClient()
       const baseArgs = {
         search_term: filters.search || null,
         status_filter: filters.status || 'all',
@@ -597,7 +597,7 @@ class POIService {
       
       console.log(`🔍 Loading POI: ${id}`)
       
-      const supabase = getSupabase('server')
+      const supabase = getSupabaseClient()
       
       // First, check if there are multiple rows with the same ID (should never happen, but let's be safe)
       const { count: duplicateCount } = await supabase
@@ -717,7 +717,7 @@ class POIService {
     try {
       console.log('📊 Loading POI statistics with RPC:', filters)
       
-      const supabase = getSupabase('server')
+      const supabase = getSupabaseClient()
       
       // Contadores via cms_poi_facets (MV quando sem filtro; count live com filtro).
       // Mesmos nomes de coluna do RPC antigo, sem varrer a tabela inteira.

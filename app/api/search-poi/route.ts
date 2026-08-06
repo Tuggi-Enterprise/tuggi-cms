@@ -1,9 +1,16 @@
+/**
+ * GET /api/search-poi — one POI by id, with its coordinate.
+ *
+ * SEC-37 + CARD-CMS-01: it read `core.attractions` as `anon` and answered anyone.
+ * Roles are the ones that can sign into the CMS at all.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabase } from '../../../lib/core/supabase-client'
+import { withAuth } from '@/lib/auth-middleware'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth({ roles: ['admin', 'client', 'editor'] }, async (request: NextRequest, _ctx, auth) => {
   try {
     const { searchParams } = new URL(request.url)
     const poiId = searchParams.get('id')
@@ -17,8 +24,7 @@ export async function GET(request: NextRequest) {
     
     console.log(`🔍 Searching for POI: ${poiId}`)
     
-    // Initialize Supabase client with service role key for elevated privileges
-    const supabase = getSupabase('server')
+    const supabase = auth.supabase
     
     // Search POI in database
     const { data: poiData, error: poiError } = await supabase
@@ -77,4 +83,4 @@ export async function GET(request: NextRequest) {
       error: `Search failed: ${error instanceof Error ? error.message : 'Unknown error'}`
     }, { status: 500 })
   }
-}
+})

@@ -9,6 +9,17 @@ docs/
 # SQL files
 *.sql
 
+# Local development caches and script artifacts. `.gitignore` already keeps these
+# out of the repository, but a `.vercelignore` REPLACES `.gitignore` for uploads made
+# by the Vercel CLI — so without this block a `vercel deploy` from a workstation
+# uploads whatever the local scripts left on disk. In #179 that was 2.9 GB of SRTM
+# tiles under data/srtm-cache/, which then landed inside nine Functions.
+data/
+db-clone/
+.dedupe-out/
+.demote-out/
+.merge-out/
+
 # Other development files
 .env.local
 .env.development.local

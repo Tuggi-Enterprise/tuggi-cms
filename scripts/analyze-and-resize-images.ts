@@ -11,13 +11,13 @@
  * - Cria backup das imagens originais
  */
 
-import { getSupabase } from '../lib/core/supabase-client';
+import { getSupabaseService } from '../lib/core/supabase-client';
 import sharp from 'sharp';
 
 // Configuração do Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabase = getSupabase('server');
+const supabase = getSupabaseService();
 
 interface ImageAnalysis {
   path: string;

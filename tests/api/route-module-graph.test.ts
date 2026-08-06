@@ -14,6 +14,9 @@
  * the offending chain. Dynamic `await import()` inside a handler is deliberately
  * not followed: that is the supported escape hatch.
  *
+ * It also holds the one guard about bundle size that costs nothing to run. The
+ * measurement itself needs a build and lives in tests/bundle/route-trace-size.test.ts.
+ *
  * Run with: npm run test:api
  */
 
@@ -151,4 +154,49 @@ test('lib/input-validation.ts stays free of jsdom for every future importer', ()
     null,
     `lib/input-validation.ts must stay DOM-free: ${chain?.map(relative).join(' → ')}`
   )
+})
+
+/** Directories that are build output, dependencies or local script artifacts. */
+const UNSEARCHED_DIRECTORIES = new Set([
+  '.git',
+  '.next',
+  '.vercel',
+  'node_modules',
+  'data',
+  'output',
+  'db-clone',
+])
+
+function listSourceFiles(dir: string): string[] {
+  const found: string[] = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (UNSEARCHED_DIRECTORIES.has(entry.name)) continue
+      found.push(...listSourceFiles(path.join(dir, entry.name)))
+    } else if (entry.isFile()) {
+      found.push(path.join(dir, entry.name))
+    }
+  }
+  return found
+}
+
+test('the large-Function escape hatch is never enabled anywhere in the repository', () => {
+  // Vercel suggests this environment variable in the very message that refuses a
+  // Function over 250 MB. It turns a build error into a permanent cold-start cost in
+  // production and hides the trace defect that produced the size. Incident #179: the
+  // fix is to stop tracing what the route does not need, never to raise the ceiling.
+  // The name is assembled rather than written out so that neither this test nor its
+  // own failure message counts as an offender; the failure prints it in full.
+  const flag = ['VERCEL', 'SUPPORT', 'LARGE', 'FUNCTIONS'].join('_')
+  const offenders = listSourceFiles(REPO_ROOT)
+    .filter((file) => {
+      try {
+        return fs.readFileSync(file, 'utf8').includes(flag)
+      } catch {
+        return false
+      }
+    })
+    .map(relative)
+
+  assert.deepEqual(offenders, [], `${flag} must not appear in the repository:\n  ${offenders.join('\n  ')}`)
 })
