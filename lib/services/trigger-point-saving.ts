@@ -5,7 +5,7 @@
  * Consolidates duplicate saving logic from multiple routes
  */
 
-import { getSupabase, getSupabaseService } from '../core/supabase-client'
+import { getSupabaseService } from '../core/supabase-client'
 
 // Get appropriate Supabase client based on context
 // Use service client on server (bypasses RLS), fallback to server client if service key not available
@@ -16,7 +16,7 @@ const getSupabaseClient = () => {
   } catch (error) {
     // Fallback to server client if service key not available (e.g., on client side)
     // This will be used when called from API routes which have service key
-    return getSupabase('server')
+    return getSupabaseService()
   }
 }
 

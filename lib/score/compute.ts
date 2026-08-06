@@ -1,6 +1,14 @@
-import { getSupabase } from '../core/supabase-client';
-
-const supabase = getSupabase('server');
+/**
+ * Scoring helpers for description quality.
+ *
+ * SEC-37 removed `getVerificationSettings()` and `computeVerificationScores()` from
+ * this module. They read `core.verify_settings` through `getSupabase('server')` —
+ * the publishable key with no session, i.e. `anon` — and this file is imported by
+ * browser components, so that client shipped in the bundle. Neither function had a
+ * caller: the fact-checking feature they belonged to was replaced by Google
+ * grounding (`docs/cleanup-verification-feature-removal.md`). What is used here is
+ * `getScoreDescription`, `getScoreColor` and `getScoreBackgroundColor`.
+ */
 
 export interface ScoreWeights {
   factuality: number;
@@ -24,60 +32,6 @@ export interface VerificationScores {
   };
   flags: string[];
   confidence?: number;
-}
-
-export interface VerificationSettings {
-  scorer_weights: ScoreWeights;
-  factuality_thresholds: FactualityThresholds;
-  batch_size: number;
-  escalate_threshold: number;
-  cache_ttl_days: number;
-}
-
-export async function getVerificationSettings(): Promise<VerificationSettings> {
-  try {
-    const { data: settings, error } = await supabase
-      .schema('core')
-      .from('verify_settings')
-      .select('key, value')
-      .in('key', ['scorer_weights', 'factuality_thresholds', 'batch_size', 'escalate_threshold', 'cache_ttl_days']);
-    
-    if (error) {
-      console.error('Error fetching verification settings:', error);
-      return getDefaultSettings();
-    }
-    
-    const settingsMap = new Map(settings?.map(s => [s.key, s.value]) || []);
-    
-    return {
-      scorer_weights: settingsMap.get('scorer_weights') || getDefaultSettings().scorer_weights,
-      factuality_thresholds: settingsMap.get('factuality_thresholds') || getDefaultSettings().factuality_thresholds,
-      batch_size: parseInt(settingsMap.get('batch_size') || '20'),
-      escalate_threshold: parseFloat(settingsMap.get('escalate_threshold') || '0.7'),
-      cache_ttl_days: parseInt(settingsMap.get('cache_ttl_days') || '21')
-    };
-  } catch (error) {
-    console.error('Error getting verification settings:', error);
-    return getDefaultSettings();
-  }
-}
-
-function getDefaultSettings(): VerificationSettings {
-  return {
-    scorer_weights: {
-      factuality: 0.5,
-      coherence: 0.0,
-      tts_clarity: 0.2,
-      rules: 0.3
-    },
-    factuality_thresholds: {
-      approve: 90,
-      review: 70
-    },
-    batch_size: 20,
-    escalate_threshold: 0.7,
-    cache_ttl_days: 21
-  };
 }
 
 export function calculateFactualityScore(
@@ -170,57 +124,6 @@ export function determineVerificationStatus(
   
   // Otherwise, reject
   return 'rejected';
-}
-
-export async function computeVerificationScores(
-  descriptionId: string,
-  descriptionText: string,
-  claims: any[],
-  textEvaluation: any
-): Promise<VerificationScores> {
-  const settings = await getVerificationSettings();
-  
-  // Count claims by status
-  const supportedClaims = claims.filter(c => c.status === 'supported').length;
-  const contradictedClaims = claims.filter(c => c.status === 'contradicted').length;
-  const notFoundClaims = claims.filter(c => c.status === 'not_found').length;
-  const totalClaims = claims.length;
-  
-  // Calculate individual scores
-  const factualityScore = calculateFactualityScore(supportedClaims, contradictedClaims, notFoundClaims);
-  const coherenceScore = calculateCoherenceScore(textEvaluation, claims);
-  const ttsClarityScore = textEvaluation.tts_clarity_score || 0.0;
-  const rulesScore = textEvaluation.rules_score || 0.0;
-  
-  // Calculate overall score
-  const overallScore = computeOverallScore(
-    factualityScore,
-    coherenceScore,
-    ttsClarityScore,
-    rulesScore,
-    settings.scorer_weights
-  );
-  
-  // Generate flags
-  const flags: string[] = [];
-  if (contradictedClaims > 0) flags.push('contradiction');
-  if (textEvaluation.has_address_info) flags.push('mentions_address');
-  if (textEvaluation.has_pricing_info) flags.push('mentions_pricing');
-  if (textEvaluation.has_hours_info) flags.push('mentions_hours');
-  if (textEvaluation.has_superlatives) flags.push('has_superlatives');
-  if (!textEvaluation.starts_directionally) flags.push('not_directional');
-  
-  return {
-    score_overall: Math.round(overallScore * 100),
-    subscores: {
-      rules: Math.round(rulesScore * 100),
-      tts_clarity: Math.round(ttsClarityScore * 100),
-      factuality: Math.round(factualityScore * 100),
-      coherence: Math.round(coherenceScore * 100)
-    },
-    flags,
-    confidence: overallScore
-  };
 }
 
 export function validateVerificationScores(scores: VerificationScores): boolean {

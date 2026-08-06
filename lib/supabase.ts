@@ -1,12 +1,12 @@
-import { getSupabase, getSupabaseClient } from './core/supabase-client'
-import { SupabaseClient } from '@supabase/supabase-js'
+/**
+ * Row shapes of the CMS tables. Types only.
+ *
+ * The `supabase` export that used to live here was `getSupabase('server')` behind a
+ * third name — the publishable key with no session, i.e. `anon`. SEC-37 removed it;
+ * pick a client from `lib/core/supabase-client` and say which identity you mean.
+ */
 
-// Server-side Supabase client
-export const supabase = new Proxy({} as SupabaseClient, {
-  get: (target, prop) => {
-    return (getSupabase('server') as any)[prop]
-  }
-})
+import { getSupabaseClient } from './core/supabase-client'
 
 // Client-side Supabase client for auth helpers
 export const createClientComponent = () => getSupabaseClient()

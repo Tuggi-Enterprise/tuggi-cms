@@ -1,71 +1,72 @@
 /**
- * Supabase Client Manager - Single Source of Truth
- * 
- * Centralized Supabase client management following DRY and SSOF principles.
- * Eliminates 140+ duplicate Supabase client initializations across the project.
- * 
- * Features:
- * - Singleton pattern for consistent client instances
- * - Environment-specific configurations
- * - Edge Functions compatibility
- * - React hooks integration
- * - Error handling and validation
+ * Supabase Client Manager — the single source of truth for how the CMS talks to
+ * the database.
+ *
+ * There are exactly three ways out of this module, and each one names the identity
+ * the request will carry:
+ *
+ * - `getSupabaseClient()`    browser, cookie-bound → the signed-in operator
+ * - `getSupabaseRouteHandler(cookies)` / `getSupabaseServerComponent(cookies)`
+ *                            server, cookie-bound → the signed-in operator
+ * - `getSupabaseService()`   server only, `service_role` → ignores RLS
+ *
+ * SEC-37 removed a fourth one. `getServerClient()` / `getSupabase('server')` built a
+ * client with the *publishable* key and no cookie, so every query it made reached
+ * PostgREST as `anon` — including reads of personal data — while its name said
+ * "server" and two call sites commented it as "service role for elevated
+ * privileges". There is no anon-without-session client here any more: a call site
+ * that has no operator is machine work and says so with `getSupabaseService()`.
+ *
+ * The publishable key is the only key that may reach the browser. `SUPABASE_SECRET_KEY`
+ * is read here and nowhere near a component.
  */
 
-import { 
-  createClient, 
-  SupabaseClient 
+import {
+  createClient,
+  SupabaseClient
 } from '@supabase/supabase-js'
 
-// --- SSOT BRIDGE ---
-// Ensure legacy environment variables exist for backward compatibility with 
-// third-party libraries (like @supabase/auth-helpers) that expect them.
-if (typeof window !== 'undefined') {
-  console.log('🔍 [Supabase] Browser environment variables:', {
-    hasUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
-    hasPublishable: !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
-    hasAnon: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  });
-}
-
-if (typeof process !== 'undefined' && process.env) {
-  // Bridge for compatibility with 3rd party libs that expect legacy names
-  if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  }
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.SUPABASE_SECRET_KEY) {
-    process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SECRET_KEY;
-  }
-}
-
 import { createBrowserClient, createServerClient } from '@supabase/ssr'
+
+/**
+ * The browser-visible key, by its current name.
+ *
+ * `NEXT_PUBLIC_SUPABASE_ANON_KEY` is the legacy name and is deliberately not read,
+ * here or anywhere else in the CMS: it was the fallback that kept the anon surface
+ * alive, and a fallback is how a key that should be retired stays in service.
+ */
+const PUBLISHABLE_KEY = () => process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || ''
+const SUPABASE_URL = () => process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 
 // Environment configuration
 interface SupabaseConfig {
   url: string
-  anonKey: string
+  publishableKey: string
   serviceRoleKey?: string
   isEdgeFunction?: boolean
   isClientSide?: boolean
 }
 
-// Client types for different contexts
-export type SupabaseClientType = 'server' | 'client' | 'edge' | 'service'
+/**
+ * Client types for different contexts.
+ *
+ * `'server'` and `'edge'` are gone (SEC-37): both were the publishable key without a
+ * session, i.e. `anon`.
+ */
+export type SupabaseClientType = 'client' | 'service'
 
 /**
  * Supabase Client Manager - Singleton
  */
 export class SupabaseClientManager {
   private static instance: SupabaseClientManager
-  private serverClient: SupabaseClient | null = null
   private serviceClient: any = null
-  private edgeClient: SupabaseClient | null = null
   private clientComponent: any = null
-  
+
   private constructor() {
     // Private constructor for singleton pattern
   }
-  
+
   /**
    * Get singleton instance
    */
@@ -75,24 +76,7 @@ export class SupabaseClientManager {
     }
     return SupabaseClientManager.instance
   }
-  
-  /**
-   * Get server-side client (for API routes and server components)
-   */
-  getServerClient(): SupabaseClient {
-    if (!this.serverClient) {
-      const config = this.getConfig('server')
-      this.serverClient = createClient(config.url, config.anonKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-          detectSessionInUrl: false
-        }
-      })
-    }
-    return this.serverClient
-  }
-  
+
   /**
    * Get service role client (for admin operations)
    */
@@ -116,23 +100,6 @@ export class SupabaseClientManager {
   }
   
   /**
-   * Get Edge Function client (for Supabase Edge Functions)
-   */
-  getEdgeClient(): SupabaseClient {
-    if (!this.edgeClient) {
-      const config = this.getConfig('edge')
-      this.edgeClient = createClient(config.url, config.anonKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-          detectSessionInUrl: false
-        }
-      })
-    }
-    return this.edgeClient
-  }
-  
-  /**
    * Get client component client (for React components)
    */
   getClientComponent(): any {
@@ -142,10 +109,7 @@ export class SupabaseClientManager {
     // queries could silently run as anon.) Memoize so sign-in and later queries share one
     // session and we don't spawn "Multiple GoTrueClient instances".
     if (!this.clientComponent) {
-      this.clientComponent = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-      )
+      this.clientComponent = createBrowserClient(SUPABASE_URL(), PUBLISHABLE_KEY())
     }
     return this.clientComponent
   }
@@ -170,80 +134,70 @@ export class SupabaseClientManager {
    * Get route handler client (for Next.js API Routes/Route Handlers)
    */
   getRouteHandler(cookies: any): any {
-    return createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-      { cookies: this.cookieAdapter(cookies) }
-    )
+    return createServerClient(SUPABASE_URL(), PUBLISHABLE_KEY(), {
+      cookies: this.cookieAdapter(cookies),
+    })
   }
 
   /**
    * Get server component client (for Next.js Server Components)
    */
   getServerComponent(cookies: any): any {
-    return createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-      { cookies: this.cookieAdapter(cookies) }
-    )
+    return createServerClient(SUPABASE_URL(), PUBLISHABLE_KEY(), {
+      cookies: this.cookieAdapter(cookies),
+    })
   }
-  
+
   /**
-   * Get appropriate client based on context
+   * Get appropriate client based on context.
+   *
+   * No default value on purpose: the identity a query runs as is never implicit.
    */
-  getClient(type: SupabaseClientType = 'server'): SupabaseClient {
+  getClient(type: SupabaseClientType): SupabaseClient {
     switch (type) {
-      case 'server':
-        return this.getServerClient()
       case 'service':
         return this.getServiceClient()
-      case 'edge':
-        return this.getEdgeClient()
       case 'client':
         return this.getClientComponent()
-      default:
-        return this.getServerClient()
+      default: {
+        const unreachable: never = type
+        throw new Error(`Unknown Supabase client type: ${String(unreachable)}`)
+      }
     }
   }
-  
+
   /**
    * Get configuration based on context
    */
-  private getConfig(type: SupabaseClientType): SupabaseConfig {
+  private getConfig(_type: SupabaseClientType): SupabaseConfig {
     const isEdgeFunction = typeof globalThis !== 'undefined' && 'Deno' in globalThis
     const isClientSide = typeof window !== 'undefined'
-    
+
     let url: string
-    let anonKey: string
+    let publishableKey: string
     let serviceRoleKey: string | undefined
-    
+
     if (isEdgeFunction) {
       // Edge Functions environment
       const deno = (globalThis as any).Deno
       url = deno?.env.get('SUPABASE_URL') || deno?.env.get('NEXT_PUBLIC_SUPABASE_URL') || ''
-      anonKey = 
-        deno?.env.get('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY') || 
-        deno?.env.get('SUPABASE_PUBLISHABLE_KEY') || 
-        deno?.env.get('SUPABASE_ANON_KEY') || 
+      publishableKey =
+        deno?.env.get('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY') ||
+        deno?.env.get('SUPABASE_PUBLISHABLE_KEY') ||
         ''
-      serviceRoleKey = 
-        deno?.env.get('SUPABASE_SECRET_KEY') || 
-        deno?.env.get('SUPABASE_SECRET_KEY')
+      serviceRoleKey = deno?.env.get('SUPABASE_SECRET_KEY')
     } else {
       // Node.js/Next.js environment
-      url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-      anonKey = 
-        process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || 
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 
-        ''
-      serviceRoleKey = 
+      url = SUPABASE_URL()
+      publishableKey = PUBLISHABLE_KEY()
+      serviceRoleKey =
         process.env.SUPABASE_SECRET_KEY ||
         process.env.SUPABASE_SERVICE_ROLE_KEY
     }
-    
-    if (!url || !anonKey) {
-      // Don't throw during module evaluation/build time. 
-      // createClient will be called with empty strings, and 
+
+    if (!url || !publishableKey) {
+      // Don't throw during module evaluation/build time.
+      // createClient will be called with empty strings, and
       // actual errors will happen at runtime when requests are made.
       if (process.env.NODE_ENV === 'development') {
         console.warn(
@@ -252,40 +206,38 @@ export class SupabaseClientManager {
         )
       }
     }
-    
+
     return {
       url,
-      anonKey,
+      publishableKey,
       serviceRoleKey,
       isEdgeFunction,
       isClientSide
     }
   }
-  
+
   /**
    * Reset clients (useful for testing)
    */
   reset(): void {
-    this.serverClient = null
     this.serviceClient = null
-    this.edgeClient = null
     this.clientComponent = null
   }
-  
+
   /**
    * Validate environment variables
    */
   validateEnvironment(): { valid: boolean; errors: string[] } {
     const errors: string[] = []
-    
+
     try {
-      const config = this.getConfig('server')
+      const config = this.getConfig('client')
       if (!config.url) errors.push('NEXT_PUBLIC_SUPABASE_URL is missing')
-      if (!config.anonKey) errors.push('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is missing')
+      if (!config.publishableKey) errors.push('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is missing')
     } catch (error) {
       errors.push(`Configuration error: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
-    
+
     return {
       valid: errors.length === 0,
       errors
@@ -297,24 +249,11 @@ export class SupabaseClientManager {
  * Convenience functions for common use cases
  */
 
-// For API routes and server components
-export const getSupabaseServer = () => new Proxy({} as SupabaseClient, {
-  get: (target, prop) => {
-    return (SupabaseClientManager.getInstance().getServerClient() as any)[prop]
-  }
-})
-
-// For admin operations
+// For admin operations. Server only: this client carries SUPABASE_SECRET_KEY and
+// ignores RLS, so whoever calls it has already decided who is allowed to.
 export const getSupabaseService = () => new Proxy({} as SupabaseClient, {
   get: (target, prop) => {
     return (SupabaseClientManager.getInstance().getServiceClient() as any)[prop]
-  }
-})
-
-// For Edge Functions
-export const getSupabaseEdge = () => new Proxy({} as SupabaseClient, {
-  get: (target, prop) => {
-    return (SupabaseClientManager.getInstance().getEdgeClient() as any)[prop]
   }
 })
 
@@ -329,8 +268,11 @@ export const getSupabaseRouteHandler = (cookies: any) =>
 export const getSupabaseServerComponent = (cookies: any) => 
   SupabaseClientManager.getInstance().getServerComponent(cookies)
 
-// For scripts and utilities
-export const getSupabase = (type: SupabaseClientType = 'server') => 
+// For scripts and utilities. The type is required — `getSupabase()` used to default
+// to the anon-without-session client, which is how a call site got that identity
+// without ever naming it. `scripts/check-route-policies.ts` reads `getSupabase('service')`
+// as reaching service_role.
+export const getSupabase = (type: SupabaseClientType) =>
   new Proxy({} as SupabaseClient, {
     get: (target, prop) => {
       return (SupabaseClientManager.getInstance().getClient(type) as any)[prop]
@@ -343,15 +285,6 @@ export const getSupabase = (type: SupabaseClientType = 'server') =>
 export const useSupabase = () => {
   return getSupabaseClient()
 }
-
-/**
- * Legacy compatibility - maintains existing API
- */
-export const supabase = new Proxy({} as SupabaseClient, {
-  get: (target, prop) => {
-    return (getSupabaseServer() as any)[prop]
-  }
-})
 
 /**
  * Database types (moved from lib/supabase.ts)

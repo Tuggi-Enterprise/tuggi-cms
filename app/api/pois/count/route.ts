@@ -1,12 +1,18 @@
-import { getSupabase } from '../../../../lib/core/supabase-client'
+/**
+ * GET /api/pois/count — city-correction counters over core.attractions.
+ *
+ * SEC-37 + CARD-CMS-01. The counts were read with `getSupabase('server')`, i.e. as
+ * `anon`, from a route nobody gated. It now runs with the operator's own JWT.
+ * The two unused module constants that named `SUPABASE_SECRET_KEY` went with it:
+ * they made a grep classify this route as service_role, which was the opposite of
+ * the truth.
+ */
+
 import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth-middleware'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY!
-
-const supabase = getSupabase('server')
-
-export async function GET() {
+export const GET = withAuth({ roles: ['admin'] }, async (_req, _ctx, auth) => {
+  const supabase = auth.supabase
   try {
     // Get total POIs count
     const { count: totalPOIs } = await supabase
@@ -65,4 +71,4 @@ export async function GET() {
       { status: 500 }
     )
   }
-}
+})

@@ -9,7 +9,7 @@
  * - Progress tracking
  */
 
-import { getSupabase } from '../core/supabase-client'
+import { getSupabaseService } from '../core/supabase-client'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
 // Types
@@ -164,7 +164,7 @@ export class POIValidationService {
     geminiApiKey: string,
     config: Partial<ValidationConfig> = {}
   ) {
-    this.supabase = getSupabase('server')
+    this.supabase = getSupabaseService()
     this.genAI = new GoogleGenerativeAI(geminiApiKey)
     this.config = { ...DEFAULT_CONFIG, ...config }
     this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })

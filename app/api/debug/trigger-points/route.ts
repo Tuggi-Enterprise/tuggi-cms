@@ -1,11 +1,22 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getSupabase } from '../../../../lib/core/supabase-client'
+/**
+ * GET /api/debug/trigger-points — why a POI shows no trigger point in the CMS.
+ *
+ * SEC-37 + CARD-CMS-01. The route compares what `service_role` sees with what the
+ * screen sees; the second client used to be `getSupabase('server')` — the
+ * publishable key with no session, i.e. `anon`, which is not what the screen is.
+ * It is the operator's own cookie-bound client now, so the comparison answers the
+ * question the route is actually asked. Admin only: it dumps trigger points.
+ */
 
-const supabase = getSupabase('service')
+import { NextRequest, NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth-middleware'
+import { getSupabaseService } from '@/lib/core/supabase-client'
+
+const supabase = getSupabaseService()
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(request: NextRequest) {
+export const GET = withAuth({ roles: ['admin'] }, async (request: NextRequest, _ctx, auth) => {
   try {
     console.log('🔍 Starting trigger points debug...')
 
@@ -43,18 +54,16 @@ export async function GET(request: NextRequest) {
       }, { status: 500 })
     }
 
-    // Test the same query as the frontend (with anon key)
-    const frontendSupabase = getSupabase('server')
-
-    const { data: frontendQuery, error: frontendError } = await frontendSupabase
+    // The same query the screen makes: operator session, not anon.
+    const { data: operatorQuery, error: operatorError } = await auth.supabase
       .schema('core')
       .from('attraction_trigger_points')
       .select('id, confidence_score, auto_status, created_at')
       .eq('attraction_id', testAttractionId)
 
-    console.log(`🔍 Frontend query result: ${frontendQuery?.length || 0} TPs`)
-    if (frontendError) {
-      console.error('❌ Frontend query error:', frontendError)
+    console.log(`🔍 Operator query result: ${operatorQuery?.length || 0} TPs`)
+    if (operatorError) {
+      console.error('❌ Operator query error:', operatorError)
     }
 
     // Get attractions with trigger points
@@ -88,15 +97,15 @@ export async function GET(request: NextRequest) {
           count: specificTPs?.length || 0,
           trigger_points: specificTPs || []
         },
-        frontend_query: {
-          count: frontendQuery?.length || 0,
-          error: frontendError?.message || null,
-          trigger_points: frontendQuery || []
+        operator_query: {
+          count: operatorQuery?.length || 0,
+          error: operatorError?.message || null,
+          trigger_points: operatorQuery || []
         }
       },
       debugging_info: {
         service_role_key_configured: !!process.env.SUPABASE_SECRET_KEY,
-        anon_key_configured: !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+        publishable_key_configured: !!process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
         url_configured: !!process.env.NEXT_PUBLIC_SUPABASE_URL
       }
     })
@@ -108,4 +117,4 @@ export async function GET(request: NextRequest) {
       error: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })
   }
-}
+})

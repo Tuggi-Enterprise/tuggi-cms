@@ -1,4 +1,4 @@
-import { getSupabase } from '../core/supabase-client'
+import { getSupabaseService } from '../core/supabase-client'
 
 interface TrainingExample {
   id: string
@@ -35,7 +35,7 @@ export class POVEmbeddingService {
   private openaiApiKey: string
 
   constructor(supabaseUrl: string, supabaseKey: string, openaiApiKey: string) {
-    this.supabase = getSupabase('server')
+    this.supabase = getSupabaseService()
     this.openaiApiKey = openaiApiKey
   }
 

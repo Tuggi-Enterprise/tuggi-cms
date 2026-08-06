@@ -1,8 +1,22 @@
+/**
+ * POST /api/audio/generate — TTS for a POI description.
+ *
+ * SEC-37 + CARD-CMS-01. Two things went with the conversion:
+ *
+ * - the group lookup ran on `supabase` from `@/lib/supabase`, a third name for the
+ *   publishable-key-without-session client, i.e. `anon`. It reads
+ *   `core.attraction_group_members` and `core.attractions` and writes nothing, so
+ *   it runs with the operator's own JWT;
+ * - the "internal API key" branch compared the header to
+ *   `process.env.INTERNAL_API_KEY || 'internal-key'`. Without the variable the
+ *   secret was a literal in the repository, and no caller of that path exists in
+ *   any of the three repos. A machine caller needs a machine identity, not a
+ *   default string.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseRouteHandler } from '@/lib/core/supabase-client'
+import { withAuth } from '@/lib/auth-middleware'
 import { generateAudioWithGoogleTTS } from '@/lib/providers/googleTTS'
-import { supabase } from '@/lib/supabase'
-import { cookies } from 'next/headers'
 
 // Text preprocessing function to optimize for TTS narration
 function preprocessTextForTTS(text: string): string {
@@ -52,36 +66,11 @@ function selectOptimalVoice(text: string): string {
   }
 }
 
-export const POST = async function (request: NextRequest) {
+export const POST = withAuth({ roles: ['admin', 'client', 'editor'] }, async (request: NextRequest, _ctx, auth) => {
   try {
     console.log('🚀 Starting audio generation...')
 
-    // Check for internal API key first (for server-to-server calls)
-    const authHeader = request.headers.get('authorization')
-    const isInternalCall = authHeader === `Bearer ${process.env.INTERNAL_API_KEY || 'internal-key'}`
-
-    let userEmail = 'internal-call'
-
-    if (!isInternalCall) {
-      // Regular authentication check for user requests
-      const cookieStore = await cookies()
-      const supabaseAuth = getSupabaseRouteHandler(cookieStore)
-      const { data: { session }, error } = await supabaseAuth.auth.getSession()
-
-      if (error || !session) {
-        console.log('❌ No authenticated user found')
-        return NextResponse.json(
-          { error: 'Unauthorized - Authentication required' },
-          { status: 401 }
-        )
-      }
-
-      userEmail = session.user.email || 'unknown'
-      console.log('✅ User authenticated:', userEmail)
-    } else {
-      console.log('✅ Internal API call authenticated')
-    }
-
+    const supabase = auth.supabase
     const body = await request.json()
     let { text, attractionId, voice, speed, provider } = body
 
@@ -109,7 +98,7 @@ export const POST = async function (request: NextRequest) {
         .eq('group_id', groupMember.group_id)
       if (members && members.length > 0) {
         // Fetch metadata for all group members
-        const ids = members.map(m => m.attraction_id)
+        const ids = members.map((m: { attraction_id: string }) => m.attraction_id)
         const { data: pois } = await supabase
           .schema('core')
           .from('attractions')
@@ -121,7 +110,7 @@ export const POST = async function (request: NextRequest) {
 
     // 2. If in a group, concatenate names for TTS
     if (groupMembers && groupMembers.length > 1) {
-      text = groupMembers.map(p => p.name).join(', ')
+      text = groupMembers.map((p: { name: string }) => p.name).join(', ')
     }
 
     const selectedProvider = provider || 'openai'
@@ -205,4 +194,4 @@ export const POST = async function (request: NextRequest) {
       { status: 500 }
     )
   }
-}
+})
