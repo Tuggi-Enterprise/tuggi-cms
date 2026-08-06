@@ -1,13 +1,19 @@
+/**
+ * Input validation schemas — DOM-free on purpose.
+ *
+ * Nothing here may import `isomorphic-dompurify` (or anything else that loads
+ * jsdom), directly or transitively: this module is reachable from route
+ * handlers, and a jsdom import in that path takes the whole route down in the
+ * serverless bundle before the handler runs. Sanitizing schemas live in
+ * `lib/html-sanitization.ts`, which explains the incident and the boundary.
+ *
+ * `tests/api/route-module-graph.test.ts` enforces it.
+ */
+
 import { z } from 'zod'
-import DOMPurify from 'isomorphic-dompurify'
 
 // Common validation schemas
 export const schemas = {
-  // Basic string validation with XSS protection
-  safeString: z.string().min(1).max(1000).transform((val: string) => {
-    return DOMPurify.sanitize(val, { ALLOWED_TAGS: [] })
-  }),
-  
   // Email validation
   email: z.string().email().max(255),
   
@@ -32,29 +38,9 @@ export const schemas = {
   radius: z.coerce.number().int().min(1).max(50000).default(1000),
   
   // Audio generation validation
-  audioText: z.string().min(1).max(4000).transform((val: string) => {
-    // Remove potentially harmful characters but keep basic punctuation
-    return DOMPurify.sanitize(val, { ALLOWED_TAGS: [] })
-      .replace(/[<>"']/g, '') // Remove quotes and angle brackets
-      .trim()
-  }),
-  
   audioVoice: z.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']).optional(),
   audioSpeed: z.number().min(0.25).max(4.0).optional(),
-  
-  // Description generation validation
-  poiName: z.string().min(1).max(200).transform((val: string) => {
-    return DOMPurify.sanitize(val, { ALLOWED_TAGS: [] }).trim()
-  }),
-  
-  cityName: z.string().min(1).max(100).transform((val: string) => {
-    return DOMPurify.sanitize(val, { ALLOWED_TAGS: [] }).trim()
-  }),
-  
-  countryName: z.string().min(1).max(100).transform((val: string) => {
-    return DOMPurify.sanitize(val, { ALLOWED_TAGS: [] }).trim()
-  }),
-  
+
   // UUID validation
   uuid: z.string().uuid(),
   
@@ -87,11 +73,10 @@ export class InputValidator {
       return { success: false, error: 'Validation failed' }
     }
   }
-  
-  static sanitizeHtml(html: string, allowedTags: string[] = []): string {
-    return DOMPurify.sanitize(html, { ALLOWED_TAGS: allowedTags })
-  }
-  
+
+  // sanitizeHtml lives in lib/html-sanitization.ts: it needs jsdom, and jsdom
+  // must not be reachable from a route module.
+
   static validateSearchParams(searchParams: URLSearchParams, schema: Record<string, z.ZodSchema>) {
     const data: Record<string, any> = {}
     const errors: string[] = []
@@ -147,36 +132,5 @@ export class InputValidator {
   }
 }
 
-// Common validation schemas for API routes
-export const apiSchemas = {
-  // Places API validation
-  placesNearby: {
-    location: z.string().regex(/^-?\d+\.\d+,-?\d+\.\d+$/).optional(),
-    radius: schemas.radius,
-    type: z.string().max(50).optional(),
-    keyword: schemas.safeString.optional(),
-    language: schemas.languageCode
-  },
-  
-  placeDetails: {
-    place_id: schemas.placeId,
-    fields: z.string().max(500).optional(),
-    language: schemas.languageCode
-  },
-  
-  // Audio generation validation
-  audioGenerate: {
-    text: schemas.audioText,
-    voice: schemas.audioVoice,
-    speed: schemas.audioSpeed,
-    language: schemas.languageCode
-  },
-  
-  // Description generation validation
-  descriptionGenerate: {
-    name: schemas.poiName,
-    city: schemas.cityName,
-    country: schemas.countryName,
-    language: schemas.languageCode
-  }
-}
+// apiSchemas moved to lib/html-sanitization.ts: it composes the sanitizing
+// schemas, which need jsdom.
