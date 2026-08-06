@@ -1,13 +1,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+import { getSecretKey } from './secret-key.ts'
 
 /**
  * Supabase Client Manager - Single Source of Truth (Edge Functions)
- * 
- * Centraliza a resolução de chaves e a criação do client do Supabase 
- * para lidar automaticamente com a migração das chaves legadas 
- * (SERVICE_ROLE_KEY / ANON_KEY) para as novas chaves de API 
- * (SUPABASE_SECRET_KEY / SUPABASE_PUBLISHABLE_KEY).
+ *
+ * Centralises client creation. The secret key itself is resolved in ONE place,
+ * `_shared/secret-key.ts` — this module only re-exports it so that callers that
+ * already import from here keep working (#155).
  */
+
+// Re-export, not a second definition: `secret-key.ts` owns the resolution.
+export { getSecretKey, SECRET_KEY_NAME } from './secret-key.ts'
 
 export function getEnvVar(key: string): string {
   return Deno.env.get(key) || '';
@@ -15,12 +18,6 @@ export function getEnvVar(key: string): string {
 
 export function getSupabaseUrl(): string {
   return getEnvVar('SUPABASE_URL') || getEnvVar('PROJECT_URL') || '';
-}
-
-export function getSecretKey(): string {
-  return getEnvVar('TUGGI_SECRET_KEY') || 
-         getEnvVar('API_SECRET_KEY') ||
-         '';
 }
 
 export function getPublishableKey(): string {
@@ -69,16 +66,4 @@ export function createAnonClient() {
       detectSessionInUrl: false
     }
   });
-}
-
-/**
- * Validador para tokens Authorization internos da EFs.
- * @param token - Bearer token extraído da header
- * @returns true caso seja uma das Secret Keys (legada ou nova)
- */
-export function isValidSecretKey(token: string): boolean {
-  return [
-    getEnvVar('TUGGI_SECRET_KEY'),
-    getEnvVar('API_SECRET_KEY')
-  ].some(key => Boolean(key) && key === token);
 }

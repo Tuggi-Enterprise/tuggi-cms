@@ -13,17 +13,17 @@
 // disjuntos), então múltiplos wakes não duplicam trabalho.
 // ============================================================================
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { getSecretKey } from "../_shared/supabase-client.ts";
+import { getSecretKey } from "../_shared/secret-key.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const PROJECT_URL = Deno.env.get("PROJECT_URL") || Deno.env.get("SUPABASE_URL") || "";
-const SERVICE_ROLE_KEY = getSecretKey() || "";
+const SECRET_KEY = getSecretKey();
 const SELF_URL = `${PROJECT_URL}/functions/v1/drain-app-poi-read`;
 
 const BATCH = 500;      // POIs reconstruídos por chamada SQL
 const MAX_ITERS = 20;   // teto por invocação (~10k POIs) p/ caber no wall-clock
 
-const admin = createClient(PROJECT_URL, SERVICE_ROLE_KEY, {
+const admin = createClient(PROJECT_URL, SECRET_KEY, {
   auth: { persistSession: false },
   db: { schema: "core" },
 });
@@ -53,8 +53,8 @@ serve(async (req: Request): Promise<Response> => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "apikey": SERVICE_ROLE_KEY,
-        "Authorization": `Bearer ${SERVICE_ROLE_KEY}`,
+        "apikey": SECRET_KEY,
+        "Authorization": `Bearer ${SECRET_KEY}`,
       },
       body: "{}",
     }).catch((e) => console.warn("[drain] re-wake falhou:", e?.message));

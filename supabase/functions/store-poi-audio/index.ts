@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';import { validateAuthHeader } from '../_shared/auth-middleware.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey } from '../_shared/secret-key.ts';
+import { validateAuthHeader } from '../_shared/auth-middleware.ts';
 import { rebuildReadModel } from '../_shared/read-model.ts';
 import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
 import { createSecureMediaHeaders } from '../_shared/security-headers.ts';
@@ -17,10 +19,10 @@ const corsHeaders = {
 };
 
 const PROJECT_URL = Deno.env.get('PROJECT_URL') || '';
-const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || '';
+const SECRET_KEY = getSecretKey();
 
-// Use service role for admin operations
-const supabaseAdmin = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
+// Privileged client (secret key — bypasses RLS)
+const supabaseAdmin = createClient(PROJECT_URL, SECRET_KEY);
 
 interface RequestBody {
   attractionId: string;

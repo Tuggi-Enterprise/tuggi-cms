@@ -8,10 +8,12 @@
 //   - contextual_audio/ com mais de CONTEXTUAL_TTL_DAYS dias (cache)
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getSecretKey } from "../_shared/secret-key.ts";
 
-// Aceita os nomes custom do projeto OU os reservados (sempre injetados pelo runtime)
+// URL aceita o nome custom do projeto OU o reservado (sempre injetado pelo runtime).
+// A chave vem só de getSecretKey() — leitura única do projeto (#155).
 const PROJECT_URL = Deno.env.get("PROJECT_URL") || Deno.env.get("SUPABASE_URL") || "";
-const SERVICE_ROLE_KEY = Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const SECRET_KEY = getSecretKey();
 
 const BUCKET = "travel-app-audios";
 const BATCH = 1000;
@@ -48,8 +50,8 @@ serve(async (req) => {
   let deleted = 0, bytes = 0, batches = 0;
 
   try {
-    if (!PROJECT_URL || !SERVICE_ROLE_KEY) throw new Error("env ausente: PROJECT_URL/SERVICE_ROLE_KEY");
-    const supabase = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
+    if (!PROJECT_URL || !SECRET_KEY) throw new Error("env ausente: PROJECT_URL/SECRET_KEY");
+    const supabase = createClient(PROJECT_URL, SECRET_KEY);
     while (batches < MAX_BATCHES) {
       const { data: orphans, error } = await supabase
         .schema("core")
@@ -86,8 +88,8 @@ serve(async (req) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     try {
-      if (PROJECT_URL && SERVICE_ROLE_KEY) {
-        await createClient(PROJECT_URL, SERVICE_ROLE_KEY).schema("core").from("storage_cleanup_logs").insert({
+      if (PROJECT_URL && SECRET_KEY) {
+        await createClient(PROJECT_URL, SECRET_KEY).schema("core").from("storage_cleanup_logs").insert({
           operation_type: "audio_error",
           execution_time: new Date().toISOString(),
           files_processed: deleted,

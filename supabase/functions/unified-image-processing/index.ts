@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { getSecretKey } from '../_shared/secret-key.ts';
 import { corsHeaders } from "../_shared/cors.ts";
 import { validateAuthHeader } from '../_shared/auth-middleware.ts';
 import { checkRateLimit, createRateLimitResponse, RATE_LIMIT_CONFIG } from '../_shared/rate-limiter.ts';
@@ -12,9 +13,9 @@ import {
 import { createAuditLogger } from '../_shared/audit-logger.ts';
 
 const PROJECT_URL = Deno.env.get('PROJECT_URL') || '';
-const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || '';
+const SECRET_KEY = getSecretKey();
 
-const supabaseAdmin = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
+const supabaseAdmin = createClient(PROJECT_URL, SECRET_KEY);
 
 interface RequestBody {
   attractionId: string;

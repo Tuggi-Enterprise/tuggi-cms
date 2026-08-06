@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { getSecretKey } from '../_shared/supabase-client.ts';
+import { getSecretKey } from '../_shared/secret-key.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { generateAudioWithTTS } from '../_shared/ttsGenerator.ts';
 import { validateAuthHeader } from '../_shared/auth-middleware.ts';
@@ -22,13 +22,13 @@ const corsHeaders = {
 
 // Environment variables
 const PROJECT_URL = Deno.env.get('PROJECT_URL') || Deno.env.get('SUPABASE_URL') || '';
-const SERVICE_ROLE_KEY = getSecretKey() || getSecretKey() || '';
+const SECRET_KEY = getSecretKey();
 const GEMINI_API_KEY = Deno.env.get('GOOGLE_GEMINI_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
 // Use GOOGLE_TTS_API_KEY (same as Next.js) or fallback to GOOGLE_CLOUD_API_KEY or GEMINI_API_KEY
 const GOOGLE_CLOUD_API_KEY = Deno.env.get('GOOGLE_TTS_API_KEY') || Deno.env.get('GOOGLE_CLOUD_API_KEY') || Deno.env.get('GEMINI_API_KEY') || '';
 
-// Use service role for admin operations
-const supabaseAdmin = createClient(PROJECT_URL, SERVICE_ROLE_KEY);
+// Privileged client (secret key — bypasses RLS)
+const supabaseAdmin = createClient(PROJECT_URL, SECRET_KEY);
 
 interface RequestBody {
   // ─── POI mode (existing) ─────────────────────────────────────────────
