@@ -1,4 +1,4 @@
-import { getSupabase } from '../core/supabase-client'
+import { getSupabaseService } from '../core/supabase-client'
 
 interface TrainingExample {
   id: string
@@ -42,7 +42,7 @@ export class POVPatternExtractor {
   private supabase: any
 
   constructor(supabaseUrl: string, supabaseKey: string) {
-    this.supabase = getSupabase('server')
+    this.supabase = getSupabaseService()
   }
 
   /**

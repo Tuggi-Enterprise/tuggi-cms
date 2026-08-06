@@ -11,10 +11,20 @@
  * - Save enriched data to database
  */
 
-import { getSupabase } from '../../core/supabase-client'
+import { getSupabaseService } from '../../core/supabase-client'
 
-// Service role client for database operations
-const supabaseAdmin = getSupabase('server')
+/**
+ * Service-role client for database operations.
+ *
+ * SEC-37: the name is now true. It was `getSupabase('server')` — the publishable
+ * key with no session — so `supabaseAdmin` wrote as `anon`, and anyone grepping for
+ * an admin path found a name that pointed at the weakest client in the repo.
+ *
+ * Server only, and this module has no importer today: the live OSM enrichment goes
+ * through `app/api/pois/enrich-osm/route.ts`, which carries a second copy of this
+ * logic. Whoever unifies them owns the duplication, not this comment.
+ */
+const supabaseAdmin = getSupabaseService()
 
 // =====================================
 // INTERFACES AND TYPES

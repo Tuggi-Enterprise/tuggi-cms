@@ -12,7 +12,7 @@
  * - Edge Functions compatibility
  */
 
-import { getSupabase } from './supabase-client'
+import { getSupabaseClient } from './supabase-client'
 
 // Location Data Interfaces
 export interface Country {
@@ -93,7 +93,7 @@ class LocationService {
       }
 
       // Use RPC for optimized performance
-      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
+      const supabase = getSupabaseClient()
       
       const { data, error } = await supabase
         .schema(schema)
@@ -157,7 +157,7 @@ class LocationService {
       }
 
       // Use RPC for optimized performance
-      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
+      const supabase = getSupabaseClient()
       
       const { data, error } = await supabase
         .schema(schema)
@@ -223,7 +223,7 @@ class LocationService {
       }
 
       // Use RPC for optimized performance
-      const supabase = getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
+      const supabase = getSupabaseClient()
       
       const { data, error } = await supabase
         .schema(schema)

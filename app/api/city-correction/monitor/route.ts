@@ -1,10 +1,19 @@
-import { getSupabase } from '../../../../lib/core/supabase-client'
+/**
+ * GET|POST /api/city-correction/monitor — requeues stuck city-correction jobs.
+ *
+ * SEC-37 + CARD-CMS-01. It wrote to the database as `anon` (the two module
+ * constants naming `SUPABASE_SECRET_KEY` were never used) and its GET "cron
+ * authentication" compared two server environment variables to each other — it
+ * never looked at the request, and this project has no Vercel cron at all
+ * (`vercel.json` declares no `crons`). Both methods are admin-only now; the write
+ * itself needs `service_role`, which is why the gate has to come first.
+ */
+
 import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth-middleware'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY!
-
-const supabase = getSupabase('server')
+const supabase = getSupabaseService()
 
 async function monitorSystem() {
   try {
@@ -81,13 +90,18 @@ async function monitorSystem() {
             })
             .eq('progress_key', job.progress_key)
 
-          // Trigger the Edge Function
+          // Trigger the Edge Function. It authenticates with `validateAuthHeader`
+          // (supabase/functions/_shared/auth-middleware.ts), which accepts the secret
+          // key as the internal caller and answers 401 to anything a `getUser()` call
+          // rejects — the publishable key included. The header used to carry
+          // `SUPABASE_ANON_KEY`, a variable this project does not define, so the
+          // retry it is supposed to trigger has been answering 401.
           try {
             const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/city-correction`
             const response = await fetch(edgeFunctionUrl, {
               method: 'POST',
               headers: {
-                'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+                'Authorization': `Bearer ${process.env.SUPABASE_SECRET_KEY}`,
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
@@ -194,23 +208,9 @@ async function monitorSystem() {
   }
 }
 
-// GET endpoint for cron jobs
-export async function GET() {
+// GET — manual system check from the CMS.
+export const GET = withAuth({ roles: ['admin'] }, async () => {
   try {
-    console.log('🔍 City Correction Monitor - Starting system check...')
-    
-    // Check if this is a cron job call
-    const isCronJob = process.env.VERCEL_CRON_SECRET && 
-      process.env.VERCEL_CRON_SECRET === process.env.CRON_SECRET
-    
-    if (!isCronJob) {
-      console.log('⚠️ Monitor called without proper cron authentication')
-      return NextResponse.json({ 
-        success: false, 
-        message: 'Unauthorized - cron job only' 
-      }, { status: 401 })
-    }
-
     const result = await monitorSystem()
     return NextResponse.json(result)
   } catch (error) {
@@ -220,10 +220,10 @@ export async function GET() {
       error: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 })
   }
-}
+})
 
 // POST endpoint for manual monitoring check
-export async function POST() {
+export const POST = withAuth({ roles: ['admin'] }, async () => {
   try {
     const result = await monitorSystem()
     return NextResponse.json(result)
@@ -234,4 +234,4 @@ export async function POST() {
       error: error instanceof Error ? error.message : 'Unknown error' 
     }, { status: 500 })
   }
-}
+})

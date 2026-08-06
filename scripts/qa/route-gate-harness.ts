@@ -35,7 +35,7 @@ import { buildSessionCookieHeader } from './lib/session-cookie'
 import { loadRoutePolicies, type Policy, type RoutePolicy } from './lib/route-inventory'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const SUPABASE_PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY
 const BASE_URL = process.env.QA_BASE_URL || 'http://localhost:3000'
 const INVENTORY_PATH =
@@ -44,7 +44,7 @@ const INVENTORY_PATH =
   // per-repo). Override with QA_INVENTORY_PATH if that ever changes.
   process.env.QA_INVENTORY_PATH || resolve(process.cwd(), '../docs/dev/inventario-rotas-api-cms.md')
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SECRET_KEY) {
+if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY || !SUPABASE_SECRET_KEY) {
   console.error('❌ Faltam NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY / SUPABASE_SECRET_KEY (.env).')
   process.exit(1)
 }
@@ -110,7 +110,7 @@ async function buildStates(accounts: StoredAccount[]): Promise<StateContext[]> {
     }
     const { header } = await buildSessionCookieHeader(account.email, account.password, {
       supabaseUrl: SUPABASE_URL!,
-      supabaseAnonKey: SUPABASE_ANON_KEY!,
+      supabaseAnonKey: SUPABASE_PUBLISHABLE_KEY!,
     })
     const role = await cmsUserRole(account.email)
 

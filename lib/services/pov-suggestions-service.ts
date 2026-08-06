@@ -1,6 +1,6 @@
-import { getSupabase } from '../core/supabase-client'
+import { getSupabaseService } from '../core/supabase-client'
 
-const supabase = getSupabase('server')
+const supabase = getSupabaseService()
 
 export interface POI {
   id: string

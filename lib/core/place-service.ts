@@ -5,7 +5,7 @@
  * acessibilidade e contato de attractions; place_details guarda só o específico
  * de comércio (place_type/cuisine/price_range/reserva/menu/amenities/tags).
  */
-import { getSupabase } from './supabase-client'
+import { getSupabaseClient } from './supabase-client'
 
 export interface PlaceListItem {
   id: string
@@ -60,7 +60,7 @@ export interface CreatePlaceInput {
 }
 
 function client() {
-  return getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
+  return getSupabaseClient()
 }
 
 export const placeService = {

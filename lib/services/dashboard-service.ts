@@ -14,7 +14,50 @@
  * - dashboard_heatmap_data: Dados para heatmap
  */
 
-import { getSupabase, getSupabaseClient } from '@/lib/core/supabase-client'
+import { getSupabaseClient } from '@/lib/core/supabase-client'
+
+// ============================================================================
+// TRANSPORTE
+// ============================================================================
+
+/**
+ * SEC-37 — as sete leituras que devolvem identificador ou localização de pessoa
+ * (`realtime_activity`, `waitlist_stats`, `waitlist_pins`, `content_quality`,
+ * `inventory_funnel`, `top_generators`, `top_visited_pois`) saem por `app/api/dashboard/*`,
+ * onde `withAuth({ roles: ['admin'] })` confere sessão e papel **no servidor**. O parse
+ * continua aqui: a rota devolve o resultado cru da RPC.
+ *
+ * As demais ainda falam com o PostgREST pelo cliente de browser ligado ao cookie
+ * (`getSupabaseClient()`), que carimba o JWT do operador. O que sumiu foi o
+ * `getSupabase('server')` — chave publicável sem sessão, ou seja, `anon`.
+ */
+interface RpcResult<T> {
+  data: T | null
+  error: { message: string } | null
+}
+
+/**
+ * GET numa rota do próprio CMS, com o cookie de sessão.
+ *
+ * Caminho relativo de propósito: estas chamadas são de tela, e uma execução no
+ * servidor tem de falhar alto em vez de escolher outra identidade sozinha — foi
+ * exatamente o `typeof window ? ... : anon` que produziu as 269 chamadas anônimas.
+ */
+async function fetchDashboardRoute<T>(path: string): Promise<RpcResult<T>> {
+  if (typeof window === 'undefined') {
+    return { data: null, error: { message: `${path} requires the operator session; it has no server-side caller` } }
+  }
+
+  const response = await fetch(path, { credentials: 'same-origin' })
+  const body = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = (body && typeof body.error === 'string' && body.error) || `HTTP ${response.status}`
+    return { data: null, error: { message } }
+  }
+
+  return { data: (body?.data ?? null) as T | null, error: null }
+}
 
 // ============================================================================
 // TIPOS
@@ -328,51 +371,29 @@ class DashboardService {
       
       console.log('📊 Loading dashboard data V4...')
 
-      // Use client-side Supabase (com JWT do usuário autenticado)
-      const supabase = typeof window !== 'undefined'
-        ? getSupabaseClient()
-        : getSupabase('server')
-      
-      // Executar todas as RPCs em paralelo
-      const [
-        userAnalyticsResult,
-        cityStatsResult,
-        mostVisitedCitiesResult,
-        topPOIsResult,
-        recentPOIsResult,
-        inventoryFunnelResult,
-        contentQualityResult,
-        visitsByLanguageResult,
-        recentAppActivityResult,
-        countryStatsResult,
-        migrationMetricsResult,
-        topGeneratorsResult
-      ] = await Promise.all([
-        // user_analytics: caso global (admin) lê a MV mv_user_analytics_global (~50ms) via
-        // wrapper; com owner específico, cai na RPC live. Mesma forma ({ data: [row] }).
-        // O wrapper existe porque MV não suporta RLS: antes o frontend lia a MV direto e ela
-        // tinha GRANT para anon/authenticated — qualquer client logado via /dashboard
-        // enxergava os totais da plataforma. O gate agora é core.is_caller_platform_admin().
-        ownerId
-          ? supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId })
-          : supabase.schema('core').rpc('dashboard_user_analytics_global'),
-        supabase.schema('core').rpc('dashboard_city_stats', { p_owner_id: ownerId || null }),
-        supabase.schema('core').rpc('dashboard_most_visited_cities', { limit_count: 20 }),
-        supabase.schema('core').rpc('dashboard_top_visited_pois', { limit_count: 10 }),
-        supabase.schema('core').rpc('dashboard_recent_visited_pois', { limit_count: 10 }),
-        supabase.schema('core').rpc('dashboard_inventory_funnel'),
-        supabase.schema('core').rpc('dashboard_content_quality'),
-        supabase.schema('core').rpc('dashboard_visits_by_language'),
-        supabase.schema('core').rpc('dashboard_recent_app_users', { limit_count: 7 }),
-        // country_stats: global lê a MV mv_country_stats via wrapper (evita GROUP BY em
-        // query); owner → live. Ver a nota do wrapper em user_analytics acima.
-        ownerId
-          ? supabase.schema('core').rpc('dashboard_country_stats', { p_owner_id: ownerId })
-          : supabase.schema('core').rpc('dashboard_country_stats_global'),
-        supabase.schema('core').rpc('dashboard_migration_metrics'),
-        supabase.schema('core').rpc('dashboard_top_generators', { limit_count: 5 })
-      ])
-      
+      // As 12 RPCs rodam em paralelo no servidor, sob withAuth({ roles: ['admin'] }),
+      // com o JWT do operador — inclusive as duas que leem MV por wrapper
+      // (`dashboard_user_analytics_global`, `dashboard_country_stats_global`), cujo gate
+      // é `core.is_caller_platform_admin()`. Ver app/api/dashboard/overview/route.ts.
+      const query = ownerId ? `?ownerId=${encodeURIComponent(ownerId)}` : ''
+      const overview = await fetchDashboardRoute<any>(`/api/dashboard/overview${query}`)
+      if (overview.error) throw new Error(overview.error.message)
+
+      const {
+        userAnalytics: userAnalyticsResult,
+        cityStats: cityStatsResult,
+        mostVisitedCities: mostVisitedCitiesResult,
+        topPOIs: topPOIsResult,
+        recentPOIs: recentPOIsResult,
+        inventoryFunnel: inventoryFunnelResult,
+        contentQuality: contentQualityResult,
+        visitsByLanguage: visitsByLanguageResult,
+        recentAppActivity: recentAppActivityResult,
+        countryStats: countryStatsResult,
+        migrationMetrics: migrationMetricsResult,
+        topGenerators: topGeneratorsResult,
+      } = overview.data as Record<string, RpcResult<any>>
+
       // Log de erros individuais (não fatal)
       if (userAnalyticsResult.error) console.warn('⚠️ User analytics error:', userAnalyticsResult.error.message)
       if (cityStatsResult.error) console.warn('⚠️ City stats error:', cityStatsResult.error.message)
@@ -534,9 +555,7 @@ class DashboardService {
    */
   static async getInventoryDetails(): Promise<{ success: boolean; data?: InventoryDetails; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined'
-        ? getSupabaseClient()
-        : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase
         .schema('core')
         .rpc('dashboard_inventory_details')
@@ -577,9 +596,7 @@ class DashboardService {
    */
   static async getHeatmapData(sampleSize = 5000): Promise<{ success: boolean; data?: HeatmapPoint[]; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined'
-        ? getSupabaseClient()
-        : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase
         .schema('core')
         .rpc('dashboard_heatmap_data', { sample_size: sampleSize })
@@ -597,9 +614,7 @@ class DashboardService {
    */
   static async getUsersWithSessions(limit = 50): Promise<{ success: boolean; data?: UserWithSessions[]; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined'
-        ? getSupabaseClient()
-        : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase
         .schema('core')
         .rpc('dashboard_user_sessions', { limit_count: limit })
@@ -618,9 +633,7 @@ class DashboardService {
    */
   static async getProfiles(limit = 100): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined'
-        ? getSupabaseClient()
-        : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase
         .schema('drive')
         .from('profiles')
@@ -642,9 +655,7 @@ class DashboardService {
    */
   static async getUserLocationPins(limit = 5000, ownerId?: string): Promise<{ success: boolean; data?: UserLocationPin[]; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined'
-        ? getSupabaseClient()
-        : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase
         .schema('core')
         .rpc('dashboard_user_location_pins', { p_owner_id: ownerId || null, p_limit: limit })
@@ -662,12 +673,9 @@ class DashboardService {
    */
   static async getWaitlistStats(): Promise<{ success: boolean; data?: WaitlistStats; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined'
-        ? getSupabaseClient()
-        : getSupabase('server')
-      const { data, error } = await supabase.schema('core').rpc('dashboard_waitlist_stats')
+      const { data, error } = await fetchDashboardRoute<any>('/api/dashboard/waitlist/stats')
 
-      if (error) throw error
+      if (error) throw new Error(error.message)
       const raw = (data || {}) as any
       return {
         success: true,
@@ -695,14 +703,11 @@ class DashboardService {
    */
   static async getWaitlistPins(limit = 5000, onlyPending = true): Promise<{ success: boolean; data?: WaitlistPin[]; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined'
-        ? getSupabaseClient()
-        : getSupabase('server')
-      const { data, error } = await supabase
-        .schema('core')
-        .rpc('dashboard_waitlist_pins', { p_limit: limit, p_only_pending: onlyPending })
+      const { data, error } = await fetchDashboardRoute<WaitlistPin[]>(
+        `/api/dashboard/waitlist/pins?limit=${limit}&onlyPending=${onlyPending}`
+      )
 
-      if (error) throw error
+      if (error) throw new Error(error.message)
       return { success: true, data: (data || []) as WaitlistPin[] }
     } catch (error) {
       console.error('Error fetching waitlist pins:', error)
@@ -716,7 +721,7 @@ class DashboardService {
    */
   static async getSubscriptionStats(): Promise<{ success: boolean; data?: SubscriptionStats; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase.schema('core').rpc('dashboard_subscription_stats')
       if (error) throw error
       const row = (data?.[0] || {}) as any
@@ -749,7 +754,7 @@ class DashboardService {
    */
   static async getAppUsersDetailed(limit = 100, country?: string, platform?: string): Promise<{ success: boolean; data?: AppUserDetailed[]; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase.schema('core').rpc('dashboard_app_users_detailed', {
         limit_count: limit,
         filter_country: country || null,
@@ -769,7 +774,7 @@ class DashboardService {
    */
   static async getUserDetail(userId: string): Promise<{ success: boolean; data?: UserDetail; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase.schema('core').rpc('dashboard_user_detail', { target_user_id: userId })
       if (error) throw error
       const row = (data?.[0] || null) as any
@@ -798,9 +803,8 @@ class DashboardService {
    */
   static async getContentQuality(): Promise<{ success: boolean; data?: ContentQuality; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
-      const { data, error } = await supabase.schema('core').rpc('dashboard_content_quality')
-      if (error) throw error
+      const { data, error } = await fetchDashboardRoute<any[]>('/api/dashboard/content-quality')
+      if (error) throw new Error(error.message)
       const row = (data?.[0] || {}) as any
       return {
         success: true,
@@ -822,9 +826,8 @@ class DashboardService {
    */
   static async getTopGenerators(limit = 10): Promise<{ success: boolean; data?: Array<{ user_id: string; nickname: string; content_count: number }>; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
-      const { data, error } = await supabase.schema('core').rpc('dashboard_top_generators', { limit_count: limit })
-      if (error) throw error
+      const { data, error } = await fetchDashboardRoute<any[]>(`/api/dashboard/top-generators?limit=${limit}`)
+      if (error) throw new Error(error.message)
       return {
         success: true,
         data: (data || []).map((g: any) => ({ user_id: g.user_id, nickname: g.nickname || 'Unknown', content_count: Number(g.content_count || 0) })),
@@ -841,7 +844,7 @@ class DashboardService {
    */
   static async getUserAnalytics(ownerId?: string): Promise<{ success: boolean; data?: { totalUsers: number; activeUsers30d: number; totalPremiumUsers: number }; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
+      const supabase = getSupabaseClient()
       const res = ownerId
         ? await supabase.schema('core').rpc('dashboard_user_analytics', { p_owner_id: ownerId })
         : await supabase.schema('core').rpc('dashboard_user_analytics_global')
@@ -867,9 +870,8 @@ class DashboardService {
    */
   static async getInventoryFunnel(): Promise<{ success: boolean; data?: { coreApproved: number; corePending: number; homologRaw: number; totalInventory: number }; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
-      const { data, error } = await supabase.schema('core').rpc('dashboard_inventory_funnel')
-      if (error) throw error
+      const { data, error } = await fetchDashboardRoute<any[]>('/api/dashboard/inventory-funnel')
+      if (error) throw new Error(error.message)
       const row = (data?.[0] || {}) as any
       return {
         success: true,
@@ -891,7 +893,7 @@ class DashboardService {
    */
   static async getCountryStats(ownerId?: string): Promise<{ success: boolean; data?: Array<{ country: string; poi_count: number; city_count: number; approved_count: number }>; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase.schema('core').rpc('dashboard_country_stats', { p_owner_id: ownerId || null })
       if (error) throw error
       return {
@@ -911,7 +913,7 @@ class DashboardService {
    */
   static async getMigrationMetrics(): Promise<{ success: boolean; data?: DashboardStats['migrationMetrics']; error?: string }> {
     try {
-      const supabase = typeof window !== 'undefined' ? getSupabaseClient() : getSupabase('server')
+      const supabase = getSupabaseClient()
       const { data, error } = await supabase.schema('core').rpc('dashboard_migration_metrics')
       if (error) throw error
       const raw = (data || {}) as any
@@ -945,15 +947,11 @@ class DashboardService {
     error?: string
   }> {
     try {
-      const supabase = typeof window !== 'undefined'
-        ? getSupabaseClient()
-        : getSupabase('server')
+      const { data, error } = await fetchDashboardRoute<any>(
+        `/api/dashboard/realtime-activity?windowSeconds=${windowSeconds}`
+      )
 
-      const { data, error } = await supabase
-        .schema('core')
-        .rpc('dashboard_realtime_activity', { window_seconds: windowSeconds })
-
-      if (error) throw error
+      if (error) throw new Error(error.message)
       return { success: true, data: data as any }
     } catch (error: any) {
       // Supabase/PostgREST errors serializam como {} no console — extrai os campos úteis.

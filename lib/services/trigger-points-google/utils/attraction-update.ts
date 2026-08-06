@@ -3,9 +3,9 @@
  * SSOT: Single Source of Truth for attraction updates
  */
 
-import { getSupabase } from '@/lib/core/supabase-client'
+import { getSupabaseClient } from '@/lib/core/supabase-client'
 
-const supabase = getSupabase('server')
+const supabase = getSupabaseClient()
 
 export interface AttractionUpdateData {
   last_tp_generation_at?: string

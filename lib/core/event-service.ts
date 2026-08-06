@@ -7,7 +7,7 @@
  * evento (calendário, ingressos, etc.) vive em core.event_details e nas RPCs
  * cms_list_events / cms_event_facets / get_event_details / cms_create_event.
  */
-import { getSupabase } from './supabase-client'
+import { getSupabaseClient } from './supabase-client'
 
 export interface EventListItem {
   id: string
@@ -75,7 +75,7 @@ export interface CreateEventInput {
 }
 
 function client() {
-  return getSupabase(typeof window !== 'undefined' ? 'client' : 'server')
+  return getSupabaseClient()
 }
 
 export const eventService = {

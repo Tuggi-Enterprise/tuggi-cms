@@ -1,9 +1,9 @@
-import { getSupabase } from '../core/supabase-client'
+import { getSupabaseService } from '../core/supabase-client'
 import { POIInput, POVItem, GeminiPOVResponse } from '@/types/pov-types'
 import { POVSuggestionsService } from './pov-suggestions-service'
 import { callGeminiAPI } from '@/lib/utils/rate-limiter'
 
-const supabase = getSupabase('server')
+const supabase = getSupabaseService()
 
 export interface POIGeometry {
   bounds?: {

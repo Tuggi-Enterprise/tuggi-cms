@@ -1,12 +1,17 @@
-import { getSupabase } from '../../../../lib/core/supabase-client'
+/**
+ * POST /api/city-correction/retry — requeues one city-correction job.
+ *
+ * SEC-37 + CARD-CMS-01: it wrote as `anon` behind no gate, while two unused module
+ * constants named `SUPABASE_SECRET_KEY` made it read like a service_role route.
+ */
+
 import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth-middleware'
+import { getSupabaseService } from '@/lib/core/supabase-client'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY!
+const supabase = getSupabaseService()
 
-const supabase = getSupabase('server')
-
-export async function POST(request: Request) {
+export const POST = withAuth({ roles: ['admin'] }, async (request) => {
   try {
     const body = await request.json()
     const { progress_key } = body
@@ -156,4 +161,4 @@ export async function POST(request: Request) {
       { status: 500 }
     )
   }
-}
+})
