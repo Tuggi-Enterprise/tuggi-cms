@@ -26,6 +26,13 @@ import { createSecureHeaders } from "../_shared/security-headers.ts";
 // Validation schemas removidos - aceitamos qualquer idioma agora
 import { createAuditLogger } from "../_shared/audit-logger.ts";
 import { rebuildReadModel } from "../_shared/read-model.ts";
+import {
+    isComposedWithVenue,
+    linkedVenueId,
+    resolveVenueContext,
+    selectTranslationSource,
+    venueCompositionMeta,
+} from "../_shared/venueComposition.ts";
 
 // --- Types ---
 interface GeneratedByInfo {
@@ -118,13 +125,39 @@ async function processPOIItem(
     const LOG_PREFIX = `[Gen-Desc::${poi_id}]`;
     console.log(`${LOG_PREFIX} Processing for ${language} (${gender})...`);
 
+    // ✅ TIPO DA ENTIDADE: POI, evento e local vivem na mesma tabela e até aqui
+    // recebiam o mesmo prompt de "lugar" — que pede ano de fundação e fala em
+    // "standing in front of this place". Certo para um POI, errado para um show
+    // daqui a três semanas ou para um hotel.
+    //
+    // As extensões vêm como array no PostgREST (relação 1:1 declarada como
+    // to-many), daí o [0]. Ausentes = undefined, e o gerador cai no ramo 'poi',
+    // que é idêntico ao comportamento de sempre.
+    const eventDetails = Array.isArray(poiDataFromDB?.event_details)
+        ? poiDataFromDB.event_details[0]
+        : poiDataFromDB?.event_details;
+    const placeDetails = Array.isArray(poiDataFromDB?.place_details)
+        ? poiDataFromDB.place_details[0]
+        : poiDataFromDB?.place_details;
+
+    // BR-EVENTO-002 — id do POI anfitrião, e o portão de tudo que é composição.
+    // null para POI, para `place` e para o evento autônomo (que "narra por conta
+    // própria e não passa por esta regra"): com null, cada passo abaixo fica
+    // idêntico ao que era. Resolvido aqui em cima, e não só na geração fresca,
+    // porque o cache e a tradução também precisam dele — sem custo de query, o
+    // vínculo já veio junto com o POI.
+    const venueId = linkedVenueId(poiDataFromDB?.entity_kind, eventDetails);
+
     // 1. Optimistic Locking / Cache Check Loop (Max 15s)
     // We check if content exists. If it's "[PROCESSING]", we wait.
     let attempts = 0;
     while (attempts < 15) {
         const { data: existing } = await supabaseAdmin.schema("core")
             .from("attraction_descriptions")
-            .select("updated_at, facts_pack_json, description, audio_url, id")
+            // `generation_meta` entra na mesma query (custo zero) porque é a única
+            // coisa que distingue uma descrição de evento composta com o anfitrião
+            // de uma escrita quando ele ainda não estava vinculado — BR-EVENTO-002.
+            .select("updated_at, facts_pack_json, description, audio_url, id, generation_meta")
             .eq("attraction_id", poi_id)
             .eq("language", language)
             .eq("gender", gender)
@@ -144,7 +177,21 @@ async function processPOIItem(
                 // never ran (or failed). We must continue to generate the audio.
                 // The description text will be reused (no LLM call needed).
                 const hasAudio = shouldGenerateAudio ? !!existing.audio_url : true;
-                if (!force && !isStale && (existing.facts_pack_json?.length > 0) && hasAudio) {
+                // ✅ BR-EVENTO-002 item 2: a narração composta CONTÉM o POI anfitrião.
+                // Compor só acontece na geração fresca, então a descrição escrita
+                // enquanto o evento ainda era autônomo sobrevive no cache depois que
+                // o curador cria o vínculo no CMS — e nunca menciona o POI. Sem a
+                // marca na trilha não há como distinguir uma da outra, então isto
+                // falha FECHADO: sem marca, regera uma vez (e sai marcada). Só vale
+                // para evento vinculado — venueId é null em todo o resto.
+                const composedWithVenue = !venueId ||
+                    isComposedWithVenue(existing.generation_meta, venueId);
+                if (!composedWithVenue) {
+                    console.log(
+                        `${LOG_PREFIX} Cache Hit, mas a descrição não foi composta com o anfitrião ${venueId} (BR-EVENTO-002). Regerando uma vez.`,
+                    );
+                }
+                if (!force && !isStale && (existing.facts_pack_json?.length > 0) && hasAudio && composedWithVenue) {
                     console.log(`${LOG_PREFIX} Cache Hit (Fresh). Returning.`);
                     return { ...existing, status: "hit" };
                 }
@@ -227,17 +274,18 @@ async function processPOIItem(
         if (!force) {
             const { data: candidates } = await supabaseAdmin.schema("core")
                 .from("attraction_descriptions")
-                .select("description, facts_pack_json, language")
+                .select("description, facts_pack_json, language, generation_meta")
                 .eq("attraction_id", poi_id)
                 .neq("description", "[PROCESSING]") // Ignore locks
                 .limit(10);
 
             if (candidates && candidates.length > 0) {
-                // Find a source that is different from our target language
-                // Prioritize pt-br as source, otherwise take the first one available
-                const source = candidates.find((c: any) =>
-                    c.language === "pt-br" && c.language !== language
-                ) || candidates.find((c: any) => c.language !== language);
+                // Find a source that is different from our target language,
+                // prioritizing pt-br. Para evento vinculado, a fonte precisa ter sido
+                // composta com o MESMO anfitrião (BR-EVENTO-002 item 2) — a escolha
+                // inteira mora em _shared/venueComposition.ts, com os testes.
+                // Sem fonte utilizável, cai na geração fresca abaixo, que compõe.
+                const source = selectTranslationSource(candidates, language, venueId);
 
                 if (source) {
                     console.log(
@@ -256,10 +304,22 @@ async function processPOIItem(
                         callUsage = { ...tUsage, kind: "translation" };
                     }
                     // Trilha: traduzido de outro idioma (grounding herdado do master).
+                    // A marca do anfitrião também é herdada: a fonte só chegou aqui
+                    // por ter sido composta com ele, e o texto traduzido carrega o
+                    // POI junto — sem isto, o idioma novo seria regerado a cada
+                    // disparo por parecer não-composto (BR-EVENTO-002 item 2).
                     generationMeta = {
                         kind: "translation",
                         source_language: source.language,
                         grounded: null,
+                        ...(venueId
+                            ? venueCompositionMeta(
+                                venueId,
+                                (source.generation_meta as { venue_facts_language?: string | null })
+                                    ?.venue_facts_language ?? null,
+                                true,
+                            )
+                            : {}),
                     };
                 }
             }
@@ -299,51 +359,53 @@ async function processPOIItem(
                 }
             }
 
-            // ✅ TIPO DA ENTIDADE: POI, evento e local vivem na mesma tabela e até
-            // aqui recebiam o mesmo prompt de "lugar" — que pede ano de fundação e
-            // fala em "standing in front of this place". Certo para um POI, errado
-            // para um show daqui a três semanas ou para um hotel.
-            //
-            // As extensões vêm como array no PostgREST (relação 1:1 declarada como
-            // to-many), daí o [0]. Ausentes = undefined, e o gerador cai no ramo
-            // 'poi', que é idêntico ao comportamento de sempre.
-            const eventDetails = Array.isArray(poiDataFromDB?.event_details)
-                ? poiDataFromDB.event_details[0]
-                : poiDataFromDB?.event_details;
-            const placeDetails = Array.isArray(poiDataFromDB?.place_details)
-                ? poiDataFromDB.place_details[0]
-                : poiDataFromDB?.place_details;
-
             // ✅ Cenário 1 — evento vinculado a um POI anfitrião: compõe "dados do
-            // POI + evento de forma contextual". SÓ entra quando entity_kind='event'
-            // E há vínculo (venue_attraction_id). POI e evento-sem-vínculo passam
-            // por aqui com venue=null e o prompt fica idêntico ao de sempre.
+            // POI + evento de forma contextual". SÓ entra quando há vínculo (o
+            // `venueId` resolvido no topo). POI e evento-sem-vínculo passam por aqui
+            // com venue=null e o prompt fica idêntico ao de sempre.
             let venue: { name: string; facts?: string | null } | null = null;
-            const venueId = eventDetails?.venue_attraction_id ?? null;
-            if (venueId && poiDataFromDB?.entity_kind === "event") {
+            // Marca da trilha (BR-EVENTO-002 item 2). Escrita SEMPRE que há vínculo,
+            // inclusive quando a composição não foi possível: sem marca, o cache
+            // acima nunca aceita a linha e todo disparo paga uma geração nova.
+            let venueMeta: Record<string, unknown> | null = null;
+            if (venueId) {
                 const { data: venueRow } = await supabaseAdmin.schema("core")
                     .from("attractions").select("name").eq("id", venueId).maybeSingle();
                 if (venueRow?.name) {
-                    // Usa a narração JÁ existente do POI como contexto (não re-pesquisa
-                    // o POI); se o POI ainda não tem descrição, o gerador só ancora pelo nome.
-                    // Prefere a descrição do POI na LÍNGUA-ALVO (evita mandar contexto
-                    // pt-br numa geração en-us): exata > mesma base > en > qualquer.
+                    // Usa a narração JÁ existente do POI como contexto: não re-pesquisa
+                    // o POI e NUNCA escreve nele — BR-EVENTO-002 item 3, a descrição e o
+                    // áudio do anfitrião não são tocados por causa de evento. Se o POI
+                    // não tem descrição em idioma nenhum, o gerador ancora só pelo nome
+                    // (BR-CONTEUDO-002: isso não bloqueia nem dispara geração do POI).
+                    // A escolha de nome e fatos por idioma é BR-CONTEUDO-001 e mora em
+                    // _shared/venueComposition.ts. `name` sai da mesma query dos fatos.
+                    // Limite 20 (era 8): um POI com 5 idiomas × 2 gêneros tem 10 linhas,
+                    // e as 8 mais recentes podiam não incluir a do idioma-alvo.
                     const { data: venueDescs } = await supabaseAdmin.schema("core")
                         .from("attraction_descriptions")
-                        .select("description, language")
+                        .select("description, language, name")
                         .eq("attraction_id", venueId)
                         .neq("description", "[PROCESSING]")
                         .order("updated_at", { ascending: false })
-                        .limit(8);
-                    const descs = venueDescs || [];
-                    const lc = (language || "").toLowerCase();
-                    const base = lc.split("-")[0];
-                    const chosen =
-                        descs.find((d: any) => (d.language || "").toLowerCase() === lc) ||
-                        descs.find((d: any) => (d.language || "").toLowerCase().split("-")[0] === base) ||
-                        descs.find((d: any) => ["en", "en-us"].includes((d.language || "").toLowerCase())) ||
-                        descs[0];
-                    venue = { name: venueRow.name, facts: chosen?.description ?? null };
+                        .limit(20);
+                    const ctx = resolveVenueContext(
+                        venueRow.name,
+                        language,
+                        venueDescs || [],
+                    );
+                    venue = { name: ctx.name, facts: ctx.facts };
+                    venueMeta = venueCompositionMeta(venueId, ctx.factsLanguage, true);
+                    console.log(
+                        `${LOG_PREFIX} Compondo com o anfitrião ${venueId} (nome="${ctx.name}", fatos=${ctx.factsLanguage ?? "nenhum"}).`,
+                    );
+                } else {
+                    // Vínculo pendurado: o anfitrião não existe. Regerar não conserta —
+                    // o conserto é no cadastro, pelo CMS. Marca assim mesmo para não
+                    // virar geração infinita atrás de uma composição impossível.
+                    console.warn(
+                        `${LOG_PREFIX} venue_attraction_id ${venueId} não resolve para nenhuma attraction — evento narrado sem o anfitrião (BR-EVENTO-002).`,
+                    );
+                    venueMeta = venueCompositionMeta(venueId, null, false);
                 }
             }
 
@@ -382,6 +444,7 @@ async function processPOIItem(
                 sources: masterResult.sourceCount ?? 0,
                 models: masterResult.modelUsed ?? null,
                 safe_mode: masterResult.grounded === false,
+                ...(venueMeta || {}),
             };
             if (!groundedOk) {
                 console.warn(`${LOG_PREFIX} SAFE MODE (sem grounding) — marcando needs_review.`);

@@ -180,3 +180,42 @@ export function isComposedWithVenue(
     if (!generationMeta || typeof generationMeta !== "object") return false;
     return (generationMeta as Record<string, unknown>)[VENUE_META_KEY] === venueId;
 }
+
+/** A stored description of the entity being generated, as a translation source. */
+export interface TranslationCandidate {
+    language?: string | null;
+    description?: string | null;
+    generation_meta?: unknown;
+}
+
+/**
+ * BR-CONTEUDO-001 mode 1 — which existing description to translate FROM, when the
+ * listener's language is missing. Unchanged for everything that is not a linked
+ * event: any other language, `pt-br` first.
+ *
+ * BR-EVENTO-002 item 2 is what makes the `venueId` filter necessary. Translating a
+ * linked event from a source that was written before the link produces a narration
+ * that never names the host — and then the defect stops being a one-off: every
+ * further language is translated from that same source, so the promise breaks once
+ * and copies itself. A source composed with the SAME host already contains the POI,
+ * so translating from it keeps item 2 and stays the cheapest call there is (one
+ * Gemini call against two).
+ *
+ * Returning `null` is not a failure: the caller falls through to a fresh generation,
+ * which composes. That is the only place the extra cost of a linked event lands.
+ *
+ * @param venueId the host, or `null` for a POI / an autonomous event.
+ */
+export function selectTranslationSource<T extends TranslationCandidate>(
+    candidates: T[],
+    language: string,
+    venueId: string | null,
+): T | null {
+    const usable = (candidates || []).filter((c) =>
+        !!c.description &&
+        (!venueId || isComposedWithVenue(c.generation_meta, venueId))
+    );
+    return usable.find((c) => c.language === "pt-br" && c.language !== language) ||
+        usable.find((c) => c.language !== language) ||
+        null;
+}

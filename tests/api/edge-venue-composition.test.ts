@@ -37,7 +37,18 @@ interface VenueCompositionModule {
     composed: boolean
   ) => Record<string, unknown>
   isComposedWithVenue: (generationMeta: unknown, venueId: string) => boolean
+  selectTranslationSource: <T extends TranslationCandidate>(
+    candidates: T[],
+    language: string,
+    venueId: string | null
+  ) => T | null
   VENUE_META_KEY: string
+}
+
+interface TranslationCandidate {
+  language?: string | null
+  description?: string | null
+  generation_meta?: unknown
 }
 
 const MODULE_PATH = resolve(
@@ -195,4 +206,69 @@ test('BR-EVENTO-002 item 2: an absent or unreadable trail fails closed', () => {
   for (const value of [null, undefined, '', 'venue_attraction_id', 42, []]) {
     assert.equal(mod.isComposedWithVenue(value, CHURCH), false)
   }
+})
+
+// ── 4. Which description a missing language is translated FROM ────────────────
+
+const composedPtBr = {
+  language: 'pt-br',
+  description: 'Igreja Matriz da Nossa Senhora da Assunção. …e de 13 a 17 acontece aqui a Festa da Padroeira.',
+  generation_meta: { kind: 'master_2step', venue_attraction_id: CHURCH, venue_composed: true },
+}
+const preLinkPtBr = {
+  language: 'pt-br',
+  description: 'A Festa da Padroeira é uma tradição que remonta a 1615.',
+  generation_meta: { kind: 'master_2step', grounded: true },
+}
+
+test('BR-CONTEUDO-001 modo 1: sem vínculo, traduz de outro idioma, pt-br na frente', () => {
+  const picked = mod.selectTranslationSource(
+    [{ language: 'de-de', description: 'Die Kirche…' }, preLinkPtBr],
+    'en-us',
+    null
+  )
+  assert.equal(picked?.language, 'pt-br')
+})
+
+test('BR-CONTEUDO-001 modo 1: a fonte nunca é o próprio idioma-alvo', () => {
+  const picked = mod.selectTranslationSource([preLinkPtBr], 'pt-br', null)
+  assert.equal(picked, null)
+})
+
+test('BR-EVENTO-002 item 2: evento vinculado não traduz de fonte não composta', () => {
+  // Sem este filtro o defeito quebra uma vez e depois se copia: cada idioma novo
+  // sai de uma fonte que nunca nomeia o POI anfitrião.
+  const picked = mod.selectTranslationSource([preLinkPtBr], 'en-us', CHURCH)
+  assert.equal(picked, null, 'sem fonte utilizável, o chamador gera fresco e compõe')
+})
+
+test('BR-EVENTO-002 item 2: evento vinculado traduz de fonte composta com o MESMO anfitrião', () => {
+  const picked = mod.selectTranslationSource([preLinkPtBr, composedPtBr], 'en-us', CHURCH)
+  assert.equal(picked?.generation_meta, composedPtBr.generation_meta)
+})
+
+test('BR-EVENTO-002 item 2: fonte composta com OUTRO anfitrião não serve', () => {
+  const other = {
+    language: 'pt-br',
+    description: 'texto',
+    generation_meta: { venue_attraction_id: OTHER_VENUE },
+  }
+  assert.equal(mod.selectTranslationSource([other], 'en-us', CHURCH), null)
+})
+
+test('uma linha sem texto nunca é escolhida como fonte de tradução', () => {
+  const picked = mod.selectTranslationSource(
+    [{ language: 'pt-br', description: null }, { language: 'de-de', description: 'Die Kirche…' }],
+    'en-us',
+    null
+  )
+  assert.equal(picked?.language, 'de-de')
+})
+
+test('uma lista vazia ou ausente devolve null sem lançar', () => {
+  assert.equal(mod.selectTranslationSource([], 'en-us', null), null)
+  assert.equal(
+    mod.selectTranslationSource(undefined as unknown as TranslationCandidate[], 'en-us', CHURCH),
+    null
+  )
 })
