@@ -193,7 +193,11 @@ async function processPOIItem(
                 }
                 if (!force && !isStale && (existing.facts_pack_json?.length > 0) && hasAudio && composedWithVenue) {
                     console.log(`${LOG_PREFIX} Cache Hit (Fresh). Returning.`);
-                    return { ...existing, status: "hit" };
+                    // `generation_meta` é trilha interna e entrou na query só para a
+                    // decisão acima: fica fora da resposta, que continua byte a byte
+                    // a de antes.
+                    const { generation_meta: _trail, ...hit } = existing;
+                    return { ...hit, status: "hit" };
                 }
                 if (!force && !isStale && (existing.facts_pack_json?.length > 0) && !hasAudio) {
                     console.log(`${LOG_PREFIX} Cache Hit (Description only, audio_url missing). Proceeding to TTS synthesis.`);
