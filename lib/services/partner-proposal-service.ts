@@ -31,7 +31,7 @@
  * routes already translate into a typed response.
  */
 
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { PartnerDocumentKind } from '@/lib/partner-form/fields'
@@ -115,13 +115,13 @@ export function isWellFormedToken(token: string): boolean {
   return typeof token === 'string' && /^[A-Za-z0-9_-]{40,64}$/.test(token)
 }
 
-/** Constant-time comparison, for the places that compare two hashes in JS. */
-export function tokenHashEquals(a: string, b: string): boolean {
-  const left = Buffer.from(a, 'utf8')
-  const right = Buffer.from(b, 'utf8')
-  if (left.length !== right.length) return false
-  return timingSafeEqual(left, right)
-}
+/**
+ * There is no constant-time comparison here on purpose. Nothing in this module compares
+ * two hashes in JS: `resolveInvite` hands the SHA-256 to Postgres and the indexed equality
+ * decides, which is where the comparison belongs. A `tokenHashEquals` used to sit here
+ * with zero callers, and an exported guarantee nobody calls makes the module read as if
+ * the defence were in the path.
+ */
 
 function service() {
   return getSupabaseService().schema(SCHEMA)

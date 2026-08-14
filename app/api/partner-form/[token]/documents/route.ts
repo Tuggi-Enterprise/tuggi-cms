@@ -6,11 +6,17 @@
  * accumulate; they never replace one another.
  *
  * `accept` on the input is a hint and validates nothing (MDN, `input type=file`), so the
- * authoritative refusal is here: type and size are checked before a byte reaches storage,
- * and the bucket is private — nothing in this feature ever returns a public URL.
+ * authoritative refusal of the TYPE is here, and the bucket is private — nothing in this
+ * feature ever returns a public URL.
  *
- * The bytes are read into memory once and only up to the declared limit; the size check
- * happens before the read so an oversized upload is refused, not buffered.
+ * The SIZE is not this route's to guard alone, and pretending otherwise is what made the
+ * old 10 MB limit unreachable: Vercel caps a function's request body at 4.5 MB and answers
+ * `413 FUNCTION_PAYLOAD_TOO_LARGE` before this file runs (`/docs/functions/limitations`,
+ * *Request body size*). `await req.formData()` below also materialises the whole body
+ * before `file.size` can be read, so this check is a last word and not a shield. What
+ * makes the person see a useful message is the client refusing at `DOCUMENT_MAX_BYTES`
+ * (4 MB, under the platform ceiling) — this 413 is the backstop for a caller that skips
+ * the form.
  */
 
 import { NextRequest, NextResponse } from 'next/server'

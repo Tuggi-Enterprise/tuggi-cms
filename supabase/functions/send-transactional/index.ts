@@ -19,7 +19,15 @@
 //       to the user-facing types; partner_new (team) is always pt.
 //
 // Secrets: RESEND_API_KEY, RESEND_FROM (default "Tuggi <news@tuggi.app>"),
-//          PARTNER_ALERT_TO (default "suporte@tuggi.app"), APP_URL (optional)
+//          PARTNER_ALERT_TO (default "suporte@tuggi.app"), APP_URL (optional),
+//          PARTNER_FORM_ORIGIN (optional)
+//
+// NO LINK IN THESE E-MAILS COMES FROM THE CALLER. This function is reachable with the
+// publishable key (it has no authorization of its own until #346), so any href it accepts
+// from the body is an open phishing kit signed with our SPF/DKIM/DMARC — and the audience
+// here is exactly the partner we ask for CNPJ, alvará and a contrato social carrying the
+// CPF and RG of the members. Every `href` below is composed from an origin of ours plus a
+// value whose shape is verified. `data.url` and `data.app_url` are ignored on purpose.
 
 import {
   partnerStrings,
@@ -34,6 +42,36 @@ const corsHeaders = {
 
 const RESEND_URL = 'https://api.resend.com/emails';
 const TUGGI_BLUE = '#00A8E8';
+
+/** Where the app lives, for the only CTA of the `approved` e-mail. */
+const DEFAULT_APP_ORIGIN = 'https://tuggi.app';
+
+/**
+ * Where the partner form of #341 lives — the CMS, not the public site, which is why this
+ * is its own secret and not `APP_URL` (that one points at `tuggi-enterprise`, the host of
+ * `/unsubscribe`).
+ */
+const DEFAULT_PARTNER_FORM_ORIGIN = 'https://cms.tuggi.app';
+
+/**
+ * Twin of `lib/partner-form/link.ts`, symbols `PARTNER_FORM_LOCALE` and `partnerFormPath`.
+ * It is duplicated because Deno cannot import the Next side, and the two are held together
+ * by a parity assertion in `tests/api/partner-form.test.ts` — change one and it goes red.
+ */
+const PARTNER_FORM_LOCALE = 'pt';
+
+/**
+ * 32 random bytes in base64url, the shape `partner-proposal-service.ts` mints and
+ * `isWellFormedToken` demands. Anything else is refused before it reaches an `href`:
+ * without this, a "token" of `../..%2Fevil` or a whole URL walks straight back out.
+ */
+const INVITE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
+
+/** An https origin of ours, or the default. Never the caller's. */
+function ownOrigin(secret: string, fallback: string): string {
+  const configured = (Deno.env.get(secret) ?? '').trim().replace(/\/+$/, '');
+  return /^https:\/\/[^\s/?#]+$/.test(configured) ? configured : fallback;
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -103,7 +141,7 @@ function renderLocalized(
   const cta =
     event === 'approved' && s.email.cta
       ? `<p style="margin-top:20px">
-           <a href="${esc(data.app_url ?? 'https://tuggi.app')}" style="background:${TUGGI_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">${esc(s.email.cta)}</a>
+           <a href="${esc(ownOrigin('APP_URL', DEFAULT_APP_ORIGIN))}" style="background:${TUGGI_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">${esc(s.email.cta)}</a>
          </p>`
       : '';
 
@@ -124,6 +162,11 @@ function renderLocalized(
  *
  * It says nothing about price, recurrence or what the partnership costs — the capture
  * surface is closed for that (BR-B2B-015, item 8; BR-B2B-016, item 6).
+ *
+ * It takes the TOKEN and composes the link itself. It used to take `data.url` behind an
+ * `^https://` test, which accepts every host on the internet: this e-mail carries our
+ * brand to the very people we then ask for the documents of the members, so the one thing
+ * it must never do is point somewhere we do not own.
  */
 const CTA_BLUE = '#00719F';
 
@@ -133,10 +176,11 @@ function renderFormInvite(data: Record<string, unknown>): {
 } {
   const name = esc(data.name ?? data.partner_name ?? '');
   const tradeName = esc(data.trade_name ?? '');
-  const url = String(data.url ?? '');
-  if (!/^https:\/\//.test(url)) {
-    throw new Error('partner_form_invite requires an https url');
+  const token = String(data.token ?? '');
+  if (!INVITE_TOKEN_PATTERN.test(token)) {
+    throw new Error('partner_form_invite requires a well-formed invite token');
   }
+  const href = `${ownOrigin('PARTNER_FORM_ORIGIN', DEFAULT_PARTNER_FORM_ORIGIN)}/${PARTNER_FORM_LOCALE}/parceria/${token}`;
 
   const place = tradeName || 'seu estabelecimento';
   const greeting = name ? `Olá, ${name}.` : 'Olá.';
@@ -148,7 +192,7 @@ function renderFormInvite(data: Record<string, unknown>): {
       `<p>${greeting}</p>
        <p>Para seguir com a parceria, a gente precisa de alguns dados do ${place}. É rápido e dá para fazer pelo celular.</p>
        <p style="margin-top:20px">
-         <a href="${esc(url)}" style="background:${CTA_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">Preencher agora</a>
+         <a href="${esc(href)}" style="background:${CTA_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">Preencher agora</a>
        </p>
        <p>O link é só seu. Se não foi você quem pediu, ignore este e-mail.</p>`
     ),

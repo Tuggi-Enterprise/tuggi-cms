@@ -107,7 +107,11 @@ export const PUT = withRateLimit(WRITE_PER_MINUTE, MINUTE)(
     const body = await readJson(req)
     if (!body) return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
 
+    // A body that is not answers is refused, never normalised into `{}` — saving `{}` over
+    // the draft and answering 200 destroys what the person typed and calls it success.
     const answers = normalizeAnswers((body as { answers?: unknown }).answers)
+    if (!answers) return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
+
     const saved = await saveDraft(resolved.invite.id, answers)
 
     if (!saved.ok) {
@@ -134,6 +138,8 @@ export const POST = withRateLimit(WRITE_PER_MINUTE, MINUTE)(
     if (!body) return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
 
     const answers = normalizeAnswers((body as { answers?: unknown }).answers)
+    if (!answers) return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
+
     const documents = resolved.documents ?? []
     const missing = missingDocuments(documents)
 

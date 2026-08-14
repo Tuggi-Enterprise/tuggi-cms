@@ -58,7 +58,7 @@ export const POST = withRateLimit(20, 60_000)(
       to: recipientEmail,
       name: typeof body.recipientName === 'string' ? body.recipientName : '',
       tradeName: typeof body.tradeName === 'string' ? body.tradeName : '',
-      url,
+      token: created.token,
     })
 
     // The link is returned either way: an e-mail that did not go out must not cost the
@@ -72,11 +72,18 @@ export const POST = withRateLimit(20, 60_000)(
   })
 )
 
+/**
+ * The e-mail gets the TOKEN, never the assembled URL: `send-transactional` is reachable
+ * without authorization until #346, and a function that renders whatever href its body
+ * asks for is a phishing kit with our DKIM on it. The origin is composed there, from
+ * `PARTNER_FORM_ORIGIN`. The URL in the response above is for the operator, not for the
+ * e-mail.
+ */
 async function sendInviteEmail(input: {
   to: string
   name: string
   tradeName: string
-  url: string
+  token: string
 }): Promise<boolean> {
   try {
     // `functions.invoke` resolves for any HTTP answer and only fills `error` on a
@@ -87,7 +94,7 @@ async function sendInviteEmail(input: {
         type: 'partner_form_invite',
         to: input.to,
         lang: PARTNER_FORM_LOCALE,
-        data: { name: input.name, trade_name: input.tradeName, url: input.url },
+        data: { name: input.name, trade_name: input.tradeName, token: input.token },
       },
     })
 

@@ -29,10 +29,19 @@ import {
   PARTNER_FORM_FIELDS,
   FORBIDDEN_FIELDS,
   PARTNER_DOCUMENT_KINDS,
+  DOCUMENT_MAX_BYTES,
+  DOCUMENT_MAX_MB,
   fieldsOfStep,
 } from '@/lib/partner-form/fields'
 import { validateAnswers, normalizeAnswers, storyNudge } from '@/lib/partner-form/schema'
 import { CLIENT_ADMIN_ONLY_FIELDS } from '@/lib/services/client-editable-fields'
+import {
+  MIRROR_TTL_MS,
+  clearMirror,
+  mirrorKey,
+  readMirror,
+  writeMirror,
+} from '@/lib/partner-form/draft-mirror'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
@@ -172,6 +181,19 @@ test('DS-COPY-015: the quality nudges never block, they only classify', () => {
     }),
     null
   )
+})
+
+test('a body that is not answers is refused, never normalised into an empty draft', () => {
+  // The regression this guards: returning `{}` here made the route save `{}` over the
+  // draft and answer 200 — a client bug erasing what the person typed, with the "saved"
+  // confirmation on screen.
+  assert.equal(normalizeAnswers({ trade_name: { nested: true } }), null)
+  assert.equal(normalizeAnswers({ trade_name: 42 }), null)
+  assert.equal(normalizeAnswers('not an object'), null)
+
+  // An empty draft is a legitimate draft and stays distinguishable from a refusal.
+  assert.deepEqual(normalizeAnswers({}), {})
+  assert.deepEqual(normalizeAnswers(undefined), {})
 })
 
 test('the answers are an allowlist: an unknown key is dropped, not persisted', () => {
@@ -373,6 +395,7 @@ function freshState(overrides: Partial<Record<string, any>> = {}): FakeState {
 }
 
 let GET: (req: any, ctx: any) => Promise<Response>
+let PUT: (req: any, ctx: any) => Promise<Response>
 let POST: (req: any, ctx: any) => Promise<Response>
 let hashInviteToken: (token: string) => string
 let submitProposal: (
@@ -396,6 +419,7 @@ before(async () => {
 
   const route = await import('@/app/api/partner-form/[token]/route')
   GET = route.GET as any
+  PUT = route.PUT as any
   POST = route.POST as any
 })
 
@@ -525,4 +549,130 @@ test('a body with only forbidden keys is refused, and nothing is persisted', asy
   assert.equal(payload.error, 'invalid_answers')
   assert.equal(state.submissions.length, 0)
   assert.equal(state.invites[0].used_at, null, 'a refused submission does not consume the link')
+})
+
+test('a draft is never erased by a body the schema refuses', async () => {
+  state = freshState()
+  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
+  state.submissions.push({
+    id: 'submission-1',
+    invite_id: 'invite-1',
+    status: 'draft',
+    answers: completeAnswers(),
+    updated_at: new Date('2026-08-13T10:00:00Z').toISOString(),
+  })
+  const typed = { ...state.submissions[0].answers }
+
+  // What a client bug sends: one value that is not a string. It used to normalise to `{}`,
+  // overwrite the draft and come back 200 — the person watched "salvo" while everything
+  // they had typed was destroyed.
+  const response = await PUT(
+    request('PUT', { answers: { ...completeAnswers(), trade_name: { toString: 'no' } } }, '10.0.0.9'),
+    context
+  )
+
+  assert.equal(response.status, 400, 'a refused body is a refusal, not a success')
+  assert.deepEqual(state.submissions[0].answers, typed, 'the draft must survive intact')
+})
+
+test('an empty draft is still a valid autosave — the refusal above is not a blanket ban', async () => {
+  state = freshState()
+  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
+
+  const response = await PUT(request('PUT', { answers: {} }, '10.0.0.10'), context)
+
+  assert.equal(response.status, 200)
+  assert.equal(state.submissions.length, 1, 'the restart button relies on this path')
+})
+
+// ── The upload limit has to be a limit the platform lets us enforce ──
+
+test('#341: the promised file size is under the ceiling Vercel enforces before our code runs', async () => {
+  // "The maximum payload size for the request body or the response body of a Vercel
+  // Function is 4.5 MB", answered with `413 FUNCTION_PAYLOAD_TOO_LARGE` — Vercel,
+  // `/docs/functions/limitations`, *Request body size*, read 2026-08-14.
+  //
+  // Above it the request never reaches the route, so the specific message
+  // (`errors.file_too_large`) becomes unreachable exactly when it is the right one and
+  // the owner sees a failure with no reason. The number is also promised in the help text
+  // before the choice (DS-COMPONENTE-016, item 7), so it must be the enforced one.
+  const VERCEL_REQUEST_BODY_LIMIT_BYTES = 4.5 * 1024 * 1024
+  assert.ok(
+    DOCUMENT_MAX_BYTES < VERCEL_REQUEST_BODY_LIMIT_BYTES,
+    `${DOCUMENT_MAX_BYTES} bytes cannot be refused by us: the platform cuts at 4.5 MB`
+  )
+  // Room for the multipart envelope around the file, so the last accepted byte still fits.
+  assert.ok(VERCEL_REQUEST_BODY_LIMIT_BYTES - DOCUMENT_MAX_BYTES > 64 * 1024)
+  assert.equal(DOCUMENT_MAX_MB, 4, 'the help text and the error message interpolate this number')
+
+  const messages = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8'))
+  const tooLarge = messages.PartnerForm.errors.file_too_large
+  assert.match(tooLarge, /\{size\}/)
+  assert.match(tooLarge, /\{max\}/)
+  assert.ok(tooLarge.length > 60, 'the message has to say what to do, not only that it failed')
+})
+
+// ── The copy on the device: personal data with a deadline ──
+
+/** Enough of the Storage interface for the mirror, backed by a Map. */
+function fakeStorage(): Storage & { size: () => number } {
+  const values = new Map<string, string>()
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => void values.set(key, value),
+    removeItem: (key: string) => void values.delete(key),
+    clear: () => values.clear(),
+    key: (index: number) => [...values.keys()][index] ?? null,
+    get length() {
+      return values.size
+    },
+    size: () => values.size,
+  } as Storage & { size: () => number }
+}
+
+test('#341: the local draft expires, and reading it after the deadline erases it', () => {
+  // The scenario: a form abandoned on the tablet at the counter of a restaurant. Without a
+  // deadline the CNPJ and the name, e-mail and phone of the legal representative stayed on
+  // that device forever, because the only thing that cleared them was a successful
+  // submission — which an abandoned form never has.
+  const store = fakeStorage()
+  ;(globalThis as { localStorage?: Storage }).localStorage = store
+  const key = mirrorKey('t'.repeat(43))
+
+  writeMirror(key, { tax_id: '12ABC34501DE35', representative_name: 'Antônio Ferreira' })
+  assert.equal(readMirror(key).tax_id, '12ABC34501DE35', 'within the window it is still there')
+
+  const stale = JSON.parse(store.getItem(key) as string)
+  stale.savedAt = Date.now() - MIRROR_TTL_MS - 1
+  store.setItem(key, JSON.stringify(stale))
+
+  assert.deepEqual(readMirror(key), {}, 'past the deadline it must not come back')
+  assert.equal(store.size(), 0, 'and it must not be left on the device either')
+})
+
+test('#341: a mirror with no deadline stamp is dropped, not trusted', () => {
+  const store = fakeStorage()
+  ;(globalThis as { localStorage?: Storage }).localStorage = store
+  const key = mirrorKey('u'.repeat(43))
+
+  // The shape written before this had an expiry, and any corrupted value.
+  store.setItem(key, JSON.stringify({ tax_id: '12ABC34501DE35' }))
+  assert.deepEqual(readMirror(key), {})
+  assert.equal(store.size(), 0)
+
+  store.setItem(key, 'not json')
+  assert.deepEqual(readMirror(key), {})
+  assert.equal(store.size(), 0)
+})
+
+test('#341: the deadline is a day, and clearing it is what submission does', () => {
+  assert.equal(MIRROR_TTL_MS, 24 * 60 * 60 * 1000)
+
+  const store = fakeStorage()
+  ;(globalThis as { localStorage?: Storage }).localStorage = store
+  const key = mirrorKey('v'.repeat(43))
+
+  writeMirror(key, { tax_id: '12ABC34501DE35' })
+  clearMirror(key)
+  assert.equal(store.size(), 0)
 })

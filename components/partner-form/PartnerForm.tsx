@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import { AlertCircle, CheckCircle2, WifiOff } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import {
+  DOCUMENT_MAX_BYTES,
   DOCUMENT_MAX_MB,
   PARTNER_DOCUMENT_KINDS,
   PARTNER_FORM_STEP_COUNT,
@@ -21,6 +22,7 @@ import {
   type PartnerAnswers,
 } from '@/lib/partner-form/schema'
 import { PARTNER_PRIVACY_POLICY_URL } from '@/lib/partner-form/link'
+import { clearMirror, mirrorKey, readMirror, writeMirror } from '@/lib/partner-form/draft-mirror'
 import { PartnerFormField, errorMessage } from './PartnerFormField'
 import { DocumentUploader, formatBytes, type UploadedDocument } from './DocumentUploader'
 import { BUTTON_PRIMARY, BUTTON_QUIET, BUTTON_SECONDARY, CARD, PAGE_SHELL } from './styles'
@@ -69,7 +71,7 @@ export function PartnerForm({ token }: PartnerFormProps) {
   const [submitted, setSubmitted] = useState<{ isPartial: boolean; missing: PartnerDocumentKind[] } | null>(null)
 
   const summaryRef = useRef<HTMLDivElement>(null)
-  const storageKey = `partner-form:${token}`
+  const storageKey = mirrorKey(token)
 
   const load = useCallback(async () => {
     try {
@@ -77,6 +79,9 @@ export function PartnerForm({ token }: PartnerFormProps) {
       const payload = await response.json()
 
       if (!response.ok) {
+        // A link that is used, expired or invalid will never be filled again, so the copy
+        // of the answers on this device has no reason left to exist.
+        clearMirror(storageKey)
         setUsedAt(payload?.usedAt ?? null)
         setLinkState(payload?.state === 'used' ? 'used' : payload?.state === 'expired' ? 'expired' : 'invalid')
         return
@@ -211,6 +216,15 @@ export function PartnerForm({ token }: PartnerFormProps) {
     file: File,
     onProgress: (percent: number) => void
   ): Promise<{ ok: true; document: UploadedDocument } | { ok: false; message: string }> {
+    // Refused here, before a byte leaves the phone. Not an optimisation: the platform cuts
+    // any request body over 4.5 MB before the route runs and answers HTML, which arrives
+    // below as an unparseable payload and would degrade into the generic "não terminou de
+    // subir". The person needs to know the file is too big and what to do — and on 4G, not
+    // after spending the upload. `DOCUMENT_MAX_BYTES` carries the ceiling and the source.
+    if (file.size > DOCUMENT_MAX_BYTES) {
+      return { ok: false, message: uploadErrorMessage('file_too_large', file) }
+    }
+
     const body = new FormData()
     body.append('kind', kind)
     body.append('file', file)
@@ -243,7 +257,10 @@ export function PartnerForm({ token }: PartnerFormProps) {
           return
         }
 
-        resolve({ ok: false, message: uploadErrorMessage(payload?.error, file) })
+        // A 413 without a JSON envelope is the platform's own refusal, and it means
+        // exactly one thing.
+        const code = payload?.error ?? (request.status === 413 ? 'file_too_large' : undefined)
+        resolve({ ok: false, message: uploadErrorMessage(code, file) })
       })
       request.addEventListener('error', () => resolve({ ok: false, message: t('errors.upload_failed') }))
       request.send(body)
@@ -654,34 +671,5 @@ function formatDate(value: string | null): string {
     return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'long' }).format(new Date(value))
   } catch {
     return ''
-  }
-}
-
-/**
- * Local mirror of the answers. It exists so a dropped connection costs nothing that was
- * typed; the server copy is still the one the team reads.
- */
-function readMirror(key: string): PartnerAnswers {
-  try {
-    const raw = window.localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as PartnerAnswers) : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeMirror(key: string, answers: PartnerAnswers): void {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(answers))
-  } catch {
-    // Private browsing and a full quota both land here; the form keeps working.
-  }
-}
-
-function clearMirror(key: string): void {
-  try {
-    window.localStorage.removeItem(key)
-  } catch {
-    // Same as above.
   }
 }

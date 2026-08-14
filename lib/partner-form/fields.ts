@@ -173,7 +173,19 @@ export const DOCUMENT_MIME_TYPES = [
   'image/heif',
 ] as const
 
-export const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024
+/**
+ * The ceiling is the platform's, not ours: "The maximum payload size for the request body
+ * or the response body of a Vercel Function is 4.5 MB", answered with
+ * `413 FUNCTION_PAYLOAD_TOO_LARGE` — Vercel, `/docs/functions/limitations`, section
+ * *Request body size*, page updated 2026-07-01, read 2026-08-14.
+ *
+ * A limit above that is decorative: the request dies before any code of ours runs, and the
+ * person gets a failure with no reason. 4 MB is under it with room for the multipart
+ * envelope, so the refusal is OURS — and ours says what to do about it (`errors.
+ * file_too_large`). The number is promised to the person before the choice
+ * (DS-COMPONENTE-016, item 7), so it has to be the number the system actually enforces.
+ */
+export const DOCUMENT_MAX_BYTES = 4 * 1024 * 1024
 export const DOCUMENT_MAX_MB = DOCUMENT_MAX_BYTES / (1024 * 1024)
 /** Per submission, both kinds together. A cap the route can state, not a guess. */
 export const DOCUMENT_MAX_FILES = 12

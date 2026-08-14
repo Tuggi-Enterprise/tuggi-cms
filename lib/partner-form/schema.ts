@@ -163,10 +163,17 @@ export function storyNudge(value: string, options: { required?: boolean } = {}):
   return null
 }
 
-/** Normalises what gets persisted: trims, uppercases the CNPJ, strips unknown keys. */
-export function normalizeAnswers(input: unknown): PartnerAnswers {
+/**
+ * Normalises what gets persisted: trims, uppercases the CNPJ, strips unknown keys.
+ *
+ * `null` means the body is not answers, and the caller has to refuse it. It used to
+ * return `{}` there, which the route then saved OVER the draft and confirmed with a 200:
+ * one non-string value from a client bug erased everything the person had typed and told
+ * them it was saved. An empty object is a legitimate draft; a rejected body is not one.
+ */
+export function normalizeAnswers(input: unknown): PartnerAnswers | null {
   const parsed = partnerDraftSchema.safeParse(input ?? {})
-  if (!parsed.success) return {}
+  if (!parsed.success) return null
 
   const answers: PartnerAnswers = {}
   for (const field of PARTNER_FORM_FIELDS) {
