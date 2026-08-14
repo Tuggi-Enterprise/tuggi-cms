@@ -18,8 +18,23 @@ export type AuditAction =
   // who applied it — and of the fact that it must not be applied again.
   | 'GRANT_TIME_CREDIT_UNRECORDED'
   | 'REVOKE_TIME_CREDIT'
+  // Partnership (#341). Promoting and discarding are irreversible acts of the team over a
+  // live record, so each one leaves a row saying who, when and over which proposal.
+  // `CREATE_PARTNER_INVITE` is the act that mints a credential for somebody outside; the
+  // description never carries the token, and `sanitizeDescription` would drop it anyway.
+  | 'CREATE_PARTNER_INVITE'
+  | 'REVOKE_PARTNER_INVITE'
+  | 'PROMOTE_PARTNER_PROPOSAL'
+  | 'DISCARD_PARTNER_PROPOSAL'
+  | 'RESTORE_PARTNER_PROPOSAL'
 
-export type AuditEntity = 'USER' | 'POI' | 'AUTH'
+/**
+ * `CLIENT` is the record the promotion writes; `PARTNER_PROPOSAL` is the thing outside the
+ * client that the act happened to (the proposal, the invite). Two entities and not one,
+ * because "who changed this client" and "what happened to this proposal" are two questions
+ * the audit page is asked separately.
+ */
+export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL'
 
 interface AuditLogInput {
   request: NextRequest

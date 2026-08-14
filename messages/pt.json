@@ -2464,5 +2464,368 @@
       "successPartialBody": "A gente manda um link para você enviar — não precisa preencher o resto de novo.",
       "successPartialContact": "Qualquer coisa, é só responder o e-mail: {email}."
     }
+  },
+  "PartnerProposals":   {
+    "title": "Parcerias",
+    "subtitle": "Os convites que estão na rua e as propostas que chegaram.",
+    "tabs": {
+      "proposals": "Propostas",
+      "invites": "Convites",
+      "withCount": "{label} · {count}"
+    },
+    "invites": {
+      "heading": "Convites",
+      "new": "Enviar convite",
+      "searchLabel": "Buscar",
+      "searchPlaceholder": "E-mail ou estabelecimento",
+      "situationLabel": "Situação",
+      "allSituations": "Todas",
+      "clearFilters": "Limpar filtros",
+      "columns": {
+        "establishment": "Estabelecimento",
+        "recipient": "Para",
+        "situation": "Situação",
+        "sent": "Enviado",
+        "validity": "Validade",
+        "actions": "Ações"
+      },
+      "situations": {
+        "sent": "Enviado",
+        "started": "Começou a preencher",
+        "received": "Recebido",
+        "promoted": "Promovido",
+        "discarded": "Descartado",
+        "expired": "Expirado",
+        "revoked": "Revogado"
+      },
+      "partialBadge": "parcial",
+      "noEstablishment": "—",
+      "sentAt": "{date} · {ago}",
+      "ago": "{days, plural, =0 {hoje} one {há # dia} other {há # dias}}",
+      "validity": {
+        "today": "Expira hoje",
+        "tomorrow": "Expira amanhã",
+        "future": "{days, plural, one {Expira em # dia} other {Expira em # dias}}",
+        "past": "{days, plural, one {Expirou há # dia} other {Expirou há # dias}}"
+      },
+      "actions": {
+        "resend": "Reenviar",
+        "revoke": "Revogar",
+        "openProposal": "Abrir proposta"
+      },
+      "loading": "Carregando os convites.",
+      "emptyTitle": "Nenhum convite ainda.",
+      "emptyBody": "Quando você qualificar um estabelecimento, mande o link daqui — ele leva a pessoa direto para o formulário.",
+      "emptyFilteredTitle": "Nenhum convite com esse filtro.",
+      "errorTitle": "Não foi possível carregar os convites.",
+      "retry": "Tentar de novo"
+    },
+    "inviteDrawer": {
+      "title": "Enviar convite",
+      "emailLabel": "E-mail de quem recebe",
+      "emailHelp": "É para este endereço que o link vai. Ele só serve uma vez.",
+      "emailError": "Preencha o e-mail de quem vai receber o link.",
+      "nameLabel": "Nome de quem recebe",
+      "nameHelp": "Entra no “Olá, ...” do e-mail.",
+      "tradeNameLabel": "Nome do estabelecimento",
+      "tradeNameHelp": "Aparece no assunto do e-mail. Use o nome da fachada.",
+      "clientLabel": "Cliente já cadastrado",
+      "clientHelp": "Preencha só se este estabelecimento já tem ficha no CMS. Em branco, a proposta vira um cliente novo quando for promovida.",
+      "clientPlaceholder": "Buscar por nome ou CNPJ",
+      "clientNone": "Nenhum cliente encontrado com esse nome.",
+      "clientClear": "Tirar o cliente",
+      "ttlLabel": "O link vale por",
+      "ttlDays": "{days, plural, one {# dia} other {# dias}}",
+      "submit": "Gerar link e enviar",
+      "submitting": "Gerando o link.",
+      "cancel": "Fechar",
+      "failed": "Não foi possível gerar o link agora. Tente de novo.",
+      "closeConfirm": "Você já copiou o link? Ele não aparece de novo."
+    },
+    "inviteResult": {
+      "title": "Link criado.",
+      "copy": "Copiar link",
+      "copied": "Copiado",
+      "onceTitle": "Este link só aparece agora.",
+      "onceBody": "A gente guarda só uma impressão digital dele — nem você nem o suporte conseguem ver o endereço de novo. Se precisar, dá para gerar outro, e o antigo para de funcionar.",
+      "validUntil": "Vale até {date}.",
+      "emailed": "Enviamos por e-mail para {email}.",
+      "emailFailedTitle": "O e-mail não saiu.",
+      "emailFailedBody": "O link acima funciona — copie e mande você mesmo, por WhatsApp ou respondendo a conversa que você já tem com essa pessoa. Não gere outro: este continua válido.",
+      "done": "Fechar"
+    },
+    "resend": {
+      "title": "Isso cria um link novo.",
+      "body": "O link que você mandou antes para de funcionar na hora — se a pessoa estiver com o formulário aberto, ela vai precisar usar o novo.",
+      "keeps": "O que ela já preencheu continua lá, e ela não vai ter de refazer nada.",
+      "wrongAddress": "Endereço errado não é reenvio. O reenvio vai para o endereço que já está no registro; para mandar a outra pessoa, envie um convite novo — ele começa uma proposta vazia.",
+      "confirm": "Gerar e enviar o novo link",
+      "cancel": "Cancelar"
+    },
+    "revoke": {
+      "title": "Revogar o link.",
+      "body": "Quem tiver o endereço não consegue mais abrir o formulário. O que já foi preenchido continua guardado aqui.",
+      "confirm": "Revogar",
+      "cancel": "Cancelar",
+      "failed": "Este link não pode mais ser revogado — ele já foi usado ou já estava revogado."
+    },
+    "proposals": {
+      "heading": "Propostas",
+      "searchLabel": "Buscar",
+      "searchPlaceholder": "Estabelecimento, CNPJ ou cidade",
+      "statusLabel": "Situação",
+      "allStatuses": "Todas",
+      "statuses": {
+        "draft": "Em preenchimento",
+        "submitted": "Para conferir",
+        "promoted": "Promovida",
+        "discarded": "Descartada"
+      },
+      "columns": {
+        "establishment": "Estabelecimento",
+        "taxId": "CNPJ",
+        "city": "Cidade",
+        "received": "Recebida",
+        "contract": "Para o contrato",
+        "documents": "Arquivos"
+      },
+      "ready": "Documentação em ordem",
+      "missing": "{count, plural, one {Falta # item} other {Faltam # itens}}",
+      "partialBadge": "parcial",
+      "open": "Abrir",
+      "loading": "Carregando as propostas.",
+      "emptyTitle": "Nenhuma proposta ainda.",
+      "emptyBody": "Assim que um estabelecimento enviar o formulário, ele aparece aqui para conferência.",
+      "emptyFilteredTitle": "Nenhuma proposta com esse filtro.",
+      "errorTitle": "Não foi possível carregar as propostas.",
+      "retry": "Tentar de novo"
+    },
+    "review": {
+      "back": "Voltar para a lista",
+      "receivedAt": "Recebido em {date}",
+      "taxId": "CNPJ {value}",
+      "noTradeName": "Proposta sem nome de fachada",
+      "loading": "Carregando a proposta.",
+      "notFoundTitle": "Esta proposta não existe.",
+      "notFoundBody": "Ela pode ter sido descartada e removida.",
+      "draftTitle": "O parceiro ainda está preenchendo.",
+      "draftBody": "O que você vê é o rascunho de {date} e pode mudar. Promover só depois do envio.",
+      "draftActionReason": "Só dá para promover depois que a pessoa enviar o formulário.",
+      "errorTitle": "Não foi possível carregar a proposta.",
+      "retry": "Tentar de novo",
+      "answersHeading": "O que o parceiro preencheu",
+      "step1Heading": "O estabelecimento",
+      "step2Heading": "Quem responde",
+      "partialTitle": "Esta proposta chegou incompleta, e isso é normal.",
+      "partialBody": "O formulário deixa enviar sem os documentos de propósito: o que já veio — CNPJ, quem assina e a história — é o dado caro. O que falta bloqueia o contrato, não a proposta.",
+      "absence": {
+        "contract": "Falta para o contrato",
+        "optional": "Opcional — não enviado",
+        "triage": "Sem resposta — ajudaria a triagem"
+      },
+      "promotedTitle": "Promovido em {date} por {person}",
+      "promotedOpenClient": "Abrir a ficha de {name}",
+      "promotedBody": "O cliente foi criado com status Pendente. Aprovar a parceria continua sendo outra decisão, na ficha do cliente (BR-B2B-010, item 1) — e gerar o contrato é o passo seguinte, com o gate de regularidade.",
+      "discardedTitle": "Descartada em {date}"
+    },
+    "regularity": {
+      "heading": "Regularidade — o que o contrato exige",
+      "rule": "BR-B2B-022",
+      "items": {
+        "tax_id": "CNPJ",
+        "business_license": "Alvará de funcionamento",
+        "incorporation_document": "Documento de constituição",
+        "representative": "Representante legal"
+      },
+      "taxIdOk": "CNPJ {value}",
+      "taxIdMissing": "Falta para o contrato: CNPJ",
+      "licenseOk": "Anexado · vigente até {date} ({days, plural, one {falta # dia} other {faltam # dias}})",
+      "licenseMissing": "Falta para o contrato: alvará vigente",
+      "licenseExpired": "Venceu em {date} — {days, plural, one {há # dia} other {há # dias}}. Para o contrato, alvará vencido é o mesmo que não ter alvará.",
+      "licenseExpiring": "Vence em {date}, daqui a {days, plural, one {# dia} other {# dias}}. Se o contrato demorar, ele vence no meio do caminho.",
+      "licenseUndated": "Falta para o contrato: a data de validade do alvará. Sem ela não dá para saber se o documento ainda vale.",
+      "incorporationOk": "Anexado · {count, plural, one {# arquivo} other {# arquivos}}",
+      "incorporationMissing": "Falta para o contrato: documento de constituição",
+      "representativeOk": "{name} · {role}",
+      "representativeMissing": "Falta para o contrato: nome e cargo de quem assina",
+      "ready": "Documentação em ordem para gerar o contrato.",
+      "notReady": "Falta para gerar o contrato: {items}.",
+      "itemSeparator": ", "
+    },
+    "documents": {
+      "heading": "Documentos",
+      "kinds": {
+        "business_license": "Alvará de funcionamento",
+        "incorporation_document": "Documento de constituição"
+      },
+      "validUntil": "Válido até",
+      "noValidUntil": "sem data",
+      "size": "{mb} MB",
+      "sentAt": "Enviado em {date}",
+      "open": "Abrir",
+      "download": "Baixar",
+      "privacy": "Os arquivos ficam em área privada. O link de abertura vale um minuto e é só para a sua sessão.",
+      "emptyTitle": "Nenhum arquivo enviado.",
+      "emptyBody": "Sem este documento não dá para assinar o contrato — dá para pedir por e-mail sem refazer o resto.",
+      "ask": "Pedir os documentos",
+      "openFailedTitle": "Não foi possível abrir o arquivo agora.",
+      "retry": "Tentar de novo"
+    },
+    "story": {
+      "heading": "A história do lugar",
+      "noAnswer": "Sem resposta — ajudaria a triagem",
+      "substituteApply": "Aplicar o teste do substituto",
+      "substituteUndo": "Voltar ao texto original",
+      "substituteIntro": "Trocamos o nome do estabelecimento. Leia de novo: se continuar verdadeiro, o texto não é sobre este lugar. — BR-B2B-011, portão 2, alínea (c).",
+      "substituteReplacement": "outro {category} em {city}",
+      "substituteFallbackCategory": "estabelecimento",
+      "substituteFallbackCity": "outra cidade",
+      "marksHeading": "Três marcas de leitura",
+      "marks": {
+        "dated": "Tem data",
+        "named_person": "Tem uma pessoa com nome",
+        "observable": "Tem coisa que dá para ver aí dentro"
+      },
+      "observationLabel": "Observação para a triagem",
+      "save": "Guardar a anotação",
+      "saving": "Guardando.",
+      "saved": "Anotação guardada",
+      "saveFailed": "Não foi possível guardar a anotação agora. Tente de novo.",
+      "footer": "Isto não aprova nem reprova o lugar. A triagem é outra decisão, com outro dono e outro momento (BR-B2B-011). Reprovado na triagem continua parceiro — e o que decide o contrato é a faixa de regularidade lá em cima, não este bloco.",
+      "offerWarning": "Este texto tem marca de cardápio, promoção ou reserva. Não bloqueia nada — só vale ler com atenção antes de aproveitar como história."
+    },
+    "promotion": {
+      "action": "Promover",
+      "heading": "Promover para o cadastro",
+      "createTitle": "Criar cliente novo",
+      "updateTitle": "Atualizar {name}",
+      "columns": {
+        "field": "Campo",
+        "current": "No cadastro hoje",
+        "proposed": "Da proposta"
+      },
+      "fields": {
+        "name": "Nome",
+        "company_name": "Razão social",
+        "tax_id": "CNPJ",
+        "tax_id_type": "Tipo de documento",
+        "industry": "Ramo",
+        "address": "Endereço",
+        "city": "Cidade",
+        "state": "Estado",
+        "postal_code": "CEP",
+        "country": "País",
+        "website": "Site",
+        "social_handle": "Instagram",
+        "legal_representative_name": "Representante legal",
+        "legal_representative_role": "Cargo do representante",
+        "email": "E-mail",
+        "phone": "Telefone"
+      },
+      "emptyValue": "vazio",
+      "fillBadge": "Estava vazio — vai ser preenchido",
+      "conflictBadge": "Diverge do cadastro",
+      "replace": "Substituir",
+      "unchanged": "{count, plural, one {# campo já está igual} other {# campos já estão iguais}}",
+      "industryHint": "Texto livre no cadastro. Você pode ajustar antes de gravar.",
+      "neverHeading": "O que a promoção nunca escreve",
+      "neverBody": "Dinheiro, ciclo de vida e o endereço público do QR não vêm de formulário externo. Comissão, faixa, status e slug continuam onde sempre estiveram, na ficha do cliente.",
+      "neverFields": "commission_rate, status, slug, billing_email, iban, bic_swift, bank_account_number, bank_routing_number, bank_name, is_coordinator, is_platform_owner, parent_client_id, welcome_poi_id",
+      "conflictTitle": "Já existe um cliente com o e-mail {email}: {name}.",
+      "conflictChoose": "Escolha o que fazer:",
+      "conflictLink": "Ligar esta proposta a esse cliente e atualizar a ficha dele",
+      "conflictOtherEmail": "Usar outro e-mail neste cadastro novo",
+      "conflictOtherEmailLabel": "Outro e-mail",
+      "conflictImpossible": "Criar um segundo cliente com o mesmo e-mail não é possível.",
+      "reviewTitle": "Vai ser gravado agora:",
+      "reviewBody": "{total, plural, one {# campo} other {# campos}} em {name} — {filled} que {filled, plural, one {estava vazio} other {estavam vazios}} e {replaced} que você mandou substituir. Isso não desfaz.",
+      "reviewNoReplacement": "{total, plural, one {# campo} other {# campos}} em {name}, {total, plural, one {que estava vazio} other {todos que estavam vazios}}. Isso não desfaz.",
+      "commit": "{count, plural, one {Gravar # campo em {name}} other {Gravar # campos em {name}}}",
+      "committing": "Gravando.",
+      "back": "Voltar",
+      "nothingToWrite": "Não há nada para gravar: os campos da proposta já estão no cadastro, ou nenhum divergente foi marcado.",
+      "keptNotice": "{count, plural, one {# campo divergente não vai ser tocado} other {# campos divergentes não vão ser tocados}} — o que está no cadastro fica.",
+      "failedTitle": "Não foi possível promover.",
+      "failedNothingWritten": "Nada foi gravado. O cadastro está exatamente como estava.",
+      "failedNotPromotable": "Esta proposta não está mais para conferir — alguém já promoveu ou descartou. Recarregue a página.",
+      "failedNetworkTitle": "Não sabemos se a gravação chegou.",
+      "failedNetworkBody": "Abra a ficha do cliente antes de tentar de novo — se os campos já estiverem lá, está feito."
+    },
+    "discard": {
+      "action": "Descartar",
+      "title": "Descartar a proposta",
+      "reasonLabel": "Por quê",
+      "reasons": {
+        "duplicate": "Duplicada — já existe proposta ou cliente para este CNPJ",
+        "gave_up": "O estabelecimento desistiu",
+        "data_mismatch": "Dados que não conferem / suspeita de fraude",
+        "will_not_regularize": "Não vai regularizar a documentação"
+      },
+      "notifies": "Este motivo tem uma mensagem para o parceiro. O texto aparece depois de descartar.",
+      "notTriage": "Descartar não reprova o lugar na triagem. Reprovação de triagem é outra decisão e não tira a parceria de ninguém (BR-B2B-011). Se o que você quer é dizer que o lugar não entra no catálogo, isso não se faz aqui.",
+      "reversible": "Dá para desfazer: enquanto ninguém tiver promovido, a proposta volta para a fila por esta mesma tela.",
+      "confirm": "Descartar a proposta",
+      "cancel": "Cancelar",
+      "failed": "Não foi possível descartar agora. Nada mudou.",
+      "restore": "Devolver para a fila",
+      "restoreFailed": "Não foi possível devolver a proposta para a fila."
+    },
+    "trail": {
+      "heading": "Trilha",
+      "inviteCreated": "Convite criado em {date}",
+      "inviteSentTo": "Enviado para {email}",
+      "draftSaved": "Rascunho salvo pela última vez em {date}",
+      "received": "Recebido em {date}",
+      "promoted": "Promovido em {date}",
+      "discarded": "Descartado em {date}",
+      "linkReissued": "Link reemitido em {date}",
+      "revoked": "Revogado em {date}",
+      "none": "Nada aconteceu ainda além do convite."
+    },
+    "outbound": {
+      "heading": "O que mandar para o parceiro",
+      "copy": "Copiar mensagem",
+      "copied": "Mensagem copiada",
+      "subject": "Assunto",
+      "manualNotice": "Este texto é para você mandar por e-mail ou WhatsApp. A tela não envia por conta própria.",
+      "documents": {
+        "subject": "Falta um documento para seguir — Tuggi",
+        "body": "Olá, {name}.\n\nRecebemos os dados do {tradeName}. Para seguir com o contrato, ainda falta:\n\n{missing}\n\nÉ só abrir este link e enviar. O que você já preencheu continua lá — não precisa fazer de novo.\n\n{link}\n\nSe preferir, responda este e-mail que a gente resolve por aqui.",
+        "itemLicense": "· alvará de funcionamento vigente",
+        "itemLicenseExpired": "· alvará de funcionamento vigente — o que você enviou venceu em {date}",
+        "itemIncorporation": "· documento de constituição"
+      },
+      "regularity": {
+        "subject": "Sobre a parceria com a Tuggi",
+        "body": "Olá, {name}.\n\nPor enquanto a gente não vai conseguir seguir com o contrato do {tradeName}.\n\nA Tuggi só assina contrato de parceria com estabelecimento com a documentação de funcionamento em dia, e falta {missing}.\n\nIsso não é definitivo. Quando o documento estiver em mãos, responda este e-mail que a gente retoma de onde parou — os dados que você mandou continuam guardados.\n\nObrigado pelo tempo que você dedicou a isso."
+      },
+      "gate1": {
+        "subject": "Sobre o {tradeName} no app da Tuggi",
+        "body": "Olá, {name}.\n\nO {tradeName} não vai entrar no app agora, e o motivo é {reason}.\n\nSe isso mudar — ou se a gente estiver enganado —, responda este e-mail que olhamos de novo.",
+        "reasons": {
+          "not_located": "não conseguimos localizar o endereço",
+          "already_there": "o lugar já está no app",
+          "not_permanent": "não é um lugar permanente",
+          "not_open": "não é aberto a visita"
+        }
+      },
+      "gate2": {
+        "subject": "Sobre a história do {tradeName}",
+        "body": "Olá, {name}.\n\nA gente leu o que você contou sobre o {tradeName} e, por enquanto, não deu para montar uma história para o app.\n\nO que faltou: um fato que seja só desse lugar — uma data, uma pessoa com nome, ou alguma coisa que dê para ver aí dentro. O que você escreveu vale igual para outro {category} em {city}, e é por isso que ele ainda não é sobre o seu lugar.\n\nO que serve, para você ter ideia: quem abriu o lugar e em que ano; o que funcionava nesse endereço antes; uma peça que está aí desde o começo.\n\nVocê pode mandar de novo quando quiser: responda este e-mail e a gente olha outra vez."
+      },
+      "partnershipStands": "A parceria continua como está.",
+      "partnershipStandsHint": "Esta linha só entra quando já existe parceria firmada (BR-B2B-010). Sem contrato, tire-a antes de mandar.",
+      "gate3NoTemplate": "Este motivo não tem mensagem pronta.",
+      "gate3Body": "O que a Tuggi pode dizer publicamente sobre este critério não está decidido (BR-B2B-011, item 6 — descrever o portão 3 continua proibido). Escreva à mão, ou trate por telefone e registre aqui o que foi combinado.",
+      "pick": "O que mandar para o parceiro",
+      "pickNone": "Nada agora",
+      "kinds": {
+        "documents": "Falta documento — pedir o que ficou de fora",
+        "regularity": "Não vai dar para seguir com o contrato (documentação)",
+        "gate1": "O lugar não entra no app — endereço, duplicidade ou acesso",
+        "gate2": "A história não tem âncora",
+        "gate3": "Falta de fit — sem mensagem pronta"
+      }
+    }
   }
 }

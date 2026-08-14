@@ -1,5 +1,6 @@
 /**
- * Creates the invite link of the partner form (#341) and sends it.
+ * Creates the invite link of the partner form (#341) and sends it, and lists the queue of
+ * links already out there.
  *
  * Authenticated, admin only: this is the act that mints a credential for an outside
  * person, so it is exactly the opposite of the surface it opens. The raw token exists
@@ -25,10 +26,44 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { createInvite, INVITE_TTL_DAYS } from '@/lib/services/partner-proposal-service'
+import {
+  inviteIsRevocable,
+  listInvites,
+} from '@/lib/services/partner-proposal-admin-service'
 import { PARTNER_FORM_LOCALE, buildPartnerFormUrl } from '@/lib/partner-form/link'
+import { logAuditEvent } from '@/lib/services/audit-service'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The queue of links. What comes back is the STATE of each credential and never the
+ * credential: the database holds a SHA-256 of the token and this response holds no token
+ * field at all, hashed or otherwise (DS-COMPONENTE-019, item 4). `id` is the invite's row id,
+ * which opens nothing.
+ */
+export const GET = withRateLimit(60, 60_000)(
+  withAuth({ roles: ['admin'] }, async () => {
+    const invites = await listInvites()
+
+    return NextResponse.json({
+      invites: invites.map((invite) => ({
+        id: invite.id,
+        submissionId: invite.submission_id,
+        clientId: invite.client_id,
+        recipientEmail: invite.recipient_email,
+        recipientName: invite.recipient_name,
+        tradeName: invite.trade_name,
+        situation: invite.situation,
+        isPartial: invite.is_partial,
+        submissionStatus: invite.submission_status,
+        revocable: inviteIsRevocable(invite.situation),
+        expiresAt: invite.expires_at,
+        createdAt: invite.created_at,
+      })),
+    })
+  })
+)
 
 export const POST = withRateLimit(20, 60_000)(
   withAuth({ roles: ['admin'] }, async (req: NextRequest, _ctx, auth) => {
@@ -81,6 +116,16 @@ export const POST = withRateLimit(20, 60_000)(
     const invite = created.invite
     const origin = process.env.NEXT_PUBLIC_APP_URL?.trim() || req.nextUrl.origin
     const url = buildPartnerFormUrl(origin, invite.token)
+
+    await logAuditEvent({
+      request: req,
+      action: 'CREATE_PARTNER_INVITE',
+      entity: 'PARTNER_PROPOSAL',
+      entityId: invite.submissionId,
+      userId: auth.user.id,
+      userEmail: auth.user.email ?? null,
+      description: isResend ? 'Partner form link reissued' : 'Partner form invite created',
+    })
 
     const emailed = await sendInviteEmail({
       to: invite.recipientEmail,

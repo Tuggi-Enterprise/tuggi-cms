@@ -1,0 +1,897 @@
+/**
+ * The two internal screens of the partnership — #341, spec `spec-parceria-telas-internas-2026-08`.
+ *
+ * The obligatory case of the card is the one DS-COMPONENTE-018 exists for: a promotion does
+ * not overwrite a divergent field without an explicit act. It is proved twice — once on the
+ * pure decision and once end to end through the route — and both go red when the condition in
+ * `resolvePromotionWrite` is removed, which is the mutation that was run.
+ *
+ * Run with: npm run test:api
+ */
+
+import { test, before, mock } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+import {
+  PROMOTION_MAP,
+  PROMOTION_NEVER_WRITES,
+  buildPromotionPlan,
+  joinAddress,
+  promotionAllowlistIsClosed,
+  resolvePromotionWrite,
+  summarizePromotion,
+} from '@/lib/partner-form/promotion'
+import {
+  LICENSE_EXPIRY_WARNING_DAYS,
+  absenceClassOf,
+  buildRegularityReport,
+  daysUntil,
+} from '@/lib/partner-form/regularity'
+import {
+  DISCARD_REASONS,
+  REVIEW_MARKS,
+  applySubstituteTest,
+  normalizeReviewNote,
+} from '@/lib/partner-form/proposal-review'
+import { CLIENT_ADMIN_ONLY_FIELDS } from '@/lib/services/client-editable-fields'
+import type { PartnerAnswers } from '@/lib/partner-form/schema'
+
+const REPO_ROOT = resolve(import.meta.dirname, '../..')
+
+const SUBMISSION_ID = '33333333-3333-3333-3333-333333333333'
+const CLIENT_ID = '44444444-4444-4444-4444-444444444444'
+const OTHER_CLIENT_ID = '55555555-5555-5555-5555-555555555555'
+const INVITE_ID = '66666666-6666-6666-6666-666666666666'
+const OPERATOR_ID = 'cms-user-1'
+
+function answers(overrides: PartnerAnswers = {}): PartnerAnswers {
+  return {
+    trade_name: 'Cantina do Zé',
+    legal_name: 'Cantina do Zé Alimentos Ltda',
+    tax_id: '12ABC34501DE35',
+    category: 'restaurant',
+    address: 'Rua das Pedras, 120',
+    district: 'Centro',
+    postal_code: '28950-000',
+    city: 'São Vicente',
+    state: 'SP',
+    representative_name: 'Antônio Ferreira',
+    representative_role: 'Sócio',
+    representative_email: 'antonio@cantina.com.br',
+    representative_phone: '+55 22 99999-0000',
+    story_founder: 'Meu avô Aurélio abriu a cantina em 1962, no galpão do antigo mercado de peixe.',
+    ...overrides,
+  }
+}
+
+// ── DS-COMPONENTE-018 — the three rules, on the decision itself ──
+
+test('DS-COMPONENTE-018: a divergent field is NOT written without an explicit act — the card case', () => {
+  // The exact case of criterion 17: the record says Santos, the proposal says São Vicente,
+  // and promoting without ticking leaves Santos alone.
+  const plan = buildPromotionPlan(answers(), { id: CLIENT_ID, city: 'Santos' })
+  const cityEntry = plan.entries.find((entry) => entry.column === 'city')
+
+  assert.equal(cityEntry?.decision, 'conflict', 'a filled, different column is a conflict')
+  assert.equal(cityEntry?.current, 'Santos')
+  assert.equal(cityEntry?.proposed, 'São Vicente')
+
+  const write = resolvePromotionWrite(plan, { approved: [] })
+  assert.equal('city' in write.updates, false, 'nothing is written for city')
+  assert.equal(write.kept.indexOf('city') >= 0, true, 'and the panel is told it was kept')
+})
+
+test('DS-COMPONENTE-018: the same field IS written once the operator ticks it', () => {
+  const plan = buildPromotionPlan(answers(), { id: CLIENT_ID, city: 'Santos' })
+  const write = resolvePromotionWrite(plan, { approved: ['city'] })
+
+  assert.equal(write.updates.city, 'São Vicente')
+})
+
+test('DS-COMPONENTE-018: an empty column is filled with no act at all', () => {
+  const plan = buildPromotionPlan(answers(), { id: CLIENT_ID, city: '' })
+  const entry = plan.entries.find((candidate) => candidate.column === 'city')
+
+  assert.equal(entry?.decision, 'fill')
+  assert.equal(resolvePromotionWrite(plan, { approved: [] }).updates.city, 'São Vicente')
+})
+
+test('DS-COMPONENTE-018: an equal column is not a decision — it leaves the list and becomes a count', () => {
+  const plan = buildPromotionPlan(answers(), { id: CLIENT_ID, city: 'São Vicente' })
+
+  assert.equal(
+    plan.entries.some((entry) => entry.column === 'city'),
+    false,
+    'no row for a column that already matches'
+  )
+  assert.equal(plan.unchanged.indexOf('city') >= 0, true)
+})
+
+test('DS-COMPONENTE-018: the column the proposal says nothing about is neither shown nor written', () => {
+  const plan = buildPromotionPlan(answers({ website: '' }), { id: CLIENT_ID })
+  assert.equal(plan.absent.indexOf('website') >= 0, true)
+  assert.equal('website' in resolvePromotionWrite(plan, { approved: [] }).updates, false)
+})
+
+test('DS-COMPONENTE-018: money, lifecycle and the QR slug are unreachable by the promotion', () => {
+  // Criterion 19, and asserted on the ROW that would be written and not on the body sent.
+  assert.equal(promotionAllowlistIsClosed(), true)
+
+  const plan = buildPromotionPlan(answers(), null)
+  const write = resolvePromotionWrite(plan, {
+    approved: PROMOTION_NEVER_WRITES.slice() as string[],
+  })
+
+  for (const column of PROMOTION_NEVER_WRITES) {
+    assert.equal(column in write.updates, false, `${column} must never be written by a promotion`)
+  }
+})
+
+test('DS-COMPONENTE-018: the confirmation counts what it will write, split by why', () => {
+  const plan = buildPromotionPlan(answers(), { id: CLIENT_ID, city: 'Santos', name: '' })
+  const summary = summarizePromotion(plan, { approved: ['city'] })
+
+  assert.equal(summary.replaced, 1, 'one field the operator asked to replace')
+  assert.ok(summary.filled >= 1, 'and the ones that were empty')
+  assert.equal(summary.total, summary.filled + summary.replaced)
+})
+
+test('#341: the three address answers become the one address column, and the panel shows the result', () => {
+  assert.equal(
+    joinAddress(answers({ address_complement: 'Loja 2' })),
+    'Rua das Pedras, 120, Loja 2, Centro'
+  )
+})
+
+test('#341: every column the promotion writes is a column an admin is allowed to write', () => {
+  // The promotion is an authenticated act (BR-B2B-026, item 4) and reaches admin-only columns
+  // on purpose; what must never happen is it reaching one that is not admin-writable at all.
+  const adminWritable = new Set<string>([
+    'name', 'email', 'phone', 'company_name', 'address', 'city', 'state', 'country',
+    'postal_code', 'industry', 'website', 'client_type', 'avatar_url', 'social_handle',
+    'bio_one_line',
+    ...(CLIENT_ADMIN_ONLY_FIELDS as readonly string[]),
+  ])
+
+  for (const target of PROMOTION_MAP) {
+    assert.equal(adminWritable.has(target.column), true, `${target.column} is not an editable column`)
+  }
+})
+
+// ── BR-B2B-022 — the gate blocks the contract, never the proposal ──
+
+test('BR-B2B-022: a proposal with no licence is missing it for the CONTRACT and stays promotable', () => {
+  const report = buildRegularityReport(answers(), ['incorporation_document'])
+
+  assert.equal(report.missing.indexOf('business_license') >= 0, true)
+  assert.equal(report.ready, false)
+
+  // And the promotion does not consult it: the plan is complete either way (criterion 9).
+  const plan = buildPromotionPlan(answers(), null)
+  assert.ok(plan.entries.length > 0)
+})
+
+test('BR-B2B-022: an expired licence is an absent licence, and the days are already counted', () => {
+  const now = new Date('2026-08-14T15:00:00Z')
+  const report = buildRegularityReport(
+    answers({ business_license_valid_until: '2026-08-02' }),
+    ['business_license'],
+    now
+  )
+
+  assert.equal(report.license.status, 'expired')
+  assert.equal(report.license.daysRemaining, -12, 'the screen never asks the operator to subtract')
+  assert.equal(report.missing.indexOf('business_license') >= 0, true)
+})
+
+test('BR-B2B-022: a licence expiring inside the warning window is a warning, not an absence', () => {
+  const now = new Date('2026-08-14T15:00:00Z')
+  const report = buildRegularityReport(
+    answers({ business_license_valid_until: '2026-09-01' }),
+    ['business_license'],
+    now
+  )
+
+  assert.equal(report.license.status, 'expiring')
+  assert.ok((report.license.daysRemaining ?? 0) <= LICENSE_EXPIRY_WARNING_DAYS)
+  assert.equal(report.missing.indexOf('business_license') >= 0, false, 'it still counts for the contract')
+})
+
+test('BR-B2B-022: a licence file with no validity date cannot satisfy the gate', () => {
+  const report = buildRegularityReport(answers(), ['business_license'])
+  assert.equal(report.license.status, 'undated')
+  assert.equal(report.missing.indexOf('business_license') >= 0, true)
+})
+
+test('BR-B2B-022: a licence valid until today is valid today, whatever the hour', () => {
+  assert.equal(daysUntil('2026-08-14', new Date('2026-08-14T23:00:00Z')), 0)
+})
+
+test('#341: an empty field carries which of the three absences it is', () => {
+  assert.equal(absenceClassOf('tax_id'), 'contract')
+  assert.equal(absenceClassOf('business_license_valid_until'), 'contract')
+  assert.equal(absenceClassOf('representative_role'), 'contract')
+  assert.equal(absenceClassOf('story_before'), 'triage')
+  assert.equal(absenceClassOf('instagram'), 'optional')
+  assert.equal(absenceClassOf('website'), 'optional')
+})
+
+// ── BR-B2B-011 — the reviewer's tools decide nothing ──
+
+test('BR-B2B-011: no discard reason is a triage gate', () => {
+  const ids = DISCARD_REASONS.map((reason) => reason.id)
+  assert.deepEqual(ids, ['duplicate', 'gave_up', 'data_mismatch', 'will_not_regularize'])
+  for (const id of ids) {
+    assert.equal(/gate|portao|portão|fit|triagem/i.test(id), false, `${id} names a triage gate`)
+  }
+})
+
+test('BR-B2B-011: the substitute test replaces the names and changes nothing else', () => {
+  const original = 'A Cantina do Zé é o melhor lugar da cidade, e a Cantina do Zé Alimentos Ltda existe desde 1962.'
+  const swapped = applySubstituteTest(original, {
+    names: ['Cantina do Zé', 'Cantina do Zé Alimentos Ltda'],
+    replacement: 'outro restaurante em Búzios',
+  })
+
+  assert.equal(swapped.indexOf('Cantina') < 0, true, 'no trace of the establishment name is left')
+  assert.equal(swapped.indexOf('desde 1962') >= 0, true, 'and the rest of the text is untouched')
+  // Longest first: the legal name must not leave a dangling "Alimentos Ltda" behind.
+  assert.equal(swapped.indexOf('Alimentos') < 0, true)
+})
+
+test('BR-B2B-011: the annotation accepts only the three marks of gate 2', () => {
+  assert.deepEqual(REVIEW_MARKS.slice(), ['dated', 'named_person', 'observable'])
+  assert.equal(normalizeReviewNote({ marks: ['dated'], observation: 'ok' })?.marks.length, 1)
+  assert.equal(normalizeReviewNote({ marks: ['approved'], observation: '' }), null)
+  assert.equal(normalizeReviewNote({ marks: [], observation: 'x'.repeat(5000) }), null)
+  assert.equal(normalizeReviewNote('nope'), null)
+})
+
+// ── The routes ──
+
+interface FakeState {
+  invites: Record<string, any>[]
+  submissions: Record<string, any>[]
+  documents: Record<string, any>[]
+  clients: Record<string, any>[]
+  audit_logs: Record<string, any>[]
+  touchedTables: string[]
+  /** Set to make the write against `core.clients` fail, for the rollback case. */
+  clientWriteFails: boolean
+}
+
+let state: FakeState
+
+const TABLE_KEYS: Record<string, keyof FakeState> = {
+  partner_form_invites: 'invites',
+  partner_form_submissions: 'submissions',
+  partner_form_documents: 'documents',
+  clients: 'clients',
+  audit_logs: 'audit_logs',
+}
+
+/** Minimal PostgREST stand-in: filters (`eq`, `is`, `in`), then one operation. */
+function createFakeService(current: () => FakeState) {
+  const build = (table: string) => {
+    const key = TABLE_KEYS[table] ?? table
+    const filters: ((row: Record<string, any>) => boolean)[] = []
+    let operation: 'select' | 'insert' | 'update' | 'delete' = 'select'
+    let payload: any = null
+    let sort: { column: string; ascending: boolean } | null = null
+    let take = Infinity
+
+    const rows = () => {
+      const all = ((current() as any)[key] ?? []) as Record<string, any>[]
+      return all.filter((row) => filters.every((predicate) => predicate(row)))
+    }
+
+    const apply = (): { data: Record<string, any>[]; error: any } => {
+      if (key === 'clients' && current().clientWriteFails && operation !== 'select') {
+        return { data: [], error: { code: '08006', message: 'connection lost' } }
+      }
+
+      const matched = rows()
+      if (operation === 'update') {
+        for (const row of matched) Object.assign(row, payload)
+        return { data: matched, error: null }
+      }
+      if (operation === 'insert') {
+        const inserted = {
+          id: `${key}-${Math.random().toString(36).slice(2, 10)}`,
+          created_at: new Date().toISOString(),
+          ...payload,
+        }
+        ;(current() as any)[key].push(inserted)
+        return { data: [inserted], error: null }
+      }
+      if (operation === 'delete') {
+        const all = (current() as any)[key] as Record<string, any>[]
+        for (const row of matched) all.splice(all.indexOf(row), 1)
+        return { data: matched, error: null }
+      }
+
+      const ordered = sort
+        ? [...matched].sort(
+            (a, b) =>
+              String(a[sort!.column] ?? '').localeCompare(String(b[sort!.column] ?? '')) *
+              (sort!.ascending ? 1 : -1)
+          )
+        : matched
+      return { data: ordered.slice(0, take), error: null }
+    }
+
+    const chain: any = {
+      select: () => chain,
+      order: (column: string, options?: { ascending?: boolean }) => {
+        sort = { column, ascending: options?.ascending !== false }
+        return chain
+      },
+      limit: (count: number) => {
+        take = count
+        return chain
+      },
+      eq: (column: string, value: unknown) => {
+        filters.push((row) => row[column] === value)
+        return chain
+      },
+      is: (column: string, value: unknown) => {
+        filters.push((row) => (row[column] ?? null) === value)
+        return chain
+      },
+      in: (column: string, values: unknown[]) => {
+        filters.push((row) => values.indexOf(row[column]) >= 0)
+        return chain
+      },
+      update: (next: any) => {
+        operation = 'update'
+        payload = next
+        return chain
+      },
+      insert: (next: any) => {
+        operation = 'insert'
+        payload = next
+        return chain
+      },
+      delete: () => {
+        operation = 'delete'
+        return chain
+      },
+      maybeSingle: async () => {
+        const result = apply()
+        return { data: result.data[0] ?? null, error: result.error }
+      },
+      single: async () => {
+        const result = apply()
+        if (result.error) return { data: null, error: result.error }
+        return result.data[0]
+          ? { data: result.data[0], error: null }
+          : { data: null, error: { message: 'no rows' } }
+      },
+      then: (onFulfilled: (value: any) => unknown) => Promise.resolve(apply()).then(onFulfilled),
+    }
+    return chain
+  }
+
+  return {
+    schema: () => ({
+      from: (table: string) => {
+        current().touchedTables.push(table)
+        return build(table)
+      },
+    }),
+    storage: {
+      from: () => ({
+        createSignedUrl: async (path: string, seconds: number) => ({
+          data: { signedUrl: `https://storage.test/${path}?expires=${seconds}` },
+          error: null,
+        }),
+      }),
+    },
+    functions: { invoke: async () => ({ data: { ok: true }, error: null }) },
+  }
+}
+
+function createFakeAuthClient() {
+  const chain: any = {
+    select: () => chain,
+    eq: () => chain,
+    maybeSingle: async () => ({
+      data: { email: 'admin@tuggi.app', role: 'admin', is_active: true },
+      error: null,
+    }),
+  }
+  return {
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: OPERATOR_ID, email: 'admin@tuggi.app' } },
+        error: null,
+      }),
+    },
+    schema: () => ({ from: () => chain }),
+  }
+}
+
+function freshState(overrides: { submission?: Record<string, any>; client?: Record<string, any> } = {}): FakeState {
+  return {
+    invites: [
+      {
+        id: INVITE_ID,
+        submission_id: SUBMISSION_ID,
+        client_id: overrides.client ? CLIENT_ID : null,
+        token_hash: 'hash',
+        recipient_email: 'antonio@cantina.com.br',
+        recipient_name: 'Antônio',
+        trade_name: 'Cantina do Zé',
+        locale: 'pt',
+        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+        used_at: new Date('2026-08-12T12:00:00Z').toISOString(),
+        revoked_at: null,
+        created_at: '2026-08-10T09:00:00Z',
+      },
+    ],
+    submissions: [
+      {
+        id: SUBMISSION_ID,
+        status: 'submitted',
+        answers: answers(),
+        is_partial: true,
+        submitted_at: '2026-08-12T12:00:00Z',
+        created_at: '2026-08-10T09:00:00Z',
+        updated_at: '2026-08-12T12:00:00Z',
+        promoted_at: null,
+        promoted_by: null,
+        promoted_client_id: null,
+        ...overrides.submission,
+      },
+    ],
+    documents: [],
+    clients: overrides.client ? [overrides.client] : [],
+    audit_logs: [],
+    touchedTables: [],
+    clientWriteFails: false,
+  }
+}
+
+let LIST_INVITES: (req: any, ctx?: any) => Promise<Response>
+let REVOKE_INVITE: (req: any, ctx: any) => Promise<Response>
+let GET_PROPOSAL: (req: any, ctx: any) => Promise<Response>
+let PROMOTE: (req: any, ctx: any) => Promise<Response>
+let DISCARD: (req: any, ctx: any) => Promise<Response>
+let SAVE_NOTE: (req: any, ctx: any) => Promise<Response>
+let SIGN_DOCUMENT: (req: any, ctx: any) => Promise<Response>
+
+before(async () => {
+  process.env.NEXT_PUBLIC_APP_URL ??= 'https://cms.tuggi.app'
+
+  mock.module('next/headers', {
+    namedExports: { cookies: async () => ({ get: () => undefined, getAll: () => [] }) },
+  })
+
+  mock.module('@/lib/core/supabase-client', {
+    namedExports: {
+      getSupabaseService: () => createFakeService(() => state),
+      getSupabase: () => createFakeService(() => state),
+      getSupabaseRouteHandler: () => createFakeAuthClient(),
+      getSupabaseClient: () => ({}),
+    },
+  })
+
+  const invites = await import('@/app/api/admin/partner-invites/route')
+  LIST_INVITES = invites.GET as any
+
+  const invite = await import('@/app/api/admin/partner-invites/[inviteId]/route')
+  REVOKE_INVITE = invite.DELETE as any
+
+  const proposal = await import('@/app/api/admin/partner-proposals/[submissionId]/route')
+  GET_PROPOSAL = proposal.GET as any
+
+  const promote = await import('@/app/api/admin/partner-proposals/[submissionId]/promote/route')
+  PROMOTE = promote.POST as any
+
+  const discard = await import('@/app/api/admin/partner-proposals/[submissionId]/discard/route')
+  DISCARD = discard.POST as any
+
+  const note = await import('@/app/api/admin/partner-proposals/[submissionId]/review-note/route')
+  SAVE_NOTE = note.PUT as any
+
+  const document = await import(
+    '@/app/api/admin/partner-proposals/[submissionId]/documents/[documentId]/route'
+  )
+  SIGN_DOCUMENT = document.POST as any
+})
+
+/**
+ * A fresh caller each time. `withRateLimit` keys by IP and these routes allow 20 acts a
+ * minute; reusing one address would make a test fail because of the test before it.
+ */
+let callerSequence = 0
+
+function request(
+  method: string,
+  body?: unknown,
+  ip = `10.0.1.${(callerSequence += 1) % 250}`,
+  url = 'http://localhost/api/admin/x'
+) {
+  return new Request(url, {
+    method,
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+}
+
+const proposalContext = { params: Promise.resolve({ submissionId: SUBMISSION_ID }) }
+
+test('DS-COMPONENTE-018: promoting without ticking leaves the divergent column alone — end to end', async () => {
+  // The mutation this test exists for: removing the `approved` condition from
+  // `resolvePromotionWrite` makes `city` become "São Vicente" here and turns this red.
+  state = freshState({
+    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br', city: 'Santos' },
+  })
+
+  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const payload = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(state.clients[0].city, 'Santos', 'the record the team wrote was not overwritten')
+  assert.equal(payload.kept.indexOf('city') >= 0, true)
+  assert.equal(state.submissions[0].status, 'promoted')
+  assert.equal(state.submissions[0].promoted_client_id, CLIENT_ID)
+})
+
+test('DS-COMPONENTE-018: ticking the column is what writes it — end to end', async () => {
+  state = freshState({
+    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br', city: 'Santos' },
+  })
+
+  const response = await PROMOTE(
+    request('POST', { approved: ['city'], industry: 'Restaurante' }),
+    proposalContext
+  )
+
+  assert.equal(response.status, 200)
+  assert.equal(state.clients[0].city, 'São Vicente')
+})
+
+test('DS-COMPONENTE-018: the body cannot name a column the plan did not produce', async () => {
+  state = freshState({
+    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br' },
+  })
+
+  await PROMOTE(
+    request('POST', {
+      approved: ['commission_rate', 'status', 'slug', 'iban'],
+      industry: 'Restaurante',
+      commission_rate: 99,
+      slug: 'roubado',
+    }),
+    proposalContext
+  )
+
+  for (const column of PROMOTION_NEVER_WRITES) {
+    assert.equal(column in state.clients[0], false, `${column} reached the row`)
+  }
+})
+
+test('#341: a promotion that fails to write the client hands the proposal back — nothing was written', async () => {
+  state = freshState({
+    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br' },
+  })
+  state.clientWriteFails = true
+
+  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+
+  assert.equal(response.status, 503)
+  assert.equal(state.submissions[0].status, 'submitted', 'the proposal is back in the queue')
+  assert.equal(state.submissions[0].promoted_at, null)
+  assert.equal(state.clients[0].city, undefined, 'and the client record is untouched')
+})
+
+test('BR-B2B-026: a proposal still in draft cannot be promoted', async () => {
+  state = freshState({ submission: { status: 'draft', submitted_at: null } })
+
+  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+  const payload = await response.json()
+
+  assert.equal(response.status, 409)
+  assert.equal(payload.error, 'not_promotable')
+  assert.equal(state.clients.length, 0)
+})
+
+test('DS-COMPONENTE-018: the e-mail collision is answered before the button, not as a 23505', async () => {
+  state = freshState()
+  state.clients.push({
+    id: OTHER_CLIENT_ID,
+    name: 'Outro Estabelecimento',
+    email: 'antonio@cantina.com.br',
+  })
+
+  const detail = await GET_PROPOSAL(request('GET'), proposalContext)
+  const payload = await detail.json()
+
+  assert.equal(payload.emailConflict?.client?.id, OTHER_CLIENT_ID, 'the screen knows before the click')
+
+  // And a promotion that ignores the choice does not create a second client with that e-mail.
+  const promotion = await PROMOTE(
+    request('POST', { approved: [], industry: 'Restaurante' }),
+    proposalContext
+  )
+  assert.equal(promotion.status, 409)
+  assert.equal((await promotion.json()).error, 'email_taken')
+  assert.equal(state.clients.length, 1, 'no second record was created')
+})
+
+test('DS-COMPONENTE-018: linking to the client that holds the e-mail updates that record', async () => {
+  state = freshState()
+  state.clients.push({
+    id: OTHER_CLIENT_ID,
+    name: 'Outro Estabelecimento',
+    email: 'antonio@cantina.com.br',
+  })
+
+  const response = await PROMOTE(
+    request('POST', { approved: [], industry: 'Restaurante', linkClientId: OTHER_CLIENT_ID }),
+    proposalContext
+  )
+
+  assert.equal(response.status, 200)
+  assert.equal(state.clients.length, 1)
+  assert.equal(state.clients[0].city, 'São Vicente', 'the empty columns of that record were filled')
+})
+
+test('#341: an id that does not hold the colliding e-mail cannot redirect the promotion', async () => {
+  state = freshState()
+  state.clients.push({ id: OTHER_CLIENT_ID, name: 'Alvo', email: 'outro@exemplo.com' })
+
+  const response = await PROMOTE(
+    request('POST', { approved: [], industry: 'Restaurante', linkClientId: OTHER_CLIENT_ID }),
+    proposalContext
+  )
+
+  assert.equal(response.status, 409)
+  assert.equal(state.clients[0].city, undefined, 'the unrelated record was not touched')
+})
+
+test('DS-COMPONENTE-019: the invite list carries state and never a token', async () => {
+  state = freshState()
+
+  const response = await LIST_INVITES(request('GET'))
+  const body = await response.text()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.indexOf('token') < 0, true, 'no token field, hashed or otherwise')
+  assert.equal(body.indexOf('hash') < 0, true)
+  assert.ok(JSON.parse(body).invites[0].situation)
+})
+
+test('#341: a consumed invite offers no Revogar, and revoking one answers 409', async () => {
+  state = freshState()
+
+  const listed = await (await LIST_INVITES(request('GET'))).json()
+  assert.equal(listed.invites[0].situation, 'received')
+  assert.equal(listed.invites[0].revocable, false)
+
+  const response = await REVOKE_INVITE(request('DELETE'), {
+    params: Promise.resolve({ inviteId: INVITE_ID }),
+  })
+  assert.equal(response.status, 409)
+})
+
+test('#341: revoking a live link switches it off and touches nothing else', async () => {
+  state = freshState({ submission: { status: 'draft', submitted_at: null, answers: {} } })
+  state.invites[0].used_at = null
+
+  const response = await REVOKE_INVITE(request('DELETE'), {
+    params: Promise.resolve({ inviteId: INVITE_ID }),
+  })
+
+  assert.equal(response.status, 200)
+  assert.ok(state.invites[0].revoked_at)
+  assert.equal(state.submissions[0].status, 'draft', 'what was filled in stays where it is')
+  assert.equal(state.touchedTables.indexOf('clients') < 0, true)
+})
+
+test('BR-B2B-011: the annotation changes no status and reaches no client record', async () => {
+  state = freshState()
+
+  const response = await SAVE_NOTE(
+    request('PUT', { marks: ['dated'], observation: 'O avô abriu em 1962.' }),
+    proposalContext
+  )
+
+  assert.equal(response.status, 200)
+  assert.equal(state.submissions[0].status, 'submitted', 'still exactly as promotable as before')
+  assert.deepEqual(state.submissions[0].review_note, { marks: ['dated'], observation: 'O avô abriu em 1962.' })
+  assert.equal(state.touchedTables.indexOf('clients') < 0, true)
+})
+
+test('BR-B2B-011: discarding files the proposal away and does not touch the establishment', async () => {
+  state = freshState()
+
+  const response = await DISCARD(request('POST', { reason: 'duplicate' }), proposalContext)
+
+  assert.equal(response.status, 200)
+  assert.equal(state.submissions[0].status, 'discarded')
+  assert.equal(state.submissions[0].discard_reason, 'duplicate')
+  assert.equal(state.touchedTables.indexOf('clients') < 0, true)
+})
+
+test('BR-B2B-011: a discard reason outside the closed list is refused', async () => {
+  state = freshState()
+
+  const response = await DISCARD(request('POST', { reason: 'no_fit' }), proposalContext)
+
+  assert.equal(response.status, 400)
+  assert.equal(state.submissions[0].status, 'submitted')
+})
+
+test('#341: the proposal payload carries no storage path, and the URL is minted on the click', async () => {
+  state = freshState()
+  state.documents.push({
+    id: '77777777-7777-7777-7777-777777777777',
+    submission_id: SUBMISSION_ID,
+    kind: 'business_license',
+    storage_path: `${SUBMISSION_ID}/business_license/1-alvara.pdf`,
+    file_name: 'alvara.pdf',
+    byte_size: 120_000,
+    mime_type: 'application/pdf',
+    created_at: '2026-08-12T11:00:00Z',
+  })
+
+  const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).text()
+  assert.equal(detail.indexOf('storage_path') < 0, true)
+  assert.equal(detail.indexOf('business_license/1-alvara.pdf') < 0, true)
+
+  const signed = await SIGN_DOCUMENT(request('POST'), {
+    params: Promise.resolve({
+      submissionId: SUBMISSION_ID,
+      documentId: '77777777-7777-7777-7777-777777777777',
+    }),
+  })
+  const payload = await signed.json()
+  assert.equal(payload.expiresInSeconds, 60)
+  assert.ok(payload.url)
+})
+
+test('#341: a document of another proposal is not reachable through this page', async () => {
+  state = freshState()
+  state.documents.push({
+    id: '88888888-8888-8888-8888-888888888888',
+    submission_id: OTHER_CLIENT_ID,
+    kind: 'business_license',
+    storage_path: 'outro/alvara.pdf',
+    file_name: 'alvara.pdf',
+    byte_size: 1,
+    mime_type: 'application/pdf',
+    created_at: '2026-08-12T11:00:00Z',
+  })
+
+  const response = await SIGN_DOCUMENT(request('POST'), {
+    params: Promise.resolve({
+      submissionId: SUBMISSION_ID,
+      documentId: '88888888-8888-8888-8888-888888888888',
+    }),
+  })
+  assert.equal(response.status, 404)
+})
+
+test('#341: promoting and discarding each leave a row in the trail', async () => {
+  state = freshState({
+    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br' },
+  })
+  await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+
+  const promotion = state.audit_logs.find((row) => row.action === 'PROMOTE_PARTNER_PROPOSAL')
+  assert.ok(promotion, 'the promotion is audited')
+  assert.equal(promotion?.entity, 'CLIENT')
+  assert.equal(promotion?.entity_id, CLIENT_ID)
+  assert.equal(promotion?.user_id, OPERATOR_ID)
+
+  state = freshState()
+  await DISCARD(request('POST', { reason: 'gave_up' }), proposalContext)
+  assert.ok(state.audit_logs.find((row) => row.action === 'DISCARD_PARTNER_PROPOSAL'))
+})
+
+// ── The copy ──
+
+const copy = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8')).PartnerProposals
+
+test('DS-COPY-014: no confirmation button is called `Confirmar` — the control names the effect', () => {
+  const serialized = JSON.stringify(copy)
+  assert.equal(/"Confirmar"/.test(serialized), false)
+  assert.ok(copy.promotion.commit.indexOf('{count') >= 0, 'the button carries the count')
+  assert.ok(copy.promotion.commit.indexOf('{name}') >= 0, 'and the target')
+})
+
+test('DS-COPY-017: nothing the Tuggi writes to the partner names a deadline, an approval or an audit', () => {
+  const outbound = JSON.stringify(copy.outbound)
+  for (const forbidden of [
+    'em até',
+    'dias úteis',
+    'prazo',
+    'aprovad',
+    'verificamos',
+    'auditamos',
+    'certifica',
+    'fiscaliza',
+    'R$',
+    'mensal',
+    'assinatura',
+  ]) {
+    assert.equal(
+      outbound.toLowerCase().indexOf(forbidden.toLowerCase()) < 0,
+      true,
+      `"${forbidden}" must not appear in what we write to the partner`
+    )
+  }
+})
+
+test('DS-COPY-017: gate 3 has no ready-made message, and the screen says why', () => {
+  assert.equal('gate3' in copy.outbound, false, 'there is no gate-3 template to send')
+  assert.ok(copy.outbound.gate3NoTemplate)
+  assert.ok(copy.outbound.gate3Body.indexOf('BR-B2B-011') >= 0)
+})
+
+test('DS-COPY-017: every refusal says coming back is possible', () => {
+  assert.ok(copy.outbound.regularity.body.indexOf('não é definitivo') >= 0)
+  assert.ok(copy.outbound.gate1.body.indexOf('olhamos de novo') >= 0)
+  assert.ok(copy.outbound.gate2.body.indexOf('mandar de novo') >= 0)
+})
+
+test('BR-B2B-011: the discard block says out loud that it is not a triage rejection', () => {
+  assert.ok(copy.discard.notTriage.indexOf('não reprova') >= 0)
+  assert.ok(copy.discard.notTriage.indexOf('BR-B2B-011') >= 0)
+  assert.ok(copy.story.footer.indexOf('continua parceiro') >= 0)
+})
+
+test('DS-COMPONENTE-019: the invite panel declares there is no second showing', () => {
+  assert.ok(copy.inviteResult.onceTitle.indexOf('só aparece agora') >= 0)
+  assert.ok(copy.inviteResult.onceBody.indexOf('impressão digital') >= 0)
+  assert.ok(copy.inviteResult.emailFailedBody.indexOf('Não gere outro') >= 0)
+  assert.ok(copy.inviteDrawer.closeConfirm.indexOf('não aparece de novo') >= 0)
+})
+
+test('#341: the resend confirmation says the old link dies and the answers survive', () => {
+  assert.ok(copy.resend.body.indexOf('para de funcionar') >= 0)
+  assert.ok(copy.resend.keeps.indexOf('continua lá') >= 0)
+  // The consequence of the inverted key: a wrong address is a NEW invite, never a resend.
+  assert.ok(copy.resend.wrongAddress.indexOf('convite novo') >= 0)
+})
+
+test('#341: the promotion panel lists what it never writes, and the list is the code one', () => {
+  for (const column of PROMOTION_NEVER_WRITES) {
+    assert.ok(
+      copy.promotion.neverFields.indexOf(column) >= 0,
+      `${column} is missing from what the panel promises never to write`
+    )
+  }
+})
+
+test('#341: the screens read the field labels from PartnerForm and do not redeclare them', () => {
+  // A reviewer reading a different question from the one the partner answered is exactly the
+  // defect duplicating the labels produces, so the labels must NOT exist under this namespace.
+  const serialized = JSON.stringify(copy)
+  const form = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8')).PartnerForm
+  for (const id of ['trade_name', 'representative_name', 'story_founder']) {
+    assert.equal(
+      serialized.indexOf(form.fields[id].label) < 0,
+      true,
+      `${id} label is duplicated into PartnerProposals`
+    )
+  }
+})
+
+test('#341: the two pages hand the Portuguese messages to their children', () => {
+  // Criterion 28. The copy lives only in `pt.json` by decision, and an absent key in next-intl
+  // renders THE KEY NAME — so `/en/` and `/es/` are only safe because the pages supply them.
+  for (const page of [
+    'app/[locale]/admin/partner-proposals/page.tsx',
+    'app/[locale]/admin/partner-proposals/[submissionId]/page.tsx',
+  ]) {
+    const source = readFileSync(resolve(REPO_ROOT, page), 'utf8')
+    assert.ok(source.indexOf('NextIntlClientProvider') >= 0, `${page} does not provide messages`)
+    assert.ok(source.indexOf("ptMessages.PartnerProposals") >= 0, `${page} does not provide the namespace`)
+    assert.ok(source.indexOf("ptMessages.PartnerForm") >= 0, `${page} does not provide the labels`)
+  }
+})
