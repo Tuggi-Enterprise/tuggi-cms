@@ -1,11 +1,13 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Scale, Landmark, Percent } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import type { Client } from '@/types/clients'
 import { taxConfigFor, usesBankingIBAN } from '@/components/admin/clients/shared/countries'
 import { EditField } from '@/components/admin/clients/shared/EditField'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
+import { formatDate, formatFee } from '@/lib/contract/snapshot'
 import type { ClientEditorTabProps } from './ProfileTab'
 
 function v<K extends keyof Client>(client: Client | null, edited: Partial<Client>, k: K): string {
@@ -13,13 +15,52 @@ function v<K extends keyof Client>(client: Client | null, edited: Partial<Client
   return raw == null ? '' : String(raw)
 }
 
-export function FiscalPaymentsTab({ client, edited, updateField, canEdit }: ClientEditorTabProps) {
+/**
+ * The signed contract, only so the note below the fee field can exist.
+ *
+ * BR-B2B-017, item 5 is the trap this tab was going to walk into: the person about to edit
+ * the monthly fee is HERE, not on the contract page, and without the note they would
+ * reasonably believe they just changed what the partner pays. They did not — the contract
+ * froze its own value at acceptance — and finding that out later is finding it out from
+ * the partner.
+ */
+function useSignedContract(clientId?: string) {
+  const [signed, setSigned] = useState<{ acceptedAt: string; feeCents: number | null; courtesy: boolean } | null>(
+    null
+  )
+
+  useEffect(() => {
+    if (!clientId) return
+    let active = true
+    fetch(`/api/admin/clients/${clientId}/contract`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!active || !data?.acceptance || !data?.contract) return
+        setSigned({
+          acceptedAt: data.acceptance.acceptedAt,
+          feeCents: data.contract.snapshot?.monthlyFeeCents ?? null,
+          courtesy: Boolean(data.contract.snapshot?.isCourtesy),
+        })
+      })
+      .catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [clientId])
+
+  return signed
+}
+
+export function FiscalPaymentsTab({ client, edited, updateField, canEdit, clientId }: ClientEditorTabProps) {
   const t = useTranslations('Clients.fiscal')
   const isEditing = canEdit
   const currentCountry = String(edited.country ?? client?.country ?? '')
   const taxConfig = taxConfigFor(currentCountry)
   const showIBAN = usesBankingIBAN(currentCountry)
   const commissionRate = edited.commission_rate ?? client?.commission_rate ?? 0.2
+  const signedContract = useSignedContract(clientId)
+  const isCourtesy = Boolean(edited.is_courtesy ?? client?.is_courtesy)
+  const monthlyFeeCents = edited.monthly_fee_cents ?? client?.monthly_fee_cents ?? null
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
@@ -147,6 +188,57 @@ export function FiscalPaymentsTab({ client, edited, updateField, canEdit }: Clie
               <p className="text-2xl font-bold text-gray-900 dark:text-white">{(commissionRate * 100).toFixed(1)}%</p>
             </div>
           )}
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.monthlyFee')}</p>
+            {isEditing ? (
+              <>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={monthlyFeeCents === null ? '' : monthlyFeeCents / 100}
+                  disabled={isCourtesy}
+                  onChange={(e) =>
+                    updateField(
+                      'monthly_fee_cents',
+                      e.target.value === '' ? null : Math.round(parseFloat(e.target.value) * 100)
+                    )
+                  }
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30 disabled:opacity-50"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">{t('fields.monthlyFeeHelp')}</p>
+                <label className="inline-flex items-center gap-2 mt-2">
+                  <input
+                    type="checkbox"
+                    checked={isCourtesy}
+                    onChange={(e) => updateField('is_courtesy', e.target.checked)}
+                    className="rounded border-gray-300 text-tuggi-blue focus:ring-tuggi-blue/30"
+                  />
+                  <span className="text-sm text-gray-700">{t('fields.courtesy')}</span>
+                </label>
+                {isCourtesy && (
+                  <EditField
+                    label={t('fields.courtesyReason')}
+                    value={v(client, edited, 'courtesy_reason')}
+                    isEditing={isEditing}
+                    onChange={(val) => updateField('courtesy_reason', val)}
+                  />
+                )}
+              </>
+            ) : (
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                {isCourtesy ? t('fields.courtesy') : formatFee(monthlyFeeCents)}
+              </p>
+            )}
+            {signedContract && (
+              <p className="mt-2 rounded-lg border border-amber-400 bg-amber-50 p-2 text-xs text-gray-900">
+                {t('fields.frozenValueNote', {
+                  date: formatDate(signedContract.acceptedAt),
+                  value: signedContract.courtesy ? t('fields.courtesy') : formatFee(signedContract.feeCents),
+                })}
+              </p>
+            )}
+          </div>
           {isEditing && (
             <div className="space-y-1">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{t('fields.isPlatformOwner')}</p>

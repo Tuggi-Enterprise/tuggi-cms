@@ -29,6 +29,9 @@ export const CLIENT_PROFILE_FIELDS = [
  *   is_coordinator    → promoting a client is a Tuggi commercial decision
  *   is_platform_owner → only Tuggi owns the platform
  *   commission_rate   → money; the Fiscal tab is admin-only
+ *   monthly_fee_cents → money, and the value a contract freezes (BR-B2B-017)
+ *   is_courtesy       → "no fee" is a decision, and a partner does not take it
+ *   courtesy_reason   → the decision without its reason is an unexplained discount
  *   status            → a child is born 'approved' and only Tuggi demotes it
  *   slug              → changes the URL of an already printed QR code
  */
@@ -37,6 +40,7 @@ export const CLIENT_ADMIN_ONLY_FIELDS = [
   'tax_id', 'tax_id_type', 'legal_representative_name', 'legal_representative_role',
   'billing_email', 'iban', 'bic_swift', 'bank_account_number', 'bank_routing_number', 'bank_name',
   'commission_rate', 'is_platform_owner', 'welcome_poi_id', 'is_coordinator', 'parent_client_id',
+  'monthly_fee_cents', 'is_courtesy', 'courtesy_reason',
 ] as const
 
 export const CLIENT_ADMIN_EDITABLE_FIELDS = [

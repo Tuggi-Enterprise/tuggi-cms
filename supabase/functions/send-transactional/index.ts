@@ -14,6 +14,8 @@
 //   'partner_approved' -> to the user (partnership approved)
 //   'partner_rejected' -> to the user (registration not approved + reason)
 //   'partner_form_invite' -> to the establishment (link to the external form of #341, pt)
+//   'partner_contract_sign'   -> to the legal representative (read and sign, #342, pt)
+//   'partner_contract_signed' -> to the legal representative (signed copy, #342, pt)
 //
 // lang: 'pt' | 'en' | 'es' | 'fr' | 'it' (normalized; defaults to 'pt'). Applies
 //       to the user-facing types; partner_new (team) is always pt.
@@ -199,6 +201,77 @@ function renderFormInvite(data: Record<string, unknown>): {
   };
 }
 
+/**
+ * Twin of `lib/contract/link.ts`, symbols `CONTRACT_LOCALE` and `contractPath`. Duplicated
+ * for the same reason as the form locale above, and held by the same kind of parity
+ * assertion in `tests/api/partner-contract.test.ts`.
+ */
+const CONTRACT_LOCALE = 'pt';
+
+function contractHref(token: string): string {
+  if (!INVITE_TOKEN_PATTERN.test(token)) {
+    throw new Error('contract e-mail requires a well-formed signing token');
+  }
+  return `${ownOrigin('PARTNER_FORM_ORIGIN', DEFAULT_PARTNER_FORM_ORIGIN)}/${CONTRACT_LOCALE}/contrato/${token}`;
+}
+
+/** #342 — the contract is ready, come and read it. It never mentions the value. */
+function renderContractSign(data: Record<string, unknown>): {
+  subject: string;
+  html: string;
+} {
+  const name = esc(data.name ?? '');
+  const legalName = esc(data.legal_name ?? 'seu estabelecimento');
+  const href = contractHref(String(data.token ?? ''));
+  const greeting = name ? `Olá, ${name}.` : 'Olá.';
+
+  return {
+    subject: 'Seu contrato de parceria está pronto para assinatura',
+    html: shell(
+      'Seu contrato de parceria está pronto',
+      `<p>${greeting}</p>
+       <p>O contrato de parceria de ${legalName} está pronto. Você lê o texto inteiro na tela e assina por lá — não precisa imprimir nem instalar nada.</p>
+       <p style="margin-top:20px">
+         <a href="${esc(href)}" style="background:${CTA_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">Ler e assinar</a>
+       </p>
+       <p>Qualquer dúvida, é só responder este e-mail.</p>`
+    ),
+  };
+}
+
+/**
+ * #342 — the copy of the signed contract.
+ *
+ * It carries a LINK back to the same page, which serves the archived PDF, and NOT an
+ * attachment. This function has no authorization of its own until #346, so an attachment
+ * parameter here would let any holder of the publishable key send an arbitrary file with
+ * our DKIM on it. The `design` copy says the PDF is attached; the narrowing and its reason
+ * are registered in #342.
+ */
+function renderContractSigned(data: Record<string, unknown>): {
+  subject: string;
+  html: string;
+} {
+  const name = esc(data.name ?? '');
+  const role = esc(data.role ?? '');
+  const legalName = esc(data.legal_name ?? '');
+  const acceptedAt = esc(data.accepted_at ?? '');
+  const code = esc(data.verification_code ?? '');
+  const href = contractHref(String(data.token ?? ''));
+
+  return {
+    subject: `Contrato de parceria assinado — ${legalName}`,
+    html: shell(
+      'Contrato de parceria assinado',
+      `<p>Assinado por ${name}${role ? ` (${role})` : ''} em ${acceptedAt}, horário de Brasília.</p>
+       <p style="margin-top:20px">
+         <a href="${esc(href)}" style="background:${CTA_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">Baixar o contrato assinado</a>
+       </p>
+       <p>O código de verificação do documento é <strong>${code}</strong> — guarde junto com o arquivo.</p>`
+    ),
+  };
+}
+
 const EVENT_BY_TYPE: Record<string, PartnerEvent> = {
   partner_received: 'received',
   partner_approved: 'approved',
@@ -239,11 +312,15 @@ Deno.serve(async (req: Request) => {
         ? renderTeamAlert(data)
         : type === 'partner_form_invite'
           ? renderFormInvite(data)
-          : EVENT_BY_TYPE[type]
-            ? renderLocalized(EVENT_BY_TYPE[type], lang, data)
-            : (() => {
-                throw new Error(`unknown type: ${type}`);
-              })();
+          : type === 'partner_contract_sign'
+            ? renderContractSign(data)
+            : type === 'partner_contract_signed'
+              ? renderContractSigned(data)
+              : EVENT_BY_TYPE[type]
+                ? renderLocalized(EVENT_BY_TYPE[type], lang, data)
+                : (() => {
+                    throw new Error(`unknown type: ${type}`);
+                  })();
 
     const res = await fetch(RESEND_URL, {
       method: 'POST',

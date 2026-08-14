@@ -31,8 +31,12 @@
  * routes already translate into a typed response.
  */
 
-import { createHash, randomBytes } from 'node:crypto'
 import { getSupabaseService } from '@/lib/core/supabase-client'
+import {
+  generateSingleUseToken,
+  hashSingleUseToken,
+  isWellFormedSingleUseToken,
+} from '@/lib/security/single-use-token'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import type { PartnerDocumentKind } from '@/lib/partner-form/fields'
 
@@ -89,39 +93,16 @@ export interface ResolvedInvite {
 }
 
 /**
- * The token as it is stored. The raw token exists in the e-mail and in the URL and
- * nowhere else: what the table holds is this hash, so reading the table does not hand
- * anyone a working link.
- *
- * SHA-256 without a salt is deliberate and sufficient here: the token is 32 random bytes
- * from the CSPRNG, so there is no dictionary to run against it, and the lookup has to be
- * a single indexed equality.
+ * How a token is minted, stored and shape-checked is `lib/security/single-use-token.ts`,
+ * shared with the contract signing link of #342: it is one decision — what a Tuggi link
+ * token is — and having it twice would let the two features drift apart on the length, the
+ * alphabet or the digest without anything failing. The three names below are the ones this
+ * feature has always used and they stay, so that "invite token" reads as an invite token
+ * at every call site here.
  */
-export function hashInviteToken(token: string): string {
-  return createHash('sha256').update(token, 'utf8').digest('hex')
-}
-
-/** 32 bytes, base64url — 256 bits of entropy in a URL-safe segment. */
-export function generateInviteToken(): string {
-  return randomBytes(32).toString('base64url')
-}
-
-/**
- * Shape check before the database is touched. A token that cannot be one of ours is not
- * worth a round trip, and answering "invalid" without querying keeps a scan cheap for us
- * instead of cheap for the scanner.
- */
-export function isWellFormedToken(token: string): boolean {
-  return typeof token === 'string' && /^[A-Za-z0-9_-]{40,64}$/.test(token)
-}
-
-/**
- * There is no constant-time comparison here on purpose. Nothing in this module compares
- * two hashes in JS: `resolveInvite` hands the SHA-256 to Postgres and the indexed equality
- * decides, which is where the comparison belongs. A `tokenHashEquals` used to sit here
- * with zero callers, and an exported guarantee nobody calls makes the module read as if
- * the defence were in the path.
- */
+export const hashInviteToken = hashSingleUseToken
+export const generateInviteToken = generateSingleUseToken
+export const isWellFormedToken = isWellFormedSingleUseToken
 
 function service() {
   return getSupabaseService().schema(SCHEMA)

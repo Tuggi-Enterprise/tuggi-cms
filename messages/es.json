@@ -1810,6 +1810,7 @@
       "tabs": {
         "profile": "Perfil",
         "fiscal": "Fiscal y Pagos",
+        "contract": "Contrato",
         "team": "Equipo",
         "appusers": "Usuarios de la App",
         "pois": "POIs",
@@ -1941,6 +1942,11 @@
         "accountPlaceholder": "123456789",
         "commissionRate": "Tasa de comisión",
         "commissionRateHelp": "Valor entre 0 y 1 (ej. 0.20 = 20%)",
+        "monthlyFee": "Valor mensual del contrato",
+        "monthlyFeeHelp": "En reales. Sin valor y sin \"cortesía\" marcada, el contrato no se genera. Un cero escrito no vale como cortesía: la cortesía es una decisión, el campo vacío es un registro incompleto.",
+        "courtesy": "Cortesía (sin mensualidad)",
+        "courtesyReason": "Motivo de la cortesía",
+        "frozenValueNote": "Existe un contrato firmado el {date} por {value}. Este campo es el valor para el PRÓXIMO contrato o anexo — editarlo no cambia lo que ya se firmó.",
         "isPlatformOwner": "Platform owner?",
         "isPlatformOwnerHelp": "Marca si el cliente es Tuggi mismo (split contable)"
       }

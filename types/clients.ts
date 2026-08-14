@@ -53,6 +53,17 @@ export interface Client {
   bank_name?: string
   // Commission
   commission_rate?: number
+  /**
+   * The monthly fee of the paid tier, in cents (BR-B2B-017, item 4). It is the value for
+   * the NEXT contract or amendment — a signed contract carries its own frozen value and
+   * does not follow this field (item 5).
+   *
+   * `null`/absent is an incomplete registration, and it is NOT zero: a partner with no fee
+   * is a decision that has to be recorded as `is_courtesy` with a reason (item 6).
+   */
+  monthly_fee_cents?: number | null
+  is_courtesy?: boolean | null
+  courtesy_reason?: string | null
   is_platform_owner?: boolean
   welcome_poi_id?: string
   // Partner / consumer-facing attribution (20260528125114_clients_supports_partners)
