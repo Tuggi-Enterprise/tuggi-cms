@@ -25,6 +25,8 @@ import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { partnerFormPath } from '@/lib/partner-form/link'
+
 const FUNCTION_PATH = resolve(
   import.meta.dirname,
   '../../supabase/functions/send-transactional/index.ts'
@@ -121,12 +123,20 @@ test('#341: a non-https PARTNER_FORM_ORIGIN falls back to ours instead of being 
   assert.deepEqual(hrefs(sent[0].html), [`https://cms.tuggi.app/pt/parceria/${TOKEN}`])
 })
 
-test('#341: the invite link always carries the /pt/ segment', async () => {
-  // `i18n.ts` falls back to `en`, and a form in English asking a Brazilian owner for a
-  // CNPJ and an alvará is the bug this segment prevents. Twin of `partnerFormPath`.
+test('#341: the path the function builds is the one `partnerFormPath` builds', async () => {
+  // The two ends are duplicated on purpose — Deno cannot import the Next side — so this is
+  // what holds them together. `i18n.ts` falls back to `en`, and a form in English asking a
+  // Brazilian owner for a CNPJ and an alvará is the bug the `/pt/` segment prevents; a
+  // rename on either side that drops it has to fail here.
   await send({ type: 'partner_form_invite', to: 'a@b.com', data: { token: TOKEN } })
 
-  assert.match(hrefs(sent[0].html)[0], /\/pt\/parceria\//)
+  const href = hrefs(sent[0].html)[0]
+  assert.match(href, /\/pt\/parceria\//)
+  assert.equal(
+    new URL(href).pathname,
+    partnerFormPath(TOKEN),
+    'the e-mail link and the in-app redirect must reach the same page'
+  )
 })
 
 test('#341: a token that is not a token sends no e-mail at all', async () => {
