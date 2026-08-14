@@ -13,6 +13,7 @@
 //   'partner_received' -> to the user (registration received, under review)
 //   'partner_approved' -> to the user (partnership approved)
 //   'partner_rejected' -> to the user (registration not approved + reason)
+//   'partner_form_invite' -> to the establishment (link to the external form of #341, pt)
 //
 // lang: 'pt' | 'en' | 'es' | 'fr' | 'it' (normalized; defaults to 'pt'). Applies
 //       to the user-facing types; partner_new (team) is always pt.
@@ -112,6 +113,48 @@ function renderLocalized(
   };
 }
 
+/**
+ * Invite to the external partner form (#341). Portuguese only, and the reason is not
+ * laziness: the form asks for CNPJ and alvará, which are Brazilian documents, so the
+ * surface exists in `pt` by decision (spec do `design`, §8.3).
+ *
+ * The button is `#00719F` and not `TUGGI_BLUE`: white on #00A8E8 measures 2.70:1 and
+ * fails even the 3:1 of the non-text criterion. The `shell()` band above is inherited
+ * and is not part of this delivery.
+ *
+ * It says nothing about price, recurrence or what the partnership costs — the capture
+ * surface is closed for that (BR-B2B-015, item 8; BR-B2B-016, item 6).
+ */
+const CTA_BLUE = '#00719F';
+
+function renderFormInvite(data: Record<string, unknown>): {
+  subject: string;
+  html: string;
+} {
+  const name = esc(data.name ?? data.partner_name ?? '');
+  const tradeName = esc(data.trade_name ?? '');
+  const url = String(data.url ?? '');
+  if (!/^https:\/\//.test(url)) {
+    throw new Error('partner_form_invite requires an https url');
+  }
+
+  const place = tradeName || 'seu estabelecimento';
+  const greeting = name ? `Olá, ${name}.` : 'Olá.';
+
+  return {
+    subject: `Complete o cadastro de ${tradeName || 'seu estabelecimento'} — Tuggi`,
+    html: shell(
+      'Complete o cadastro do seu estabelecimento',
+      `<p>${greeting}</p>
+       <p>Para seguir com a parceria, a gente precisa de alguns dados do ${place}. É rápido e dá para fazer pelo celular.</p>
+       <p style="margin-top:20px">
+         <a href="${esc(url)}" style="background:${CTA_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">Preencher agora</a>
+       </p>
+       <p>O link é só seu. Se não foi você quem pediu, ignore este e-mail.</p>`
+    ),
+  };
+}
+
 const EVENT_BY_TYPE: Record<string, PartnerEvent> = {
   partner_received: 'received',
   partner_approved: 'approved',
@@ -150,11 +193,13 @@ Deno.serve(async (req: Request) => {
     const { subject, html } =
       type === 'partner_new'
         ? renderTeamAlert(data)
-        : EVENT_BY_TYPE[type]
-          ? renderLocalized(EVENT_BY_TYPE[type], lang, data)
-          : (() => {
-              throw new Error(`unknown type: ${type}`);
-            })();
+        : type === 'partner_form_invite'
+          ? renderFormInvite(data)
+          : EVENT_BY_TYPE[type]
+            ? renderLocalized(EVENT_BY_TYPE[type], lang, data)
+            : (() => {
+                throw new Error(`unknown type: ${type}`);
+              })();
 
     const res = await fetch(RESEND_URL, {
       method: 'POST',

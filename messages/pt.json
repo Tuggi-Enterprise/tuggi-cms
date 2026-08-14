@@ -2223,5 +2223,238 @@
         "loadNetwork": "Não foi possível carregar o desempenho por owner"
       }
     }
+  },
+  "PartnerForm": {
+    "progress": "Passo {current} de {total}",
+    "saved": "Salvo",
+    "saving": "Salvando",
+    "loading": "Carregando o formulário",
+    "actions": {
+      "continue": "Continuar",
+      "back": "Voltar",
+      "submit": "Enviar para a Tuggi",
+      "submitting": "Enviando…",
+      "edit": "Editar",
+      "restart": "Recomeçar do zero",
+      "restartConfirm": "Isso apaga tudo o que você preencheu. Quer mesmo recomeçar?",
+      "seeExample": "Ver um exemplo",
+      "retry": "Tentar de novo"
+    },
+    "step1": {
+      "title": "O seu estabelecimento",
+      "subtitle": "A gente começa pelo que está na fachada e no CNPJ."
+    },
+    "step2": {
+      "title": "Quem responde pelo estabelecimento",
+      "subtitle": "Precisa ser quem pode assinar pelo CNPJ. É esta pessoa que vai receber o contrato."
+    },
+    "step3": {
+      "title": "A história do seu lugar",
+      "subtitle": "Esta é a única parte que só você pode responder. Tudo o que veio antes a gente encontra em documento; isto aqui, não.",
+      "intro": "O Tuggi conta histórias em voz alta para quem está viajando. Para contar a do seu lugar, a gente precisa de pelo menos um fato que seja seu: uma data, um nome, alguma coisa que dê para ver aí dentro. Não precisa escrever bonito — quem escreve o texto final somos nós.",
+      "notHere": "Aqui não é o lugar de cardápio, preço, promoção, número de quartos, forma de pagamento nem horário — o horário a gente já pediu lá atrás. Essas coisas importam para o seu negócio, mas não é isso que o turista escuta.",
+      "exampleBadTitle": "Assim não dá:",
+      "exampleBad": "Restaurante familiar, ambiente aconchegante e atendimento de primeira. Almoço executivo de segunda a sexta e rodízio de pizza aos sábados.",
+      "exampleBadWhy": "Troque o nome pelo do vizinho: continua verdadeiro. E a segunda frase é cardápio.",
+      "exampleGoodTitle": "Assim dá:",
+      "exampleGood": "Meu avô, Antônio, abriu a casa em 1961 num galpão que era da fábrica de guarda-chuvas do bairro. O forno a lenha é o mesmo desde a inauguração — foi feito pelo pedreiro que morava na esquina, e a gente nunca trocou o tijolo.",
+      "exampleGoodWhy": "Tem nome, tem ano, e tem uma coisa que só existe aí.",
+      "exampleInnTitle": "Pousada, do mesmo jeito:",
+      "exampleInn": "A casa era a sede de uma fazenda de café de 1897. O piso de peroba e a escada são os originais, e do terraço dá para ver o vale onde passava a linha de trem que fechou em 1971.",
+      "substituteTestTitle": "Antes de continuar, faça este teste:",
+      "substituteTest": "troque o nome do seu estabelecimento pelo do vizinho da mesma rua. Se o texto continuar verdadeiro, ele ainda não é sobre o seu lugar — e é exatamente isso que a nossa curadoria vai olhar.",
+      "curation": "Nem todo lugar entra no app. Quem decide é a nossa curadoria, e o critério é o lugar ser permanente, aberto a visita, e ter história própria para contar. Se faltar alguma coisa, a gente diz o que faltou, e você pode mandar de novo.",
+      "nudgeShort": "Isso ainda está curto. Um nome e um ano já ajudam muito.",
+      "nudgeOffer": "Parece que você falou de cardápio, preço ou reserva. Isso a gente não usa aqui — conte uma coisa que aconteceu no lugar."
+    },
+    "step4": {
+      "title": "Documentos do estabelecimento",
+      "subtitle": "A Tuggi só assina contrato com estabelecimento com documentação em ordem. São dois documentos.",
+      "limits": "A gente aceita PDF, JPG, PNG e HEIC. Cada arquivo pode ter até {max} MB.",
+      "choose": "Escolher arquivo",
+      "addMore": "Adicionar mais páginas",
+      "remove": "Remover",
+      "replace": "Trocar",
+      "uploading": "enviando {percent}%",
+      "uploaded": "enviado",
+      "failed": "falhou",
+      "announceUploaded": "{document} enviado.",
+      "skip": "Não tenho agora, envio depois",
+      "skipHelp": "Sem problema. A gente guarda tudo o que você preencheu e manda um link para você terminar. O contrato só sai quando os dois documentos chegarem."
+    },
+    "step5": {
+      "title": "Conferir e enviar",
+      "subtitle": "Confira o que você escreveu. Se precisar corrigir, toque em editar.",
+      "afterSubmit": "Depois de enviar, você ainda pode corrigir: é só responder o e-mail.",
+      "empty": "não preenchido"
+    },
+    "documents": {
+      "business_license": {
+        "label": "Alvará de funcionamento",
+        "help": "Pode ser foto ou PDF. Se for foto, fotografe o papel inteiro, com boa luz, sem cortar as bordas."
+      },
+      "incorporation_document": {
+        "label": "Documento de constituição",
+        "help": "Contrato social, requerimento de empresário ou certificado do MEI — o documento que mostra quem responde pela empresa. Se tiver várias páginas, mande todas."
+      }
+    },
+    "privacy": {
+      "notice": "Estes dados são de uma pessoa, não da empresa. A gente usa o seu nome, o cargo, o e-mail e o telefone só para tratar desta parceria e gerar o contrato, e guarda os documentos que você enviar porque a Tuggi só assina contrato com estabelecimento com documentação em ordem.",
+      "link": "Como tratamos os seus dados"
+    },
+    "fields": {
+      "trade_name": {
+        "label": "Como as pessoas chamam o seu estabelecimento?",
+        "help": "O nome que está na fachada.",
+        "requiredError": "Preencha o nome do estabelecimento."
+      },
+      "legal_name": {
+        "label": "Razão social",
+        "help": "O nome que está no CNPJ. Se for o mesmo da fachada, pode repetir.",
+        "requiredError": "Preencha a razão social."
+      },
+      "tax_id": {
+        "label": "CNPJ",
+        "help": "14 caracteres. Desde 2026 o CNPJ pode ter letras — se o seu tiver, digite normalmente.",
+        "requiredError": "Preencha o CNPJ."
+      },
+      "category": {
+        "label": "Que tipo de lugar é?",
+        "help": "",
+        "requiredError": "Escolha o tipo de lugar."
+      },
+      "address": {
+        "label": "Rua e número",
+        "help": "",
+        "requiredError": "Preencha a rua e o número."
+      },
+      "address_complement": {
+        "label": "Complemento",
+        "help": "Sala, loja, andar.",
+        "requiredError": ""
+      },
+      "district": {
+        "label": "Bairro",
+        "help": "",
+        "requiredError": "Preencha o bairro."
+      },
+      "postal_code": {
+        "label": "CEP",
+        "help": "",
+        "requiredError": "Preencha o CEP."
+      },
+      "city": {
+        "label": "Cidade",
+        "help": "",
+        "requiredError": "Preencha a cidade."
+      },
+      "state": {
+        "label": "Estado",
+        "help": "",
+        "requiredError": "Escolha o estado."
+      },
+      "instagram": {
+        "label": "Instagram",
+        "help": "Só o @, se tiver.",
+        "requiredError": ""
+      },
+      "opening_hours": {
+        "label": "Horário de funcionamento",
+        "help": "Escreva do seu jeito. Por exemplo: terça a domingo, das 11h às 15h e das 18h às 23h; fecha segunda.",
+        "requiredError": ""
+      },
+      "website": {
+        "label": "Site",
+        "help": "",
+        "requiredError": ""
+      },
+      "representative_name": {
+        "label": "Nome completo",
+        "help": "Como está no documento de constituição.",
+        "requiredError": "Preencha o nome completo de quem responde pelo estabelecimento."
+      },
+      "representative_role": {
+        "label": "Cargo no estabelecimento",
+        "help": "Sócio, sócia-administradora, proprietário, procurador.",
+        "requiredError": "Preencha o cargo no estabelecimento."
+      },
+      "representative_email": {
+        "label": "E-mail",
+        "help": "É para este endereço que o contrato vai. Confira com calma.",
+        "requiredError": "Preencha o e-mail."
+      },
+      "representative_phone": {
+        "label": "Telefone com WhatsApp",
+        "help": "A gente usa para falar sobre esta parceria. Não entra em lista de mensagens.",
+        "requiredError": "Preencha o telefone."
+      },
+      "story_founder": {
+        "label": "Quem começou este lugar, e quando?",
+        "help": "O nome da pessoa e o ano. Se foi você, escreva o seu nome. Se você comprou de alguém, conte as duas coisas: quem começou, e quando você assumiu. Por exemplo: Meu pai, Sebastião, abriu em 1978. Assumi em 2009.",
+        "requiredError": "Conte quem começou o lugar e quando."
+      },
+      "story_before": {
+        "label": "O que tinha neste endereço antes do seu negócio?",
+        "help": "Casa de família, oficina, armazém, cinema, terreno vazio. Se você sabe de que ano é o prédio, escreva. Por exemplo: Era uma serralheria. O prédio é de 1932, está escrito na fachada.",
+        "requiredError": ""
+      },
+      "story_unique": {
+        "label": "O que existe aí dentro que não existe em outro lugar?",
+        "help": "Vale coisa que dá para ver, tocar ou provar: um forno, um móvel, uma foto na parede, uma peça antiga, uma receita que veio de alguém da família. Elogio não vale — aconchegante e atendimento familiar servem para qualquer lugar. Por exemplo: O balcão de mármore é o original da confeitaria que funcionava aqui; a gente só lixou.",
+        "requiredError": ""
+      },
+      "story_event": {
+        "label": "Aconteceu alguma coisa aqui que o pessoal do bairro conta até hoje?",
+        "help": "Uma visita, uma enchente, um jogo, uma festa que começou aqui, alguém conhecido que era freguês. Por exemplo: Em 1994 a rua inteira assistiu à final aqui na calçada.",
+        "requiredError": ""
+      },
+      "business_license_valid_until": {
+        "label": "Válido até",
+        "help": "A data que está no alvará.",
+        "requiredError": "Preencha a data de validade do alvará."
+      }
+    },
+    "categories": {
+      "restaurant": "Restaurante",
+      "bar_cafe": "Bar ou café",
+      "hotel": "Hotel",
+      "inn": "Pousada",
+      "shop": "Loja",
+      "attraction": "Atração ou passeio",
+      "other": "Outro"
+    },
+    "errors": {
+      "summary": "{count, plural, one {Falta # coisa neste passo.} other {Faltam # coisas neste passo.}}",
+      "required": "Preencha este campo.",
+      "email_malformed": "Este e-mail não parece completo. Confira antes de continuar.",
+      "phone_short": "Escreva o telefone com DDD.",
+      "cnpj_incomplete": "O CNPJ tem 14 caracteres. Faltam {n}.",
+      "cnpj_invalid": "Este CNPJ não confere. Confira os 14 caracteres — inclusive as letras, se o seu tiver.",
+      "postal_code": "O CEP tem 8 números.",
+      "license_date_past": "Esta data já passou. Se o alvará venceu, envie o renovado — sem alvará vigente não dá para assinar o contrato.",
+      "too_long": "Este texto ficou comprido demais. Encurte um pouco.",
+      "file_too_large": "Este arquivo tem {size} MB e o limite é {max} MB. Se for foto, tire de novo com menos zoom; se for PDF, mande só as páginas necessárias.",
+      "file_type_refused": "A gente aceita PDF, JPG, PNG e HEIC. Este arquivo é {ext} — exporte em PDF e envie de novo.",
+      "upload_failed": "Este arquivo não terminou de subir."
+    },
+    "states": {
+      "invalidTitle": "Este link não é válido.",
+      "invalidBody": "Confira se você copiou o endereço inteiro do e-mail. Se continuar assim, responda o e-mail que a gente manda outro.",
+      "expiredTitle": "Este link expirou.",
+      "expiredBody": "Responda o e-mail que a gente manda um novo — o que você já preencheu continua guardado.",
+      "usedTitle": "Você já enviou estes dados em {date}.",
+      "usedBody": "Se precisar corrigir alguma coisa, responda o e-mail que a gente reabre o formulário.",
+      "draftResumed": "A gente guardou o que você preencheu em {date}. Continue de onde parou.",
+      "offlineTitle": "Você está sem internet.",
+      "offlineBody": "O que você escrever agora fica no aparelho, e a gente envia quando a conexão voltar.",
+      "uploadFailedBody": "Toque em tentar de novo. Você pode continuar preenchendo o resto enquanto isso.",
+      "submitErrorTitle": "Não conseguimos enviar agora.",
+      "submitErrorBody": "Toque em tentar de novo. Se continuar, responda o e-mail que a gente resolve por lá.",
+      "successTitle": "Recebemos os seus dados.",
+      "successCompleteBody": "A gente confere e volta a falar com você por este e-mail: {email}.",
+      "successPartialMissing": "Ainda falta: {missing}.",
+      "successPartialBody": "A gente manda um link para você enviar — não precisa preencher o resto de novo.",
+      "successPartialContact": "Qualquer coisa, é só responder o e-mail: {email}."
+    }
   }
 }
