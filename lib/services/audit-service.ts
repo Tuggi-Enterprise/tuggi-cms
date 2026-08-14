@@ -10,6 +10,14 @@ export type AuditAction =
   | 'CREATE_POI'
   | 'UPDATE_POI'
   | 'DELETE_POI'
+  // Hour-credit ledger (epic #283). `core.audit_logs.action` is free text — the only
+  // CHECK on the table is on `status` — so a value added here reaches the row as written.
+  | 'GRANT_TIME_CREDIT'
+  // A period grant is two transactions: the access period committed and the ledger row did
+  // not. The right exists with no grant row behind it, so this row is the only record of
+  // who applied it — and of the fact that it must not be applied again.
+  | 'GRANT_TIME_CREDIT_UNRECORDED'
+  | 'REVOKE_TIME_CREDIT'
 
 export type AuditEntity = 'USER' | 'POI' | 'AUTH'
 
