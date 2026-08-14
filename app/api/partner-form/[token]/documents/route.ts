@@ -25,7 +25,6 @@ import {
   resolveInvite,
   storeDocument,
   removeDocument,
-  saveDraft,
 } from '@/lib/services/partner-proposal-service'
 import {
   DOCUMENT_MAX_BYTES,
@@ -94,14 +93,14 @@ export const POST = withRateLimit(UPLOAD_PER_MINUTE, MINUTE)(
       return NextResponse.json({ error: 'too_many_files', maxFiles: DOCUMENT_MAX_FILES }, { status: 409 })
     }
 
-    // A file can arrive before the first autosave, so the draft row may not exist yet.
-    let submissionId = resolved.submission?.id
+    // No "create the draft first" branch: the proposal exists from the moment the invite
+    // is minted (`core.tg_partner_form_invite_attach`), so a file chosen before the first
+    // autosave already has somewhere to hang. An open invite with no proposal behind it
+    // is a read that failed, and inventing a row here would be the second place that
+    // decides what a proposal is.
+    const submissionId = resolved.submission?.id
     if (!submissionId) {
-      const created = await saveDraft(resolved.invite.id, {})
-      submissionId = created.submissionId
-    }
-    if (!submissionId) {
-      console.error('[partner-form] no draft to attach a document to, invite', resolved.invite.id)
+      console.error('[partner-form] no proposal to attach a document to, invite', resolved.invite.id)
       return NextResponse.json({ error: 'upload_failed' }, { status: 503 })
     }
 

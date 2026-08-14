@@ -55,6 +55,13 @@ export type InviteState = 'valid' | 'invalid' | 'expired' | 'used' | 'revoked'
 
 export interface PartnerInvite {
   id: string
+  /**
+   * The proposal this link opens. The invite points at the proposal and never the other
+   * way round: the proposal belongs to the establishment and the invite is only the
+   * credential that reaches it, which is what lets a second link continue the first one's
+   * draft (`states.successPartialBody` promises exactly that).
+   */
+  submission_id: string
   client_id: string | null
   recipient_email: string
   recipient_name: string | null
@@ -67,7 +74,6 @@ export interface PartnerInvite {
 
 export interface PartnerSubmission {
   id: string
-  invite_id: string
   status: 'draft' | 'submitted' | 'promoted' | 'discarded'
   answers: PartnerAnswers
   is_partial: boolean
@@ -122,7 +128,9 @@ export async function resolveInvite(token: string): Promise<ResolvedInvite> {
 
   const { data: invite, error } = await service()
     .from(INVITES)
-    .select('id, client_id, recipient_email, recipient_name, trade_name, locale, expires_at, used_at, revoked_at')
+    .select(
+      'id, submission_id, client_id, recipient_email, recipient_name, trade_name, locale, expires_at, used_at, revoked_at'
+    )
     .eq('token_hash', hashInviteToken(token))
     .maybeSingle()
 
@@ -132,17 +140,17 @@ export async function resolveInvite(token: string): Promise<ResolvedInvite> {
   if (invite.used_at) return { state: 'used', invite }
   if (new Date(invite.expires_at).getTime() <= Date.now()) return { state: 'expired', invite }
 
-  const submission = await loadSubmission(invite.id)
+  const submission = await loadSubmission(invite.submission_id)
   const documents = submission ? await listDocuments(submission.id) : []
 
   return { state: 'valid', invite, submission: submission ?? undefined, documents }
 }
 
-async function loadSubmission(inviteId: string): Promise<PartnerSubmission | null> {
+async function loadSubmission(submissionId: string): Promise<PartnerSubmission | null> {
   const { data, error } = await service()
     .from(SUBMISSIONS)
-    .select('id, invite_id, status, answers, is_partial, submitted_at, updated_at')
-    .eq('invite_id', inviteId)
+    .select('id, status, answers, is_partial, submitted_at, updated_at')
+    .eq('id', submissionId)
     .maybeSingle()
 
   if (error || !data) return null
@@ -161,36 +169,23 @@ export async function listDocuments(submissionId: string): Promise<PartnerDocume
 }
 
 /**
- * Autosave. Upserts the draft of an invite that is still open; a submitted proposal is
- * never overwritten here — that is the same door the replay of a leaked link would use.
+ * Autosave. Never an insert: the proposal is minted together with the invite by
+ * `core.tg_partner_form_invite_attach`, so by the time anyone can type there is a row.
+ *
+ * `status = 'draft'` is a predicate of the UPDATE and not an `if` over a previous SELECT.
+ * A proposal the team already promoted or discarded matches no row and the answer is
+ * `false` — a submitted proposal is never overwritten here, which is the same door the
+ * replay of a leaked link would use.
  */
-export async function saveDraft(
-  inviteId: string,
-  answers: PartnerAnswers
-): Promise<{ ok: boolean; submissionId?: string }> {
-  const existing = await loadSubmission(inviteId)
-
-  if (existing && existing.status !== 'draft') {
-    return { ok: false }
-  }
-
-  if (existing) {
-    const { error } = await service()
-      .from(SUBMISSIONS)
-      .update({ answers, updated_at: new Date().toISOString() })
-      .eq('id', existing.id)
-      .eq('status', 'draft')
-    return { ok: !error, submissionId: existing.id }
-  }
-
+export async function saveDraft(submissionId: string, answers: PartnerAnswers): Promise<boolean> {
   const { data, error } = await service()
     .from(SUBMISSIONS)
-    .insert({ invite_id: inviteId, status: 'draft', answers })
+    .update({ answers, updated_at: new Date().toISOString() })
+    .eq('id', submissionId)
+    .eq('status', 'draft')
     .select('id')
-    .single()
 
-  if (error || !data) return { ok: false }
-  return { ok: true, submissionId: data.id }
+  return !error && Array.isArray(data) && data.length > 0
 }
 
 export type SubmitOutcome =
@@ -208,6 +203,7 @@ export type SubmitOutcome =
  */
 export async function submitProposal(
   inviteId: string,
+  submissionId: string,
   answers: PartnerAnswers,
   options: { isPartial: boolean }
 ): Promise<SubmitOutcome> {
@@ -223,37 +219,19 @@ export async function submitProposal(
   if (consumeError) return { ok: false, reason: 'write_failed' }
   if (!consumed || consumed.length === 0) return { ok: false, reason: 'already_used' }
 
-  const existing = await loadSubmission(inviteId)
-
-  if (existing) {
-    const { error } = await service()
-      .from(SUBMISSIONS)
-      .update({
-        answers,
-        status: 'submitted',
-        is_partial: options.isPartial,
-        submitted_at: consumedAt,
-        updated_at: consumedAt,
-      })
-      .eq('id', existing.id)
-    if (error) return { ok: false, reason: 'write_failed' }
-    return { ok: true, submissionId: existing.id, isPartial: options.isPartial }
-  }
-
-  const { data, error } = await service()
+  const { error } = await service()
     .from(SUBMISSIONS)
-    .insert({
-      invite_id: inviteId,
+    .update({
       answers,
       status: 'submitted',
       is_partial: options.isPartial,
       submitted_at: consumedAt,
+      updated_at: consumedAt,
     })
-    .select('id')
-    .single()
+    .eq('id', submissionId)
 
-  if (error || !data) return { ok: false, reason: 'write_failed' }
-  return { ok: true, submissionId: data.id, isPartial: options.isPartial }
+  if (error) return { ok: false, reason: 'write_failed' }
+  return { ok: true, submissionId, isPartial: options.isPartial }
 }
 
 export interface StoredDocument {
@@ -333,22 +311,73 @@ export function sanitizeFileName(name: string): string {
   return cleaned.replace(/^[.-]+/, '') || 'arquivo'
 }
 
-export interface CreateInviteInput {
-  clientId?: string | null
+/**
+ * A first contact carries the address the operator typed; a resend carries none, on
+ * purpose — see `createInvite`. The union is the enforcement: there is no shape of this
+ * input in which a resend can name a destination.
+ */
+export type CreateInviteInput =
+  | {
+      submissionId?: null
+      clientId?: string | null
+      recipientEmail: string
+      recipientName?: string | null
+      tradeName?: string | null
+      createdBy: string
+      ttlDays?: number
+    }
+  | {
+      /** The proposal this new credential opens. Everything else is read from the record. */
+      submissionId: string
+      createdBy: string
+      ttlDays?: number
+    }
+
+export interface CreatedInvite {
+  token: string
+  inviteId: string
+  submissionId: string
+  expiresAt: string
+  /** Where the link has to go. On a resend this is a fact of the record, never of the request. */
   recipientEmail: string
-  recipientName?: string | null
-  tradeName?: string | null
-  createdBy: string
-  ttlDays?: number
+  recipientName: string | null
+  tradeName: string | null
 }
+
+export type CreateInviteOutcome =
+  | { ok: true; invite: CreatedInvite }
+  | { ok: false; reason: 'unknown_submission' | 'write_failed' }
 
 /**
  * Creates an invite and returns the raw token exactly once — the caller sends it and
  * forgets it. Called only from the authenticated admin route.
+ *
+ * WHY A RESEND DOES NOT ACCEPT A DESTINATION ADDRESS:
+ *
+ * A resent link now opens the proposal that already exists, which means it hands back the
+ * CNPJ, the legal representative and the list of documents the establishment already
+ * sent. An address typed again on the resend screen — one transposed letter is enough —
+ * would deliver all of that to a stranger, and it would look like a successful send. So
+ * the destination of a resend is read from the invite already on record for that
+ * proposal, and the operator has no field that can change it.
+ *
+ * The address that went wrong is not a resend: it is a new invite, which mints a new,
+ * empty proposal and carries nothing from the old one.
+ *
+ * Which proposal a first-contact invite opens is decided by the database, not here:
+ * `core.tg_partner_form_invite_attach` mints the empty proposal and fills `submission_id`
+ * when the insert leaves it null, and refuses (`TGB26`) to point a new link at a proposal
+ * the team already promoted or discarded.
  */
-export async function createInvite(
-  input: CreateInviteInput
-): Promise<{ ok: boolean; token?: string; inviteId?: string; expiresAt?: string }> {
+export async function createInvite(input: CreateInviteInput): Promise<CreateInviteOutcome> {
+  const resend = typeof input.submissionId === 'string' ? input.submissionId : null
+  const recipient =
+    typeof input.submissionId === 'string'
+      ? await recipientOfProposal(input.submissionId)
+      : recipientOf(input)
+
+  if (!recipient) return { ok: false, reason: 'unknown_submission' }
+
   const token = generateInviteToken()
   const expiresAt = new Date(
     Date.now() + (input.ttlDays ?? INVITE_TTL_DAYS) * 24 * 60 * 60 * 1000
@@ -357,11 +386,13 @@ export async function createInvite(
   const { data, error } = await service()
     .from(INVITES)
     .insert({
-      client_id: input.clientId ?? null,
+      // Null is the first contact and is what the trigger reads as "mint the proposal".
+      submission_id: resend,
+      client_id: recipient.client_id,
       token_hash: hashInviteToken(token),
-      recipient_email: input.recipientEmail,
-      recipient_name: input.recipientName ?? null,
-      trade_name: input.tradeName ?? null,
+      recipient_email: recipient.recipient_email,
+      recipient_name: recipient.recipient_name,
+      trade_name: recipient.trade_name,
       // The form surface exists in Portuguese only: CNPJ and alvará are Brazilian
       // documents (spec do `design`, §8.3). The column exists so the day that changes
       // it is a value and not a rewrite.
@@ -369,9 +400,55 @@ export async function createInvite(
       expires_at: expiresAt,
       created_by: input.createdBy,
     })
-    .select('id')
+    .select('id, submission_id')
     .single()
 
-  if (error || !data) return { ok: false }
-  return { ok: true, token, inviteId: data.id, expiresAt }
+  if (error || !data) return { ok: false, reason: 'write_failed' }
+
+  return {
+    ok: true,
+    invite: {
+      token,
+      inviteId: data.id,
+      submissionId: data.submission_id,
+      expiresAt,
+      recipientEmail: recipient.recipient_email,
+      recipientName: recipient.recipient_name,
+      tradeName: recipient.trade_name,
+    },
+  }
+}
+
+interface InviteRecipient {
+  client_id: string | null
+  recipient_email: string
+  recipient_name: string | null
+  trade_name: string | null
+}
+
+function recipientOf(input: Extract<CreateInviteInput, { recipientEmail: string }>): InviteRecipient {
+  return {
+    client_id: input.clientId ?? null,
+    recipient_email: input.recipientEmail,
+    recipient_name: input.recipientName ?? null,
+    trade_name: input.tradeName ?? null,
+  }
+}
+
+/**
+ * The most recent invite of a proposal is who the establishment is, as far as this
+ * feature knows: it was minted by an authenticated operator. `answers` is NOT a source
+ * here — whoever holds a live link can type any address into `representative_email`, and
+ * reading it would let them redirect the next link at themselves.
+ */
+async function recipientOfProposal(submissionId: string): Promise<InviteRecipient | null> {
+  const { data, error } = await service()
+    .from(INVITES)
+    .select('client_id, recipient_email, recipient_name, trade_name')
+    .eq('submission_id', submissionId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (error || !data || data.length === 0) return null
+  return data[0] as InviteRecipient
 }

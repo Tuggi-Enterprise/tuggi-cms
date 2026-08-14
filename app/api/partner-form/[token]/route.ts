@@ -78,6 +78,14 @@ export const GET = withRateLimit(READ_PER_MINUTE, MINUTE)(
     const resolved = await resolveInvite(await tokenOf(ctx))
     if (resolved.state !== 'valid' || !resolved.invite) return closedLink(resolved)
 
+    // The proposal is now born with the invite, so `updated_at` exists before anyone has
+    // typed a character. `savedAt` is what the form turns into "we kept what you filled
+    // in" (`states.draftResumed`), and answering it on a virgin proposal would greet a
+    // first-time visitor by telling them they are resuming something they never started.
+    // What proves someone typed is an answer, not a timestamp.
+    const answers = resolved.submission?.answers ?? {}
+    const typedSomething = Object.keys(answers).length > 0
+
     return NextResponse.json({
       state: 'valid',
       invite: {
@@ -86,8 +94,8 @@ export const GET = withRateLimit(READ_PER_MINUTE, MINUTE)(
         tradeName: resolved.invite.trade_name,
         expiresAt: resolved.invite.expires_at,
       },
-      answers: resolved.submission?.answers ?? {},
-      savedAt: resolved.submission?.updated_at ?? null,
+      answers,
+      savedAt: typedSomething ? (resolved.submission?.updated_at ?? null) : null,
       documents: (resolved.documents ?? []).map((document) => ({
         id: document.id,
         kind: document.kind,
@@ -112,9 +120,13 @@ export const PUT = withRateLimit(WRITE_PER_MINUTE, MINUTE)(
     const answers = normalizeAnswers((body as { answers?: unknown }).answers)
     if (!answers) return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
 
-    const saved = await saveDraft(resolved.invite.id, answers)
+    // The invite carries the proposal it opens (`submission_id`, NOT NULL), so an open
+    // link with no proposal behind it is a read that failed, not a state to invent.
+    const saved = resolved.submission
+      ? await saveDraft(resolved.submission.id, answers)
+      : false
 
-    if (!saved.ok) {
+    if (!saved) {
       console.warn('[partner-form] draft save failed for invite', resolved.invite.id)
       return NextResponse.json({ error: 'save_failed' }, { status: 503 })
     }
@@ -151,7 +163,12 @@ export const POST = withRateLimit(WRITE_PER_MINUTE, MINUTE)(
       return NextResponse.json({ error: 'invalid_answers', problems }, { status: 400 })
     }
 
-    const outcome = await submitProposal(resolved.invite.id, answers, {
+    if (!resolved.submission) {
+      console.error('[partner-form] open invite with no proposal to submit, invite', resolved.invite.id)
+      return NextResponse.json({ error: 'submit_failed' }, { status: 503 })
+    }
+
+    const outcome = await submitProposal(resolved.invite.id, resolved.submission.id, answers, {
       isPartial: missing.length > 0,
     })
 

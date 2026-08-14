@@ -2235,6 +2235,7 @@
     "saved": "Salvo",
     "saving": "Salvando",
     "loading": "Carregando o formulário",
+    "charactersLeft": "{n, plural, one {resta # caractere} other {restam # caracteres}}",
     "actions": {
       "continue": "Continuar",
       "back": "Voltar",
@@ -2243,6 +2244,8 @@
       "edit": "Editar",
       "restart": "Recomeçar do zero",
       "restartConfirm": "Isso apaga tudo o que você preencheu. Quer mesmo recomeçar?",
+      "restartConfirmYes": "Apagar e recomeçar",
+      "restartConfirmNo": "Voltar",
       "seeExample": "Ver um exemplo",
       "retry": "Tentar de novo"
     },
@@ -2387,12 +2390,12 @@
       "representative_email": {
         "label": "E-mail",
         "help": "É para este endereço que o contrato vai. Confira com calma.",
-        "requiredError": "Preencha o e-mail."
+        "requiredError": "Preencha o e-mail de quem responde pelo estabelecimento."
       },
       "representative_phone": {
         "label": "Telefone com WhatsApp",
         "help": "A gente usa para falar sobre esta parceria. Não entra em lista de mensagens.",
-        "requiredError": "Preencha o telefone."
+        "requiredError": "Preencha o telefone com WhatsApp."
       },
       "story_founder": {
         "label": "Quem começou este lugar, e quando?",
@@ -2431,14 +2434,13 @@
     },
     "errors": {
       "summary": "{count, plural, one {Falta # coisa neste passo.} other {Faltam # coisas neste passo.}}",
-      "required": "Preencha este campo.",
       "email_malformed": "Este e-mail não parece completo. Confira antes de continuar.",
       "phone_short": "Escreva o telefone com DDD.",
-      "cnpj_incomplete": "O CNPJ tem 14 caracteres. Faltam {n}.",
+      "cnpj_incomplete": "O CNPJ tem 14 caracteres. {n, plural, one {Falta # caractere} other {Faltam # caracteres}}.",
       "cnpj_invalid": "Este CNPJ não confere. Confira os 14 caracteres — inclusive as letras, se o seu tiver.",
       "postal_code": "O CEP tem 8 números.",
       "license_date_past": "Esta data já passou. Se o alvará venceu, envie o renovado — sem alvará vigente não dá para assinar o contrato.",
-      "too_long": "Este texto ficou comprido demais. Encurte um pouco.",
+      "too_long": "Você passou de {max} caracteres. Tire {over} para continuar.",
       "file_too_large": "Este arquivo tem {size} MB e o limite é {max} MB. Se for foto, tire de novo com menos zoom; se for PDF, mande só as páginas necessárias.",
       "file_type_refused": "A gente aceita PDF, JPG, PNG e HEIC. Este arquivo é {ext} — exporte em PDF e envie de novo.",
       "upload_failed": "Este arquivo não terminou de subir."

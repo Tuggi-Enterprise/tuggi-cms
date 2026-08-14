@@ -27,6 +27,9 @@ import {
  * and the error carries an icon AND text (DS-A11Y-003), never colour alone.
  */
 
+/** Fraction of the limit at which the remaining budget becomes visible (spec §6). */
+const COUNTER_THRESHOLD = 0.8
+
 interface PartnerFormFieldProps {
   field: PartnerField
   value: string
@@ -49,9 +52,21 @@ export function PartnerFormField({
   const inputId = `partner-field-${field.id}`
   const helpId = `${inputId}-help`
   const errorId = `${inputId}-error`
+  const counterId = `${inputId}-counter`
 
   const help = t(`fields.${field.id}.help`)
-  const describedBy = [help ? helpId : null, problem ? errorId : null].filter(Boolean).join(' ')
+
+  // The counter exists only where the limit is soft. A textarea has no `maxLength` on
+  // purpose (below), so nothing stops the person at the limit: the warning has to arrive
+  // before the damage, and the last fifth of the budget is where it is still cheap to
+  // shorten. Inputs keep their hard limit and need no counter.
+  const remaining = field.maxLength - value.length
+  const showCounter =
+    field.type === 'textarea' && remaining >= 0 && value.length >= field.maxLength * COUNTER_THRESHOLD
+
+  const describedBy = [help ? helpId : null, showCounter ? counterId : null, problem ? errorId : null]
+    .filter(Boolean)
+    .join(' ')
 
   const controlClass = `${FIELD_CONTROL}${problem ? ` ${FIELD_CONTROL_INVALID}` : ''}`
 
@@ -79,6 +94,12 @@ export function PartnerFormField({
 
       {renderControl()}
 
+      {showCounter ? (
+        <p id={counterId} className={FIELD_HELP}>
+          {t('charactersLeft', { n: remaining })}
+        </p>
+      ) : null}
+
       {nudge}
 
       {problem ? (
@@ -93,14 +114,13 @@ export function PartnerFormField({
   function renderControl() {
     switch (field.type) {
       case 'textarea':
-        return (
-          <textarea
-            {...shared}
-            rows={3}
-            maxLength={field.maxLength}
-            onChange={(event) => onChange(event.target.value)}
-          />
-        )
+        // No `maxLength`, deliberately: with it, pasting a long story TRUNCATES IN
+        // SILENCE — the person loses the end of their own text without a word, and
+        // `errors.too_long`, which says how much to cut, becomes unreachable exactly when
+        // it is the right message. The limit is enforced on submit (`validateAnswers`),
+        // and the counter above warns before it is reached.
+        return <textarea {...shared} rows={3} onChange={(event) => onChange(event.target.value)} />
+
 
       case 'select':
         return (
@@ -185,6 +205,12 @@ function optionsOf(
  * The required message names the field, always — "Preencha o nome do estabelecimento",
  * never "campo obrigatório". Everything else comes from the shared error table, so the
  * server's 400 and this summary cannot disagree.
+ *
+ * There is NO generic fallback, and that is the point: `errors.required` was removed
+ * because a field whose copy is missing has to fail loudly (the promise `fields.ts`
+ * makes) instead of rendering a sentence that helps nobody and that nobody discovers.
+ * A missing key surfaces as the key itself, and the suite refuses it
+ * (`tests/api/partner-form.test.ts`, DS-COMPONENTE-016).
  */
 export function errorMessage(
   t: (key: string, values?: Record<string, string | number>) => string,
@@ -193,11 +219,14 @@ export function errorMessage(
   value: string
 ): string {
   if (problem.code === 'required') {
-    const named = t(`fields.${field.id}.requiredError`)
-    return named || t('errors.required')
+    return t(`fields.${field.id}.requiredError`)
   }
   if (problem.code === 'cnpj_incomplete') {
     return t('errors.cnpj_incomplete', { n: cnpjCharactersMissing(value) })
+  }
+  if (problem.code === 'too_long') {
+    // DS-COPY-002: saying what to do includes saying how much.
+    return t('errors.too_long', { max: field.maxLength, over: value.length - field.maxLength })
   }
   return t(`errors.${problem.code}`)
 }

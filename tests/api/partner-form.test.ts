@@ -272,6 +272,8 @@ interface FakeState {
   documents: Record<string, any>[]
   /** Every table the fake was pointed at, so a write to core.clients would be visible. */
   touchedTables: string[]
+  /** Every message handed to `send-transactional`, so the destination is inspectable. */
+  emails: { to: unknown; data: Record<string, unknown> }[]
 }
 
 let state: FakeState
@@ -303,7 +305,13 @@ function createFakeService(current: () => FakeState) {
         return matched
       }
       if (operation === 'insert') {
-        const inserted = { id: `${tableName}-${Math.random().toString(36).slice(2, 8)}`, ...payload }
+        const inserted = {
+          id: `${tableName}-${Math.random().toString(36).slice(2, 8)}`,
+          // The three tables default `created_at` in the database; ordering by it is a
+          // real read here (`recipientOfProposal`, `listDocuments`).
+          created_at: new Date().toISOString(),
+          ...payload,
+        }
         ;(current() as any)[tableName].push(inserted)
         return [inserted]
       }
@@ -312,12 +320,31 @@ function createFakeService(current: () => FakeState) {
         for (const row of matched) table.splice(table.indexOf(row), 1)
         return matched
       }
-      return matched
+
+      const sorting = sort
+      const ordered = sorting
+        ? [...matched].sort(
+            (a, b) =>
+              String(a[sorting.column] ?? '').localeCompare(String(b[sorting.column] ?? '')) *
+              (sorting.ascending ? 1 : -1)
+          )
+        : matched
+      return ordered.slice(0, take)
     }
+
+    let sort: { column: string; ascending: boolean } | null = null
+    let take = Infinity
 
     const chain: any = {
       select: () => chain,
-      order: () => chain,
+      order: (column: string, options?: { ascending?: boolean }) => {
+        sort = { column, ascending: options?.ascending !== false }
+        return chain
+      },
+      limit: (count: number) => {
+        take = count
+        return chain
+      },
       eq: (column: string, value: unknown) => {
         filters.push([column, value])
         return chain
@@ -366,16 +393,30 @@ function createFakeService(current: () => FakeState) {
         remove: async () => ({ error: null }),
       }),
     },
+    functions: {
+      invoke: async (_name: string, options: { body: Record<string, any> }) => {
+        current().emails.push({ to: options.body?.to, data: options.body?.data ?? {} })
+        return { data: { ok: true }, error: null }
+      },
+    },
   }
 }
 
 const OPEN_TOKEN = 'a'.repeat(43)
+const SUBMISSION_ID = '22222222-2222-2222-2222-222222222222'
 
+/**
+ * The invite points at the proposal, and the proposal is minted WITH it by
+ * `core.tg_partner_form_invite_attach` — so an open link always has a row behind it, and
+ * that row is a draft with no answers until somebody types. Seeding the other way round
+ * (a link with no proposal) would be a state the database cannot produce.
+ */
 function freshState(overrides: Partial<Record<string, any>> = {}): FakeState {
   return {
     invites: [
       {
         id: 'invite-1',
+        submission_id: SUBMISSION_ID,
         client_id: null,
         token_hash: '',
         recipient_email: 'antonio@cantina.com.br',
@@ -385,30 +426,74 @@ function freshState(overrides: Partial<Record<string, any>> = {}): FakeState {
         expires_at: new Date(Date.now() + 86_400_000).toISOString(),
         used_at: null,
         revoked_at: null,
+        created_at: new Date('2026-08-10T09:00:00Z').toISOString(),
         ...overrides,
       },
     ],
-    submissions: [],
+    submissions: [
+      {
+        id: SUBMISSION_ID,
+        status: 'draft',
+        answers: {},
+        is_partial: false,
+        submitted_at: null,
+        created_at: new Date('2026-08-10T09:00:00Z').toISOString(),
+        updated_at: new Date('2026-08-10T09:00:00Z').toISOString(),
+      },
+    ],
     documents: [],
     touchedTables: [],
+    emails: [],
   }
 }
 
 let GET: (req: any, ctx: any) => Promise<Response>
 let PUT: (req: any, ctx: any) => Promise<Response>
 let POST: (req: any, ctx: any) => Promise<Response>
+let CREATE_INVITE: (req: any, ctx?: any) => Promise<Response>
 let hashInviteToken: (token: string) => string
 let submitProposal: (
   inviteId: string,
+  submissionId: string,
   answers: any,
   options: { isPartial: boolean }
 ) => Promise<{ ok: boolean; reason?: string }>
 
+/** An authenticated CMS user with the admin role — the only one who may mint a link. */
+function createFakeAuthClient() {
+  const chain: any = {
+    select: () => chain,
+    eq: () => chain,
+    maybeSingle: async () => ({
+      data: { email: 'admin@tuggi.app', role: 'admin', is_active: true },
+      error: null,
+    }),
+  }
+
+  return {
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: 'cms-user-1', email: 'admin@tuggi.app' } },
+        error: null,
+      }),
+    },
+    schema: () => ({ from: () => chain }),
+  }
+}
+
 before(async () => {
+  // The admin route builds the operator's URL from this, falling back to
+  // `req.nextUrl.origin` — which a plain `Request` does not have.
+  process.env.NEXT_PUBLIC_APP_URL ??= 'https://cms.tuggi.app'
+
+  mock.module('next/headers', {
+    namedExports: { cookies: async () => ({ get: () => undefined, getAll: () => [] }) },
+  })
+
   mock.module('@/lib/core/supabase-client', {
     namedExports: {
       getSupabaseService: () => createFakeService(() => state),
-      getSupabaseRouteHandler: () => ({}),
+      getSupabaseRouteHandler: () => createFakeAuthClient(),
       getSupabaseClient: () => ({}),
     },
   })
@@ -421,6 +506,9 @@ before(async () => {
   GET = route.GET as any
   PUT = route.PUT as any
   POST = route.POST as any
+
+  const adminRoute = await import('@/app/api/admin/partner-invites/route')
+  CREATE_INVITE = adminRoute.POST as any
 })
 
 function request(method: string, body?: unknown, ip = '10.0.0.1') {
@@ -464,8 +552,8 @@ test('BR-B2B-026: two simultaneous submissions of the same link produce exactly 
   state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
 
   const outcomes = await Promise.all([
-    submitProposal('invite-1', completeAnswers(), { isPartial: true }),
-    submitProposal('invite-1', completeAnswers(), { isPartial: true }),
+    submitProposal('invite-1', SUBMISSION_ID, completeAnswers(), { isPartial: true }),
+    submitProposal('invite-1', SUBMISSION_ID, completeAnswers(), { isPartial: true }),
   ])
 
   assert.equal(outcomes.filter((outcome) => outcome.ok).length, 1, 'exactly one winner')
@@ -494,13 +582,7 @@ test('BR-B2B-026: the public route never touches core.clients', async () => {
 test('a used link answers with the date and none of the submitted data', async () => {
   state = freshState({ used_at: new Date('2026-08-10T10:00:00Z').toISOString() })
   state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
-  state.submissions.push({
-    id: 'submission-1',
-    invite_id: 'invite-1',
-    status: 'submitted',
-    answers: completeAnswers(),
-    is_partial: false,
-  })
+  Object.assign(state.submissions[0], { status: 'submitted', answers: completeAnswers() })
 
   const response = await GET(request('GET', undefined, '10.0.0.4'), context)
   const payload = await response.json()
@@ -532,7 +614,8 @@ test('an unknown token is refused without a write', async () => {
   const response = await POST(request('POST', { answers: completeAnswers() }, '10.0.0.6'), context)
 
   assert.equal(response.status, 404)
-  assert.equal(state.submissions.length, 0)
+  assert.deepEqual(state.submissions[0].answers, {}, 'nothing was written into the proposal')
+  assert.equal(state.submissions[0].status, 'draft')
 })
 
 test('a body with only forbidden keys is refused, and nothing is persisted', async () => {
@@ -547,17 +630,15 @@ test('a body with only forbidden keys is refused, and nothing is persisted', asy
 
   assert.equal(response.status, 400)
   assert.equal(payload.error, 'invalid_answers')
-  assert.equal(state.submissions.length, 0)
+  assert.deepEqual(state.submissions[0].answers, {}, 'a refused submission writes nothing')
+  assert.equal(state.submissions[0].status, 'draft')
   assert.equal(state.invites[0].used_at, null, 'a refused submission does not consume the link')
 })
 
 test('a draft is never erased by a body the schema refuses', async () => {
   state = freshState()
   state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
-  state.submissions.push({
-    id: 'submission-1',
-    invite_id: 'invite-1',
-    status: 'draft',
+  Object.assign(state.submissions[0], {
     answers: completeAnswers(),
     updated_at: new Date('2026-08-13T10:00:00Z').toISOString(),
   })
@@ -578,11 +659,141 @@ test('a draft is never erased by a body the schema refuses', async () => {
 test('an empty draft is still a valid autosave — the refusal above is not a blanket ban', async () => {
   state = freshState()
   state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
+  Object.assign(state.submissions[0], { answers: completeAnswers() })
+  const before = state.submissions[0].updated_at
 
   const response = await PUT(request('PUT', { answers: {} }, '10.0.0.10'), context)
 
   assert.equal(response.status, 200)
-  assert.equal(state.submissions.length, 1, 'the restart button relies on this path')
+  assert.deepEqual(state.submissions[0].answers, {}, 'the restart button relies on this path')
+  assert.notEqual(state.submissions[0].updated_at, before, 'the autosave reached the proposal')
+})
+
+test('#341: a link nobody has typed into does not claim the person is resuming anything', async () => {
+  // The proposal is now minted WITH the invite, so `updated_at` exists before the first
+  // visit. Handing it back as `savedAt` made the form open on `states.draftResumed` —
+  // "a gente guardou o que você preencheu" — to someone who had never seen the page,
+  // next to a `Recomeçar do zero` button for a form with nothing in it.
+  state = freshState()
+  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
+
+  const virgin = await (await GET(request('GET', undefined, '10.0.0.11'), context)).json()
+  assert.equal(virgin.savedAt, null, 'nothing was typed, so there is nothing to resume')
+
+  state.submissions[0].answers = { trade_name: 'Cantina do Antônio' }
+  const typed = await (await GET(request('GET', undefined, '10.0.0.11'), context)).json()
+  assert.equal(typed.savedAt, state.submissions[0].updated_at, 'one answer is enough to be a draft')
+})
+
+// ── Resending a link: the proposal survives, and the operator does not choose where it goes ──
+
+function adminRequest(body: Record<string, unknown>, ip = '10.0.1.1') {
+  return new Request('http://localhost/api/admin/partner-invites', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
+    body: JSON.stringify(body),
+  })
+}
+
+/** The raw token exists once, in the URL the route hands back to the operator. */
+function tokenOfUrl(url: string): string {
+  return new URL(url).pathname.split('/').filter(Boolean).pop() ?? ''
+}
+
+test('BR-B2B-026: a resent link continues the proposal already there — nothing is filled in twice', async () => {
+  // What the published copy promises the partner in `states.successPartialBody`: "A gente
+  // manda um link para você enviar — não precisa preencher o resto de novo." It only holds
+  // if the new credential reaches the SAME proposal; a link that opens a fresh one makes
+  // the person lose the CNPJ, the representative and the documents they already sent.
+  state = freshState()
+  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
+  state.submissions[0].answers = completeAnswers()
+  state.documents.push({
+    id: 'document-1',
+    submission_id: SUBMISSION_ID,
+    kind: 'business_license',
+    storage_path: `${SUBMISSION_ID}/business_license/alvara.pdf`,
+    file_name: 'alvara.pdf',
+    byte_size: 120_000,
+    mime_type: 'application/pdf',
+  })
+
+  const response = await CREATE_INVITE(adminRequest({ submissionId: SUBMISSION_ID }), {})
+  const payload = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.submissionId, SUBMISSION_ID, 'the new link opens the proposal that exists')
+  assert.equal(state.invites.length, 2)
+  assert.equal(state.invites[1].submission_id, SUBMISSION_ID)
+
+  // End to end: the token the operator will send opens the draft, not an empty form.
+  const resent = { params: Promise.resolve({ token: tokenOfUrl(payload.url) }) }
+  const opened = await (await GET(request('GET', undefined, '10.0.0.12'), resent)).json()
+
+  assert.equal(opened.state, 'valid')
+  assert.equal(opened.answers.tax_id, completeAnswers().tax_id, 'the CNPJ is still there')
+  assert.equal(opened.documents.length, 1, 'and so is the licence already sent')
+  assert.equal(state.submissions.length, 1, 'no second proposal was created')
+})
+
+test('BR-B2B-026: a resend takes no destination address from the request', async () => {
+  // A resent link hands back the CNPJ, the legal representative and the documents. An
+  // address retyped on the resend screen — one transposed letter is enough — would
+  // deliver all of it to a stranger, and the operator would see a successful send. The
+  // destination is a fact of the record.
+  state = freshState()
+
+  const response = await CREATE_INVITE(
+    adminRequest({ submissionId: SUBMISSION_ID, recipientEmail: 'atacante@exemplo.com' }, '10.0.1.2'),
+    {}
+  )
+  const payload = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.recipientEmail, 'antonio@cantina.com.br', 'the answer names where it went')
+  assert.equal(state.invites[1].recipient_email, 'antonio@cantina.com.br')
+  assert.equal(state.emails[state.emails.length - 1]?.to, 'antonio@cantina.com.br')
+  assert.equal(
+    JSON.stringify(state.emails).includes('atacante@exemplo.com'),
+    false,
+    'the address in the body reached nothing'
+  )
+})
+
+test('#341: a resend for a proposal with no invite on record is refused, not sent somewhere', async () => {
+  state = freshState()
+
+  const unknown = await CREATE_INVITE(
+    adminRequest({ submissionId: '33333333-3333-3333-3333-333333333333' }, '10.0.1.3'),
+    {}
+  )
+  assert.equal(unknown.status, 404)
+
+  const malformed = await CREATE_INVITE(adminRequest({ submissionId: 'submission-1' }, '10.0.1.4'), {})
+  assert.equal(malformed.status, 400)
+
+  assert.equal(state.invites.length, 1, 'no credential was minted')
+  assert.equal(state.emails.length, 0, 'and nothing was sent')
+})
+
+test('#341: a first contact still needs the address the operator types', async () => {
+  state = freshState()
+
+  const noEmail = await CREATE_INVITE(adminRequest({ recipientName: 'Antônio' }, '10.0.1.5'), {})
+  assert.equal(noEmail.status, 400)
+  assert.equal((await noEmail.json()).error, 'invalid_recipient_email')
+
+  const created = await CREATE_INVITE(
+    adminRequest({ recipientEmail: 'contato@pousada.com.br', tradeName: 'Pousada do Farol' }, '10.0.1.6'),
+    {}
+  )
+  const payload = await created.json()
+
+  assert.equal(created.status, 200)
+  assert.equal(payload.recipientEmail, 'contato@pousada.com.br')
+  // Null is what the database trigger reads as "this is a first contact, mint the
+  // proposal": a first invite must never point at somebody else's proposal.
+  assert.equal(state.invites[1].submission_id, null)
 })
 
 // ── The upload limit has to be a limit the platform lets us enforce ──
