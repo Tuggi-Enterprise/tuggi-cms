@@ -76,8 +76,12 @@ test('BR-B2B-026: the partner form opens with no session — the same failure in
 })
 
 test('the token pages are public under every locale the routing declares', async () => {
+  // Literals, not the constant: a loop over a list somebody shortened passes by being
+  // empty, which is the same silence this suite exists to break.
+  assert.deepEqual([...PUBLIC_PATH_PREFIXES], ['/parceria', '/contrato'])
+
   for (const locale of ['en', 'pt', 'es']) {
-    for (const prefix of PUBLIC_PATH_PREFIXES) {
+    for (const prefix of ['/parceria', '/contrato']) {
       const answer = await visit(`/${locale}${prefix}/${TOKEN}`)
       assert.equal(answer.status, 200, `${locale}${prefix} must not be gated`)
     }
