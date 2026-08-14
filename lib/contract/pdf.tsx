@@ -144,7 +144,9 @@ function AcceptanceAppendix({
     ['Data e hora', formatDateTime(acceptance.acceptedAt)],
     ['E-mail do convite', acceptance.recipientEmail],
     ['Endereço IP', acceptance.ipAddress],
-    ['Agente de usuário', acceptance.userAgent],
+    // Declared by the client, and the appendix has to say so: everything else in this list
+    // is written by us or by the edge, and a reader would take this one for the same thing.
+    ['Agente de usuário (declarado pelo navegador)', acceptance.userAgent],
     ['Versão do modelo', snapshot.templateVersion],
     ['Valor aceito', snapshot.isCourtesy ? 'Cortesia, sem mensalidade' : formatFee(snapshot.monthlyFeeCents)],
   ]

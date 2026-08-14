@@ -27,8 +27,11 @@
  *
  * THE SIGNED FILE IS FINISHED ON RETRY, NOT DUPLICATED. Acceptance is written before the
  * signed PDF is rendered, so a crash in between leaves a real acceptance with no archive.
- * The "already accepted" path completes it instead of failing, and the upload is an
- * overwrite of one deterministic path — never a second file with a second hash.
+ * The "already accepted" path completes it instead of failing. Which render becomes THE
+ * archive is decided by the database, not by arrival order: the file is named after its own
+ * hash and the trail is claimed with `update ... where signed_document_path is null`, so
+ * the bytes in the bucket and the hash in the trail are always the same pair — see
+ * `archiveSignedDocument`.
  */
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
@@ -329,6 +332,22 @@ export interface ResolvedContract {
 }
 
 /**
+ * The ruler for "may this token still see the document", and the ONLY one.
+ *
+ * There are two doors to the same instrument — the page and the PDF route — and they used
+ * to carry different rules: the page refused `expired`, `superseded` and `terminated` in
+ * words, while `/api/contract/[token]/pdf` only checked `invalid` and handed the file over,
+ * with the CNPJ, the address, the legal representative and the fee in it. A link that is
+ * dead in one door and open in the other is not a rule, it is an accident.
+ *
+ * It answers by allow-list on purpose: a state added later is closed until someone decides
+ * it is not.
+ */
+export function canServeDocument(state: SigningState): boolean {
+  return state === 'open' || state === 'signed'
+}
+
+/**
  * Resolves a raw token into the contract and its acceptance.
  *
  * A signed link keeps working and answers `signed` WITH the acceptance: the receipt is
@@ -520,6 +539,25 @@ async function sendSignedCopy(input: {
  * appendix. `signed_document_hash` is the archive copy, which is the file the partner
  * downloads and the one `Conferir integridade` checks. A document cannot contain its own
  * hash, so conflating the two would leave the trail proving nothing.
+ *
+ * WHY THE FILE IS NAMED AFTER ITS OWN HASH, AND WHY THE TRAIL IS CLAIMED.
+ *
+ * Two requests can reach here for the SAME acceptance — two taps, a retry, the "tentar de
+ * novo" button — and rendering is not deterministic (`lib/contract/pdf.tsx`: the PDF
+ * carries a creation timestamp), so each one produces different bytes with a different
+ * hash. Writing both to one path and letting both UPDATE the trail is how the bucket ends
+ * up holding one render while the trail names the other: `Conferir integridade` would then
+ * answer `mismatch` FOREVER on an acceptance nobody tampered with, and the columns are
+ * write-once (`core.tg_partner_contract_acceptance_guard`, SQLSTATE TGB17), so there is no
+ * correcting it afterwards. A document whose only job is to be proof would be accusing
+ * itself.
+ *
+ * So: the path carries the hash — two renders are two files and neither can overwrite the
+ * other — and the trail is claimed with `update ... where signed_document_path is null`,
+ * whose affected-row count elects the archive. Same doctrine as the `used_at is null` of
+ * #341: the race is settled by Postgres, not by an `if` in JavaScript. Whoever loses the
+ * claim returns the winner's row, so a legitimate signer never sees a failure, and its own
+ * bytes stay in the bucket unnamed by any row.
  */
 async function archiveSignedDocument(
   contract: ContractRow,
@@ -544,8 +582,11 @@ async function archiveSignedDocument(
   }
 
   const signedHash = sha256Hex(pdf)
-  const path = `${contract.client_id}/${contract.id}-assinado.pdf`
+  const path = `${contract.client_id}/${contract.id}-assinado-${signedHash.slice(0, 16)}.pdf`
 
+  // Upload BEFORE claiming. The claim is what makes these bytes the archive, so the bytes
+  // have to be there first: claiming and then failing to upload would leave the trail
+  // naming a file that does not exist, write-once and unfixable.
   const { error: uploadError } = await getSupabaseService()
     .storage.from(PARTNER_CONTRACTS_BUCKET)
     .upload(path, pdf, { contentType: 'application/pdf', upsert: true })
@@ -559,12 +600,22 @@ async function archiveSignedDocument(
     .from(ACCEPTANCES)
     .update({ signed_document_hash: signedHash, signed_document_path: path })
     .eq('id', acceptance.id)
+    .is('signed_document_path', null)
     .select(ACCEPTANCE_COLUMNS)
-    .single()
 
-  if (error || !data) {
+  if (error) {
     console.error('[contract] acceptance update failed for contract', contract.id)
     return null
+  }
+
+  const claimed = Array.isArray(data) ? (data[0] as unknown as AcceptanceRow | undefined) : undefined
+
+  if (!claimed) {
+    // Another request archived this same acceptance first. Its bytes and its hash are the
+    // pair the trail names; ours are an orphan object nobody reads. Returning the winner's
+    // row is what keeps a real signature from answering 503 to the person who signed.
+    console.warn('[contract] archive already claimed for contract', contract.id)
+    return await getAcceptance(contract.id)
   }
 
   const { error: statusError } = await service()
@@ -576,7 +627,7 @@ async function archiveSignedDocument(
     console.error('[contract] status update failed for contract', contract.id)
   }
 
-  return data as unknown as AcceptanceRow
+  return claimed
 }
 
 /** The version a new contract is generated with, exported so routes do not import two modules. */

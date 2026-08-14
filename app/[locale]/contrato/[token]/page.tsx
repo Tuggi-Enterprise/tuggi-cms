@@ -4,7 +4,12 @@ import { SigningSurface } from '@/components/contract/SigningSurface'
 import { CONTRACT_LOCALE, contractPath } from '@/lib/contract/link'
 import { formatTaxId } from '@/lib/contract/snapshot'
 import { shortHash } from '@/lib/contract/hash'
-import { markOpened, resolveSigningToken } from '@/lib/services/partner-contract-service'
+import {
+  canServeDocument,
+  markOpened,
+  resolveSigningToken,
+  type SigningState,
+} from '@/lib/services/partner-contract-service'
 import { BUTTON_SECONDARY } from '@/components/partner-form/styles'
 
 /**
@@ -52,40 +57,11 @@ export default async function ContractSigningPage({
 
   const resolved = await resolveSigningToken(token)
 
-  if (resolved.state === 'invalid' || !resolved.contract) {
-    return (
-      <Closed
-        title="Este link não é válido."
-        detail="Confira se você copiou o endereço inteiro do e-mail."
-      />
-    )
-  }
-
-  if (resolved.state === 'expired') {
-    return (
-      <Closed
-        title="Este link expirou."
-        detail="Responda o e-mail que a gente manda um novo — o contrato continua o mesmo."
-      />
-    )
-  }
-
-  if (resolved.state === 'superseded') {
-    return (
-      <Closed
-        title="Este contrato foi substituído por uma versão nova."
-        detail="Use o link do e-mail mais recente."
-      />
-    )
-  }
-
-  if (resolved.state === 'terminated') {
-    return (
-      <Closed
-        title="Este contrato foi encerrado."
-        detail="Se você acha que isso está errado, responda o e-mail que a gente confere."
-      />
-    )
+  // Who may still see the document is decided in ONE place — `canServeDocument` — and the
+  // PDF route reads the same function. What is per-state here is only the copy.
+  if (!canServeDocument(resolved.state) || !resolved.contract) {
+    const closed = CLOSED_COPY[resolved.state] ?? CLOSED_COPY.invalid
+    return <Closed title={closed.title} detail={closed.detail} />
   }
 
   const contract = resolved.contract
@@ -145,6 +121,32 @@ export default async function ContractSigningPage({
       />
     </main>
   )
+}
+
+/**
+ * A closed link says WHY, in the words of the spec do `design` (§4.2), and a state with no
+ * entry falls back to "not valid" — the least it can say. The unknown state is `invalid`,
+ * never the document.
+ */
+const CLOSED_COPY: Partial<Record<SigningState, { title: string; detail: string }>> & {
+  invalid: { title: string; detail: string }
+} = {
+  invalid: {
+    title: 'Este link não é válido.',
+    detail: 'Confira se você copiou o endereço inteiro do e-mail.',
+  },
+  expired: {
+    title: 'Este link expirou.',
+    detail: 'Responda o e-mail que a gente manda um novo — o contrato continua o mesmo.',
+  },
+  superseded: {
+    title: 'Este contrato foi substituído por uma versão nova.',
+    detail: 'Use o link do e-mail mais recente.',
+  },
+  terminated: {
+    title: 'Este contrato foi encerrado.',
+    detail: 'Se você acha que isso está errado, responda o e-mail que a gente confere.',
+  },
 }
 
 /** A link that is not open says so and shows nothing else — no CNPJ, no name, no value. */

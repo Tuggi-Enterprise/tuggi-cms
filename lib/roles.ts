@@ -19,6 +19,35 @@ export function isClient(role?: string | null): boolean {
   return role === ROLE_CLIENT
 }
 
+// ── The public surface of the CMS ──────────────────────────────────────────────────────
+//
+// SSOT for "which pages are served without a CMS session". `proxy.ts` reads it and states
+// nothing of its own: the list used to live inline in the middleware, and the two pages
+// #341 and #342 exist FOR people who have no account here (`/parceria/<token>` and
+// `/contrato/<token>`) were never added to it — so the whole external half answered 307 to
+// `/login` and the feature did not exist for anyone outside. `tests/api/public-pages.test.ts`
+// is what makes removing an entry from here fail out loud instead of silently.
+//
+// Public means "no session required", never "no credential required": both token pages are
+// reached only by a 256-bit single-use token that is stored as a hash, and the write half of
+// each lives behind a rate-limited `/api` route that the matcher never sends here anyway.
+
+/** Paths served without a session, matched WHOLE. */
+export const PUBLIC_EXACT_PATHS = ['/login', '/client-signup', '/debug', '/unauthorized'] as const
+
+/**
+ * Paths whose SEGMENT prefix is public, because the credential is the next segment.
+ * Exact prefixes on purpose: `/parceria-interna` is not `/parceria`, and loosening the
+ * middleware matcher instead of this list would open every page under a locale.
+ */
+export const PUBLIC_PATH_PREFIXES = ['/parceria', '/contrato'] as const
+
+/** `path` is the pathname WITHOUT the locale prefix — `/contrato/abc`, never `/pt/contrato/abc`. */
+export function isPublicPath(path: string): boolean {
+  if ((PUBLIC_EXACT_PATHS as readonly string[]).includes(path)) return true
+  return PUBLIC_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))
+}
+
 export const ALLOWED_CLIENT_PATHS = [
   '/pois',
   '/pois/',

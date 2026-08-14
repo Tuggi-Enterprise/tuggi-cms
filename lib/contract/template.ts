@@ -333,8 +333,10 @@ const V1: ContractTemplate = {
           'declaração expressa de aceite e pela digitação do seu nome completo, ato que as partes reconhecem ' +
           'como a sua assinatura.',
         'A TUGGI registra e conserva, como prova da assinatura: o resumo criptográfico SHA-256 do documento ' +
-          'exibido, a versão deste modelo, o endereço IP e o agente de usuário utilizados, a data e a hora ' +
+          'exibido, a versão deste modelo, o endereço IP registrado pelo servidor, a data e a hora ' +
           'do servidor, e o endereço de e-mail ao qual o endereço eletrônico de uso único foi enviado.',
+        'A TUGGI registra também o agente de usuário informado pelo navegador utilizado no aceite. Esse ' +
+          'dado é declaração do próprio navegador, e não é conservado como prova de dispositivo.',
         `Este documento corresponde à versão ${s.templateVersion} do modelo de contrato da TUGGI, gerada em ` +
           `${formatDate(s.generatedAt)}.`,
         'As partes dispensam a assinatura de testemunhas, na forma do art. 784, §4º, do Código de Processo ' +

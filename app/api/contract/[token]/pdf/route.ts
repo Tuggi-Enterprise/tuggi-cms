@@ -7,7 +7,9 @@
  * the file it names.
  *
  * Before signature it serves the document as generated — the one the reader is being asked
- * to accept — and after signature the signed copy with the acceptance appendix. Both come
+ * to accept — and after signature the signed copy with the acceptance appendix. A link that
+ * is no longer open serves neither: the state gate is `canServeDocument`, the same function
+ * the page calls, because two doors to one document may not have two rules. Both come
  * from `lib/services/partner-contract-service.ts`, which is where `service_role` lives;
  * this file never touches it, which is what keeps `withPublicRoute` legitimate here
  * (`scripts/check-route-policies.ts`).
@@ -15,7 +17,12 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { withPublicRoute, withRateLimit } from '@/lib/auth-middleware'
-import { downloadDocument, getAcceptance, resolveSigningToken } from '@/lib/services/partner-contract-service'
+import {
+  canServeDocument,
+  downloadDocument,
+  getAcceptance,
+  resolveSigningToken,
+} from '@/lib/services/partner-contract-service'
 
 const PUBLIC_REASON =
   'The partner reads and files their own contract without a CMS login (BR-B2B-026, item 2)'
@@ -31,8 +38,11 @@ export const GET = withRateLimit(20, 60_000)(
     const token = typeof params?.token === 'string' ? params.token : ''
 
     const resolved = await resolveSigningToken(token)
-    if (!resolved.contract || resolved.state === 'invalid') {
-      return NextResponse.json({ state: 'invalid' }, { status: 404 })
+    // The same ruler the page reads (`canServeDocument`), and not a copy of it: an expired,
+    // superseded or terminated link used to be refused in words on the page and answered
+    // with the whole document here.
+    if (!resolved.contract || !canServeDocument(resolved.state)) {
+      return NextResponse.json({ state: resolved.state }, { status: 404 })
     }
 
     const acceptance =
