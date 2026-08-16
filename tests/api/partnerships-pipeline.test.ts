@@ -1,0 +1,918 @@
+/**
+ * The partnership pipeline on one surface — #359, épico #356.
+ *
+ * The card's obligatory case is the defect it was measured against: of the 6 clients with a
+ * `welcome_poi_id`, 3 have ZERO trigger points — places that are published, intact, and mute.
+ * So the assertions that matter most are the ones about the middle class of pendency
+ * (`silences_app`) and about the act that starts money, and each of those is proved twice:
+ * once on the pure decision and once end to end through the route.
+ *
+ * Mutations run against this suite, each one turning it red:
+ *  · dropping `activeTriggerPointCount === 0` from `buildPlaceReadiness`;
+ *  · moving `boundary` out of `improves`;
+ *  · making `buildPublishPlan` answer `paid_starts` without a description on air;
+ *  · letting the publish route write a second column.
+ *
+ * Run with: npm run test:api
+ */
+
+import { test, before, mock } from 'node:test'
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+import {
+  PENDENCY_CLASS,
+  buildPlaceReadiness,
+  leastAdvanced,
+  summarizePlaces,
+  type PartnerPlaceFacts,
+} from '@/lib/partnerships/place-readiness'
+import { buildPublishPlan, formatMonthlyFee } from '@/lib/partnerships/publish-plan'
+import {
+  IN_PROGRESS_STATES,
+  PIPELINE_STATES,
+  conferenceStarted,
+  derivePipelineState,
+  detailPath,
+} from '@/lib/partnerships/pipeline'
+import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
+
+const REPO_ROOT = resolve(import.meta.dirname, '../..')
+
+const CLIENT_ID = '44444444-4444-4444-4444-444444444444'
+const SUBMISSION_ID = '33333333-3333-3333-3333-333333333333'
+const PLACE_ID = '77777777-7777-7777-7777-777777777777'
+const OTHER_PLACE_ID = '88888888-8888-8888-8888-888888888888'
+const OPERATOR_ID = 'cms-user-1'
+
+/** A place with everything in place. Each test takes away exactly the fact it is about. */
+function place(overrides: Partial<PartnerPlaceFacts> = {}): PartnerPlaceFacts {
+  return {
+    attractionId: PLACE_ID,
+    name: 'Cantina do Zé',
+    city: 'Santos',
+    region: 'SP',
+    // What `core.cms_create_place` writes, and therefore what a partner's place IS.
+    entityKind: 'place',
+    approved: false,
+    isActive: true,
+    latitude: -23.96,
+    longitude: -46.33,
+    showInMap: true,
+    activeTriggerPointCount: 3,
+    audioDescriptionCount: 1,
+    hasBoundary: true,
+    ...overrides,
+  }
+}
+
+function conference(overrides: Partial<ConferenceRecord> = {}): ConferenceRecord {
+  return { ...EMPTY_CONFERENCE, ...overrides }
+}
+
+// ── The pendencies — DS-COMPONENTE-020, criteria 8 to 14 ─────────────────────────────────────
+
+test('#359 crit. 9 · DS-COMPONENTE-020: a null coordinate is the ONLY pendency of the blocking class', () => {
+  const readiness = buildPlaceReadiness(place({ latitude: null, longitude: null }))
+
+  assert.deepEqual(readiness.blocking, ['coordinate'])
+  assert.equal(
+    readiness.blocking.indexOf('hidden_from_map'),
+    -1,
+    'with no coordinate at all, `show_in_map` decides nothing and must not be named twice'
+  )
+  assert.equal(readiness.published, false, 'and it cannot be in the app')
+})
+
+test('#359 crit. 10 · BR-B2B-011: no active trigger point SILENCES the place and does not block publishing', () => {
+  // This is the measured case of #356: 3 of the 6 clients with a `welcome_poi_id`.
+  const readiness = buildPlaceReadiness(place({ activeTriggerPointCount: 0 }))
+
+  assert.deepEqual(readiness.silencing, ['trigger_point'])
+  assert.deepEqual(readiness.blocking, [], 'nothing blocks — the place appears, and is mute')
+
+  const plan = buildPublishPlan(
+    { monthlyFeeCents: 24_900, isCourtesy: false, courtesyReason: null },
+    readiness
+  )
+  assert.equal(plan.offersAct, true, 'the screen offers the act; no software turns the place down')
+})
+
+test('#359 crit. 11: the audio pendency appears without `audio_url` and goes when there is one', () => {
+  assert.deepEqual(buildPlaceReadiness(place({ audioDescriptionCount: 0 })).silencing, [
+    'audio_description',
+  ])
+  assert.deepEqual(buildPlaceReadiness(place({ audioDescriptionCount: 1 })).silencing, [])
+})
+
+test('#359 crit. 12 · DS-COMPONENTE-020 pt. 3: an absent boundary is a MELHORIA and never blocks', () => {
+  const readiness = buildPlaceReadiness(place({ hasBoundary: false }))
+
+  assert.equal(PENDENCY_CLASS.boundary, 'improves')
+  assert.deepEqual(readiness.improving, ['boundary'])
+  assert.deepEqual(readiness.blocking, [], 'it is not in the blocking class')
+  assert.deepEqual(readiness.silencing, [], 'and it is not in the silencing one either')
+})
+
+test('#359 crit. 13: a place with nothing missing reads `ready`, not an empty block', () => {
+  const readiness = buildPlaceReadiness(place())
+  assert.equal(readiness.ready, true)
+  assert.deepEqual(readiness.pending, [])
+})
+
+test('#359: `hidden_from_map` blocks a POI, and says nothing about a `place`', () => {
+  // `show_in_map` is in the POI predicate (`core.app_poi_read_build`) and NOT in the places one
+  // (`core.app_get_nearby_places`). A partner's place is `entity_kind = 'place'`, so naming it
+  // there would send the operator to fix a flag that decides nothing for that kind.
+  const poi = buildPlaceReadiness(place({ entityKind: 'poi', showInMap: false }))
+  assert.deepEqual(poi.blocking, ['hidden_from_map'])
+  assert.equal(poi.published, false)
+
+  const partnerPlace = buildPlaceReadiness(place({ approved: true, showInMap: false }))
+  assert.deepEqual(partnerPlace.blocking, [])
+  assert.equal(partnerPlace.published, true, 'a `place` is visible regardless of show_in_map')
+})
+
+test('#359 · BR-POI-005 · #362: a deactivated registration is out of the app, both kinds', () => {
+  for (const entityKind of ['place', 'poi']) {
+    const readiness = buildPlaceReadiness(place({ entityKind, approved: true, isActive: false }))
+    assert.equal(readiness.published, false, entityKind)
+    assert.equal(readiness.blocking.indexOf('inactive') >= 0, true, entityKind)
+  }
+})
+
+test('#359 crit. 19 · the visibility predicate of the kind the partner place actually is', () => {
+  // `core.cms_create_place` inserts `entity_kind = 'place'`, so the partner's place never
+  // enters `core.app_poi_read` — it is served by `core.app_get_nearby_places`, whose predicate
+  // is `entity_kind = 'place' AND approved AND is_active AND location_geography IS NOT NULL`
+  // (`supabase/migrations/20260709_02_places_narration_payload.sql`). Trigger point and audio
+  // are deliberately NOT part of it.
+  assert.equal(buildPlaceReadiness(place({ approved: true })).published, true)
+  assert.equal(
+    buildPlaceReadiness(place({ approved: true, activeTriggerPointCount: 0 })).published,
+    true,
+    'a mute place is still in the app — that is the whole defect this screen exposes'
+  )
+  assert.equal(buildPlaceReadiness(place({ approved: false })).published, false)
+  assert.equal(
+    buildPlaceReadiness(place({ approved: true, latitude: null, longitude: null })).published,
+    false
+  )
+  assert.equal(buildPlaceReadiness(place({ approved: true, isActive: false })).published, false)
+})
+
+test('#359 crit. 5 · DS-COMPONENTE-020: 3 places, 2 published shows the PROPORTION and the least advanced', () => {
+  const readiness = [
+    buildPlaceReadiness(place({ attractionId: PLACE_ID, approved: true })),
+    buildPlaceReadiness(
+      place({ attractionId: OTHER_PLACE_ID, approved: true, hasBoundary: false })
+    ),
+    // The one that is stuck: not published, no coordinate, no trigger point.
+    buildPlaceReadiness(
+      place({
+        attractionId: 'stuck',
+        approved: false,
+        latitude: null,
+        longitude: null,
+        activeTriggerPointCount: 0,
+      })
+    ),
+  ]
+
+  const summary = summarizePlaces(readiness)
+  assert.equal(summary.total, 3)
+  assert.equal(summary.published, 2)
+
+  const worst = leastAdvanced(readiness)
+  assert.equal(worst?.place.attractionId, 'stuck')
+  assert.equal(
+    summary.blocking,
+    worst?.blocking.length,
+    'the count is the least advanced place, never the sum across places'
+  )
+  assert.equal(summary.silencing, worst?.silencing.length)
+  assert.equal(summary.allReady, false)
+})
+
+test('#359 crit. 8 · DS-COMPONENTE-020 pt. 4: queue count and detail list are one module', () => {
+  // The queue shows `summarizePlaces`, the detail shows each `buildPlaceReadiness`. The two
+  // cannot disagree because the first is derived from the second — asserted, not claimed.
+  const readiness = [
+    buildPlaceReadiness(place({ attractionId: PLACE_ID, activeTriggerPointCount: 0 })),
+    buildPlaceReadiness(place({ attractionId: OTHER_PLACE_ID, approved: true })),
+  ]
+  const summary = summarizePlaces(readiness)
+  const worst = leastAdvanced(readiness)
+
+  assert.equal(summary.blocking, worst?.blocking.length)
+  assert.equal(summary.silencing, worst?.silencing.length)
+  assert.equal(summary.improving, worst?.improving.length)
+})
+
+// ── The act of publishing — DS-COMPONENTE-021, criteria 15 to 17 ─────────────────────────────
+
+test('#359 crit. 15 · BR-B2B-017/018: paid tier with a description on air is the variant that starts money', () => {
+  const readiness = buildPlaceReadiness(place())
+  const plan = buildPublishPlan(
+    { monthlyFeeCents: 24_900, isCourtesy: false, courtesyReason: null },
+    readiness
+  )
+
+  assert.equal(plan.variant, 'paid_starts')
+  assert.equal(plan.startsBilling, true)
+  assert.equal(plan.feeCents, 24_900)
+  assert.equal(plan.offersAct, true)
+  // The value has to be printable on the button, in reais and only in reais (BR-B2B-017,
+  // 1st edge case). The number is never a literal in code — it comes from the record.
+  assert.match(formatMonthlyFee(plan.feeCents ?? 0), /249,00/)
+})
+
+test('#359 crit. 16 · BR-B2B-018 1st edge case: paid tier WITHOUT a description starts nothing', () => {
+  const readiness = buildPlaceReadiness(place({ audioDescriptionCount: 0 }))
+  const plan = buildPublishPlan(
+    { monthlyFeeCents: 24_900, isCourtesy: false, courtesyReason: null },
+    readiness
+  )
+
+  assert.equal(plan.variant, 'paid_pending')
+  assert.equal(plan.startsBilling, false, 'nothing begins to run')
+  assert.equal(plan.feeCents, null, 'and no value is printed, because none is starting')
+  assert.equal(plan.offersAct, true)
+})
+
+test('#359 crit. 17 · DS-COMPONENTE-021 pt. 2: no fee and no courtesy does NOT offer the act', () => {
+  const readiness = buildPlaceReadiness(place())
+  const plan = buildPublishPlan(
+    { monthlyFeeCents: null, isCourtesy: false, courtesyReason: null },
+    readiness
+  )
+
+  assert.equal(plan.variant, 'undeclared')
+  assert.equal(plan.offersAct, false)
+  assert.equal(plan.startsBilling, false)
+})
+
+test('#359 crit. 17 · BR-B2B-017 item 6: registering the courtesy WITH a reason brings the act back', () => {
+  const readiness = buildPlaceReadiness(place())
+  const plan = buildPublishPlan(
+    { monthlyFeeCents: null, isCourtesy: true, courtesyReason: 'Parceiro fundador de Búzios' },
+    readiness
+  )
+
+  assert.equal(plan.variant, 'courtesy')
+  assert.equal(plan.offersAct, true)
+  assert.equal(plan.startsBilling, false)
+  assert.equal(plan.courtesyReason, 'Parceiro fundador de Búzios')
+})
+
+test('#359 · BR-B2B-017 item 6: a courtesy with NO reason is an unexplained discount, not a decision', () => {
+  const readiness = buildPlaceReadiness(place())
+  const plan = buildPublishPlan(
+    { monthlyFeeCents: null, isCourtesy: true, courtesyReason: '   ' },
+    readiness
+  )
+
+  assert.equal(plan.variant, 'undeclared', 'same reading as `lib/contract/snapshot.ts`')
+  assert.equal(plan.offersAct, false)
+})
+
+test('#359 · spec §5: with no description on air, an undeclared fee still PUBLISHES', () => {
+  // The sentence that proves the boundary is in the right place: what the screen refuses is
+  // the confirmation it cannot write truthfully, never the place (BR-B2B-011, preâmbulo).
+  const readiness = buildPlaceReadiness(place({ audioDescriptionCount: 0 }))
+  const plan = buildPublishPlan(
+    { monthlyFeeCents: null, isCourtesy: false, courtesyReason: null },
+    readiness
+  )
+
+  assert.equal(plan.variant, 'paid_pending')
+  assert.equal(plan.offersAct, true)
+})
+
+test('#359 · DS-COMPONENTE-021: a blocking pendency withdraws the act, and only the act', () => {
+  const readiness = buildPlaceReadiness(place({ latitude: null, longitude: null }))
+  const plan = buildPublishPlan(
+    { monthlyFeeCents: 24_900, isCourtesy: false, courtesyReason: null },
+    readiness
+  )
+
+  // "A partir de agora o local entra no app" would be false with no coordinate, and the
+  // pendency block right above already names what is missing and where it is fixed.
+  assert.equal(plan.offersAct, false)
+  assert.equal(plan.variant, 'paid_starts', 'the money reading is unchanged; only the offer is')
+})
+
+test('#359 · BR-B2B-017 item 5: courtesy wins over a fee that is also on the record', () => {
+  const plan = buildPublishPlan(
+    { monthlyFeeCents: 24_900, isCourtesy: true, courtesyReason: 'Piloto' },
+    buildPlaceReadiness(place())
+  )
+  assert.equal(plan.variant, 'courtesy')
+  assert.equal(plan.startsBilling, false)
+})
+
+// ── The states — DS-COPY-020, criteria 3 and 4 ───────────────────────────────────────────────
+
+test('#359 crit. 3 · DS-COPY-020: every state derives from the condition the spec writes down', () => {
+  const base = {
+    proposalStatus: 'submitted' as const,
+    conference: conference(),
+    clientId: null,
+    contractSigned: false,
+    placeCount: 0,
+    publishedPlaceCount: 0,
+  }
+
+  assert.equal(derivePipelineState(base), 'proposal_received')
+
+  // State 2 has NO column behind it: it is derived from the conference having been started.
+  assert.equal(
+    derivePipelineState({ ...base, conference: conference({ licenseNumber: '12345' }) }),
+    'in_conference'
+  )
+  assert.equal(conferenceStarted(conference()), false)
+  assert.equal(conferenceStarted(conference({ documentsSeen: ['business_license'] })), true)
+
+  assert.equal(
+    derivePipelineState({ ...base, proposalStatus: 'promoted', clientId: CLIENT_ID }),
+    'client_created'
+  )
+  assert.equal(
+    derivePipelineState({
+      ...base,
+      proposalStatus: 'promoted',
+      clientId: CLIENT_ID,
+      contractSigned: true,
+    }),
+    'contract_signed'
+  )
+  assert.equal(
+    derivePipelineState({
+      ...base,
+      proposalStatus: 'promoted',
+      clientId: CLIENT_ID,
+      contractSigned: true,
+      placeCount: 1,
+    }),
+    'place_in_curation'
+  )
+  assert.equal(
+    derivePipelineState({
+      ...base,
+      proposalStatus: 'promoted',
+      clientId: CLIENT_ID,
+      contractSigned: true,
+      placeCount: 1,
+      publishedPlaceCount: 1,
+    }),
+    'published'
+  )
+  assert.equal(derivePipelineState({ ...base, proposalStatus: 'discarded' }), 'discarded')
+})
+
+test('#359 crit. 5 · DS-COMPONENTE-020: one of three published is NOT `Publicado`', () => {
+  assert.equal(
+    derivePipelineState({
+      proposalStatus: 'promoted',
+      conference: conference(),
+      clientId: CLIENT_ID,
+      contractSigned: true,
+      placeCount: 3,
+      publishedPlaceCount: 2,
+    }),
+    'place_in_curation'
+  )
+})
+
+test('#359 crit. 4: the default filter is `Em andamento` and carries no terminal state', () => {
+  assert.equal(IN_PROGRESS_STATES.indexOf('discarded'), -1)
+  assert.equal(IN_PROGRESS_STATES.indexOf('published'), -1)
+  assert.equal(PIPELINE_STATES.indexOf('discarded') >= 0, true, 'but it is filterable by name')
+})
+
+test('#359 · spec §2: the identity of the row changes halfway, and so does the route', () => {
+  assert.equal(
+    detailPath('proposal_received', { submissionId: SUBMISSION_ID, clientId: null }),
+    `/admin/partnerships/proposals/${SUBMISSION_ID}`
+  )
+  assert.equal(
+    detailPath('contract_signed', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),
+    `/admin/partnerships/clients/${CLIENT_ID}`
+  )
+  assert.equal(
+    detailPath('discarded', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),
+    `/admin/partnerships/proposals/${SUBMISSION_ID}`,
+    'a discarded proposal keeps pointing at where its reason and its restore control live'
+  )
+})
+
+// ── The routes and the screens, statically — criteria 1, 2, 18, 29, 30 to 34, 36 ─────────────
+
+function read(relative: string): string {
+  return readFileSync(resolve(REPO_ROOT, relative), 'utf8')
+}
+
+test('#359 crit. 1: the old proposal LIST is gone and `Parcerias` opens the pipeline', () => {
+  assert.equal(
+    existsSync(resolve(REPO_ROOT, 'app/[locale]/admin/partner-proposals')),
+    false,
+    'the queue absorbed it; a screen with no route is an orphan (CLAUDE.md §6)'
+  )
+  assert.equal(
+    existsSync(resolve(REPO_ROOT, 'app/[locale]/admin/partnerships/page.tsx')),
+    true
+  )
+  assert.equal(
+    existsSync(
+      resolve(REPO_ROOT, 'app/[locale]/admin/partnerships/proposals/[submissionId]/page.tsx')
+    ),
+    true,
+    'the conference screen moved route; it was not reopened'
+  )
+
+  const header = read('components/ui/Header.tsx')
+  assert.match(header, /'Parcerias', href: '\/admin\/partnerships'/)
+  assert.equal(
+    header.indexOf('/admin/partner-proposals'),
+    -1,
+    'nothing in the menu points at the route that no longer exists'
+  )
+})
+
+function messages(): Record<string, any> {
+  return JSON.parse(read('messages/pt.json'))
+}
+
+test('#359 crit. 2 · DS-A11Y-003: every state has a text label, and they are all different', () => {
+  const states = messages().Partnerships.states as Record<string, string>
+  const labels = Object.keys(states).map((key) => states[key])
+
+  for (const state of PIPELINE_STATES) {
+    assert.equal(typeof states[state], 'string', `${state} has no label`)
+    assert.equal(states[state].trim().length > 0, true, `${state} has an empty label`)
+  }
+  assert.equal(
+    new Set(labels).size,
+    labels.length,
+    'two states with the same word would be indistinguishable in the column'
+  )
+})
+
+test('#359 crit. 29: the pipeline screens hand the pt messages down explicitly', () => {
+  // The namespace lives only in `messages/pt.json` (spec §2), and an ABSENT key in next-intl
+  // renders the KEY NAME. "Only pt" and "`/en/` never shows `Partnerships.title`" are both
+  // true only because of this provider.
+  for (const page of [
+    'app/[locale]/admin/partnerships/page.tsx',
+    'app/[locale]/admin/partnerships/clients/[clientId]/page.tsx',
+  ]) {
+    const source = read(page)
+    assert.match(source, /NextIntlClientProvider/, page)
+    assert.match(source, /locale="pt"/, page)
+    assert.match(source, /Partnerships: ptMessages\.Partnerships/, page)
+  }
+
+  const all = JSON.parse(read('messages/en.json'))
+  assert.equal(
+    'Partnerships' in all,
+    false,
+    'copying the Portuguese into en/es would create a second source of the same text'
+  )
+})
+
+test('#359 crit. 30 to 32 · BR-B2B-010/011/022/029: what the copy may never claim', () => {
+  const copy = JSON.stringify(messages().Partnerships).toLowerCase()
+
+  // BR-B2B-010, item 3 — no surface may claim that an approved partner appears in the app.
+  assert.equal(copy.indexOf('todo parceiro aprovado'), -1)
+  assert.equal(copy.indexOf('aprovar a parceria publica'), -1)
+
+  // BR-B2B-022, item 7 — the Tuggi does not verify, audit, inspect or certify anybody.
+  for (const forbidden of ['fiscaliza', 'certifica', 'auditamos', 'verificamos a legalidade']) {
+    assert.equal(copy.indexOf(forbidden), -1, `the copy must not say "${forbidden}"`)
+  }
+
+  // BR-B2B-029, item 1 — nothing may suggest the public form asks for the licence.
+  assert.equal(copy.indexOf('formulário pede o alvará'), -1)
+
+  // BR-B2B-011, item 6 — gate 3 is never described on a screen.
+  assert.equal(copy.indexOf('portão 3'), -1)
+  assert.equal(copy.indexOf('portao 3'), -1)
+
+  // The one thing the copy MUST say, because BR-B2B-010, item 3, is the promise most easily
+  // broken by a screen that puts the two acts side by side.
+  assert.match(
+    messages().Partnerships.detail.clientSeparateActs,
+    /não aprova o local/i,
+    'band 3 has to say that approving the partnership does not approve the place'
+  )
+})
+
+test('#359 crit. 20 · BR-B2B-018: `Tirar do app` says what is written, and nothing beyond it', () => {
+  const publish = messages().Partnerships.publish
+
+  assert.match(publish.unpublishBody, /continuam aqui/)
+  assert.match(publish.unpublishContract, /não encerra o contrato/)
+  assert.match(publish.unpublishContract, /não cancela a cobrança/)
+  // No rule describes the effect of the POI leaving the air (spec §9, question 1), so the copy
+  // claims neither outcome.
+  assert.equal(
+    /a mensalidade (para|continua)/i.test(publish.unpublishContract),
+    false,
+    'the copy must not answer a question no rule answers'
+  )
+})
+
+test('#359 crit. 34: no pipeline surface is public', () => {
+  const publicForm = read('app/[locale]/parceria/page.tsx')
+  assert.equal(publicForm.indexOf('partnerships'), -1)
+  assert.equal(publicForm.indexOf('Partnerships'), -1)
+})
+
+test('#359 crit. 36 · DS-LAYOUT-006 pt. 4: no shortcut opens a new tab', () => {
+  for (const file of [
+    'components/admin/partnerships/PendencyList.tsx',
+    'components/admin/partnerships/PartnershipDetail.tsx',
+    'components/admin/partnerships/PartnershipsQueue.tsx',
+  ]) {
+    assert.equal(read(file).indexOf('target="_blank"'), -1, file)
+  }
+})
+
+test('#359 crit. 35 · DS-LAYOUT-006: the tool opens ON the object and declares the way back', () => {
+  const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
+  assert.match(detail, /\/pois\/\$\{attractionId\}/, 'the tool is reached on the POI itself')
+  assert.match(detail, /returnTo/)
+  assert.match(detail, /returnLabel/)
+
+  const poiPage = read('app/[locale]/pois/[id]/page.tsx')
+  assert.match(poiPage, /returnTo/, 'and the tool knows where to send the operator back')
+  assert.match(poiPage, /initialTab/)
+
+  // A return path that is not an in-app path is refused, so the query string cannot bounce an
+  // authenticated operator out to another origin. The guard is a test on `rawReturnTo`, and
+  // `returnTo` is what the screen actually uses.
+  assert.match(poiPage, /rawReturnTo && [^\n]*test\(rawReturnTo\)/)
+  assert.equal(
+    poiPage.indexOf('router.push(rawReturnTo'),
+    -1,
+    'the unvalidated value must never reach a navigation'
+  )
+})
+
+test('#359 crit. 18: the publish path names ONE column, and none of the forbidden ones', () => {
+  const route = read(
+    'app/api/admin/partnerships/clients/[clientId]/places/[attractionId]/publish/route.ts'
+  )
+  for (const forbidden of ['commission_rate', 'monthly_fee_cents', 'is_courtesy', 'slug']) {
+    // They appear in prose above the handler; what may not appear is a write of them.
+    assert.equal(
+      route.indexOf(`${forbidden}:`),
+      -1,
+      `the publish route must not write ${forbidden}`
+    )
+  }
+
+  const service = read('lib/core/place-service.ts')
+  assert.match(
+    service,
+    /async setApproved\([\s\S]{0,400}?\.update\(\{ approved \}\)/,
+    'setApproved updates exactly `{ approved }` — there is no patch object to grow a key'
+  )
+})
+
+// ── The route, end to end — criteria 17, 18, 21, 22 ──────────────────────────────────────────
+
+interface FakeState {
+  clients: Record<string, any>[]
+  attractions: Record<string, any>[]
+  attraction_coordinate: Record<string, any>[]
+  attraction_trigger_points: Record<string, any>[]
+  attraction_descriptions: Record<string, any>[]
+  audit_logs: Record<string, any>[]
+  /** Every write that left the process, whole. Criterion 18 is proved against THIS. */
+  writes: { table: string; patch: Record<string, any> }[]
+}
+
+let state: FakeState
+
+function freshState(clientOverrides: Record<string, any> = {}): FakeState {
+  return {
+    clients: [
+      {
+        id: CLIENT_ID,
+        name: 'Cantina do Zé',
+        company_name: 'Cantina do Zé Alimentos Ltda',
+        city: 'Santos',
+        state: 'SP',
+        tax_id: '12ABC34501DE35',
+        status: 'approved',
+        approved_at: '2026-08-15T10:32:00Z',
+        created_at: '2026-08-14T09:00:00Z',
+        monthly_fee_cents: 24_900,
+        is_courtesy: false,
+        courtesy_reason: null,
+        ...clientOverrides,
+      },
+    ],
+    attractions: [
+      {
+        id: PLACE_ID,
+        name: 'Cantina do Zé',
+        city: 'Santos',
+        state: 'SP',
+        entity_kind: 'place',
+        approved: false,
+        is_active: true,
+        partner_client_id: CLIENT_ID,
+      },
+    ],
+    attraction_coordinate: [
+      {
+        attraction_id: PLACE_ID,
+        latitude: -23.96,
+        longitude: -46.33,
+        show_in_map: true,
+        boundary_type: 'polygon',
+        boundary_area_m2: 900,
+      },
+    ],
+    attraction_trigger_points: [{ attraction_id: PLACE_ID, is_active: true }],
+    attraction_descriptions: [{ attraction_id: PLACE_ID, audio_url: 'https://audio/1.mp3' }],
+    audit_logs: [],
+    writes: [],
+  }
+}
+
+/**
+ * One fake database behind both identities — the service client and the operator's — because
+ * the pipeline reads with one and writes with the other, and a test where the write lands
+ * somewhere the read cannot see proves nothing.
+ */
+function createFakeDb(current: () => FakeState) {
+  function build(table: string) {
+    const filters: { op: string; column: string; value: any }[] = []
+    let operation: 'select' | 'update' | 'insert' = 'select'
+    let payload: Record<string, any> | null = null
+
+    function matches(row: Record<string, any>): boolean {
+      return filters.every((filter) => {
+        const value = row[filter.column]
+        if (filter.op === 'eq') return value === filter.value
+        if (filter.op === 'in') return (filter.value as any[]).indexOf(value) >= 0
+        if (filter.op === 'is') return value === filter.value
+        if (filter.op === 'notIs') return value !== filter.value
+        return true
+      })
+    }
+
+    function apply() {
+      const store = current()
+      const rows = ((store as any)[table] ?? []) as Record<string, any>[]
+
+      if (operation === 'insert') {
+        const inserted = payload ?? {}
+        rows.push(inserted)
+        ;(store as any)[table] = rows
+        store.writes.push({ table, patch: inserted })
+        return { data: [inserted], error: null }
+      }
+
+      const matched = rows.filter(matches)
+
+      if (operation === 'update') {
+        for (const row of matched) Object.assign(row, payload ?? {})
+        store.writes.push({ table, patch: payload ?? {} })
+        return { data: matched, error: null }
+      }
+
+      return { data: matched, error: null }
+    }
+
+    const chain: any = {
+      select: () => chain,
+      insert: (values: Record<string, any>) => {
+        operation = 'insert'
+        payload = values
+        return chain
+      },
+      update: (values: Record<string, any>) => {
+        operation = 'update'
+        payload = values
+        return chain
+      },
+      eq: (column: string, value: any) => {
+        filters.push({ op: 'eq', column, value })
+        return chain
+      },
+      in: (column: string, value: any[]) => {
+        filters.push({ op: 'in', column, value })
+        return chain
+      },
+      is: (column: string, value: any) => {
+        filters.push({ op: 'is', column, value })
+        return chain
+      },
+      not: (column: string, _operator: string, value: any) => {
+        filters.push({ op: 'notIs', column, value })
+        return chain
+      },
+      order: () => chain,
+      limit: () => chain,
+      maybeSingle: async () => {
+        const result = apply()
+        return { data: result.data[0] ?? null, error: result.error }
+      },
+      then: (onFulfilled: (value: any) => unknown) => Promise.resolve(apply()).then(onFulfilled),
+    }
+    return chain
+  }
+
+  return {
+    schema: () => ({ from: (table: string) => build(table) }),
+    from: (table: string) => build(table),
+    auth: {
+      getUser: async () => ({
+        data: { user: { id: OPERATOR_ID, email: 'admin@tuggi.app' } },
+        error: null,
+      }),
+      admin: {
+        getUserById: async () => ({ data: { user: { email: 'ana@tuggi.app' } }, error: null }),
+      },
+    },
+  }
+}
+
+function createFakeAuthClient(current: () => FakeState) {
+  const db = createFakeDb(current)
+  const cmsChain: any = {
+    select: () => cmsChain,
+    eq: () => cmsChain,
+    maybeSingle: async () => ({
+      data: { email: 'admin@tuggi.app', role: 'admin', is_active: true },
+      error: null,
+    }),
+  }
+  return {
+    ...db,
+    schema: () => ({
+      from: (table: string) => (table === 'cms_users' ? cmsChain : db.schema().from(table)),
+    }),
+  }
+}
+
+let PUBLISH: (req: any, ctx: any) => Promise<Response>
+
+before(async () => {
+  process.env.NEXT_PUBLIC_APP_URL ??= 'https://cms.tuggi.app'
+
+  mock.module('next/headers', {
+    namedExports: { cookies: async () => ({ get: () => undefined, getAll: () => [] }) },
+  })
+
+  mock.module('@/lib/core/supabase-client', {
+    namedExports: {
+      getSupabaseService: () => createFakeDb(() => state),
+      getSupabase: () => createFakeDb(() => state),
+      getSupabaseRouteHandler: () => createFakeAuthClient(() => state),
+      getSupabaseClient: () => createFakeDb(() => state),
+    },
+  })
+
+  const route = await import(
+    '@/app/api/admin/partnerships/clients/[clientId]/places/[attractionId]/publish/route'
+  )
+  PUBLISH = route.POST as any
+})
+
+/** A fresh caller each time: `withRateLimit` keys by IP and would fail a test because of the
+ *  test before it. */
+let callerSequence = 0
+
+function request(body: unknown) {
+  callerSequence += 1
+  return {
+    method: 'POST',
+    url: 'https://cms.tuggi.app/api/admin/partnerships',
+    nextUrl: { searchParams: new URLSearchParams() },
+    headers: new Headers({
+      'content-type': 'application/json',
+      'x-forwarded-for': `10.0.0.${callerSequence % 250}`,
+    }),
+    json: async () => body,
+  } as any
+}
+
+const context = { params: Promise.resolve({ clientId: CLIENT_ID, attractionId: PLACE_ID }) }
+
+test('#359 crit. 18 · 21: publishing writes `approved` and nothing else, and leaves a trail', async () => {
+  state = freshState()
+
+  const response = await PUBLISH(request({ approved: true }), context)
+  assert.equal(response.status, 200)
+
+  const attractionWrites = state.writes.filter((write) => write.table === 'attractions')
+  assert.equal(attractionWrites.length, 1, 'one write, not two')
+  assert.deepEqual(
+    Object.keys(attractionWrites[0].patch),
+    ['approved'],
+    'the whole of what left the process — not a list somebody kept up to date'
+  )
+  assert.equal(attractionWrites[0].patch.approved, true)
+
+  // Nothing on the client record moved: `commission_rate`, `monthly_fee_cents`, `is_courtesy`,
+  // `status` and `slug` are unreachable from this path.
+  assert.equal(state.writes.filter((write) => write.table === 'clients').length, 0)
+
+  const trail = state.audit_logs[state.audit_logs.length - 1]
+  assert.equal(trail.action, 'PUBLISH_PARTNER_PLACE')
+  assert.equal(trail.entity_id, PLACE_ID)
+  assert.equal(trail.user_id, OPERATOR_ID)
+  assert.match(trail.description, new RegExp(CLIENT_ID))
+})
+
+test('#359 crit. 19: after publishing, the place satisfies the read model predicate', async () => {
+  state = freshState()
+
+  const response = await PUBLISH(request({ approved: true }), context)
+  const payload = await response.json()
+
+  assert.equal(payload.place.readiness.published, true)
+  assert.equal(state.attractions[0].approved, true)
+})
+
+test('#359 crit. 22 · DS-COMPONENTE-021: publishing twice is the same state', async () => {
+  state = freshState()
+
+  await PUBLISH(request({ approved: true }), context)
+  const second = await PUBLISH(request({ approved: true }), context)
+
+  assert.equal(second.status, 200)
+  assert.equal(state.attractions[0].approved, true, 'idempotent at the destination')
+  for (const write of state.writes.filter((item) => item.table === 'attractions')) {
+    assert.deepEqual(Object.keys(write.patch), ['approved'])
+  }
+})
+
+test('#359 crit. 17 · DS-COMPONENTE-021 pt. 2: the route refuses the act it cannot describe', async () => {
+  state = freshState({ monthly_fee_cents: null, is_courtesy: null, courtesy_reason: null })
+
+  const response = await PUBLISH(request({ approved: true }), context)
+  assert.equal(response.status, 409)
+  assert.equal((await response.json()).error, 'publish_not_offered')
+
+  assert.equal(
+    state.writes.filter((write) => write.table === 'attractions').length,
+    0,
+    'and nothing was written'
+  )
+  assert.equal(state.attractions[0].approved, false)
+})
+
+test('#359 crit. 17: registering the courtesy with a reason lets the same request through', async () => {
+  state = freshState({
+    monthly_fee_cents: null,
+    is_courtesy: true,
+    courtesy_reason: 'Parceiro fundador',
+  })
+
+  const response = await PUBLISH(request({ approved: true }), context)
+  assert.equal(response.status, 200)
+  assert.equal(state.attractions[0].approved, true)
+})
+
+test('#359 crit. 20: taking a place out of the app is never refused', async () => {
+  state = freshState({ monthly_fee_cents: null, is_courtesy: null, courtesy_reason: null })
+  state.attractions[0].approved = true
+
+  const response = await PUBLISH(request({ approved: false }), context)
+  assert.equal(response.status, 200)
+  assert.equal(state.attractions[0].approved, false)
+
+  const trail = state.audit_logs[state.audit_logs.length - 1]
+  assert.equal(trail.action, 'UNPUBLISH_PARTNER_PLACE')
+})
+
+test('#359 · BR-CMS-002: a place that is not this client’s is not this screen’s to approve', async () => {
+  state = freshState()
+  state.attractions[0].partner_client_id = '99999999-9999-9999-9999-999999999999'
+
+  const response = await PUBLISH(request({ approved: true }), context)
+  assert.equal(response.status, 404)
+  assert.equal((await response.json()).error, 'place_not_linked')
+  assert.equal(state.writes.filter((write) => write.table === 'attractions').length, 0)
+})
+
+test('#359: the route validates its input before it reaches the database', async () => {
+  state = freshState()
+
+  const bad = await PUBLISH(request({ approved: 'yes' }), context)
+  assert.equal(bad.status, 400)
+  assert.equal((await bad.json()).error, 'invalid_approved')
+
+  const badId = await PUBLISH(request({ approved: true }), {
+    params: Promise.resolve({ clientId: 'not-a-uuid', attractionId: PLACE_ID }),
+  })
+  assert.equal(badId.status, 400)
+})

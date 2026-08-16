@@ -106,6 +106,16 @@ export interface POI {
   _homologData?: any
 }
 
+/** The tabs of this modal, named once so a caller cannot ask for one that is not here. */
+export type POIDetailsTab =
+  | 'create'
+  | 'details'
+  | 'description'
+  | 'trigger-points'
+  | 'narration-audio'
+  | 'group-pois'
+  | 'review'
+
 interface POIDetailsModalProps {
   poi: POI | null
   isOpen: boolean
@@ -114,11 +124,18 @@ interface POIDetailsModalProps {
   onPOIUpdated?: (updatedPOI: POI) => void
   onPOIDeleted?: (poiId: string) => void
   mode?: 'view' | 'create'
+  /**
+   * Which tab the modal opens on, for a caller that already knows what the operator came to
+   * do — the partnership pipeline sends them here to create a trigger point or a description
+   * (DS-LAYOUT-006, point 1: the tool opens ON THE OBJECT, not on its catalogue). Absent, it
+   * opens on `details` exactly as before.
+   */
+  initialTab?: POIDetailsTab
 }
 
 import { useTranslations } from 'next-intl';
 
-export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, onPOIDeleted, mode = 'view' }: POIDetailsModalProps) {
+export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, onPOIDeleted, mode = 'view', initialTab }: POIDetailsModalProps) {
   const t = useTranslations('Modals.POIDetails');
   const tCommon = useTranslations('Common');
   // Determine if we're in create mode: no POI or POI without ID
@@ -152,7 +169,9 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
   const [isSaving, setIsSaving] = useState(false)
   const [descriptions, setDescriptions] = useState<any[]>([])
   const [images, setImages] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'create' | 'details' | 'description' | 'trigger-points' | 'narration-audio' | 'group-pois' | 'review'>(isCreateMode ? 'create' : 'details')
+  const [activeTab, setActiveTab] = useState<POIDetailsTab>(
+    isCreateMode ? 'create' : initialTab ?? 'details'
+  )
 
   // Smooth unmounting state
   const [shouldRender, setShouldRender] = useState(isOpen)
@@ -238,14 +257,16 @@ export function POIDetailsModal({ poi, isOpen, onClose, onUpdate, onPOIUpdated, 
           setCreateError(null)
           setIsDrawingEnabled(false)
         } else {
-          setActiveTab('details')
+          // `initialTab` is where the caller sent the operator; without one, `details`, which
+          // is what this has always done.
+          setActiveTab(initialTab ?? 'details')
         }
         lastLoadedPoiId.current = poi?.id || null
       }
     } else {
       lastLoadedPoiId.current = null
     }
-  }, [isOpen, isCreateMode, fetchClients, poi?.id])
+  }, [isOpen, isCreateMode, fetchClients, poi?.id, initialTab])
 
   // Update state when poi changes
   useEffect(() => {

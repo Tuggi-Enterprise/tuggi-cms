@@ -6,6 +6,7 @@
  * de comércio (place_type/cuisine/price_range/reserva/menu/amenities/tags).
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { PartnerPlaceFacts } from '@/lib/partnerships/place-readiness'
 import { getSupabaseClient } from './supabase-client'
 
 /**
@@ -52,6 +53,38 @@ export interface PlaceFilters {
   page?: number
   pageSize?: number
 }
+
+/**
+ * WHO A PLACE BELONGS TO, COMMERCIALLY — `core.attractions.partner_client_id`, and this
+ * constant is the only place in the CMS that names the column.
+ *
+ * IT IS NOT `owner_id` AND IT IS NOT `created_by`, and the difference is not stylistic.
+ * `owner_id` is import provenance: it has a DEFAULT pointing at Tuggi's own client row and a
+ * BEFORE INSERT trigger (`core.set_attraction_owner_on_insert`) that copies
+ * `cms_users.client_id` from whoever typed the record, so 2,233,598 of 2,234,095 POIs carry
+ * one single value and ZERO POIs belong to a partner through it (measured 2026-08-16,
+ * `db-tuggiApp/supabase/migrations/20260816160000_issue358_*`). Scoping a partner's view by
+ * `owner_id` would show them either everything or nothing.
+ *
+ * BR-CMS-002 — the partner sees only the POI of their own client — is written against
+ * `owner_id` because it predates this column. The rule aged; the column is the answer, and the
+ * divergence is reported to `produto` under the card rather than settled in silence.
+ *
+ * Cardinality is 1 client : N places (BR-B2B-033, item 3) — never assume one.
+ */
+export const PLACE_PARTNER_OWNER_COLUMN = 'partner_client_id'
+
+/** A place with the client it belongs to, as `listByPartnerClient` answers. */
+export type PartnerPlaceRow = PartnerPlaceFacts & { partnerClientId: string }
+
+/**
+ * How many rows of a child table one bulk lookup will read before it stops trusting itself.
+ * A POI can carry hundreds of trigger points, so a single greedy row could starve the others
+ * out of the page and make this module report "no trigger point" for a place that has one —
+ * which is precisely the lie the pendency list exists to avoid. When the cap is reached the
+ * lookup re-asks, per place, for the ones it saw nothing of.
+ */
+const CHILD_ROW_CAP = 2000
 
 export interface PlaceFacets {
   total: number
@@ -167,6 +200,134 @@ export const placeService = {
     if (error) throw new Error(error.message)
   },
 
+  /**
+   * The places of one or more partner clients, with every fact the pendency report needs.
+   *
+   * WHY NOT `cms_list_places`: that RPC does not return `partner_client_id` and cannot filter
+   * by it, and the two counts it does return are the wrong ones here — `trigger_point_count`
+   * counts INACTIVE trigger points too, and `description_count` counts descriptions with no
+   * audio. Both would report a place as working when it is mute. Widening the RPC is a
+   * requirement written back to `data`; until then the Locais module reads the link here, and
+   * `/places` keeps its own list.
+   *
+   * FOUR ROUND TRIPS AND NOT ONE JOIN: PostgREST embeds would return the whole child rows, and
+   * `boundary_geometry` alone is a polygon per place. What comes back here is bounded.
+   *
+   * `entity_kind` IS NOT FILTERED, deliberately. The link is the link: an operator who tied an
+   * `event` to a client would see it here rather than watch it vanish from the pipeline — and
+   * one of the 6 clients measured in #356 had exactly that.
+   */
+  async listByPartnerClient(clientIds: string[], db?: SupabaseClient): Promise<PartnerPlaceRow[]> {
+    if (clientIds.length === 0) return []
+    const core = client(db).schema('core')
+
+    const { data: places, error } = await core
+      .from('attractions')
+      // `entity_kind` and `is_active` are not decoration: they decide WHICH visibility
+      // predicate applies and whether the place is in the app at all. See the header of
+      // `lib/partnerships/place-readiness.ts`.
+      .select('id, name, city, state, approved, is_active, entity_kind, partner_client_id')
+      .in(PLACE_PARTNER_OWNER_COLUMN, clientIds)
+      .order('created_at', { ascending: true })
+    if (error) throw new Error(error.message)
+
+    const rows = (places ?? []) as {
+      id: string
+      name: string | null
+      city: string | null
+      state: string | null
+      approved: boolean | null
+      is_active: boolean | null
+      entity_kind: string | null
+      partner_client_id: string
+    }[]
+    if (rows.length === 0) return []
+
+    const ids = rows.map((row) => row.id)
+
+    const { data: coordinates, error: coordinateError } = await core
+      .from('attraction_coordinate')
+      // `location_geography` is GENERATED from lat/lng (declared in
+      // `supabase/migrations/20260706_06_backfill_event_coordinates.sql`), so the pair answers
+      // the read model's `location_geography IS NOT NULL` and is the thing a screen can show.
+      .select('attraction_id, latitude, longitude, show_in_map, boundary_type, boundary_area_m2')
+      .in('attraction_id', ids)
+    if (coordinateError) throw new Error(coordinateError.message)
+
+    interface CoordinateRow {
+      attraction_id: string
+      latitude: number | null
+      longitude: number | null
+      show_in_map: boolean | null
+      boundary_type: string | null
+      boundary_area_m2: number | null
+    }
+
+    const byId = new Map<string, CoordinateRow>()
+    for (const row of (coordinates ?? []) as CoordinateRow[]) {
+      byId.set(row.attraction_id, row)
+    }
+
+    const withTriggerPoint = await anyChildRow(core, 'attraction_trigger_points', ids, (query) =>
+      query.eq('is_active', true)
+    )
+    const withAudio = await anyChildRow(core, 'attraction_descriptions', ids, (query) =>
+      query.not('audio_url', 'is', null)
+    )
+
+    return rows.map((row) => {
+      const coordinate = byId.get(row.id)
+      return {
+        attractionId: row.id,
+        name: row.name ?? '',
+        city: row.city,
+        region: row.state,
+        // `cms_create_place` writes `'place'`, so that is what a partner's place is; a POI the
+        // team catalogued by hand and linked afterwards is `'poi'`. Unknown reads as `'place'`
+        // — never as `'poi'`, because `'poi'` is the predicate with the EXTRA condition and
+        // guessing it would invent a pendency.
+        entityKind: row.entity_kind ?? 'place',
+        approved: row.approved === true,
+        // Absent reads as active: `core.attractions.is_active` is NOT NULL with a default of
+        // true, and answering `false` for a missing value would report every place as out of
+        // the app.
+        isActive: row.is_active !== false,
+        latitude: coordinate?.latitude ?? null,
+        longitude: coordinate?.longitude ?? null,
+        // No coordinate row at all reads `true`, exactly like the read model's
+        // `COALESCE(attraction_coordinate.show_in_map, true)`. What hides such a place is the
+        // absent coordinate, and that is already its own pendency.
+        showInMap: coordinate?.show_in_map ?? true,
+        activeTriggerPointCount: withTriggerPoint.has(row.id) ? 1 : 0,
+        audioDescriptionCount: withAudio.has(row.id) ? 1 : 0,
+        hasBoundary:
+          (coordinate?.boundary_type ?? null) !== null ||
+          (coordinate?.boundary_area_m2 ?? null) !== null,
+        partnerClientId: row.partner_client_id,
+      }
+    })
+  },
+
+  /**
+   * The publication of a partner's place, and it writes ONE column — criterion 18.
+   *
+   * A dedicated function and not `updateAttraction` with a patch: the guarantee "publishing
+   * touches `approved` and nothing else" is worth exactly as much as it is hard to break, and
+   * a patch object at the call site can grow a second key in any commit.
+   *
+   * It is idempotent at the destination (DS-COMPONENTE-021, 2nd edge case), which is why the
+   * screen may offer `Tentar de novo` after a network error: publishing the same place twice
+   * is the same state. The promotion of a proposal is not, and still has no retry.
+   */
+  async setApproved(attractionId: string, approved: boolean, db?: SupabaseClient) {
+    const { error } = await client(db)
+      .schema('core')
+      .from('attractions')
+      .update({ approved })
+      .eq('id', attractionId)
+    if (error) throw new Error(error.message)
+  },
+
   /** Set/edit the place's coordinate (upsert in core.attraction_coordinate). */
   async setCoordinate(attractionId: string, latitude: number, longitude: number) {
     const { error } = await client()
@@ -178,4 +339,50 @@ export const placeService = {
       })
     if (error) throw new Error(error.message)
   },
+}
+
+/**
+ * Which of `ids` have at least one child row satisfying `narrow` — presence, never a count.
+ *
+ * The pendency copy is `Nenhum ponto de disparo ativo` and `Nenhuma descrição com áudio`, so a
+ * boolean is the whole answer and pulling thousands of rows to compute it would be paying for
+ * precision nobody displays.
+ *
+ * THE CAP IS THE INTERESTING PART. One bulk read with a cap can be exhausted by a single POI
+ * with hundreds of trigger points, and the rows it did not reach would look ABSENT — the
+ * pendency list would then tell the operator to go and create a trigger point that already
+ * exists, which is worse than showing nothing. So when the cap is reached, every id with no
+ * hit is asked again on its own, where a `limit(1)` cannot be starved.
+ */
+async function anyChildRow(
+  core: { from: (table: string) => any },
+  table: 'attraction_trigger_points' | 'attraction_descriptions',
+  ids: string[],
+  narrow: (query: any) => any
+): Promise<Set<string>> {
+  const found = new Set<string>()
+
+  const { data, error } = await narrow(
+    core.from(table).select('attraction_id').in('attraction_id', ids)
+  ).limit(CHILD_ROW_CAP)
+  if (error) throw new Error(error.message)
+
+  const rows = (data ?? []) as { attraction_id: string }[]
+  for (const row of rows) found.add(row.attraction_id)
+
+  if (rows.length < CHILD_ROW_CAP) return found
+
+  const unseen = ids.filter((id) => !found.has(id))
+  const answers = await Promise.all(
+    unseen.map(async (id) => {
+      const { data: one, error: oneError } = await narrow(
+        core.from(table).select('attraction_id').eq('attraction_id', id)
+      ).limit(1)
+      if (oneError) throw new Error(oneError.message)
+      return { id, present: ((one ?? []) as unknown[]).length > 0 }
+    })
+  )
+  for (const answer of answers) if (answer.present) found.add(answer.id)
+
+  return found
 }

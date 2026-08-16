@@ -1208,13 +1208,15 @@ test('#341: the screens read the field labels from PartnerForm and do not redecl
   }
 })
 
-test('#341: the two pages hand the Portuguese messages to their children', () => {
+test('#341: the conference page hands the Portuguese messages to its children', () => {
   // Criterion 28. The copy lives only in `pt.json` by decision, and an absent key in next-intl
-  // renders THE KEY NAME — so `/en/` and `/es/` are only safe because the pages supply them.
-  for (const page of [
-    'app/[locale]/admin/partner-proposals/page.tsx',
-    'app/[locale]/admin/partner-proposals/[submissionId]/page.tsx',
-  ]) {
+  // renders THE KEY NAME — so `/en/` and `/es/` are only safe because the page supplies them.
+  //
+  // IT USED TO BE TWO PAGES. The LIST was absorbed by the partnership pipeline in #359 and the
+  // conference screen MOVED to `/admin/partnerships/proposals/{id}` — the guarantee is
+  // unchanged, and the pipeline's own half of it is criterion 29 of
+  // `tests/api/partnerships-pipeline.test.ts`.
+  for (const page of ['app/[locale]/admin/partnerships/proposals/[submissionId]/page.tsx']) {
     const source = readFileSync(resolve(REPO_ROOT, page), 'utf8')
     assert.ok(source.indexOf('NextIntlClientProvider') >= 0, `${page} does not provide messages`)
     assert.ok(source.indexOf("ptMessages.PartnerProposals") >= 0, `${page} does not provide the namespace`)

@@ -2460,7 +2460,7 @@
       "duplicateBadge": "+{count} com o mesmo CNPJ"
     },
     "review": {
-      "back": "Voltar para a lista",
+      "back": "Voltar para a esteira",
       "receivedAt": "Recebido em {date}",
       "taxId": "CNPJ {value}",
       "noTradeName": "Proposta sem nome de fachada",
@@ -2659,6 +2659,200 @@
       "validUntilHint": "A data que está impressa no alvará que você viu.",
       "validUntilDisabled": "Marque o alvará acima para registrar a validade.",
       "savedWithNote": "Isto é guardado junto com a anotação, no seu nome e com a data."
+    }
+  },
+  "Partnerships":   {
+    "title": "Parcerias",
+    "subtitle": "Do formulário ao app, numa fila só: a proposta, o cliente, o contrato e o local.",
+    "queue": {
+      "searchLabel": "Buscar",
+      "searchPlaceholder": "Estabelecimento, CNPJ ou cidade",
+      "stateLabel": "Estado",
+      "inProgress": "Em andamento",
+      "allStates": "Todos",
+      "countsLabel": "Na esteira",
+      "countOne": "{label} {count}",
+      "columns": {
+        "establishment": "Estabelecimento",
+        "city": "Cidade",
+        "state": "Estado",
+        "missing": "O que falta",
+        "idle": "Parado há"
+      },
+      "open": "Abrir",
+      "openNamed": "Abrir a parceria de {name}",
+      "loading": "Carregando a esteira.",
+      "emptyTitle": "Nenhuma parceria na esteira.",
+      "emptyBody": "Quando uma proposta chegar pelo formulário, ela aparece aqui como o primeiro estado.",
+      "emptyFilteredTitle": "Nenhuma parceria com esse filtro.",
+      "errorTitle": "Não foi possível carregar a esteira.",
+      "retry": "Tentar de novo",
+      "clearFilters": "Limpar filtros",
+      "duplicateBadge": "+{count} com o mesmo CNPJ",
+      "idleDays": "{count, plural, =0 {hoje} one {# dia} other {# dias}}",
+      "idleUnknown": "—",
+      "placesProgress": "{published} de {total} locais publicados",
+      "missingBlocking": "{count, plural, one {# impede} other {# impedem}}",
+      "missingSilencing": "{count, plural, one {# fica mudo} other {# ficam mudos}}",
+      "missingSeparator": ", ",
+      "missingNone": "—",
+      "noTradeName": "Sem nome fantasia"
+    },
+    "states": {
+      "proposal_received": "Proposta recebida",
+      "in_conference": "Em conferência",
+      "client_created": "Cliente criado",
+      "contract_signed": "Contrato assinado",
+      "place_in_curation": "Local em curadoria",
+      "published": "Publicado",
+      "discarded": "Descartada"
+    },
+    "nextSteps": {
+      "proposal_received": "Conferir a regularidade",
+      "in_conference": "Registrar a conferência",
+      "client_created": "Assinar o contrato",
+      "contract_signed": "Criar o local",
+      "place_in_curation": "—",
+      "published": "—",
+      "discarded": "—"
+    },
+    "pendencies": {
+      "classes": {
+        "blocks_app": "Impede aparecer no app",
+        "silences_app": "Publica, e o app fica mudo",
+        "improves": "Melhora, e não impede nada"
+      },
+      "items": {
+        "coordinate": {
+          "title": "Falta a coordenada do local.",
+          "body": "Sem ela o local não entra no app: ninguém vê e nada dispara.",
+          "action": "Abrir o local"
+        },
+        "inactive": {
+          "title": "O local está desativado.",
+          "body": "Cadastro desativado fica fora do app, mesmo aprovado e com coordenada.",
+          "action": "Abrir o local"
+        },
+        "hidden_from_map": {
+          "title": "O local está marcado para não aparecer no mapa.",
+          "body": "Enquanto estiver assim, ele fica fora do app mesmo depois de publicado.",
+          "action": "Abrir o local"
+        },
+        "trigger_point": {
+          "title": "Nenhum ponto de disparo ativo.",
+          "body": "O local vai aparecer no mapa e nunca vai disparar narração para quem passar perto.",
+          "action": "Abrir os pontos de disparo"
+        },
+        "audio_description": {
+          "title": "Nenhuma descrição com áudio.",
+          "body": "Quando o disparo acontecer, não há o que narrar.",
+          "action": "Abrir as descrições"
+        },
+        "boundary": {
+          "title": "Sem área desenhada.",
+          "body": "O disparo usa só o raio do ponto; com a área, ele acerta mais.",
+          "action": "Desenhar a área"
+        }
+      },
+      "readyTitle": "O local está pronto para publicar.",
+      "readyBody": "Ponto de disparo ativo, descrição com áudio e coordenada no lugar.",
+      "emptyTitle": "Este cliente ainda não tem local vinculado.",
+      "emptyBody": "O local é o endereço físico; o cliente é a pessoa jurídica, e um CNPJ pode ter mais de um endereço.",
+      "emptyCreate": "Criar o local a partir da proposta",
+      "emptyLink": "Vincular um local que já existe"
+    },
+    "publish": {
+      "action": "Publicar",
+      "actionNamed": "Publicar {name} no app",
+      "title": "Publicar {name} no app",
+      "effectWithAudio": "A partir de agora o local entra no app. Quem passar perto vai ver o local no mapa e ouvir a narração.",
+      "effectSilent": "A partir de agora o local entra no app. Quem passar perto vai ver o local no mapa e não vai ouvir nada, porque ainda falta {missing}. Dá para publicar assim e completar depois.",
+      "missingTriggerPoint": "ponto de disparo",
+      "missingAudio": "descrição com áudio",
+      "missingSeparator": " · ",
+      "paidStartsTitle": "Isto inicia a mensalidade.",
+      "paidStartsBody": "A faixa paga deste contrato é de {fee} por mês, e ela passa a correr hoje, {date} — é a publicação do local com a descrição no ar que a inicia.",
+      "paidStartsContent": "A descrição que vai ao ar é conteúdo de parceiro. Enquanto a forma da identificação não estiver decidida, ela não pode conter oferta comercial: cardápio, preço, promoção ou reserva.",
+      "paidStartsAction": "Publicar e iniciar a mensalidade de {fee} em {name}",
+      "paidPendingTitle": "Ainda não inicia a mensalidade.",
+      "paidPendingBody": "A faixa paga começa a correr quando a descrição estiver no ar, e ela ainda não está. Publicar agora coloca o local no mapa com o nome, como na faixa gratuita.",
+      "paidPendingAction": "Publicar {name} sem a descrição",
+      "courtesyTitle": "Nada será cobrado.",
+      "courtesyBody": "Este contrato está registrado como cortesia: {reason}.",
+      "courtesyAction": "Publicar {name}",
+      "undeclaredTitle": "Não dá para publicar sem saber o que será cobrado.",
+      "undeclaredBody": "A publicação é o que inicia a mensalidade, e a ficha deste cliente não tem valor mensal registrado nem está marcada como cortesia. Registre um dos dois antes: o valor, ou a cortesia com o motivo.",
+      "undeclaredAction": "Abrir a ficha de {name}",
+      "blockedTitle": "Antes de publicar, resolva o que impede o local de aparecer.",
+      "blockedBody": "Enquanto isso não estiver resolvido, publicar não coloca o local no app — a lista acima diz o que falta e onde se resolve.",
+      "back": "Voltar",
+      "publishing": "Publicando…",
+      "failedTitle": "Não foi possível publicar.",
+      "failedBody": "Nada foi publicado.",
+      "networkTitle": "Não sabemos se a publicação chegou.",
+      "networkBody": "Publicar duas vezes o mesmo local é o mesmo estado, então dá para tentar de novo sem risco.",
+      "retry": "Tentar de novo",
+      "publishedLine": "Publicado em {date} por {person}. Está no app desde então.",
+      "publishedLineAnonymous": "Publicado em {date}. Está no app desde então.",
+      "publishedLineUndated": "Está no app.",
+      "billingStarted": "Mensalidade iniciada em {date}.",
+      "unpublishAction": "Tirar do app",
+      "unpublishTitle": "Tirar {name} do app.",
+      "unpublishBody": "O local sai do app e para de disparar. O cadastro, o vínculo com o cliente e tudo o que já foi produzido continuam aqui.",
+      "unpublishContract": "Tirar do app não encerra o contrato e não cancela a cobrança. Se a intenção é parar a mensalidade, isso se resolve no contrato, não aqui.",
+      "unpublishConfirm": "Tirar {name} do app",
+      "unpublishing": "Tirando do app…",
+      "unpublishFailed": "Não foi possível tirar do app. Nada mudou."
+    },
+    "detail": {
+      "backToQueue": "Voltar para a esteira",
+      "loading": "Carregando a parceria.",
+      "notFoundTitle": "Esta parceria não existe.",
+      "errorTitle": "Não foi possível carregar a parceria.",
+      "retry": "Tentar de novo",
+      "bandStatus": {
+        "done": "concluída",
+        "current": "em andamento",
+        "future": "ainda não"
+      },
+      "bands": {
+        "proposal": "1 · Proposta recebida",
+        "conference": "2 · Conferência de regularidade",
+        "client": "3 · Cliente e contrato",
+        "place": "4 · O local",
+        "publication": "5 · Publicação"
+      },
+      "toggle": "Abrir ou fechar a faixa {band}",
+      "proposalLine": "Recebida em {date}.",
+      "proposalLineUndated": "Proposta recebida.",
+      "proposalLink": "Ver a proposta",
+      "proposalMissing": "Este cliente não veio do formulário de parceria.",
+      "conferenceLine": "Conferida por {person} em {date}.",
+      "conferenceLineAnonymous": "Conferência registrada em {date}.",
+      "conferenceLicense": "Alvará {number} · {issuer} · vigente até {validUntil}.",
+      "conferenceNone": "Nenhuma conferência registrada ainda.",
+      "conferenceDerived": "Derivado de você já ter começado a registrar a conferência. Não existe campo de “em análise”.",
+      "clientCreated": "Cliente criado em {date}.",
+      "clientApproved": "Parceria aprovada em {date}.",
+      "clientApprovedBy": "Parceria aprovada em {date} por {person}.",
+      "clientNotApproved": "Parceria ainda não aprovada.",
+      "clientSeparateActs": "Aprovar a parceria e assinar o contrato são atos diferentes. Aprovar a parceria também não aprova o local.",
+      "contractSigned": "Contrato assinado em {date}.",
+      "contractSignedBy": "Contrato assinado em {date} por {person}.",
+      "contractNotSigned": "Contrato ainda não assinado.",
+      "openClient": "Abrir a ficha do cliente",
+      "feeLine": "Faixa paga: {fee} por mês.",
+      "feeCourtesy": "Cortesia: {reason}.",
+      "feeUndeclared": "Sem valor mensal registrado e sem cortesia.",
+      "placeHeading": "{name}",
+      "placeCount": "{count, plural, one {# local} other {# locais}}",
+      "publicationBefore": "Ainda não publicado. Publicar é o que coloca o local no app — e, na faixa paga, o que inicia a mensalidade.",
+      "trail": "Trilha",
+      "trailEmpty": "Nada registrado ainda.",
+      "openPlace": "Abrir o local"
+    },
+    "returnBar": {
+      "label": "Voltar para a esteira de {name}"
     }
   }
 }

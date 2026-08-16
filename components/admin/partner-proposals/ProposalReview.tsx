@@ -141,7 +141,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
         <p className="font-medium text-gray-900">{t('review.notFoundTitle')}</p>
         <p className="mt-1 text-sm text-gray-800">{t('review.notFoundBody')}</p>
         <Link
-          href={`/${locale}/admin/partner-proposals`}
+          href={`/${locale}/admin/partnerships`}
           className="mt-3 inline-block text-sm font-medium text-primary-800 underline underline-offset-4"
         >
           {t('review.back')}
@@ -242,7 +242,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
       {/* Sticky, so promoting a long proposal never asks the operator to scroll back. */}
       <header className="sticky top-0 z-10 -mx-6 mb-5 border-b border-gray-200 bg-white px-6 py-4">
         <Link
-          href={`/${locale}/admin/partner-proposals`}
+          href={`/${locale}/admin/partnerships`}
           className="inline-flex items-center gap-1 text-sm text-primary-800 underline underline-offset-4"
         >
           <ArrowLeft className="h-3 w-3" aria-hidden="true" />
@@ -378,7 +378,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                 {detail.duplicates.map((duplicate) => (
                   <li key={duplicate.id}>
                     <Link
-                      href={`/${locale}/admin/partner-proposals/${duplicate.id}`}
+                      href={`/${locale}/admin/partnerships/proposals/${duplicate.id}`}
                       className="font-medium text-primary-800 underline underline-offset-4"
                     >
                       {t('review.duplicateOpen', { date: formatDateTime(duplicate.submittedAt) })}
