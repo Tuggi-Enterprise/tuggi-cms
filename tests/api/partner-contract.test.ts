@@ -208,6 +208,41 @@ test('BR-B2B-022 item 3: no incorporation document, no contract', () => {
   assert.ok(missing.includes('incorporation'))
 })
 
+// ── BR-B2B-031 — the same gate, restated for the two facts it adds over BR-B2B-022 item 3:
+// the block reaches BOTH tiers (including the free one), and an undated licence blocks the
+// same as an expired one. `loadRegularity`, in the route, only maps the conference's raw
+// date into `businessLicenseValidUntil` — the comparison against `now` proven here is the
+// whole of the applied gate; there is no second copy of it to audit at the route layer.
+
+test('BR-B2B-031 item 2: an expired licence blocks a NEW contract on the free tier too', () => {
+  const free: GenerationChoices = { tier: 'free', paymentMethod: null, qrDeliveryDays: 15 }
+  const missing = contractChecklist(client(), free, {
+    provider: PROVIDER,
+    regularity: { ...REGULAR, businessLicenseValidUntil: '2020-01-01' },
+  }).missing.map((item) => item.id)
+  assert.ok(missing.includes('business_license_expired'), 'the free tier is not an exception')
+})
+
+test('BR-B2B-031, 1st edge case: a licence seen with no date blocks the same as an expired one', () => {
+  const missing = contractChecklist(client(), PAID, {
+    provider: PROVIDER,
+    regularity: { ...REGULAR, businessLicenseValidUntil: null },
+  }).missing.map((item) => item.id)
+  assert.ok(missing.includes('business_license_validity'), 'undated is treated as absent, same as vencido')
+})
+
+test('BR-B2B-031: a renewed licence (valid date, future) releases the free tier — the other direction of the mutation', () => {
+  const free: GenerationChoices = { tier: 'free', paymentMethod: null, qrDeliveryDays: 15 }
+  const missing = contractChecklist(client(), free, { provider: PROVIDER, regularity: REGULAR }).missing.map(
+    (item) => item.id
+  )
+  assert.equal(
+    missing.some((id) => id.startsWith('business_license')),
+    false,
+    'a licence within validity blocks nothing, on either tier'
+  )
+})
+
 test('BR-B2B-022 item 3: no legal representative role, no contract', () => {
   assert.ok(checklistIds({ legal_representative_role: undefined }).includes('representative_role'))
 })

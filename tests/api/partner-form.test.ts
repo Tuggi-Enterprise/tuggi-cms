@@ -656,7 +656,13 @@ function request(body?: unknown, ip = '10.0.0.1') {
 
 const context = { params: Promise.resolve({}) }
 
-test('#341: a CNPJ already registered as a client is refused, and nothing is written', async () => {
+// ── BR-B2B-028 — the CNPJ is the identity; a second registration of an existing one refuses ──
+//
+// Item 2 of the rule. The four tests below (OBLIGATORY CASE 1, the mask, the free CNPJ, and
+// the failed-lookup one further down) are the whole of what "recusa a submissão" means here:
+// nothing is written, and the caller is told it is `tax_id_registered`.
+
+test('BR-B2B-028 item 2 / #341: a CNPJ already registered as a client is refused, and nothing is written', async () => {
   // OBLIGATORY CASE 1. Written to fail if the `lookupTaxId` check is taken out of the route:
   // without it this body inserts a proposal and answers 200.
   state = freshState()
@@ -671,7 +677,7 @@ test('#341: a CNPJ already registered as a client is refused, and nothing is wri
   assert.equal(state.submissions.length, 0, 'a refused submission creates no proposal')
 })
 
-test('#341: the CNPJ is matched with the mask and without it', async () => {
+test('BR-B2B-028 item 2: the CNPJ is matched with the mask and without it', async () => {
   // Records typed by hand carry the printed mask; everything this feature writes is
   // normalised. Matching only one shape lets the same company in twice, which is exactly
   // what the refusal exists to stop.
@@ -683,7 +689,7 @@ test('#341: the CNPJ is matched with the mask and without it', async () => {
   assert.equal(state.submissions.length, 0)
 })
 
-test('#341: a CNPJ nobody has registered is accepted and becomes a proposal', async () => {
+test('BR-B2B-028 item 2, other direction of the mutation: a CNPJ nobody has registered is accepted and becomes a proposal', async () => {
   state = freshState()
   state.clients.push({ id: 'client-1', tax_id: '11222333000181' })
 
@@ -702,6 +708,15 @@ test('#341: a CNPJ that only has a pending proposal sends another one', async ()
   // Deliberate, and the opposite of the case above. Refusing here would answer a question
   // anybody can ask with a public number: is this company talking to the Tuggi? The
   // duplicate is resolved by a person on the conference screen.
+  //
+  // FLAGGED FOR `produto`/`dev`, not fixed here: BR-B2B-028's 1st edge case says the CNPJ
+  // block reaches "contrato vivo ou proposta ainda não conferida... e as duas recusam" — this
+  // route only checks `core.clients` (`lookupTaxId`), never `core.partner_form_submissions`,
+  // so a pending proposal does NOT refuse. Written after the rule was last edited
+  // (`b2b.md@5bb9efc`, 2026-08-16T08:45) by this file's own commit (`3caf57c`,
+  // 2026-08-16T10:22), so it reads as a deliberate call made without going back to the rule —
+  // not stale documentation. `qa` does not resolve this: either BR-B2B-028's edge case is
+  // wrong and `produto` narrows it, or this route is missing the second lookup.
   state = freshState()
 
   const first = await POST(request({ answers: completeAnswers() }, '10.0.0.5'), context)
@@ -793,7 +808,7 @@ test('#341: the address reaches the counter keyed by the secret, and never as a 
   assert.equal(sent, state.rpc[1].args.p_client_hash, 'the same caller keys the same, or nothing counts')
 })
 
-test('#341: a CNPJ lookup that fails refuses the submission instead of registering a twin', async () => {
+test('BR-B2B-028 item 2, fails closed: a CNPJ lookup that fails refuses the submission instead of registering a twin', async () => {
   state = freshState()
   state.clientsLookupFails = true
 
