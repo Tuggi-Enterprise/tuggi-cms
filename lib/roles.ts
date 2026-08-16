@@ -23,22 +23,31 @@ export function isClient(role?: string | null): boolean {
 //
 // SSOT for "which pages are served without a CMS session". `proxy.ts` reads it and states
 // nothing of its own: the list used to live inline in the middleware, and the two pages
-// #341 and #342 exist FOR people who have no account here (`/parceria/<token>` and
+// #341 and #342 exist FOR people who have no account here (`/parceria` and
 // `/contrato/<token>`) were never added to it — so the whole external half answered 307 to
 // `/login` and the feature did not exist for anyone outside. `tests/api/public-pages.test.ts`
 // is what makes removing an entry from here fail out loud instead of silently.
 //
-// Public means "no session required", never "no credential required": both token pages are
-// reached only by a 256-bit single-use token that is stored as a hash, and the write half of
-// each lives behind a rate-limited `/api` route that the matcher never sends here anyway.
+// THE TWO ENTRIES ARE NOT PROTECTED BY THE SAME THING, and this comment used to claim they
+// were. `/contrato/<token>` is still reached only by a 256-bit single-use token stored as a
+// hash. `/parceria` HAS NO CREDENTIAL AT ALL since 2026-08-16 (operator): one address goes to
+// every partner. Nothing on that page is read from the database and nothing is shown that a
+// caller did not type; what stands between the internet and the `service_role` write behind it
+// is three things, none of them a secret in the URL — a durable per-address limit counted by
+// the database (`registerSubmissionAttempt`), a field allowlist that strips everything else
+// out of the body (`normalizeAnswers`), and the fact that a submission is a PROPOSAL, never a
+// registration: promoting it is an authenticated act of the team (BR-B2B-026, item 4).
+// Reading the old promise here as "so it is safe" is how a reviewer six months from now
+// concludes the door is locked. It is watched, which is a different sentence.
 
 /** Paths served without a session, matched WHOLE. */
 export const PUBLIC_EXACT_PATHS = ['/login', '/client-signup', '/debug', '/unauthorized'] as const
 
 /**
- * Paths whose SEGMENT prefix is public, because the credential is the next segment.
- * Exact prefixes on purpose: `/parceria-interna` is not `/parceria`, and loosening the
- * middleware matcher instead of this list would open every page under a locale.
+ * Paths public from the segment on — `/contrato` because the credential is the next segment,
+ * `/parceria` because the page itself is open and the prefix also covers the path with nothing
+ * after it. Exact prefixes on purpose: `/parceria-interna` is not `/parceria`, and loosening
+ * the middleware matcher instead of this list would open every page under a locale.
  */
 export const PUBLIC_PATH_PREFIXES = ['/parceria', '/contrato'] as const
 

@@ -8,18 +8,19 @@
  *
  * `i18n.ts` falls back to `en` for a missing or invalid locale. A link without the segment
  * therefore hands an English form to a Brazilian restaurant owner, and the document this form
- * asks for (CNPJ) is Brazilian by definition. The generator does not assemble the URL without
- * the segment, and the page redirects anything else back to `/pt/`.
+ * asks for (CNPJ) is Brazilian by definition. So the path is never assembled without the
+ * segment, and the page redirects anything else back to `/pt/`.
+ *
+ * THERE IS NO ABSOLUTE-URL BUILDER HERE. There was one, `buildPartnerFormUrl(origin)`, and it
+ * had no caller: with no token there is nothing to generate per partner, and the one address
+ * is typed into an e-mail by a person, not composed by this code. It came out rather than
+ * waiting for a second reader to assume the CMS mails this link somewhere.
  */
 
 /** The locale of this surface, pinned (spec do `design`, §3.1 and §8.3). */
 export const PARTNER_FORM_LOCALE = 'pt'
 
-export function buildPartnerFormUrl(origin: string): string {
-  return `${origin.replace(/\/+$/, '')}${partnerFormPath()}`
-}
-
-/** The path alone, for the in-app redirect that has no origin to work with. */
+/** The path of the form — used by the redirect, and the only place it is spelled out. */
 export function partnerFormPath(): string {
   return `/${PARTNER_FORM_LOCALE}/parceria`
 }

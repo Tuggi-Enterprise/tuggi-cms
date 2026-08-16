@@ -1,11 +1,12 @@
 /**
  * The external partner form — #341.
  *
- * The card names two obligatory cases and both are here, each written so that REMOVING THE
- * GUARD MAKES IT RED and not merely so that the happy path passes:
+ * The card names the obligatory cases and all of them are here, each written so that REMOVING
+ * THE GUARD MAKES IT RED and not merely so that the happy path passes:
  *
  *  · a CNPJ already in `core.clients` is refused, and nothing is written;
- *  · the per-IP limit blocks, and the blocked request writes nothing.
+ *  · the per-IP limit blocks, and the blocked request writes nothing;
+ *  · with no server secret to key the counter with, the form refuses.
  *
  * Around them, the guarantees this surface announces: BR-B2B-022 (the regularity gate belongs
  * to the contract, not to the form), BR-B2B-026 (the journey: proposal first, promotion is an
@@ -18,6 +19,7 @@
 import { test, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 
 import {
@@ -45,6 +47,7 @@ import {
   writeMirror,
 } from '@/lib/partner-form/draft-mirror'
 import { partnerFormPath } from '@/lib/partner-form/link'
+import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
@@ -80,6 +83,48 @@ test('the mask keeps letters in the root and only digits in the check digits', (
   assert.equal(maskCnpjInput('12.ABC.345/01DE-AB'), '12.ABC.345/01DE')
   assert.equal(formatCnpj('12ABC'), '12.ABC')
   assert.equal(cnpjCharactersMissing('12.ABC.345'), 6)
+})
+
+// ── The deduplication key — the mirror of `tax_id_normalized` ──
+//
+// The column is `GENERATED ALWAYS` in `20260814140000` and it is the owner; `normalizedTaxId`
+// is what builds the operand of `tax_id_normalized=eq.<key>`, because PostgREST cannot apply
+// an expression to the value being compared. These three tests are the mutation surface: they
+// are red if the strip goes back to `[^0-9]`, and red if the two lines swap order.
+
+test('BR-B2B-026: one company has one key, whatever shape it was typed in', () => {
+  const key = normalizedTaxId('12.ABC.345/01DE-35')
+  assert.equal(key, '12ABC34501DE35')
+  assert.equal(normalizedTaxId('12abc34501de35'), key, 'case is a shape, not a company')
+  assert.equal(normalizedTaxId(' 12 ABC 345 01DE 35 '), key, 'and so is anything typed around it')
+  assert.equal(normalizedTaxId(''), '', 'nothing typed is no key, never a key that matches')
+})
+
+test('BR-B2B-026: two companies whose digits collide do not share a key', () => {
+  // `12.ABC.345/01DE-35` and `12.AAD.345/01CN-35` are two real, valid, DIFFERENT companies:
+  // same digit sequence, same check digits. Throwing the letters away (`[^0-9]`, the shape
+  // this key had until 2026-08-16) turns both into `123450135`, and the `data` measured the
+  // consequence against the live database — the second one is told it is already our client.
+  assert.equal(isValidCnpj('12ABC34501DE35'), true)
+  assert.equal(isValidCnpj('12AAD34501CN35'), true)
+  assert.notEqual(
+    normalizedTaxId('12.ABC.345/01DE-35'),
+    normalizedTaxId('12.AAD.345/01CN-35'),
+    'the letters are part of the CNPJ since 2026-07-31, so they are part of the key'
+  )
+})
+
+test('BR-B2B-026: the key strips first and upper-cases second — the order is the contract', () => {
+  // Upper-casing first lets case folding INVENT characters that the strip then keeps: `ß`
+  // upper-cases to `SS`, `ﬁ` to `FI`. The same value would then key differently depending on
+  // which end normalised it, and the database's `upper(regexp_replace(...))` is the end that
+  // wins. This vector is the one the `data` ran in Postgres: it answers `12ABC345XYZ` there.
+  assert.equal(normalizedTaxId('Çã12.abc-3/45 xyz_ß'), '12ABC345XYZ')
+  assert.equal(
+    'Çã12.abc-3/45 xyz_ß'.toUpperCase().replace(/[^0-9A-Za-z]/g, ''),
+    '12ABC345XYZSS',
+    'this is what the inverted order produces — kept here so the difference is not theoretical'
+  )
 })
 
 // ── What the form asks, and what it must never ask ──
@@ -438,10 +483,19 @@ function createFakeService(current: () => FakeState) {
         return { rows: matched, error: null }
       }
       if (operation === 'insert') {
-        const inserted = {
+        const inserted: Record<string, any> = {
           id: `${tableName}-${Math.random().toString(36).slice(2, 8)}`,
           created_at: new Date().toISOString(),
           ...payload,
+        }
+        if (tableName === 'submissions') {
+          // `tax_id_normalized` is GENERATED ALWAYS in `20260814140000`: the database writes
+          // it, never the caller. The expression is spelled out here instead of importing
+          // `normalizedTaxId`, so that the production mirror is compared against the contract
+          // and not against itself.
+          inserted.tax_id_normalized = String(inserted.answers?.tax_id ?? '')
+            .replace(/[^0-9A-Za-z]/g, '')
+            .toUpperCase()
         }
         ;(current() as any)[tableName].push(inserted)
         return { rows: [inserted], error: null }
@@ -555,6 +609,17 @@ function freshState(): FakeState {
 
 let POST: (req: any, ctx?: any) => Promise<Response>
 
+/**
+ * The server secret that keys the abuse counter. It is read at call time, and the NAME comes
+ * from the module rather than being retyped here — a renamed variable that nobody configured
+ * would otherwise leave these tests green and the deployed form refusing everybody.
+ *
+ * Imported inside `before`, next to the value it configures and after the fakes are in place,
+ * so the whole arrangement of this suite is in one block instead of half at the top of the file.
+ */
+let HASH_SECRET_VAR: string
+const TEST_SECRET = 'a-server-secret-that-only-the-server-has'
+
 before(async () => {
   mock.module('next/headers', {
     namedExports: { cookies: async () => ({ get: () => undefined, getAll: () => [] }) },
@@ -567,6 +632,10 @@ before(async () => {
       getSupabaseClient: () => ({}),
     },
   })
+
+  const proposals = await import('@/lib/services/partner-proposal-service')
+  HASH_SECRET_VAR = proposals.HASH_SECRET_VAR
+  process.env[HASH_SECRET_VAR] = TEST_SECRET
 
   const route = await import('@/app/api/partner-form/route')
   POST = route.POST as any
@@ -683,6 +752,45 @@ test('#341: a limit that cannot be consulted refuses — it does not wave the re
 
   assert.equal(response.status, 429)
   assert.equal(state.submissions.length, 0, 'a write nobody counted must not happen')
+})
+
+test('#341: with no server secret the form refuses — it does not fall back to a bare digest', async () => {
+  // OBLIGATORY CASE 3 (operator, 2026-08-16). The counter's key is an HMAC of the address, and
+  // the secret is what keeps it out of reach of a laptop: `sha256(ipv4)` is 2^32 digests, an
+  // afternoon of work. A missing secret must therefore stop the write, because the alternative
+  // — hashing without it — writes rows that look exactly like the good ones and nobody finds
+  // out. Take the `if (!clientHash)` guard out of `registerSubmissionAttempt` and this is 200.
+  state = freshState()
+  const saved = process.env[HASH_SECRET_VAR]
+  delete process.env[HASH_SECRET_VAR]
+
+  try {
+    const response = await POST(request({ answers: completeAnswers() }, '10.0.0.20'), context)
+
+    assert.equal(response.status, 429)
+    assert.equal(state.rpc.length, 0, 'nothing was counted, because nothing could be keyed')
+    assert.equal(state.submissions.length, 0, 'and an uncounted write must not happen')
+  } finally {
+    process.env[HASH_SECRET_VAR] = saved as string
+  }
+})
+
+test('#341: the address reaches the counter keyed by the secret, and never as a bare digest', async () => {
+  state = freshState()
+  const address = '10.0.0.21'
+
+  await POST(request({ answers: completeAnswers() }, address), context)
+  await POST(request({ answers: completeAnswers() }, address), context)
+
+  const sent = state.rpc[0].args.p_client_hash as string
+  assert.equal(typeof sent, 'string')
+  assert.notEqual(sent, address, 'the raw address does not reach the table')
+  assert.notEqual(
+    sent,
+    createHash('sha256').update(address, 'utf8').digest('hex'),
+    'an unsalted digest of an IP is reversible by anybody holding the table'
+  )
+  assert.equal(sent, state.rpc[1].args.p_client_hash, 'the same caller keys the same, or nothing counts')
 })
 
 test('#341: a CNPJ lookup that fails refuses the submission instead of registering a twin', async () => {

@@ -34,7 +34,7 @@
  */
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
-import { createHash } from 'node:crypto'
+import { createHmac } from 'node:crypto'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
 import { cnpjLookupValues } from '@/lib/validation/cnpj'
 
@@ -151,22 +151,29 @@ export interface SubmissionLimitDecision {
  * The count is the database's, in one statement: PostgREST cannot count-then-insert without a
  * race, so the RPC does both and returns the verdict. Specified for the `data` in #341.
  *
- * THE ADDRESS IS HASHED, and the docstring will not claim more than that. SHA-256 of an IPv4
- * is not anonymisation — the whole space is enumerable — and it is not sold as such here. What
- * it buys is that the raw address is not in the table, not in this process's memory and not in
- * the log line below; the key is fixed-width; and there is nothing in the row that identifies
- * a person to somebody reading the table.
+ * THE ADDRESS IS KEY-HASHED, and the docstring will not claim more than that — see
+ * `hashClientAddress`.
  *
- * FAIL CLOSED. An RPC that errors, or is not there yet, means nobody counted — and an
- * uncounted write to a `service_role` table from an anonymous caller is the thing this
- * function exists to prevent. The route turns that into "try again in a moment", never into
- * a silent allow.
+ * FAIL CLOSED, and for two reasons now. An RPC that errors, or is not there yet, means nobody
+ * counted — and an uncounted write to a `service_role` table from an anonymous caller is the
+ * thing this function exists to prevent. A missing server secret means the key could only be
+ * built by dropping it, which would silently downgrade every row already written into the
+ * brute-forceable shape this stopped being. Both refuse; the route turns that into "try again
+ * in a moment", never into a silent allow.
  */
 export async function registerSubmissionAttempt(
   clientAddress: string
 ): Promise<SubmissionLimitDecision> {
+  const clientHash = hashClientAddress(clientAddress)
+  if (!clientHash) {
+    console.error(
+      `[partner-form] ${HASH_SECRET_VAR} is not configured — the submission was refused`
+    )
+    return { allowed: false, retryAfterSeconds: SUBMISSION_WINDOW_SECONDS }
+  }
+
   const { data, error } = await service().rpc('record_partner_form_attempt', {
-    p_client_hash: hashClientAddress(clientAddress),
+    p_client_hash: clientHash,
     p_window_seconds: SUBMISSION_WINDOW_SECONDS,
     p_max_attempts: SUBMISSION_LIMIT_PER_WINDOW,
   })
@@ -187,8 +194,41 @@ export async function registerSubmissionAttempt(
   }
 }
 
-export function hashClientAddress(clientAddress: string): string {
-  return createHash('sha256').update((clientAddress ?? '').trim(), 'utf8').digest('hex')
+/**
+ * The environment variable holding the server-side secret of the key-hash below. Named here
+ * because the log line has to say WHICH variable is missing — an operator reading
+ * "not configured" learns nothing.
+ */
+export const HASH_SECRET_VAR = 'PARTNER_FORM_HASH_SECRET'
+
+/**
+ * The counter's key for one address: HMAC-SHA-256 of the address under a server secret.
+ *
+ * WHY A SECRET AND NOT A PLAIN DIGEST. A bare `sha256(ip)` is reversible by anybody who gets
+ * the table: the whole IPv4 space is 2^32 digests, which is minutes of laptop time, and IPv6
+ * assignments in practice are not much better. The secret takes that offline attack away —
+ * without it there is nothing to enumerate against.
+ *
+ * WHAT IT IS STILL NOT. This is pseudonymisation, not anonymisation, and calling it anonymous
+ * would be the same overclaim with a longer key: the same address always produces the same
+ * value (that is the whole point — the counter has to recognise a repeat caller), so the rows
+ * remain linkable to each other, and whoever holds the secret can re-derive the key for an
+ * address they already suspect. What it buys is that the raw address is not in the table, not
+ * kept in this process and not in any log line, and that the table alone reveals nobody.
+ *
+ * NULL, NEVER AN UNSALTED FALLBACK. Returning a plain digest when the secret is missing would
+ * be worse than never having had one: the door would stay open, the rows would look identical
+ * to the good ones, and nobody would find out until somebody dumped the table. The caller
+ * refuses instead — `registerSubmissionAttempt`, and the type is what forces it to.
+ *
+ * The secret is a deploy-time value: rotating it re-keys everybody, which costs at most one
+ * window of counting and is the reason the window is an hour and not a month.
+ */
+export function hashClientAddress(clientAddress: string): string | null {
+  const secret = (process.env[HASH_SECRET_VAR] ?? '').trim()
+  if (!secret) return null
+
+  return createHmac('sha256', secret).update((clientAddress ?? '').trim(), 'utf8').digest('hex')
 }
 
 /**

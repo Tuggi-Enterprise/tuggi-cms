@@ -2,19 +2,21 @@
  * The public half of the CMS — who gets a page without a session, and who gets /login.
  *
  * This exists because of a defect that cost the whole external delivery of #341 and #342:
- * both features are FOR people who have no account here, and neither `/parceria/<token>`
- * nor `/contrato/<token>` was in the middleware's list of public paths. The failure was
+ * both features are FOR people who have no account here, and neither `/parceria` nor
+ * `/contrato/<token>` was in the middleware's list of public paths. The failure was
  * closed (307 to /login, nothing leaked) and therefore silent — the partner simply could
  * not open the form or the contract, and no test said so.
  *
  * The list is the kind of line somebody tidies up six months later. So this suite runs the
  * REAL middleware (`proxy.ts`) with no session and asserts both directions:
- *   · a token page answers the page, not a redirect to login;
+ *   · a public page answers the page, not a redirect to login;
  *   · a CMS page still answers 307 to login;
  *   · and the prefix is exact — `/parceria-interna` is not `/parceria`.
  *
- * Public here means "no CMS session", never "no credential": the credential is the 256-bit
- * single-use token in the next segment, stored only as a SHA-256 (BR-B2B-026, item 2).
+ * Public here means "no CMS session", and the two entries do not mean the same thing beyond
+ * that. `/contrato/<token>` carries a credential: a 256-bit single-use token in the next
+ * segment, stored only as a SHA-256 (BR-B2B-026, item 2). `/parceria` carries none at all
+ * since 2026-08-16 — one address for every partner, guarded by what `lib/roles.ts` spells out.
  *
  * Run with: npm run test:api
  */
@@ -70,7 +72,9 @@ test('BR-B2B-026: the signing page opens with no session — the failure that ma
 })
 
 test('BR-B2B-026: the partner form opens with no session — the same failure in #341', async () => {
-  const answer = await visit(`/pt/parceria/${TOKEN}`)
+  // The real address has nothing after the segment any more, and the prefix rule has to cover
+  // the bare path as well as anything under it — `isPublicPath` matches `path === prefix`.
+  const answer = await visit('/pt/parceria')
   assert.equal(answer.status, 200)
   assert.equal(answer.location, null)
 })

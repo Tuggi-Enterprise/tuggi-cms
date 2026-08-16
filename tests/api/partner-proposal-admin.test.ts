@@ -577,27 +577,45 @@ function createFakeAuthClient() {
   }
 }
 
+/**
+ * `core.partner_form_submissions.tax_id_normalized` as the database computes it — GENERATED
+ * ALWAYS in `20260814140000`: strip everything outside `[0-9A-Za-z]`, and ONLY THEN upper-case.
+ *
+ * Written out here on purpose instead of importing `normalizedTaxId`: the production function
+ * is a MIRROR of this expression, and a mirror compared against itself proves nothing. With the
+ * contract on this side, a mutation on the other one stops matching rows and the suite is red.
+ */
+function generatedTaxIdNormalized(answers: Record<string, any> | undefined): string {
+  return String(answers?.tax_id ?? '')
+    .replace(/[^0-9A-Za-z]/g, '')
+    .toUpperCase()
+}
+
+/** One row of the queue, with the generated column filled the way an INSERT would leave it. */
+function submissionRow(overrides: Record<string, any> = {}): Record<string, any> {
+  const row = {
+    id: SUBMISSION_ID,
+    status: 'submitted',
+    answers: answers(),
+    submitted_at: '2026-08-12T12:00:00Z',
+    created_at: '2026-08-10T09:00:00Z',
+    updated_at: '2026-08-12T12:00:00Z',
+    promoted_at: null,
+    promoted_by: null,
+    promoted_client_id: null,
+    review_note: null,
+    reviewed_at: null,
+    reviewed_by: null,
+    ...overrides,
+  }
+  return { ...row, tax_id_normalized: generatedTaxIdNormalized(row.answers) }
+}
+
 function freshState(
   overrides: { submission?: Record<string, any>; client?: Record<string, any> } = {}
 ): FakeState {
   return {
-    submissions: [
-      {
-        id: SUBMISSION_ID,
-        status: 'submitted',
-        answers: answers(),
-        submitted_at: '2026-08-12T12:00:00Z',
-        created_at: '2026-08-10T09:00:00Z',
-        updated_at: '2026-08-12T12:00:00Z',
-        promoted_at: null,
-        promoted_by: null,
-        promoted_client_id: null,
-        review_note: null,
-        reviewed_at: null,
-        reviewed_by: null,
-        ...overrides.submission,
-      },
-    ],
+    submissions: [submissionRow(overrides.submission)],
     clients: overrides.client ? [overrides.client] : [],
     audit_logs: [],
     touchedTables: [],
@@ -807,6 +825,34 @@ test('#341: two proposals with the same CNPJ are shown to a person, never merged
   assert.equal(detail.duplicates.length, 1)
   assert.equal(detail.duplicates[0].id, '99999999-9999-9999-9999-999999999999')
   assert.equal(state.submissions.length, 2, 'nothing was merged and nothing was discarded')
+})
+
+test('#341: the duplicate is the same company in another shape — and never a different company', async () => {
+  // The whole reason `tax_id_normalized` exists, in one screen. The twin typed the CNPJ with
+  // no mask and in lower case; the stranger is `12.AAD.345/01CN-35`, a DIFFERENT valid company
+  // whose digits and check digits are identical to ours. Both mutations of the key are red
+  // here: matching the typed string loses the twin, and keying on `[^0-9]` gains the stranger
+  // — and gaining it means an operator is shown somebody else's proposal as a duplicate of
+  // this one, with `duplicate` on the closed list of discard reasons.
+  state = freshState()
+  const twin = submissionRow({
+    id: '99999999-9999-9999-9999-999999999999',
+    answers: { ...answers(), tax_id: '12abc34501de35' },
+    submitted_at: '2026-08-13T12:00:00Z',
+  })
+  const stranger = submissionRow({
+    id: '88888888-8888-8888-8888-888888888888',
+    answers: { ...answers(), tax_id: '12.AAD.345/01CN-35' },
+    submitted_at: '2026-08-13T13:00:00Z',
+  })
+  state.submissions.push(twin, stranger)
+
+  const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).json()
+
+  assert.deepEqual(
+    detail.duplicates.map((duplicate: { id: string }) => duplicate.id),
+    [twin.id]
+  )
 })
 
 test('BR-B2B-022: the conference the operator registers is what the screen reads back', async () => {

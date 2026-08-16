@@ -25,6 +25,7 @@ import {
   type ReviewNote,
 } from '@/lib/partner-form/proposal-review'
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
+import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 import { cnpjLookupValues } from '@/lib/validation/cnpj'
 
 const SCHEMA = 'core'
@@ -91,18 +92,21 @@ export async function listProposals(
   if (error || !data) return []
 
   const rows = data as AdminSubmissionRow[]
+  // Grouped by the key of `tax_id_normalized` and not by what was typed: the same company
+  // filling the form twice writes `12.ABC.345/01DE-35` once and `12abc34501de35` the next
+  // time, and a duplicate the screen does not show is a duplicate nobody resolves.
   const pendingByTaxId = new Map<string, string[]>()
   for (const row of rows) {
     if (row.status !== 'submitted') continue
-    const taxId = (row.answers.tax_id ?? '').trim()
-    if (!taxId) continue
-    pendingByTaxId.set(taxId, (pendingByTaxId.get(taxId) ?? []).concat(row.id))
+    const key = normalizedTaxId(row.answers.tax_id)
+    if (!key) continue
+    pendingByTaxId.set(key, (pendingByTaxId.get(key) ?? []).concat(row.id))
   }
 
   return rows.map((row) => ({
     ...row,
     conference: readReviewNote(row.review_note).conference,
-    duplicate_of: (pendingByTaxId.get((row.answers.tax_id ?? '').trim()) ?? []).filter(
+    duplicate_of: (pendingByTaxId.get(normalizedTaxId(row.answers.tax_id)) ?? []).filter(
       (id) => id !== row.id
     ),
   }))
@@ -195,7 +199,10 @@ async function operatorLabel(userId: string | null): Promise<string | null> {
  *
  * When it does find one, the promotion becomes an UPDATE and DS-COMPONENTE-018 applies in
  * full: a divergent column is born unticked and stays that way until somebody says otherwise.
- * The same shapes count as the same CNPJ on both surfaces (`cnpjLookupValues`).
+ * The same shapes count as the same CNPJ on both surfaces (`cnpjLookupValues`), and this is the
+ * one lookup that still asks by SHAPE rather than by key: `core.clients.tax_id` is a plain
+ * column with no normalised twin, so there is nothing to compare `normalizedTaxId` against and
+ * the expression index of `20260814170000` is the database's own, not PostgREST's.
  */
 export async function findClientByTaxId(taxId: string): Promise<ClientRecord | null> {
   const candidates = cnpjLookupValues(taxId)
@@ -219,25 +226,33 @@ export async function findClientByTaxId(taxId: string): Promise<ClientRecord | n
  * who is negotiating with the Tuggi). Nothing merges them: the screen shows the duplicate and a
  * person decides which one to promote and which one to discard, with `duplicate` on the closed
  * list of discard reasons.
+ *
+ * ONE SHAPE, AND THE DATABASE DECIDES IT. The filter is `tax_id_normalized=eq.<key>` against the
+ * generated column of `20260814140000`, which is also the index behind it. What this used to do
+ * — read the 50 newest proposals and compare the typed strings in JavaScript — missed the same
+ * company that typed the mask on Monday and did not on Tuesday, and stopped looking at the 51st
+ * row. `normalizedTaxId` is the mirror of that column's expression, and nothing else here
+ * decides what "the same CNPJ" means.
  */
 async function findPendingDuplicates(
   submissionId: string,
   taxId: string
 ): Promise<{ id: string; submittedAt: string | null }[]> {
-  const value = (taxId ?? '').trim()
-  if (!value) return []
+  const key = normalizedTaxId(taxId)
+  if (!key) return []
 
   const { data, error } = await service()
     .from(SUBMISSIONS)
-    .select('id, submitted_at, answers')
+    .select('id, submitted_at')
     .eq('status', 'submitted')
+    .eq('tax_id_normalized', key)
     .order('submitted_at', { ascending: false })
     .limit(50)
 
   if (error || !data) return []
 
-  return (data as { id: string; submitted_at: string | null; answers: PartnerAnswers }[])
-    .filter((row) => row.id !== submissionId && (row.answers?.tax_id ?? '').trim() === value)
+  return (data as { id: string; submitted_at: string | null }[])
+    .filter((row) => row.id !== submissionId)
     .map((row) => ({ id: row.id, submittedAt: row.submitted_at }))
 }
 
