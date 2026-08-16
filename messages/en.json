@@ -1980,7 +1980,9 @@
         "influencer": "Influencer",
         "hotel": "Hotel",
         "partner": "Partner",
-        "creator": "Creator"
+        "creator": "Creator",
+        "driver": "Driver",
+        "venue": "Venue"
       },
       "qr": {
         "title": "Revenue QR Code",

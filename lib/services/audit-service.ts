@@ -30,6 +30,10 @@ export type AuditAction =
   // the single write that opens the contract door is the one act on the screen with no
   // history — which is what the security review of 2026-08-16 found (M-2).
   | 'REVIEW_PARTNER_PROPOSAL'
+  // The place the approval creates (#360). It is a write into a catalogue of 2.2 million rows
+  // made by a side-effect and not by the Places screen, so the row that says which approval
+  // produced which POI is the only way back from one to the other.
+  | 'CREATE_PARTNER_PLACE'
 
 /**
  * `CLIENT` is the record the promotion writes; `PARTNER_PROPOSAL` is the thing outside the

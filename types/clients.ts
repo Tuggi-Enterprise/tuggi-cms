@@ -6,11 +6,58 @@ export type ClientStatus = 'pending' | 'approved' | 'rejected'
 export type ClientRole = 'owner' | 'manager' | 'viewer'
 
 /**
- * Relationship category — drives consumer-facing screens (coupon attribution,
- * partner landing pages). `business` is the existing B2B default; the others
- * cover the partner registry added in 20260528125114_clients_supports_partners.
+ * Relationship category — the SINGLE vocabulary of `core.clients.client_type`.
+ *
+ * THIS LIST IS THE MIRROR OF `clients_client_type_check`, and the database is the owner.
+ * Measured on the live constraint on 2026-08-16, after `20260816150000`:
+ *
+ *   CHECK (client_type = ANY (ARRAY['business','influencer','hotel','partner','creator',
+ *                                   'driver','venue']))
+ *
+ * The order is the constraint's, so a `diff` against the next measurement reads straight.
+ *
+ * Two of them are here because leaving them out was a lie the screens told in silence:
+ *  · `driver`  — the app writes it through `drive.register_partner_v1`, and the app has no
+ *                OTA: a type that refuses the value the published app already stores is the
+ *                type that is wrong, not the data;
+ *  · `venue`   — the merchant with an address, BR-B2B-020 item 5. Declared by the operator on
+ *                2026-08-14 (*"será tipo locais"*); the identifier is English by CLAUDE.md §6.
+ *
+ * Adding a value here without the migration that widens the CHECK produces a row the database
+ * refuses at write time. The two go together, in this order: migration first.
  */
-export type ClientType = 'business' | 'influencer' | 'hotel' | 'partner' | 'creator'
+export const CLIENT_TYPES = [
+  'business',
+  'influencer',
+  'hotel',
+  'partner',
+  'creator',
+  'driver',
+  'venue',
+] as const
+
+export type ClientType = (typeof CLIENT_TYPES)[number]
+
+/**
+ * What a client with no declared type is. `core.clients.client_type` is NOT NULL with
+ * DEFAULT `'business'`, and this constant is the ONE place the CMS repeats it.
+ *
+ * It used to be typed out at four call sites — two POST routes and two modals — which is the
+ * same decision declared four times (CLAUDE.md §6, SSOT). Whoever changes the column's default
+ * changes this line, and the four call sites follow without being found again.
+ */
+export const DEFAULT_CLIENT_TYPE: ClientType = 'business'
+
+/**
+ * Whether a value coming from outside is one of the seven.
+ *
+ * The two POST routes hold `service_role`, which ignores RLS — the route is the only barrier
+ * left, and without this the CHECK answers for it with a 500 that names a constraint instead
+ * of a 400 that names the field.
+ */
+export function isClientType(value: unknown): value is ClientType {
+  return typeof value === 'string' && (CLIENT_TYPES as readonly string[]).includes(value)
+}
 
 /**
  * Client entity - represents a business/organization client

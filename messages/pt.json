@@ -1979,7 +1979,9 @@
         "influencer": "Influencer",
         "hotel": "Hotel",
         "partner": "Parceiro",
-        "creator": "Criador de conteúdo"
+        "creator": "Criador de conteúdo",
+        "driver": "Motorista",
+        "venue": "Local"
       },
       "qr": {
         "title": "QR Code de Atribuição",

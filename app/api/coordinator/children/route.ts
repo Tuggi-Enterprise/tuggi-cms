@@ -17,6 +17,7 @@ import {
   canTouchClient,
 } from '@/lib/services/coordinator-service'
 import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
+import { DEFAULT_CLIENT_TYPE, isClientType } from '@/types/clients'
 
 export const dynamic = 'force-dynamic'
 
@@ -86,6 +87,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields: name, email' }, { status: 400 })
     }
 
+    // Um tipo que o CHECK recusa é 400 com o nome do campo, não o 500 da constraint: esta
+    // rota carrega `service_role`, que ignora RLS, e é a única barreira que sobra.
+    if (client_type != null && client_type !== '' && !isClientType(client_type)) {
+      return NextResponse.json({ error: 'Invalid client_type' }, { status: 400 })
+    }
+
     // O pai vem do SERVIDOR. Um não-admin nunca consegue pendurar uma filha em
     // guarda-chuva alheio, mesmo mandando parent_client_id no body.
     const parent = resolveParentForNewChild(ctx, requestedParent)
@@ -108,7 +115,8 @@ export async function POST(request: NextRequest) {
         postal_code: postal_code || null,
         industry: industry || null,
         website: website || null,
-        client_type: client_type || 'business',
+        // O default é declarado uma vez, em `types/clients.ts`, e lido aqui.
+        client_type: client_type || DEFAULT_CLIENT_TYPE,
         parent_client_id: parent.parentId,
         // Filha de coordenador nasce APPROVED (decisão de produto): o QR precisa funcionar
         // no ato. A landing /d/<slug> não filtra status — uma filha 'pending' captaria

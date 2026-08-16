@@ -13,6 +13,7 @@ import { cookies } from 'next/headers'
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { validateAvatarUrl } from '@/lib/services/client-editable-fields'
 import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
+import { DEFAULT_CLIENT_TYPE, isClientType } from '@/types/clients'
 
 export async function GET(request: NextRequest) {
   try {
@@ -160,6 +161,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: avatarUrl.error }, { status: 400 })
     }
 
+    // A type the CHECK refuses is a 400 with the field's name, not the 500 the constraint
+    // would produce below — this route holds `service_role` and is the only barrier left.
+    if (client_type != null && client_type !== '' && !isClientType(client_type)) {
+      return NextResponse.json({ error: 'Invalid client_type' }, { status: 400 })
+    }
+
     // Insert client
     const supabaseService = getSupabaseService()
     const { data: client, error: clientError } = await supabaseService
@@ -193,8 +200,9 @@ export async function POST(request: NextRequest) {
         is_coordinator: is_coordinator ?? false,
         welcome_poi_id: welcome_poi_id || null,
         // Partner attribution (20260528125114_clients_supports_partners).
-        // client_type is NOT NULL in the database, hence the explicit default.
-        client_type: client_type || 'business',
+        // client_type is NOT NULL in the database, hence the explicit default — which is
+        // declared once, in `types/clients.ts`, and read here.
+        client_type: client_type || DEFAULT_CLIENT_TYPE,
         avatar_url: avatarUrl.value,
         social_handle: social_handle || null,
         bio_one_line: bio_one_line || null

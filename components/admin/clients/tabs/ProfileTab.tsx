@@ -2,7 +2,7 @@
 
 import { Building2, Sparkles } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import type { Client, ClientType } from '@/types/clients'
+import { CLIENT_TYPES, DEFAULT_CLIENT_TYPE, type Client, type ClientType } from '@/types/clients'
 import { COUNTRIES } from '@/components/admin/clients/shared/countries'
 import { EditField } from '@/components/admin/clients/shared/EditField'
 import { SectionHeader } from '@/components/admin/clients/shared/SectionHeader'
@@ -16,8 +16,6 @@ export interface ClientEditorTabProps {
   clientId?: string
 }
 
-const CLIENT_TYPE_VALUES: ClientType[] = ['business', 'influencer', 'hotel', 'partner', 'creator']
-
 function v<K extends keyof Client>(client: Client | null, edited: Partial<Client>, k: K): string {
   const raw = edited[k] ?? client?.[k]
   return raw == null ? '' : String(raw)
@@ -27,7 +25,7 @@ export function ProfileTab({ client, edited, updateField, canEdit, clientId }: C
   const t = useTranslations('Clients.profile')
   const isEditing = canEdit
   const currentCountry = String(edited.country ?? client?.country ?? '')
-  const currentType: ClientType = (edited.client_type ?? client?.client_type ?? 'business') as ClientType
+  const currentType: ClientType = (edited.client_type ?? client?.client_type ?? DEFAULT_CLIENT_TYPE) as ClientType
   const currentSlug = String(edited.slug ?? client?.slug ?? '')
   // Show the QR only once we know which client we're attributing to —
   // create mode (no clientId yet) has nothing to point at.
@@ -69,7 +67,7 @@ export function ProfileTab({ client, edited, updateField, canEdit, clientId }: C
                 onChange={(e) => updateField('client_type', e.target.value as ClientType)}
                 className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-semibold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-tuggi-blue/30 transition-all"
               >
-                {CLIENT_TYPE_VALUES.map((value) => (
+                {CLIENT_TYPES.map((value) => (
                   <option key={value} value={value}>{t(`clientTypes.${value}`)}</option>
                 ))}
               </select>

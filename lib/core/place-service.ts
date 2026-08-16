@@ -5,7 +5,20 @@
  * acessibilidade e contato de attractions; place_details guarda só o específico
  * de comércio (place_type/cuisine/price_range/reserva/menu/amenities/tags).
  */
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabaseClient } from './supabase-client'
+
+/**
+ * The catalogue's vocabulary for `core.place_details.place_type`.
+ *
+ * The column is free text — there is no CHECK behind it — so THIS list is what keeps the CMS
+ * from holding a value none of its screens can show. It lived inside `PlaceFormModal` while
+ * the modal was the only writer; the partner approval (#360) is the second one, and a second
+ * copy of the list is how the two would come to disagree (CLAUDE.md §6, SSOT).
+ */
+export const PLACE_TYPES = ['restaurant', 'bar', 'cafe', 'shop', 'hotel', 'service', 'other'] as const
+
+export type PlaceType = (typeof PLACE_TYPES)[number]
 
 export interface PlaceListItem {
   id: string
@@ -59,8 +72,20 @@ export interface CreatePlaceInput {
   place_type?: string | null
 }
 
-function client() {
-  return getSupabaseClient()
+/**
+ * WHICH IDENTITY WRITES, and it is not a detail here.
+ *
+ * By default the browser client of whoever has the CMS open: every screen of this module is a
+ * client component. `core.cms_create_place` is `SECURITY DEFINER` gated on
+ * `core.is_active_cms_editor_or_admin()`, which reads `auth.jwt() ->> 'email'` — so the call
+ * only works with a real CMS session behind it.
+ *
+ * A SERVER CALLER HAS TO HAND ITS OWN CLIENT OVER (the partner approval, #360). Reaching for
+ * `service_role` there would not help and would be the wrong instinct twice: it bypasses RLS,
+ * and the service JWT carries no e-mail, so that gate answers `not authorized to create places`.
+ */
+function client(db?: SupabaseClient) {
+  return db ?? getSupabaseClient()
 }
 
 export const placeService = {
@@ -112,8 +137,8 @@ export const placeService = {
     return (data?.[0] as any) || null
   },
 
-  async create(input: CreatePlaceInput): Promise<string> {
-    const { data, error } = await client()
+  async create(input: CreatePlaceInput, db?: SupabaseClient): Promise<string> {
+    const { data, error } = await client(db)
       .schema('core')
       .rpc('cms_create_place', {
         p_name: input.name,
@@ -137,8 +162,8 @@ export const placeService = {
     if (error) throw new Error(error.message)
   },
 
-  async updateAttraction(attractionId: string, patch: Record<string, any>) {
-    const { error } = await client().schema('core').from('attractions').update(patch).eq('id', attractionId)
+  async updateAttraction(attractionId: string, patch: Record<string, any>, db?: SupabaseClient) {
+    const { error } = await client(db).schema('core').from('attractions').update(patch).eq('id', attractionId)
     if (error) throw new Error(error.message)
   },
 

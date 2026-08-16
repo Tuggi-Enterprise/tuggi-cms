@@ -780,6 +780,41 @@ test('BR-B2B-026: a proposal somebody already promoted cannot be promoted again'
   assert.equal(state.clients.length, 0)
 })
 
+test('BR-B2B-020: a promotion that creates a record creates a `venue` — end to end', async () => {
+  // Item 5, declared by the operator on 2026-08-14 (*"será tipo locais"*): the establishment
+  // is a type of its own. This used to write `partner`, a generic that names no public — and
+  // the public form is the merchant's channel (BR-B2B-026, items 1 to 3), so every record it
+  // creates is one. The mutation: put `'partner'` back in `writeClient` and this is red.
+  state = freshState()
+
+  const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
+
+  assert.equal(response.status, 200)
+  assert.equal(state.clients.length, 1)
+  assert.equal(state.clients[0].client_type, 'venue')
+})
+
+test('BR-B2B-020: a promotion onto a record that already exists does not re-classify it', async () => {
+  // The type of a client the team registered is the team's. `client_type` is not in
+  // `PROMOTION_MAP`, so an UPDATE cannot reach it however the body is written — the same
+  // reasoning as DS-COMPONENTE-018, applied to a column the panel never shows.
+  state = freshState({
+    client: {
+      id: CLIENT_ID,
+      name: 'Cantina do Zé',
+      tax_id: '12ABC34501DE35',
+      client_type: 'business',
+    },
+  })
+
+  await PROMOTE(
+    request('POST', { approved: ['name'], industry: 'Restaurante', client_type: 'venue' }),
+    proposalContext
+  )
+
+  assert.equal(state.clients[0].client_type, 'business')
+})
+
 test('#341: a proposal whose CNPJ is already a client promotes into that record, not a second one', async () => {
   // The form refuses a CNPJ that is already a client, so the ordinary promotion CREATES. This
   // is the case that survives it: the proposal was sitting in the queue while somebody

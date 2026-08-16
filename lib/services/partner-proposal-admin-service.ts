@@ -27,6 +27,7 @@ import {
 import type { ConferenceRecord } from '@/lib/partner-form/regularity'
 import { normalizedTaxId } from '@/lib/partner-form/tax-id-key'
 import { cnpjLookupValues } from '@/lib/validation/cnpj'
+import type { ClientType } from '@/types/clients'
 
 const SCHEMA = 'core'
 const SUBMISSIONS = 'partner_form_submissions'
@@ -256,6 +257,32 @@ async function findPendingDuplicates(
     .map((row) => ({ id: row.id, submittedAt: row.submitted_at }))
 }
 
+/**
+ * The proposal a client was promoted FROM — the insumo the place prefill is built out of.
+ *
+ * The link is `promoted_client_id`, written by `promoteProposal` and by nothing else, so this
+ * answers "what did this partner write about the place?" without the caller knowing anything
+ * about the queue. It answers `null` for a client registered by hand, which is the ordinary
+ * case for the 10 records that existed before the form.
+ *
+ * `limit(1)` and not `maybeSingle()`: `promoted_client_id` has no unique index, and one client
+ * with two promoted proposals is a duplicate a person resolved by promoting both — a lookup
+ * that errors there would break the approval over a row it does not even need to choose
+ * between. Newest first, because the last thing the partner sent is the current one.
+ */
+export async function findPromotedSubmission(clientId: string): Promise<AdminSubmissionRow | null> {
+  const { data, error } = await service()
+    .from(SUBMISSIONS)
+    .select(SUBMISSION_COLUMNS)
+    .eq('promoted_client_id', clientId)
+    .eq('status', 'promoted')
+    .order('promoted_at', { ascending: false })
+    .limit(1)
+
+  if (error || !data || data.length === 0) return null
+  return data[0] as AdminSubmissionRow
+}
+
 export async function loadClient(clientId: string): Promise<ClientRecord | null> {
   const { data, error } = await service()
     .from(CLIENTS)
@@ -345,6 +372,23 @@ async function releaseClaim(submissionId: string): Promise<void> {
     .eq('id', submissionId)
 }
 
+/**
+ * What a promoted proposal becomes: `venue`, the merchant with an address.
+ *
+ * BR-B2B-020, item 5 — declared by the operator on 2026-08-14 (*"será tipo locais"*), which
+ * fixes that the establishment enters as a type OF ITS OWN and not as `business`, `partner` or
+ * `hotel`. It used to write `partner`, a generic that names no public and that made the seven
+ * values of `clients_client_type_check` indistinguishable from one another for the whole
+ * merchant funnel — this form is the merchant's channel (BR-B2B-026, items 1 to 3), so every
+ * record it creates is one.
+ *
+ * The value is only ever written on CREATE. A promotion that lands on a record that already
+ * exists does not touch `client_type`: the type of a client the team already registered is the
+ * team's, and an external form does not re-classify it (the same reasoning as
+ * DS-COMPONENTE-018, and the reason this is not in `PROMOTION_MAP`).
+ */
+export const PROMOTED_CLIENT_TYPE: ClientType = 'venue'
+
 type ClientWriteOutcome =
   | { ok: true; clientId: string; created: boolean }
   | { ok: false; reason: 'write_failed' }
@@ -367,7 +411,7 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
     // `status` is NOT part of the promotion (it is on the never-written list): a new record is
     // born pending because that is what `core.clients` does with a new record, and approving
     // the partnership is another decision on the client's own page (BR-B2B-010, item 1).
-    .insert({ ...command.updates, client_type: 'partner' })
+    .insert({ ...command.updates, client_type: PROMOTED_CLIENT_TYPE })
     .select('id')
     .single()
 

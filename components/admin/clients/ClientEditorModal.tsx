@@ -32,7 +32,7 @@ import { AppUsersTab, type AppUserLite } from '@/components/admin/clients/tabs/A
 import { PoisTab } from '@/components/admin/clients/tabs/PoisTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
-import type { Client } from '@/types/clients'
+import { DEFAULT_CLIENT_TYPE, type Client } from '@/types/clients'
 
 export type ClientEditorTab = 'profile' | 'fiscal' | 'contract' | 'team' | 'appusers' | 'pois' | 'coupons'
 
@@ -101,7 +101,7 @@ export function ClientEditorModal({
       void fetchClient(clientId)
     } else {
       setClient(null)
-      setEdited({ client_type: 'business', status: 'pending', commission_rate: 0.2 })
+      setEdited({ client_type: DEFAULT_CLIENT_TYPE, status: 'pending', commission_rate: 0.2 })
     }
     return () => {
       // Cancel any in-flight fetch when the effect re-runs or unmounts —

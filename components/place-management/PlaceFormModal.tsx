@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Store, Info, Sparkles, Send } from 'lucide-react'
-import { placeService } from '@/lib/core/place-service'
+import { PLACE_TYPES, placeService } from '@/lib/core/place-service'
 import { usePlaceDetails } from '@/lib/hooks/use-places'
 import { useCmsUser } from '@/lib/hooks/useCmsUser'
 import { EntityManagementDrawer } from '@/components/entity-management/EntityManagementDrawer'
@@ -23,7 +23,6 @@ interface PlaceFormModalProps {
   onSaved?: (id: string) => void
 }
 
-const PLACE_TYPES = ['restaurant', 'bar', 'cafe', 'shop', 'hotel', 'service', 'other']
 const AMENITIES: { key: string; t: string }[] = [
   { key: 'has_wifi', t: 'wifi' },
   { key: 'has_outdoor_seating', t: 'outdoor' },

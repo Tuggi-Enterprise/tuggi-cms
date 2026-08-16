@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { X, Save, Loader2, Plus, Edit, AlertTriangle } from 'lucide-react'
 import { ProfileTab } from '@/components/admin/clients/tabs/ProfileTab'
-import type { Client } from '@/types/clients'
+import { DEFAULT_CLIENT_TYPE, type Client } from '@/types/clients'
 
 interface Props {
   /** undefined = criar; id = editar. */
@@ -70,7 +70,7 @@ export function CoordinatorChildModal({ childId, parentId, isOpen, onClose, onSa
       void fetchChild(childId)
     } else {
       setClient(null)
-      setEdited({ client_type: 'business' })
+      setEdited({ client_type: DEFAULT_CLIENT_TYPE })
     }
     return () => { abortRef.current?.abort() }
   }, [isOpen, childId, isEditing, fetchChild])
