@@ -9,6 +9,8 @@
  */
 
 import { storyNudge } from '@/lib/partner-form/schema'
+import { PARTNER_DOCUMENT_KINDS, type PartnerDocumentKind } from '@/lib/partner-form/fields'
+import { EMPTY_CONFERENCE, type ConferenceRecord } from '@/lib/partner-form/regularity'
 
 /**
  * Substitutes the establishment's names out of its own story — gate 2, clause (c), executed
@@ -51,13 +53,28 @@ function escapeRegExp(value: string): string {
 export const REVIEW_MARKS = ['dated', 'named_person', 'observable'] as const
 export type ReviewMark = (typeof REVIEW_MARKS)[number]
 
+/**
+ * The annotation of one conference: the gate-2 reading, a free-text note, and what the
+ * operator saw of the two documents of BR-B2B-022.
+ *
+ * THE CONFERENCE RECORD LIVES HERE AND NOT IN A COLUMN OF ITS OWN, on purpose. The `data`
+ * left `core.partner_form_submissions.review_note` shape-free in `20260814160000` — the
+ * database asks only that it be an object, and this function is the whole format. Putting the
+ * registry beside the annotation it belongs to costs no migration and keeps one fact in one
+ * place: everything one operator wrote down about one proposal, in one write, under one
+ * `reviewed_by`.
+ */
 export interface ReviewNote {
   marks: ReviewMark[]
   observation: string
+  conference: ConferenceRecord
 }
 
 /** Keeps a body from becoming an annotation with arbitrary keys or a novel in it. */
 export const REVIEW_OBSERVATION_MAX = 2000
+
+/** `YYYY-MM-DD`, the shape the date input produces and `daysUntil` can read. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 export function normalizeReviewNote(input: unknown): ReviewNote | null {
   if (!input || typeof input !== 'object') return null
@@ -75,7 +92,44 @@ export function normalizeReviewNote(input: unknown): ReviewNote | null {
   const observation = typeof body.observation === 'string' ? body.observation.trim() : ''
   if (observation.length > REVIEW_OBSERVATION_MAX) return null
 
-  return { marks, observation }
+  const conference = normalizeConference(body.conference)
+  if (!conference) return null
+
+  return { marks, observation, conference }
+}
+
+/**
+ * An absent `conference` is the empty record and not a refusal: an annotation written before
+ * this existed is still a valid annotation, and reading it must not fail.
+ *
+ * A date with no licence behind it is dropped rather than kept, so the band can never show a
+ * validity for a document nobody says they saw.
+ */
+export function normalizeConference(input: unknown): ConferenceRecord | null {
+  if (input === undefined || input === null) return { ...EMPTY_CONFERENCE }
+  if (typeof input !== 'object') return null
+  const body = input as Record<string, unknown>
+
+  const rawSeen = Array.isArray(body.documentsSeen) ? body.documentsSeen : []
+  const documentsSeen: PartnerDocumentKind[] = []
+  for (const kind of rawSeen) {
+    if (typeof kind !== 'string') return null
+    const known = PARTNER_DOCUMENT_KINDS.find((candidate) => candidate === kind)
+    if (!known) return null
+    if (documentsSeen.indexOf(known) < 0) documentsSeen.push(known)
+  }
+
+  const rawDate = typeof body.licenseValidUntil === 'string' ? body.licenseValidUntil.trim() : ''
+  if (rawDate && !ISO_DATE.test(rawDate)) return null
+
+  const keepsDate = rawDate !== '' && documentsSeen.indexOf('business_license') >= 0
+  return { documentsSeen, licenseValidUntil: keepsDate ? rawDate : null }
+}
+
+/** What a stored annotation means, with every older shape read as the empty record. */
+export function readReviewNote(stored: unknown): ReviewNote {
+  const normalized = normalizeReviewNote(stored)
+  return normalized ?? { marks: [], observation: '', conference: { ...EMPTY_CONFERENCE } }
 }
 
 /**

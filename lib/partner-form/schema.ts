@@ -11,12 +11,7 @@
  */
 
 import { z } from 'zod'
-import {
-  PARTNER_FORM_FIELDS,
-  PARTNER_DOCUMENT_KINDS,
-  type PartnerField,
-  type PartnerFieldId,
-} from './fields'
+import { PARTNER_FORM_FIELDS, type PartnerField, type PartnerFieldId } from './fields'
 import { isValidCnpj, normalizeCnpj } from '@/lib/validation/cnpj'
 
 export type PartnerAnswers = Partial<Record<PartnerFieldId, string>>
@@ -25,7 +20,6 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 /** Ten or eleven digits: a Brazilian number with area code, mask or no mask. */
 const PHONE_DIGITS = /^\d{10,11}$/
 const POSTAL_CODE_DIGITS = /^\d{8}$/
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 function baseSchema(field: PartnerField): z.ZodType<string> {
   return z.string().max(field.maxLength)
@@ -51,7 +45,6 @@ export interface FieldProblem {
     | 'cnpj_incomplete'
     | 'cnpj_invalid'
     | 'postal_code'
-    | 'license_date_past'
     | 'too_long'
 }
 
@@ -59,16 +52,9 @@ export interface FieldProblem {
  * Everything that is wrong with a set of answers, as data. Rendering is the caller's:
  * the same list backs the server's 400 and the client's error summary, so the two
  * cannot disagree about what is missing.
- *
- * `today` is a parameter and not `new Date()` so the expiry check is testable without
- * freezing the clock.
  */
-export function validateAnswers(
-  answers: PartnerAnswers,
-  options: { hasBusinessLicenseFile?: boolean; today?: Date } = {}
-): FieldProblem[] {
+export function validateAnswers(answers: PartnerAnswers): FieldProblem[] {
   const problems: FieldProblem[] = []
-  const today = options.today ?? new Date()
 
   for (const field of PARTNER_FORM_FIELDS) {
     const raw = (answers[field.id] ?? '').trim()
@@ -79,13 +65,7 @@ export function validateAnswers(
     }
 
     if (!raw) {
-      // The licence date is required only when a licence file exists: BR-B2B-022 is a
-      // gate on signing the contract, not on sending the form.
-      const requiredNow =
-        field.id === 'business_license_valid_until'
-          ? Boolean(options.hasBusinessLicenseFile)
-          : field.required
-      if (requiredNow) problems.push({ field: field.id, code: 'required' })
+      if (field.required) problems.push({ field: field.id, code: 'required' })
       continue
     }
 
@@ -109,13 +89,6 @@ export function validateAnswers(
           problems.push({ field: field.id, code: 'postal_code' })
         }
         break
-      case 'date':
-        if (!ISO_DATE.test(raw)) {
-          problems.push({ field: field.id, code: 'required' })
-        } else if (field.id === 'business_license_valid_until' && isPast(raw, today)) {
-          problems.push({ field: field.id, code: 'license_date_past' })
-        }
-        break
       case 'select':
         if (field.options && !field.options.includes(raw)) {
           problems.push({ field: field.id, code: 'required' })
@@ -127,14 +100,6 @@ export function validateAnswers(
   }
 
   return problems
-}
-
-function isPast(isoDate: string, today: Date): boolean {
-  const midnight = new Date(`${isoDate}T23:59:59.999Z`)
-  const reference = new Date(
-    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
-  )
-  return midnight.getTime() < reference.getTime()
 }
 
 /** Problems of a single step, for the per-step error summary. */
@@ -185,5 +150,3 @@ export function normalizeAnswers(input: unknown): PartnerAnswers | null {
   }
   return answers
 }
-
-export const partnerDocumentKindSchema = z.enum(PARTNER_DOCUMENT_KINDS)

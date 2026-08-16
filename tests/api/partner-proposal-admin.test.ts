@@ -28,12 +28,14 @@ import {
   absenceClassOf,
   buildRegularityReport,
   daysUntil,
+  type ConferenceRecord,
 } from '@/lib/partner-form/regularity'
 import {
   DISCARD_REASONS,
   REVIEW_MARKS,
   applySubstituteTest,
   normalizeReviewNote,
+  readReviewNote,
 } from '@/lib/partner-form/proposal-review'
 import { CLIENT_ADMIN_ONLY_FIELDS } from '@/lib/services/client-editable-fields'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
@@ -43,8 +45,12 @@ const REPO_ROOT = resolve(import.meta.dirname, '../..')
 const SUBMISSION_ID = '33333333-3333-3333-3333-333333333333'
 const CLIENT_ID = '44444444-4444-4444-4444-444444444444'
 const OTHER_CLIENT_ID = '55555555-5555-5555-5555-555555555555'
-const INVITE_ID = '66666666-6666-6666-6666-666666666666'
 const OPERATOR_ID = 'cms-user-1'
+
+/** What one operator wrote down after seeing the papers. The band's only input. */
+function conference(overrides: Partial<ConferenceRecord> = {}): ConferenceRecord {
+  return { documentsSeen: [], licenseValidUntil: null, ...overrides }
+}
 
 function answers(overrides: PartnerAnswers = {}): PartnerAnswers {
   return {
@@ -163,7 +169,10 @@ test('#341: every column the promotion writes is a column an admin is allowed to
 // ── BR-B2B-022 — the gate blocks the contract, never the proposal ──
 
 test('BR-B2B-022: a proposal with no licence is missing it for the CONTRACT and stays promotable', () => {
-  const report = buildRegularityReport(answers(), ['incorporation_document'])
+  const report = buildRegularityReport(
+    answers(),
+    conference({ documentsSeen: ['incorporation_document'] })
+  )
 
   assert.equal(report.missing.indexOf('business_license') >= 0, true)
   assert.equal(report.ready, false)
@@ -176,8 +185,8 @@ test('BR-B2B-022: a proposal with no licence is missing it for the CONTRACT and 
 test('BR-B2B-022: an expired licence is an absent licence, and the days are already counted', () => {
   const now = new Date('2026-08-14T15:00:00Z')
   const report = buildRegularityReport(
-    answers({ business_license_valid_until: '2026-08-02' }),
-    ['business_license'],
+    answers(),
+    conference({ documentsSeen: ['business_license'], licenseValidUntil: '2026-08-02' }),
     now
   )
 
@@ -189,8 +198,8 @@ test('BR-B2B-022: an expired licence is an absent licence, and the days are alre
 test('BR-B2B-022: a licence expiring inside the warning window is a warning, not an absence', () => {
   const now = new Date('2026-08-14T15:00:00Z')
   const report = buildRegularityReport(
-    answers({ business_license_valid_until: '2026-09-01' }),
-    ['business_license'],
+    answers(),
+    conference({ documentsSeen: ['business_license'], licenseValidUntil: '2026-09-01' }),
     now
   )
 
@@ -199,8 +208,8 @@ test('BR-B2B-022: a licence expiring inside the warning window is a warning, not
   assert.equal(report.missing.indexOf('business_license') >= 0, false, 'it still counts for the contract')
 })
 
-test('BR-B2B-022: a licence file with no validity date cannot satisfy the gate', () => {
-  const report = buildRegularityReport(answers(), ['business_license'])
+test('BR-B2B-022: a licence seen with no validity date cannot satisfy the gate', () => {
+  const report = buildRegularityReport(answers(), conference({ documentsSeen: ['business_license'] }))
   assert.equal(report.license.status, 'undated')
   assert.equal(report.missing.indexOf('business_license') >= 0, true)
 })
@@ -211,7 +220,7 @@ test('BR-B2B-022: a licence valid until today is valid today, whatever the hour'
 
 test('#341: an empty field carries which of the three absences it is', () => {
   assert.equal(absenceClassOf('tax_id'), 'contract')
-  assert.equal(absenceClassOf('business_license_valid_until'), 'contract')
+  assert.equal(absenceClassOf('representative_name'), 'contract')
   assert.equal(absenceClassOf('representative_role'), 'contract')
   assert.equal(absenceClassOf('story_before'), 'triage')
   assert.equal(absenceClassOf('instagram'), 'optional')
@@ -249,12 +258,55 @@ test('BR-B2B-011: the annotation accepts only the three marks of gate 2', () => 
   assert.equal(normalizeReviewNote('nope'), null)
 })
 
+// ── BR-B2B-022 — the evidence is now what the team registers by hand ──
+
+test('BR-B2B-022: the conference record accepts only the two documents of the rule', () => {
+  const note = normalizeReviewNote({
+    marks: [],
+    observation: '',
+    conference: { documentsSeen: ['business_license'], licenseValidUntil: '2027-01-31' },
+  })
+  assert.deepEqual(note?.conference.documentsSeen, ['business_license'])
+  assert.equal(note?.conference.licenseValidUntil, '2027-01-31')
+
+  // A third "document" would be a gate nobody wrote, applied to a contract.
+  assert.equal(
+    normalizeReviewNote({ marks: [], observation: '', conference: { documentsSeen: ['selfie'] } }),
+    null
+  )
+  assert.equal(
+    normalizeReviewNote({
+      marks: [],
+      observation: '',
+      conference: { documentsSeen: [], licenseValidUntil: 'ontem' },
+    }),
+    null
+  )
+})
+
+test('BR-B2B-022: a validity date with no licence behind it is dropped, not stored', () => {
+  // Otherwise the band shows `Vence em 31/01/2027` for a document nobody says they saw, and
+  // the gate reads as satisfied by a date somebody typed and then unticked.
+  const note = normalizeReviewNote({
+    marks: [],
+    observation: '',
+    conference: { documentsSeen: [], licenseValidUntil: '2027-01-31' },
+  })
+  assert.equal(note?.conference.licenseValidUntil, null)
+})
+
+test('BR-B2B-022: an annotation written before the conference existed reads as "nothing seen"', () => {
+  // The column is free-form JSON and rows written by the previous shape are still there. The
+  // wrong answer is not a crash, it is a report that quietly claims the papers are in order.
+  const note = readReviewNote({ marks: ['dated'], observation: 'O avô abriu em 1962.' })
+  assert.deepEqual(note.conference.documentsSeen, [])
+  assert.equal(buildRegularityReport(answers(), note.conference).ready, false)
+})
+
 // ── The routes ──
 
 interface FakeState {
-  invites: Record<string, any>[]
   submissions: Record<string, any>[]
-  documents: Record<string, any>[]
   clients: Record<string, any>[]
   audit_logs: Record<string, any>[]
   touchedTables: string[]
@@ -265,9 +317,7 @@ interface FakeState {
 let state: FakeState
 
 const TABLE_KEYS: Record<string, keyof FakeState> = {
-  partner_form_invites: 'invites',
   partner_form_submissions: 'submissions',
-  partner_form_documents: 'documents',
   clients: 'clients',
   audit_logs: 'audit_logs',
 }
@@ -413,40 +463,25 @@ function createFakeAuthClient() {
   }
 }
 
-function freshState(overrides: { submission?: Record<string, any>; client?: Record<string, any> } = {}): FakeState {
+function freshState(
+  overrides: { submission?: Record<string, any>; client?: Record<string, any> } = {}
+): FakeState {
   return {
-    invites: [
-      {
-        id: INVITE_ID,
-        submission_id: SUBMISSION_ID,
-        client_id: overrides.client ? CLIENT_ID : null,
-        token_hash: 'hash',
-        recipient_email: 'antonio@cantina.com.br',
-        recipient_name: 'Antônio',
-        trade_name: 'Cantina do Zé',
-        locale: 'pt',
-        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
-        used_at: new Date('2026-08-12T12:00:00Z').toISOString(),
-        revoked_at: null,
-        created_at: '2026-08-10T09:00:00Z',
-      },
-    ],
     submissions: [
       {
         id: SUBMISSION_ID,
         status: 'submitted',
         answers: answers(),
-        is_partial: true,
         submitted_at: '2026-08-12T12:00:00Z',
         created_at: '2026-08-10T09:00:00Z',
         updated_at: '2026-08-12T12:00:00Z',
         promoted_at: null,
         promoted_by: null,
         promoted_client_id: null,
+        review_note: null,
         ...overrides.submission,
       },
     ],
-    documents: [],
     clients: overrides.client ? [overrides.client] : [],
     audit_logs: [],
     touchedTables: [],
@@ -454,13 +489,10 @@ function freshState(overrides: { submission?: Record<string, any>; client?: Reco
   }
 }
 
-let LIST_INVITES: (req: any, ctx?: any) => Promise<Response>
-let REVOKE_INVITE: (req: any, ctx: any) => Promise<Response>
 let GET_PROPOSAL: (req: any, ctx: any) => Promise<Response>
 let PROMOTE: (req: any, ctx: any) => Promise<Response>
 let DISCARD: (req: any, ctx: any) => Promise<Response>
 let SAVE_NOTE: (req: any, ctx: any) => Promise<Response>
-let SIGN_DOCUMENT: (req: any, ctx: any) => Promise<Response>
 
 before(async () => {
   process.env.NEXT_PUBLIC_APP_URL ??= 'https://cms.tuggi.app'
@@ -478,12 +510,6 @@ before(async () => {
     },
   })
 
-  const invites = await import('@/app/api/admin/partner-invites/route')
-  LIST_INVITES = invites.GET as any
-
-  const invite = await import('@/app/api/admin/partner-invites/[inviteId]/route')
-  REVOKE_INVITE = invite.DELETE as any
-
   const proposal = await import('@/app/api/admin/partner-proposals/[submissionId]/route')
   GET_PROPOSAL = proposal.GET as any
 
@@ -495,11 +521,6 @@ before(async () => {
 
   const note = await import('@/app/api/admin/partner-proposals/[submissionId]/review-note/route')
   SAVE_NOTE = note.PUT as any
-
-  const document = await import(
-    '@/app/api/admin/partner-proposals/[submissionId]/documents/[documentId]/route'
-  )
-  SIGN_DOCUMENT = document.POST as any
 })
 
 /**
@@ -527,7 +548,13 @@ test('DS-COMPONENTE-018: promoting without ticking leaves the divergent column a
   // The mutation this test exists for: removing the `approved` condition from
   // `resolvePromotionWrite` makes `city` become "São Vicente" here and turns this red.
   state = freshState({
-    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br', city: 'Santos' },
+    client: {
+      id: CLIENT_ID,
+      name: 'Cantina do Zé',
+      email: 'antonio@cantina.com.br',
+      tax_id: '12ABC34501DE35',
+      city: 'Santos',
+    },
   })
 
   const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
@@ -542,7 +569,13 @@ test('DS-COMPONENTE-018: promoting without ticking leaves the divergent column a
 
 test('DS-COMPONENTE-018: ticking the column is what writes it — end to end', async () => {
   state = freshState({
-    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br', city: 'Santos' },
+    client: {
+      id: CLIENT_ID,
+      name: 'Cantina do Zé',
+      email: 'antonio@cantina.com.br',
+      tax_id: '12ABC34501DE35',
+      city: 'Santos',
+    },
   })
 
   const response = await PROMOTE(
@@ -556,7 +589,12 @@ test('DS-COMPONENTE-018: ticking the column is what writes it — end to end', a
 
 test('DS-COMPONENTE-018: the body cannot name a column the plan did not produce', async () => {
   state = freshState({
-    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br' },
+    client: {
+      id: CLIENT_ID,
+      name: 'Cantina do Zé',
+      email: 'antonio@cantina.com.br',
+      tax_id: '12ABC34501DE35',
+    },
   })
 
   await PROMOTE(
@@ -576,7 +614,12 @@ test('DS-COMPONENTE-018: the body cannot name a column the plan did not produce'
 
 test('#341: a promotion that fails to write the client hands the proposal back — nothing was written', async () => {
   state = freshState({
-    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br' },
+    client: {
+      id: CLIENT_ID,
+      name: 'Cantina do Zé',
+      email: 'antonio@cantina.com.br',
+      tax_id: '12ABC34501DE35',
+    },
   })
   state.clientWriteFails = true
 
@@ -599,97 +642,71 @@ test('BR-B2B-026: a proposal still in draft cannot be promoted', async () => {
   assert.equal(state.clients.length, 0)
 })
 
-test('DS-COMPONENTE-018: the e-mail collision is answered before the button, not as a 23505', async () => {
-  state = freshState()
-  state.clients.push({
-    id: OTHER_CLIENT_ID,
-    name: 'Outro Estabelecimento',
-    email: 'antonio@cantina.com.br',
+test('#341: a proposal whose CNPJ is already a client promotes into that record, not a second one', async () => {
+  // The form refuses a CNPJ that is already a client, so the ordinary promotion CREATES. This
+  // is the case that survives it: the proposal was sitting in the queue while somebody
+  // registered the company by hand. Without the lookup the promotion writes a twin, which is
+  // exactly what the CNPJ is the key against — and DS-COMPONENTE-018 would never apply,
+  // because there would never be a record to diverge from.
+  state = freshState({
+    client: { id: CLIENT_ID, name: 'Cantina do Zé', tax_id: '12ABC34501DE35', city: 'Santos' },
   })
 
-  const detail = await GET_PROPOSAL(request('GET'), proposalContext)
-  const payload = await detail.json()
+  const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).json()
+  assert.equal(detail.client?.id, CLIENT_ID, 'the panel compares against the record that exists')
 
-  assert.equal(payload.emailConflict?.client?.id, OTHER_CLIENT_ID, 'the screen knows before the click')
-
-  // And a promotion that ignores the choice does not create a second client with that e-mail.
-  const promotion = await PROMOTE(
+  const response = await PROMOTE(
     request('POST', { approved: [], industry: 'Restaurante' }),
     proposalContext
   )
-  assert.equal(promotion.status, 409)
-  assert.equal((await promotion.json()).error, 'email_taken')
-  assert.equal(state.clients.length, 1, 'no second record was created')
+
+  assert.equal(response.status, 200)
+  assert.equal(state.clients.length, 1, 'no second record for the same company')
+  assert.equal(state.clients[0].city, 'Santos', 'and the divergent column was not overwritten')
 })
 
-test('DS-COMPONENTE-018: linking to the client that holds the e-mail updates that record', async () => {
-  state = freshState()
-  state.clients.push({
-    id: OTHER_CLIENT_ID,
-    name: 'Outro Estabelecimento',
-    email: 'antonio@cantina.com.br',
+test('#341: the same CNPJ counts as the same company with the mask and without it', async () => {
+  state = freshState({
+    client: { id: CLIENT_ID, name: 'Cantina do Zé', tax_id: '12.ABC.345/01DE-35' },
   })
 
-  const response = await PROMOTE(
-    request('POST', { approved: [], industry: 'Restaurante', linkClientId: OTHER_CLIENT_ID }),
+  const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).json()
+  assert.equal(detail.client?.id, CLIENT_ID, 'the stored value was masked and the answer was not')
+})
+
+test('#341: two proposals with the same CNPJ are shown to a person, never merged', async () => {
+  state = freshState()
+  state.submissions.push({
+    ...state.submissions[0],
+    id: '99999999-9999-9999-9999-999999999999',
+    submitted_at: '2026-08-13T12:00:00Z',
+  })
+
+  const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).json()
+
+  assert.equal(detail.duplicates.length, 1)
+  assert.equal(detail.duplicates[0].id, '99999999-9999-9999-9999-999999999999')
+  assert.equal(state.submissions.length, 2, 'nothing was merged and nothing was discarded')
+})
+
+test('BR-B2B-022: the conference the operator registers is what the screen reads back', async () => {
+  state = freshState()
+
+  const saved = await SAVE_NOTE(
+    request('PUT', {
+      marks: ['dated'],
+      observation: 'Alvará conferido no balcão.',
+      conference: { documentsSeen: ['business_license'], licenseValidUntil: '2027-03-31' },
+    }),
     proposalContext
   )
+  assert.equal(saved.status, 200)
 
-  assert.equal(response.status, 200)
-  assert.equal(state.clients.length, 1)
-  assert.equal(state.clients[0].city, 'São Vicente', 'the empty columns of that record were filled')
-})
-
-test('#341: an id that does not hold the colliding e-mail cannot redirect the promotion', async () => {
-  state = freshState()
-  state.clients.push({ id: OTHER_CLIENT_ID, name: 'Alvo', email: 'outro@exemplo.com' })
-
-  const response = await PROMOTE(
-    request('POST', { approved: [], industry: 'Restaurante', linkClientId: OTHER_CLIENT_ID }),
-    proposalContext
-  )
-
-  assert.equal(response.status, 409)
-  assert.equal(state.clients[0].city, undefined, 'the unrelated record was not touched')
-})
-
-test('DS-COMPONENTE-019: the invite list carries state and never a token', async () => {
-  state = freshState()
-
-  const response = await LIST_INVITES(request('GET'))
-  const body = await response.text()
-
-  assert.equal(response.status, 200)
-  assert.equal(body.indexOf('token') < 0, true, 'no token field, hashed or otherwise')
-  assert.equal(body.indexOf('hash') < 0, true)
-  assert.ok(JSON.parse(body).invites[0].situation)
-})
-
-test('#341: a consumed invite offers no Revogar, and revoking one answers 409', async () => {
-  state = freshState()
-
-  const listed = await (await LIST_INVITES(request('GET'))).json()
-  assert.equal(listed.invites[0].situation, 'received')
-  assert.equal(listed.invites[0].revocable, false)
-
-  const response = await REVOKE_INVITE(request('DELETE'), {
-    params: Promise.resolve({ inviteId: INVITE_ID }),
-  })
-  assert.equal(response.status, 409)
-})
-
-test('#341: revoking a live link switches it off and touches nothing else', async () => {
-  state = freshState({ submission: { status: 'draft', submitted_at: null, answers: {} } })
-  state.invites[0].used_at = null
-
-  const response = await REVOKE_INVITE(request('DELETE'), {
-    params: Promise.resolve({ inviteId: INVITE_ID }),
-  })
-
-  assert.equal(response.status, 200)
-  assert.ok(state.invites[0].revoked_at)
-  assert.equal(state.submissions[0].status, 'draft', 'what was filled in stays where it is')
-  assert.equal(state.touchedTables.indexOf('clients') < 0, true)
+  const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).json()
+  assert.deepEqual(detail.conference.documentsSeen, ['business_license'])
+  assert.equal(detail.conference.licenseValidUntil, '2027-03-31')
+  assert.equal(detail.submission.status, 'submitted', 'registering a document decides nothing')
+  assert.equal(state.clients.length, 0, 'and reaches no client record')
 })
 
 test('BR-B2B-011: the annotation changes no status and reaches no client record', async () => {
@@ -702,7 +719,11 @@ test('BR-B2B-011: the annotation changes no status and reaches no client record'
 
   assert.equal(response.status, 200)
   assert.equal(state.submissions[0].status, 'submitted', 'still exactly as promotable as before')
-  assert.deepEqual(state.submissions[0].review_note, { marks: ['dated'], observation: 'O avô abriu em 1962.' })
+  assert.deepEqual(state.submissions[0].review_note, {
+    marks: ['dated'],
+    observation: 'O avô abriu em 1962.',
+    conference: { documentsSeen: [], licenseValidUntil: null },
+  })
   assert.equal(state.touchedTables.indexOf('clients') < 0, true)
 })
 
@@ -726,59 +747,14 @@ test('BR-B2B-011: a discard reason outside the closed list is refused', async ()
   assert.equal(state.submissions[0].status, 'submitted')
 })
 
-test('#341: the proposal payload carries no storage path, and the URL is minted on the click', async () => {
-  state = freshState()
-  state.documents.push({
-    id: '77777777-7777-7777-7777-777777777777',
-    submission_id: SUBMISSION_ID,
-    kind: 'business_license',
-    storage_path: `${SUBMISSION_ID}/business_license/1-alvara.pdf`,
-    file_name: 'alvara.pdf',
-    byte_size: 120_000,
-    mime_type: 'application/pdf',
-    created_at: '2026-08-12T11:00:00Z',
-  })
-
-  const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).text()
-  assert.equal(detail.indexOf('storage_path') < 0, true)
-  assert.equal(detail.indexOf('business_license/1-alvara.pdf') < 0, true)
-
-  const signed = await SIGN_DOCUMENT(request('POST'), {
-    params: Promise.resolve({
-      submissionId: SUBMISSION_ID,
-      documentId: '77777777-7777-7777-7777-777777777777',
-    }),
-  })
-  const payload = await signed.json()
-  assert.equal(payload.expiresInSeconds, 60)
-  assert.ok(payload.url)
-})
-
-test('#341: a document of another proposal is not reachable through this page', async () => {
-  state = freshState()
-  state.documents.push({
-    id: '88888888-8888-8888-8888-888888888888',
-    submission_id: OTHER_CLIENT_ID,
-    kind: 'business_license',
-    storage_path: 'outro/alvara.pdf',
-    file_name: 'alvara.pdf',
-    byte_size: 1,
-    mime_type: 'application/pdf',
-    created_at: '2026-08-12T11:00:00Z',
-  })
-
-  const response = await SIGN_DOCUMENT(request('POST'), {
-    params: Promise.resolve({
-      submissionId: SUBMISSION_ID,
-      documentId: '88888888-8888-8888-8888-888888888888',
-    }),
-  })
-  assert.equal(response.status, 404)
-})
-
 test('#341: promoting and discarding each leave a row in the trail', async () => {
   state = freshState({
-    client: { id: CLIENT_ID, name: 'Cantina do Zé', email: 'antonio@cantina.com.br' },
+    client: {
+      id: CLIENT_ID,
+      name: 'Cantina do Zé',
+      email: 'antonio@cantina.com.br',
+      tax_id: '12ABC34501DE35',
+    },
   })
   await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
 
@@ -845,18 +821,28 @@ test('BR-B2B-011: the discard block says out loud that it is not a triage reject
   assert.ok(copy.story.footer.indexOf('continua parceiro') >= 0)
 })
 
-test('DS-COMPONENTE-019: the invite panel declares there is no second showing', () => {
-  assert.ok(copy.inviteResult.onceTitle.indexOf('só aparece agora') >= 0)
-  assert.ok(copy.inviteResult.onceBody.indexOf('impressão digital') >= 0)
-  assert.ok(copy.inviteResult.emailFailedBody.indexOf('Não gere outro') >= 0)
-  assert.ok(copy.inviteDrawer.closeConfirm.indexOf('não aparece de novo') >= 0)
+test('#341: the copy of the queue mentions no invite, no link and no upload', () => {
+  // The three things that left with the invite. Copy outlives the code that made it true, and
+  // an operator reading "reenviar o link" for a feature that has none loses the screen.
+  const text = JSON.stringify(copy).toLowerCase()
+  for (const forbidden of ['convite', 'reenviar', 'revogar', 'anexar', 'baixar o arquivo']) {
+    assert.equal(text.includes(forbidden), false, `the screen must not say "${forbidden}"`)
+  }
 })
 
-test('#341: the resend confirmation says the old link dies and the answers survive', () => {
-  assert.ok(copy.resend.body.indexOf('para de funcionar') >= 0)
-  assert.ok(copy.resend.keeps.indexOf('continua lá') >= 0)
-  // The consequence of the inverted key: a wrong address is a NEW invite, never a resend.
-  assert.ok(copy.resend.wrongAddress.indexOf('convite novo') >= 0)
+test('BR-B2B-022: the conference block says whose word it is, and claims no verification', () => {
+  // Item 7 of the rule: the Tuggi does not verify, audit or certify anybody's legality. A tick
+  // by an operator is that operator's assertion, and the screen has to say so — otherwise the
+  // band reads as a document check the Tuggi performed.
+  assert.ok(copy.conference.intro.length > 40, 'the block explains what is being registered')
+  assert.match(copy.regularity.source, /pessoalmente/)
+  for (const forbidden of ['auditamos', 'verificamos', 'certificamos', 'validamos']) {
+    assert.equal(
+      JSON.stringify(copy).toLowerCase().includes(forbidden),
+      false,
+      `the screen must not claim to "${forbidden}"`
+    )
+  }
 })
 
 test('#341: the promotion panel lists what it never writes, and the list is the code one', () => {

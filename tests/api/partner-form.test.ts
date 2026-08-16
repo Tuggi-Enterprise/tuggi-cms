@@ -1,11 +1,15 @@
 /**
  * The external partner form — #341.
  *
- * Covers the two cases the card names as obligatory (a valid alphanumeric CNPJ is
- * accepted; a reused link writes nothing) plus the guarantees this surface announces:
- * BR-B2B-022 (the regularity gate belongs to the contract, not to the form),
- * BR-B2B-026 (the journey: proposal first, promotion is an authenticated act),
- * DS-COPY-015, DS-COMPONENTE-016 and DS-LAYOUT-005 where they are verifiable without a
+ * The card names two obligatory cases and both are here, each written so that REMOVING THE
+ * GUARD MAKES IT RED and not merely so that the happy path passes:
+ *
+ *  · a CNPJ already in `core.clients` is refused, and nothing is written;
+ *  · the per-IP limit blocks, and the blocked request writes nothing.
+ *
+ * Around them, the guarantees this surface announces: BR-B2B-022 (the regularity gate belongs
+ * to the contract, not to the form), BR-B2B-026 (the journey: proposal first, promotion is an
+ * authenticated act), DS-COPY-015 and DS-LAYOUT-005 where they are verifiable without a
  * browser.
  *
  * Run with: npm run test:api
@@ -28,20 +32,19 @@ import {
 import {
   PARTNER_FORM_FIELDS,
   FORBIDDEN_FIELDS,
-  PARTNER_DOCUMENT_KINDS,
-  DOCUMENT_MAX_BYTES,
-  DOCUMENT_MAX_MB,
+  PARTNER_FORM_STEP_COUNT,
   fieldsOfStep,
 } from '@/lib/partner-form/fields'
 import { validateAnswers, normalizeAnswers, storyNudge } from '@/lib/partner-form/schema'
 import { CLIENT_ADMIN_ONLY_FIELDS } from '@/lib/services/client-editable-fields'
 import {
+  MIRROR_KEY,
   MIRROR_TTL_MS,
   clearMirror,
-  mirrorKey,
   readMirror,
   writeMirror,
 } from '@/lib/partner-form/draft-mirror'
+import { partnerFormPath } from '@/lib/partner-form/link'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
@@ -99,6 +102,36 @@ test('BR-B2B-026: the fields the form collects that only an admin may write exis
   assert.equal(adminOnly.has('legal_representative_role'), true)
 })
 
+test('#341: the form collects the contact of whoever fills it in', () => {
+  // It used to come from the invite, which named the recipient. There is no invite: the
+  // person who fills the form in is the person the contract goes to, and the confirmation
+  // screen and the queue both read the address from here.
+  const step2 = new Set(fieldsOfStep(2).map((field) => field.id as string))
+  for (const id of ['representative_name', 'representative_email', 'representative_phone']) {
+    assert.equal(step2.has(id), true, `${id} has to be asked — nothing else carries the contact`)
+    assert.equal(
+      PARTNER_FORM_FIELDS.find((field) => field.id === id)?.required,
+      true,
+      `${id} cannot be optional: it is the only way back to the establishment`
+    )
+  }
+})
+
+test('#341: the form asks for no document, and no step exists to upload one', () => {
+  // The alvará and the contrato social are checked in person before the link is sent
+  // (operator, 2026-08-16). BR-B2B-022 is unchanged — see the regularity tests — but
+  // nothing on this surface asks for a file or a date off one.
+  const asked = PARTNER_FORM_FIELDS.map((field) => field.id as string)
+  assert.equal(asked.includes('business_license_valid_until'), false)
+  assert.equal(
+    asked.some((id) => /file|upload|document|alvara/i.test(id)),
+    false,
+    'a field that asks for a document is a step that has to receive one'
+  )
+  assert.equal(PARTNER_FORM_STEP_COUNT, 4, 'three subjects and the review')
+  assert.equal(Math.max(...PARTNER_FORM_FIELDS.map((field) => field.step)), 3)
+})
+
 test('DS-COPY-015: step 3 has exactly one required question', () => {
   const required = fieldsOfStep(3).filter((field) => field.required)
   assert.equal(required.length, 1)
@@ -122,6 +155,13 @@ test('DS-LAYOUT-005 / SC 1.3.5: the person-data fields announce an autocomplete 
   }
 })
 
+test('#341: the link is one address, with nothing secret in it', () => {
+  // The same URL goes to every partner. If a segment ever comes back, the e-mail, the page
+  // and the redirect all have to learn about it at once — and this is where that starts.
+  assert.equal(partnerFormPath(), '/pt/parceria')
+  assert.equal(partnerFormPath().split('/').filter(Boolean).length, 2)
+})
+
 // ── Validation ──
 
 function completeAnswers(): Record<string, string> {
@@ -143,33 +183,13 @@ function completeAnswers(): Record<string, string> {
   }
 }
 
-test('BR-B2B-022: a submission with no document at all is valid — the gate is on the contract, not on the form', () => {
-  const problems = validateAnswers(completeAnswers(), { hasBusinessLicenseFile: false })
-  assert.deepEqual(problems, [], 'missing documents must not block sending the form')
-})
-
-test('BR-B2B-022 item 4: the licence date is required as soon as a licence file exists', () => {
-  const withFile = validateAnswers(completeAnswers(), { hasBusinessLicenseFile: true })
-  assert.deepEqual(
-    withFile.map((problem) => problem.field),
-    ['business_license_valid_until'],
-    'a licence without a validity date cannot be checked for expiry'
-  )
-})
-
-test('BR-B2B-022 item 4: an expired licence date is refused', () => {
-  const answers = { ...completeAnswers(), business_license_valid_until: '2020-01-01' }
-  const problems = validateAnswers(answers, {
-    hasBusinessLicenseFile: true,
-    today: new Date('2026-08-14T12:00:00Z'),
-  })
-  assert.deepEqual(problems, [{ field: 'business_license_valid_until', code: 'license_date_past' }])
+test('BR-B2B-022: a complete form with no document at all is valid — the gate is on the contract', () => {
+  assert.deepEqual(validateAnswers(completeAnswers()), [], 'no document is asked for here')
 })
 
 test('an invalid CNPJ produces the "does not check out" problem, not the incomplete one', () => {
   const answers = { ...completeAnswers(), tax_id: '12.ABC.345/01DE-36' }
-  const problems = validateAnswers(answers)
-  assert.deepEqual(problems, [{ field: 'tax_id', code: 'cnpj_invalid' }])
+  assert.deepEqual(validateAnswers(answers), [{ field: 'tax_id', code: 'cnpj_invalid' }])
 })
 
 test('DS-COPY-015: the quality nudges never block, they only classify', () => {
@@ -183,15 +203,11 @@ test('DS-COPY-015: the quality nudges never block, they only classify', () => {
   )
 })
 
-test('a body that is not answers is refused, never normalised into an empty draft', () => {
-  // The regression this guards: returning `{}` here made the route save `{}` over the
-  // draft and answer 200 — a client bug erasing what the person typed, with the "saved"
-  // confirmation on screen.
+test('a body that is not answers is refused, never normalised into an empty one', () => {
   assert.equal(normalizeAnswers({ trade_name: { nested: true } }), null)
   assert.equal(normalizeAnswers({ trade_name: 42 }), null)
   assert.equal(normalizeAnswers('not an object'), null)
 
-  // An empty draft is a legitimate draft and stays distinguishable from a refusal.
   assert.deepEqual(normalizeAnswers({}), {})
   assert.deepEqual(normalizeAnswers(undefined), {})
 })
@@ -248,7 +264,7 @@ test('#341: the form copy publishes no price, no term and no approval', () => {
   assert.equal(copy.split('preço').length - 1, 2, 'only the two "what does not go here" mentions')
 })
 
-test('DS-COMPONENTE-016: every field and every document has its copy', () => {
+test('DS-COMPONENTE-016: every field has its copy, and nothing promises an upload', () => {
   const messages = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8'))
   const copy = messages.PartnerForm
 
@@ -258,31 +274,50 @@ test('DS-COMPONENTE-016: every field and every document has its copy', () => {
       assert.ok(copy.fields[field.id].requiredError, `${field.id} needs a required message naming it`)
     }
   }
-  for (const kind of PARTNER_DOCUMENT_KINDS) {
-    assert.ok(copy.documents?.[kind]?.label, `${kind} has no label`)
-    assert.ok(copy.documents[kind].help, `${kind} has no help`)
+
+  // The copy is what the person believes. A sentence about sending, attaching or
+  // photographing a document survives the code that could receive it, and then the form
+  // asks for something it cannot take.
+  const text = JSON.stringify(copy).toLowerCase()
+  for (const forbidden of ['anexar', 'anexe', 'enviar o alvará', 'escolher arquivo', 'pdf', 'jpg']) {
+    assert.equal(text.includes(forbidden), false, `the form must not mention "${forbidden}"`)
   }
 })
 
-// ── The routes ──
+test('#341: the privacy notice describes what is actually collected', () => {
+  // BR-USUARIO-028 item 1 ties the field to the declared category. The notice used to say
+  // the Tuggi keeps the documents the person sends; nothing is sent and nothing is kept, and
+  // a notice that overstates what we hold is as wrong as one that understates it.
+  const messages = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8'))
+  const notice = messages.PartnerForm.privacy.notice.toLowerCase()
+
+  assert.equal(notice.includes('documento'), false, 'no document is collected here any more')
+  for (const collected of ['nome', 'cargo', 'e-mail', 'telefone']) {
+    assert.ok(notice.includes(collected), `the notice has to name "${collected}"`)
+  }
+})
+
+// ── The route ──
 
 interface FakeState {
-  invites: Record<string, any>[]
   submissions: Record<string, any>[]
-  documents: Record<string, any>[]
+  clients: Record<string, any>[]
   /** Every table the fake was pointed at, so a write to core.clients would be visible. */
-  touchedTables: string[]
-  /** Every message handed to `send-transactional`, so the destination is inspectable. */
-  emails: { to: unknown; data: Record<string, unknown> }[]
+  touchedTables: { table: string; operation: string }[]
+  /** What the rate-limit RPC was asked, and what it answered. */
+  rpc: { name: string; args: Record<string, unknown> }[]
+  limitAllows: boolean
+  /** The RPC does not exist until the `data` applies the migration. */
+  limitUnavailable: boolean
+  /** Set to make the CNPJ lookup fail, which must never read as "this CNPJ is free". */
+  clientsLookupFails: boolean
 }
 
 let state: FakeState
 
-/** The three tables specified for the `data` in #341, mapped to the fake's state keys. */
 const TABLE_KEYS: Record<string, keyof FakeState> = {
-  partner_form_invites: 'invites',
   partner_form_submissions: 'submissions',
-  partner_form_documents: 'documents',
+  clients: 'clients',
 }
 
 /** Minimal PostgREST stand-in: filters, then one of select/insert/update/delete. */
@@ -290,50 +325,55 @@ function createFakeService(current: () => FakeState) {
   const build = (table: string) => {
     const tableName = TABLE_KEYS[table] ?? table
     const filters: [string, unknown][] = []
+    const inFilters: [string, unknown[]][] = []
     let operation: 'select' | 'insert' | 'update' | 'delete' = 'select'
     let payload: any = null
+    let sort: { column: string; ascending: boolean } | null = null
+    let take = Infinity
 
     const rows = () => {
-      const table = (current() as any)[tableName] as Record<string, any>[]
-      return table.filter((row) => filters.every(([column, value]) => row[column] === value))
+      const all = (current() as any)[tableName] as Record<string, any>[]
+      return all
+        .filter((row) => filters.every(([column, value]) => row[column] === value))
+        .filter((row) => inFilters.every(([column, values]) => values.indexOf(row[column]) >= 0))
     }
 
-    const apply = (): Record<string, any>[] => {
+    const apply = (): { rows: Record<string, any>[]; error: unknown } => {
+      current().touchedTables.push({ table, operation })
+
+      if (tableName === 'clients' && operation === 'select' && current().clientsLookupFails) {
+        return { rows: [], error: { code: '57014', message: 'statement timeout' } }
+      }
+
       const matched = rows()
       if (operation === 'update') {
         for (const row of matched) Object.assign(row, payload)
-        return matched
+        return { rows: matched, error: null }
       }
       if (operation === 'insert') {
         const inserted = {
           id: `${tableName}-${Math.random().toString(36).slice(2, 8)}`,
-          // The three tables default `created_at` in the database; ordering by it is a
-          // real read here (`recipientOfProposal`, `listDocuments`).
           created_at: new Date().toISOString(),
           ...payload,
         }
         ;(current() as any)[tableName].push(inserted)
-        return [inserted]
+        return { rows: [inserted], error: null }
       }
       if (operation === 'delete') {
-        const table = (current() as any)[tableName] as Record<string, any>[]
-        for (const row of matched) table.splice(table.indexOf(row), 1)
-        return matched
+        const all = (current() as any)[tableName] as Record<string, any>[]
+        for (const row of matched) all.splice(all.indexOf(row), 1)
+        return { rows: matched, error: null }
       }
 
-      const sorting = sort
-      const ordered = sorting
+      const ordered = sort
         ? [...matched].sort(
             (a, b) =>
-              String(a[sorting.column] ?? '').localeCompare(String(b[sorting.column] ?? '')) *
-              (sorting.ascending ? 1 : -1)
+              String(a[sort!.column] ?? '').localeCompare(String(b[sort!.column] ?? '')) *
+              (sort!.ascending ? 1 : -1)
           )
         : matched
-      return ordered.slice(0, take)
+      return { rows: ordered.slice(0, take), error: null }
     }
-
-    let sort: { column: string; ascending: boolean } | null = null
-    let take = Infinity
 
     const chain: any = {
       select: () => chain,
@@ -347,6 +387,10 @@ function createFakeService(current: () => FakeState) {
       },
       eq: (column: string, value: unknown) => {
         filters.push([column, value])
+        return chain
+      },
+      in: (column: string, values: unknown[]) => {
+        inFilters.push([column, values])
         return chain
       },
       is: (column: string, value: unknown) => {
@@ -367,125 +411,64 @@ function createFakeService(current: () => FakeState) {
         operation = 'delete'
         return chain
       },
-      maybeSingle: async () => ({ data: apply()[0] ?? null, error: null }),
+      maybeSingle: async () => {
+        const result = apply()
+        return { data: result.rows[0] ?? null, error: result.error }
+      },
       single: async () => {
         const result = apply()
-        return result[0]
-          ? { data: result[0], error: null }
+        if (result.error) return { data: null, error: result.error }
+        return result.rows[0]
+          ? { data: result.rows[0], error: null }
           : { data: null, error: { message: 'no rows' } }
       },
-      then: (onFulfilled: (value: any) => unknown) =>
-        Promise.resolve({ data: apply(), error: null }).then(onFulfilled),
+      then: (onFulfilled: (value: any) => unknown) => {
+        const result = apply()
+        return Promise.resolve({ data: result.rows, error: result.error }).then(onFulfilled)
+      },
     }
     return chain
   }
 
   return {
     schema: () => ({
-      from: (table: string) => {
-        current().touchedTables.push(table)
-        return build(table)
+      from: (table: string) => build(table),
+      /** The durable limit lives in the database; here it is a switch the test flips. */
+      rpc: async (name: string, args: Record<string, unknown>) => {
+        current().rpc.push({ name, args })
+        if (current().limitUnavailable) {
+          return { data: null, error: { code: 'PGRST202', message: 'function not found' } }
+        }
+        return {
+          data: [
+            {
+              allowed: current().limitAllows,
+              attempts: 1,
+              retry_after_seconds: current().limitAllows ? 0 : 900,
+            },
+          ],
+          error: null,
+        }
       },
     }),
-    storage: {
-      from: () => ({
-        upload: async () => ({ error: null }),
-        remove: async () => ({ error: null }),
-      }),
-    },
-    functions: {
-      invoke: async (_name: string, options: { body: Record<string, any> }) => {
-        current().emails.push({ to: options.body?.to, data: options.body?.data ?? {} })
-        return { data: { ok: true }, error: null }
-      },
-    },
   }
 }
 
-const OPEN_TOKEN = 'a'.repeat(43)
-const SUBMISSION_ID = '22222222-2222-2222-2222-222222222222'
-
-/**
- * The invite points at the proposal, and the proposal is minted WITH it by
- * `core.tg_partner_form_invite_attach` — so an open link always has a row behind it, and
- * that row is a draft with no answers until somebody types. Seeding the other way round
- * (a link with no proposal) would be a state the database cannot produce.
- */
-function freshState(overrides: Partial<Record<string, any>> = {}): FakeState {
+function freshState(): FakeState {
   return {
-    invites: [
-      {
-        id: 'invite-1',
-        submission_id: SUBMISSION_ID,
-        client_id: null,
-        token_hash: '',
-        recipient_email: 'antonio@cantina.com.br',
-        recipient_name: 'Antônio',
-        trade_name: 'Cantina do Antônio',
-        locale: 'pt',
-        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
-        used_at: null,
-        revoked_at: null,
-        created_at: new Date('2026-08-10T09:00:00Z').toISOString(),
-        ...overrides,
-      },
-    ],
-    submissions: [
-      {
-        id: SUBMISSION_ID,
-        status: 'draft',
-        answers: {},
-        is_partial: false,
-        submitted_at: null,
-        created_at: new Date('2026-08-10T09:00:00Z').toISOString(),
-        updated_at: new Date('2026-08-10T09:00:00Z').toISOString(),
-      },
-    ],
-    documents: [],
+    submissions: [],
+    clients: [],
     touchedTables: [],
-    emails: [],
+    rpc: [],
+    limitAllows: true,
+    limitUnavailable: false,
+    clientsLookupFails: false,
   }
 }
 
-let GET: (req: any, ctx: any) => Promise<Response>
-let PUT: (req: any, ctx: any) => Promise<Response>
-let POST: (req: any, ctx: any) => Promise<Response>
-let CREATE_INVITE: (req: any, ctx?: any) => Promise<Response>
-let hashInviteToken: (token: string) => string
-let submitProposal: (
-  inviteId: string,
-  submissionId: string,
-  answers: any,
-  options: { isPartial: boolean }
-) => Promise<{ ok: boolean; reason?: string }>
-
-/** An authenticated CMS user with the admin role — the only one who may mint a link. */
-function createFakeAuthClient() {
-  const chain: any = {
-    select: () => chain,
-    eq: () => chain,
-    maybeSingle: async () => ({
-      data: { email: 'admin@tuggi.app', role: 'admin', is_active: true },
-      error: null,
-    }),
-  }
-
-  return {
-    auth: {
-      getUser: async () => ({
-        data: { user: { id: 'cms-user-1', email: 'admin@tuggi.app' } },
-        error: null,
-      }),
-    },
-    schema: () => ({ from: () => chain }),
-  }
-}
+let POST: (req: any, ctx?: any) => Promise<Response>
 
 before(async () => {
-  // The admin route builds the operator's URL from this, falling back to
-  // `req.nextUrl.origin` — which a plain `Request` does not have.
-  process.env.NEXT_PUBLIC_APP_URL ??= 'https://cms.tuggi.app'
-
   mock.module('next/headers', {
     namedExports: { cookies: async () => ({ get: () => undefined, getAll: () => [] }) },
   })
@@ -493,334 +476,194 @@ before(async () => {
   mock.module('@/lib/core/supabase-client', {
     namedExports: {
       getSupabaseService: () => createFakeService(() => state),
-      getSupabaseRouteHandler: () => createFakeAuthClient(),
+      getSupabaseRouteHandler: () => ({}),
       getSupabaseClient: () => ({}),
     },
   })
 
-  const proposalService = await import('@/lib/services/partner-proposal-service')
-  hashInviteToken = proposalService.hashInviteToken
-  submitProposal = proposalService.submitProposal as any
-
-  const route = await import('@/app/api/partner-form/[token]/route')
-  GET = route.GET as any
-  PUT = route.PUT as any
+  const route = await import('@/app/api/partner-form/route')
   POST = route.POST as any
-
-  const adminRoute = await import('@/app/api/admin/partner-invites/route')
-  CREATE_INVITE = adminRoute.POST as any
 })
 
-function request(method: string, body?: unknown, ip = '10.0.0.1') {
-  return new Request(`http://localhost/api/partner-form/${OPEN_TOKEN}`, {
-    method,
+/**
+ * A distinct IP per test on purpose: `withRateLimit` keeps a per-process window, and two
+ * tests sharing an address make the second one fail for a reason that has nothing to do with
+ * what it is asserting.
+ */
+function request(body?: unknown, ip = '10.0.0.1') {
+  return new Request('http://localhost/api/partner-form', {
+    method: 'POST',
     headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
 }
 
-const context = { params: Promise.resolve({ token: OPEN_TOKEN }) }
+const context = { params: Promise.resolve({}) }
 
-test('BR-B2B-026: a reused link writes nothing — the card case', async () => {
+test('#341: a CNPJ already registered as a client is refused, and nothing is written', async () => {
+  // OBLIGATORY CASE 1. Written to fail if the `lookupTaxId` check is taken out of the route:
+  // without it this body inserts a proposal and answers 200.
   state = freshState()
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
+  state.clients.push({ id: 'client-1', tax_id: '12ABC34501DE35', name: 'Cantina do Antônio' })
 
-  const first = await POST(request('POST', { answers: completeAnswers() }, '10.0.0.2'), context)
-  assert.equal(first.status, 200, 'the first submission is accepted')
-  assert.equal(state.submissions.length, 1)
-  assert.equal(state.submissions[0].status, 'submitted')
-
-  const submittedAnswers = { ...state.submissions[0].answers }
-
-  const replay = await POST(
-    request('POST', { answers: { ...completeAnswers(), trade_name: 'Outro estabelecimento' } }, '10.0.0.2'),
-    context
-  )
-
-  assert.equal(replay.status, 410, 'the consumed link is closed')
-  assert.equal(state.submissions.length, 1, 'no second proposal was created')
-  assert.deepEqual(state.submissions[0].answers, submittedAnswers, 'the stored answers did not change')
-})
-
-test('BR-B2B-026: two simultaneous submissions of the same link produce exactly one proposal', async () => {
-  // The route refuses a replay because it reads the invite first, and that read is enough
-  // for a person who taps twice. It is NOT enough for two requests in flight at the same
-  // time: both would read an open invite. What decides is the consume-with-predicate
-  // (`update ... where used_at is null`), and this is the test that proves it — dropping
-  // the predicate turns this into two proposals.
-  state = freshState()
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
-
-  const outcomes = await Promise.all([
-    submitProposal('invite-1', SUBMISSION_ID, completeAnswers(), { isPartial: true }),
-    submitProposal('invite-1', SUBMISSION_ID, completeAnswers(), { isPartial: true }),
-  ])
-
-  assert.equal(outcomes.filter((outcome) => outcome.ok).length, 1, 'exactly one winner')
-  assert.equal(
-    outcomes.find((outcome) => !outcome.ok)?.reason,
-    'already_used',
-    'the loser is told the link was consumed, not that the write failed'
-  )
-  assert.equal(state.submissions.length, 1)
-})
-
-test('BR-B2B-026: the public route never touches core.clients', async () => {
-  state = freshState()
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
-
-  await GET(request('GET', undefined, '10.0.0.3'), context)
-  await POST(request('POST', { answers: completeAnswers() }, '10.0.0.3'), context)
-
-  assert.equal(
-    state.touchedTables.includes('clients'),
-    false,
-    'a public path must not reach the live client registration'
-  )
-})
-
-test('a used link answers with the date and none of the submitted data', async () => {
-  state = freshState({ used_at: new Date('2026-08-10T10:00:00Z').toISOString() })
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
-  Object.assign(state.submissions[0], { status: 'submitted', answers: completeAnswers() })
-
-  const response = await GET(request('GET', undefined, '10.0.0.4'), context)
+  const response = await POST(request({ answers: completeAnswers() }, '10.0.0.2'), context)
   const payload = await response.json()
 
-  assert.equal(response.status, 410)
-  assert.equal(payload.state, 'used')
-  assert.ok(payload.usedAt, 'the date is what the person is told')
-  assert.equal(JSON.stringify(payload).includes('12.ABC'), false, 'no CNPJ leaks to whoever has the URL')
-  assert.equal(JSON.stringify(payload).includes('Antônio Ferreira'), false, 'no representative name leaks')
+  assert.equal(response.status, 409)
+  assert.equal(payload.error, 'tax_id_registered')
+  assert.equal(payload.field, 'tax_id', 'the form puts the message beside the CNPJ')
+  assert.equal(state.submissions.length, 0, 'a refused submission creates no proposal')
 })
 
-test('BR-B2B-022: a submission with no documents is accepted and comes back partial', async () => {
+test('#341: the CNPJ is matched with the mask and without it', async () => {
+  // Records typed by hand carry the printed mask; everything this feature writes is
+  // normalised. Matching only one shape lets the same company in twice, which is exactly
+  // what the refusal exists to stop.
   state = freshState()
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
+  state.clients.push({ id: 'client-1', tax_id: '12.ABC.345/01DE-35' })
 
-  const response = await POST(request('POST', { answers: completeAnswers() }, '10.0.0.5'), context)
+  const masked = await POST(request({ answers: completeAnswers() }, '10.0.0.3'), context)
+  assert.equal(masked.status, 409, 'the stored value was masked and the answer was not')
+  assert.equal(state.submissions.length, 0)
+})
+
+test('#341: a CNPJ nobody has registered is accepted and becomes a proposal', async () => {
+  state = freshState()
+  state.clients.push({ id: 'client-1', tax_id: '11222333000181' })
+
+  const response = await POST(request({ answers: completeAnswers() }, '10.0.0.4'), context)
   const payload = await response.json()
 
   assert.equal(response.status, 200)
-  assert.equal(payload.isPartial, true)
-  assert.deepEqual(payload.missingDocuments, [...PARTNER_DOCUMENT_KINDS])
-  assert.equal(state.submissions[0].is_partial, true)
+  assert.equal(payload.state, 'submitted')
+  assert.equal(payload.contactEmail, 'antonio@cantina.com.br', 'the screen names where we answer')
+  assert.equal(state.submissions.length, 1)
+  assert.equal(state.submissions[0].status, 'submitted')
+  assert.ok(state.submissions[0].submitted_at, 'a proposal is born sent — there is no draft row')
 })
 
-test('an unknown token is refused without a write', async () => {
+test('#341: a CNPJ that only has a pending proposal sends another one', async () => {
+  // Deliberate, and the opposite of the case above. Refusing here would answer a question
+  // anybody can ask with a public number: is this company talking to the Tuggi? The
+  // duplicate is resolved by a person on the conference screen.
   state = freshState()
-  state.invites[0].token_hash = hashInviteToken('some-other-token-entirely-different-value')
 
-  const response = await POST(request('POST', { answers: completeAnswers() }, '10.0.0.6'), context)
+  const first = await POST(request({ answers: completeAnswers() }, '10.0.0.5'), context)
+  const second = await POST(request({ answers: completeAnswers() }, '10.0.0.5'), context)
 
-  assert.equal(response.status, 404)
-  assert.deepEqual(state.submissions[0].answers, {}, 'nothing was written into the proposal')
-  assert.equal(state.submissions[0].status, 'draft')
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
+  assert.equal(state.submissions.length, 2, 'two proposals, and nothing merged them')
+})
+
+test('#341: the per-IP limit blocks, and the blocked request writes nothing', async () => {
+  // OBLIGATORY CASE 2. Written to fail if the `registerSubmissionAttempt` call is taken out
+  // of the route: without it the body below is accepted and a proposal is created.
+  state = freshState()
+  state.limitAllows = false
+
+  const response = await POST(request({ answers: completeAnswers() }, '10.0.0.6'), context)
+  const payload = await response.json()
+
+  assert.equal(response.status, 429)
+  assert.equal(payload.error, 'too_many_submissions')
+  assert.equal(response.headers.get('retry-after'), '900', 'the client is told how long to wait')
+  assert.equal(state.submissions.length, 0, 'a blocked submission creates no proposal')
+  assert.equal(state.rpc.length, 1, 'the verdict came from the database, not from this process')
+})
+
+test('#341: the limit is consulted before the body is even parsed', async () => {
+  // Order matters: counting only the well-formed requests lets a flood of garbage through
+  // for free, and garbage is what a script sends.
+  state = freshState()
+  state.limitAllows = false
+
+  const response = await POST(request('not json at all', '10.0.0.7'), context)
+
+  assert.equal(response.status, 429)
+  assert.equal(state.rpc.length, 1)
+})
+
+test('#341: a limit that cannot be consulted refuses — it does not wave the request through', async () => {
+  // The RPC does not exist until the `data` applies the migration, and a network can drop it
+  // afterwards. An unavailable counter means nobody counted, and an uncounted write to a
+  // service_role table from an anonymous caller is the thing the limit exists to prevent —
+  // so it fails CLOSED. Flip that to `allowed: true` and the door opens with no barrier.
+  state = freshState()
+  state.limitUnavailable = true
+
+  const response = await POST(request({ answers: completeAnswers() }, '10.0.0.8'), context)
+
+  assert.equal(response.status, 429)
+  assert.equal(state.submissions.length, 0, 'a write nobody counted must not happen')
+})
+
+test('#341: a CNPJ lookup that fails refuses the submission instead of registering a twin', async () => {
+  state = freshState()
+  state.clientsLookupFails = true
+
+  const response = await POST(request({ answers: completeAnswers() }, '10.0.0.9'), context)
+
+  assert.equal(response.status, 503)
+  assert.equal(state.submissions.length, 0, 'an unanswered lookup must not become a second client')
+})
+
+test('BR-B2B-026: the public route never writes core.clients', async () => {
+  // The read of `clients` is the deduplication key and returns no column; the WRITE is what
+  // must not exist here. A promotion is an authenticated act of the team (item 4).
+  state = freshState()
+
+  await POST(request({ answers: completeAnswers() }, '10.0.0.10'), context)
+
+  const clientWrites = state.touchedTables.filter(
+    (touch) => touch.table === 'clients' && touch.operation !== 'select'
+  )
+  assert.deepEqual(clientWrites, [], 'a public path must not write the live client registration')
+  assert.equal(state.clients.length, 0)
 })
 
 test('a body with only forbidden keys is refused, and nothing is persisted', async () => {
   state = freshState()
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
 
   const response = await POST(
-    request('POST', { answers: { commission_rate: '0.9', iban: 'BR15', status: 'approved' } }, '10.0.0.7'),
+    request({ answers: { commission_rate: '0.9', iban: 'BR15', status: 'approved' } }, '10.0.0.11'),
     context
   )
   const payload = await response.json()
 
   assert.equal(response.status, 400)
   assert.equal(payload.error, 'invalid_answers')
-  assert.deepEqual(state.submissions[0].answers, {}, 'a refused submission writes nothing')
-  assert.equal(state.submissions[0].status, 'draft')
-  assert.equal(state.invites[0].used_at, null, 'a refused submission does not consume the link')
+  assert.equal(state.submissions.length, 0)
 })
 
-test('a draft is never erased by a body the schema refuses', async () => {
+test('a body that is not answers is refused before any write', async () => {
   state = freshState()
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
-  Object.assign(state.submissions[0], {
-    answers: completeAnswers(),
-    updated_at: new Date('2026-08-13T10:00:00Z').toISOString(),
-  })
-  const typed = { ...state.submissions[0].answers }
 
-  // What a client bug sends: one value that is not a string. It used to normalise to `{}`,
-  // overwrite the draft and come back 200 — the person watched "salvo" while everything
-  // they had typed was destroyed.
-  const response = await PUT(
-    request('PUT', { answers: { ...completeAnswers(), trade_name: { toString: 'no' } } }, '10.0.0.9'),
+  const response = await POST(
+    request({ answers: { trade_name: { toString: 'no' } } }, '10.0.0.12'),
     context
   )
 
-  assert.equal(response.status, 400, 'a refused body is a refusal, not a success')
-  assert.deepEqual(state.submissions[0].answers, typed, 'the draft must survive intact')
+  assert.equal(response.status, 400)
+  assert.equal((await response.json()).error, 'invalid_body')
+  assert.equal(state.submissions.length, 0)
 })
 
-test('an empty draft is still a valid autosave — the refusal above is not a blanket ban', async () => {
-  state = freshState()
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
-  Object.assign(state.submissions[0], { answers: completeAnswers() })
-  const before = state.submissions[0].updated_at
-
-  const response = await PUT(request('PUT', { answers: {} }, '10.0.0.10'), context)
-
-  assert.equal(response.status, 200)
-  assert.deepEqual(state.submissions[0].answers, {}, 'the restart button relies on this path')
-  assert.notEqual(state.submissions[0].updated_at, before, 'the autosave reached the proposal')
-})
-
-test('#341: a link nobody has typed into does not claim the person is resuming anything', async () => {
-  // The proposal is now minted WITH the invite, so `updated_at` exists before the first
-  // visit. Handing it back as `savedAt` made the form open on `states.draftResumed` —
-  // "a gente guardou o que você preencheu" — to someone who had never seen the page,
-  // next to a `Recomeçar do zero` button for a form with nothing in it.
-  state = freshState()
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
-
-  const virgin = await (await GET(request('GET', undefined, '10.0.0.11'), context)).json()
-  assert.equal(virgin.savedAt, null, 'nothing was typed, so there is nothing to resume')
-
-  state.submissions[0].answers = { trade_name: 'Cantina do Antônio' }
-  const typed = await (await GET(request('GET', undefined, '10.0.0.11'), context)).json()
-  assert.equal(typed.savedAt, state.submissions[0].updated_at, 'one answer is enough to be a draft')
-})
-
-// ── Resending a link: the proposal survives, and the operator does not choose where it goes ──
-
-function adminRequest(body: Record<string, unknown>, ip = '10.0.1.1') {
-  return new Request('http://localhost/api/admin/partner-invites', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-forwarded-for': ip },
-    body: JSON.stringify(body),
-  })
-}
-
-/** The raw token exists once, in the URL the route hands back to the operator. */
-function tokenOfUrl(url: string): string {
-  return new URL(url).pathname.split('/').filter(Boolean).pop() ?? ''
-}
-
-test('BR-B2B-026: a resent link continues the proposal already there — nothing is filled in twice', async () => {
-  // What the published copy promises the partner in `states.successPartialBody`: "A gente
-  // manda um link para você enviar — não precisa preencher o resto de novo." It only holds
-  // if the new credential reaches the SAME proposal; a link that opens a fresh one makes
-  // the person lose the CNPJ, the representative and the documents they already sent.
-  state = freshState()
-  state.invites[0].token_hash = hashInviteToken(OPEN_TOKEN)
-  state.submissions[0].answers = completeAnswers()
-  state.documents.push({
-    id: 'document-1',
-    submission_id: SUBMISSION_ID,
-    kind: 'business_license',
-    storage_path: `${SUBMISSION_ID}/business_license/alvara.pdf`,
-    file_name: 'alvara.pdf',
-    byte_size: 120_000,
-    mime_type: 'application/pdf',
-  })
-
-  const response = await CREATE_INVITE(adminRequest({ submissionId: SUBMISSION_ID }), {})
-  const payload = await response.json()
-
-  assert.equal(response.status, 200)
-  assert.equal(payload.submissionId, SUBMISSION_ID, 'the new link opens the proposal that exists')
-  assert.equal(state.invites.length, 2)
-  assert.equal(state.invites[1].submission_id, SUBMISSION_ID)
-
-  // End to end: the token the operator will send opens the draft, not an empty form.
-  const resent = { params: Promise.resolve({ token: tokenOfUrl(payload.url) }) }
-  const opened = await (await GET(request('GET', undefined, '10.0.0.12'), resent)).json()
-
-  assert.equal(opened.state, 'valid')
-  assert.equal(opened.answers.tax_id, completeAnswers().tax_id, 'the CNPJ is still there')
-  assert.equal(opened.documents.length, 1, 'and so is the licence already sent')
-  assert.equal(state.submissions.length, 1, 'no second proposal was created')
-})
-
-test('BR-B2B-026: a resend takes no destination address from the request', async () => {
-  // A resent link hands back the CNPJ, the legal representative and the documents. An
-  // address retyped on the resend screen — one transposed letter is enough — would
-  // deliver all of it to a stranger, and the operator would see a successful send. The
-  // destination is a fact of the record.
+test('#341: only the allowlisted answers reach the row', async () => {
   state = freshState()
 
-  const response = await CREATE_INVITE(
-    adminRequest({ submissionId: SUBMISSION_ID, recipientEmail: 'atacante@exemplo.com' }, '10.0.1.2'),
-    {}
+  await POST(
+    request(
+      { answers: { ...completeAnswers(), commission_rate: '0.9', status: 'approved' } },
+      '10.0.0.13'
+    ),
+    context
   )
-  const payload = await response.json()
 
-  assert.equal(response.status, 200)
-  assert.equal(payload.recipientEmail, 'antonio@cantina.com.br', 'the answer names where it went')
-  assert.equal(state.invites[1].recipient_email, 'antonio@cantina.com.br')
-  assert.equal(state.emails[state.emails.length - 1]?.to, 'antonio@cantina.com.br')
-  assert.equal(
-    JSON.stringify(state.emails).includes('atacante@exemplo.com'),
-    false,
-    'the address in the body reached nothing'
-  )
-})
-
-test('#341: a resend for a proposal with no invite on record is refused, not sent somewhere', async () => {
-  state = freshState()
-
-  const unknown = await CREATE_INVITE(
-    adminRequest({ submissionId: '33333333-3333-3333-3333-333333333333' }, '10.0.1.3'),
-    {}
-  )
-  assert.equal(unknown.status, 404)
-
-  const malformed = await CREATE_INVITE(adminRequest({ submissionId: 'submission-1' }, '10.0.1.4'), {})
-  assert.equal(malformed.status, 400)
-
-  assert.equal(state.invites.length, 1, 'no credential was minted')
-  assert.equal(state.emails.length, 0, 'and nothing was sent')
-})
-
-test('#341: a first contact still needs the address the operator types', async () => {
-  state = freshState()
-
-  const noEmail = await CREATE_INVITE(adminRequest({ recipientName: 'Antônio' }, '10.0.1.5'), {})
-  assert.equal(noEmail.status, 400)
-  assert.equal((await noEmail.json()).error, 'invalid_recipient_email')
-
-  const created = await CREATE_INVITE(
-    adminRequest({ recipientEmail: 'contato@pousada.com.br', tradeName: 'Pousada do Farol' }, '10.0.1.6'),
-    {}
-  )
-  const payload = await created.json()
-
-  assert.equal(created.status, 200)
-  assert.equal(payload.recipientEmail, 'contato@pousada.com.br')
-  // Null is what the database trigger reads as "this is a first contact, mint the
-  // proposal": a first invite must never point at somebody else's proposal.
-  assert.equal(state.invites[1].submission_id, null)
-})
-
-// ── The upload limit has to be a limit the platform lets us enforce ──
-
-test('#341: the promised file size is under the ceiling Vercel enforces before our code runs', async () => {
-  // "The maximum payload size for the request body or the response body of a Vercel
-  // Function is 4.5 MB", answered with `413 FUNCTION_PAYLOAD_TOO_LARGE` — Vercel,
-  // `/docs/functions/limitations`, *Request body size*, read 2026-08-14.
-  //
-  // Above it the request never reaches the route, so the specific message
-  // (`errors.file_too_large`) becomes unreachable exactly when it is the right one and
-  // the owner sees a failure with no reason. The number is also promised in the help text
-  // before the choice (DS-COMPONENTE-016, item 7), so it must be the enforced one.
-  const VERCEL_REQUEST_BODY_LIMIT_BYTES = 4.5 * 1024 * 1024
-  assert.ok(
-    DOCUMENT_MAX_BYTES < VERCEL_REQUEST_BODY_LIMIT_BYTES,
-    `${DOCUMENT_MAX_BYTES} bytes cannot be refused by us: the platform cuts at 4.5 MB`
-  )
-  // Room for the multipart envelope around the file, so the last accepted byte still fits.
-  assert.ok(VERCEL_REQUEST_BODY_LIMIT_BYTES - DOCUMENT_MAX_BYTES > 64 * 1024)
-  assert.equal(DOCUMENT_MAX_MB, 4, 'the help text and the error message interpolate this number')
-
-  const messages = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8'))
-  const tooLarge = messages.PartnerForm.errors.file_too_large
-  assert.match(tooLarge, /\{size\}/)
-  assert.match(tooLarge, /\{max\}/)
-  assert.ok(tooLarge.length > 60, 'the message has to say what to do, not only that it failed')
+  const stored = state.submissions[0].answers
+  assert.equal('commission_rate' in stored, false)
+  assert.equal('status' in stored, false)
+  assert.equal(stored.trade_name, 'Cantina do Antônio')
 })
 
 // ── The copy on the device: personal data with a deadline ──
@@ -842,38 +685,53 @@ function fakeStorage(): Storage & { size: () => number } {
 }
 
 test('#341: the local draft expires, and reading it after the deadline erases it', () => {
-  // The scenario: a form abandoned on the tablet at the counter of a restaurant. Without a
-  // deadline the CNPJ and the name, e-mail and phone of the legal representative stayed on
-  // that device forever, because the only thing that cleared them was a successful
-  // submission — which an abandoned form never has.
+  // The scenario: a form abandoned on the tablet at the counter of a restaurant. This is now
+  // the ONLY copy of what was typed — there is no server-side draft — so the deadline is the
+  // only thing that takes the CNPJ and the representative's contact off a shared device.
   const store = fakeStorage()
   ;(globalThis as { localStorage?: Storage }).localStorage = store
-  const key = mirrorKey('t'.repeat(43))
 
-  writeMirror(key, { tax_id: '12ABC34501DE35', representative_name: 'Antônio Ferreira' })
-  assert.equal(readMirror(key).tax_id, '12ABC34501DE35', 'within the window it is still there')
+  writeMirror({ tax_id: '12ABC34501DE35', representative_name: 'Antônio Ferreira' })
+  assert.equal(readMirror().answers.tax_id, '12ABC34501DE35', 'within the window it is there')
+  assert.ok(readMirror().savedAt, 'and it carries when, for the "continue where you left off"')
 
-  const stale = JSON.parse(store.getItem(key) as string)
+  const stale = JSON.parse(store.getItem(MIRROR_KEY) as string)
   stale.savedAt = Date.now() - MIRROR_TTL_MS - 1
-  store.setItem(key, JSON.stringify(stale))
+  store.setItem(MIRROR_KEY, JSON.stringify(stale))
 
-  assert.deepEqual(readMirror(key), {}, 'past the deadline it must not come back')
+  assert.deepEqual(readMirror().answers, {}, 'past the deadline it must not come back')
   assert.equal(store.size(), 0, 'and it must not be left on the device either')
 })
 
 test('#341: a mirror with no deadline stamp is dropped, not trusted', () => {
   const store = fakeStorage()
   ;(globalThis as { localStorage?: Storage }).localStorage = store
-  const key = mirrorKey('u'.repeat(43))
 
-  // The shape written before this had an expiry, and any corrupted value.
-  store.setItem(key, JSON.stringify({ tax_id: '12ABC34501DE35' }))
-  assert.deepEqual(readMirror(key), {})
+  store.setItem(MIRROR_KEY, JSON.stringify({ tax_id: '12ABC34501DE35' }))
+  assert.deepEqual(readMirror().answers, {})
   assert.equal(store.size(), 0)
 
-  store.setItem(key, 'not json')
-  assert.deepEqual(readMirror(key), {})
+  store.setItem(MIRROR_KEY, 'not json')
+  assert.deepEqual(readMirror().answers, {})
   assert.equal(store.size(), 0)
+})
+
+test('#341: an empty draft is not something to resume', () => {
+  // The banner says "a gente guardou o que você preencheu". Showing it to somebody who has
+  // typed nothing offers them a `Recomeçar do zero` for a form with nothing in it.
+  const store = fakeStorage()
+  ;(globalThis as { localStorage?: Storage }).localStorage = store
+
+  writeMirror({})
+  assert.equal(readMirror().savedAt, null)
+})
+
+test('#341: the draft key carries no CNPJ and no token', () => {
+  // Keying the mirror by CNPJ was the obvious way to resume without a link, and it is the
+  // one thing this must never do: a CNPJ is public, so it would hand whoever types a number
+  // the answers somebody else filled in on that device.
+  assert.equal(MIRROR_KEY, 'partner-form:draft')
+  assert.equal(/\$\{|cnpj|tax/i.test(MIRROR_KEY), false)
 })
 
 test('#341: the deadline is a day, and clearing it is what submission does', () => {
@@ -881,9 +739,8 @@ test('#341: the deadline is a day, and clearing it is what submission does', () 
 
   const store = fakeStorage()
   ;(globalThis as { localStorage?: Storage }).localStorage = store
-  const key = mirrorKey('v'.repeat(43))
 
-  writeMirror(key, { tax_id: '12ABC34501DE35' })
-  clearMirror(key)
+  writeMirror({ tax_id: '12ABC34501DE35' })
+  clearMirror()
   assert.equal(store.size(), 0)
 })

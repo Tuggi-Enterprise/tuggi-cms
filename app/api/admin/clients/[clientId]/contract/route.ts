@@ -28,6 +28,7 @@ import {
 } from '@/lib/contract/snapshot'
 import { activeTemplate } from '@/lib/contract/template'
 import { buildContractUrl } from '@/lib/contract/link'
+import { readReviewNote } from '@/lib/partner-form/proposal-review'
 import {
   createContract,
   getLiveContract,
@@ -64,12 +65,17 @@ async function loadClient(clientId: string): Promise<ContractClient | null> {
 }
 
 /**
- * The evidence of BR-B2B-022, item 3, read where it actually is: the files the partner
- * uploaded through the #341 form and the validity date they answered there. There is no
- * "documents are fine" flag on the client record, and inventing one would turn a gate into
- * somebody's memory.
+ * The evidence of BR-B2B-022, item 3, read where it actually is: the conference record one
+ * operator wrote down after seeing the alvará and the contrato social IN PERSON, on the
+ * proposal that was promoted into this client.
  *
- * A client with no submission yet answers "nothing attached", which is the truth and blocks
+ * It used to read the files the partner had uploaded through the #341 form. There is no upload
+ * any more (operator, 2026-08-16) — the papers are checked before the link is ever sent — so
+ * the source moved and the gate did not. There is still no "documents are fine" flag on the
+ * client record, and inventing one would turn a gate into somebody's memory: what this reads
+ * is an annotation with a date and a `reviewed_by` on it.
+ *
+ * A client with no promoted proposal answers "nothing attached", which is the truth and blocks
  * generation with a checklist item that names the missing document.
  */
 async function loadRegularity(clientId: string): Promise<RegularityEvidence> {
@@ -79,35 +85,23 @@ async function loadRegularity(clientId: string): Promise<RegularityEvidence> {
     businessLicenseValidUntil: null,
   }
 
-  const supabase = getSupabaseService().schema('core')
-
-  const { data: invites } = await supabase.from('partner_form_invites').select('id').eq('client_id', clientId)
-  const inviteIds = (invites ?? []).map((invite: { id: string }) => invite.id)
-  if (inviteIds.length === 0) return empty
-
-  const { data: submissions } = await supabase
+  const { data: submissions } = await getSupabaseService()
+    .schema('core')
     .from('partner_form_submissions')
-    .select('id, answers, submitted_at')
-    .in('invite_id', inviteIds)
-    .eq('status', 'submitted')
-    .order('submitted_at', { ascending: false })
+    .select('id, review_note, promoted_at')
+    .eq('promoted_client_id', clientId)
+    .order('promoted_at', { ascending: false })
     .limit(1)
 
-  const submission = (submissions ?? [])[0] as { id: string; answers?: Record<string, unknown> } | undefined
+  const submission = (submissions ?? [])[0] as { review_note?: unknown } | undefined
   if (!submission) return empty
 
-  const { data: documents } = await supabase
-    .from('partner_form_documents')
-    .select('kind')
-    .eq('submission_id', submission.id)
-
-  const kinds = new Set((documents ?? []).map((document: { kind: string }) => document.kind))
-  const validUntil = submission.answers?.business_license_valid_until
+  const { conference } = readReviewNote(submission.review_note)
 
   return {
-    businessLicenseDocument: kinds.has('business_license'),
-    incorporationDocument: kinds.has('incorporation_document'),
-    businessLicenseValidUntil: typeof validUntil === 'string' && validUntil.trim() ? validUntil.trim() : null,
+    businessLicenseDocument: conference.documentsSeen.indexOf('business_license') >= 0,
+    incorporationDocument: conference.documentsSeen.indexOf('incorporation_document') >= 0,
+    businessLicenseValidUntil: conference.licenseValidUntil,
   }
 }
 

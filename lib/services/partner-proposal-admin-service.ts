@@ -11,30 +11,25 @@
  * delete that guarantee in one commit and nothing would go red. Two modules, two reachable
  * sets, and every function here is called only from `withAuth({ roles: ['admin'] })`.
  *
- * Rows this module reads and writes are the same three tables of #341 plus `core.clients`.
+ * Rows this module reads and writes are `core.partner_form_submissions` and `core.clients`.
  * The migration is not applied yet; until it is, every function answers with the Supabase
  * error, which is what the routes already turn into a typed response.
  */
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
-import { PARTNER_DOCUMENTS_BUCKET } from '@/lib/services/partner-proposal-service'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
-import type { PartnerDocumentKind } from '@/lib/partner-form/fields'
 import type { PromotableColumn } from '@/lib/partner-form/promotion'
-import type { DiscardReasonId, ReviewNote } from '@/lib/partner-form/proposal-review'
+import {
+  readReviewNote,
+  type DiscardReasonId,
+  type ReviewNote,
+} from '@/lib/partner-form/proposal-review'
+import type { ConferenceRecord } from '@/lib/partner-form/regularity'
+import { cnpjLookupValues } from '@/lib/validation/cnpj'
 
 const SCHEMA = 'core'
-const INVITES = 'partner_form_invites'
 const SUBMISSIONS = 'partner_form_submissions'
-const DOCUMENTS = 'partner_form_documents'
 const CLIENTS = 'clients'
-
-/**
- * How long the link to a stored document lives. The bucket is private and the screen does not
- * undo that: the URL is asked for on the click, is never written anywhere, and is not offered
- * for copying.
- */
-export const DOCUMENT_SIGNED_URL_SECONDS = 60
 
 function service() {
   return getSupabaseService().schema(SCHEMA)
@@ -42,160 +37,33 @@ function service() {
 
 export type ProposalStatus = 'draft' | 'submitted' | 'promoted' | 'discarded'
 
-export interface AdminInviteRow {
-  id: string
-  submission_id: string
-  client_id: string | null
-  recipient_email: string
-  recipient_name: string | null
-  trade_name: string | null
-  expires_at: string
-  used_at: string | null
-  revoked_at: string | null
-  created_at: string
-}
-
 export interface AdminSubmissionRow {
   id: string
   status: ProposalStatus
   answers: PartnerAnswers
-  is_partial: boolean
   submitted_at: string | null
   updated_at: string | null
   created_at: string
   promoted_at: string | null
   promoted_by: string | null
   promoted_client_id: string | null
+  /** The conference annotation, in the shape `normalizeReviewNote` writes. */
+  review_note: unknown
 }
 
-export interface AdminDocumentRow {
-  id: string
-  submission_id: string
-  kind: PartnerDocumentKind
-  storage_path: string
-  file_name: string
-  byte_size: number
-  mime_type: string
-  created_at: string
-}
-
-/**
- * The seven situations of §3.4 of the spec, derived and never stored.
- *
- * There is no `link opened`, and this does not pretend otherwise: nothing records an opening —
- * `resolveInvite` reads and does not write. What a draft with answers proves is TYPING, so the
- * label is `Começou a preencher`. Telling "opened and did nothing" from "never opened" needs an
- * `opened_at` column, which is a card of its own; this list works without it.
- */
-export type InviteSituation =
-  | 'sent'
-  | 'started'
-  | 'received'
-  | 'promoted'
-  | 'discarded'
-  | 'expired'
-  | 'revoked'
-
-export function inviteSituation(
-  invite: Pick<AdminInviteRow, 'expires_at' | 'used_at' | 'revoked_at'>,
-  submission: Pick<AdminSubmissionRow, 'status' | 'answers'> | undefined,
-  now: Date = new Date()
-): InviteSituation {
-  if (submission?.status === 'promoted') return 'promoted'
-  if (submission?.status === 'discarded') return 'discarded'
-  if (submission?.status === 'submitted') return 'received'
-  if (invite.revoked_at) return 'revoked'
-  if (invite.used_at) return 'received'
-  if (new Date(invite.expires_at).getTime() <= now.getTime()) return 'expired'
-  if (submission && Object.keys(submission.answers ?? {}).length > 0) return 'started'
-  return 'sent'
-}
-
-/** A consumed or resolved invite has no live link to switch off. */
-export function inviteIsRevocable(situation: InviteSituation): boolean {
-  return situation === 'sent' || situation === 'started' || situation === 'expired'
-}
-
-export interface InviteListItem extends AdminInviteRow {
-  situation: InviteSituation
-  is_partial: boolean
-  submission_status: ProposalStatus | null
-}
-
-/**
- * The invite queue. Two queries and no embedded select: the situation needs the proposal's
- * status, and joining it in PostgREST would make every caller depend on a foreign key name.
- */
-export async function listInvites(options: { limit?: number } = {}): Promise<InviteListItem[]> {
-  const { data: invites, error } = await service()
-    .from(INVITES)
-    .select(
-      'id, submission_id, client_id, recipient_email, recipient_name, trade_name, expires_at, used_at, revoked_at, created_at'
-    )
-    .order('created_at', { ascending: false })
-    .limit(options.limit ?? 200)
-
-  if (error || !invites) return []
-
-  const submissions = await loadSubmissionsByIds(
-    (invites as AdminInviteRow[]).map((invite) => invite.submission_id)
-  )
-
-  return (invites as AdminInviteRow[]).map((invite) => {
-    const submission = submissions.get(invite.submission_id)
-    return {
-      ...invite,
-      situation: inviteSituation(invite, submission),
-      is_partial: submission?.is_partial ?? false,
-      submission_status: submission?.status ?? null,
-    }
-  })
-}
-
-async function loadSubmissionsByIds(ids: string[]): Promise<Map<string, AdminSubmissionRow>> {
-  const found = new Map<string, AdminSubmissionRow>()
-  const unique = ids.filter((id, index) => id && ids.indexOf(id) === index)
-  if (unique.length === 0) return found
-
-  const { data, error } = await service()
-    .from(SUBMISSIONS)
-    .select(
-      'id, status, answers, is_partial, submitted_at, updated_at, created_at, promoted_at, promoted_by, promoted_client_id'
-    )
-    .in('id', unique)
-
-  if (error || !data) return found
-  for (const row of data as AdminSubmissionRow[]) found.set(row.id, row)
-  return found
-}
-
-/**
- * Switches a live link off. Revoking exists because the e-mail can have gone to the wrong
- * address; what was already filled in stays where it is, which is why nothing but the invite
- * is touched.
- *
- * `revoked_at is null` is a predicate of the UPDATE, so a second click is not a second event.
- */
-export async function revokeInvite(inviteId: string): Promise<boolean> {
-  const { data, error } = await service()
-    .from(INVITES)
-    .update({ revoked_at: new Date().toISOString() })
-    .eq('id', inviteId)
-    .is('revoked_at', null)
-    .is('used_at', null)
-    .select('id')
-
-  return !error && Array.isArray(data) && data.length > 0
-}
+const SUBMISSION_COLUMNS =
+  'id, status, answers, submitted_at, updated_at, created_at, promoted_at, promoted_by, promoted_client_id, review_note'
 
 export interface ProposalListItem extends AdminSubmissionRow {
-  invite: AdminInviteRow | null
+  /** What the team registered having seen — the list badge answers "can this one already
+   *  produce a contract?", and that question is `buildRegularityReport`. */
+  conference: ConferenceRecord
   /**
-   * One entry per stored file. Kinds and not a count, because the list badge answers "can
-   * this one already produce a contract?" and that question is `buildRegularityReport`, which
-   * needs to know WHICH document is there.
+   * Other proposals waiting with the SAME CNPJ. The form accepts a second proposal for a CNPJ
+   * that already has one pending (refusing it would turn a public number into a lookup for who
+   * is talking to the Tuggi), so the duplicate is resolved here, by a person.
    */
-  document_kinds: PartnerDocumentKind[]
+  duplicate_of: string[]
 }
 
 /** The proposal queue: everything a human has actually sent, newest first. */
@@ -206,9 +74,7 @@ export async function listProposals(
 
   const { data, error } = await service()
     .from(SUBMISSIONS)
-    .select(
-      'id, status, answers, is_partial, submitted_at, updated_at, created_at, promoted_at, promoted_by, promoted_client_id'
-    )
+    .select(SUBMISSION_COLUMNS)
     .in('status', statuses)
     .order('submitted_at', { ascending: false })
     .limit(options.limit ?? 200)
@@ -216,56 +82,21 @@ export async function listProposals(
   if (error || !data) return []
 
   const rows = data as AdminSubmissionRow[]
-  const invites = await loadInvitesOfSubmissions(rows.map((row) => row.id))
-  const documents = await loadDocumentsOfSubmissions(rows.map((row) => row.id))
+  const pendingByTaxId = new Map<string, string[]>()
+  for (const row of rows) {
+    if (row.status !== 'submitted') continue
+    const taxId = (row.answers.tax_id ?? '').trim()
+    if (!taxId) continue
+    pendingByTaxId.set(taxId, (pendingByTaxId.get(taxId) ?? []).concat(row.id))
+  }
 
   return rows.map((row) => ({
     ...row,
-    invite: invites.get(row.id) ?? null,
-    document_kinds: documents.get(row.id) ?? [],
+    conference: readReviewNote(row.review_note).conference,
+    duplicate_of: (pendingByTaxId.get((row.answers.tax_id ?? '').trim()) ?? []).filter(
+      (id) => id !== row.id
+    ),
   }))
-}
-
-async function loadInvitesOfSubmissions(ids: string[]): Promise<Map<string, AdminInviteRow>> {
-  const latest = new Map<string, AdminInviteRow>()
-  const unique = ids.filter((id, index) => id && ids.indexOf(id) === index)
-  if (unique.length === 0) return latest
-
-  const { data, error } = await service()
-    .from(INVITES)
-    .select(
-      'id, submission_id, client_id, recipient_email, recipient_name, trade_name, expires_at, used_at, revoked_at, created_at'
-    )
-    .in('submission_id', unique)
-    .order('created_at', { ascending: false })
-
-  if (error || !data) return latest
-  // Newest first, so the first one seen for a proposal is the one in force.
-  for (const row of data as AdminInviteRow[]) {
-    if (!latest.has(row.submission_id)) latest.set(row.submission_id, row)
-  }
-  return latest
-}
-
-async function loadDocumentsOfSubmissions(
-  ids: string[]
-): Promise<Map<string, PartnerDocumentKind[]>> {
-  const kinds = new Map<string, PartnerDocumentKind[]>()
-  const unique = ids.filter((id, index) => id && ids.indexOf(id) === index)
-  if (unique.length === 0) return kinds
-
-  const { data, error } = await service()
-    .from(DOCUMENTS)
-    .select('id, submission_id, kind')
-    .in('submission_id', unique)
-
-  if (error || !data) return kinds
-  for (const row of data as { submission_id: string; kind: PartnerDocumentKind }[]) {
-    const list = kinds.get(row.submission_id) ?? []
-    list.push(row.kind)
-    kinds.set(row.submission_id, list)
-  }
-  return kinds
 }
 
 export interface ClientRecord {
@@ -277,11 +108,14 @@ export interface ClientRecord {
 
 export interface ProposalDetail {
   submission: AdminSubmissionRow
-  /** Every invite ever minted for this proposal, newest first — the trail of §4.9. */
-  invites: AdminInviteRow[]
-  documents: AdminDocumentRow[]
-  /** The client this proposal is already tied to, when the invite named one. */
+  /** What the team registered having seen of the two documents of BR-B2B-022. */
+  conference: ConferenceRecord
+  /** The reading of gate 2 already stored, so the screen opens on what was written. */
+  note: ReviewNote
+  /** The client this proposal was promoted into. Null until somebody promotes it. */
   client: ClientRecord | null
+  /** Other proposals still waiting with the same CNPJ — resolved by a person, never merged. */
+  duplicates: { id: string; submittedAt: string | null }[]
 }
 
 /** The columns the promotion panel compares against. An allowlist, like the write. */
@@ -291,38 +125,80 @@ const CLIENT_COMPARE_COLUMNS =
 export async function loadProposalDetail(submissionId: string): Promise<ProposalDetail | null> {
   const { data: submission, error } = await service()
     .from(SUBMISSIONS)
-    .select(
-      'id, status, answers, is_partial, submitted_at, updated_at, created_at, promoted_at, promoted_by, promoted_client_id'
-    )
+    .select(SUBMISSION_COLUMNS)
     .eq('id', submissionId)
     .maybeSingle()
 
   if (error || !submission) return null
 
-  const { data: inviteRows } = await service()
-    .from(INVITES)
-    .select(
-      'id, submission_id, client_id, recipient_email, recipient_name, trade_name, expires_at, used_at, revoked_at, created_at'
-    )
-    .eq('submission_id', submissionId)
-    .order('created_at', { ascending: false })
-
-  const { data: documentRows } = await service()
-    .from(DOCUMENTS)
-    .select('id, submission_id, kind, storage_path, file_name, byte_size, mime_type, created_at')
-    .eq('submission_id', submissionId)
-    .order('created_at', { ascending: true })
-
-  const invites = (inviteRows ?? []) as AdminInviteRow[]
   const row = submission as AdminSubmissionRow
-  const clientId = row.promoted_client_id ?? invites[0]?.client_id ?? null
+  const note = readReviewNote(row.review_note)
 
   return {
     submission: row,
-    invites,
-    documents: (documentRows ?? []) as AdminDocumentRow[],
-    client: clientId ? await loadClient(clientId) : null,
+    conference: note.conference,
+    note,
+    client: row.promoted_client_id
+      ? await loadClient(row.promoted_client_id)
+      : await findClientByTaxId(row.answers.tax_id ?? ''),
+    duplicates: await findPendingDuplicates(submissionId, row.answers.tax_id ?? ''),
   }
+}
+
+/**
+ * The client this proposal is ABOUT, found by CNPJ.
+ *
+ * The public form refuses a CNPJ that is already a client, so in the ordinary case this is
+ * null and the promotion creates a record. It is not the only case: a proposal can be sitting
+ * in the queue while somebody registers that company by hand, and promoting it then would
+ * produce two records for one company — the exact thing the CNPJ is the key against.
+ *
+ * When it does find one, the promotion becomes an UPDATE and DS-COMPONENTE-018 applies in
+ * full: a divergent column is born unticked and stays that way until somebody says otherwise.
+ * The same shapes count as the same CNPJ on both surfaces (`cnpjLookupValues`).
+ */
+export async function findClientByTaxId(taxId: string): Promise<ClientRecord | null> {
+  const candidates = cnpjLookupValues(taxId)
+  if (candidates.length === 0) return null
+
+  const { data, error } = await service()
+    .from(CLIENTS)
+    .select(CLIENT_COMPARE_COLUMNS)
+    .in('tax_id', candidates)
+    .limit(1)
+
+  if (error || !data || data.length === 0) return null
+  return data[0] as ClientRecord
+}
+
+/**
+ * Proposals still waiting with the same CNPJ as this one.
+ *
+ * The public form lets a CNPJ that already has a pending proposal send another (the alternative
+ * — telling the sender "this CNPJ already applied" — turns a public number into a lookup for
+ * who is negotiating with the Tuggi). Nothing merges them: the screen shows the duplicate and a
+ * person decides which one to promote and which one to discard, with `duplicate` on the closed
+ * list of discard reasons.
+ */
+async function findPendingDuplicates(
+  submissionId: string,
+  taxId: string
+): Promise<{ id: string; submittedAt: string | null }[]> {
+  const value = (taxId ?? '').trim()
+  if (!value) return []
+
+  const { data, error } = await service()
+    .from(SUBMISSIONS)
+    .select('id, submitted_at, answers')
+    .eq('status', 'submitted')
+    .order('submitted_at', { ascending: false })
+    .limit(50)
+
+  if (error || !data) return []
+
+  return (data as { id: string; submitted_at: string | null; answers: PartnerAnswers }[])
+    .filter((row) => row.id !== submissionId && (row.answers?.tax_id ?? '').trim() === value)
+    .map((row) => ({ id: row.id, submittedAt: row.submitted_at }))
 }
 
 export async function loadClient(clientId: string): Promise<ClientRecord | null> {
@@ -337,27 +213,19 @@ export async function loadClient(clientId: string): Promise<ClientRecord | null>
 }
 
 /**
- * `core.clients.email` is unique. The panel resolves the collision BEFORE the write button
- * appears (§4.6), so a `23505` never reaches the operator as an error — it reaches them as a
- * choice, with both options spelled out.
+ * `core.clients.email` IS NOT UNIQUE (operator, 2026-08-16): one owner has several places, and
+ * each place is its own record with the same address on it. There used to be a panel here that
+ * made the operator resolve an e-mail collision before the write button appeared — it existed
+ * only because of the constraint, and it went with it. What keeps a company from being
+ * registered twice is the CNPJ, refused at the form (`lookupTaxId`).
+ *
+ * Anything reintroduced here that reads a client BY E-MAIL has to expect several rows.
+ * `maybeSingle()` is the trap: it errors when more than one row matches, and the error is not
+ * "duplicate", it is a lookup that silently answers "nobody".
  */
-export async function findClientByEmail(email: string): Promise<ClientRecord | null> {
-  const normalized = email.trim().toLowerCase()
-  if (!normalized) return null
-
-  const { data, error } = await service()
-    .from(CLIENTS)
-    .select(CLIENT_COMPARE_COLUMNS)
-    .eq('email', normalized)
-    .maybeSingle()
-
-  if (error || !data) return null
-  return data as ClientRecord
-}
-
 export type PromotionOutcome =
   | { ok: true; clientId: string; created: boolean; written: PromotableColumn[] }
-  | { ok: false; reason: 'not_promotable' | 'email_taken' | 'write_failed' }
+  | { ok: false; reason: 'not_promotable' | 'write_failed' }
 
 export interface PromotionCommand {
   submissionId: string
@@ -424,7 +292,7 @@ async function releaseClaim(submissionId: string): Promise<void> {
 
 type ClientWriteOutcome =
   | { ok: true; clientId: string; created: boolean }
-  | { ok: false; reason: 'email_taken' | 'write_failed' }
+  | { ok: false; reason: 'write_failed' }
 
 async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcome> {
   if (command.clientId) {
@@ -434,7 +302,7 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
       .eq('id', command.clientId)
       .select('id')
 
-    if (error) return { ok: false, reason: isUniqueViolation(error) ? 'email_taken' : 'write_failed' }
+    if (error) return { ok: false, reason: 'write_failed' }
     if (!data || data.length === 0) return { ok: false, reason: 'write_failed' }
     return { ok: true, clientId: command.clientId, created: false }
   }
@@ -448,14 +316,8 @@ async function writeClient(command: PromotionCommand): Promise<ClientWriteOutcom
     .select('id')
     .single()
 
-  if (error || !data) {
-    return { ok: false, reason: isUniqueViolation(error) ? 'email_taken' : 'write_failed' }
-  }
+  if (error || !data) return { ok: false, reason: 'write_failed' }
   return { ok: true, clientId: (data as { id: string }).id, created: true }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return !!error && typeof error === 'object' && (error as { code?: string }).code === '23505'
 }
 
 export type DiscardOutcome = { ok: true } | { ok: false; reason: 'not_discardable' | 'write_failed' }
@@ -523,33 +385,4 @@ export async function saveReviewNote(
     .select('id')
 
   return !error && Array.isArray(data) && data.length > 0
-}
-
-/**
- * A link to one stored file, valid for a minute, asked for on the click.
- *
- * `submissionId` is a predicate and not decoration: it is what stops a document id from one
- * proposal being read through the page of another. `storage_path` is resolved here and never
- * leaves the server.
- */
-export async function signDocument(
-  submissionId: string,
-  documentId: string
-): Promise<{ url: string; fileName: string } | null> {
-  const { data: document, error } = await service()
-    .from(DOCUMENTS)
-    .select('id, storage_path, file_name')
-    .eq('id', documentId)
-    .eq('submission_id', submissionId)
-    .maybeSingle()
-
-  if (error || !document) return null
-
-  const row = document as { storage_path: string; file_name: string }
-  const { data: signed, error: signError } = await getSupabaseService()
-    .storage.from(PARTNER_DOCUMENTS_BUCKET)
-    .createSignedUrl(row.storage_path, DOCUMENT_SIGNED_URL_SECONDS)
-
-  if (signError || !signed?.signedUrl) return null
-  return { url: signed.signedUrl, fileName: row.file_name }
 }

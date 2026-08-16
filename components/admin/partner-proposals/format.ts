@@ -1,12 +1,12 @@
 /**
- * Dates and sizes, formatted once for both screens.
+ * Dates, formatted once for the queue and the review screen.
  *
- * NOBODY COUNTS DAYS IN THEIR HEAD HERE. `dayDelta` is the whole reason this file exists:
- * the review band has to say "venceu há 12 dias", not show a date and let the operator work
- * it out — BR-B2B-022 item 4 treats an expired licence as an absent one, and an operator
- * doing arithmetic on the fly is where that rule stops being applied.
+ * NOBODY COUNTS DAYS IN THEIR HEAD ON THESE SCREENS, and the arithmetic that says "venceu há
+ * 12 dias" is `daysUntil` in `lib/partner-form/regularity.ts` — beside the rule it serves
+ * (BR-B2B-022 item 4, which treats an expired licence as an absent one). There used to be a
+ * second copy of it here; two answers to "how many days" is how one of them goes wrong.
  *
- * The calendar day, not the instant: a link that expires today expires today, whatever the
+ * The calendar day, not the instant: a licence valid until today is valid today whatever the
  * hour, and `pt-BR` is the operator's locale on every one of these screens.
  */
 
@@ -37,19 +37,4 @@ export function formatDateTime(value: string | null | undefined): string {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-/** Whole calendar days from today to `value`. Negative is the past. */
-export function dayDelta(value: string | null | undefined, now: Date = new Date()): number | null {
-  if (!value) return null
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-
-  const target = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  return Math.round((target - today) / 86_400_000)
-}
-
-export function formatMegabytes(bytes: number): string {
-  return (bytes / (1024 * 1024)).toFixed(1).replace('.', ',')
 }

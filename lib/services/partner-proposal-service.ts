@@ -8,447 +8,196 @@
  *
  * The check closes the fast path — "public" stamped on a handler that queries the whole
  * database with the secret key. It says so in its own docstring: a route that reaches
- * `service_role` through `lib/services/*` is out of its scope. This module is not an
- * evasion of it, it is the shape the check leaves open on purpose, and it only holds
- * because of three things that are code and not intent:
+ * `service_role` through `lib/services/*` is out of its scope. This module is not an evasion
+ * of it, it is the shape the check leaves open on purpose, and it only holds because of three
+ * things that are code and not intent:
  *
- *  1. The API here is closed and narrow. There is no "run this query" export. Every
- *     function names one operation on three tables that belong to this feature, and
- *     none of them can be pointed at `core.clients`.
- *  2. Every operation is keyed by the invite token, which the caller has to know, is
- *     single-use, expires, and is stored only as a SHA-256 hash — a database dump does
- *     not yield a usable link.
- *  3. The public routes that call it carry `withRateLimit` and validate the body before
- *     it gets here.
+ *  1. The API here is closed and narrow. There is no "run this query" export. Every function
+ *     names one operation, and none of them can be pointed at another table.
+ *  2. The only public surface is one INSERT into one table, of a value the caller has already
+ *     had stripped to an allowlist.
+ *  3. That INSERT is behind a durable per-IP limit that is decided by the database, not by
+ *     this process — see `registerSubmissionAttempt`.
  *
- * `core.clients` is not reachable from this module, on purpose: the submission is a
- * proposal, and the promotion into the live record is an authenticated act of the team
- * (BR-B2B-026, item 4). A leaked or replayed link must not be able to overwrite another
- * partner's registration — least of all the admin-only columns.
+ * THE FORM IS NOW A DOOR WITH NO CREDENTIAL AT ALL (operator, 2026-08-16). There is no invite
+ * token: the same address goes to every partner, and it is only ever sent to an establishment
+ * whose papers the team already checked in person. That removes the thing that used to
+ * authenticate the caller, so what stands between the internet and a `service_role` write is
+ * exactly this file plus the route's validation — which is why nothing here reads or writes
+ * anything it does not have to.
  *
- * Tables and bucket are specified for the `data` in #341 and do not exist yet; until the
- * migration lands every function here answers with the Supabase error, which is what the
- * routes already translate into a typed response.
+ * `core.clients` IS REACHABLE FROM HERE, and in one direction only: `lookupTaxId` asks whether
+ * a CNPJ is already registered and gets back one of three words. It selects `id`, returns no
+ * column to the caller, and has no sibling that writes. The submission is still a proposal,
+ * and the promotion into the live record is still an authenticated act of the team
+ * (BR-B2B-026, item 4).
  */
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
-import {
-  generateSingleUseToken,
-  hashSingleUseToken,
-  isWellFormedSingleUseToken,
-} from '@/lib/security/single-use-token'
+import { createHash } from 'node:crypto'
 import type { PartnerAnswers } from '@/lib/partner-form/schema'
-import type { PartnerDocumentKind } from '@/lib/partner-form/fields'
+import { cnpjLookupValues } from '@/lib/validation/cnpj'
 
 const SCHEMA = 'core'
-const INVITES = 'partner_form_invites'
 const SUBMISSIONS = 'partner_form_submissions'
-const DOCUMENTS = 'partner_form_documents'
-
-/** Private bucket. Nothing here ever returns a public URL. */
-export const PARTNER_DOCUMENTS_BUCKET = 'partner-documents'
-
-/** Default life of an invite link, in days. */
-export const INVITE_TTL_DAYS = 14
-
-export type InviteState = 'valid' | 'invalid' | 'expired' | 'used' | 'revoked'
-
-export interface PartnerInvite {
-  id: string
-  /**
-   * The proposal this link opens. The invite points at the proposal and never the other
-   * way round: the proposal belongs to the establishment and the invite is only the
-   * credential that reaches it, which is what lets a second link continue the first one's
-   * draft (`states.successPartialBody` promises exactly that).
-   */
-  submission_id: string
-  client_id: string | null
-  recipient_email: string
-  recipient_name: string | null
-  trade_name: string | null
-  locale: string
-  expires_at: string
-  used_at: string | null
-  revoked_at: string | null
-}
-
-export interface PartnerSubmission {
-  id: string
-  status: 'draft' | 'submitted' | 'promoted' | 'discarded'
-  answers: PartnerAnswers
-  is_partial: boolean
-  submitted_at: string | null
-  updated_at: string | null
-}
-
-export interface PartnerDocument {
-  id: string
-  submission_id: string
-  kind: PartnerDocumentKind
-  storage_path: string
-  file_name: string
-  byte_size: number
-  mime_type: string
-}
-
-export interface ResolvedInvite {
-  state: InviteState
-  invite?: PartnerInvite
-  submission?: PartnerSubmission
-  documents?: PartnerDocument[]
-}
-
-/**
- * How a token is minted, stored and shape-checked is `lib/security/single-use-token.ts`,
- * shared with the contract signing link of #342: it is one decision — what a Tuggi link
- * token is — and having it twice would let the two features drift apart on the length, the
- * alphabet or the digest without anything failing. The three names below are the ones this
- * feature has always used and they stay, so that "invite token" reads as an invite token
- * at every call site here.
- */
-export const hashInviteToken = hashSingleUseToken
-export const generateInviteToken = generateSingleUseToken
-export const isWellFormedToken = isWellFormedSingleUseToken
+const CLIENTS = 'clients'
 
 function service() {
   return getSupabaseService().schema(SCHEMA)
 }
 
-/**
- * Resolves a raw token into the invite, its draft and its documents.
- *
- * A used link answers `used` and NOTHING else about the submission: the link is
- * single-use precisely because it can leak, and handing back the CNPJ, the legal
- * representative and the documents to whoever has the URL would trade the first rule of
- * the Tuggi (data security) for convenience. The date the team shows the person comes
- * from the invite row, not from the answers.
- */
-export async function resolveInvite(token: string): Promise<ResolvedInvite> {
-  if (!isWellFormedToken(token)) return { state: 'invalid' }
-
-  const { data: invite, error } = await service()
-    .from(INVITES)
-    .select(
-      'id, submission_id, client_id, recipient_email, recipient_name, trade_name, locale, expires_at, used_at, revoked_at'
-    )
-    .eq('token_hash', hashInviteToken(token))
-    .maybeSingle()
-
-  if (error || !invite) return { state: 'invalid' }
-
-  if (invite.revoked_at) return { state: 'revoked', invite }
-  if (invite.used_at) return { state: 'used', invite }
-  if (new Date(invite.expires_at).getTime() <= Date.now()) return { state: 'expired', invite }
-
-  const submission = await loadSubmission(invite.submission_id)
-  const documents = submission ? await listDocuments(submission.id) : []
-
-  return { state: 'valid', invite, submission: submission ?? undefined, documents }
-}
-
-async function loadSubmission(submissionId: string): Promise<PartnerSubmission | null> {
-  const { data, error } = await service()
-    .from(SUBMISSIONS)
-    .select('id, status, answers, is_partial, submitted_at, updated_at')
-    .eq('id', submissionId)
-    .maybeSingle()
-
-  if (error || !data) return null
-  return data as PartnerSubmission
-}
-
-export async function listDocuments(submissionId: string): Promise<PartnerDocument[]> {
-  const { data, error } = await service()
-    .from(DOCUMENTS)
-    .select('id, submission_id, kind, storage_path, file_name, byte_size, mime_type')
-    .eq('submission_id', submissionId)
-    .order('created_at', { ascending: true })
-
-  if (error || !data) return []
-  return data as PartnerDocument[]
-}
+// ── The CNPJ is the deduplication key ───────────────────────────────────────────────────
 
 /**
- * Autosave. Never an insert: the proposal is minted together with the invite by
- * `core.tg_partner_form_invite_attach`, so by the time anyone can type there is a row.
+ * Whether this CNPJ is already a client of ours — `registered`, `free`, or `unknown` when the
+ * question could not be asked.
  *
- * `status = 'draft'` is a predicate of the UPDATE and not an `if` over a previous SELECT.
- * A proposal the team already promoted or discarded matches no row and the answer is
- * `false` — a submitted proposal is never overwritten here, which is the same door the
- * replay of a leaked link would use.
+ * A CNPJ already in `core.clients` is a partner the team has registered, and a second
+ * registration of the same company through a public form would either duplicate the record or
+ * invite somebody to overwrite it. It is refused at the door and the person is told to talk to
+ * whoever they were already talking to.
+ *
+ * A CNPJ that only has a PENDING PROPOSAL is not refused — it becomes another proposal, and a
+ * human resolves the duplicate on the conference screen. Refusing there would let anyone with
+ * a CNPJ (a public number) find out whether that company is talking to the Tuggi.
+ *
+ * WHICH SHAPES COUNT AS THE SAME CNPJ is `cnpjLookupValues`, shared with the promotion — the
+ * two ends of this feature must not disagree about what "already registered" means.
  */
-export async function saveDraft(submissionId: string, answers: PartnerAnswers): Promise<boolean> {
+export type TaxIdLookup = 'registered' | 'free' | 'unknown'
+
+export async function lookupTaxId(taxId: string): Promise<TaxIdLookup> {
+  const candidates = cnpjLookupValues(taxId)
+  if (candidates.length === 0) return 'free'
+
   const { data, error } = await service()
-    .from(SUBMISSIONS)
-    .update({ answers, updated_at: new Date().toISOString() })
-    .eq('id', submissionId)
-    .eq('status', 'draft')
+    .from(CLIENTS)
     .select('id')
+    .in('tax_id', candidates)
+    .limit(1)
 
-  return !error && Array.isArray(data) && data.length > 0
+  // `unknown` and never `free`: a lookup that did not answer is not permission to write. A
+  // CNPJ that got through here would become a duplicate client record somebody has to unpick
+  // by hand, and the route turns this into "try again", not into a silent second registration.
+  if (error) {
+    console.error('[partner-form] tax id lookup failed')
+    return 'unknown'
+  }
+
+  return Array.isArray(data) && data.length > 0 ? 'registered' : 'free'
 }
 
-export type SubmitOutcome =
-  | { ok: true; submissionId: string; isPartial: boolean }
-  | { ok: false; reason: 'already_used' | 'write_failed' }
+// ── The submission ──────────────────────────────────────────────────────────────────────
+
+export type CreateProposalOutcome =
+  | { ok: true; submissionId: string }
+  | { ok: false; reason: 'write_failed' }
 
 /**
- * Turns the draft into a submitted proposal, once.
+ * Turns the answers into a submitted proposal. One INSERT, no read before it, nothing to
+ * update: every submission is a new proposal, including the second one for a CNPJ that
+ * already has one waiting.
  *
- * Single use is enforced by the database and not by a read-then-write: the invite is
- * consumed with `update ... where id = ? and used_at is null`, and PostgREST answers with
- * the affected rows, so two concurrent submissions of the same token produce exactly one
- * winner. Checking `used_at` in JavaScript first and updating after would leave the race
- * open — which is the whole point of the requirement.
+ * There is no `draft` row any more — the draft lives on the person's device
+ * (`lib/partner-form/draft-mirror.ts`) precisely because there is no credential that could
+ * address a server-side one.
  */
-export async function submitProposal(
-  inviteId: string,
-  submissionId: string,
-  answers: PartnerAnswers,
-  options: { isPartial: boolean }
-): Promise<SubmitOutcome> {
-  const consumedAt = new Date().toISOString()
+export async function createProposal(answers: PartnerAnswers): Promise<CreateProposalOutcome> {
+  const now = new Date().toISOString()
 
-  const { data: consumed, error: consumeError } = await service()
-    .from(INVITES)
-    .update({ used_at: consumedAt })
-    .eq('id', inviteId)
-    .is('used_at', null)
-    .select('id')
-
-  if (consumeError) return { ok: false, reason: 'write_failed' }
-  if (!consumed || consumed.length === 0) return { ok: false, reason: 'already_used' }
-
-  const { error } = await service()
+  const { data, error } = await service()
     .from(SUBMISSIONS)
-    .update({
+    .insert({
       answers,
       status: 'submitted',
-      is_partial: options.isPartial,
-      submitted_at: consumedAt,
-      updated_at: consumedAt,
-    })
-    .eq('id', submissionId)
-
-  if (error) return { ok: false, reason: 'write_failed' }
-  return { ok: true, submissionId, isPartial: options.isPartial }
-}
-
-export interface StoredDocument {
-  kind: PartnerDocumentKind
-  fileName: string
-  mimeType: string
-  bytes: ArrayBuffer
-}
-
-/**
- * Uploads one file and records it. The storage path is built here from ids we control —
- * never from the name the browser sent, which is attacker-controlled text.
- */
-export async function storeDocument(
-  submissionId: string,
-  document: StoredDocument
-): Promise<{ ok: boolean; documentId?: string }> {
-  const client = getSupabaseService()
-  const safeName = sanitizeFileName(document.fileName)
-  const path = `${submissionId}/${document.kind}/${Date.now()}-${safeName}`
-
-  const { error: uploadError } = await client.storage
-    .from(PARTNER_DOCUMENTS_BUCKET)
-    .upload(path, document.bytes, { contentType: document.mimeType, upsert: false })
-
-  if (uploadError) return { ok: false }
-
-  const { data, error } = await service()
-    .from(DOCUMENTS)
-    .insert({
-      submission_id: submissionId,
-      kind: document.kind,
-      storage_path: path,
-      file_name: safeName,
-      byte_size: document.bytes.byteLength,
-      mime_type: document.mimeType,
+      submitted_at: now,
+      updated_at: now,
     })
     .select('id')
-    .single()
-
-  if (error || !data) return { ok: false }
-  return { ok: true, documentId: data.id }
-}
-
-/** Removes a file the person chose by mistake, while the proposal is still a draft. */
-export async function removeDocument(submissionId: string, documentId: string): Promise<boolean> {
-  const client = getSupabaseService()
-
-  const { data, error } = await client
-    .schema(SCHEMA)
-    .from(DOCUMENTS)
-    .delete()
-    .eq('id', documentId)
-    .eq('submission_id', submissionId)
-    .select('storage_path')
-    .maybeSingle()
-
-  if (error || !data) return false
-
-  await client.storage.from(PARTNER_DOCUMENTS_BUCKET).remove([data.storage_path])
-  return true
-}
-
-/**
- * The file name is echoed back to the person and stored; it is not part of the path we
- * trust. Everything that is not a letter, digit, dot, dash or underscore goes, which also
- * removes the `../` that would climb out of the prefix.
- */
-export function sanitizeFileName(name: string): string {
-  const cleaned = (name ?? 'arquivo')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-z0-9._-]/g, '-')
-    .replace(/-+/g, '-')
-    // Keeps the tail, so a very long name loses its beginning and not its extension.
-    .slice(-120)
-  return cleaned.replace(/^[.-]+/, '') || 'arquivo'
-}
-
-/**
- * A first contact carries the address the operator typed; a resend carries none, on
- * purpose — see `createInvite`. The union is the enforcement: there is no shape of this
- * input in which a resend can name a destination.
- */
-export type CreateInviteInput =
-  | {
-      submissionId?: null
-      clientId?: string | null
-      recipientEmail: string
-      recipientName?: string | null
-      tradeName?: string | null
-      createdBy: string
-      ttlDays?: number
-    }
-  | {
-      /** The proposal this new credential opens. Everything else is read from the record. */
-      submissionId: string
-      createdBy: string
-      ttlDays?: number
-    }
-
-export interface CreatedInvite {
-  token: string
-  inviteId: string
-  submissionId: string
-  expiresAt: string
-  /** Where the link has to go. On a resend this is a fact of the record, never of the request. */
-  recipientEmail: string
-  recipientName: string | null
-  tradeName: string | null
-}
-
-export type CreateInviteOutcome =
-  | { ok: true; invite: CreatedInvite }
-  | { ok: false; reason: 'unknown_submission' | 'write_failed' }
-
-/**
- * Creates an invite and returns the raw token exactly once — the caller sends it and
- * forgets it. Called only from the authenticated admin route.
- *
- * WHY A RESEND DOES NOT ACCEPT A DESTINATION ADDRESS:
- *
- * A resent link now opens the proposal that already exists, which means it hands back the
- * CNPJ, the legal representative and the list of documents the establishment already
- * sent. An address typed again on the resend screen — one transposed letter is enough —
- * would deliver all of that to a stranger, and it would look like a successful send. So
- * the destination of a resend is read from the invite already on record for that
- * proposal, and the operator has no field that can change it.
- *
- * The address that went wrong is not a resend: it is a new invite, which mints a new,
- * empty proposal and carries nothing from the old one.
- *
- * Which proposal a first-contact invite opens is decided by the database, not here:
- * `core.tg_partner_form_invite_attach` mints the empty proposal and fills `submission_id`
- * when the insert leaves it null, and refuses (`TGB26`) to point a new link at a proposal
- * the team already promoted or discarded.
- */
-export async function createInvite(input: CreateInviteInput): Promise<CreateInviteOutcome> {
-  const resend = typeof input.submissionId === 'string' ? input.submissionId : null
-  const recipient =
-    typeof input.submissionId === 'string'
-      ? await recipientOfProposal(input.submissionId)
-      : recipientOf(input)
-
-  if (!recipient) return { ok: false, reason: 'unknown_submission' }
-
-  const token = generateInviteToken()
-  const expiresAt = new Date(
-    Date.now() + (input.ttlDays ?? INVITE_TTL_DAYS) * 24 * 60 * 60 * 1000
-  ).toISOString()
-
-  const { data, error } = await service()
-    .from(INVITES)
-    .insert({
-      // Null is the first contact and is what the trigger reads as "mint the proposal".
-      submission_id: resend,
-      client_id: recipient.client_id,
-      token_hash: hashInviteToken(token),
-      recipient_email: recipient.recipient_email,
-      recipient_name: recipient.recipient_name,
-      trade_name: recipient.trade_name,
-      // The form surface exists in Portuguese only: CNPJ and alvará are Brazilian
-      // documents (spec do `design`, §8.3). The column exists so the day that changes
-      // it is a value and not a rewrite.
-      locale: 'pt',
-      expires_at: expiresAt,
-      created_by: input.createdBy,
-    })
-    .select('id, submission_id')
     .single()
 
   if (error || !data) return { ok: false, reason: 'write_failed' }
-
-  return {
-    ok: true,
-    invite: {
-      token,
-      inviteId: data.id,
-      submissionId: data.submission_id,
-      expiresAt,
-      recipientEmail: recipient.recipient_email,
-      recipientName: recipient.recipient_name,
-      tradeName: recipient.trade_name,
-    },
-  }
+  return { ok: true, submissionId: data.id }
 }
 
-interface InviteRecipient {
-  client_id: string | null
-  recipient_email: string
-  recipient_name: string | null
-  trade_name: string | null
-}
+// ── The abuse limit, decided by the database ────────────────────────────────────────────
 
-function recipientOf(input: Extract<CreateInviteInput, { recipientEmail: string }>): InviteRecipient {
-  return {
-    client_id: input.clientId ?? null,
-    recipient_email: input.recipientEmail,
-    recipient_name: input.recipientName ?? null,
-    trade_name: input.tradeName ?? null,
-  }
+/**
+ * How many submissions one address may make, and over how long.
+ *
+ * Ten in an hour: an owner with several places fills a handful in one sitting and never
+ * notices this, while a script gets 10 rows instead of an unbounded number. The numbers are
+ * arguments of the call and not constants in SQL so that "how often may a stranger write to
+ * this table" is answerable from the route that allows it.
+ */
+export const SUBMISSION_LIMIT_PER_WINDOW = 10
+export const SUBMISSION_WINDOW_SECONDS = 60 * 60
+
+export interface SubmissionLimitDecision {
+  allowed: boolean
+  /** How long until the oldest attempt in the window falls out of it. */
+  retryAfterSeconds: number
 }
 
 /**
- * The most recent invite of a proposal is who the establishment is, as far as this
- * feature knows: it was minted by an authenticated operator. `answers` is NOT a source
- * here — whoever holds a live link can type any address into `representative_email`, and
- * reading it would let them redirect the next link at themselves.
+ * Counts this address's submissions and says whether another one is allowed.
+ *
+ * WHY THIS IS NOT `withRateLimit`. That composer keeps its window in a `Map` inside one
+ * process. On Vercel every instance has its own, they are created and destroyed per request
+ * burst, and a caller that spreads its requests hits a fresh counter almost every time — so it
+ * is a brake on one accidental double-click and never a barrier. It stays on the route as the
+ * cheap first line, and this is the barrier.
+ *
+ * The count is the database's, in one statement: PostgREST cannot count-then-insert without a
+ * race, so the RPC does both and returns the verdict. Specified for the `data` in #341.
+ *
+ * THE ADDRESS IS HASHED, and the docstring will not claim more than that. SHA-256 of an IPv4
+ * is not anonymisation — the whole space is enumerable — and it is not sold as such here. What
+ * it buys is that the raw address is not in the table, not in this process's memory and not in
+ * the log line below; the key is fixed-width; and there is nothing in the row that identifies
+ * a person to somebody reading the table.
+ *
+ * FAIL CLOSED. An RPC that errors, or is not there yet, means nobody counted — and an
+ * uncounted write to a `service_role` table from an anonymous caller is the thing this
+ * function exists to prevent. The route turns that into "try again in a moment", never into
+ * a silent allow.
  */
-async function recipientOfProposal(submissionId: string): Promise<InviteRecipient | null> {
-  const { data, error } = await service()
-    .from(INVITES)
-    .select('client_id, recipient_email, recipient_name, trade_name')
-    .eq('submission_id', submissionId)
-    .order('created_at', { ascending: false })
-    .limit(1)
+export async function registerSubmissionAttempt(
+  clientAddress: string
+): Promise<SubmissionLimitDecision> {
+  const { data, error } = await service().rpc('record_partner_form_attempt', {
+    p_client_hash: hashClientAddress(clientAddress),
+    p_window_seconds: SUBMISSION_WINDOW_SECONDS,
+    p_max_attempts: SUBMISSION_LIMIT_PER_WINDOW,
+  })
 
-  if (error || !data || data.length === 0) return null
-  return data[0] as InviteRecipient
+  const decision = Array.isArray(data) ? data[0] : data
+
+  if (error || !decision || typeof decision.allowed !== 'boolean') {
+    console.error('[partner-form] submission limit could not be consulted')
+    return { allowed: false, retryAfterSeconds: SUBMISSION_WINDOW_SECONDS }
+  }
+
+  return {
+    allowed: decision.allowed,
+    retryAfterSeconds:
+      typeof decision.retry_after_seconds === 'number'
+        ? decision.retry_after_seconds
+        : SUBMISSION_WINDOW_SECONDS,
+  }
+}
+
+export function hashClientAddress(clientAddress: string): string {
+  return createHash('sha256').update((clientAddress ?? '').trim(), 'utf8').digest('hex')
+}
+
+/**
+ * Which address a request came from. `x-forwarded-for` is a list when there are proxies in
+ * front, and the FIRST entry is the client — the same one `withRateLimit` reads, so the two
+ * limits are never counting different people.
+ */
+export function clientAddressOf(headers: Headers): string {
+  const forwarded = headers.get('x-forwarded-for') ?? ''
+  const first = forwarded.split(',')[0]?.trim()
+  return first || headers.get('x-real-ip')?.trim() || 'unknown'
 }

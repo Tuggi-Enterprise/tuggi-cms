@@ -11,6 +11,11 @@
  * AN EXPIRED LICENCE IS AN ABSENT LICENCE, and the operator does not do the arithmetic — the
  * line says `Venceu em {data} — há {n} dias` with the number already counted. Every line
  * carries an icon AND text (DS-A11Y-003); the icon alone would leave the state to colour.
+ *
+ * THE TWO DOCUMENT LINES ARE SOMEBODY'S WORD, NOT A FILE, and the band says so in the footer:
+ * the papers are checked in person and registered by hand below (operator, 2026-08-16). It
+ * still never says "aprovado" and never claims the Tuggi verified, audited or certified
+ * anybody — item 7 of the rule.
  */
 
 import { useTranslations } from 'next-intl'
@@ -47,7 +52,7 @@ export function RegularityBand({ report, answers }: RegularityBandProps) {
           ok: item.ok,
           tone: item.ok ? 'ok' : 'bad',
           text: item.ok
-            ? t('regularity.incorporationOk', { count: item.fileCount })
+            ? t('regularity.incorporationOk')
             : t('regularity.incorporationMissing'),
         }
       default:
@@ -100,6 +105,10 @@ export function RegularityBand({ report, answers }: RegularityBandProps) {
                   .join(t('regularity.itemSeparator')),
               })}
         </span>
+      </p>
+
+      <p className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-700">
+        {t('regularity.source')}
       </p>
     </section>
   )

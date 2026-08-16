@@ -13,7 +13,6 @@
 //   'partner_received' -> to the user (registration received, under review)
 //   'partner_approved' -> to the user (partnership approved)
 //   'partner_rejected' -> to the user (registration not approved + reason)
-//   'partner_form_invite' -> to the establishment (link to the external form of #341, pt)
 //   'partner_contract_sign'   -> to the legal representative (read and sign, #342, pt)
 //   'partner_contract_signed' -> to the legal representative (signed copy, #342, pt)
 //
@@ -23,6 +22,12 @@
 // Secrets: RESEND_API_KEY, RESEND_FROM (default "Tuggi <news@tuggi.app>"),
 //          PARTNER_ALERT_TO (default "suporte@tuggi.app"), APP_URL (optional),
 //          PARTNER_FORM_ORIGIN (optional)
+//
+// `partner_form_invite` WAS HERE AND IS GONE (#341, 2026-08-16). The partner form has no
+// invite: one address serves every establishment, it carries no token, and the team sends it
+// by hand to whoever they already met. A template whose whole job was to compose a link from a
+// secret token has nothing left to compose. A caller that still asks for the type now gets
+// `unknown type`, which is the truth — see docs/contracts/edge-functions.md.
 //
 // NO LINK IN THESE E-MAILS COMES FROM THE CALLER. This function is reachable with the
 // publishable key (it has no authorization of its own until #346), so any href it accepts
@@ -56,18 +61,12 @@ const DEFAULT_APP_ORIGIN = 'https://tuggi.app';
 const DEFAULT_PARTNER_FORM_ORIGIN = 'https://cms.tuggi.app';
 
 /**
- * Twin of `lib/partner-form/link.ts`, symbols `PARTNER_FORM_LOCALE` and `partnerFormPath`.
- * It is duplicated because Deno cannot import the Next side, and the two are held together
- * by a parity assertion in `tests/api/partner-form.test.ts` — change one and it goes red.
+ * 32 random bytes in base64url, the shape `lib/security/single-use-token.ts` mints and
+ * `isWellFormedSingleUseToken` demands, for the contract link of #342. Anything else is
+ * refused before it reaches an `href`: without this, a "token" of `../..%2Fevil` or a whole
+ * URL walks straight back out.
  */
-const PARTNER_FORM_LOCALE = 'pt';
-
-/**
- * 32 random bytes in base64url, the shape `partner-proposal-service.ts` mints and
- * `isWellFormedToken` demands. Anything else is refused before it reaches an `href`:
- * without this, a "token" of `../..%2Fevil` or a whole URL walks straight back out.
- */
-const INVITE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
+const SIGNING_TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
 
 /** An https origin of ours, or the default. Never the caller's. */
 function ownOrigin(secret: string, fallback: string): string {
@@ -154,52 +153,11 @@ function renderLocalized(
 }
 
 /**
- * Invite to the external partner form (#341). Portuguese only, and the reason is not
- * laziness: the form asks for CNPJ and alvará, which are Brazilian documents, so the
- * surface exists in `pt` by decision (spec do `design`, §8.3).
- *
- * The button is `#00719F` and not `TUGGI_BLUE`: white on #00A8E8 measures 2.70:1 and
- * fails even the 3:1 of the non-text criterion. The `shell()` band above is inherited
- * and is not part of this delivery.
- *
- * It says nothing about price, recurrence or what the partnership costs — the capture
- * surface is closed for that (BR-B2B-015, item 8; BR-B2B-016, item 6).
- *
- * It takes the TOKEN and composes the link itself. It used to take `data.url` behind an
- * `^https://` test, which accepts every host on the internet: this e-mail carries our
- * brand to the very people we then ask for the documents of the members, so the one thing
- * it must never do is point somewhere we do not own.
+ * The button is `#00719F` and not `TUGGI_BLUE`: white on #00A8E8 measures 2.70:1 and fails
+ * even the 3:1 of the non-text criterion. The `shell()` band above is inherited and is not
+ * part of this delivery.
  */
 const CTA_BLUE = '#00719F';
-
-function renderFormInvite(data: Record<string, unknown>): {
-  subject: string;
-  html: string;
-} {
-  const name = esc(data.name ?? data.partner_name ?? '');
-  const tradeName = esc(data.trade_name ?? '');
-  const token = String(data.token ?? '');
-  if (!INVITE_TOKEN_PATTERN.test(token)) {
-    throw new Error('partner_form_invite requires a well-formed invite token');
-  }
-  const href = `${ownOrigin('PARTNER_FORM_ORIGIN', DEFAULT_PARTNER_FORM_ORIGIN)}/${PARTNER_FORM_LOCALE}/parceria/${token}`;
-
-  const place = tradeName || 'seu estabelecimento';
-  const greeting = name ? `Olá, ${name}.` : 'Olá.';
-
-  return {
-    subject: `Complete o cadastro de ${tradeName || 'seu estabelecimento'} — Tuggi`,
-    html: shell(
-      'Complete o cadastro do seu estabelecimento',
-      `<p>${greeting}</p>
-       <p>Para seguir com a parceria, a gente precisa de alguns dados do ${place}. É rápido e dá para fazer pelo celular.</p>
-       <p style="margin-top:20px">
-         <a href="${esc(href)}" style="background:${CTA_BLUE};color:#fff;text-decoration:none;padding:12px 22px;border-radius:12px;font-weight:700;display:inline-block">Preencher agora</a>
-       </p>
-       <p>O link é só seu. Se não foi você quem pediu, ignore este e-mail.</p>`
-    ),
-  };
-}
 
 /**
  * Twin of `lib/contract/link.ts`, symbols `CONTRACT_LOCALE` and `contractPath`. Duplicated
@@ -209,7 +167,7 @@ function renderFormInvite(data: Record<string, unknown>): {
 const CONTRACT_LOCALE = 'pt';
 
 function contractHref(token: string): string {
-  if (!INVITE_TOKEN_PATTERN.test(token)) {
+  if (!SIGNING_TOKEN_PATTERN.test(token)) {
     throw new Error('contract e-mail requires a well-formed signing token');
   }
   return `${ownOrigin('PARTNER_FORM_ORIGIN', DEFAULT_PARTNER_FORM_ORIGIN)}/${CONTRACT_LOCALE}/contrato/${token}`;
@@ -310,17 +268,15 @@ Deno.serve(async (req: Request) => {
     const { subject, html } =
       type === 'partner_new'
         ? renderTeamAlert(data)
-        : type === 'partner_form_invite'
-          ? renderFormInvite(data)
-          : type === 'partner_contract_sign'
-            ? renderContractSign(data)
-            : type === 'partner_contract_signed'
-              ? renderContractSigned(data)
-              : EVENT_BY_TYPE[type]
-                ? renderLocalized(EVENT_BY_TYPE[type], lang, data)
-                : (() => {
-                    throw new Error(`unknown type: ${type}`);
-                  })();
+        : type === 'partner_contract_sign'
+          ? renderContractSign(data)
+          : type === 'partner_contract_signed'
+            ? renderContractSigned(data)
+            : EVENT_BY_TYPE[type]
+              ? renderLocalized(EVENT_BY_TYPE[type], lang, data)
+              : (() => {
+                  throw new Error(`unknown type: ${type}`);
+                })();
 
     const res = await fetch(RESEND_URL, {
       method: 'POST',

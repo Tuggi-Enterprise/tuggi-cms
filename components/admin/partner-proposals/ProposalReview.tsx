@@ -31,8 +31,13 @@ import { AlertTriangle, ArrowLeft, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { PARTNER_DOCUMENT_KINDS, fieldsOfStep } from '@/lib/partner-form/fields'
-import type { PartnerFieldId } from '@/lib/partner-form/fields'
-import { absenceClassOf, buildRegularityReport } from '@/lib/partner-form/regularity'
+import type { PartnerDocumentKind, PartnerFieldId } from '@/lib/partner-form/fields'
+import {
+  EMPTY_CONFERENCE,
+  absenceClassOf,
+  buildRegularityReport,
+  type ConferenceRecord,
+} from '@/lib/partner-form/regularity'
 import {
   DISCARD_REASONS,
   REVIEW_MARKS,
@@ -44,12 +49,12 @@ import {
 import { PromotionPanel } from './PromotionPanel'
 import { RegularityBand } from './RegularityBand'
 import { OutboundMessage, type OutboundKind } from './OutboundMessage'
-import { formatDate, formatDateTime, formatMegabytes } from './format'
+import { formatDate, formatDateTime } from './format'
 import type { ProposalDetail } from './types'
 
 const STORY_FIELDS: PartnerFieldId[] = ['story_founder', 'story_before', 'story_unique', 'story_event']
 
-const OUTBOUND_KINDS: OutboundKind[] = ['documents', 'regularity', 'gate1', 'gate2', 'gate3']
+const OUTBOUND_KINDS: OutboundKind[] = ['regularity', 'gate1', 'gate2', 'gate3']
 
 interface ProposalReviewProps {
   locale: string
@@ -73,7 +78,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
   const [discarding, setDiscarding] = useState(false)
   const [discardReason, setDiscardReason] = useState<DiscardReasonId>('duplicate')
   const [discardError, setDiscardError] = useState(false)
-  const [documentError, setDocumentError] = useState(false)
+  const [conference, setConference] = useState<ConferenceRecord>(EMPTY_CONFERENCE)
   const [outbound, setOutbound] = useState<OutboundKind | null>(null)
 
   const load = useCallback(async () => {
@@ -90,7 +95,13 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
         setFailed(true)
         return
       }
-      setDetail((await response.json()) as ProposalDetail)
+      const payload = (await response.json()) as ProposalDetail
+      setDetail(payload)
+      // The screen opens on what the last reviewer wrote, not on an empty form that would
+      // erase their conference the moment somebody saved an observation.
+      setMarks(payload.note?.marks ?? [])
+      setObservation(payload.note?.observation ?? '')
+      setConference(payload.conference ?? EMPTY_CONFERENCE)
     } catch {
       setFailed(true)
     } finally {
@@ -103,18 +114,14 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
   }, [load])
 
   const answers = detail?.submission.answers ?? {}
-  const documentKinds = useMemo(
-    () => (detail?.documents ?? []).map((document) => document.kind),
-    [detail]
-  )
-  const report = useMemo(
-    () => buildRegularityReport(answers, documentKinds),
-    [answers, documentKinds]
-  )
+  // The band follows what is on screen, not what was last saved: ticking `Vi o alvará` has to
+  // move the line above before the operator clicks save, or they cannot tell whether the tick
+  // did anything.
+  const report = useMemo(() => buildRegularityReport(answers, conference), [answers, conference])
 
   const categoryLabel = answers.category ? form(`categories.${answers.category}`) : ''
-  const tradeName = answers.trade_name ?? detail?.invites[0]?.tradeName ?? ''
-  const recipientName = detail?.invites[0]?.recipientName ?? answers.representative_name ?? ''
+  const tradeName = answers.trade_name ?? ''
+  const recipientName = answers.representative_name ?? ''
 
   if (loading) {
     return (
@@ -156,24 +163,20 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
   const isPromoted = detail.submission.status === 'promoted'
   const isDiscarded = detail.submission.status === 'discarded'
 
-  async function openDocument(documentId: string) {
-    setDocumentError(false)
-    try {
-      // Asked for on the click: no document URL exists in the HTML before this, and the one
-      // that comes back lives for a minute and is not stored anywhere.
-      const response = await fetch(
-        `/api/admin/partner-proposals/${submissionId}/documents/${documentId}`,
-        { method: 'POST' }
-      )
-      if (!response.ok) {
-        setDocumentError(true)
-        return
-      }
-      const payload = await response.json()
-      window.open(payload.url, '_blank', 'noopener,noreferrer')
-    } catch {
-      setDocumentError(true)
-    }
+  /**
+   * A licence nobody says they saw carries no date, so unticking it drops the date with it —
+   * otherwise the band would show a validity for a document that is not there.
+   */
+  function toggleDocumentSeen(kind: PartnerDocumentKind) {
+    setConference((current) => {
+      const seen = current.documentsSeen.indexOf(kind) >= 0
+      const documentsSeen = seen
+        ? current.documentsSeen.filter((value) => value !== kind)
+        : current.documentsSeen.concat(kind)
+      const keepsDate = documentsSeen.indexOf('business_license') >= 0
+      return { documentsSeen, licenseValidUntil: keepsDate ? current.licenseValidUntil : null }
+    })
+    setNoteState('idle')
   }
 
   async function saveNote() {
@@ -182,7 +185,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
       const response = await fetch(`/api/admin/partner-proposals/${submissionId}/review-note`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ marks, observation }),
+        body: JSON.stringify({ marks, observation, conference }),
       })
       setNoteState(response.ok ? 'saved' : 'failed')
     } catch {
@@ -368,11 +371,25 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
 
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="space-y-5">
-          {detail.submission.isPartial && (
-            <p className="rounded-md border border-gray-300 bg-gray-50 p-3 text-sm text-gray-900">
-              <span className="font-semibold">{t('review.partialTitle')}</span>{' '}
-              {t('review.partialBody')}
-            </p>
+          {detail.duplicates.length > 0 && (
+            <div className="rounded-md border border-secondary-700/50 bg-secondary-50 p-3 text-sm text-gray-900">
+              <p className="font-semibold">
+                {t('review.duplicateTitle', { count: detail.duplicates.length })}
+              </p>
+              <p className="mt-1">{t('review.duplicateBody')}</p>
+              <ul className="mt-2 space-y-1">
+                {detail.duplicates.map((duplicate) => (
+                  <li key={duplicate.id}>
+                    <Link
+                      href={`/${locale}/admin/partner-proposals/${duplicate.id}`}
+                      className="font-medium text-primary-800 underline underline-offset-4"
+                    >
+                      {t('review.duplicateOpen', { date: formatDateTime(duplicate.submittedAt) })}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           <section aria-labelledby="answers-heading">
@@ -551,128 +568,59 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
         </div>
 
         <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
-          <section aria-labelledby="documents-heading" className="rounded-md border border-gray-300 p-4">
-            <h2 id="documents-heading" className="text-base font-semibold text-gray-900">
-              {t('documents.heading')}
+          {/* WHERE BR-B2B-022's EVIDENCE NOW ENTERS THE SYSTEM. The form asks for no file: the
+              papers are seen in person before the link is sent, and one operator writes down
+              what they saw. It is saved with the annotation below, under their name, and it is
+              what the band at the top reads. */}
+          <section aria-labelledby="conference-heading" className="rounded-md border border-gray-300 p-4">
+            <h2 id="conference-heading" className="text-base font-semibold text-gray-900">
+              {t('conference.heading')}
             </h2>
+            <p className="mt-1 text-sm text-gray-800">{t('conference.intro')}</p>
 
-            {documentError && (
-              <p className="mt-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm text-gray-900">
-                {t('documents.openFailedTitle')}
-              </p>
-            )}
-
-            {PARTNER_DOCUMENT_KINDS.map((kind) => {
-              const files = detail.documents.filter((document) => document.kind === kind)
-              return (
-                <div key={kind} className="mt-3">
-                  <h3 className="text-sm font-semibold text-gray-900">{t(`documents.kinds.${kind}`)}</h3>
-
-                  {kind === 'business_license' && (
-                    <p className="mt-1 text-sm">
-                      <span className="font-medium text-gray-900">{t('documents.validUntil')}: </span>
-                      <span
-                        className={
-                          report.license.status === 'expired'
-                            ? 'font-semibold text-destructive'
-                            : 'text-gray-900'
-                        }
-                      >
-                        {answers.business_license_valid_until
-                          ? formatDate(answers.business_license_valid_until)
-                          : t('documents.noValidUntil')}
-                      </span>
-                    </p>
-                  )}
-
-                  {files.length === 0 ? (
-                    <div className="mt-1 text-sm">
-                      <p className="font-medium text-gray-900">{t('documents.emptyTitle')}</p>
-                      <p className="text-gray-800">{t('documents.emptyBody')}</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="mt-2"
-                        onClick={() => setOutbound('documents')}
-                      >
-                        {t('documents.ask')}
-                      </Button>
-                    </div>
-                  ) : (
-                    <ul className="mt-1 space-y-2">
-                      {files.map((document) => (
-                        <li key={document.id} className="text-sm">
-                          <p className="break-words text-gray-900">{document.fileName}</p>
-                          <p className="text-xs text-gray-700">
-                            {t('documents.size', { mb: formatMegabytes(document.byteSize) })} ·{' '}
-                            {document.mimeType} ·{' '}
-                            {t('documents.sentAt', { date: formatDate(document.createdAt) })}
-                          </p>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="mt-1"
-                            onClick={() => openDocument(document.id)}
-                          >
-                            {t('documents.open')}
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )
-            })}
-
-            <p className="mt-3 border-t border-gray-200 pt-2 text-xs text-gray-700">
-              {t('documents.privacy')}
-            </p>
-          </section>
-
-          <section aria-labelledby="trail-heading" className="rounded-md border border-gray-300 p-4">
-            <h2 id="trail-heading" className="text-base font-semibold text-gray-900">
-              {t('trail.heading')}
-            </h2>
-            <dl className="mt-2 space-y-1 text-sm">
-              {detail.invites.map((invite, index) => (
-                <div key={invite.id}>
-                  <dt className="text-gray-900">
-                    {index === detail.invites.length - 1
-                      ? t('trail.inviteCreated', { date: formatDateTime(invite.createdAt) })
-                      : t('trail.linkReissued', { date: formatDateTime(invite.createdAt) })}
-                  </dt>
-                  <dd className="text-xs text-gray-700">
-                    {t('trail.inviteSentTo', { email: invite.recipientEmail })}
-                    {invite.revokedAt
-                      ? ` · ${t('trail.revoked', { date: formatDateTime(invite.revokedAt) })}`
-                      : ''}
-                  </dd>
-                </div>
+            <fieldset className="mt-3">
+              <legend className="sr-only">{t('conference.heading')}</legend>
+              {PARTNER_DOCUMENT_KINDS.map((kind) => (
+                <label key={kind} className="mt-2 flex items-start gap-2 text-sm text-gray-900">
+                  <Checkbox
+                    checked={conference.documentsSeen.indexOf(kind) >= 0}
+                    onCheckedChange={() => toggleDocumentSeen(kind)}
+                  />
+                  <span>{t(`conference.seen.${kind}`)}</span>
+                </label>
               ))}
-              {detail.submission.updatedAt && !detail.submission.submittedAt && (
-                <div>
-                  <dt className="text-gray-900">
-                    {t('trail.draftSaved', { date: formatDateTime(detail.submission.updatedAt) })}
-                  </dt>
-                </div>
-              )}
-              {detail.submission.submittedAt && (
-                <div>
-                  <dt className="text-gray-900">
-                    {t('trail.received', { date: formatDateTime(detail.submission.submittedAt) })}
-                  </dt>
-                </div>
-              )}
-              {detail.submission.promotedAt && (
-                <div>
-                  <dt className="text-gray-900">
-                    {t('trail.promoted', { date: formatDateTime(detail.submission.promotedAt) })}
-                  </dt>
-                </div>
-              )}
-            </dl>
+            </fieldset>
+
+            <div className="mt-3">
+              <label htmlFor="license-valid-until" className="block text-sm font-medium text-gray-700">
+                {t('conference.validUntilLabel')}
+              </label>
+              <input
+                id="license-valid-until"
+                type="date"
+                value={conference.licenseValidUntil ?? ''}
+                disabled={conference.documentsSeen.indexOf('business_license') < 0}
+                aria-describedby="license-valid-until-hint"
+                onChange={(event) =>
+                  setConference((current) => ({
+                    ...current,
+                    licenseValidUntil: event.target.value || null,
+                  }))
+                }
+                className="mt-1 block w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100"
+              />
+              {/* The reason beside the disabled control, never the grey alone: without a
+                  licence there is no date to copy off one. */}
+              <span id="license-valid-until-hint" className="mt-1 block text-xs text-gray-800">
+                {conference.documentsSeen.indexOf('business_license') < 0
+                  ? t('conference.validUntilDisabled')
+                  : t('conference.validUntilHint')}
+              </span>
+            </div>
+
+            <p className="mt-3 border-t border-gray-200 pt-2 text-xs text-gray-800">
+              {t('conference.savedWithNote')}
+            </p>
           </section>
 
           {isDiscarded && (

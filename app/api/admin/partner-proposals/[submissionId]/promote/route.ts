@@ -18,8 +18,6 @@ import { NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
 import { logAuditEvent } from '@/lib/services/audit-service'
 import {
-  findClientByEmail,
-  loadClient,
   loadProposalDetail,
   promoteProposal,
 } from '@/lib/services/partner-proposal-admin-service'
@@ -30,7 +28,6 @@ import {
 } from '@/lib/partner-form/promotion'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const INDUSTRY_MAX = 120
 
 export const POST = withRateLimit(20, 60_000)(
@@ -71,51 +68,19 @@ export const POST = withRateLimit(20, 60_000)(
     }
 
     const answers = detail.submission.answers ?? {}
-    const representativeEmail = (answers.representative_email ?? '').trim()
-    const holder = representativeEmail ? await findClientByEmail(representativeEmail) : null
 
-    // THE TWO WAYS OUT OF THE UNIQUE-EMAIL COLLISION, and neither of them is free text.
-    // `linkClientId` is only honoured when it names the client that ACTUALLY holds that
-    // e-mail: the operator resolved a specific collision, so an id typed into the body cannot
-    // redirect the promotion at some other client's record.
-    const linkClientId = typeof body.linkClientId === 'string' ? body.linkClientId : null
-    if (linkClientId && (!holder || holder.id !== linkClientId)) {
-      return NextResponse.json({ error: 'invalid_link_client' }, { status: 409 })
-    }
-
-    const emailOverride =
-      typeof body.emailOverride === 'string' ? body.emailOverride.trim().toLowerCase() : ''
-    if (emailOverride && !EMAIL_PATTERN.test(emailOverride)) {
-      return NextResponse.json({ error: 'invalid_email_override' }, { status: 400 })
-    }
-
-    const target = linkClientId ? await loadClient(linkClientId) : detail.client
-    if (linkClientId && !target) {
-      return NextResponse.json({ error: 'invalid_link_client' }, { status: 409 })
-    }
+    // The target is the client this proposal was already promoted into, or nothing — in which
+    // case the promotion creates a record. There is no third option and there is no id in the
+    // body that can name one: `core.clients.email` stopped being unique, so the collision the
+    // operator used to resolve here does not exist, and a body that could redirect a promotion
+    // at an arbitrary client record would be the same door with none of the reason.
+    const target = detail.client
 
     const plan = buildPromotionPlan(answers, target, { categoryLabel: industry })
     const write = resolvePromotionWrite(plan, { approved })
 
-    // The override replaces the value the plan carries; it does not add a column. A body that
-    // names an e-mail for a promotion that was not going to write one changes nothing.
-    if (emailOverride && write.updates.email) write.updates.email = emailOverride
-
     if (write.written.length === 0) {
       return NextResponse.json({ error: 'nothing_to_write' }, { status: 400 })
-    }
-
-    // The collision is resolved before the button appears; reaching here with one means the
-    // record changed under the operator, so the answer is the choice again and never a 23505.
-    const targetEmail = write.updates.email
-    if (targetEmail) {
-      const existing = await findClientByEmail(targetEmail)
-      if (existing && existing.id !== target?.id) {
-        return NextResponse.json(
-          { error: 'email_taken', client: { id: existing.id, name: existing.name } },
-          { status: 409 }
-        )
-      }
     }
 
     const outcome = await promoteProposal({

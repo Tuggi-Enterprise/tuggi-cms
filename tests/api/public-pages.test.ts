@@ -133,10 +133,14 @@ test('the four pages that were already public stay public', async () => {
 // ── The list points at pages that exist ─────────────────────────────────────────────────
 
 test('every public prefix names a real page — a renamed route cannot leave the list stale', () => {
+  // The two prefixes are no longer the same shape: `/contrato/<token>` is reached by a
+  // credential and `/parceria` is one address for everybody (#341, 2026-08-16). Either page
+  // satisfies the list; NEITHER existing is a prefix that bypasses the session for nothing.
   for (const prefix of PUBLIC_PATH_PREFIXES) {
     assert.ok(
-      existsSync(resolve(REPO_ROOT, `app/[locale]${prefix}/[token]/page.tsx`)),
-      `${prefix} is declared public but has no token page`
+      existsSync(resolve(REPO_ROOT, `app/[locale]${prefix}/page.tsx`)) ||
+        existsSync(resolve(REPO_ROOT, `app/[locale]${prefix}/[token]/page.tsx`)),
+      `${prefix} is declared public but has no page`
     )
   }
 })

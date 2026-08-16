@@ -99,6 +99,26 @@ export function isValidCnpj(cnpj: string): boolean {
   }
 }
 
+/**
+ * The shapes one CNPJ can already have in a `tax_id` column, so a lookup by CNPJ matches the
+ * company however it was typed.
+ *
+ * `core.clients.tax_id` holds both: everything written by the partner form is normalised (no
+ * mask, uppercase), and records typed by hand before it existed carry the printed mask.
+ * Matching one shape only lets the same company be registered twice, which is the whole point
+ * of looking it up. It lives here because "what a stored CNPJ can look like" is one fact, and
+ * both the public form and the promotion ask it.
+ *
+ * An expression index on the normalised value would make this exact and is registered for the
+ * `data` in #341; until then this is two indexed equalities instead of one.
+ */
+export function cnpjLookupValues(value: string): string[] {
+  const normalized = normalizeCnpj(value ?? '')
+  if (!normalized) return []
+  const masked = formatCnpj(normalized)
+  return masked === normalized ? [normalized] : [normalized, masked]
+}
+
 /** `12ABC34501DE35` → `12.ABC.345/01DE-35`. Partial input is masked as far as it goes. */
 export function formatCnpj(value: string): string {
   const clean = normalizeCnpj(value).slice(0, CNPJ_LENGTH)

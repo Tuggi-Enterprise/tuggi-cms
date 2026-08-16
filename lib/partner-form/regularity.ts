@@ -1,13 +1,18 @@
 /**
  * The regularity gate of BR-B2B-022, and the three classes of "missing" — pure, because the
- * band at the top of the review screen, the label on an empty field and the e-mail that asks
- * for the document all have to say the same thing.
+ * band at the top of the review screen, the label on an empty field and the message that asks
+ * the partner for the document all have to say the same thing.
  *
  * WHAT THIS GATE BLOCKS, and it is the sentence the whole screen is built around: an absent
- * document blocks THE CONTRACT, not the proposal. The form lets a partner submit without the
- * two files on purpose (#341, approved by the Tech Lead), because the data that already came
- * — CNPJ, who signs, and the story of the place — is the expensive part. So `isReady()` is
- * never consulted to decide whether a proposal may be promoted.
+ * document blocks THE CONTRACT, not the proposal. So `ready` is never consulted to decide
+ * whether a proposal may be promoted.
+ *
+ * WHERE THE EVIDENCE COMES FROM CHANGED, AND THE RULE DID NOT (operator, 2026-08-16). The form
+ * no longer asks for either file: the papers are checked IN PERSON before the link is sent, so
+ * the evidence is now what the team registers by hand on the conference screen —
+ * `ConferenceRecord`, stored inside the review annotation. The gate reads a record instead of
+ * a bucket; it still refuses to produce a contract without both documents, and it still says
+ * so in the same words.
  *
  * AN EXPIRED LICENCE IS AN ABSENT LICENCE — BR-B2B-022, item 4. Nobody should have to work
  * that out from a date on screen, so the arithmetic is here and the copy gets the number.
@@ -19,6 +24,20 @@ import type { PartnerDocumentKind, PartnerFieldId } from '@/lib/partner-form/fie
 /** Days before expiry at which the band warns instead of confirming. */
 export const LICENSE_EXPIRY_WARNING_DAYS = 30
 
+/**
+ * What one operator saw with the papers in their hands. It is an assertion by a named person
+ * (the annotation carries `reviewed_by`), never a file this system holds — and the band says
+ * exactly that, so nobody reads a tick here as "the Tuggi verified the document".
+ */
+export interface ConferenceRecord {
+  /** The documents of BR-B2B-022 item 3 the team confirmed in person. */
+  documentsSeen: PartnerDocumentKind[]
+  /** The date printed on the licence they saw, ISO `YYYY-MM-DD`, or null. */
+  licenseValidUntil: string | null
+}
+
+export const EMPTY_CONFERENCE: ConferenceRecord = { documentsSeen: [], licenseValidUntil: null }
+
 export type RegularityItemId =
   | 'tax_id'
   | 'business_license'
@@ -26,10 +45,10 @@ export type RegularityItemId =
   | 'representative'
 
 /**
- * `valid` — there and in date; `expiring` — there, in date, and about to stop being;
- * `expired` — there and worthless to the contract; `missing` — no file;
- * `undated` — a file with no `business_license_valid_until`, which BR-B2B-022 item 4 cannot
- * be applied to, so it counts as missing for the gate and says why.
+ * `valid` — seen and in date; `expiring` — seen, in date, and about to stop being;
+ * `expired` — seen and worthless to the contract; `missing` — nobody has seen it;
+ * `undated` — seen, with no date registered, which BR-B2B-022 item 4 cannot be applied to, so
+ * it counts as missing for the gate and says why.
  */
 export type LicenseStatus = 'valid' | 'expiring' | 'expired' | 'missing' | 'undated'
 
@@ -37,15 +56,13 @@ export interface RegularityItem {
   id: RegularityItemId
   /** Satisfied for the purposes of signing a contract. */
   ok: boolean
-  /** Files of this kind on the proposal. Zero for `tax_id` and `representative`. */
-  fileCount: number
 }
 
 export interface RegularityReport {
   items: RegularityItem[]
   license: {
     status: LicenseStatus
-    /** ISO date as the partner typed it, or null. */
+    /** ISO date as the team registered it, or null. */
     validUntil: string | null
     /** Negative when already expired. Null when there is no date to count from. */
     daysRemaining: number | null
@@ -76,13 +93,13 @@ export function daysUntil(isoDate: string, now: Date = new Date()): number | nul
 }
 
 export function licenseStatus(
-  answers: PartnerAnswers,
-  hasFile: boolean,
+  conference: ConferenceRecord,
   now: Date = new Date()
 ): RegularityReport['license'] {
-  const raw = (answers.business_license_valid_until ?? '').trim()
+  const raw = (conference.licenseValidUntil ?? '').trim()
+  const seen = conference.documentsSeen.indexOf('business_license') >= 0
 
-  if (!hasFile) return { status: 'missing', validUntil: raw || null, daysRemaining: null }
+  if (!seen) return { status: 'missing', validUntil: raw || null, daysRemaining: null }
   if (!raw) return { status: 'undated', validUntil: null, daysRemaining: null }
 
   const daysRemaining = daysUntil(raw, now)
@@ -97,33 +114,29 @@ export function licenseStatus(
 /**
  * Reads the proposal against BR-B2B-022 and says what a contract still lacks.
  *
- * `documentKinds` is the list of files actually stored, one entry per file, so the band can
- * say `Anexado · 3 arquivo(s)` without a second query.
+ * Two of the four items come from what the partner typed and two from what the team saw; the
+ * report does not distinguish them, because the contract does not either.
  */
 export function buildRegularityReport(
   answers: PartnerAnswers,
-  documentKinds: readonly PartnerDocumentKind[],
+  conference: ConferenceRecord = EMPTY_CONFERENCE,
   now: Date = new Date()
 ): RegularityReport {
-  const licenseFiles = documentKinds.filter((kind) => kind === 'business_license').length
-  const incorporationFiles = documentKinds.filter(
-    (kind) => kind === 'incorporation_document'
-  ).length
-
-  const license = licenseStatus(answers, licenseFiles > 0, now)
+  const license = licenseStatus(conference, now)
 
   const items: RegularityItem[] = [
-    { id: 'tax_id', ok: has(answers, 'tax_id'), fileCount: 0 },
+    { id: 'tax_id', ok: has(answers, 'tax_id') },
     {
       id: 'business_license',
       ok: license.status === 'valid' || license.status === 'expiring',
-      fileCount: licenseFiles,
     },
-    { id: 'incorporation_document', ok: incorporationFiles > 0, fileCount: incorporationFiles },
+    {
+      id: 'incorporation_document',
+      ok: conference.documentsSeen.indexOf('incorporation_document') >= 0,
+    },
     {
       id: 'representative',
       ok: has(answers, 'representative_name') && has(answers, 'representative_role'),
-      fileCount: 0,
     },
   ]
 
@@ -145,7 +158,6 @@ export type AbsenceClass = 'contract' | 'triage' | 'optional'
 
 const CONTRACT_FIELDS: readonly PartnerFieldId[] = [
   'tax_id',
-  'business_license_valid_until',
   'representative_name',
   'representative_role',
 ]

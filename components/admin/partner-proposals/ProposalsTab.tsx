@@ -1,8 +1,7 @@
 'use client'
 
 /**
- * The review queue. Same table discipline as the invites tab, and one column that is the
- * reason the screen exists: `Para o contrato`.
+ * The review queue, and one column that is the reason the screen exists: `Para o contrato`.
  *
  * That column reads BR-B2B-022 through the same module the review band uses, so the badge in
  * the list and the band on the page cannot disagree. And it says what is MISSING, never
@@ -19,7 +18,7 @@ import { Label } from '@/components/ui/label'
 import { formatShortDate } from './format'
 import type { ProposalRow, ProposalStatus } from './types'
 
-const STATUSES: ProposalStatus[] = ['draft', 'submitted', 'promoted', 'discarded']
+const STATUSES: ProposalStatus[] = ['submitted', 'promoted', 'discarded']
 
 interface ProposalsTabProps {
   locale: string
@@ -88,7 +87,7 @@ export function ProposalsTab({ locale, proposals, loading, failed, onReload }: P
               setStatus('all')
             }}
           >
-            {t('invites.clearFilters')}
+            {t('proposals.clearFilters')}
           </Button>
         )}
       </aside>
@@ -110,7 +109,6 @@ export function ProposalsTab({ locale, proposals, loading, failed, onReload }: P
                 <th scope="col" className="px-2 py-2">{t('proposals.columns.city')}</th>
                 <th scope="col" className="px-2 py-2">{t('proposals.columns.received')}</th>
                 <th scope="col" className="px-2 py-2">{t('proposals.columns.contract')}</th>
-                <th scope="col" className="px-2 py-2">{t('proposals.columns.documents')}</th>
                 <th scope="col" className="px-2 py-2" />
               </tr>
             </thead>
@@ -118,7 +116,7 @@ export function ProposalsTab({ locale, proposals, loading, failed, onReload }: P
               {loading &&
                 [0, 1, 2, 3, 4].map((row) => (
                   <tr key={`skeleton-${row}`} className="border-b border-gray-100">
-                    <td className="px-2 py-3" colSpan={7}>
+                    <td className="px-2 py-3" colSpan={6}>
                       <span className="sr-only">{t('proposals.loading')}</span>
                       <span className="block h-4 w-full animate-pulse rounded bg-gray-100" aria-hidden="true" />
                     </td>
@@ -130,9 +128,9 @@ export function ProposalsTab({ locale, proposals, loading, failed, onReload }: P
                   <tr key={proposal.id} className="border-b border-gray-100 align-top">
                     <td className="px-2 py-3 text-gray-900">
                       {proposal.tradeName || t('review.noTradeName')}
-                      {proposal.isPartial && (
-                        <span className="ml-1 rounded-full border border-gray-400 px-1.5 py-0.5 text-xs text-gray-800">
-                          {t('proposals.partialBadge')}
+                      {proposal.duplicateCount > 0 && (
+                        <span className="ml-1 rounded-full border border-secondary-700 px-1.5 py-0.5 text-xs text-secondary-700">
+                          {t('proposals.duplicateBadge', { count: proposal.duplicateCount })}
                         </span>
                       )}
                     </td>
@@ -150,7 +148,6 @@ export function ProposalsTab({ locale, proposals, loading, failed, onReload }: P
                         </span>
                       )}
                     </td>
-                    <td className="px-2 py-3 text-gray-800">{proposal.documentCount}</td>
                     <td className="px-2 py-3">
                       <Link
                         href={`/${locale}/admin/partner-proposals/${proposal.id}`}
@@ -178,7 +175,7 @@ export function ProposalsTab({ locale, proposals, loading, failed, onReload }: P
                     setStatus('all')
                   }}
                 >
-                  {t('invites.clearFilters')}
+                  {t('proposals.clearFilters')}
                 </Button>
               </>
             ) : (

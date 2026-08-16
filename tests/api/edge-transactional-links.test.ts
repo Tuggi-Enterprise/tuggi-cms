@@ -1,5 +1,5 @@
 /**
- * #341 — every link `send-transactional` puts in an e-mail is composed from an origin of
+ * #341/#342 — every link `send-transactional` puts in an e-mail is composed from an origin of
  * OURS, never taken from the request body.
  *
  * Why this file exists: the function has no authorization of its own (that is #346), so
@@ -25,14 +25,12 @@ import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { partnerFormPath } from '@/lib/partner-form/link'
-
 const FUNCTION_PATH = resolve(
   import.meta.dirname,
   '../../supabase/functions/send-transactional/index.ts'
 )
 
-/** 43 chars of base64url — the shape `generateInviteToken` mints. */
+/** 43 chars of base64url — the shape `generateSingleUseToken` mints. */
 const TOKEN = 'Kk7Qw2Zt5Yx9Bv1Nm3Ld6Hs0Rp8Jf4Gc2Ae7Ui5Ot1'
 const ATTACKER = 'https://atacante.exemplo/parceria/roubado'
 
@@ -85,79 +83,20 @@ function hrefs(html: string): string[] {
   return [...html.matchAll(/href="([^"]*)"/g)].map((match) => match[1])
 }
 
-test('#341: the invite link is built from our origin, and `data.url` is ignored', async () => {
+test('#341: `partner_form_invite` is not a type any more, and nothing is sent for it', async () => {
+  // The partner form has no invite: one address serves every establishment and it carries no
+  // token, so the template that composed a link from one has nothing to compose. This is the
+  // contract change — `docs/contracts/edge-functions.md` — and a caller still asking for it
+  // has to get an error, never an e-mail built from whatever `data` it sent.
   const response = await send({
     type: 'partner_form_invite',
     to: 'antonio@cantina.com.br',
     data: { trade_name: 'Cantina do Antônio', token: TOKEN, url: ATTACKER },
   })
 
-  assert.equal(response.status, 200)
-  assert.equal(sent.length, 1, 'the e-mail must still go out')
-
-  // The mutation this test exists for: put `data.url` back in the href and this fails.
-  assert.deepEqual(hrefs(sent[0].html), [`https://cms.tuggi.app/pt/parceria/${TOKEN}`])
-  assert.ok(
-    !sent[0].html.includes('atacante.exemplo'),
-    'the attacker host reached the e-mail body'
-  )
-})
-
-test('#341: the origin comes from PARTNER_FORM_ORIGIN when it is set', async () => {
-  env.PARTNER_FORM_ORIGIN = 'https://cms-staging.tuggi.app/'
-
-  await send({
-    type: 'partner_form_invite',
-    to: 'antonio@cantina.com.br',
-    data: { token: TOKEN },
-  })
-
-  assert.deepEqual(hrefs(sent[0].html), [`https://cms-staging.tuggi.app/pt/parceria/${TOKEN}`])
-})
-
-test('#341: a non-https PARTNER_FORM_ORIGIN falls back to ours instead of being trusted', async () => {
-  env.PARTNER_FORM_ORIGIN = 'http://cms.tuggi.app'
-
-  await send({ type: 'partner_form_invite', to: 'a@b.com', data: { token: TOKEN } })
-
-  assert.deepEqual(hrefs(sent[0].html), [`https://cms.tuggi.app/pt/parceria/${TOKEN}`])
-})
-
-test('#341: the path the function builds is the one `partnerFormPath` builds', async () => {
-  // The two ends are duplicated on purpose — Deno cannot import the Next side — so this is
-  // what holds them together. `i18n.ts` falls back to `en`, and a form in English asking a
-  // Brazilian owner for a CNPJ and an alvará is the bug the `/pt/` segment prevents; a
-  // rename on either side that drops it has to fail here.
-  await send({ type: 'partner_form_invite', to: 'a@b.com', data: { token: TOKEN } })
-
-  const href = hrefs(sent[0].html)[0]
-  assert.match(href, /\/pt\/parceria\//)
-  assert.equal(
-    new URL(href).pathname,
-    partnerFormPath(TOKEN),
-    'the e-mail link and the in-app redirect must reach the same page'
-  )
-})
-
-test('#341: a token that is not a token sends no e-mail at all', async () => {
-  for (const token of [
-    ATTACKER,
-    '../../evil',
-    `${TOKEN}" onmouseover="x`,
-    `${TOKEN}?next=https://atacante.exemplo`,
-    'short',
-    '',
-    undefined,
-  ]) {
-    const response = await send({
-      type: 'partner_form_invite',
-      to: 'antonio@cantina.com.br',
-      data: { token },
-    })
-
-    assert.equal(response.status, 500, `\`${token}\` should never render an e-mail`)
-    assert.equal(sent.length, 0, `\`${token}\` reached Resend`)
-  }
+  assert.equal(response.status, 500)
+  assert.equal(sent.length, 0, 'a removed type must not reach Resend')
+  assert.match(await response.text(), /unknown type/)
 })
 
 test('#341: the approved CTA is our app, not the `app_url` the caller asked for', async () => {
@@ -182,7 +121,6 @@ test('#341: no template of this function can point outside tuggi.app', async () 
     { type: 'partner_received', to: 'a@b.com', data: { name: ATTACKER, app_url: ATTACKER } },
     { type: 'partner_approved', to: 'a@b.com', data: { name: ATTACKER, app_url: ATTACKER } },
     { type: 'partner_rejected', to: 'a@b.com', data: { reason: ATTACKER, app_url: ATTACKER } },
-    { type: 'partner_form_invite', to: 'a@b.com', data: { token: TOKEN, url: ATTACKER } },
   ]
 
   for (const body of bodies) {

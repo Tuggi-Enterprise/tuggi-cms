@@ -25,9 +25,15 @@ import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import type { RegularityReport } from '@/lib/partner-form/regularity'
-import { formatDate } from './format'
 
-export type OutboundKind = 'documents' | 'regularity' | 'gate1' | 'gate2' | 'gate3'
+export type OutboundKind = 'regularity' | 'gate1' | 'gate2' | 'gate3'
+
+/**
+ * `documents` was a fifth text and it is gone. It asked the partner to send the alvará and the
+ * contrato social through a link, and there is no upload behind that link any anymore: the
+ * papers are checked in person (operator, 2026-08-16). A message pointing at a page that
+ * cannot receive a file is worse than no message.
+ */
 
 const GATE1_REASONS = ['not_located', 'already_there', 'not_permanent', 'not_open'] as const
 
@@ -38,8 +44,6 @@ interface OutboundMessageProps {
   categoryLabel: string
   city: string
   report: RegularityReport
-  /** A live link for the "send the documents" message. Absent means the text has no link yet. */
-  link?: string | null
 }
 
 export function OutboundMessage({
@@ -49,7 +53,6 @@ export function OutboundMessage({
   categoryLabel,
   city,
   report,
-  link,
 }: OutboundMessageProps) {
   const t = useTranslations('PartnerProposals')
   const [gate1Reason, setGate1Reason] = useState<(typeof GATE1_REASONS)[number]>('not_located')
@@ -73,28 +76,6 @@ export function OutboundMessage({
   const full = `${subject}\n\n${body}`
 
   function buildBody(): string {
-    if (kind === 'documents') {
-      const missing: string[] = []
-      if (report.missing.indexOf('business_license') >= 0) {
-        missing.push(
-          report.license.status === 'expired'
-            ? t('outbound.documents.itemLicenseExpired', {
-                date: formatDate(report.license.validUntil),
-              })
-            : t('outbound.documents.itemLicense')
-        )
-      }
-      if (report.missing.indexOf('incorporation_document') >= 0) {
-        missing.push(t('outbound.documents.itemIncorporation'))
-      }
-      return t('outbound.documents.body', {
-        name: recipientName,
-        tradeName,
-        missing: missing.join('\n'),
-        link: link ?? '',
-      })
-    }
-
     if (kind === 'regularity') {
       return t('outbound.regularity.body', {
         name: recipientName,

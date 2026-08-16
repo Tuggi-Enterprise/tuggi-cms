@@ -49,8 +49,6 @@ export type PartnerFieldId =
   | 'story_before'
   | 'story_unique'
   | 'story_event'
-  // Step 4 — documents
-  | 'business_license_valid_until'
 
 export type PartnerFieldType =
   | 'text'
@@ -65,7 +63,7 @@ export type PartnerFieldType =
 
 export interface PartnerField {
   id: PartnerFieldId
-  step: 1 | 2 | 3 | 4
+  step: 1 | 2 | 3
   type: PartnerFieldType
   required: boolean
   /** SC 1.3.5. Absent when no HTML autofill token describes the field. */
@@ -116,10 +114,6 @@ export const PARTNER_FORM_FIELDS: readonly PartnerField[] = [
   { id: 'story_before', step: 3, type: 'textarea', required: false, maxLength: 1200 },
   { id: 'story_unique', step: 3, type: 'textarea', required: false, maxLength: 1200 },
   { id: 'story_event', step: 3, type: 'textarea', required: false, maxLength: 1200 },
-
-  // Required *together with* a business-license file, never on its own: BR-B2B-022 item 4
-  // treats an expired document as an absent one, and without the date nobody can apply that.
-  { id: 'business_license_valid_until', step: 4, type: 'date', required: false, maxLength: 10 },
 ] as const
 
 export const PARTNER_FIELD_IDS = PARTNER_FORM_FIELDS.map((field) => field.id)
@@ -151,44 +145,20 @@ export const FORBIDDEN_FIELDS = [
   'slug',
 ] as const
 
-/** The two documents of BR-B2B-022 item 3. Neither blocks the submission. */
+/**
+ * The two documents of BR-B2B-022 item 3.
+ *
+ * THE FORM DOES NOT ASK FOR THEM, and that is a decision of the operator (2026-08-16): the
+ * licence and the incorporation document are checked IN PERSON, before the link is sent, so
+ * only an establishment whose papers were already seen ever receives the address. The two
+ * names survive here because the rule survives whole — what changed is where the evidence
+ * comes from. It is now what the team registers by hand on the conference screen
+ * (`lib/partner-form/proposal-review.ts`, `ConferenceRecord`), and it still blocks the
+ * CONTRACT and nothing else.
+ */
 export const PARTNER_DOCUMENT_KINDS = ['business_license', 'incorporation_document'] as const
 export type PartnerDocumentKind = (typeof PARTNER_DOCUMENT_KINDS)[number]
 
-/** Only `incorporation_document` is multi-page by nature (DS-COMPONENTE-016). */
-export const DOCUMENT_ACCEPTS_MULTIPLE: Record<PartnerDocumentKind, boolean> = {
-  business_license: false,
-  incorporation_document: true,
-}
-
-/**
- * `accept` is a hint and validates nothing (MDN, `input type=file`) — the authoritative
- * refusal is the server's, and it is the same list.
- */
-export const DOCUMENT_MIME_TYPES = [
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-  'image/heic',
-  'image/heif',
-] as const
-
-/**
- * The ceiling is the platform's, not ours: "The maximum payload size for the request body
- * or the response body of a Vercel Function is 4.5 MB", answered with
- * `413 FUNCTION_PAYLOAD_TOO_LARGE` — Vercel, `/docs/functions/limitations`, section
- * *Request body size*, page updated 2026-07-01, read 2026-08-14.
- *
- * A limit above that is decorative: the request dies before any code of ours runs, and the
- * person gets a failure with no reason. 4 MB is under it with room for the multipart
- * envelope, so the refusal is OURS — and ours says what to do about it (`errors.
- * file_too_large`). The number is promised to the person before the choice
- * (DS-COMPONENTE-016, item 7), so it has to be the number the system actually enforces.
- */
-export const DOCUMENT_MAX_BYTES = 4 * 1024 * 1024
-export const DOCUMENT_MAX_MB = DOCUMENT_MAX_BYTES / (1024 * 1024)
-/** Per submission, both kinds together. A cap the route can state, not a guess. */
-export const DOCUMENT_MAX_FILES = 12
-
-export const PARTNER_FORM_STEPS = [1, 2, 3, 4, 5] as const
+/** Three subjects and the review; the person sees `Passo N de 4`. */
+export const PARTNER_FORM_STEPS = [1, 2, 3, 4] as const
 export const PARTNER_FORM_STEP_COUNT = PARTNER_FORM_STEPS.length

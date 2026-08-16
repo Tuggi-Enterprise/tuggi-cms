@@ -12,9 +12,11 @@
  * by the team, the proposal by somebody outside, and an external form does not get to erase
  * internal work in silence.
  *
- * `core.clients.email` is unique, so the collision is resolved BEFORE the write button
- * appears, with both options spelled out. A `23505` reaching the operator is a path that must
- * not exist (criterion 20).
+ * THERE IS NO E-MAIL COLLISION TO RESOLVE. `core.clients.email` stopped being unique
+ * (operator, 2026-08-16) because one owner has several places and each place is its own
+ * record — so the panel that made the operator choose between "tie it to that client" and
+ * "use another address" went with the constraint that created it. What keeps a company from
+ * being registered twice is the CNPJ, refused at the form.
  *
  * The confirmation is ONE act and names the effect with the count and the target — never
  * `Confirmar`. Two acts are the rule for what binds legally (DS-COMPONENTE-017); this is
@@ -34,7 +36,7 @@ import {
   buildPromotionPlan,
   summarizePromotion,
 } from '@/lib/partner-form/promotion'
-import type { ProposalClient, ProposalDetail } from './types'
+import type { ProposalDetail } from './types'
 
 type Failure = 'write' | 'not_promotable' | 'network' | 'nothing' | null
 
@@ -51,21 +53,10 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
 
   const [industry, setIndustry] = useState(categoryLabel)
   const [approved, setApproved] = useState<string[]>([])
-  const [conflictChoice, setConflictChoice] = useState<'link' | 'other'>('link')
-  const [otherEmail, setOtherEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [failure, setFailure] = useState<Failure>(null)
 
-  // The collision is the panel's first question, and the write button does not light up until
-  // it is answered — that is what keeps a unique-key violation off the operator's screen.
-  const conflict = detail.emailConflict
-  const conflictResolved =
-    !conflict || conflictChoice === 'link' || (conflictChoice === 'other' && otherEmail.trim() !== '')
-
-  // Choosing "tie it to that client" changes WHICH record the three rules are applied to, so
-  // the comparison follows the choice. The server does the same thing with the same module.
-  const client: ProposalClient | null =
-    conflict && conflictChoice === 'link' ? conflict.client : detail.client
+  const client = detail.client
 
   const plan = useMemo(
     () => buildPromotionPlan(detail.submission.answers, client, { categoryLabel: industry }),
@@ -99,16 +90,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            approved,
-            industry,
-            // Only one of the two ever travels, and only when there is a collision to
-            // resolve: either the promotion is pointed at the client that holds the
-            // address, or the new record takes a different one.
-            linkClientId: conflict && conflictChoice === 'link' ? conflict.client.id : undefined,
-            emailOverride:
-              conflict && conflictChoice === 'other' ? otherEmail.trim() : undefined,
-          }),
+          body: JSON.stringify({ approved, industry }),
         }
       )
 
@@ -136,54 +118,6 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
       <h2 id="promotion-heading" className="text-base font-semibold text-gray-900">
         {plan.creating ? t('promotion.createTitle') : t('promotion.updateTitle', { name: targetName })}
       </h2>
-
-      {conflict && (
-        <div className="mt-3 rounded-md border border-secondary-700/50 bg-secondary-50 p-3 text-sm text-gray-900">
-          <p className="font-semibold">
-            {t('promotion.conflictTitle', {
-              email: conflict.client.email ?? '',
-              name: conflict.client.name ?? '',
-            })}
-          </p>
-          <p className="mt-1">{t('promotion.conflictChoose')}</p>
-          <div className="mt-2 space-y-2">
-            <label className="flex items-start gap-2">
-              <input
-                type="radio"
-                name="email-conflict"
-                className="mt-1"
-                checked={conflictChoice === 'link'}
-                onChange={() => setConflictChoice('link')}
-              />
-              <span>{t('promotion.conflictLink')}</span>
-            </label>
-            <label className="flex items-start gap-2">
-              <input
-                type="radio"
-                name="email-conflict"
-                className="mt-1"
-                checked={conflictChoice === 'other'}
-                onChange={() => setConflictChoice('other')}
-              />
-              <span>{t('promotion.conflictOtherEmail')}</span>
-            </label>
-            {conflictChoice === 'other' && (
-              <div className="pl-6">
-                <Label htmlFor="promotion-other-email">
-                  {t('promotion.conflictOtherEmailLabel')}
-                </Label>
-                <Input
-                  id="promotion-other-email"
-                  type="email"
-                  value={otherEmail}
-                  onChange={(event) => setOtherEmail(event.target.value)}
-                />
-              </div>
-            )}
-          </div>
-          <p className="mt-2 text-xs">{t('promotion.conflictImpossible')}</p>
-        </div>
-      )}
 
       <table className="mt-4 w-full border-collapse text-sm">
         <thead>
@@ -294,7 +228,7 @@ export function PromotionPanel({ detail, categoryLabel, onClose, onPromoted }: P
         <Button
           type="button"
           onClick={promote}
-          disabled={submitting || !conflictResolved || summary.total === 0}
+          disabled={submitting || summary.total === 0}
         >
           {submitting ? (
             <>
