@@ -26,11 +26,11 @@ import {
   contractChecklist,
   feeDivergence,
   formatFee,
-  readProviderParty,
+  resolvePlatformOwner,
   type ContractClient,
   type ContractSnapshot,
   type GenerationChoices,
-  type ProviderParty,
+  type PlatformOwnerLookup,
   type RegularityEvidence,
 } from '@/lib/contract/snapshot'
 import {
@@ -51,13 +51,37 @@ const REPO_ROOT = resolve(import.meta.dirname, '../..')
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────────────
 
-const PROVIDER: ProviderParty = {
-  legalName: 'Tuggi Tecnologia Ltda.',
-  taxId: '11222333000181',
-  addressLine: 'Rua Exemplo, 100, Búzios, RJ',
-  representativeName: 'Fulana de Tal',
-  representativeRole: 'Sócia-administradora',
+/**
+ * The Tuggi side is a `core.clients` row flagged `is_platform_owner` — not configuration
+ * (#342, 2026-08-16). The fixture is a registration, exactly like the partner's, because
+ * that is now the single owner of those five facts.
+ */
+function platformOwner(overrides: Partial<ContractClient> = {}): ContractClient {
+  return {
+    id: 'tuggi',
+    name: 'Tuggi',
+    company_name: 'Tuggi Tecnologia Ltda.',
+    email: 'suporte@tuggi.app',
+    status: 'approved',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    address: 'Rua Exemplo, 100',
+    city: 'Búzios',
+    state: 'RJ',
+    postal_code: '28950-000',
+    tax_id: '11222333000181',
+    legal_representative_name: 'Fulana de Tal',
+    legal_representative_role: 'Sócia-administradora',
+    is_platform_owner: true,
+    ...overrides,
+  } as ContractClient
 }
+
+function ownerLookup(overrides: Partial<ContractClient> = {}): PlatformOwnerLookup {
+  return { state: 'found', client: platformOwner(overrides) }
+}
+
+const OWNER = ownerLookup()
 
 const REGULAR: RegularityEvidence = {
   businessLicenseDocument: true,
@@ -92,7 +116,7 @@ const PAID: GenerationChoices = { tier: 'paid', paymentMethod: 'pix', qrDelivery
 
 function snapshotOf(overrides: Partial<ContractClient> = {}, choices: GenerationChoices = PAID): ContractSnapshot {
   return buildSnapshot(client(overrides), choices, {
-    provider: PROVIDER,
+    platformOwner: OWNER,
     regularity: REGULAR,
     templateVersion: ACTIVE_TEMPLATE_VERSION,
   })
@@ -142,7 +166,7 @@ test('BR-B2B-017 item 5: the contract states that changing the registration does
 // ── BR-B2B-017 item 6 — absent is not zero ─────────────────────────────────────────────
 
 function checklistIds(overrides: Partial<ContractClient>, choices = PAID, regularity = REGULAR): string[] {
-  return contractChecklist(client(overrides), choices, { provider: PROVIDER, regularity }).missing.map(
+  return contractChecklist(client(overrides), choices, { platformOwner: OWNER, regularity }).missing.map(
     (item) => item.id
   )
 }
@@ -186,7 +210,7 @@ test('BR-B2B-017, 3rd edge case: the paid tier does not generate without an agre
 
 test('BR-B2B-022 item 3: no licence, no contract', () => {
   const missing = contractChecklist(client(), PAID, {
-    provider: PROVIDER,
+    platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseDocument: false },
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('business_license'))
@@ -194,7 +218,7 @@ test('BR-B2B-022 item 3: no licence, no contract', () => {
 
 test('BR-B2B-022 item 3: an expired licence is an absent licence', () => {
   const missing = contractChecklist(client(), PAID, {
-    provider: PROVIDER,
+    platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseValidUntil: '2020-01-01' },
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('business_license_expired'))
@@ -202,7 +226,7 @@ test('BR-B2B-022 item 3: an expired licence is an absent licence', () => {
 
 test('BR-B2B-022 item 3: no incorporation document, no contract', () => {
   const missing = contractChecklist(client(), PAID, {
-    provider: PROVIDER,
+    platformOwner: OWNER,
     regularity: { ...REGULAR, incorporationDocument: false },
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('incorporation'))
@@ -217,7 +241,7 @@ test('BR-B2B-022 item 3: no incorporation document, no contract', () => {
 test('BR-B2B-031 item 2: an expired licence blocks a NEW contract on the free tier too', () => {
   const free: GenerationChoices = { tier: 'free', paymentMethod: null, qrDeliveryDays: 15 }
   const missing = contractChecklist(client(), free, {
-    provider: PROVIDER,
+    platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseValidUntil: '2020-01-01' },
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('business_license_expired'), 'the free tier is not an exception')
@@ -225,7 +249,7 @@ test('BR-B2B-031 item 2: an expired licence blocks a NEW contract on the free ti
 
 test('BR-B2B-031, 1st edge case: a licence seen with no date blocks the same as an expired one', () => {
   const missing = contractChecklist(client(), PAID, {
-    provider: PROVIDER,
+    platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseValidUntil: null },
   }).missing.map((item) => item.id)
   assert.ok(missing.includes('business_license_validity'), 'undated is treated as absent, same as vencido')
@@ -233,7 +257,7 @@ test('BR-B2B-031, 1st edge case: a licence seen with no date blocks the same as 
 
 test('BR-B2B-031: a renewed licence (valid date, future) releases the free tier — the other direction of the mutation', () => {
   const free: GenerationChoices = { tier: 'free', paymentMethod: null, qrDeliveryDays: 15 }
-  const missing = contractChecklist(client(), free, { provider: PROVIDER, regularity: REGULAR }).missing.map(
+  const missing = contractChecklist(client(), free, { platformOwner: OWNER, regularity: REGULAR }).missing.map(
     (item) => item.id
   )
   assert.equal(
@@ -256,7 +280,7 @@ test('BR-B2B-022 item 4: regularity is a continuing obligation inside the instru
 
 test('BR-B2B-022: every checklist item names where it is resolved', () => {
   const result = contractChecklist(client({ tax_id: undefined }), PAID, {
-    provider: PROVIDER,
+    platformOwner: OWNER,
     regularity: { ...REGULAR, businessLicenseDocument: false },
   })
   assert.equal(result.ready, false)
@@ -265,15 +289,125 @@ test('BR-B2B-022: every checklist item names where it is resolved', () => {
   }
 })
 
-test('the Tuggi party is configuration, and its absence blocks generation instead of printing a placeholder', () => {
-  const missing = contractChecklist(client(), PAID, { provider: null, regularity: REGULAR }).missing.map((i) => i.id)
-  assert.ok(missing.includes('provider'))
-  assert.equal(readProviderParty({}), null)
-  assert.throws(() => buildSnapshot(client({ tax_id: undefined }), PAID, {
-    provider: PROVIDER,
+test('BR-B2B-022: an incomplete partner registration blocks the snapshot outright', () => {
+  assert.throws(() =>
+    buildSnapshot(client({ tax_id: undefined }), PAID, {
+      platformOwner: OWNER,
+      regularity: REGULAR,
+      templateVersion: ACTIVE_TEMPLATE_VERSION,
+    })
+  )
+})
+
+// ── BR-B2B-023 — the qualification of the Tuggi as a party comes from the registration
+// flagged `is_platform_owner`, and its absence blocks instead of printing a placeholder into
+// an instrument somebody signs. Those five facts had a second owner — five environment
+// variables — until 2026-08-16, and changing the address of the company was a deploy.
+
+function ownerChecklist(lookup: PlatformOwnerLookup) {
+  return contractChecklist(client(), PAID, { platformOwner: lookup, regularity: REGULAR })
+}
+
+test('BR-B2B-023: with no client marked as platform owner the contract is NOT generated, and the message says where', () => {
+  const result = ownerChecklist({ state: 'absent' })
+  assert.equal(result.ready, false)
+
+  const item = result.missing.find((entry) => entry.id === 'platform_owner')
+  assert.ok(item, 'the block has to be a checklist item, not a silently empty CONTRATADA')
+  assert.match(item!.label, /dono da plataforma/i)
+  assert.match(item!.where, /Fiscal e Pagamentos/i)
+
+  assert.throws(
+    () =>
+      buildSnapshot(client(), PAID, {
+        platformOwner: { state: 'absent' },
+        regularity: REGULAR,
+        templateVersion: ACTIVE_TEMPLATE_VERSION,
+      }),
+    /platform_owner/
+  )
+})
+
+test('BR-B2B-023: two clients marked as owner is a configuration error, and nobody picks the first', () => {
+  const result = ownerChecklist({ state: 'ambiguous' })
+  assert.equal(result.ready, false)
+  assert.ok(result.missing.some((entry) => entry.id === 'platform_owner_ambiguous'))
+  assert.equal(resolvePlatformOwner({ state: 'ambiguous' }).party, null)
+})
+
+test('BR-B2B-023: each of the five Tuggi facts blocks by NAME, and names the tab that resolves it', () => {
+  const cases: [Partial<ContractClient>, string, RegExp, RegExp][] = [
+    [{ company_name: undefined, name: '' }, 'provider_legal_name', /Razão social da Tuggi/, /Perfil/],
+    [{ tax_id: undefined }, 'provider_tax_id', /CNPJ da Tuggi/, /Fiscal e Pagamentos/],
+    [{ address: '  ' }, 'provider_address', /Endereço da Tuggi/, /Perfil/],
+    [
+      { legal_representative_name: undefined },
+      'provider_representative_name',
+      /representante legal da Tuggi/,
+      /Fiscal e Pagamentos/,
+    ],
+    [
+      { legal_representative_role: '' },
+      'provider_representative_role',
+      /representante legal da Tuggi/,
+      /Fiscal e Pagamentos/,
+    ],
+  ]
+
+  for (const [overrides, id, label, where] of cases) {
+    const result = ownerChecklist(ownerLookup(overrides))
+    const item = result.missing.find((entry) => entry.id === id)
+    assert.ok(item, `${id} has to appear when the field is empty`)
+    assert.match(item!.label, label)
+    assert.match(item!.where, where, `${id} has to name the tab, or the operator hunts for the field`)
+    assert.equal(result.ready, false)
+  }
+
+  // The other direction of the mutation: a complete owner blocks nothing.
+  assert.equal(
+    ownerChecklist(OWNER).missing.some(
+      (entry) => entry.id.startsWith('provider_') || entry.id.startsWith('platform_owner')
+    ),
+    false
+  )
+})
+
+test('BR-B2B-023: the qualification printed in the contract is the one in the registration', () => {
+  const text = renderedText(snapshotOf())
+  assert.match(text, /Tuggi Tecnologia Ltda\./)
+  assert.match(text, /11\.222\.333\/0001-81/)
+  assert.match(text, /Rua Exemplo, 100, Búzios, RJ, 28950-000/)
+  assert.match(text, /Fulana de Tal/)
+  assert.match(text, /Sócia-administradora/)
+
+  // And no environment variable is consulted any more: the module that builds the
+  // qualification must not reach for `process.env` at all.
+  const source = readFileSync(resolve(REPO_ROOT, 'lib/contract/snapshot.ts'), 'utf8')
+  assert.doesNotMatch(source, /process\.env/, 'the registration is the only owner of the five facts')
+  assert.doesNotMatch(source, /TUGGI_LEGAL_NAME|TUGGI_TAX_ID|TUGGI_ADDRESS|TUGGI_REPRESENTATIVE/)
+})
+
+test('BR-B2B-017: editing the OWNER registration moves the NEXT contract and not the signed one', () => {
+  const signed = snapshotOf()
+  const hashAtAcceptance = sha256Hex(new TextEncoder().encode(renderedText(signed)))
+
+  // The Tuggi moves office. The column is the qualification of the next contract, and the
+  // accepted document keeps the one it was accepted with.
+  const moved = ownerLookup({ address: 'Avenida Nova, 900', city: 'Rio de Janeiro' })
+  const next = buildSnapshot(client(), PAID, {
+    platformOwner: moved,
     regularity: REGULAR,
     templateVersion: ACTIVE_TEMPLATE_VERSION,
-  }))
+  })
+
+  assert.match(renderedText(next), /Avenida Nova, 900, Rio de Janeiro/, 'the new contract carries the new address')
+  assert.equal(signed.provider.addressLine, 'Rua Exemplo, 100, Búzios, RJ, 28950-000')
+  assert.doesNotMatch(renderedText(signed), /Avenida Nova/)
+  assert.equal(
+    sha256Hex(new TextEncoder().encode(renderedText(signed))),
+    hashAtAcceptance,
+    'the accepted document keeps its own qualification, hash included'
+  )
 })
 
 // ── The clauses the card lists, asserted on the rendered document ──────────────────────

@@ -19,11 +19,11 @@ import {
   buildSnapshot,
   contractChecklist,
   feeDivergence,
-  readProviderParty,
   type ContractClient,
   type ContractTier,
   type GenerationChoices,
   type PaymentMethod,
+  type PlatformOwnerLookup,
   type RegularityEvidence,
 } from '@/lib/contract/snapshot'
 import { activeTemplate } from '@/lib/contract/template'
@@ -62,6 +62,31 @@ async function loadClient(clientId: string): Promise<ContractClient | null> {
 
   if (error || !data) return null
   return data as unknown as ContractClient
+}
+
+/**
+ * The Tuggi qualification, read from the registration flagged `is_platform_owner` — the
+ * same columns, the same editor, no environment variable (#342, 2026-08-16).
+ *
+ * Two rows are fetched on purpose although only one may exist: `data` guarantees the
+ * single owner with a partial unique index, and a lookup that asked for one row would
+ * answer "found" while silently picking a winner if the guarantee ever failed. Here more
+ * than one is a configuration error the checklist states out loud.
+ */
+async function loadPlatformOwner(): Promise<PlatformOwnerLookup> {
+  const { data, error } = await getSupabaseService()
+    .schema('core')
+    .from('clients')
+    .select(CLIENT_COLUMNS)
+    .eq('is_platform_owner', true)
+    .limit(2)
+
+  const rows = (data ?? []) as unknown as ContractClient[]
+  // A read that failed is not an empty table; both block generation, and neither invents a
+  // party for a document somebody signs.
+  if (error || rows.length === 0) return { state: 'absent' }
+  if (rows.length > 1) return { state: 'ambiguous' }
+  return { state: 'found', client: rows[0] }
 }
 
 /**
@@ -134,9 +159,9 @@ export const GET = withRateLimit(60, 60_000)(
         req.nextUrl.searchParams.get('qrDeliveryDays') ?? contract?.snapshot.qrDeliveryDays ?? null,
     })
 
-    const provider = readProviderParty()
+    const platformOwner = await loadPlatformOwner()
     const regularity = await loadRegularity(clientId)
-    const checklist = contractChecklist(client, choices, { provider, regularity })
+    const checklist = contractChecklist(client, choices, { platformOwner, regularity })
 
     return NextResponse.json({
       template: {
@@ -211,19 +236,19 @@ async function generate(clientId: string, body: Record<string, unknown>, operato
   const client = await loadClient(clientId)
   if (!client) return NextResponse.json({ error: 'client_not_found' }, { status: 404 })
 
-  const provider = readProviderParty()
+  const platformOwner = await loadPlatformOwner()
   const regularity = await loadRegularity(clientId)
   const choices = choicesOf(body)
-  const checklist = contractChecklist(client, choices, { provider, regularity })
+  const checklist = contractChecklist(client, choices, { platformOwner, regularity })
 
   // The block is the point: a missing item produces a signed PDF with a hole in it, and a
   // signed PDF is the one artefact here that cannot be corrected afterwards.
-  if (!checklist.ready || !provider) {
+  if (!checklist.ready) {
     return NextResponse.json({ error: 'checklist_incomplete', missing: checklist.missing }, { status: 409 })
   }
 
   const snapshot = buildSnapshot(client, choices, {
-    provider,
+    platformOwner,
     regularity,
     templateVersion: activeTemplate().version,
   })

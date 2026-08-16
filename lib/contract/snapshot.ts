@@ -29,11 +29,14 @@ export type PaymentMethod = 'boleto' | 'pix'
 /**
  * The Tuggi side of the contract.
  *
- * It is not in the repository because it is not the repository's fact: the registration
- * data of the company lives with the operator (CLAUDE.md — commercial material is outside
- * the agents' reach). It arrives as configuration, and `contractChecklist` refuses to
- * generate anything while it is missing, instead of printing a plausible placeholder into
- * a document someone might sign.
+ * It comes from the SAME place as the partner side: a row of `core.clients`, the one flagged
+ * `is_platform_owner`. That flag already had this meaning — `client-editable-fields.ts` says
+ * "only Tuggi owns the platform" — and the five facts (razão social, CNPJ, endereço,
+ * representante e cargo) are columns the operator edits in the client editor.
+ *
+ * It used to arrive as five environment variables, which made the address of the company a
+ * deploy (#342, SSOT correction of 2026-08-16). Same fact, two owners, and the worse of the
+ * two was winning. This module reads no configuration at all now, and a test asserts it.
  */
 export interface ProviderParty {
   legalName: string
@@ -43,15 +46,101 @@ export interface ProviderParty {
   representativeRole: string
 }
 
-export function readProviderParty(env: Record<string, string | undefined> = process.env): ProviderParty | null {
-  const legalName = env.TUGGI_LEGAL_NAME?.trim()
-  const taxId = env.TUGGI_TAX_ID?.trim()
-  const addressLine = env.TUGGI_ADDRESS?.trim()
-  const representativeName = env.TUGGI_REPRESENTATIVE_NAME?.trim()
-  const representativeRole = env.TUGGI_REPRESENTATIVE_ROLE?.trim()
+/**
+ * What the lookup of the platform owner answered. `ambiguous` is deliberate: the `data`
+ * side guarantees a single owner by partial unique index, and if a second one ever shows up
+ * the honest answer is "configuração errada", not the first row of an arbitrary order.
+ */
+export type PlatformOwnerLookup =
+  | { state: 'found'; client: ContractClient }
+  | { state: 'absent' }
+  | { state: 'ambiguous' }
 
-  if (!legalName || !taxId || !addressLine || !representativeName || !representativeRole) return null
-  return { legalName, taxId, addressLine, representativeName, representativeRole }
+export interface ProviderResolution {
+  party: ProviderParty | null
+  missing: ChecklistItem[]
+}
+
+/** Where each of the five is edited — the client editor has the address on another tab. */
+const OWNER_PROFILE_TAB = 'aba Perfil do cliente marcado como dono da plataforma'
+const OWNER_FISCAL_TAB = 'aba Fiscal e Pagamentos do cliente marcado como dono da plataforma'
+
+/**
+ * One pass over the owner registration: either the five facts, or the named holes.
+ *
+ * Single traversal on purpose — a "is it complete?" that walked the fields separately from
+ * the one that builds the party is the second implementation of the same decision, and the
+ * two would drift the first time a sixth field appears.
+ */
+export function resolvePlatformOwner(lookup: PlatformOwnerLookup): ProviderResolution {
+  if (lookup.state === 'absent') {
+    return {
+      party: null,
+      missing: [
+        {
+          id: 'platform_owner',
+          label: 'Nenhum cliente marcado como dono da plataforma',
+          where: 'cadastro da Tuggi, aba Fiscal e Pagamentos',
+        },
+      ],
+    }
+  }
+
+  if (lookup.state === 'ambiguous') {
+    return {
+      party: null,
+      missing: [
+        {
+          id: 'platform_owner_ambiguous',
+          label: 'Mais de um cliente marcado como dono da plataforma — só um pode ser',
+          where: 'aba Fiscal e Pagamentos dos clientes marcados',
+        },
+      ],
+    }
+  }
+
+  const owner = lookup.client
+  const missing: ChecklistItem[] = []
+
+  const legalName = owner.company_name?.trim() || owner.name?.trim() || ''
+  const taxId = owner.tax_id?.trim() ?? ''
+  const addressLine = [owner.address, owner.city, owner.state, owner.postal_code]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(', ')
+  const representativeName = owner.legal_representative_name?.trim() ?? ''
+  const representativeRole = owner.legal_representative_role?.trim() ?? ''
+
+  if (!legalName) {
+    missing.push({ id: 'provider_legal_name', label: 'Razão social da Tuggi', where: OWNER_PROFILE_TAB })
+  }
+  if (!taxId) {
+    missing.push({ id: 'provider_tax_id', label: 'CNPJ da Tuggi', where: OWNER_FISCAL_TAB })
+  }
+  // The address of the row is the required part; city, state and CEP only enrich the line.
+  if (!owner.address?.trim()) {
+    missing.push({ id: 'provider_address', label: 'Endereço da Tuggi', where: OWNER_PROFILE_TAB })
+  }
+  if (!representativeName) {
+    missing.push({
+      id: 'provider_representative_name',
+      label: 'Nome do representante legal da Tuggi',
+      where: OWNER_FISCAL_TAB,
+    })
+  }
+  if (!representativeRole) {
+    missing.push({
+      id: 'provider_representative_role',
+      label: 'Cargo do representante legal da Tuggi',
+      where: OWNER_FISCAL_TAB,
+    })
+  }
+
+  if (missing.length > 0) return { party: null, missing }
+  return {
+    party: { legalName, taxId, addressLine, representativeName, representativeRole },
+    missing: [],
+  }
 }
 
 /** The partner side, copied out of the registration at generation time. */
@@ -134,18 +223,14 @@ export interface ChecklistResult {
 export function contractChecklist(
   client: ContractClient | null,
   choices: GenerationChoices,
-  options: { provider: ProviderParty | null; regularity: RegularityEvidence; now?: Date }
+  options: { platformOwner: PlatformOwnerLookup; regularity: RegularityEvidence; now?: Date }
 ): ChecklistResult {
   const missing: ChecklistItem[] = []
   const now = options.now ?? new Date()
 
-  if (!options.provider) {
-    missing.push({
-      id: 'provider',
-      label: 'Dados da Tuggi (razão social, CNPJ, endereço e representante) não configurados',
-      where: 'configuração do ambiente',
-    })
-  }
+  // The Tuggi qualification is a checklist item like any other, and it names the field and
+  // the tab — a contract generated without it would print an incomplete CONTRATADA.
+  missing.push(...resolvePlatformOwner(options.platformOwner).missing)
 
   if (!client) {
     missing.push({ id: 'client', label: 'Cadastro do cliente não encontrado', where: 'lista de clientes' })
@@ -239,10 +324,10 @@ export function contractChecklist(
 export function buildSnapshot(
   client: ContractClient,
   choices: GenerationChoices,
-  options: { provider: ProviderParty; regularity: RegularityEvidence; templateVersion: string; now?: Date }
+  options: { platformOwner: PlatformOwnerLookup; regularity: RegularityEvidence; templateVersion: string; now?: Date }
 ): ContractSnapshot {
   const check = contractChecklist(client, choices, {
-    provider: options.provider,
+    platformOwner: options.platformOwner,
     regularity: options.regularity,
     now: options.now,
   })
@@ -250,12 +335,16 @@ export function buildSnapshot(
     throw new Error(`contract snapshot refused: ${check.missing.map((item) => item.id).join(', ')}`)
   }
 
+  // `ready` already proved the five are there; this is the copy, and copying is what
+  // freezes them (BR-B2B-017, item 5). Editing the owner registration afterwards is the
+  // value of the NEXT contract.
+  const provider = resolvePlatformOwner(options.platformOwner).party as ProviderParty
   const courtesy = client.is_courtesy === true
 
   return {
     templateVersion: options.templateVersion,
     tier: choices.tier,
-    provider: options.provider,
+    provider,
     partner: {
       clientId: client.id,
       legalName: (client.company_name?.trim() || client.name.trim()) as string,
