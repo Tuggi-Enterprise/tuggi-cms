@@ -17,7 +17,7 @@ import {
   canTouchClient,
 } from '@/lib/services/coordinator-service'
 import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
-import { DEFAULT_CLIENT_TYPE, isClientType } from '@/types/clients'
+import { DEFAULT_CLIENT_TYPE, isRegistrableClientType } from '@/types/clients'
 
 export const dynamic = 'force-dynamic'
 
@@ -87,9 +87,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields: name, email' }, { status: 400 })
     }
 
-    // Um tipo que o CHECK recusa é 400 com o nome do campo, não o 500 da constraint: esta
-    // rota carrega `service_role`, que ignora RLS, e é a única barreira que sobra.
-    if (client_type != null && client_type !== '' && !isClientType(client_type)) {
+    // A filha nasce aqui, então o tipo dela sai dos quatro que a regra oferece —
+    // BR-B2B-020, item 8. Mais estreito que o CHECK de propósito: ele ainda aceita
+    // `business`, `partner` e `hotel` (linha já gravada continua válida, ninguém
+    // reclassifica), e por isso não responde por esta rota, que carrega `service_role`,
+    // ignora RLS e é a única barreira que sobra. O PATCH de edição não estreita.
+    if (client_type != null && client_type !== '' && !isRegistrableClientType(client_type)) {
       return NextResponse.json({ error: 'Invalid client_type' }, { status: 400 })
     }
 

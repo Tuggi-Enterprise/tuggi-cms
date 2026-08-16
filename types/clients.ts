@@ -39,24 +39,72 @@ export const CLIENT_TYPES = [
 export type ClientType = (typeof CLIENT_TYPES)[number]
 
 /**
- * What a client with no declared type is. `core.clients.client_type` is NOT NULL with
- * DEFAULT `'business'`, and this constant is the ONE place the CMS repeats it.
+ * The types a registration that is BEING BORN may choose from — BR-B2B-020, item 8, decided by
+ * `produto` on 2026-08-16.
  *
- * It used to be typed out at four call sites — two POST routes and two modals — which is the
- * same decision declared four times (CLAUDE.md §6, SSOT). Whoever changes the column's default
- * changes this line, and the four call sites follow without being found again.
+ * This is the OFFERED set, and it is deliberately smaller than the ACCEPTED set above. The
+ * distinction is the whole point of the item: *sair da oferta não é sair do `CHECK`*.
+ *  · `business`, `partner` — generic, they name no role at all;
+ *  · `hotel`               — a subset of `venue` since item 5.
+ * The three stay valid in `clients_client_type_check` and in `drive.register_partner_v1`, the
+ * rows already written stay valid, and NOBODY reclassifies them — reading, display and badge
+ * go on accepting the seven.
+ *
+ * `hotel` in particular keeps being written: the published app offers
+ * `driver | hotel | influencer | creator` (`PartnerRegistrationScreen`, `PARTNER_TYPES`) and
+ * there is no OTA (BR-OPERACAO-002), so a row born there is expected, valid, and means the
+ * same as `venue` — item 9. Treating it as an error is the defect.
  */
-export const DEFAULT_CLIENT_TYPE: ClientType = 'business'
+export const REGISTRABLE_CLIENT_TYPES = [
+  'venue',
+  'driver',
+  'influencer',
+  'creator',
+] as const satisfies readonly ClientType[]
+
+export type RegistrableClientType = (typeof REGISTRABLE_CLIENT_TYPES)[number]
 
 /**
- * Whether a value coming from outside is one of the seven.
+ * What a client that is being CREATED is born as when nobody chose — BR-B2B-020, item 8.
  *
- * The two POST routes hold `service_role`, which ignores RLS — the route is the only barrier
- * left, and without this the CHECK answers for it with a 500 that names a constraint instead
- * of a 400 that names the field.
+ * It was `'business'` until 2026-08-16, mirroring the column default; the column keeps that
+ * default and the CMS never relies on it, because every insert here writes the value out. A
+ * registration cannot be born with a type the rule no longer offers, and `venue` is the value
+ * both the promotion (`PROMOTED_CLIENT_TYPE`) and the operator's manual registration mean by
+ * "merchant with an address".
+ *
+ * The annotation is the guarantee: typing a value that left the offer stops compiling here.
+ *
+ * It used to be typed out at four call sites — two POST routes and two modals — which is the
+ * same decision declared four times (CLAUDE.md §6, SSOT). Whoever changes it changes this
+ * line, and the call sites follow without being found again.
+ */
+export const DEFAULT_CLIENT_TYPE: RegistrableClientType = 'venue'
+
+/**
+ * Whether a value coming from outside is one of the seven the database accepts.
+ *
+ * This is the READING guard: badge, list and editor of an existing client go through it, and
+ * a legacy row must not be refused by the screen that shows it.
  */
 export function isClientType(value: unknown): value is ClientType {
   return typeof value === 'string' && (CLIENT_TYPES as readonly string[]).includes(value)
+}
+
+/**
+ * Whether a value coming from outside may START a registration — BR-B2B-020, item 8.
+ *
+ * This is the WRITING guard of the POST routes, and it is stricter than `isClientType` on
+ * purpose. Those routes hold `service_role`, which ignores RLS: the route is the only barrier
+ * left, and the CHECK cannot answer for it here — the CHECK accepts the three legacy values,
+ * so a client born `business` through the API would be a row the rule does not offer and that
+ * nobody would ever be told about.
+ *
+ * It is NOT the guard for editing: saving a legacy client without touching the field must not
+ * reclassify anyone (edge case written into item 8).
+ */
+export function isRegistrableClientType(value: unknown): value is RegistrableClientType {
+  return typeof value === 'string' && (REGISTRABLE_CLIENT_TYPES as readonly string[]).includes(value)
 }
 
 /**
