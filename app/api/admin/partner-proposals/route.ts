@@ -17,7 +17,7 @@ import {
 } from '@/lib/services/partner-proposal-admin-service'
 import { buildRegularityReport } from '@/lib/partner-form/regularity'
 
-const KNOWN_STATUSES: ProposalStatus[] = ['draft', 'submitted', 'promoted', 'discarded']
+const KNOWN_STATUSES: ProposalStatus[] = ['submitted', 'promoted', 'discarded']
 
 export const GET = withRateLimit(60, 60_000)(
   withAuth({ roles: ['admin'] }, async (req) => {

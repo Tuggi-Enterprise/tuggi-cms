@@ -40,6 +40,7 @@ import {
 } from '@/lib/partner-form/regularity'
 import {
   DISCARD_REASONS,
+  LICENSE_FIELD_MAX,
   REVIEW_MARKS,
   applySubstituteTest,
   hasOfferMarker,
@@ -118,6 +119,8 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
   // move the line above before the operator clicks save, or they cannot tell whether the tick
   // did anything.
   const report = useMemo(() => buildRegularityReport(answers, conference), [answers, conference])
+  // One question, asked once: the three licence fields are enabled by the same tick.
+  const licenseSeen = conference.documentsSeen.indexOf('business_license') >= 0
 
   const categoryLabel = answers.category ? form(`categories.${answers.category}`) : ''
   const tradeName = answers.trade_name ?? ''
@@ -158,23 +161,28 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
     )
   }
 
-  const isDraft = detail.submission.status === 'draft'
   const isSubmitted = detail.submission.status === 'submitted'
   const isPromoted = detail.submission.status === 'promoted'
   const isDiscarded = detail.submission.status === 'discarded'
 
   /**
-   * A licence nobody says they saw carries no date, so unticking it drops the date with it —
-   * otherwise the band would show a validity for a document that is not there.
+   * Unticking the licence KEEPS the three fields typed off it. Unticking by mistake and
+   * ticking again must not cost the operator a retype of a document that has already left
+   * their hands (spec `design` §1) — and the band does not publish them meanwhile, because
+   * `licenseStatus` hides identity and validity for a licence nobody says they saw.
+   *
+   * What is SAVED with the tick off is another matter, and `normalizeConference` drops all
+   * three there: a stored record must not carry the identity of a document nobody saw.
    */
   function toggleDocumentSeen(kind: PartnerDocumentKind) {
     setConference((current) => {
       const seen = current.documentsSeen.indexOf(kind) >= 0
-      const documentsSeen = seen
-        ? current.documentsSeen.filter((value) => value !== kind)
-        : current.documentsSeen.concat(kind)
-      const keepsDate = documentsSeen.indexOf('business_license') >= 0
-      return { documentsSeen, licenseValidUntil: keepsDate ? current.licenseValidUntil : null }
+      return {
+        ...current,
+        documentsSeen: seen
+          ? current.documentsSeen.filter((value) => value !== kind)
+          : current.documentsSeen.concat(kind),
+      }
     })
     setNoteState('idle')
   }
@@ -264,15 +272,6 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                 </Button>
               </>
             )}
-            {isDraft && (
-              <>
-                <Button disabled aria-disabled="true">
-                  {t('promotion.action')}
-                </Button>
-                {/* The reason is in words beside the disabled control, never the grey alone. */}
-                <span className="max-w-xs text-xs text-gray-800">{t('review.draftActionReason')}</span>
-              </>
-            )}
             {isDiscarded && (
               <Button variant="outline" onClick={restore}>
                 {t('discard.restore')}
@@ -281,13 +280,6 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
           </div>
         </div>
       </header>
-
-      {isDraft && (
-        <p className="mb-4 rounded-md border border-gray-300 bg-gray-50 p-3 text-sm text-gray-900">
-          <span className="font-semibold">{t('review.draftTitle')}</span>{' '}
-          {t('review.draftBody', { date: formatDateTime(detail.submission.updatedAt) })}
-        </p>
-      )}
 
       {isPromoted && (
         <div className="mb-4 rounded-md border border-green-700/40 bg-green-50 p-3 text-sm text-gray-900">
@@ -309,7 +301,12 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
         </div>
       )}
 
-      <RegularityBand report={report} answers={answers} />
+      <RegularityBand
+        report={report}
+        answers={answers}
+        checkedBy={detail.submission.reviewedBy}
+        checkedAt={detail.submission.reviewedAt}
+      />
 
       {promoting && isSubmitted && (
         <div className="mt-5">
@@ -591,6 +588,56 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
               ))}
             </fieldset>
 
+            {/* Number, municipality, validity — the order the three appear on the paper in the
+                operator's hand. Any other order makes them read the document twice. */}
+            <div className="mt-3">
+              <label htmlFor="license-number" className="block text-sm font-medium text-gray-700">
+                {t('conference.licenseNumberLabel')}
+              </label>
+              <input
+                id="license-number"
+                type="text"
+                value={conference.licenseNumber ?? ''}
+                maxLength={LICENSE_FIELD_MAX}
+                disabled={!licenseSeen}
+                aria-describedby="license-number-hint"
+                onChange={(event) =>
+                  setConference((current) => ({
+                    ...current,
+                    licenseNumber: event.target.value || null,
+                  }))
+                }
+                className="mt-1 block w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100"
+              />
+              <span id="license-number-hint" className="mt-1 block text-xs text-gray-800">
+                {licenseSeen ? t('conference.licenseNumberHint') : t('conference.licenseNumberDisabled')}
+              </span>
+            </div>
+
+            <div className="mt-3">
+              <label htmlFor="license-issuer" className="block text-sm font-medium text-gray-700">
+                {t('conference.licenseIssuerLabel')}
+              </label>
+              <input
+                id="license-issuer"
+                type="text"
+                value={conference.licenseIssuer ?? ''}
+                maxLength={LICENSE_FIELD_MAX}
+                disabled={!licenseSeen}
+                aria-describedby="license-issuer-hint"
+                onChange={(event) =>
+                  setConference((current) => ({
+                    ...current,
+                    licenseIssuer: event.target.value || null,
+                  }))
+                }
+                className="mt-1 block w-full rounded-md border border-input bg-white px-3 py-2 text-sm text-gray-900 disabled:bg-gray-100"
+              />
+              <span id="license-issuer-hint" className="mt-1 block text-xs text-gray-800">
+                {licenseSeen ? t('conference.licenseIssuerHint') : t('conference.licenseIssuerDisabled')}
+              </span>
+            </div>
+
             <div className="mt-3">
               <label htmlFor="license-valid-until" className="block text-sm font-medium text-gray-700">
                 {t('conference.validUntilLabel')}
@@ -599,7 +646,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
                 id="license-valid-until"
                 type="date"
                 value={conference.licenseValidUntil ?? ''}
-                disabled={conference.documentsSeen.indexOf('business_license') < 0}
+                disabled={!licenseSeen}
                 aria-describedby="license-valid-until-hint"
                 onChange={(event) =>
                   setConference((current) => ({
@@ -612,9 +659,7 @@ export function ProposalReview({ locale, submissionId }: ProposalReviewProps) {
               {/* The reason beside the disabled control, never the grey alone: without a
                   licence there is no date to copy off one. */}
               <span id="license-valid-until-hint" className="mt-1 block text-xs text-gray-800">
-                {conference.documentsSeen.indexOf('business_license') < 0
-                  ? t('conference.validUntilDisabled')
-                  : t('conference.validUntilHint')}
+                {licenseSeen ? t('conference.validUntilHint') : t('conference.validUntilDisabled')}
               </span>
             </div>
 

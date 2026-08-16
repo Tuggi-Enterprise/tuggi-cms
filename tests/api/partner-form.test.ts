@@ -284,6 +284,93 @@ test('DS-COMPONENTE-016: every field has its copy, and nothing promises an uploa
   }
 })
 
+/**
+ * DS-COPY-018 — copy only tells somebody to use a channel the system opens.
+ *
+ * THE MEASURED COST THIS EXISTS FOR: the simplified design of #341 removed the ONE e-mail the
+ * Tuggi sent to the partner and left four keys telling them to answer it, on three screens,
+ * with a green build and a green suite. Removing a channel has no natural `grep` — this is
+ * the `grep`, and it is over the message files, not over a rendered screen.
+ *
+ * The one exception is declared, narrow and checked below: `PartnerProposals.outbound` is a
+ * text an operator copies into THEIR OWN inbox and sends by hand. There the e-mail exists,
+ * because a person sent it — and `outbound.manualNotice` is the screen saying so out loud.
+ */
+const CHANNEL_INSTRUCTION =
+  /responda\s+(o|a|este|esta|esse|essa)?\s*(e-?mail|mensagem|whats)|use o link que (enviamos|mandamos)|(e-?mail) que (enviamos|mandamos|trouxe)/i
+
+function collectStrings(node: unknown, path: string, into: { path: string; value: string }[]) {
+  if (typeof node === 'string') {
+    into.push({ path, value: node })
+    return
+  }
+  if (!node || typeof node !== 'object') return
+  for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+    collectStrings(child, path ? `${path}.${key}` : key, into)
+  }
+}
+
+test('DS-COPY-018: no live message tells the partner to answer a channel nobody opens', () => {
+  // The mutation: putting "responda o e-mail" back into any key outside the exception turns
+  // this red. It is a static guard over the keys, in the spirit of the rule — not an
+  // assertion about a rendered screen.
+  const HUMAN_SENT = 'PartnerProposals.outbound.'
+
+  for (const locale of ['pt', 'en', 'es']) {
+    const messages = JSON.parse(readFileSync(resolve(REPO_ROOT, `messages/${locale}.json`), 'utf8'))
+    const strings: { path: string; value: string }[] = []
+    collectStrings(messages, '', strings)
+
+    for (const entry of strings) {
+      if (entry.path.startsWith(HUMAN_SENT)) continue
+      assert.equal(
+        CHANNEL_INSTRUCTION.test(entry.value),
+        false,
+        `${locale}.json · ${entry.path} points at a channel this system never opens: "${entry.value}"`
+      )
+    }
+  }
+})
+
+test('DS-COPY-018: the one exception is a text a person sends, and the screen says so', () => {
+  // If this ever stops being true, the exception above stops being justified and the four
+  // outbound templates have to name a channel instead of an artefact.
+  const messages = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8'))
+  const notice = messages.PartnerProposals.outbound.manualNotice
+
+  assert.ok(notice.includes('não envia'), 'the screen tells the operator it sends nothing')
+  assert.ok(notice.includes('WhatsApp') || notice.includes('e-mail'))
+})
+
+test('DS-COPY-018: the form points at the person who handed the link over, never at an inbox', () => {
+  const states = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8')).PartnerForm
+    .states
+
+  for (const key of ['taxIdRegisteredBody', 'submitErrorBody', 'tooManyBody']) {
+    assert.ok(
+      states[key].includes('pessoa da Tuggi que passou este link'),
+      `states.${key} has to name the human channel BR-B2B-029 item 4 guarantees`
+    )
+  }
+})
+
+test('BR-B2B-030: the conference fields exist only on the internal side', () => {
+  // Item 5 of the rule: nothing in the trail is claimed on a public surface. The partner is
+  // never asked for a licence number, and the form has no key that mentions one.
+  const messages = JSON.parse(readFileSync(resolve(REPO_ROOT, 'messages/pt.json'), 'utf8'))
+  const serialized = JSON.stringify(messages.PartnerForm).toLowerCase()
+
+  for (const forbidden of ['número do alvará', 'município que emitiu', 'alvará']) {
+    assert.equal(serialized.includes(forbidden), false, `the form must not mention "${forbidden}"`)
+  }
+
+  for (const file of ['app/[locale]/parceria/page.tsx', 'components/partner-form/PartnerForm.tsx']) {
+    const source = readFileSync(resolve(REPO_ROOT, file), 'utf8')
+    assert.equal(source.includes('licenseNumber'), false, `${file} touches the internal trail`)
+    assert.equal(source.includes('licenseIssuer'), false, `${file} touches the internal trail`)
+  }
+})
+
 test('#341: the privacy notice describes what is actually collected', () => {
   // BR-USUARIO-028 item 1 ties the field to the declared category. The notice used to say
   // the Tuggi keeps the documents the person sends; nothing is sent and nothing is kept, and

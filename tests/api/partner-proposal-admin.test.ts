@@ -32,8 +32,10 @@ import {
 } from '@/lib/partner-form/regularity'
 import {
   DISCARD_REASONS,
+  LICENSE_FIELD_MAX,
   REVIEW_MARKS,
   applySubstituteTest,
+  describeConference,
   normalizeReviewNote,
   readReviewNote,
 } from '@/lib/partner-form/proposal-review'
@@ -49,7 +51,13 @@ const OPERATOR_ID = 'cms-user-1'
 
 /** What one operator wrote down after seeing the papers. The band's only input. */
 function conference(overrides: Partial<ConferenceRecord> = {}): ConferenceRecord {
-  return { documentsSeen: [], licenseValidUntil: null, ...overrides }
+  return {
+    documentsSeen: [],
+    licenseNumber: null,
+    licenseIssuer: null,
+    licenseValidUntil: null,
+    ...overrides,
+  }
 }
 
 function answers(overrides: PartnerAnswers = {}): PartnerAnswers {
@@ -295,6 +303,112 @@ test('BR-B2B-022: a validity date with no licence behind it is dropped, not stor
   assert.equal(note?.conference.licenseValidUntil, null)
 })
 
+test('BR-B2B-030: the licence number and the issuing municipality are stored as registered', () => {
+  const note = normalizeReviewNote({
+    marks: [],
+    observation: '',
+    conference: {
+      documentsSeen: ['business_license'],
+      licenseNumber: '  1.234/2019  ',
+      licenseIssuer: "Santa Bárbara d'Oeste",
+      licenseValidUntil: '2027-01-31',
+    },
+  })
+
+  assert.equal(note?.conference.licenseNumber, '1.234/2019', 'trimmed, never reformatted')
+  assert.equal(note?.conference.licenseIssuer, "Santa Bárbara d'Oeste")
+})
+
+test('BR-B2B-030: number and municipality fall with the tick, like the date already did', () => {
+  // One rule for the three fields of one document. Kept, the band would publish
+  // `Alvará 1.234/2019 · Búzios` for a licence nobody says they saw.
+  const note = normalizeReviewNote({
+    marks: [],
+    observation: '',
+    conference: {
+      documentsSeen: [],
+      licenseNumber: '1.234/2019',
+      licenseIssuer: 'Armação dos Búzios',
+      licenseValidUntil: '2027-01-31',
+    },
+  })
+
+  assert.equal(note?.conference.licenseNumber, null)
+  assert.equal(note?.conference.licenseIssuer, null)
+  assert.equal(note?.conference.licenseValidUntil, null)
+})
+
+test('BR-B2B-030: a licence field that is not a short string is refused, not truncated', () => {
+  const withValue = (value: unknown) =>
+    normalizeReviewNote({
+      marks: [],
+      observation: '',
+      conference: { documentsSeen: ['business_license'], licenseNumber: value },
+    })
+
+  assert.equal(withValue(42), null)
+  assert.equal(withValue({ nested: true }), null)
+  assert.equal(withValue('x'.repeat(LICENSE_FIELD_MAX + 1)), null)
+  assert.equal(withValue('x'.repeat(LICENSE_FIELD_MAX))?.conference.licenseNumber?.length, LICENSE_FIELD_MAX)
+})
+
+test('BR-B2B-030: the two new fields are NOT in the contract gate — only the validity is', () => {
+  // The operator's decision of 2026-08-16, and the 1st edge case of BR-B2B-030: an absent
+  // date is an absence, a blank number is an incomplete trail. Putting them in the gate would
+  // refuse a contract to a conference that is correct.
+  const registered = conference({
+    documentsSeen: ['business_license', 'incorporation_document'],
+    licenseValidUntil: '2027-01-31',
+  })
+
+  const report = buildRegularityReport(answers(), registered, new Date('2026-08-16T12:00:00Z'))
+  assert.equal(report.ready, true, 'no number and no municipality, and the contract is not blocked')
+  assert.equal(report.license.identityComplete, false, 'and the band still says the trail is short')
+
+  const complete = buildRegularityReport(
+    answers(),
+    { ...registered, licenseNumber: '1.234/2019', licenseIssuer: 'Armação dos Búzios' },
+    new Date('2026-08-16T12:00:00Z')
+  )
+  assert.equal(complete.license.identityComplete, true)
+  assert.equal(complete.license.number, '1.234/2019')
+})
+
+test('BR-B2B-030: the audit description is codes and dates — never what the operator typed', () => {
+  const note = normalizeReviewNote({
+    marks: ['dated', 'named_person'],
+    observation: 'O sócio Antônio trouxe o alvará em mãos.',
+    conference: {
+      documentsSeen: ['business_license'],
+      licenseNumber: '1.234/2019',
+      licenseIssuer: 'Armação dos Búzios',
+      licenseValidUntil: '2027-03-31',
+    },
+  })
+
+  const described = describeConference(note!)
+  assert.equal(described.includes('Antônio'), false, 'no free text')
+  assert.equal(described.includes('1.234/2019'), false, 'and no transcription of the document')
+  assert.equal(described.includes('Búzios'), false)
+  assert.equal(
+    described,
+    'documents=business_license; license_valid_until=2027-03-31; license_identity=number+issuer; marks=dated+named_person'
+  )
+})
+
+test('BR-B2B-030: half a trail is not a trail — one field alone does not complete it', () => {
+  const report = buildRegularityReport(
+    answers(),
+    conference({
+      documentsSeen: ['business_license'],
+      licenseNumber: '1.234/2019',
+      licenseValidUntil: '2027-01-31',
+    }),
+    new Date('2026-08-16T12:00:00Z')
+  )
+  assert.equal(report.license.identityComplete, false)
+})
+
 test('BR-B2B-022: an annotation written before the conference existed reads as "nothing seen"', () => {
   // The column is free-form JSON and rows written by the previous shape are still there. The
   // wrong answer is not a crash, it is a report that quietly claims the papers are in order.
@@ -479,6 +593,8 @@ function freshState(
         promoted_by: null,
         promoted_client_id: null,
         review_note: null,
+        reviewed_at: null,
+        reviewed_by: null,
         ...overrides.submission,
       },
     ],
@@ -631,8 +747,12 @@ test('#341: a promotion that fails to write the client hands the proposal back �
   assert.equal(state.clients[0].city, undefined, 'and the client record is untouched')
 })
 
-test('BR-B2B-026: a proposal still in draft cannot be promoted', async () => {
-  state = freshState({ submission: { status: 'draft', submitted_at: null } })
+test('BR-B2B-026: a proposal somebody already promoted cannot be promoted again', async () => {
+  // There is no `draft` row to test any more — the CHECK of `20260814140000` accepts
+  // `submitted`, `promoted` and `discarded`, and the copy and the branch that described a
+  // draft went with it. What remains is the claim: `status = 'submitted'` is a predicate of
+  // the UPDATE, so a second click matches no row.
+  state = freshState({ submission: { status: 'promoted' } })
 
   const response = await PROMOTE(request('POST', { approved: [], industry: 'Restaurante' }), proposalContext)
   const payload = await response.json()
@@ -722,7 +842,12 @@ test('BR-B2B-011: the annotation changes no status and reaches no client record'
   assert.deepEqual(state.submissions[0].review_note, {
     marks: ['dated'],
     observation: 'O avô abriu em 1962.',
-    conference: { documentsSeen: [], licenseValidUntil: null },
+    conference: {
+      documentsSeen: [],
+      licenseNumber: null,
+      licenseIssuer: null,
+      licenseValidUntil: null,
+    },
   })
   assert.equal(state.touchedTables.indexOf('clients') < 0, true)
 })
@@ -745,6 +870,81 @@ test('BR-B2B-011: a discard reason outside the closed list is refused', async ()
 
   assert.equal(response.status, 400)
   assert.equal(state.submissions[0].status, 'submitted')
+})
+
+test('BR-B2B-030: the annotation that opens the contract door says who wrote it', async () => {
+  // The mutation this test exists for: removing `logAuditEvent` from
+  // `app/api/admin/partner-proposals/[submissionId]/review-note/route.ts` turns it red.
+  //
+  // Why it is not covered by `reviewed_by` on the row: `review_note` is an UPDATE that
+  // OVERWRITES. A second operator rewrites the conference, `reviewed_by` moves to them, and
+  // the earlier assertion of regularity disappears with no trace. This row is where it
+  // survives (security review, 2026-08-16, M-2).
+  state = freshState()
+
+  const response = await SAVE_NOTE(
+    request('PUT', {
+      marks: ['dated'],
+      observation: 'Alvará conferido no balcão, com o sócio presente.',
+      conference: {
+        documentsSeen: ['business_license'],
+        licenseNumber: '1.234/2019',
+        licenseIssuer: 'Armação dos Búzios',
+        licenseValidUntil: '2027-03-31',
+      },
+    }),
+    proposalContext
+  )
+  assert.equal(response.status, 200)
+
+  const row = state.audit_logs.find((entry) => entry.action === 'REVIEW_PARTNER_PROPOSAL')
+  assert.ok(row, 'the write that decides whether a contract can be produced is audited')
+  assert.equal(row?.entity, 'PARTNER_PROPOSAL')
+  assert.equal(row?.entity_id, SUBMISSION_ID)
+  assert.equal(row?.user_id, OPERATOR_ID, 'the trail names who asserted it')
+  assert.equal(row?.user_email, 'admin@tuggi.app')
+
+  // Codes, never the annotation: the observation is free text about somebody's business.
+  assert.equal(row?.description.includes('balcão'), false, 'no free text in the trail')
+  assert.ok(row?.description.includes('documents=business_license'))
+  assert.ok(row?.description.includes('license_identity=number+issuer'))
+  assert.ok(row?.description.includes('license_valid_until=2027-03-31'))
+})
+
+test('BR-B2B-030: an annotation that could not be saved leaves no trail claiming it was', async () => {
+  state = freshState()
+  state.submissions = []
+
+  const response = await SAVE_NOTE(request('PUT', { marks: [], observation: '' }), proposalContext)
+
+  assert.equal(response.status, 503)
+  assert.equal(
+    state.audit_logs.some((entry) => entry.action === 'REVIEW_PARTNER_PROPOSAL'),
+    false
+  )
+})
+
+test('BR-B2B-030: the conference survives the save and comes back whole', async () => {
+  state = freshState()
+
+  await SAVE_NOTE(
+    request('PUT', {
+      marks: [],
+      observation: '',
+      conference: {
+        documentsSeen: ['business_license'],
+        licenseNumber: '1.234/2019',
+        licenseIssuer: "Santa Bárbara d'Oeste",
+        licenseValidUntil: '2027-03-31',
+      },
+    }),
+    proposalContext
+  )
+
+  const detail = await (await GET_PROPOSAL(request('GET'), proposalContext)).json()
+  assert.equal(detail.conference.licenseNumber, '1.234/2019')
+  assert.equal(detail.conference.licenseIssuer, "Santa Bárbara d'Oeste")
+  assert.ok(detail.submission.reviewedAt, 'and the screen can say when it was registered')
 })
 
 test('#341: promoting and discarding each leave a row in the trail', async () => {
@@ -835,7 +1035,13 @@ test('BR-B2B-022: the conference block says whose word it is, and claims no veri
   // by an operator is that operator's assertion, and the screen has to say so — otherwise the
   // band reads as a document check the Tuggi performed.
   assert.ok(copy.conference.intro.length > 40, 'the block explains what is being registered')
-  assert.match(copy.regularity.source, /pessoalmente/)
+  // Whose word it is now lives in the two places that carry it: the first-person tick the
+  // operator reads while registering, and the band line that names them afterwards. `source`
+  // was split in two (spec `design` §2.4) and keeps only the limit.
+  assert.match(copy.conference.seen.business_license, /^Vi /)
+  assert.match(copy.regularity.incorporationOk, /pessoalmente/)
+  assert.ok(copy.regularity.checkedBy.includes('{person}'))
+  assert.match(copy.regularity.source, /não atesta a autenticidade/)
   for (const forbidden of ['auditamos', 'verificamos', 'certificamos', 'validamos']) {
     assert.equal(
       JSON.stringify(copy).toLowerCase().includes(forbidden),
@@ -843,6 +1049,59 @@ test('BR-B2B-022: the conference block says whose word it is, and claims no veri
       `the screen must not claim to "${forbidden}"`
     )
   }
+})
+
+test('BR-B2B-022: the band claims no attachment — there is no file anywhere in this product', () => {
+  // The screen whose whole job is to stop a tick being read as a guarantee was publishing
+  // `Anexado ·` for a document that exists on nobody's disk. The existing guard missed it
+  // because it forbade `anexar` and the copy said `Anexado`.
+  const serialized = JSON.stringify(copy).toLowerCase()
+  for (const forbidden of ['anexad', 'arquivo enviado', 'baixar']) {
+    assert.equal(serialized.includes(forbidden), false, `the band must not say "${forbidden}"`)
+  }
+  assert.equal(copy.regularity.licenseOk.indexOf('Vigente até'), 0)
+})
+
+test('BR-B2B-030: the band says who registered the conference, before saying what it is not', () => {
+  // Item 2 of the rule asks the trail to name the person and the date. `source` then carries
+  // the limit of BR-B2B-022 item 7 — and carries its own scope, because the old text opened
+  // with `Estas duas linhas` while the band has four.
+  assert.ok(copy.regularity.checkedBy.includes('{person}'))
+  assert.ok(copy.regularity.checkedBy.includes('{date}'))
+  assert.equal(copy.regularity.source.includes('duas linhas'), false)
+  assert.ok(copy.regularity.source.includes('alvará'), 'the limit names what it is about')
+  assert.ok(copy.regularity.licenseIdentity.includes('{number}'))
+  assert.ok(copy.regularity.licenseIdentity.includes('{issuer}'))
+  assert.ok(copy.regularity.licenseIdentityMissing.length > 0)
+})
+
+test('BR-B2B-030: the conference block names the three licence fields and the reason each is off', () => {
+  for (const key of [
+    'licenseNumberLabel',
+    'licenseNumberHint',
+    'licenseNumberDisabled',
+    'licenseIssuerLabel',
+    'licenseIssuerHint',
+    'licenseIssuerDisabled',
+  ]) {
+    assert.ok(copy.conference[key], `conference.${key} is missing`)
+  }
+  // DS-A11Y-003: the reason beside the disabled control, never the grey alone.
+  assert.ok(copy.conference.licenseNumberDisabled.includes('Marque o alvará'))
+  assert.ok(copy.conference.licenseIssuerDisabled.includes('Marque o alvará'))
+})
+
+test('#341: the screen describes no `draft` proposal — the CHECK does not accept one', () => {
+  // Three keys and a whole branch described a state `20260814140000` refuses. An orphan i18n
+  // key lies about what the product does, and it lies with a green build.
+  for (const dead of ['draftTitle', 'draftBody', 'draftActionReason']) {
+    assert.equal(dead in copy.review, false, `review.${dead} describes a state that cannot exist`)
+  }
+  const source = readFileSync(
+    resolve(REPO_ROOT, 'components/admin/partner-proposals/ProposalReview.tsx'),
+    'utf8'
+  )
+  assert.equal(source.includes("'draft'"), false, 'and no branch is left reading for it')
 })
 
 test('#341: the promotion panel lists what it never writes, and the list is the code one', () => {

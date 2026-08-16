@@ -35,7 +35,13 @@ function service() {
   return getSupabaseService().schema(SCHEMA)
 }
 
-export type ProposalStatus = 'draft' | 'submitted' | 'promoted' | 'discarded'
+/**
+ * THERE IS NO `draft`. A proposal exists when somebody presses send: with no credential there
+ * is no session to resume, and the CHECK of `20260814140000` accepts these three and nothing
+ * else. The value used to be in this union and produced a queue filter, a banner and a
+ * disabled button for a state the database refuses.
+ */
+export type ProposalStatus = 'submitted' | 'promoted' | 'discarded'
 
 export interface AdminSubmissionRow {
   id: string
@@ -49,10 +55,13 @@ export interface AdminSubmissionRow {
   promoted_client_id: string | null
   /** The conference annotation, in the shape `normalizeReviewNote` writes. */
   review_note: unknown
+  /** When the annotation above was last written, and by which auth user. */
+  reviewed_at: string | null
+  reviewed_by: string | null
 }
 
 const SUBMISSION_COLUMNS =
-  'id, status, answers, submitted_at, updated_at, created_at, promoted_at, promoted_by, promoted_client_id, review_note'
+  'id, status, answers, submitted_at, updated_at, created_at, promoted_at, promoted_by, promoted_client_id, review_note, reviewed_at, reviewed_by'
 
 export interface ProposalListItem extends AdminSubmissionRow {
   /** What the team registered having seen — the list badge answers "can this one already
@@ -116,6 +125,13 @@ export interface ProposalDetail {
   client: ClientRecord | null
   /** Other proposals still waiting with the same CNPJ — resolved by a person, never merged. */
   duplicates: { id: string; submittedAt: string | null }[]
+  /**
+   * The two acts of the screen in words instead of uuids — BR-B2B-030 item 2 asks the trail
+   * to say WHO conferred, and a uuid on screen says it to nobody. Null when the lookup does
+   * not answer, and the copy then leaves the line out rather than printing a placeholder.
+   */
+  reviewedByLabel: string | null
+  promotedByLabel: string | null
 }
 
 /** The columns the promotion panel compares against. An allowlist, like the write. */
@@ -142,6 +158,30 @@ export async function loadProposalDetail(submissionId: string): Promise<Proposal
       ? await loadClient(row.promoted_client_id)
       : await findClientByTaxId(row.answers.tax_id ?? ''),
     duplicates: await findPendingDuplicates(submissionId, row.answers.tax_id ?? ''),
+    reviewedByLabel: await operatorLabel(row.reviewed_by),
+    promotedByLabel: await operatorLabel(row.promoted_by),
+  }
+}
+
+/**
+ * Who an auth uid is, in something an operator can read.
+ *
+ * WHY THE AUTH ADMIN API AND NOT A JOIN: `core.cms_users` is keyed by e-mail and has no
+ * column holding the auth uid, so there is no path in `core` from `reviewed_by` to a person.
+ * `promoted_by` and `reviewed_by` are both `auth.users(id)`, and this is the only lookup that
+ * resolves them.
+ *
+ * It fails to null on purpose. A trail line is worth showing or leaving out; it is not worth
+ * failing the whole screen, and printing the uuid would be the third option that helps nobody.
+ */
+async function operatorLabel(userId: string | null): Promise<string | null> {
+  if (!userId) return null
+  try {
+    const { data, error } = await getSupabaseService().auth.admin.getUserById(userId)
+    if (error || !data?.user?.email) return null
+    return data.user.email
+  } catch {
+    return null
   }
 }
 

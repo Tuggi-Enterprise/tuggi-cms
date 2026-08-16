@@ -32,11 +32,20 @@ export const LICENSE_EXPIRY_WARNING_DAYS = 30
 export interface ConferenceRecord {
   /** The documents of BR-B2B-022 item 3 the team confirmed in person. */
   documentsSeen: PartnerDocumentKind[]
+  /** The number printed on the licence they saw, as printed, or null. */
+  licenseNumber: string | null
+  /** The municipality that issued it — often not the one in the address — or null. */
+  licenseIssuer: string | null
   /** The date printed on the licence they saw, ISO `YYYY-MM-DD`, or null. */
   licenseValidUntil: string | null
 }
 
-export const EMPTY_CONFERENCE: ConferenceRecord = { documentsSeen: [], licenseValidUntil: null }
+export const EMPTY_CONFERENCE: ConferenceRecord = {
+  documentsSeen: [],
+  licenseNumber: null,
+  licenseIssuer: null,
+  licenseValidUntil: null,
+}
 
 export type RegularityItemId =
   | 'tax_id'
@@ -66,6 +75,17 @@ export interface RegularityReport {
     validUntil: string | null
     /** Negative when already expired. Null when there is no date to count from. */
     daysRemaining: number | null
+    /**
+     * The two identity fields of BR-B2B-030 item 2, carried so the band can show the trail
+     * without a second input. THEY DO NOT DECIDE `status`, and that is the operator's
+     * decision of 2026-08-16: what determines regularity is the VALIDITY (1st edge case of
+     * BR-B2B-030 — only an absent date counts as absence). Number and municipality make the
+     * trail traceable; blank, they leave it incomplete and refuse no contract.
+     */
+    number: string | null
+    issuer: string | null
+    /** True only when BOTH are registered — half a trail is not a trail. */
+    identityComplete: boolean
   }
   /** Everything still needed before a contract can be signed, in band order. */
   missing: RegularityItemId[]
@@ -98,17 +118,25 @@ export function licenseStatus(
 ): RegularityReport['license'] {
   const raw = (conference.licenseValidUntil ?? '').trim()
   const seen = conference.documentsSeen.indexOf('business_license') >= 0
+  const number = (conference.licenseNumber ?? '').trim() || null
+  const issuer = (conference.licenseIssuer ?? '').trim() || null
+  // Identity is only shown for a licence somebody says they saw: a number with no tick behind
+  // it is a line about a document nobody has looked at.
+  const identity = seen
+    ? { number, issuer, identityComplete: number !== null && issuer !== null }
+    : { number: null, issuer: null, identityComplete: false }
 
-  if (!seen) return { status: 'missing', validUntil: raw || null, daysRemaining: null }
-  if (!raw) return { status: 'undated', validUntil: null, daysRemaining: null }
+  if (!seen) return { status: 'missing', validUntil: raw || null, daysRemaining: null, ...identity }
+  if (!raw) return { status: 'undated', validUntil: null, daysRemaining: null, ...identity }
 
   const daysRemaining = daysUntil(raw, now)
-  if (daysRemaining === null) return { status: 'undated', validUntil: null, daysRemaining: null }
+  if (daysRemaining === null)
+    return { status: 'undated', validUntil: null, daysRemaining: null, ...identity }
 
-  if (daysRemaining < 0) return { status: 'expired', validUntil: raw, daysRemaining }
+  if (daysRemaining < 0) return { status: 'expired', validUntil: raw, daysRemaining, ...identity }
   if (daysRemaining <= LICENSE_EXPIRY_WARNING_DAYS)
-    return { status: 'expiring', validUntil: raw, daysRemaining }
-  return { status: 'valid', validUntil: raw, daysRemaining }
+    return { status: 'expiring', validUntil: raw, daysRemaining, ...identity }
+  return { status: 'valid', validUntil: raw, daysRemaining, ...identity }
 }
 
 /**
@@ -116,6 +144,12 @@ export function licenseStatus(
  *
  * Two of the four items come from what the partner typed and two from what the team saw; the
  * report does not distinguish them, because the contract does not either.
+ *
+ * THE LICENCE NUMBER AND THE ISSUING MUNICIPALITY ARE NOT IN THIS GATE, deliberately. They
+ * are two of the five fields of BR-B2B-030 item 2, and its first edge case puts only the
+ * ABSENT DATE on the side of absence: a conference that is correct except for a blank number
+ * would be refused a contract, and refusing it is the defect. If that is ever to change it is
+ * the `produto`'s decision, and it changes here — in `items`, not in the screen.
  */
 export function buildRegularityReport(
   answers: PartnerAnswers,

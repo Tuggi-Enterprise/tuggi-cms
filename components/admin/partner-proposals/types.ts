@@ -47,8 +47,12 @@ export interface ProposalDetail {
     updatedAt: string | null
     createdAt: string
     promotedAt: string | null
+    /** Who, in words — the route resolves the auth uid before it gets here. */
     promotedBy: string | null
     promotedClientId: string | null
+    /** When the conference was last registered, and by whom (BR-B2B-030, item 2). */
+    reviewedAt: string | null
+    reviewedBy: string | null
   }
   /** The annotation already stored, so the screen opens on what the last reviewer wrote. */
   note: ReviewNote

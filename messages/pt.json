@@ -2274,11 +2274,11 @@
     "step4": {
       "title": "Conferir e enviar",
       "subtitle": "Confira o que você escreveu. Se precisar corrigir, toque em editar.",
-      "afterSubmit": "Depois de enviar, você ainda pode corrigir: é só responder o e-mail.",
+      "beforeSubmit": "Confira o e-mail e o telefone antes de enviar: é por eles que a gente fala com você.",
       "empty": "não preenchido"
     },
     "privacy": {
-      "notice": "Estes dados são de uma pessoa, não da empresa. A gente usa o seu nome, o cargo, o e-mail e o telefone só para tratar desta parceria e gerar o contrato.",
+      "notice": "Os campos deste passo são de uma pessoa, não da empresa. O nome, o cargo, o e-mail e o telefone ficam guardados junto com a sua proposta, e a Tuggi os usa para falar com você sobre esta parceria e para gerar o contrato.",
       "link": "Como tratamos os seus dados"
     },
     "fields": {
@@ -2407,17 +2407,17 @@
       "too_long": "Você passou de {max} caracteres. Tire {over} para continuar."
     },
     "states": {
-      "draftResumed": "A gente guardou neste aparelho o que você preencheu em {date}. Continue de onde parou.",
+      "draftResumed": "O que você preencheu em {date} ficou guardado neste aparelho. Continue de onde parou.",
       "offlineTitle": "Você está sem internet.",
       "offlineBody": "O que você escrever agora fica no aparelho, e a gente envia quando a conexão voltar.",
       "submitErrorTitle": "Não conseguimos enviar agora.",
-      "submitErrorBody": "Toque em tentar de novo. Se continuar, responda o e-mail que a gente resolve por lá.",
+      "submitErrorBody": "Tente enviar de novo. Se continuar dando erro, fale com a pessoa da Tuggi que passou este link — o que você preencheu continua guardado neste aparelho.",
       "successTitle": "Recebemos os seus dados.",
-      "successBody": "A gente confere e volta a falar com você por este e-mail: {email}.",
-      "taxIdRegisteredTitle": "Este CNPJ já está cadastrado na Tuggi.",
-      "taxIdRegisteredBody": "Se o estabelecimento é seu, responda o e-mail que trouxe você até aqui que a gente resolve por lá. Se você tem mais de um lugar, confira o número: cada endereço tem o seu CNPJ.",
-      "tooManyTitle": "Muitos envios desta mesma conexão.",
-      "tooManyBody": "A gente recebeu vários cadastros deste lugar em pouco tempo. Espere alguns minutos e envie de novo — o que você preencheu continua aqui."
+      "successBody": "A gente confere e volta a falar com você por este e-mail: {email}. Enviar o formulário ainda não fecha a parceria: o contrato é o passo seguinte.",
+      "taxIdRegisteredTitle": "Não dá para seguir com este CNPJ por aqui.",
+      "taxIdRegisteredBody": "Não é erro de digitação. Se o estabelecimento é seu, fale com a pessoa da Tuggi que passou este link — ela resolve com você. Se você cuida de mais de um endereço, confira o número: cada endereço tem o seu próprio CNPJ.",
+      "tooManyTitle": "Chegaram muitos envios desta mesma rede.",
+      "tooManyBody": "Não é nada que você tenha feito de errado — em internet compartilhada, os envios contam juntos. Tente de novo mais tarde: o que você preencheu continua guardado neste aparelho. Se precisar resolver hoje, fale com a pessoa da Tuggi que passou este link."
     },
     "savedOnDevice": "O que você escrever fica guardado neste aparelho por 24 horas, até você enviar."
   },
@@ -2455,7 +2455,7 @@
       "errorTitle": "Não foi possível carregar as propostas.",
       "retry": "Tentar de novo",
       "clearFilters": "Limpar filtros",
-      "duplicateBadge": "{count, plural, one {# duplicada} other {# duplicadas}}"
+      "duplicateBadge": "+{count} com o mesmo CNPJ"
     },
     "review": {
       "back": "Voltar para a lista",
@@ -2465,9 +2465,6 @@
       "loading": "Carregando a proposta.",
       "notFoundTitle": "Esta proposta não existe.",
       "notFoundBody": "Ela pode ter sido descartada e removida.",
-      "draftTitle": "O parceiro ainda está preenchendo.",
-      "draftBody": "O que você vê é o rascunho de {date} e pode mudar. Promover só depois do envio.",
-      "draftActionReason": "Só dá para promover depois que a pessoa enviar o formulário.",
       "errorTitle": "Não foi possível carregar a proposta.",
       "retry": "Tentar de novo",
       "answersHeading": "O que o parceiro preencheu",
@@ -2475,7 +2472,7 @@
       "step2Heading": "Quem responde",
       "absence": {
         "contract": "Falta para o contrato",
-        "optional": "Opcional — não enviado",
+        "optional": "Opcional — não respondido",
         "triage": "Sem resposta — ajudaria a triagem"
       },
       "promotedTitle": "Promovido em {date} por {person}",
@@ -2483,7 +2480,7 @@
       "promotedBody": "O cliente foi criado com status Pendente. Aprovar a parceria continua sendo outra decisão, na ficha do cliente (BR-B2B-010, item 1) — e gerar o contrato é o passo seguinte, com o gate de regularidade.",
       "discardedTitle": "Descartada em {date}",
       "duplicateTitle": "{count, plural, one {Há outra proposta com este mesmo CNPJ.} other {Há # outras propostas com este mesmo CNPJ.}}",
-      "duplicateBody": "Nada foi juntado automaticamente. Escolha qual delas promover e descarte a outra com o motivo \"proposta duplicada\".",
+      "duplicateBody": "Nada foi juntado automaticamente. Escolha uma para promover e descarte as outras com o motivo de duplicidade.",
       "duplicateOpen": "Abrir a proposta de {date}"
     },
     "regularity": {
@@ -2497,19 +2494,22 @@
       },
       "taxIdOk": "CNPJ {value}",
       "taxIdMissing": "Falta para o contrato: CNPJ",
-      "licenseOk": "Anexado · vigente até {date} ({days, plural, one {falta # dia} other {faltam # dias}})",
+      "licenseOk": "Vigente até {date} ({days, plural, one {falta # dia} other {faltam # dias}})",
+      "licenseIdentity": "Alvará {number} · {issuer}",
+      "licenseIdentityMissing": "Alvará sem número e município registrados.",
       "licenseMissing": "Falta para o contrato: alvará vigente",
       "licenseExpired": "Venceu em {date} — {days, plural, one {há # dia} other {há # dias}}. Para o contrato, alvará vencido é o mesmo que não ter alvará.",
       "licenseExpiring": "Vence em {date}, daqui a {days, plural, one {# dia} other {# dias}}. Se o contrato demorar, ele vence no meio do caminho.",
       "licenseUndated": "Falta para o contrato: a data de validade do alvará. Sem ela não dá para saber se o documento ainda vale.",
-      "incorporationOk": "Conferido com o parceiro.",
+      "incorporationOk": "Visto pessoalmente.",
       "incorporationMissing": "Falta para o contrato: documento de constituição",
       "representativeOk": "{name} · {role}",
       "representativeMissing": "Falta para o contrato: nome e cargo de quem assina",
       "ready": "Documentação em ordem para gerar o contrato.",
       "notReady": "Falta para gerar o contrato: {items}.",
       "itemSeparator": ", ",
-      "source": "Estas duas linhas são o registro de quem conferiu os documentos pessoalmente. A Tuggi não guarda os arquivos, e isto não é uma verificação de documento."
+      "checkedBy": "Conferência registrada por {person} em {date}.",
+      "source": "A Tuggi não fica com cópia do alvará nem do documento de constituição, e não atesta a autenticidade deles."
     },
     "story": {
       "heading": "A história do lugar",
@@ -2641,12 +2641,18 @@
       }
     },
     "conference": {
-      "heading": "Documentos conferidos",
+      "heading": "Conferência presencial",
       "intro": "A Tuggi só assina contrato com estabelecimento com documentação em ordem. Marque o que você viu com o parceiro, pessoalmente.",
       "seen": {
         "business_license": "Vi o alvará de funcionamento",
         "incorporation_document": "Vi o documento de constituição"
       },
+      "licenseNumberLabel": "Número do alvará",
+      "licenseNumberHint": "O número impresso no alvará que você viu. Copie como está, com pontos e barras.",
+      "licenseNumberDisabled": "Marque o alvará para registrar o número.",
+      "licenseIssuerLabel": "Município que emitiu",
+      "licenseIssuerHint": "A prefeitura que assinou o alvará. Nem sempre é a cidade do endereço do estabelecimento.",
+      "licenseIssuerDisabled": "Marque o alvará para registrar o município.",
       "validUntilLabel": "Validade do alvará",
       "validUntilHint": "A data que está impressa no alvará que você viu.",
       "validUntilDisabled": "Marque o alvará acima para registrar a validade.",

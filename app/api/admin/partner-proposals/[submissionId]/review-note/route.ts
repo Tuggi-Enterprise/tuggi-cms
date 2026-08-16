@@ -12,13 +12,20 @@
  * partner). What the conference record does decide is whether a CONTRACT can be produced, and
  * that gate has always lived on the other side of this write.
  *
+ * IT IS AUDITED, AND IT IS THE ONE WRITE ON THIS SCREEN THAT HAS TO BE. `promote`, `discard`
+ * and `restore` each leave a row; this one is the write that OPENS THE CONTRACT DOOR, and it
+ * is an UPDATE that overwrites — a second operator rewrites the conference, `reviewed_by`
+ * moves with it, and the earlier assertion is gone. The row here is the only place the
+ * earlier assertion survives (security review, 2026-08-16, M-2).
+ *
  * Nothing here is sent to the partner.
  */
 
 import { NextResponse } from 'next/server'
 import { withAuth, withRateLimit } from '@/lib/auth-middleware'
+import { logAuditEvent } from '@/lib/services/audit-service'
 import { saveReviewNote } from '@/lib/services/partner-proposal-admin-service'
-import { normalizeReviewNote } from '@/lib/partner-form/proposal-review'
+import { normalizeReviewNote, describeConference } from '@/lib/partner-form/proposal-review'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -46,6 +53,19 @@ export const PUT = withRateLimit(30, 60_000)(
     if (!saved) {
       return NextResponse.json({ error: 'note_not_saved' }, { status: 503 })
     }
+
+    // Codes only. The observation is free text written about a person's establishment and
+    // never leaves the annotation; what the trail needs is WHO asserted WHAT, and the codes
+    // plus `user_id`/`user_email` answer both.
+    await logAuditEvent({
+      request: req,
+      action: 'REVIEW_PARTNER_PROPOSAL',
+      entity: 'PARTNER_PROPOSAL',
+      entityId: submissionId,
+      userId: auth.user.id,
+      userEmail: auth.user.email ?? null,
+      description: describeConference(note),
+    })
 
     return NextResponse.json({ ok: true, note })
   })

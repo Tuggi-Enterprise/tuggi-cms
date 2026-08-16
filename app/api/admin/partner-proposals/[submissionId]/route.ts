@@ -38,8 +38,12 @@ export const GET = withRateLimit(60, 60_000)(
         updatedAt: detail.submission.updated_at,
         createdAt: detail.submission.created_at,
         promotedAt: detail.submission.promoted_at,
-        promotedBy: detail.submission.promoted_by,
+        // The person, not the uuid: `promoted_by` and `reviewed_by` are auth ids and the
+        // screen shows them to a human (BR-B2B-030, item 2).
+        promotedBy: detail.promotedByLabel,
         promotedClientId: detail.submission.promoted_client_id,
+        reviewedAt: detail.submission.reviewed_at,
+        reviewedBy: detail.reviewedByLabel,
       },
       note: detail.note,
       conference: detail.conference,

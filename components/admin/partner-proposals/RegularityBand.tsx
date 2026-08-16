@@ -12,10 +12,11 @@
  * line says `Venceu em {data} — há {n} dias` with the number already counted. Every line
  * carries an icon AND text (DS-A11Y-003); the icon alone would leave the state to colour.
  *
- * THE TWO DOCUMENT LINES ARE SOMEBODY'S WORD, NOT A FILE, and the band says so in the footer:
- * the papers are checked in person and registered by hand below (operator, 2026-08-16). It
- * still never says "aprovado" and never claims the Tuggi verified, audited or certified
- * anybody — item 7 of the rule.
+ * THE TWO DOCUMENT LINES ARE SOMEBODY'S WORD, NOT A FILE, and the band says so twice, in this
+ * order: `checkedBy` names the person and the date (BR-B2B-030, item 2), and only then does
+ * the footer say what the Tuggi does not hold and does not attest (BR-B2B-022, item 7).
+ * Affirm, then limit — and the limit carries its own scope, because a footer that opens with
+ * "these two lines" points at a set that changes every time the band gains a line.
  */
 
 import { useTranslations } from 'next-intl'
@@ -28,9 +29,12 @@ import type { Translator } from './types'
 interface RegularityBandProps {
   report: RegularityReport
   answers: PartnerAnswers
+  /** Who registered the conference and when — absent until somebody saves one. */
+  checkedBy: string | null
+  checkedAt: string | null
 }
 
-export function RegularityBand({ report, answers }: RegularityBandProps) {
+export function RegularityBand({ report, answers, checkedBy, checkedAt }: RegularityBandProps) {
   const t = useTranslations('PartnerProposals')
 
   const lines = report.items.map((item) => {
@@ -43,9 +47,10 @@ export function RegularityBand({ report, answers }: RegularityBandProps) {
           text: item.ok
             ? t('regularity.taxIdOk', { value: answers.tax_id ?? '' })
             : t('regularity.taxIdMissing'),
+          note: null,
         }
       case 'business_license':
-        return { id: item.id, ok: item.ok, ...licenseLine(report, t) }
+        return { id: item.id, ok: item.ok, ...licenseLine(report, t), note: identityNote(report, t) }
       case 'incorporation_document':
         return {
           id: item.id,
@@ -54,6 +59,7 @@ export function RegularityBand({ report, answers }: RegularityBandProps) {
           text: item.ok
             ? t('regularity.incorporationOk')
             : t('regularity.incorporationMissing'),
+          note: null,
         }
       default:
         return {
@@ -66,6 +72,7 @@ export function RegularityBand({ report, answers }: RegularityBandProps) {
                 role: answers.representative_role ?? '',
               })
             : t('regularity.representativeMissing'),
+          note: null,
         }
     }
   })
@@ -89,6 +96,11 @@ export function RegularityBand({ report, answers }: RegularityBandProps) {
             <span>
               <span className="font-medium text-gray-900">{t(`regularity.items.${line.id}`)}: </span>
               <span className={line.tone === 'ok' ? 'text-gray-800' : 'text-gray-900'}>{line.text}</span>
+              {/* A municipality name wraps rather than truncates: `Santa Bárbara d'Oeste` is
+                  what a licence says, and a trail nobody can read is not a trail. */}
+              {line.note ? (
+                <span className="block break-words text-xs text-gray-800">{line.note}</span>
+              ) : null}
             </span>
           </li>
         ))}
@@ -107,9 +119,12 @@ export function RegularityBand({ report, answers }: RegularityBandProps) {
         </span>
       </p>
 
-      <p className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-700">
-        {t('regularity.source')}
-      </p>
+      <div className="mt-3 border-t border-gray-200 pt-3 text-xs text-gray-700">
+        {checkedBy && checkedAt && (
+          <p>{t('regularity.checkedBy', { person: checkedBy, date: formatDate(checkedAt) })}</p>
+        )}
+        <p className={checkedBy && checkedAt ? 'mt-1' : undefined}>{t('regularity.source')}</p>
+      </div>
     </section>
   )
 }
@@ -145,6 +160,20 @@ function licenseLine(
     tone: 'ok',
     text: t('regularity.licenseOk', { date: formatDate(validUntil), days: daysRemaining ?? 0 }),
   }
+}
+
+/**
+ * The trail of BR-B2B-030 item 2, under the line it belongs to. It is NOT part of the gate:
+ * a licence in date with no number registered is still a licence in date, and the band says
+ * the trail is incomplete without turning the line red — the decision is the operator's, of
+ * 2026-08-16, and it lives in `buildRegularityReport`, not here.
+ */
+function identityNote(report: RegularityReport, t: Translator): string | null {
+  const { status, number, issuer, identityComplete } = report.license
+  if (status === 'missing') return null
+  if (identityComplete)
+    return t('regularity.licenseIdentity', { number: number ?? '', issuer: issuer ?? '' })
+  return t('regularity.licenseIdentityMissing')
 }
 
 /** Decorative: every one of these sits beside text that says the same thing. */

@@ -20,17 +20,20 @@ export type AuditAction =
   | 'REVOKE_TIME_CREDIT'
   // Partnership (#341). Promoting and discarding are irreversible acts of the team over a
   // live record, so each one leaves a row saying who, when and over which proposal.
-  // `CREATE_PARTNER_INVITE` is the act that mints a credential for somebody outside; the
-  // description never carries the token, and `sanitizeDescription` would drop it anyway.
-  | 'CREATE_PARTNER_INVITE'
-  | 'REVOKE_PARTNER_INVITE'
   | 'PROMOTE_PARTNER_PROPOSAL'
   | 'DISCARD_PARTNER_PROPOSAL'
   | 'RESTORE_PARTNER_PROPOSAL'
+  // The conference annotation. It writes no `status` and reaches no client record, and it is
+  // audited anyway: it is the write that decides whether a CONTRACT can be produced
+  // (BR-B2B-022 through BR-B2B-030), it is an UPDATE that OVERWRITES the previous operator's
+  // assertion, and `reviewed_by` on the row only ever names the last one. Without this row
+  // the single write that opens the contract door is the one act on the screen with no
+  // history — which is what the security review of 2026-08-16 found (M-2).
+  | 'REVIEW_PARTNER_PROPOSAL'
 
 /**
  * `CLIENT` is the record the promotion writes; `PARTNER_PROPOSAL` is the thing outside the
- * client that the act happened to (the proposal, the invite). Two entities and not one,
+ * client that the act happened to. Two entities and not one,
  * because "who changed this client" and "what happened to this proposal" are two questions
  * the audit page is asked separately.
  */

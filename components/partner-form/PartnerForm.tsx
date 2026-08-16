@@ -380,7 +380,10 @@ export function PartnerForm() {
             >
               {submitting ? t('actions.submitting') : t('actions.submit')}
             </button>
-            <p className="text-sm text-gray-700">{t('step4.afterSubmit')}</p>
+            {/* Read BEFORE the click, not after it: nothing here is correctable by replying
+                to an e-mail the Tuggi never sends (DS-COPY-018). The key was called
+                `afterSubmit` while the copy promised exactly that. */}
+            <p className="text-sm text-gray-700">{t('step4.beforeSubmit')}</p>
           </>
         )}
       </div>

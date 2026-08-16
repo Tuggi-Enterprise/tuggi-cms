@@ -12,6 +12,7 @@ import { cookies } from 'next/headers'
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
 import { validateAvatarUrl } from '@/lib/services/client-editable-fields'
+import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
 
 export async function GET(request: NextRequest) {
   try {
@@ -202,9 +203,10 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (clientError) {
-      // Check if email already exists
-      if (clientError.code === '23505') {
-        return NextResponse.json({ error: 'Email already exists' }, { status: 409 })
+      // Which unique field collided, said by the database and not guessed here.
+      const conflict = describeClientUniqueViolation(clientError)
+      if (conflict) {
+        return NextResponse.json({ error: conflict }, { status: 409 })
       }
       return NextResponse.json({ error: clientError.message }, { status: 500 })
     }

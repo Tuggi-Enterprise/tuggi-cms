@@ -73,6 +73,13 @@ export interface ReviewNote {
 /** Keeps a body from becoming an annotation with arbitrary keys or a novel in it. */
 export const REVIEW_OBSERVATION_MAX = 2000
 
+/**
+ * The licence number and the issuing municipality are transcriptions off a piece of paper,
+ * not prose: `Santa Bárbara d'Oeste` and a number with dots and slashes fit easily, and
+ * anything past this is somebody pasting something else into the field.
+ */
+export const LICENSE_FIELD_MAX = 120
+
 /** `YYYY-MM-DD`, the shape the date input produces and `daysUntil` can read. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -102,8 +109,13 @@ export function normalizeReviewNote(input: unknown): ReviewNote | null {
  * An absent `conference` is the empty record and not a refusal: an annotation written before
  * this existed is still a valid annotation, and reading it must not fail.
  *
- * A date with no licence behind it is dropped rather than kept, so the band can never show a
- * validity for a document nobody says they saw.
+ * THE THREE LICENCE FIELDS FALL TOGETHER WITH THE TICK. Number, municipality and validity all
+ * describe one document; without `business_license` on `documentsSeen` there is no document,
+ * and keeping them would let the band publish `Alvará 123 · Búzios, vigente até…` for a
+ * licence nobody says they saw. One rule for the three, not a rule for the date and silence
+ * for the other two. The screen keeps them in ITS OWN state while the operator is editing, so
+ * unticking by mistake never costs a retype (spec `design` §1) — what is dropped is what gets
+ * SAVED after a save with the tick off.
  */
 export function normalizeConference(input: unknown): ConferenceRecord | null {
   if (input === undefined || input === null) return { ...EMPTY_CONFERENCE }
@@ -122,8 +134,46 @@ export function normalizeConference(input: unknown): ConferenceRecord | null {
   const rawDate = typeof body.licenseValidUntil === 'string' ? body.licenseValidUntil.trim() : ''
   if (rawDate && !ISO_DATE.test(rawDate)) return null
 
-  const keepsDate = rawDate !== '' && documentsSeen.indexOf('business_license') >= 0
-  return { documentsSeen, licenseValidUntil: keepsDate ? rawDate : null }
+  const number = normalizeLicenseField(body.licenseNumber)
+  if (number === false) return null
+  const issuer = normalizeLicenseField(body.licenseIssuer)
+  if (issuer === false) return null
+
+  const seen = documentsSeen.indexOf('business_license') >= 0
+  return {
+    documentsSeen,
+    licenseNumber: seen ? number : null,
+    licenseIssuer: seen ? issuer : null,
+    licenseValidUntil: seen && rawDate !== '' ? rawDate : null,
+  }
+}
+
+/** `false` is "refuse the body"; `null` is "the operator left it blank". */
+function normalizeLicenseField(value: unknown): string | null | false {
+  if (value === undefined || value === null) return null
+  if (typeof value !== 'string') return false
+  const trimmed = value.trim()
+  if (trimmed.length > LICENSE_FIELD_MAX) return false
+  return trimmed || null
+}
+
+/**
+ * What the audit row says about one conference — codes and dates, never the observation and
+ * never anything typed about a person. It exists so the trail of BR-B2B-030 can be read
+ * without opening the annotation, and so that removing it from the route is visible.
+ */
+export function describeConference(note: ReviewNote): string {
+  const { documentsSeen, licenseNumber, licenseIssuer, licenseValidUntil } = note.conference
+  const identity = [licenseNumber ? 'number' : null, licenseIssuer ? 'issuer' : null]
+    .filter(Boolean)
+    .join('+')
+
+  return [
+    `documents=${documentsSeen.join('+') || 'none'}`,
+    `license_valid_until=${licenseValidUntil ?? 'none'}`,
+    `license_identity=${identity || 'none'}`,
+    `marks=${note.marks.join('+') || 'none'}`,
+  ].join('; ')
 }
 
 /** What a stored annotation means, with every older shape read as the empty record. */
