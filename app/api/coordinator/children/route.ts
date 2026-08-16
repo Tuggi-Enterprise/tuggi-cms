@@ -16,6 +16,7 @@ import {
   resolveParentForNewChild,
   canTouchClient,
 } from '@/lib/services/coordinator-service'
+import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
 
 export const dynamic = 'force-dynamic'
 
@@ -120,8 +121,11 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (insertError) {
-      if (insertError.code === '23505') {
-        return NextResponse.json({ error: 'Email already exists' }, { status: 409 })
+      // A child sharing the parent's e-mail is the point of this screen, not a conflict:
+      // several places, one owner. Only a real unique constraint answers 409 here.
+      const conflict = describeClientUniqueViolation(insertError)
+      if (conflict) {
+        return NextResponse.json({ error: conflict }, { status: 409 })
       }
       // 23514 = trigger core.enforce_client_hierarchy_depth (2 níveis / ciclo)
       if (insertError.code === '23514') {

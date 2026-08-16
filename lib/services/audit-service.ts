@@ -18,8 +18,26 @@ export type AuditAction =
   // who applied it — and of the fact that it must not be applied again.
   | 'GRANT_TIME_CREDIT_UNRECORDED'
   | 'REVOKE_TIME_CREDIT'
+  // Partnership (#341). Promoting and discarding are irreversible acts of the team over a
+  // live record, so each one leaves a row saying who, when and over which proposal.
+  | 'PROMOTE_PARTNER_PROPOSAL'
+  | 'DISCARD_PARTNER_PROPOSAL'
+  | 'RESTORE_PARTNER_PROPOSAL'
+  // The conference annotation. It writes no `status` and reaches no client record, and it is
+  // audited anyway: it is the write that decides whether a CONTRACT can be produced
+  // (BR-B2B-022 through BR-B2B-030), it is an UPDATE that OVERWRITES the previous operator's
+  // assertion, and `reviewed_by` on the row only ever names the last one. Without this row
+  // the single write that opens the contract door is the one act on the screen with no
+  // history — which is what the security review of 2026-08-16 found (M-2).
+  | 'REVIEW_PARTNER_PROPOSAL'
 
-export type AuditEntity = 'USER' | 'POI' | 'AUTH'
+/**
+ * `CLIENT` is the record the promotion writes; `PARTNER_PROPOSAL` is the thing outside the
+ * client that the act happened to. Two entities and not one,
+ * because "who changed this client" and "what happened to this proposal" are two questions
+ * the audit page is asked separately.
+ */
+export type AuditEntity = 'USER' | 'POI' | 'AUTH' | 'CLIENT' | 'PARTNER_PROPOSAL'
 
 interface AuditLogInput {
   request: NextRequest

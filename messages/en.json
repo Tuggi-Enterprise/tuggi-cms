@@ -1891,6 +1891,7 @@
       "tabs": {
         "profile": "Profile",
         "fiscal": "Fiscal & Payments",
+        "contract": "Contract",
         "team": "Team",
         "appusers": "App Users",
         "pois": "POIs",
@@ -2022,6 +2023,11 @@
         "accountPlaceholder": "123456789",
         "commissionRate": "Commission rate",
         "commissionRateHelp": "Value between 0 and 1 (e.g. 0.20 = 20%)",
+        "monthlyFee": "Monthly contract fee",
+        "monthlyFeeHelp": "In reais. With no value and no \"courtesy\" checked, the contract cannot be generated. A typed zero is not courtesy: courtesy is a decision, an empty field is an incomplete record.",
+        "courtesy": "Courtesy (no monthly fee)",
+        "courtesyReason": "Reason for the courtesy",
+        "frozenValueNote": "There is a contract signed on {date} for {value}. This field is the value for the NEXT contract or amendment — editing it does not change what was already signed.",
         "isPlatformOwner": "Platform owner?",
         "isPlatformOwnerHelp": "Check if the client is Tuggi itself (accounting split)"
       }

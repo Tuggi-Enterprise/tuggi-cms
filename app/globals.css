@@ -31,9 +31,12 @@
     /* #B91C1C — white on it measures 6.47:1. The hover state of the destructive button
        darkens by this token instead of `/90`, which lightens over a light background. */
     --destructive-hover: 185 28 28;
-    --border: 217 217 217; /* #D9D9D9 */
-    --input: 217 217 217;
-    --ring: 0 168 232;
+    /* `--border`, `--input` and `--ring` are NOT declared here on purpose: nothing
+       consumes them. `tailwind.config.js` declares `border`, `input` and `ring` as
+       literal hexadecimal, so a value written here would be a second source of the
+       same fact that changes nothing on screen — and whoever edited it would believe
+       they had. Removed with the SC 1.4.11 fix of `input` (spec do `design`
+       spec-parceria-formulario-e-contrato-2026-08, §2.3). */
   }
 
   .dark {
@@ -58,9 +61,7 @@
        That is the point of a named token: `/90` measured 4.32:1 over a light background
        and 5.62:1 over a dark one, because opacity composes with whatever is behind. */
     --destructive-hover: 185 28 28;
-    --border: 64 64 64;
-    --input: 64 64 64;
-    --ring: 0 168 232;
+    /* Same as the light block: dead declarations removed, not moved. */
   }
 }
 

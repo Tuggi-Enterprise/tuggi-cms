@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import createMiddleware from 'next-intl/middleware';
-import { isAdmin, isClient, ALLOWED_CLIENT_PATHS } from './lib/roles'
+import { isAdmin, isClient, isPublicPath, ALLOWED_CLIENT_PATHS } from './lib/roles'
 
 import { routing } from './navigation';
 
@@ -58,19 +58,13 @@ export async function proxy(req: NextRequest) {
   const locale = match ? match[1] : 'en'; // Default fallback
   const pathWithoutLocale = match ? (match[2] || '/') : pathname;
 
-  // Define paths that don't need auth (but might need locale)
-  // Note: These must match the locale-prefixed structure or be generic
-  // Since we are inside the middleware, req.nextUrl.pathname already includes locale if resolved
-  
-  // Clean path for checking allowed lists
-  const isPublicPath =
-    pathWithoutLocale === '/login' ||
-    pathWithoutLocale === '/client-signup' ||
-    pathWithoutLocale === '/debug' ||
-    pathWithoutLocale === '/unauthorized';
+  // Which pages need no session is decided in `lib/roles.ts` and nowhere else — this file
+  // used to carry its own list, and the two token pages of #341/#342 that exist for people
+  // WITHOUT a CMS account were missing from it.
+  const isPublic = isPublicPath(pathWithoutLocale);
 
   // Protect routes
-  if (!user && !isPublicPath) {
+  if (!user && !isPublic) {
     // Redirect to login preserving locale
     return NextResponse.redirect(new URL(`/${locale}/login`, req.url));
   }
@@ -81,7 +75,7 @@ export async function proxy(req: NextRequest) {
   }
 
   // 4. Role Authorization (if logged in and not on public path)
-  if (user && !isPublicPath) {
+  if (user && !isPublic) {
     try {
       let cmsUser: any = null
       try {

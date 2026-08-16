@@ -15,6 +15,7 @@ import {
   pickEditableFields,
   validateAvatarUrl,
 } from '@/lib/services/client-editable-fields'
+import { describeClientUniqueViolation } from '@/lib/services/client-unique-conflicts'
 
 async function getAdminUser(request: NextRequest) {
   const cookieStore = await cookies()
@@ -159,13 +160,11 @@ export async function PATCH(
       .single()
 
     if (updateError) {
-      // Unique-constraint conflict: identify which column collided
-      if (updateError.code === '23505') {
-        const conflict = `${updateError.message || ''} ${updateError.details || ''}`
-        if (conflict.includes('idx_clients_slug') || conflict.includes('(slug)')) {
-          return NextResponse.json({ error: 'Slug already in use' }, { status: 409 })
-        }
-        return NextResponse.json({ error: 'Email already exists' }, { status: 409 })
+      // Unique-constraint conflict: which column collided is read off the error, never
+      // defaulted to e-mail — `core.clients.email` is not unique (20260814160000).
+      const conflict = describeClientUniqueViolation(updateError)
+      if (conflict) {
+        return NextResponse.json({ error: conflict }, { status: 409 })
       }
       // 23514 = trigger core.enforce_client_hierarchy_depth (2 níveis / ciclo).
       // Ex.: a empresa já tem filhas, ou o coordenador escolhido já é filho de outro.
