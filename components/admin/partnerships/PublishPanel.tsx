@@ -11,6 +11,13 @@
  * renders one. A confirmation with a conditional clause inside would make the operator work
  * out which half of the sentence applies to them (1st edge case of the decision).
  *
+ * REFUSING THE ACT REFUSES THE CONFIRMATION, NOT JUST THE BUTTON. What is blocking comes
+ * first and always; the sentence about what happens next renders only where the act is on
+ * offer; the tier block survives the refusal only when it IS the refusal (the undeclared fee,
+ * whose way out is written inside it). A panel that keeps the outcome sentences after losing
+ * the control says what will happen with more words than before it lost it —
+ * DS-COMPONENTE-021, 3rd and 4th edge cases, both written from the finding on this file.
+ *
  * THE VALUE IS IN THE BUTTON, and `Confirmar` appears nowhere. WCAG 2.2 SC 3.3.4 asks a
  * financial act to be reversible, verified OR confirmed; the money here is a recurring monthly
  * fee on somebody else's company, and printing it on the control is the confirmation.
@@ -66,6 +73,12 @@ export function PublishPanel({
   }
 
   const missing = missingForNarration(place, t)
+  const blocked = place.readiness.blocking.length > 0
+  const offersAct = plan.offersAct
+  // Not offering the act because the fee is undeclared is not a silent refusal — the tier block
+  // IS the refusal there, and the way out (the fee, or the courtesy with its reason) is written
+  // inside it. Every other refusal takes the block with it.
+  const showTier = offersAct || plan.variant === 'undeclared'
 
   return (
     <section
@@ -76,59 +89,68 @@ export function PublishPanel({
         {t('publish.title', { name })}
       </h4>
 
-      {/* Block A — what is about to happen, and it changes with the pendency that is left. */}
-      <p className="mt-3 text-sm text-gray-900">
-        {missing === null
-          ? t('publish.effectWithAudio')
-          : t('publish.effectSilent', { missing })}
-      </p>
-
-      {/* Block B — the tier and the money. One variant, whole. */}
-      <div className="mt-4 rounded-md border border-gray-300 p-3 text-sm">
-        {plan.variant === 'paid_starts' && (
-          <>
-            <p className="font-semibold text-gray-900">{t('publish.paidStartsTitle')}</p>
-            <p className="mt-1 text-gray-900">
-              {t('publish.paidStartsBody', {
-                fee: formatMonthlyFee(plan.feeCents ?? 0),
-                date: formatDate(new Date().toISOString()),
-              })}
-            </p>
-            <p className="mt-2 text-gray-800">{t('publish.paidStartsContent')}</p>
-          </>
-        )}
-
-        {plan.variant === 'paid_pending' && (
-          <>
-            <p className="font-semibold text-gray-900">{t('publish.paidPendingTitle')}</p>
-            <p className="mt-1 text-gray-900">{t('publish.paidPendingBody')}</p>
-          </>
-        )}
-
-        {plan.variant === 'courtesy' && (
-          <>
-            <p className="font-semibold text-gray-900">{t('publish.courtesyTitle')}</p>
-            <p className="mt-1 text-gray-900">
-              {t('publish.courtesyBody', { reason: plan.courtesyReason ?? '' })}
-            </p>
-          </>
-        )}
-
-        {plan.variant === 'undeclared' && (
-          <>
-            <p className="font-semibold text-gray-900">{t('publish.undeclaredTitle')}</p>
-            <p className="mt-1 text-gray-900">{t('publish.undeclaredBody')}</p>
-          </>
-        )}
-      </div>
-
-      {/* The act is offered but the place cannot enter the app: saying "entra no app" would be
-          false, and the blocking pendencies right above already name what is missing and where
-          it is fixed — nothing is disabled in silence (DS-COMPONENTE-021, point 2). */}
-      {plan.variant !== 'undeclared' && !plan.offersAct && (
+      {/* FIRST, AND WHATEVER THE VARIANT IS. Two reasons not to publish are two reasons, named
+          on the same screen: revealing one at a time turns each into a trip to another tool,
+          and the operator only finds the second one after resolving the first
+          (DS-COMPONENTE-021, 4th edge case). */}
+      {blocked && (
         <div className="mt-3 rounded-md border border-gray-300 bg-gray-50 p-3 text-sm">
           <p className="font-semibold text-gray-900">{t('publish.blockedTitle')}</p>
           <p className="mt-1 text-gray-800">{t('publish.blockedBody')}</p>
+        </div>
+      )}
+
+      {/* Block A — what is about to happen, and it changes with the pendency that is left. It
+          renders ONLY when the act is on offer: a sentence describing an outcome does not
+          survive the removal of the control that causes it, or the panel goes on saying "a
+          partir de agora o local entra no app" above the notice that it will not
+          (DS-COMPONENTE-021, 3rd edge case — the finding on this very file, #359). */}
+      {offersAct && (
+        <p className="mt-3 text-sm text-gray-900">
+          {missing === null
+            ? t('publish.effectWithAudio')
+            : t('publish.effectSilent', { missing })}
+        </p>
+      )}
+
+      {/* Block B — the tier and the money. One variant, whole. */}
+      {showTier && (
+        <div className="mt-4 rounded-md border border-gray-300 p-3 text-sm">
+          {plan.variant === 'paid_starts' && (
+            <>
+              <p className="font-semibold text-gray-900">{t('publish.paidStartsTitle')}</p>
+              <p className="mt-1 text-gray-900">
+                {t('publish.paidStartsBody', {
+                  fee: formatMonthlyFee(plan.feeCents ?? 0),
+                  date: formatDate(new Date().toISOString()),
+                })}
+              </p>
+              <p className="mt-2 text-gray-800">{t('publish.paidStartsContent')}</p>
+            </>
+          )}
+
+          {plan.variant === 'paid_pending' && (
+            <>
+              <p className="font-semibold text-gray-900">{t('publish.paidPendingTitle')}</p>
+              <p className="mt-1 text-gray-900">{t('publish.paidPendingBody')}</p>
+            </>
+          )}
+
+          {plan.variant === 'courtesy' && (
+            <>
+              <p className="font-semibold text-gray-900">{t('publish.courtesyTitle')}</p>
+              <p className="mt-1 text-gray-900">
+                {t('publish.courtesyBody', { reason: plan.courtesyReason ?? '' })}
+              </p>
+            </>
+          )}
+
+          {plan.variant === 'undeclared' && (
+            <>
+              <p className="font-semibold text-gray-900">{t('publish.undeclaredTitle')}</p>
+              <p className="mt-1 text-gray-900">{t('publish.undeclaredBody')}</p>
+            </>
+          )}
         </div>
       )}
 
@@ -162,7 +184,10 @@ export function PublishPanel({
           </a>
         ) : (
           plan.offersAct && (
-            <Button type="button" onClick={commit} disabled={submitting}>
+            // `cta`, never the `default` variant: this button starts a monthly fee on a
+            // partner's company, and the `default`'s white-on-#00A8E8 measures 2.70:1
+            // (DS-COR-002 · SC 1.4.3). The global repaint is #381.
+            <Button type="button" variant="cta" onClick={commit} disabled={submitting}>
               {submitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />

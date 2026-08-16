@@ -202,16 +202,17 @@ export interface PartnershipPlace {
   readiness: PlaceReadiness
   plan: PublishPlan
   /**
-   * WHY THE TRAIL AND NOT `attractions.approved_at` / `approved_by`.
+   * WHY THE SCREEN READS THE TRAIL AND NOT `attractions.approved_at` / `approved_by`.
    *
-   * Publishing writes ONE column, `approved`, and criterion 18 is literal about it. Two more
-   * columns on the same UPDATE would be two more facts this screen decides, and the second one
-   * of them (`approved_by`) is the sort of field that quietly becomes the answer to a question
-   * it was never measured for.
+   * Publishing writes both — the stamp is the schema's home for the fact and
+   * `placeService.setApproved` fills it (a column that exists is not the same as data that
+   * exists: 136 filled rows in ~2.23 M, measured by the `data` on 2026-08-16). What the stamp
+   * cannot answer is what this screen asks: `approved_by` is a `drive.profiles` id, so showing
+   * a name from it costs a join, and the column holds only the LAST publication.
    *
-   * `core.audit_logs` already has to carry who, when, which client and which place (criterion
-   * 21), so the answer to "quem publicou, e quando" exists exactly once — in the trail that is
-   * mandatory anyway. Reading it back is what band 5 shows.
+   * `core.audit_logs` has to carry who, when, which client and which place anyway (criterion
+   * 21), it already carries the operator's e-mail, and it keeps every publication rather than
+   * the current one. That is what band 5 and the trail render.
    */
   publishedBy: PublicationTrail | null
 }

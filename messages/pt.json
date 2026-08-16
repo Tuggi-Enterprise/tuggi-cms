@@ -2712,7 +2712,7 @@
       "in_conference": "Registrar a conferência",
       "client_created": "Assinar o contrato",
       "contract_signed": "Criar o local",
-      "place_in_curation": "—",
+      "place_in_curation": "Publicar o local",
       "published": "—",
       "discarded": "—"
     },
@@ -2730,7 +2730,7 @@
         },
         "inactive": {
           "title": "O local está desativado.",
-          "body": "Cadastro desativado fica fora do app, mesmo aprovado e com coordenada.",
+          "body": "Enquanto estiver desativado, o local fica fora do app, mesmo depois de publicado.",
           "action": "Abrir o local"
         },
         "hidden_from_map": {
@@ -2756,10 +2756,12 @@
       },
       "readyTitle": "O local está pronto para publicar.",
       "readyBody": "Ponto de disparo ativo, descrição com áudio e coordenada no lugar.",
+      "publishedTitle": "O local está no app.",
+      "publishedBody": "Ponto de disparo ativo, descrição com áudio e coordenada no lugar.",
       "emptyTitle": "Este cliente ainda não tem local vinculado.",
       "emptyBody": "O local é o endereço físico; o cliente é a pessoa jurídica, e um CNPJ pode ter mais de um endereço.",
       "emptyCreate": "Criar o local a partir da proposta",
-      "emptyLink": "Vincular um local que já existe"
+      "emptyLink": "Ver os locais já cadastrados"
     },
     "publish": {
       "action": "Publicar",
@@ -2795,6 +2797,8 @@
       "publishedLine": "Publicado em {date} por {person}. Está no app desde então.",
       "publishedLineAnonymous": "Publicado em {date}. Está no app desde então.",
       "publishedLineUndated": "Está no app.",
+      "trailPublished": "{name} publicado em {date} por {person}.",
+      "trailPublishedAnonymous": "{name} publicado em {date}.",
       "billingStarted": "Mensalidade iniciada em {date}.",
       "unpublishAction": "Tirar do app",
       "unpublishTitle": "Tirar {name} do app.",

@@ -309,21 +309,46 @@ export const placeService = {
   },
 
   /**
-   * The publication of a partner's place, and it writes ONE column — criterion 18.
+   * THE one writer of `core.attractions.approved`, in both directions — `approvePoi` in
+   * `lib/core/poi-mutations-service.ts` delegates its core branch here, so the shape of this
+   * write cannot differ between the partnership pipeline and the POI screen.
    *
-   * A dedicated function and not `updateAttraction` with a patch: the guarantee "publishing
-   * touches `approved` and nothing else" is worth exactly as much as it is hard to break, and
-   * a patch object at the call site can grow a second key in any commit.
+   * WHAT IT WRITES IS THE PUBLICATION AND NOTHING ELSE: the three columns that carry it, named
+   * literally here and never through a patch object the call site can grow a fourth key into.
+   * `commission_rate`, `monthly_fee_cents`, `is_courtesy`, `status` and `slug` have no way in
+   * (criterion 18, #359).
+   *
+   * `approved_at`/`approved_by` ARE the schema's home for "who put this in front of tourists,
+   * and when", and leaving them null is how a column that exists comes to hold no data — the
+   * `data` measured 136 filled rows in ~2.23 M approved ones on 2026-08-16, and zero among
+   * `place` and `event`. `approved_by` is a FK to `drive.profiles(id)`, which every Supabase
+   * Auth user has (trigger `on_auth_user_created`), so the operator's auth id is what goes in
+   * — the same identity `approvePoi` has always written. Taking a place out of the app clears
+   * both: `approved = false` next to `approved_by = <somebody>` would say a row was published
+   * by a person while it is not published at all.
+   *
+   * The screen still READS the publication trail from `core.audit_logs`, which is the source
+   * that carries a legible name and the history of every publication, not just the last one —
+   * see `PartnershipPlace.publishedBy`.
    *
    * It is idempotent at the destination (DS-COMPONENTE-021, 2nd edge case), which is why the
    * screen may offer `Tentar de novo` after a network error: publishing the same place twice
    * is the same state. The promotion of a proposal is not, and still has no retry.
    */
-  async setApproved(attractionId: string, approved: boolean, db?: SupabaseClient) {
+  async setApproved(
+    attractionId: string,
+    approved: boolean,
+    approvedBy: string | null,
+    db?: SupabaseClient
+  ) {
     const { error } = await client(db)
       .schema('core')
       .from('attractions')
-      .update({ approved })
+      .update({
+        approved,
+        approved_at: approved ? new Date().toISOString() : null,
+        approved_by: approved ? approvedBy : null,
+      })
       .eq('id', attractionId)
     if (error) throw new Error(error.message)
   },

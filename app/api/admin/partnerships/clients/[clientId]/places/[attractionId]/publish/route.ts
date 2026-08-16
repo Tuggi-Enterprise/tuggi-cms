@@ -2,10 +2,12 @@
  * POST /api/admin/partnerships/clients/{clientId}/places/{attractionId}/publish — the 4 → 5
  * act, and the 5 → 4 one.
  *
- * WHAT IT WRITES IS ONE COLUMN, `core.attractions.approved`, through `placeService.setApproved`
- * — criterion 18. Nothing on this path can reach `commission_rate`, `monthly_fee_cents`,
- * `is_courtesy`, the client's `status` or the `slug`, and it is not a denylist that keeps them
- * out: there is no patch object here for a second key to be added to.
+ * WHAT IT WRITES IS THE PUBLICATION AND NOTHING ELSE — criterion 18. Through
+ * `placeService.setApproved`, the three columns that carry it: `core.attractions.approved`, and
+ * the `approved_at`/`approved_by` stamp that is the schema's home for who put the place in
+ * front of tourists and when. Nothing on this path can reach `commission_rate`,
+ * `monthly_fee_cents`, `is_courtesy`, the client's `status` or the `slug`, and it is not a
+ * denylist that keeps them out: there is no patch object here for a second key to be added to.
  *
  * THE PLAN IS REBUILT FROM THE DATABASE, exactly like the promotion route. The panel's plan is
  * a rendering; this one is the decision. That is what makes DS-COMPONENTE-021, point 2, real
@@ -75,7 +77,7 @@ export const POST = withRateLimit(30, 60_000)(
       }
 
       try {
-        await placeService.setApproved(attractionId, approved, auth.supabase)
+        await placeService.setApproved(attractionId, approved, auth.user.id, auth.supabase)
       } catch (error) {
         console.error('[partnerships] place approval write refused:', error)
         return NextResponse.json({ error: 'write_failed' }, { status: 503 })

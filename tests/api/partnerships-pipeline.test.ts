@@ -574,12 +574,100 @@ test('#359 crit. 18: the publish path names ONE column, and none of the forbidde
     )
   }
 
+  // The keys are named literally in `setApproved`, so the allowlist can be read off the source
+  // instead of trusted: the publication (`approved`) and the stamp that says who put the place
+  // in front of tourists and when. A fourth key cannot arrive from a call site.
   const service = read('lib/core/place-service.ts')
-  assert.match(
-    service,
-    /async setApproved\([\s\S]{0,400}?\.update\(\{ approved \}\)/,
-    'setApproved updates exactly `{ approved }` — there is no patch object to grow a key'
+  const update = /async setApproved\([\s\S]{0,600}?\.update\((\{[\s\S]*?\})\)/.exec(service)
+  assert.ok(update, 'setApproved still writes through a literal `.update({ ... })`')
+  const written = (update![1].match(/^\s*(\w+)\s*[:,]/gm) ?? []).map((line) =>
+    line.trim().replace(/[:,]$/, '')
   )
+  assert.deepEqual(
+    written.sort(),
+    ['approved', 'approved_at', 'approved_by'],
+    'setApproved writes the publication and nothing else'
+  )
+})
+
+// ── The design validation of 2026-08-16 — what the six fixes have to keep true ────────────────
+
+test('#359 · DS-COMPONENTE-021, 3rd/4th edge cases: refusing the act refuses the CONFIRMATION', () => {
+  const panel = read('components/admin/partnerships/PublishPanel.tsx')
+
+  // What blocks the place comes first, and whatever the tier variant is. The old guard revealed
+  // one reason at a time: a place with no coordinate AND no declared fee showed only the fee,
+  // so the operator registered it, came back, and only then met the coordinate — two trips.
+  assert.equal(panel.indexOf("plan.variant !== 'undeclared' && !plan.offersAct"), -1)
+  assert.match(panel, /const blocked = place\.readiness\.blocking\.length > 0/)
+  const blockedAt = panel.indexOf('{blocked && (')
+  const effectAt = panel.indexOf("t('publish.effectWithAudio')")
+  const tierAt = panel.indexOf('{showTier && (')
+  assert.ok(blockedAt > 0, 'the blocking notice renders on the blocking pendencies alone')
+  assert.ok(blockedAt < effectAt && blockedAt < tierAt, 'and it is the first thing the panel says')
+
+  // The sentence that describes the outcome does not survive the removal of the control that
+  // causes it — the panel may not say "a partir de agora o local entra no app" above the notice
+  // that it will not.
+  assert.match(panel, /\{offersAct && \(\s*<p[\s\S]{0,240}?publish\.effectWithAudio/)
+
+  // The tier block survives the refusal in exactly one case: when IT is the refusal, and the
+  // way out (register the fee, or the courtesy with its reason) is written inside it.
+  assert.match(panel, /const showTier = offersAct \|\| plan\.variant === 'undeclared'/)
+})
+
+test('#359 · DS-LAYOUT-003: the act the header names is in the band that opens', () => {
+  const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
+
+  // `contract_signed` opens band 4, where `Criar o local a partir da proposta` lives — not
+  // band 3, whose work is the contract that has just been signed.
+  assert.match(detail, /client: \[2, 2\]/)
+  assert.match(detail, /place: \[3, 4\]/)
+
+  // `published` and `discarded` have no next step, and a bare em dash beside the state is not
+  // the way to say so.
+  assert.match(detail, /IN_PROGRESS_STATES\.indexOf\(detail\.state\) >= 0 && \(/)
+})
+
+test('#359 · DS-COMPONENTE-020, pt. 4: the detail never contradicts the queue about the app', () => {
+  const detail = read('components/admin/partnerships/PartnershipDetail.tsx')
+  // Band 5 cannot come from the pipeline state alone: a partnership with 2 of 3 places on air
+  // is `place_in_curation`, and `ainda não` beside the queue's `2 de 3 locais publicados` is
+  // the disagreement the single module exists to make impossible.
+  assert.match(detail, /detail\.places\.some\(\(place\) => place\.readiness\.published\)/)
+
+  // And a place that IS in the app does not read as "pronto para publicar". Only the branch
+  // with no pendency at all splits — a published place with a `silences_app` pendency keeps
+  // the whole block, which is the #356 defect.
+  const list = read('components/admin/partnerships/PendencyList.tsx')
+  assert.match(list, /readiness\.published \? 'published' : 'ready'/)
+  assert.match(list, /if \(readiness\.ready\)/)
+})
+
+test('#359 · DS-COPY-020/-021: the copy the validation replaced', () => {
+  const copy = messages().Partnerships
+
+  // A queue row one click from a monthly fee may not read as "nothing to do here": three lines
+  // in `Local em curadoria` showed `—` under `O que falta` while being ready to publish.
+  assert.notEqual(copy.nextSteps.place_in_curation, '—')
+  assert.match(copy.nextSteps.place_in_curation, /publicar/i)
+
+  // The `inactive` body may not state a fact about the pendency beside it: a place with no
+  // coordinate and inactive read "Falta a coordenada do local." above "…mesmo aprovado e com
+  // coordenada."
+  assert.equal(copy.pendencies.items.inactive.body.toLowerCase().indexOf('coordenada'), -1)
+
+  // The label describes what the click does. There is no writer of `partner_client_id` on an
+  // existing POI anywhere in the CMS — that is card #374.
+  assert.equal(copy.pendencies.emptyLink.toLowerCase().indexOf('vincular'), -1)
+
+  assert.equal(typeof copy.pendencies.publishedTitle, 'string')
+  assert.equal(typeof copy.pendencies.publishedBody, 'string')
+  assert.notEqual(copy.pendencies.publishedTitle, copy.pendencies.readyTitle)
+
+  // The trail of a client with N places is N named lines, not N identical ones.
+  assert.match(copy.publish.trailPublished, /\{name\}/)
+  assert.match(copy.publish.trailPublishedAnonymous, /\{name\}/)
 })
 
 // ── The route, end to end — criteria 17, 18, 21, 22 ──────────────────────────────────────────
@@ -806,7 +894,7 @@ function request(body: unknown) {
 
 const context = { params: Promise.resolve({ clientId: CLIENT_ID, attractionId: PLACE_ID }) }
 
-test('#359 crit. 18 · 21: publishing writes `approved` and nothing else, and leaves a trail', async () => {
+test('#359 crit. 18 · 21: publishing writes the publication and nothing else, and leaves a trail', async () => {
   state = freshState()
 
   const response = await PUBLISH(request({ approved: true }), context)
@@ -815,11 +903,19 @@ test('#359 crit. 18 · 21: publishing writes `approved` and nothing else, and le
   const attractionWrites = state.writes.filter((write) => write.table === 'attractions')
   assert.equal(attractionWrites.length, 1, 'one write, not two')
   assert.deepEqual(
-    Object.keys(attractionWrites[0].patch),
-    ['approved'],
+    Object.keys(attractionWrites[0].patch).sort(),
+    ['approved', 'approved_at', 'approved_by'],
     'the whole of what left the process — not a list somebody kept up to date'
   )
   assert.equal(attractionWrites[0].patch.approved, true)
+  // The column existing is not the datum existing: the `data` measured 136 filled rows in
+  // ~2.23 M approved ones, and zero among `place` and `event` (2026-08-16).
+  assert.equal(attractionWrites[0].patch.approved_by, OPERATOR_ID)
+  assert.equal(
+    Number.isNaN(Date.parse(attractionWrites[0].patch.approved_at)),
+    false,
+    'approved_at is a timestamp, not a flag'
+  )
 
   // Nothing on the client record moved: `commission_rate`, `monthly_fee_cents`, `is_courtesy`,
   // `status` and `slug` are unreachable from this path.
@@ -851,7 +947,7 @@ test('#359 crit. 22 · DS-COMPONENTE-021: publishing twice is the same state', a
   assert.equal(second.status, 200)
   assert.equal(state.attractions[0].approved, true, 'idempotent at the destination')
   for (const write of state.writes.filter((item) => item.table === 'attractions')) {
-    assert.deepEqual(Object.keys(write.patch), ['approved'])
+    assert.deepEqual(Object.keys(write.patch).sort(), ['approved', 'approved_at', 'approved_by'])
   }
 })
 
@@ -889,6 +985,11 @@ test('#359 crit. 20: taking a place out of the app is never refused', async () =
   const response = await PUBLISH(request({ approved: false }), context)
   assert.equal(response.status, 200)
   assert.equal(state.attractions[0].approved, false)
+
+  // The stamp goes with it: `approved = false` beside `approved_by = <somebody>` would say a
+  // row was published by a person while it is not published at all.
+  assert.equal(state.attractions[0].approved_at, null)
+  assert.equal(state.attractions[0].approved_by, null)
 
   const trail = state.audit_logs[state.audit_logs.length - 1]
   assert.equal(trail.action, 'UNPUBLISH_PARTNER_PLACE')

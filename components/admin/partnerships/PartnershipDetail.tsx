@@ -28,7 +28,7 @@ import { PlaceFormModal } from '@/components/place-management/PlaceFormModal'
 import { formatDate } from '@/components/admin/partner-proposals/format'
 import { formatMonthlyFee } from '@/lib/partnerships/publish-plan'
 import type { PendencyId } from '@/lib/partnerships/place-readiness'
-import type { PipelineState } from '@/lib/partnerships/pipeline'
+import { IN_PROGRESS_STATES, type PipelineState } from '@/lib/partnerships/pipeline'
 import type { PartnershipDetail as Detail, PartnershipPlace } from '@/lib/services/partnership-service'
 import { PendencyList } from './PendencyList'
 import { PublishPanel, UnpublishPanel } from './PublishPanel'
@@ -47,13 +47,21 @@ const STATE_ORDER: Record<PipelineState, number> = {
   discarded: 0,
 }
 
-/** The state range each band covers. Band 3 covers two, because the client and the signature
- *  are two moments of the same band (spec §6.2). */
+/**
+ * The state range each band covers, and it is what decides which band OPENS.
+ *
+ * Band 4 starts at `contract_signed` and not at `place_in_curation`, because the act that state
+ * names — `Criar o local a partir da proposta`, the one the sticky header announces — lives in
+ * band 4. Covering it with band 3 opened the band whose work had just finished (the signed
+ * contract) and left the only act of the state behind a closed accordion, which to the operator
+ * is a menu (DS-LAYOUT-003). `client_created` still opens band 3, where `Abrir a ficha do
+ * cliente` is.
+ */
 const BAND_RANGE: Record<BandId, [number, number]> = {
   proposal: [0, 0],
   conference: [1, 1],
-  client: [2, 3],
-  place: [4, 4],
+  client: [2, 2],
+  place: [3, 4],
   publication: [5, 5],
 }
 
@@ -206,9 +214,13 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
         </p>
         <p className="mt-1 text-sm font-medium text-gray-900">
           {t(`states.${detail.state}`)}
-          <span className="ml-2 font-normal text-gray-800">
-            {t(`nextSteps.${detail.state}`)}
-          </span>
+          {/* `published` and `discarded` have no next step, and the place to say so is not a
+              bare em dash hanging next to the state. */}
+          {IN_PROGRESS_STATES.indexOf(detail.state) >= 0 && (
+            <span className="ml-2 font-normal text-gray-800">
+              {t(`nextSteps.${detail.state}`)}
+            </span>
+          )}
         </p>
       </header>
 
@@ -218,7 +230,7 @@ export function PartnershipDetail({ locale, clientId }: { locale: string; client
             <Band
               key={band}
               band={band}
-              status={bandStatus(band, detail.state)}
+              status={bandStatus(band, detail)}
               open={isOpen(band)}
               onToggle={() => toggle(band)}
             >
@@ -325,8 +337,19 @@ function Band({
   )
 }
 
-function bandStatus(band: BandId, state: PipelineState): BandStatus {
-  const order = STATE_ORDER[state]
+/**
+ * Band 5 is the one band the pipeline state cannot answer on its own. A partnership with three
+ * places, two of them on air, is `place_in_curation` — and a band that reads `ainda não` while
+ * two places are in front of tourists contradicts the queue, which counts `2 de 3 locais
+ * publicados` from the same readiness report. The detail disagreeing with the list is the one
+ * thing the single module exists to make impossible.
+ */
+function bandStatus(band: BandId, detail: Detail): BandStatus {
+  if (band === 'publication') {
+    if (detail.state === 'published') return 'done'
+    if (detail.places.some((place) => place.readiness.published)) return 'current'
+  }
+  const order = STATE_ORDER[detail.state]
   const [from, to] = BAND_RANGE[band]
   if (order > to) return 'done'
   if (order >= from) return 'current'
@@ -499,13 +522,19 @@ function PlaceBand({
           {/* Creating the place from the proposal is the SAME act the partner approval runs
               (#360, `applyPartnerApprovalEffects`): prefilled from what the partner wrote and
               linked by `partner_client_id`. Not a second implementation of the prefill. */}
-          <Button type="button" disabled={creating} onClick={() => void createFromProposal()}>
+          <Button
+            type="button"
+            variant="cta"
+            disabled={creating}
+            onClick={() => void createFromProposal()}
+          >
             {t('pendencies.emptyCreate')}
           </Button>
           {/* Linking a place that already exists has no writer yet — there is no surface in the
-              CMS that sets `attractions.partner_client_id` on an existing POI. The catalogue is
-              where the operator finds it; the link itself is a card of its own, reported on
-              #359. */}
+              CMS that sets `attractions.partner_client_id` on an existing POI. So the label
+              describes what the click DOES (`Ver os locais já cadastrados`) and not the act it
+              cannot perform: sending the operator to a 2.2 M-row catalogue under the promise of
+              linking is a round trip that ends in nothing. The writer is card #374. */}
           <Link
             href={`/${locale}/places`}
             className="inline-flex min-h-[24px] items-center text-sm font-medium text-primary-800 underline underline-offset-4"
@@ -551,6 +580,7 @@ function PlaceBand({
               ) : (
                 <Button
                   type="button"
+                  variant="cta"
                   onClick={() =>
                     setPanel({
                       attractionId: place.readiness.place.attractionId,
@@ -663,9 +693,11 @@ function Trail({ detail }: { detail: Detail }) {
     detail.contract?.signed
       ? t('detail.contractSigned', { date: formatDate(detail.contract.signedAt) })
       : null,
+    // Named, unlike band 5's line: there the place's name is already in the `<p>` above, and
+    // here a partnership with N places would otherwise be N identical rows.
     ...detail.places
       .filter((place) => place.publishedBy)
-      .map((place) => publishedLine(place, t)),
+      .map((place) => trailPublishedLine(place, t)),
   ].filter((line): line is string => typeof line === 'string')
 
   if (entries.length === 0) {
@@ -714,6 +746,26 @@ function publishedLine(
     return t('publish.publishedLineAnonymous', { date: formatDate(place.publishedBy.at) })
   }
   return t('publish.publishedLine', {
+    date: formatDate(place.publishedBy.at),
+    person: place.publishedBy.by,
+  })
+}
+
+/** The same fact as `publishedLine`, carrying the name — only the trail needs it. */
+function trailPublishedLine(
+  place: PartnershipPlace,
+  t: ReturnType<typeof useTranslations>
+): string {
+  const name = place.readiness.place.name
+  if (!place.publishedBy) return t('publish.publishedLineUndated')
+  if (!place.publishedBy.by) {
+    return t('publish.trailPublishedAnonymous', {
+      name,
+      date: formatDate(place.publishedBy.at),
+    })
+  }
+  return t('publish.trailPublished', {
+    name,
     date: formatDate(place.publishedBy.at),
     person: place.publishedBy.by,
   })
