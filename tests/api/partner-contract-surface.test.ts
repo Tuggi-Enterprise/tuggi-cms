@@ -26,7 +26,6 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 
 import { hashSingleUseToken } from '@/lib/security/single-use-token'
-import { activeTemplate } from '@/lib/contract/template'
 
 const TOKEN = 'a'.repeat(43)
 const CLIENT_ID = 'client-1'
@@ -670,12 +669,11 @@ function adminContext() {
 test('BR-B2B-026 item 4: the operator sends the contract for signature with the minuta still under legal review', async () => {
   seedClient()
   const contract = seedContract({ status: 'draft', token_hash: null, token_expires_at: null, sent_at: null })
-  const review = activeTemplate().legalReview
 
   const res = await adminPOST(adminPostRequest(CLIENT_ID, { action: 'send' }), adminContext())
 
   // Until 2026-08-17 this answered 409 `legal_review_pending` and nothing left the CMS.
-  assert.equal(res.status, 200, `the review state ("${review.status}") is not the route's business`)
+  assert.equal(res.status, 200, 'the state of our legal review is not the route\'s business')
 
   const payload = (await res.json()) as any
   assert.match(payload.url, /\/pt\/contrato\//, 'the operator gets the link back')

@@ -41,7 +41,6 @@ import {
   GRACE_PERIOD_DAYS,
   SUSPENSION_DAY,
   TERMINATION_NOTICE_DAYS,
-  activeTemplate,
   renderClauses,
   templateByVersion,
 } from '@/lib/contract/template'
@@ -569,18 +568,20 @@ test('a contract renders with ITS OWN template version, and an unknown version f
   assert.throws(() => renderClauses({ ...snapshotOf(), templateVersion: 'v0-nao-existe' }))
 })
 
-test('the active template declares whether a lawyer has reviewed it — and it gates nothing', () => {
-  const review = activeTemplate().legalReview
-  assert.ok(review.status === 'pending' || review.status === 'approved')
-  if (review.status === 'pending') {
-    assert.ok(review.pending.length > 0, 'pending has to name which clauses are holding it')
-    assert.ok(review.note.length > 0)
-  }
-
-  // Since 2026-08-17 the field is a statement, not a rule: it must not claim to stop the
-  // sending, because it does not. The refusal it used to describe is gone, and the send
-  // going through in this very state is proven further down.
-  assert.doesNotMatch(review.note, /não pode ser enviado|nao pode ser enviado/i)
+test('BR-B2B-026 item 4: the template states no legal-review state at all — nothing decides by it', () => {
+  // The field outlived its gate by one commit and kept printing a banner in the partner's
+  // copy. A record of a review nobody consults is a claim about the product that is not
+  // true (CLAUDE.md §6), so it is not a template concern any more — the source is asserted
+  // because an object nobody reads is invisible to a behavioural test.
+  // Comments are stripped before matching: the file docblock explains the removal by name,
+  // and a static ruler that reads prose fails on the very sentence documenting it.
+  const source = readFileSync(resolve(REPO_ROOT, 'lib/contract/template.ts'), 'utf8')
+  const declarations = source
+    .slice(source.indexOf('export interface ContractTemplate'))
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '')
+  assert.doesNotMatch(declarations, /legalReview/, 'no template carries a legal-review state')
+  assert.doesNotMatch(declarations, /legal_review_pending/, 'and no refusal is named here')
 })
 
 // ── The signing link ───────────────────────────────────────────────────────────────────
@@ -911,6 +912,40 @@ test('#390 · LGPD art. 6º, III: the copy the PARTNER downloads carries neither
   assert.ok(shown.indexOf('antonio@cantina.com.br') >= 0, 'as is the invited address')
 })
 
+test('BR-B2B-026 item 4: the PRE-SIGNATURE copy makes no claim about our legal review', async () => {
+  const { contract } = await generated()
+
+  // This is the exact artefact the signing link serves: `generated()` stores what
+  // `createContract` rendered, and `canServeDocument` hands that file to the partner.
+  const shown = shownText(objects.get(contract.document_path)!)
+  const packed = shown.replace(/\s+/g, '')
+
+  // Until 2026-08-17 a banner above the first clause told the reader this document "não
+  // pode ser enviado para assinatura" — printed on the copy of a person who had just been
+  // invited to sign it, because the send gate came out and the banner stayed.
+  assert.equal(/MINUTA/.test(packed), false, 'the word MINUTA is not in the partner\'s copy')
+  assert.equal(/revis.ojur.dica/i.test(packed), false, 'nor is the legal review mentioned')
+  assert.equal(
+    /n.opodeserenviado/i.test(packed),
+    false,
+    'and nothing tells the signer the document could not have been sent'
+  )
+
+  // The absences above are only worth something if the document really rendered: these are
+  // the fixture's own facts, so a blank PDF fails here instead of passing three lines up.
+  assert.ok(shown.indexOf('Das partes') >= 0, 'the clauses are there')
+  assert.ok(shown.indexOf(ELECTRONIC_ACCEPTANCE_CLAUSE_TITLE) >= 0, 'including the acceptance clause')
+  assert.ok(packed.indexOf(ACTIVE_TEMPLATE_VERSION) >= 0, 'the template version identifies which minuta this is')
+  assert.ok(packed.indexOf(packedOf('Cantina do Antônio Ltda.')) >= 0, 'the CONTRATANTE is named')
+  assert.ok(packed.indexOf(packedOf('11.222.333/0001-81')) >= 0, 'with the CNPJ of the CONTRATADA')
+  assert.ok(packed.indexOf(packedOf('12.345.678/0001-95')) >= 0, 'and the CNPJ of the CONTRATANTE')
+})
+
+/** Needles are packed the same way the haystack is: a line break must not hide a match. */
+function packedOf(value: string): string {
+  return value.replace(/\s+/g, '')
+}
+
 test('#390: the trail keeps what the PDF stopped printing — the record does not move', async () => {
   const { contract } = await generated()
 
@@ -1030,7 +1065,6 @@ test('`Conferir integridade` compares the STORED file with the recorded hash', a
 
 test('BR-B2B-026 item 4: the minuta is sent for signature in ANY legal-review state — the operator decides, not the software', async () => {
   const { contract } = await generated()
-  const review = activeTemplate().legalReview
 
   const sent = await contractService.sendForSignature(contract.id, {
     recipientEmail: 'antonio@cantina.com.br',
@@ -1040,7 +1074,7 @@ test('BR-B2B-026 item 4: the minuta is sent for signature in ANY legal-review st
   // Until 2026-08-17 this same call answered `legal_review_pending` and minted no token.
   // The operator took that decision out of the software: BR-B2B-026, item 4 puts the
   // conference before the sending, and the conference is a person's.
-  assert.equal(sent.ok, true, `sending must not depend on the review state (it is "${review.status}" here)`)
+  assert.equal(sent.ok, true, 'sending depends on no opinion about the minuta')
   if (!sent.ok) return
 
   assert.match(sent.token, /^[A-Za-z0-9_-]{43}$/, 'a real single-use token came out')

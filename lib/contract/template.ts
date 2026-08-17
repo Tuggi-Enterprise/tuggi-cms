@@ -12,17 +12,20 @@
  * version up here. Publishing v2 therefore never edits v1 — it adds an entry. Editing a
  * published version in place would silently change what a signed hash claims to prove.
  *
- * THERE IS NO GATE. `legalReview.status` says whether a lawyer has already signed off on
- * this wording, and NOTHING in the code refuses anything because of it. It used to:
- * `sendForSignature` answered `legal_review_pending` while the status was `pending`. That
- * check came out on 2026-08-17 by decision of the operator — approving a minuta is a human
- * act taken outside this software, and whoever is about to put the document in front of a
- * partner is the one who knows if it is ready. Do not put the gate back; it is absent on
- * purpose, and `lib/services/partner-contract-service.ts` says the same at `sendForSignature`.
+ * THERE IS NO GATE, AND NO FIELD DESCRIBING ONE. This template used to carry a
+ * `legalReview` object, and `sendForSignature` answered `legal_review_pending` while its
+ * status was `pending`. That check came out on 2026-08-17 by decision of the operator —
+ * approving a minuta is a human act taken outside this software, and whoever is about to
+ * put the document in front of a partner is the one who knows if it is ready. The field
+ * outlived the gate by one commit, printing a banner that told the partner the document he
+ * had just been sent could not be sent, so it came out too: nothing reads the review state
+ * because nothing decides by it. Do not put either back; both are absent on purpose, and
+ * `lib/services/partner-contract-service.ts` says the same at `sendForSignature`.
  *
  * What BR-B2B-023, item 2 does require is still enforced by the text itself and by a test:
  * no document NAMES the adjustment index before the lawyer picks it, which is why the
- * clause carries a bracketed hole instead of an acronym.
+ * clause carries a bracketed hole instead of an acronym. The foro of `governing_law` is a
+ * hole for the same reason: it is the lawyer's and the operator's choice, not an agent's.
  *
  * Numbers in the clauses are not typed here twice: each one is a constant with the ID of
  * the rule it comes from (CLAUDE.md §6, SSOT).
@@ -64,16 +67,6 @@ export interface ContractTemplate {
   /** What the partner sees as the document title. */
   title: string
   publishedAt: string
-  /**
-   * Whether a lawyer has reviewed this wording. It GATES NOTHING (operator, 2026-08-17 —
-   * see the file docblock); its only reader is the `MINUTA` banner of `lib/contract/pdf.tsx`.
-   */
-  legalReview: {
-    status: 'pending' | 'approved'
-    /** Clause ids still carrying a decision that is not ours to take. */
-    pending: readonly string[]
-    note: string
-  }
   clauses: readonly ContractClause[]
 }
 
@@ -92,13 +85,6 @@ const V1: ContractTemplate = {
   version: 'v1-2026-08',
   title: 'Contrato de parceria — Tuggi',
   publishedAt: '2026-08-14',
-  legalReview: {
-    status: 'pending',
-    pending: ['price_and_payment', 'governing_law'],
-    note:
-      'Minuta pendente de revisão jurídica: o índice de reajuste (BR-B2B-023, item 2) e o foro ' +
-      'são escolha do advogado e do operador, e nenhum agente os nomeia.',
-  },
   clauses: [
     {
       id: 'parties',

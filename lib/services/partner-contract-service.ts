@@ -248,8 +248,8 @@ export type SendOutcome =
  * Opens the signing link (BR-B2B-026, item 4 — the team checks, generates and sends).
  *
  * THERE IS NO LEGAL-REVIEW GATE HERE, AND THE ABSENCE IS A DECISION, NOT AN OVERSIGHT.
- * Until 2026-08-17 this refused with `legal_review_pending` while the template carried
- * `legalReview.status === 'pending'`, so a minuta could be generated and read but never
+ * Until 2026-08-17 this refused with `legal_review_pending` while the template declared its
+ * wording still under legal review, so a minuta could be generated and read but never
  * sent. Deciding that a draft is ready to go to a partner is a human act that happens
  * outside this software — the operator said it plainly on that date: "vc nao faz essa
  * trava, o operador faz". Do not reintroduce the check.

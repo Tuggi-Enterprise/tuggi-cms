@@ -164,9 +164,9 @@ export const GET = withRateLimit(60, 60_000)(
     const checklist = contractChecklist(client, choices, { platformOwner, regularity })
 
     return NextResponse.json({
-      // `legalReview` is deliberately NOT here: since 2026-08-17 it gates nothing and the
-      // surface shows no "minuta em revisão" warning, so shipping it would be a field the
-      // page reads to decide nothing. Its one reader is the PDF banner.
+      // The legal-review state is deliberately NOT here, and since 2026-08-17 the template
+      // does not even carry it: it gated nothing and the surface shows no "minuta em
+      // revisão" warning, so it would be a field the page reads to decide nothing.
       template: {
         version: template.version,
         title: template.title,
