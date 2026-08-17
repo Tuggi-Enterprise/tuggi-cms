@@ -1898,7 +1898,7 @@
         "contract": "Contrato",
         "team": "Equipe",
         "appusers": "Usuários do App",
-        "pois": "POIs",
+        "places": "Locais",
         "coupons": "Cupons",
         "configuration": "Configuração",
         "comingSoon": "Em breve",
@@ -2798,6 +2798,17 @@
     },
     "returnBar": {
       "label": "Voltar para a esteira de {name}"
+    },
+    "clientPlaces": {
+      "title": "Locais que aparecem no app",
+      "body": "Cada local abaixo é um POI ligado a este cliente. O conteúdo dele — descrição, áudio, trigger points e polígono — se edita no editor de POI; aqui ficam a ligação, o que falta e a porta de entrada.",
+      "pipelineLink": "Ver a esteira desta parceria",
+      "returnLabel": "Voltar para os locais do cliente",
+      "creating": "Criando o local…",
+      "createFailed": "Não foi possível criar o local agora. Confira se ele já não existe e tente de novo.",
+      "loading": "Carregando os locais deste cliente…",
+      "errorTitle": "Não foi possível carregar os locais deste cliente.",
+      "retry": "Tentar de novo"
     }
   }
 }

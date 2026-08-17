@@ -27,7 +27,10 @@ function AdminClientsContent() {
   const clientId = searchParams.get('clientId')
   // Backwards compat — old links use ?new=true, the new editor reads ?mode=new.
   const isCreateNew = searchParams.get('mode') === 'new' || searchParams.get('new') === 'true'
-  const initialTab = (searchParams.get('tab') as ClientEditorTab | null) ?? 'profile'
+  // `?tab=pois` is the old name of the places tab, kept working so links already out there
+  // keep landing on the same panel.
+  const requestedTab = searchParams.get('tab')
+  const initialTab = ((requestedTab === 'pois' ? 'places' : requestedTab) as ClientEditorTab | null) ?? 'profile'
   /**
    * Where closing the record sends the operator — DS-LAYOUT-006, point 2.
    *

@@ -29,12 +29,18 @@ import { ProfileTab } from '@/components/admin/clients/tabs/ProfileTab'
 import { FiscalPaymentsTab } from '@/components/admin/clients/tabs/FiscalPaymentsTab'
 import { TeamTab } from '@/components/admin/clients/tabs/TeamTab'
 import { AppUsersTab, type AppUserLite } from '@/components/admin/clients/tabs/AppUsersTab'
-import { PoisTab } from '@/components/admin/clients/tabs/PoisTab'
+import { PlacesTab } from '@/components/admin/clients/tabs/PlacesTab'
 import { CouponsTab } from '@/components/admin/clients/tabs/CouponsTab'
 import { ContractTab } from '@/components/admin/clients/tabs/ContractTab'
 import { DEFAULT_CLIENT_TYPE, type Client } from '@/types/clients'
 
-export type ClientEditorTab = 'profile' | 'fiscal' | 'contract' | 'team' | 'appusers' | 'pois' | 'coupons'
+/**
+ * `places` was called `pois` while the tab was only the welcome-POI picker. It now lists the
+ * places linked to the client by `partner_client_id`, and the old name described the widget
+ * rather than the subject — `AdminClientsPageContent` still accepts `?tab=pois` so the links
+ * already out there keep landing here.
+ */
+export type ClientEditorTab = 'profile' | 'fiscal' | 'contract' | 'team' | 'appusers' | 'places' | 'coupons'
 
 interface ClientEditorModalProps {
   clientId?: string
@@ -55,7 +61,7 @@ const TABS: TabDef[] = [
   { id: 'contract', labelKey: 'contract', icon: FileSignature },
   { id: 'team', labelKey: 'team', icon: Users },
   { id: 'appusers', labelKey: 'appusers', icon: Smartphone },
-  { id: 'pois', labelKey: 'pois', icon: MapPin },
+  { id: 'places', labelKey: 'places', icon: MapPin },
   { id: 'coupons', labelKey: 'coupons', icon: Gift },
 ]
 
@@ -297,7 +303,7 @@ export function ClientEditorModal({
             </p>
 
             {TABS.map((tab) => {
-              const disabled = tab.placeholder || (!isEditing && (tab.id === 'team' || tab.id === 'pois' || tab.id === 'coupons'))
+              const disabled = tab.placeholder || (!isEditing && (tab.id === 'team' || tab.id === 'places' || tab.id === 'coupons'))
               return (
                 <button
                   key={tab.id}
@@ -387,8 +393,8 @@ export function ClientEditorModal({
                 onStageChange={setStagedAppUsers}
               />
             )}
-            {activeTab === 'pois' && (
-              <PoisTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
+            {activeTab === 'places' && (
+              <PlacesTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
             )}
             {activeTab === 'coupons' && (
               <CouponsTab client={client} edited={edited} updateField={updateField} canEdit clientId={clientId} />
