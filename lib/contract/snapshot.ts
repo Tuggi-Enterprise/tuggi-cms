@@ -81,6 +81,7 @@ export function resolvePlatformOwner(lookup: PlatformOwnerLookup): ProviderResol
           id: 'platform_owner',
           label: 'Nenhum cliente marcado como dono da plataforma',
           where: 'cadastro da Tuggi, aba Fiscal e Pagamentos',
+          target: { kind: 'client', clientId: null, tab: 'fiscal' },
         },
       ],
     }
@@ -94,12 +95,16 @@ export function resolvePlatformOwner(lookup: PlatformOwnerLookup): ProviderResol
           id: 'platform_owner_ambiguous',
           label: 'Mais de um cliente marcado como dono da plataforma — só um pode ser',
           where: 'aba Fiscal e Pagamentos dos clientes marcados',
+          target: { kind: 'client', clientId: null, tab: 'fiscal' },
         },
       ],
     }
   }
 
   const owner = lookup.client
+  // The record to open for Tuggi's own side of the contract — a DIFFERENT row of
+  // `core.clients` from the partner's, and the reason `target` carries an id at all.
+  const ownerId = owner.id
   const missing: ChecklistItem[] = []
 
   const legalName = owner.company_name?.trim() || owner.name?.trim() || ''
@@ -112,20 +117,21 @@ export function resolvePlatformOwner(lookup: PlatformOwnerLookup): ProviderResol
   const representativeRole = owner.legal_representative_role?.trim() ?? ''
 
   if (!legalName) {
-    missing.push({ id: 'provider_legal_name', label: 'Razão social da Tuggi', where: OWNER_PROFILE_TAB })
+    missing.push({ id: 'provider_legal_name', label: 'Razão social da Tuggi', where: OWNER_PROFILE_TAB, target: { kind: 'client', clientId: ownerId, tab: 'profile' } })
   }
   if (!taxId) {
-    missing.push({ id: 'provider_tax_id', label: 'CNPJ da Tuggi', where: OWNER_FISCAL_TAB })
+    missing.push({ id: 'provider_tax_id', label: 'CNPJ da Tuggi', where: OWNER_FISCAL_TAB, target: { kind: 'client', clientId: ownerId, tab: 'fiscal' } })
   }
   // The address of the row is the required part; city, state and CEP only enrich the line.
   if (!owner.address?.trim()) {
-    missing.push({ id: 'provider_address', label: 'Endereço da Tuggi', where: OWNER_PROFILE_TAB })
+    missing.push({ id: 'provider_address', label: 'Endereço da Tuggi', where: OWNER_PROFILE_TAB, target: { kind: 'client', clientId: ownerId, tab: 'profile' } })
   }
   if (!representativeName) {
     missing.push({
       id: 'provider_representative_name',
       label: 'Nome do representante legal da Tuggi',
       where: OWNER_FISCAL_TAB,
+      target: { kind: 'client', clientId: ownerId, tab: 'fiscal' },
     })
   }
   if (!representativeRole) {
@@ -133,6 +139,7 @@ export function resolvePlatformOwner(lookup: PlatformOwnerLookup): ProviderResol
       id: 'provider_representative_role',
       label: 'Cargo do representante legal da Tuggi',
       where: OWNER_FISCAL_TAB,
+      target: { kind: 'client', clientId: ownerId, tab: 'fiscal' },
     })
   }
 
@@ -201,11 +208,39 @@ export interface RegularityEvidence {
 
 export type ContractClient = Client
 
-/** One missing thing, and where the operator resolves it. */
+/**
+ * WHERE the operator resolves one missing item, said twice on purpose — and they are not the
+ * same statement.
+ *
+ * `where` is the sentence a person reads (`aba Fiscal e Pagamentos`), written by `design`.
+ * `target` is the same fact in a shape a screen can act on, so the item becomes a control
+ * instead of an instruction: while only the prose existed, generating a contract meant reading
+ * the sentence, leaving for the client record, hunting for the tab, filling one field, coming
+ * back, and discovering the next hole — one round trip per missing field, up to ten of them.
+ *
+ * They cannot drift because they are built side by side, in this module, from the same branch.
+ * The screen renders the prose and acts on the target; the day a sixth field appears, both
+ * halves of the answer are written in the same line of code.
+ */
+export type ChecklistTarget =
+  /**
+   * A field of somebody's registration. `clientId` is the record to open — THIS partner for
+   * their own data, and the client marked as the platform owner for Tuggi's side of the
+   * contract, which lives in a different record entirely. `null` when there is no record to
+   * open (nobody is marked as owner yet, or more than one is).
+   */
+  | { kind: 'client'; clientId: string | null; tab: 'profile' | 'fiscal' }
+  /** The in-person conference of the proposal — the evidence of BR-B2B-022, item 3. */
+  | { kind: 'conference' }
+  /** A field of the contract form itself, already on screen. */
+  | { kind: 'page' }
+
+/** One missing thing, where a person reads it is, and where a screen can take them. */
 export interface ChecklistItem {
   id: string
   label: string
   where: string
+  target: ChecklistTarget
 }
 
 /**
@@ -243,28 +278,28 @@ export function contractChecklist(
   missing.push(...resolvePlatformOwner(options.platformOwner).missing)
 
   if (!client) {
-    missing.push({ id: 'client', label: 'Cadastro do cliente não encontrado', where: 'lista de clientes' })
+    missing.push({ id: 'client', label: 'Cadastro do cliente não encontrado', where: 'lista de clientes', target: { kind: 'client', clientId: null, tab: 'profile' } })
     return { ready: false, missing }
   }
 
   if (!client.tax_id?.trim()) {
-    missing.push({ id: 'tax_id', label: 'CNPJ do estabelecimento', where: 'aba Fiscal e Pagamentos' })
+    missing.push({ id: 'tax_id', label: 'CNPJ do estabelecimento', where: 'aba Fiscal e Pagamentos', target: { kind: 'client', clientId: client.id, tab: 'fiscal' } })
   }
 
   if (!client.company_name?.trim() && !client.name?.trim()) {
-    missing.push({ id: 'legal_name', label: 'Razão social do estabelecimento', where: 'aba Perfil' })
+    missing.push({ id: 'legal_name', label: 'Razão social do estabelecimento', where: 'aba Perfil', target: { kind: 'client', clientId: client.id, tab: 'profile' } })
   }
 
   if (!client.address?.trim()) {
-    missing.push({ id: 'address', label: 'Endereço do estabelecimento', where: 'aba Perfil' })
+    missing.push({ id: 'address', label: 'Endereço do estabelecimento', where: 'aba Perfil', target: { kind: 'client', clientId: client.id, tab: 'profile' } })
   }
 
   if (!client.legal_representative_name?.trim()) {
-    missing.push({ id: 'representative_name', label: 'Nome do representante legal', where: 'aba Fiscal e Pagamentos' })
+    missing.push({ id: 'representative_name', label: 'Nome do representante legal', where: 'aba Fiscal e Pagamentos', target: { kind: 'client', clientId: client.id, tab: 'fiscal' } })
   }
 
   if (!client.legal_representative_role?.trim()) {
-    missing.push({ id: 'representative_role', label: 'Cargo do representante legal', where: 'aba Fiscal e Pagamentos' })
+    missing.push({ id: 'representative_role', label: 'Cargo do representante legal', where: 'aba Fiscal e Pagamentos', target: { kind: 'client', clientId: client.id, tab: 'fiscal' } })
   }
 
   // BR-B2B-022, item 3: "documento vencido é ausência".
@@ -277,36 +312,38 @@ export function contractChecklist(
   // the `Conferência presencial` band of the proposal (`ProposalReview`, `conference.heading`).
   const regularity = options.regularity
   if (!regularity.businessLicenseDocument) {
-    missing.push({ id: 'business_license', label: 'Alvará de funcionamento conferido', where: CONFERENCE_BAND })
+    missing.push({ id: 'business_license', label: 'Alvará de funcionamento conferido', where: CONFERENCE_BAND, target: { kind: 'conference' } })
   } else if (!regularity.businessLicenseValidUntil) {
     missing.push({
       id: 'business_license_validity',
       label: 'Validade do alvará preenchida',
       where: CONFERENCE_BAND,
+      target: { kind: 'conference' },
     })
   } else if (new Date(regularity.businessLicenseValidUntil).getTime() <= now.getTime()) {
     missing.push({
       id: 'business_license_expired',
       label: 'Alvará vencido — pedir o vigente ao parceiro',
       where: CONFERENCE_BAND,
+      target: { kind: 'conference' },
     })
   }
 
   if (!regularity.incorporationDocument) {
-    missing.push({ id: 'incorporation', label: 'Documento de constituição conferido', where: CONFERENCE_BAND })
+    missing.push({ id: 'incorporation', label: 'Documento de constituição conferido', where: CONFERENCE_BAND, target: { kind: 'conference' } })
   }
 
   if (typeof client.commission_rate !== 'number') {
-    missing.push({ id: 'commission_rate', label: 'Percentual de comissão', where: 'aba Fiscal e Pagamentos' })
+    missing.push({ id: 'commission_rate', label: 'Percentual de comissão', where: 'aba Fiscal e Pagamentos', target: { kind: 'client', clientId: client.id, tab: 'fiscal' } })
   }
 
   if (choices.qrDeliveryDays === null || !Number.isInteger(choices.qrDeliveryDays) || choices.qrDeliveryDays <= 0) {
-    missing.push({ id: 'qr_delivery', label: 'Prazo de entrega do QR e do display, em dias', where: 'esta página' })
+    missing.push({ id: 'qr_delivery', label: 'Prazo de entrega do QR e do display, em dias', where: 'esta página', target: { kind: 'page' } })
   }
 
   if (choices.tier === 'paid') {
     if (!choices.paymentMethod) {
-      missing.push({ id: 'payment_method', label: 'Forma de pagamento (boleto ou Pix)', where: 'esta página' })
+      missing.push({ id: 'payment_method', label: 'Forma de pagamento (boleto ou Pix)', where: 'esta página', target: { kind: 'page' } })
     }
 
     // Absent is incomplete registration; zero without the courtesy decision is the same
@@ -316,7 +353,7 @@ export function contractChecklist(
 
     if (courtesy) {
       if (!client.courtesy_reason?.trim()) {
-        missing.push({ id: 'courtesy_reason', label: 'Motivo da cortesia', where: 'aba Fiscal e Pagamentos' })
+        missing.push({ id: 'courtesy_reason', label: 'Motivo da cortesia', where: 'aba Fiscal e Pagamentos', target: { kind: 'client', clientId: client.id, tab: 'fiscal' } })
       }
     } else if (typeof fee !== 'number' || !Number.isFinite(fee) || fee <= 0) {
       missing.push({
@@ -326,6 +363,7 @@ export function contractChecklist(
             ? 'Valor mensal: zero digitado não vale como cortesia — marque "Cortesia (sem mensalidade)" com o motivo'
             : 'Valor mensal do contrato',
         where: 'aba Fiscal e Pagamentos',
+        target: { kind: 'client', clientId: client.id, tab: 'fiscal' },
       })
     }
   }

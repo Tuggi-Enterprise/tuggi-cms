@@ -18,13 +18,14 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { ContractText } from '@/components/contract/ContractText'
-import { formatDate, formatDateTime, formatFee, type ContractSnapshot } from '@/lib/contract/snapshot'
-
-interface ChecklistItem {
-  id: string
-  label: string
-  where: string
-}
+import { ClientEditorModal } from '@/components/admin/clients/ClientEditorModal'
+import {
+  formatDate,
+  formatDateTime,
+  formatFee,
+  type ChecklistItem,
+  type ContractSnapshot,
+} from '@/lib/contract/snapshot'
 
 interface ContractState {
   template: {
@@ -101,6 +102,16 @@ export function ContractManager({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [preview, setPreview] = useState(false)
+  /**
+   * The registration the operator is filling in WITHOUT leaving this page.
+   *
+   * Every checklist item used to be an instruction — `aba Fiscal e Pagamentos` — and obeying
+   * it cost a round trip per missing field: leave, hunt for the record, fill, come back,
+   * discover the next hole. The record is a drawer that fetches and saves on its own, so it
+   * comes here instead. It carries an id because Tuggi's own side of the contract lives in a
+   * DIFFERENT row of `core.clients` than the partner's, and both are on this checklist.
+   */
+  const [editing, setEditing] = useState<{ clientId: string; tab: 'profile' | 'fiscal' } | null>(null)
 
   // The fetch does not touch state: `react-hooks/set-state-in-effect` is right that an
   // effect whose body sets state cascades renders, and keeping the two apart also makes
@@ -275,7 +286,10 @@ export function ContractManager({
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 {state.checklist.missing.map((item) => (
                   <li key={item.id}>
-                    {item.label} — <em>{item.where}</em>
+                    <MissingItem
+                      item={item}
+                      onOpenClient={(clientId, tab) => setEditing({ clientId, tab })}
+                    />
                   </li>
                 ))}
               </ul>
@@ -407,7 +421,60 @@ export function ContractManager({
           {message}
         </p>
       ) : null}
+
+      {/* Closing it re-reads the checklist: the item the operator just resolved disappears with
+          no manual reload, which is the whole point of bringing the record here. */}
+      <ClientEditorModal
+        clientId={editing?.clientId}
+        isOpen={editing !== null}
+        mode="edit"
+        initialTab={editing?.tab ?? 'profile'}
+        onClose={() => {
+          setEditing(null)
+          void reload()
+        }}
+        onSaved={() => void reload()}
+      />
     </div>
+  )
+}
+
+/**
+ * One missing item — a control when the screen can take the operator there, prose when it
+ * cannot.
+ *
+ * `kind: 'page'` is already on this screen and `kind: 'conference'` is the proposal's band,
+ * which has no id here to link with; both keep saying where in words. A `clientId` of `null`
+ * means nobody is marked as the platform owner, or more than one is — there is no single
+ * record to open, and a button that opens the wrong one is worse than a sentence.
+ */
+function MissingItem({
+  item,
+  onOpenClient,
+}: {
+  item: ChecklistItem
+  onOpenClient: (clientId: string, tab: 'profile' | 'fiscal') => void
+}) {
+  if (item.target.kind === 'client' && item.target.clientId) {
+    const { clientId, tab } = item.target
+    return (
+      <>
+        {item.label} —{' '}
+        <button
+          type="button"
+          onClick={() => onOpenClient(clientId, tab)}
+          className="font-semibold text-primary-800 underline underline-offset-4"
+        >
+          {item.where}
+        </button>
+      </>
+    )
+  }
+
+  return (
+    <>
+      {item.label} — <em>{item.where}</em>
+    </>
   )
 }
 
