@@ -2471,8 +2471,8 @@
       "nothingToWrite": "Não há nada para gravar: os campos da proposta já estão no cadastro, ou nenhum divergente foi marcado.",
       "keptNotice": "{count, plural, one {# campo divergente não vai ser tocado} other {# campos divergentes não vão ser tocados}} — o que está no cadastro fica.",
       "failedTitle": "Não foi possível promover.",
-      "failedNothingWritten": "Nada foi gravado. O cadastro está exatamente como estava.",
-      "failedNotPromotable": "Esta proposta não está mais para conferir — alguém já promoveu ou descartou. Recarregue a página.",
+      "failedNothingWritten": "O cadastro do cliente pode ter sido criado ou atualizado, e a proposta continua pendente na fila. Abra a ficha do cliente antes de promover de novo. Promover sem conferir cria um segundo registro.",
+      "failedNotPromotable": "Outro operador já promoveu ou descartou esta proposta, e mesmo assim este clique pode ter gravado o cadastro do cliente. Confira a ficha do cliente e depois recarregue a página.",
       "failedNetworkTitle": "Não sabemos se a gravação chegou.",
       "failedNetworkBody": "Abra a ficha do cliente antes de tentar de novo — se os campos já estiverem lá, está feito."
     },

@@ -999,6 +999,12 @@
     "content_summary": "{desc} desc · {tp} TP",
     "empty": "No se encontraron eventos."
   },
+  "PartnerProposals": {
+    "promotion": {
+      "failedNothingWritten": "El registro del cliente puede haberse creado o actualizado, y la propuesta sigue pendiente en la cola. Abre la ficha del cliente antes de promover otra vez. Promover sin revisar crea un segundo registro.",
+      "failedNotPromotable": "Otro operador ya promovió o descartó esta propuesta, y aun así este clic puede haber guardado el registro del cliente. Revisa la ficha del cliente y después recarga la página."
+    }
+  },
   "PlaceManagement": {
     "title": "Lugares",
     "subtitle": "Gestiona comercios, restaurantes, hoteles y servicios",
