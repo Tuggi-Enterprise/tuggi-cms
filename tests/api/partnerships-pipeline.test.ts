@@ -399,9 +399,11 @@ test('#359 · spec §2: the identity of the row changes halfway, and so does the
     detailPath('proposal_received', { submissionId: SUBMISSION_ID, clientId: null }),
     `/admin/partnerships/proposals/${SUBMISSION_ID}`
   )
+  // From the client onwards the object is the client, and the client record is where the five
+  // bands live now — the same header, one click from the fiscal data and the contract.
   assert.equal(
     detailPath('contract_signed', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),
-    `/admin/partnerships/clients/${CLIENT_ID}`
+    `/admin/clients?clientId=${CLIENT_ID}&tab=partnership`
   )
   assert.equal(
     detailPath('discarded', { submissionId: SUBMISSION_ID, clientId: CLIENT_ID }),

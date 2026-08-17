@@ -1812,6 +1812,58 @@
     "drawWarning": "⚠️ Es necesario dibujar el boundary en el mapa antes de guardar."
   },
   "Clients": {
+    "directory": {
+      "title": "Clientes y alianzas",
+      "subtitle": "Una sola lista: el cliente cargado a mano y la propuesta que aún no es cliente.",
+      "searchLabel": "Buscar",
+      "searchPlaceholder": "Nombre, CUIT/CNPJ o ciudad",
+      "clear": "Limpiar filtros",
+      "results": "{count} de {total}",
+      "truncated": "La lista se cortó en el límite de carga. Filtrá para ver el resto.",
+      "emptyTitle": "Todavía no hay clientes cargados.",
+      "emptyFilteredTitle": "Ningún cliente con estos filtros.",
+      "errorTitle": "No se pudo cargar la lista.",
+      "retry": "Intentar de nuevo",
+      "loading": "Cargando la lista…",
+      "open": "Abrir",
+      "openNamed": "Abrir {name}",
+      "noName": "Sin nombre",
+      "proposalBadge": "Propuesta, todavía sin registro",
+      "newClient": "Nuevo cliente",
+      "filters": {
+        "country": "País",
+        "region": "Provincia",
+        "city": "Ciudad",
+        "clientType": "Tipo",
+        "status": "Situación del registro",
+        "contract": "Contrato",
+        "state": "Estado de la alianza",
+        "onlyLate": "Solo triaje vencido"
+      },
+      "columns": {
+        "name": "Cliente",
+        "location": "Dónde",
+        "clientType": "Tipo",
+        "state": "Estado",
+        "contract": "Contrato",
+        "missing": "Qué falta",
+        "idle": "Detenido hace",
+        "triage": "Triaje"
+      },
+      "contractValues": {
+        "none": "Sin contrato",
+        "draft": "Borrador",
+        "sent": "Esperando aceptación",
+        "signed": "Firmado",
+        "superseded": "Sustituido",
+        "terminated": "Finalizado"
+      },
+      "statusValues": {
+        "pending": "Pendiente",
+        "approved": "Aprobado",
+        "rejected": "Rechazado"
+      }
+    },
     "editor": {
       "header": {
         "newClient": "Nuevo cliente",

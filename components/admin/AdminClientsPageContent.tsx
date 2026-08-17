@@ -13,10 +13,11 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ClientsListAdmin } from '@/components/admin/ClientsListAdmin'
+import { NextIntlClientProvider, useLocale, useMessages } from 'next-intl'
+import ptMessages from '@/messages/pt.json'
+import { ClientDirectory } from '@/components/admin/clients/ClientDirectory'
 import { ClientEditorModal, type ClientEditorTab } from '@/components/admin/clients/ClientEditorModal'
 import { useSupabaseClient, useSessionContext } from '@supabase/auth-helpers-react'
-import { Container } from '@/components/ui/Container'
 import { RETURN_TO_PARAM, parseReturnTo } from '@/lib/navigation/return-to'
 
 function AdminClientsContent() {
@@ -24,6 +25,8 @@ function AdminClientsContent() {
   const searchParams = useSearchParams()
   const { session, isLoading: sessionLoading } = useSessionContext()
   const supabase = useSupabaseClient()
+  const locale = useLocale()
+  const messages = useMessages()
   const clientId = searchParams.get('clientId')
   // Backwards compat — old links use ?new=true, the new editor reads ?mode=new.
   const isCreateNew = searchParams.get('mode') === 'new' || searchParams.get('new') === 'true'
@@ -121,12 +124,19 @@ function AdminClientsContent() {
 
   return (
     <div className="min-h-screen bg-gray-50/50">
-      <Container className="py-8">
-        <ClientsListAdmin
-          key={reloadKey}
-          onCreateNew={startCreateNew}
-        />
-      </Container>
+      {/*
+        ONE LIST. `ClientsListAdmin` read `core.clients` and `PartnershipsQueue` read
+        `core.partner_form_submissions`, so the same establishment was two rows in two screens.
+        `ClientDirectory` renders the union, and the pipeline vocabulary — the states, `o que
+        falta`, the triage clock — is Portuguese-only by decision (#408), so it is overlaid on
+        the operator's messages rather than replacing them.
+      */}
+      <NextIntlClientProvider
+        locale={locale}
+        messages={{ ...messages, Partnerships: ptMessages.Partnerships }}
+      >
+        <ClientDirectory key={reloadKey} locale={locale} onCreateNew={startCreateNew} />
+      </NextIntlClientProvider>
 
       <ClientEditorModal
         clientId={clientId ?? undefined}

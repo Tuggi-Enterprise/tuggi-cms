@@ -158,13 +158,20 @@ export function derivePipelineState(input: PipelineInput): PipelineState {
  * Where `Abrir` goes, without the locale prefix. States 1 and 2 are about the submission;
  * everything from the client onwards is about the client. A discarded proposal keeps pointing
  * at the submission, which is where its reason and the restore control live.
+ *
+ * FROM THE CLIENT ONWARDS IT IS THE CLIENT RECORD, and no longer a screen of its own. The five
+ * bands are a TAB of `/admin/clients` now, carrying the same header — state, next step and the
+ * triage clock — so nothing the standalone page offered is lost on the way, and the operator
+ * lands one click from the fiscal data, the contract and the places instead of three page
+ * changes away from them. `/admin/partnerships/clients/{id}` still answers, for the links
+ * already out there.
  */
 export function detailPath(
   state: PipelineState,
   ids: { submissionId: string; clientId: string | null }
 ): string {
   if (ids.clientId && state !== 'discarded') {
-    return `/admin/partnerships/clients/${ids.clientId}`
+    return `/admin/clients?clientId=${ids.clientId}&tab=partnership`
   }
   return `/admin/partnerships/proposals/${ids.submissionId}`
 }

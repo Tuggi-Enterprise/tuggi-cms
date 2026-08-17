@@ -1886,6 +1886,58 @@
     "drawWarning": "⚠️ É necessário desenhar o boundary no mapa antes de salvar."
   },
   "Clients": {
+    "directory": {
+      "title": "Clientes e parcerias",
+      "subtitle": "Uma lista só: o cliente cadastrado à mão e a proposta que ainda não virou cliente.",
+      "searchLabel": "Buscar",
+      "searchPlaceholder": "Nome, CNPJ ou cidade",
+      "clear": "Limpar filtros",
+      "results": "{count} de {total}",
+      "truncated": "A lista foi cortada no limite de carga. Filtre para ver o resto.",
+      "emptyTitle": "Nenhum cliente cadastrado ainda.",
+      "emptyFilteredTitle": "Nenhum cliente com esses filtros.",
+      "errorTitle": "Não foi possível carregar a lista.",
+      "retry": "Tentar de novo",
+      "loading": "Carregando a lista…",
+      "open": "Abrir",
+      "openNamed": "Abrir {name}",
+      "noName": "Sem nome",
+      "proposalBadge": "Proposta, ainda sem cadastro",
+      "newClient": "Novo cliente",
+      "filters": {
+        "country": "País",
+        "region": "Estado",
+        "city": "Cidade",
+        "clientType": "Tipo",
+        "status": "Situação do cadastro",
+        "contract": "Contrato",
+        "state": "Estado da parceria",
+        "onlyLate": "Só triagem vencida"
+      },
+      "columns": {
+        "name": "Cliente",
+        "location": "Onde",
+        "clientType": "Tipo",
+        "state": "Estado",
+        "contract": "Contrato",
+        "missing": "O que falta",
+        "idle": "Parado há",
+        "triage": "Triagem"
+      },
+      "contractValues": {
+        "none": "Sem contrato",
+        "draft": "Rascunho",
+        "sent": "Aguardando aceite",
+        "signed": "Assinado",
+        "superseded": "Substituído",
+        "terminated": "Encerrado"
+      },
+      "statusValues": {
+        "pending": "Pendente",
+        "approved": "Aprovado",
+        "rejected": "Rejeitado"
+      }
+    },
     "editor": {
       "header": {
         "newClient": "Novo cliente",

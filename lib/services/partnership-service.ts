@@ -70,8 +70,8 @@ const SUBMISSION_COLUMNS =
  * second source of the same fact gets born.
  */
 const CLIENT_COLUMNS =
-  'id, name, company_name, city, state, tax_id, status, approved_at, created_at, ' +
-  'monthly_fee_cents, is_courtesy, courtesy_reason'
+  'id, name, company_name, city, state, country, client_type, tax_id, status, approved_at, ' +
+  'created_at, monthly_fee_cents, is_courtesy, courtesy_reason'
 
 interface SubmissionRow {
   id: string
@@ -95,6 +95,10 @@ export interface PipelineClient {
   companyName: string | null
   city: string | null
   region: string | null
+  /** Added with the unified directory: `país`, `estado` and `cidade` are three of its filters. */
+  country: string | null
+  /** The relationship category — the directory filters by it, and the badge reads it. */
+  clientType: string | null
   taxId: string | null
   status: string | null
   approvedAt: string | null
@@ -144,21 +148,106 @@ export interface PartnershipQueueRow {
 export async function loadPartnershipQueue(
   operator: SupabaseClient
 ): Promise<PartnershipQueueRow[]> {
-  const { data, error } = await service()
-    .from('partner_form_submissions')
-    .select(SUBMISSION_COLUMNS)
-    .order('submitted_at', { ascending: false })
-    .limit(500)
+  // The queue is the directory seen through one filter: the rows with a proposal behind them.
+  // Deriving it separately is what let the two screens disagree about the same partnership.
+  const directory = await loadClientDirectory(operator)
+  return directory.rows
+    .filter((row): row is ClientDirectoryRow & { submissionId: string } => row.submissionId !== null)
+    .map((row) => ({
+      submissionId: row.submissionId,
+      clientId: row.clientId,
+      state: row.state,
+      href: row.href,
+      tradeName: row.name,
+      taxId: row.taxId,
+      city: row.city,
+      region: row.region,
+      duplicateCount: row.duplicateCount,
+      since: row.since,
+      places: row.places,
+      triage: row.triage,
+      discardReason: row.discardReason,
+    }))
+}
 
-  if (error || !data) return []
-  const submissions = data as unknown as SubmissionRow[]
+/**
+ * ONE LIST, and it is the answer to the question the two screens were asking separately.
+ *
+ * `/admin/clients` was anchored on `core.clients` and `/admin/partnerships` on
+ * `core.partner_form_submissions`, so the same establishment was two rows in two screens with
+ * two vocabularies — and neither list could answer `quais parceiros de Minas ainda não
+ * assinaram o contrato?`, because half the answer was in the other screen.
+ *
+ * The spine here is the UNION: every client, plus every proposal that has not become one yet.
+ * From `promoted_client_id` onwards the two are the same row, which is the rule
+ * `lib/partnerships/pipeline` already wrote down — the identity of a partnership changes
+ * halfway, and this is the list that stops pretending otherwise.
+ *
+ * A CLIENT WITH NO PROPOSAL IS STILL A ROW. That is the half `/admin/partnerships` could not
+ * show: the 10 clients that predate the form, and every `influencer` or `hotel` somebody
+ * registered by hand. Their pipeline derives from what exists — no submission means no
+ * conference to read, which `derivePipelineState` already answers for.
+ *
+ * NOTHING IS FILTERED HERE. The rows come whole and `lib/clients/directory-filter` decides
+ * what the operator sees, because the facet counts have to be computed over the same set the
+ * table renders — a count that comes from a different query than the rows is the defect that
+ * made `1 com a triagem vencida` open an empty table.
+ */
+export interface ClientDirectoryRow {
+  /** The proposal behind the row, or `null` for a registration nobody proposed. */
+  submissionId: string | null
+  /** The record the row opens, or `null` while the proposal has not been promoted. */
+  clientId: string | null
+  state: PipelineState
+  /** Where `Abrir` goes, without the locale prefix. */
+  href: string
+  name: string | null
+  taxId: string | null
+  city: string | null
+  region: string | null
+  country: string | null
+  clientType: string | null
+  /** `pending` | `approved` | `rejected` — the approval of the RELATIONSHIP, not of a place. */
+  status: string | null
+  /**
+   * The live contract's state, or `none`. A filter of its own because `quem ainda não assinou`
+   * is the question the two lists could not answer between them.
+   */
+  contract: string
+  contractSigned: boolean
+  /** Other proposals waiting with the same CNPJ — the existing badge, kept. */
+  duplicateCount: number
+  /** The last thing that happened here. `Parado há` counts from it. */
+  since: string | null
+  places: PlacesSummary
+  /** The FACTS the triage clock is derived from, never the text — see `PartnershipQueueRow`. */
+  triage: TriageFacts
+  discardReason: string | null
+}
 
-  const clientIds = submissions
-    .map((row) => row.promoted_client_id)
-    .filter((id): id is string => typeof id === 'string')
+export interface ClientDirectory {
+  rows: ClientDirectoryRow[]
+  /** True when the caps below cut the set. The screen says so rather than lying by omission. */
+  truncated: boolean
+}
 
-  const [clients, contracts, places] = await Promise.all([
-    loadClients(clientIds),
+const DIRECTORY_CLIENT_CAP = 1000
+const DIRECTORY_SUBMISSION_CAP = 1000
+
+export async function loadClientDirectory(operator: SupabaseClient): Promise<ClientDirectory> {
+  const [submissionsResult, clients] = await Promise.all([
+    service()
+      .from('partner_form_submissions')
+      .select(SUBMISSION_COLUMNS)
+      .order('submitted_at', { ascending: false })
+      .limit(DIRECTORY_SUBMISSION_CAP),
+    loadAllClients(DIRECTORY_CLIENT_CAP),
+  ])
+
+  const submissions = (submissionsResult.error ? [] : submissionsResult.data ?? []) as unknown as SubmissionRow[]
+  const clientIds = Array.from(clients.keys())
+
+  const [contracts, places] = await Promise.all([
     loadLiveContracts(clientIds),
     loadPartnerPlaces(clientIds, operator),
   ])
@@ -171,23 +260,27 @@ export async function loadPartnershipQueue(
 
   const duplicates = countPendingDuplicates(submissions)
 
-  return submissions.map((row) => {
-    const clientId = row.promoted_client_id
-    const client = clientId ? clients.get(clientId) ?? null : null
-    const contract = clientId ? contracts.get(clientId) ?? null : null
-    const readiness = (clientId ? places.get(clientId) ?? [] : []).map(buildPlaceReadiness)
-    const conference = readReviewNote(row.review_note).conference
-
+  /** Facts every row needs, whether it came from a proposal or straight from a registration. */
+  function partnershipOf(client: PipelineClient | null) {
+    const readiness = (client ? places.get(client.id) ?? [] : []).map(buildPlaceReadiness)
     const outcomes: PlaceTriageOutcome[] = readiness.map((item) => ({
       published: item.published,
       refusal: refusals.get(item.place.attractionId) ?? null,
     }))
+    return { readiness, outcomes, contract: client ? contracts.get(client.id) ?? null : null }
+  }
+
+  const rows: ClientDirectoryRow[] = submissions.map((row) => {
+    const clientId = row.promoted_client_id
+    const client = clientId ? clients.get(clientId) ?? null : null
+    const { readiness, outcomes, contract } = partnershipOf(client)
+    const conference = readReviewNote(row.review_note).conference
 
     const state = derivePipelineState({
       proposalStatus: row.status,
       conference,
       // A `promoted_client_id` pointing at a row that no longer answers is not a client: the
-      // state has to fall back to the proposal, or the queue would show a client-shaped row
+      // state has to fall back to the proposal, or the list would show a client-shaped row
       // whose detail route is a 404.
       clientId: client ? client.id : null,
       contractSigned: contract?.signed === true,
@@ -204,10 +297,17 @@ export async function loadPartnershipQueue(
       clientId: client?.id ?? null,
       state,
       href: detailPath(state, { submissionId: row.id, clientId: client?.id ?? null }),
-      tradeName: answers.trade_name ?? client?.name ?? null,
+      // What the partner wrote wins over the registration while both exist: the proposal is
+      // the name the operator is about to recognise in the queue.
+      name: answers.trade_name ?? client?.name ?? null,
       taxId: answers.tax_id ?? client?.taxId ?? null,
       city: answers.city ?? client?.city ?? null,
       region: answers.state ?? client?.region ?? null,
+      country: client?.country ?? null,
+      clientType: client?.clientType ?? null,
+      status: client?.status ?? null,
+      contract: contract?.status ?? 'none',
+      contractSigned: contract?.signed === true,
       duplicateCount: duplicates.get(row.id) ?? 0,
       since: lastEvent([
         row.submitted_at,
@@ -221,6 +321,57 @@ export async function loadPartnershipQueue(
       discardReason: row.status === 'discarded' ? row.discard_reason : null,
     }
   })
+
+  // The other half of the list: every client no proposal claims. The 10 that predate the form,
+  // and every registration somebody typed by hand — invisible in the queue until now.
+  const claimed = new Set(
+    submissions
+      .map((row) => row.promoted_client_id)
+      .filter((id): id is string => typeof id === 'string')
+  )
+
+  for (const client of clients.values()) {
+    if (claimed.has(client.id)) continue
+    const { readiness, outcomes, contract } = partnershipOf(client)
+
+    rows.push({
+      submissionId: null,
+      clientId: client.id,
+      // No submission means no conference to read, and `promoted` is what the detail already
+      // assumes for a client that arrived without one — the same call, the same answer.
+      state: derivePipelineState({
+        proposalStatus: 'promoted',
+        conference: EMPTY_CONFERENCE,
+        clientId: client.id,
+        contractSigned: contract?.signed === true,
+        placeCount: readiness.length,
+        publishedPlaceCount: readiness.filter((item) => item.published).length,
+        refusedPlaceCount: outcomes.filter(isRefusedAtTriage).length,
+        uncommunicatedRefusal: hasUncommunicatedRefusal(outcomes),
+      }),
+      href: `/admin/clients?clientId=${client.id}`,
+      name: client.name ?? client.companyName ?? null,
+      taxId: client.taxId,
+      city: client.city,
+      region: client.region,
+      country: client.country,
+      clientType: client.clientType,
+      status: client.status,
+      contract: contract?.status ?? 'none',
+      contractSigned: contract?.signed === true,
+      duplicateCount: 0,
+      since: lastEvent([client.createdAt, client.approvedAt, contract?.signedAt ?? null]),
+      places: summarizePlaces(readiness),
+      triage: { approvedAt: client.approvedAt, places: outcomes },
+      discardReason: null,
+    })
+  }
+
+  return {
+    rows,
+    truncated:
+      submissions.length >= DIRECTORY_SUBMISSION_CAP || clients.size >= DIRECTORY_CLIENT_CAP,
+  }
 }
 
 /** Who put this place in front of tourists, and when. Absent until somebody does. */
@@ -497,8 +648,26 @@ async function loadClients(ids: string[]): Promise<Map<string, PipelineClient>> 
 
   const { data, error } = await service().from('clients').select(CLIENT_COLUMNS).in('id', ids)
   if (error || !data) return map
+  return indexClients(data as unknown as Record<string, unknown>[], map)
+}
 
-  for (const row of data as unknown as Record<string, unknown>[]) {
+/** Every client, for the directory — the queue asks by id, the directory asks for all of them. */
+async function loadAllClients(limit: number): Promise<Map<string, PipelineClient>> {
+  const map = new Map<string, PipelineClient>()
+  const { data, error } = await service()
+    .from('clients')
+    .select(CLIENT_COLUMNS)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error || !data) return map
+  return indexClients(data as unknown as Record<string, unknown>[], map)
+}
+
+function indexClients(
+  rows: Record<string, unknown>[],
+  map: Map<string, PipelineClient>
+): Map<string, PipelineClient> {
+  for (const row of rows) {
     const id = row.id as string
     map.set(id, {
       id,
@@ -506,6 +675,8 @@ async function loadClients(ids: string[]): Promise<Map<string, PipelineClient>> 
       companyName: (row.company_name as string) ?? null,
       city: (row.city as string) ?? null,
       region: (row.state as string) ?? null,
+      country: (row.country as string) ?? null,
+      clientType: (row.client_type as string) ?? null,
       taxId: (row.tax_id as string) ?? null,
       status: (row.status as string) ?? null,
       approvedAt: (row.approved_at as string) ?? null,
