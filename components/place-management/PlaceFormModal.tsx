@@ -218,7 +218,12 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
               longitude={form.longitude !== '' && form.longitude != null ? Number(form.longitude) : null}
               name={form.name}
               address={details?.formatted_address ?? null}
-              addressCaption={t('address_centered')}
+              captions={{
+                locating: t('address_locating'),
+                centered: t('address_centered'),
+                not_located: t('address_not_located'),
+                no_address: t('address_missing'),
+              }}
               onChange={(lat, lng) => { set('latitude', lat); set('longitude', lng) }}
             />
           </div>

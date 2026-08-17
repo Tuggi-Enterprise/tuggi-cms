@@ -16,12 +16,23 @@
  * errado o curador corrige arrastando; coordenada errada gravada tem aparência de verdade e
  * atravessa a triagem (BR-B2B-011, portão 1, e BR-POI-004). Falha de geocodificação cai no
  * comportamento antigo, sem bloquear nada.
+ *
+ * E FALHAR EM SILÊNCIO NO FLUXO NÃO É FALHAR EM SILÊNCIO NA TELA (#371, `design`, item 1). Sem
+ * coordenada, este componente SEMPRE tem legenda, em uma das quatro formas que
+ * `pickLocationCaption` decide — porque o mapa de São Paulo sem uma linha de texto não diz ao
+ * operador se está esperando algo, se o endereço não resolveu ou se é assim que a tela é. Nas três
+ * formas em que o clique é o caminho, a legenda diz `clique no mapa`.
  */
 import { useEffect, useState } from 'react'
 import { MapPin, ExternalLink } from 'lucide-react'
 import { GoogleMapComponent } from '@/components/ui/GoogleMapComponent'
 import { geocodeAddress } from '@/lib/maps/geocode-address'
-import { pickLocationPickerView, type MapPoint } from '@/lib/maps/location-picker-view'
+import {
+  pickLocationCaption,
+  pickLocationPickerView,
+  type LocationCaption,
+  type MapPoint,
+} from '@/lib/maps/location-picker-view'
 
 interface LocationPickerProps {
   editable: boolean
@@ -34,11 +45,16 @@ interface LocationPickerProps {
    */
   address?: string | null
   /**
-   * A legenda que avisa que a câmera veio do endereço e que a coordenada ainda não existe. Vem
-   * traduzida de quem chama: este componente é usado em telas de namespaces diferentes, e chamar
-   * `useTranslations` aqui imprimiria o nome da chave em quem não tem o namespace.
+   * AS QUATRO LEGENDAS, já traduzidas por quem chama: este componente é usado em telas de
+   * namespaces diferentes, e chamar `useTranslations` aqui imprimiria o nome da chave em quem não
+   * tem o namespace.
+   *
+   * São quatro e não uma porque a coordenada pode faltar de quatro maneiras, e a única frase que
+   * ensina o caminho (`clique no mapa`) tem de aparecer nas três em que ele é o caminho — inclusive
+   * quando a geocodificação falha, que é justamente onde a legenda não existia (#371, item 1).
+   * O objeto inteiro é obrigatório de propósito: quem passa metade deixa um mapa mudo.
    */
-  addressCaption?: string
+  captions?: Record<LocationCaption, string>
   onChange?: (lat: number, lng: number) => void
 }
 
@@ -48,11 +64,16 @@ export function LocationPicker({
   longitude,
   name,
   address,
-  addressCaption,
+  captions,
   onChange,
 }: LocationPickerProps) {
   const hasCoord = typeof latitude === 'number' && typeof longitude === 'number'
   const [geocoded, setGeocoded] = useState<MapPoint | null>(null)
+  /**
+   * A geocodificação está fora. Estado próprio porque `geocoded === null` responde a duas
+   * perguntas diferentes — "ainda não voltou" e "não achou" —, e a legenda de cada uma é outra.
+   */
+  const [locating, setLocating] = useState(false)
 
   const trimmedAddress = (address ?? '').trim()
   // Só quando falta a coordenada: com coordenada gravada, geocodificar seria pedir a um terceiro
@@ -62,14 +83,23 @@ export function LocationPicker({
   useEffect(() => {
     if (!shouldGeocode) {
       setGeocoded(null)
+      setLocating(false)
       return
     }
 
     let cancelled = false
-    void geocodeAddress(trimmedAddress).then((result) => {
-      if (cancelled || !result) return
-      setGeocoded({ lat: result.lat, lng: result.lng })
-    })
+    setGeocoded(null)
+    setLocating(true)
+    void geocodeAddress(trimmedAddress)
+      .then((result) => {
+        if (cancelled || !result) return
+        setGeocoded({ lat: result.lat, lng: result.lng })
+      })
+      // `finally` e não o ramo de sucesso: `geocodeAddress` falha para null, mas se algum dia
+      // rejeitar, a legenda ficaria presa em `Localizando…` para sempre.
+      .finally(() => {
+        if (!cancelled) setLocating(false)
+      })
 
     return () => {
       cancelled = true
@@ -98,6 +128,12 @@ export function LocationPicker({
   }
 
   const view = pickLocationPickerView({ latitude, longitude, geocoded })
+  const caption = pickLocationCaption({
+    editable,
+    source: view.source,
+    hasAddress: trimmedAddress.length > 0,
+    locating,
+  })
 
   return (
     <div className="space-y-2">
@@ -115,10 +151,14 @@ export function LocationPicker({
           onMapClick={(lat: number, lng: number) => onChange?.(lat, lng)}
         />
       </div>
-      {/* O operador precisa saber que a câmera veio do endereço e que ainda não existe coordenada
-          — sem esta linha, um mapa centrado no lugar certo parece um local já posicionado. */}
-      {view.source === 'address' && addressCaption && (
-        <p className="text-xs text-gray-700 dark:text-gray-300">{addressCaption}</p>
+      {/* SEMPRE que falta a coordenada, e o espaço é reservado desde o primeiro render (duas linhas
+          de `text-xs`): a legenda troca quando a geocodificação responde, e um parágrafo que nasce
+          ali empurraria o mapa que o operador está usando. O mapa continua renderizado enquanto
+          localiza — é ele que carrega o SDK que a geocodificação espera. */}
+      {caption !== null && (
+        <p className="min-h-[2rem] text-xs text-gray-700 dark:text-gray-300" aria-live="polite">
+          {captions?.[caption] ?? ''}
+        </p>
       )}
     </div>
   )

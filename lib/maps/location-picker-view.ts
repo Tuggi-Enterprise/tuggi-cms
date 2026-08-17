@@ -38,6 +38,40 @@ export interface LocationPickerView {
   source: 'coordinate' | 'address' | 'fallback'
 }
 
+/**
+ * WHICH LEGEND THE MAP CARRIES, and there is always one while the coordinate is missing.
+ *
+ * The legend used to exist only for `source: 'address'`, so `ZERO_RESULTS`, an SDK that never
+ * loads and a null `formatted_address` all fell into a mute map of São Paulo — and the sentence
+ * that teaches the ONLY way to set the coordinate (`clique no mapa`) disappeared exactly where it
+ * was needed. Failing to null is right for the flow; being silent on the screen is not (#371,
+ * `design`, item 1).
+ *
+ * `null` means no legend at all, and it happens in the two cases where there is nothing to say:
+ * the coordinate is already on the record, or the field is not editable.
+ */
+export type LocationCaption = 'locating' | 'centered' | 'not_located' | 'no_address'
+
+export function pickLocationCaption(input: {
+  editable: boolean
+  /** The source `pickLocationPickerView` resolved for the same render. */
+  source: LocationPickerView['source']
+  /** Whether the record has an address at all — what separates the last two legends. */
+  hasAddress: boolean
+  /** The geocoding is still out. It answers in up to 10 s while the SDK loads. */
+  locating: boolean
+}): LocationCaption | null {
+  if (!input.editable) return null
+  // The pin is on the map and it is the record's: there is nothing to explain.
+  if (input.source === 'coordinate') return null
+  // Carrying is a first-class state (DS-COMPONENTE-002), and here it costs one line: without it
+  // the camera opens on the fallback and JUMPS when the answer arrives.
+  if (input.locating) return 'locating'
+  if (input.source === 'address') return 'centered'
+  // We say we could not LOCATE it, never that the address is wrong — that is what we know.
+  return input.hasAddress ? 'not_located' : 'no_address'
+}
+
 export function pickLocationPickerView(input: {
   latitude?: number | null
   longitude?: number | null

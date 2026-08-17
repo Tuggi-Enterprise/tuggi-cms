@@ -11,7 +11,9 @@
  *  · showing a marker on the geocoded centre (it would read as a coordinate nobody set);
  *  · calling `onChange` from the geocoding effect;
  *  · letting `LocationPicker` reach `placeService`/`cms_set_attraction_coordinate`;
- *  · a second forward geocoder anywhere in the CMS.
+ *  · a second forward geocoder anywhere in the CMS;
+ *  · rendering the legend only for `source === 'address'` (the failure goes mute — #371, item 1);
+ *  · a legend that blames the address instead of saying we could not locate it.
  *
  * Run with: npm run test:api
  */
@@ -26,6 +28,7 @@ import {
   COORDINATE_ZOOM,
   FALLBACK_CENTER,
   FALLBACK_ZOOM,
+  pickLocationCaption,
   pickLocationPickerView,
 } from '@/lib/maps/location-picker-view'
 import { geocodeAddress, waitForGoogleMaps } from '@/lib/maps/geocode-address'
@@ -89,6 +92,81 @@ test('#371 item 3: geocoding that answers nothing falls back to the old behaviou
 test('#371: the address zoom is wider than the coordinate zoom, because it resolved a street', () => {
   assert.equal(COORDINATE_ZOOM > ADDRESS_ZOOM, true)
   assert.equal(ADDRESS_ZOOM > FALLBACK_ZOOM, true)
+})
+
+// ── The legend, in the state of FAILURE — #371, `design` item 1 ───────────────────────────────
+
+test('#371 item 1 · DS-COMPONENTE-002: with no coordinate there is ALWAYS a legend', () => {
+  const editable = { editable: true, locating: false }
+
+  // The three forms `design` wrote, and what separates them: `source` tells the centred map from
+  // the failed one, and `hasAddress` tells the failure from the absence.
+  assert.equal(
+    pickLocationCaption({ ...editable, source: 'address', hasAddress: true }),
+    'centered'
+  )
+  assert.equal(
+    pickLocationCaption({ ...editable, source: 'fallback', hasAddress: true }),
+    'not_located',
+    'ZERO_RESULTS, an SDK that never loads and a null formatted_address all land here'
+  )
+  assert.equal(
+    pickLocationCaption({ ...editable, source: 'fallback', hasAddress: false }),
+    'no_address'
+  )
+
+  // Carrying wins over all three while the answer is out: the camera opens on the fallback and
+  // moves when the geocoding lands, and a map that jumps with no warning reads as a bug.
+  assert.equal(
+    pickLocationCaption({ editable: true, locating: true, source: 'fallback', hasAddress: true }),
+    'locating'
+  )
+
+  // And the two cases with nothing to say: the pin is the record's, or nobody may edit it.
+  assert.equal(
+    pickLocationCaption({ ...editable, source: 'coordinate', hasAddress: true }),
+    null
+  )
+  assert.equal(
+    pickLocationCaption({ editable: false, locating: false, source: 'fallback', hasAddress: true }),
+    null
+  )
+})
+
+test('#371 item 1: the three legends of a missing coordinate all say `clique no mapa`', () => {
+  const pt = JSON.parse(read('messages/pt.json')).Modals.PlaceDetails as Record<string, string>
+
+  // The sentence that teaches the ONLY way to set the coordinate. It used to exist only on the
+  // happy path — which is the one place the operator does not need it.
+  for (const key of ['address_centered', 'address_not_located', 'address_missing']) {
+    assert.match(pt[key], /clique no mapa/i, `${key} has to teach the act`)
+  }
+
+  // We say we could not LOCATE the address, never that it is wrong: that is what we know.
+  assert.match(pt.address_not_located, /não foi possível localizar/i)
+  assert.equal(/endereço (está )?(errado|inválido|incorreto)/i.test(pt.address_not_located), false)
+  assert.match(pt.address_missing, /não tem endereço no cadastro/i)
+  assert.match(pt.address_locating, /localizando/i)
+})
+
+test('#371 item 2: the picker reserves the legend space and hands all four captions down', () => {
+  const picker = code(PICKER)
+
+  // The legend renders off the pure decision, and the space is reserved from the first render so
+  // that the text changing does not push the map the operator is using.
+  assert.match(picker, /pickLocationCaption\(\{/)
+  assert.match(picker, /caption !== null/)
+  assert.match(picker, /min-h-\[2rem\]/)
+  // `locating` is its own state: `geocoded === null` answers two different questions.
+  assert.match(picker, /setLocating\(true\)/)
+  assert.match(picker, /\.finally\(/, 'a rejected promise must not leave the legend at Localizando…')
+
+  // The four are handed down translated, because this picker is used under more than one
+  // namespace and a missing one renders the key name.
+  const modal = code('components/place-management/PlaceFormModal.tsx')
+  for (const key of ['address_locating', 'address_centered', 'address_not_located', 'address_missing']) {
+    assert.match(modal, new RegExp(`t\\('${key}'\\)`), `the modal must pass ${key}`)
+  }
 })
 
 // ── The geocoding itself ─────────────────────────────────────────────────────────────────────
@@ -212,7 +290,10 @@ test('#371: the modal hands the address down, and the address comes from the rec
   assert.match(modal, /address=\{details\?\.formatted_address \?\? null\}/)
   // Translated by the caller: this picker is used under more than one namespace, and a missing
   // one renders the key name.
-  assert.match(modal, /addressCaption=\{t\('address_centered'\)\}/)
+  // Four captions and not one: without a coordinate there is always a legend, and the form of it
+  // depends on what the geocoding answered (#371, item 1).
+  assert.match(modal, /captions=\{\{/)
+  assert.match(modal, /centered: t\('address_centered'\)/)
 
   // `core.get_place_details` does not return the column, so the service reads it — the widening
   // of the RPC is a requirement written back to the `data` on the card.
@@ -221,12 +302,16 @@ test('#371: the modal hands the address down, and the address comes from the rec
   assert.match(service, /formatted_address: await placeService\.getFormattedAddress\(id\)/)
 })
 
-test('#371: the caption exists in the three locales, so no screen prints the key name', () => {
+test('#371: the four captions exist in the three locales, so no screen prints the key name', () => {
+  const keys = ['address_centered', 'address_locating', 'address_not_located', 'address_missing']
+
   for (const locale of ['pt', 'en', 'es']) {
     const messages = JSON.parse(read(`messages/${locale}.json`))
-    const caption = messages.Modals?.PlaceDetails?.address_centered
-    assert.equal(typeof caption, 'string', `${locale} is missing Modals.PlaceDetails.address_centered`)
-    assert.equal(caption.length > 0, true)
+    for (const key of keys) {
+      const caption = messages.Modals?.PlaceDetails?.[key]
+      assert.equal(typeof caption, 'string', `${locale} is missing Modals.PlaceDetails.${key}`)
+      assert.equal(caption.trim().length > 0, true, `${locale}.${key} is empty`)
+    }
   }
 })
 
