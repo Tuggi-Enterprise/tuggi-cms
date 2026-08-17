@@ -12,8 +12,10 @@
  * sets, and every function here is called only from `withAuth({ roles: ['admin'] })`.
  *
  * Rows this module reads and writes are `core.partner_form_submissions` and `core.clients`.
- * The migration is not applied yet; until it is, every function answers with the Supabase
- * error, which is what the routes already turn into a typed response.
+ * The migration `20260814140000` IS applied — its CHECKs are live, and a statement that violates
+ * one comes back as a Supabase error, which is what the routes already turn into a typed
+ * response. `partner_form_submissions_promotion_ck` is the one that dictates the write order of
+ * `promoteProposal`; the reasoning is on that function.
  */
 
 import { getSupabaseService } from '@/lib/core/supabase-client'
@@ -302,23 +304,42 @@ export interface PromotionCommand {
  * Writes the promotion. One statement against `core.clients`, which is what makes "either
  * everything you ticked, or nothing" literally true for the record the copy is about.
  *
- * ORDER, AND WHY IT IS THIS ONE. PostgREST has no transaction across statements, so the claim
- * is taken first: `status = 'submitted'` is a predicate of the UPDATE, so two operators
- * clicking at the same time produce exactly one winner, and a proposal already promoted or
- * discarded matches no row. Only then is `core.clients` written. If that write fails the claim
- * is handed back — the proposal returns to `submitted` — so the operator's screen and the
- * database agree that nothing happened.
+ * ORDER, AND WHY IT IS THIS ONE — THE CLIENT FIRST, AND IT IS THE DATABASE THAT DECIDES IT.
+ * `partner_form_submissions_promotion_ck` (decision 6 of `20260814140000`, BR-B2B-026: promotion
+ * is an act WITH a destination) is `status <> 'promoted' OR (promoted_at IS NOT NULL AND
+ * promoted_client_id IS NOT NULL)`. There is no state in which the row is `promoted` and the
+ * destination is not yet known, so `promoted_client_id` has to be in the SAME statement that
+ * writes `status` — and the client id only exists after `core.clients` is written. Taking the
+ * claim first, in the hope of filling the destination in a second statement, is not a slower
+ * promotion: it is a promotion the database refuses with 23514, and it refused every one of
+ * them in production.
  *
- * The residue this leaves is one case, and it is the honest one: the client row is written and
- * the trail column is not. That is why the failure copy for a network error does not offer
- * "try again" and tells the operator to open the client record first.
+ * The single winner survives the inversion, because it never depended on the order: the claim is
+ * still ONE UPDATE on ONE row with `status = 'submitted'` as a predicate, so two operators
+ * clicking together produce exactly one match, and a proposal already promoted or discarded
+ * matches none.
+ *
+ * THE RESIDUE, NAMED: PostgREST has no transaction across statements, so a claim that fails
+ * after the client write leaves the client row written and the proposal still `submitted`. That
+ * is the honest failure — the operator's record exists, the queue still offers the act — and it
+ * is why the failure copy does not offer "try again" and tells the operator to open the client
+ * record first. Nothing here deletes the client it just wrote.
  */
 export async function promoteProposal(command: PromotionCommand): Promise<PromotionOutcome> {
+  const written = await writeClient(command)
+  if (!written.ok) return { ok: false, reason: written.reason }
+
   const promotedAt = new Date().toISOString()
 
   const { data: claimed, error: claimError } = await service()
     .from(SUBMISSIONS)
-    .update({ status: 'promoted', promoted_at: promotedAt, promoted_by: command.promotedBy })
+    .update({
+      status: 'promoted',
+      promoted_at: promotedAt,
+      promoted_by: command.promotedBy,
+      promoted_client_id: written.clientId,
+      updated_at: promotedAt,
+    })
     .eq('id', command.submissionId)
     .eq('status', 'submitted')
     .select('id')
@@ -326,30 +347,12 @@ export async function promoteProposal(command: PromotionCommand): Promise<Promot
   if (claimError) return { ok: false, reason: 'write_failed' }
   if (!claimed || claimed.length === 0) return { ok: false, reason: 'not_promotable' }
 
-  const written = await writeClient(command)
-  if (!written.ok) {
-    await releaseClaim(command.submissionId)
-    return { ok: false, reason: written.reason }
-  }
-
-  await service()
-    .from(SUBMISSIONS)
-    .update({ promoted_client_id: written.clientId, updated_at: promotedAt })
-    .eq('id', command.submissionId)
-
   return {
     ok: true,
     clientId: written.clientId,
     created: written.created,
     written: command.written,
   }
-}
-
-async function releaseClaim(submissionId: string): Promise<void> {
-  await service()
-    .from(SUBMISSIONS)
-    .update({ status: 'submitted', promoted_at: null, promoted_by: null })
-    .eq('id', submissionId)
 }
 
 /**
