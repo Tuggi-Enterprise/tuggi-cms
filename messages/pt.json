@@ -1133,6 +1133,7 @@
       "tags_hint": "separadas por vírgula",
       "cuisine_hint": "separadas por vírgula",
       "reused_note": "Horário, acessibilidade, boundary, trigger points e descrição/áudio reusam os editores de POI (por attraction_id) — a plugar em seguida.",
+      "address_centered": "Mapa centralizado no endereço do cadastro. Clique no mapa para definir a coordenada.",
       "validation_required": "Nome, cidade e país são obrigatórios.",
       "error_save": "Falha ao salvar o local"
     },

@@ -164,10 +164,40 @@ export const placeService = {
     }
   },
 
+  /**
+   * The place, as the detail screen reads it — plus the one column the RPC does not return.
+   *
+   * `core.get_place_details` (`supabase/migrations/20260703_07_places_rpcs.sql`) answers with 19
+   * columns and `formatted_address` is not among them, even though the CMS itself writes it: the
+   * partner-approval prefill does (`lib/partner-form/place-prefill.ts`, `PLACE_PREFILL_COLUMNS`).
+   * The map of #371 opens over that address, so it has to arrive here. WIDENING THE RPC IS THE
+   * RIGHT FIX and it is a requirement written back to the `data` (#371); until then this is one
+   * extra bounded read, and a failed one is `null` — the map falls back and nothing blocks.
+   */
   async getDetails(id: string) {
     const { data, error } = await client().schema('core').rpc('get_place_details', { p_place_id: id })
     if (error) throw new Error(error.message)
-    return (data?.[0] as any) || null
+    const place = (data?.[0] as any) || null
+    if (!place) return null
+    return { ...place, formatted_address: await placeService.getFormattedAddress(id) }
+  },
+
+  /**
+   * The address on the record, for CENTRING A MAP and for nothing else (#371).
+   *
+   * It is read from `core.attractions` with the caller's identity, the same way
+   * `listByPartnerClient` reads the pipeline's places. It never becomes a coordinate: the only
+   * writer of one is `setCoordinate`, and it is called from the save path of a human click.
+   */
+  async getFormattedAddress(attractionId: string, db?: SupabaseClient): Promise<string | null> {
+    const { data, error } = await client(db)
+      .schema('core')
+      .from('attractions')
+      .select('formatted_address')
+      .eq('id', attractionId)
+      .maybeSingle()
+    if (error) return null
+    return ((data as { formatted_address: string | null } | null)?.formatted_address ?? null) || null
   },
 
   async create(input: CreatePlaceInput, db?: SupabaseClient): Promise<string> {

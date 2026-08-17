@@ -1134,6 +1134,7 @@
       "tags_hint": "comma-separated",
       "cuisine_hint": "comma-separated",
       "reused_note": "Opening hours, accessibility, boundary, trigger points and description/audio reuse the POI editors (keyed by attraction_id) — wired in a follow-up.",
+      "address_centered": "Map centred on the registered address. Click the map to set the coordinate.",
       "validation_required": "Name, city and country are required.",
       "error_save": "Failed to save place"
     },

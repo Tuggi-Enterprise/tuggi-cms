@@ -209,11 +209,16 @@ export function PlaceFormModal({ placeId, isOpen, onClose, onSaved }: PlaceFormM
           </div>
           <div className="md:col-span-3">
             <label className={fieldLabel}>{L('location')} *</label>
+            {/* O endereço vai junto para CENTRALIZAR o mapa quando o local ainda não tem
+                coordenada — é o caso do local que a aprovação do parceiro cria (#371). Ele nunca
+                vira coordenada: quem grava é `handleSave`, com o par que o clique produziu. */}
             <LocationPicker
               editable={canEdit}
               latitude={form.latitude !== '' && form.latitude != null ? Number(form.latitude) : null}
               longitude={form.longitude !== '' && form.longitude != null ? Number(form.longitude) : null}
               name={form.name}
+              address={details?.formatted_address ?? null}
+              addressCaption={t('address_centered')}
               onChange={(lat, lng) => { set('latitude', lat); set('longitude', lng) }}
             />
           </div>
