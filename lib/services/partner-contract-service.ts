@@ -352,9 +352,18 @@ export function canServeDocument(state: SigningState): boolean {
 /**
  * Resolves a raw token into the contract and its acceptance.
  *
- * A signed link keeps working and answers `signed` WITH the acceptance: the receipt is
- * what the signer is entitled to see, and it is the same information already sent to their
- * mailbox. What a closed link never gets is the ability to change anything.
+ * A signed link keeps working WITHIN ITS TTL and answers `signed` WITH the acceptance: the
+ * receipt is what the signer is entitled to see, and it is the same information already
+ * sent to their mailbox. What a closed link never gets is the ability to change anything.
+ *
+ * THE CLOCK IS READ BEFORE THE STATE, AND THAT ORDER IS THE WHOLE POINT (#390). It used to
+ * be the other way round: `signed` returned before `token_expires_at` was ever looked at, so
+ * a link to an ALREADY SIGNED contract served the page and the PDF forever. That is not a
+ * theoretical window — the raw token lives in two e-mails (`partner_contract_sign` and
+ * `partner_contract_signed`) for good, a commercial mailbox is shared, forwarded and
+ * inherited, and `core.tg_partner_contract_guard` refuses a new `token_hash` on a signed
+ * contract (TGB17), so the leaked link cannot even be rotated. The expiry is the only thing
+ * that ever closes it, and it therefore has to apply to EVERY state, not to `sent` alone.
  */
 export async function resolveSigningToken(token: string): Promise<ResolvedContract> {
   if (!isWellFormedSingleUseToken(token)) return { state: 'invalid' }
@@ -368,6 +377,12 @@ export async function resolveSigningToken(token: string): Promise<ResolvedContra
   if (error || !data) return { state: 'invalid' }
   const contract = data as unknown as ContractRow
 
+  // A null `token_expires_at` is a contract that was never sent: no link was minted, so
+  // there is no deadline to miss. It falls through to the state ladder, which refuses it.
+  if (contract.token_expires_at && new Date(contract.token_expires_at).getTime() <= Date.now()) {
+    return { state: 'expired', contract }
+  }
+
   if (contract.status === 'signed') {
     const acceptance = await getAcceptance(contract.id)
     return { state: 'signed', contract, acceptance: acceptance ?? undefined }
@@ -375,9 +390,6 @@ export async function resolveSigningToken(token: string): Promise<ResolvedContra
   if (contract.status === 'superseded' || contract.superseded_by) return { state: 'superseded', contract }
   if (contract.status === 'terminated') return { state: 'terminated', contract }
   if (contract.status !== 'sent') return { state: 'invalid' }
-  if (contract.token_expires_at && new Date(contract.token_expires_at).getTime() <= Date.now()) {
-    return { state: 'expired', contract }
-  }
 
   return { state: 'open', contract }
 }
@@ -565,12 +577,13 @@ async function archiveSignedDocument(
   contract: ContractRow,
   acceptance: AcceptanceRow
 ): Promise<AcceptanceRow | null> {
+  // `ip_address` and `user_agent` are on `acceptance` and stay there: the trail keeps them,
+  // the operator surface shows them, and the artefact that travels to the partner does not
+  // carry them (#390 — see the note on `AcceptanceStamp`).
   const stamp: AcceptanceStamp = {
     signerName: acceptance.signer_name,
     signerRole: acceptance.signer_role,
     acceptedAt: acceptance.accepted_at,
-    ipAddress: acceptance.ip_address,
-    userAgent: acceptance.user_agent,
     recipientEmail: acceptance.recipient_email,
     documentHash: contract.document_hash,
   }

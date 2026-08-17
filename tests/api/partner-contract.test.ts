@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createHash } from 'node:crypto'
+import { inflateSync } from 'node:zlib'
 
 import {
   buildSnapshot,
@@ -816,6 +817,113 @@ test('CPC arts. 411 and 434: the acceptance records hash, version, IP, user agen
   assert.equal(isSha256Hex(acceptance.signed_document_hash!), true)
   assert.notEqual(acceptance.signed_document_hash, acceptance.document_hash)
   assert.equal(sha256Hex(objects.get(acceptance.signed_document_path!)!), acceptance.signed_document_hash)
+})
+
+/**
+ * What a partner actually reads in the PDF.
+ *
+ * `@react-pdf/renderer` writes the page text as hex strings inside Flate-compressed content
+ * streams, so `bytes.includes('203.0.113.7')` answers `false` on a document that prints the
+ * IP in 10pt Helvetica — a needle search on the raw file is a test that passes for the wrong
+ * reason. This inflates every stream and decodes the `TJ`/`Tj` operands back to text: the
+ * standard-14 Helvetica this document uses is WinAnsi, so each hex pair is the character.
+ * Kerning splits a word across several `<...>` chunks inside one array, which is why the
+ * chunks of an array are joined before anything is searched.
+ */
+function shownText(bytes: Uint8Array): string {
+  const buf = Buffer.from(bytes)
+  const raw = buf.toString('latin1')
+
+  let content = ''
+  const streams = /stream\r?\n/g
+  let match: RegExpExecArray | null
+  while ((match = streams.exec(raw))) {
+    const start = match.index + match[0].length
+    const end = raw.indexOf('endstream', start)
+    if (end < 0) continue
+    try {
+      content += inflateSync(buf.subarray(start, end)).toString('latin1')
+    } catch {
+      // Not every stream is text and not every stream is deflated; those are not the ones
+      // this test is about.
+    }
+  }
+
+  return (content.match(/\[[\s\S]*?\]\s*TJ|<[0-9a-fA-F\s]*?>\s*Tj/g) ?? [])
+    .map((operand) =>
+      (operand.match(/<[0-9a-fA-F\s]*?>/g) ?? [])
+        .map((hex) => Buffer.from(hex.slice(1, -1).replace(/\s/g, ''), 'hex').toString('latin1'))
+        .join('')
+    )
+    .join('\n')
+}
+
+test('#390 · LGPD art. 6º, III: the copy the PARTNER downloads carries neither the IP nor the user agent', async () => {
+  const { contract } = await generated()
+
+  const outcome = await contractService.acceptContract({
+    contract: contract as any,
+    signingToken: 'a'.repeat(43),
+    signerName: 'Antônio Silva',
+    signerRole: 'Sócio',
+    ipAddress: '203.0.113.7',
+    userAgent: 'Mozilla/5.0 (iPhone)',
+  })
+  assert.equal(outcome.ok, true)
+  if (!outcome.ok) return
+
+  const archived = objects.get(outcome.acceptance.signed_document_path!)
+  assert.ok(archived, 'the signed copy is in the bucket')
+
+  // The layout wraps long values (the SHA-256 breaks after its first character), so the
+  // absence is asserted against a whitespace-free view: a needle cannot hide in a line break.
+  const shown = shownText(archived!)
+  const packed = shown.replace(/\s+/g, '')
+  const packedNeedle = (value: string) => value.replace(/\s+/g, '')
+
+  // The two needles are the fixture's own values, so this cannot pass by rendering nothing:
+  // the four facts below prove the appendix is there and was read.
+  assert.equal(
+    packed.indexOf(packedNeedle('203.0.113.7')),
+    -1,
+    'the signer IP is not printed in the artefact that travels'
+  )
+  assert.equal(packed.indexOf(packedNeedle('Mozilla/5.0 (iPhone)')), -1, 'nor is the user agent')
+
+  // And neither are the labels — a row with an empty value is the same leak with worse copy.
+  assert.equal(/Endere.oIP/.test(packed), false)
+  assert.equal(/Agentedeusu.rio/.test(packed), false)
+
+  // The proof of acceptance is untouched: who signed, under which version, and the hash of
+  // what was read (MP 2.200-2, art. 10, §2º).
+  assert.ok(shown.indexOf('Termo de aceite eletrônico') >= 0, 'the appendix really did render')
+  assert.ok(shown.indexOf('Antônio Silva') >= 0, 'the signer is still named')
+  assert.ok(
+    packed.indexOf(contract.document_hash) >= 0,
+    'and the hash of the accepted document is still printed'
+  )
+  assert.ok(shown.indexOf('antonio@cantina.com.br') >= 0, 'as is the invited address')
+})
+
+test('#390: the trail keeps what the PDF stopped printing — the record does not move', async () => {
+  const { contract } = await generated()
+
+  const outcome = await contractService.acceptContract({
+    contract: contract as any,
+    signingToken: 'a'.repeat(43),
+    signerName: 'Antônio Silva',
+    signerRole: 'Sócio',
+    ipAddress: '203.0.113.7',
+    userAgent: 'Mozilla/5.0 (iPhone)',
+  })
+  assert.equal(outcome.ok, true)
+  if (!outcome.ok) return
+
+  // Taking the two facts off the document is not deleting them. They stay in
+  // `core.partner_contract_acceptances`, which the database guard makes write-once, and the
+  // operator reads them on the internal surface.
+  assert.equal(outcome.acceptance.ip_address, '203.0.113.7')
+  assert.equal(outcome.acceptance.user_agent, 'Mozilla/5.0 (iPhone)')
 })
 
 test('the acceptance is idempotent per contract — one token, one signature', async () => {

@@ -31,13 +31,22 @@ import {
 } from './snapshot'
 import { renderClauses, templateByVersion } from './template'
 
-/** What the acceptance appendix prints. Every field is a fact of the trail. */
+/**
+ * What the acceptance appendix prints. Every field is a fact of the trail.
+ *
+ * THE SIGNER'S IP AND USER AGENT ARE DELIBERATELY ABSENT (#390). They are recorded — in
+ * `core.partner_contract_acceptances`, whose rows the database guard makes immutable — and
+ * the operator reads them on the internal surface, `GET /api/admin/clients/[clientId]/contract`.
+ * What they are not is printed in the artefact the partner downloads, because that artefact
+ * travels: it is served by a link that lives in two e-mails forever and reaches whoever
+ * inherits a commercial mailbox. The legal proof of the acceptance is the hash and the
+ * immutable row (MP 2.200-2, art. 10, §2º), not a line of network telemetry in a footer, so
+ * publishing them buys nothing and exposes the signer. Do not add them back here.
+ */
 export interface AcceptanceStamp {
   signerName: string
   signerRole: string
   acceptedAt: string
-  ipAddress: string
-  userAgent: string
   recipientEmail: string
   /** SHA-256 of the unsigned PDF — the exact document that was displayed and accepted. */
   documentHash: string
@@ -143,10 +152,6 @@ function AcceptanceAppendix({
     ['Em nome de', `${snapshot.partner.legalName} — CNPJ ${formatTaxId(snapshot.partner.taxId)}`],
     ['Data e hora', formatDateTime(acceptance.acceptedAt)],
     ['E-mail do convite', acceptance.recipientEmail],
-    ['Endereço IP', acceptance.ipAddress],
-    // Declared by the client, and the appendix has to say so: everything else in this list
-    // is written by us or by the edge, and a reader would take this one for the same thing.
-    ['Agente de usuário (declarado pelo navegador)', acceptance.userAgent],
     ['Versão do modelo', snapshot.templateVersion],
     ['Valor aceito', snapshot.isCourtesy ? 'Cortesia, sem mensalidade' : formatFee(snapshot.monthlyFeeCents)],
   ]

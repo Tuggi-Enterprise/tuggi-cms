@@ -2785,6 +2785,7 @@
       "contractSignedBy": "Contrato assinado em {date} por {person}.",
       "contractNotSigned": "Contrato ainda não assinado.",
       "openClient": "Abrir a ficha do cliente",
+      "openContract": "Abrir o contrato",
       "feeLine": "Faixa paga: {fee} por mês.",
       "feeCourtesy": "Cortesia: {reason}.",
       "feeUndeclared": "Sem valor mensal registrado e sem cortesia.",
